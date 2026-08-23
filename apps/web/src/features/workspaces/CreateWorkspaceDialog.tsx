@@ -1,18 +1,16 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
-import type { ProjectBadge, BadgeColor } from '@/types'
-import { Plus, Info } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import type { ProjectBadge } from '@/types'
+import { Info } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { EditableBadge } from '@/components/ui/editable-badge'
-import { BadgeColorButton } from '@/components/ui/badge-color-button'
+import { BadgeEditor } from '@/components/ui/badge-editor'
 import { RequiredMark } from '@/components/ui/required-mark'
-import { localized, setLocalized } from '@/lib/localized'
+import { localized } from '@/lib/localized'
 import {
   Select,
   SelectContent,
@@ -33,38 +31,15 @@ const NONE = '__none__'
 
 export function CreateWorkspaceDialog({ open, onOpenChange, onCreated }: CreateWorkspaceDialogProps) {
   const { t, i18n } = useTranslation()
-  const { addWorkspace, updateWorkspaceBadges } = useWorkspaceStore()
+  const { addWorkspace, updateWorkspaceBadges, _workspacesRaw } = useWorkspaceStore()
   const { _organizationsRaw } = useOrganizationStore()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [selectedOrgId, setSelectedOrgId] = useState<string>(NONE)
   const [badges, setBadges] = useState<ProjectBadge[]>([])
-  const [newBadgeLabel, setNewBadgeLabel] = useState('')
-  const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
-
-  const handleAddBadge = () => {
-    const label = newBadgeLabel.trim()
-    if (!label) return
-    // No duplicate labels on the same element (case-insensitive).
-    if (badges.some((b) => localized(b.label, i18n.language).toLowerCase() === label.toLowerCase())) return
-    const badge: ProjectBadge = {
-      id: `b-${Date.now()}`,
-      label: setLocalized({}, i18n.language, label),
-      color: newBadgeColor,
-    }
-    setBadges((prev) => [...prev, badge])
-    setNewBadgeLabel('')
-  }
-
-  const badgeLabelExists = !!newBadgeLabel.trim() && badges.some((b) => localized(b.label, i18n.language).toLowerCase() === newBadgeLabel.trim().toLowerCase())
-
-  const handleRemoveBadge = (id: string) => {
-    setBadges((prev) => prev.filter((b) => b.id !== id))
-  }
-
-  const handleRenameBadge = (id: string, next: string) => {
-    setBadges((prev) => prev.map((b) => (b.id === id ? { ...b, label: setLocalized(b.label, i18n.language, next) } : b)))
-  }
+  // A workspace's siblings are the other workspaces, so the suggestions are the
+  // whole list — not useBadgeSuggestions, which scopes items to one workspace.
+  const badgeSuggestions = useMemo(() => _workspacesRaw.flatMap((w) => w.badges ?? []), [_workspacesRaw])
 
   const handleSubmit = async () => {
     if (!name.trim()) return
@@ -79,8 +54,6 @@ export function CreateWorkspaceDialog({ open, onOpenChange, onCreated }: CreateW
     setDescription('')
     setSelectedOrgId(NONE)
     setBadges([])
-    setNewBadgeLabel('')
-    setNewBadgeColor('blue')
     onOpenChange(false)
     onCreated?.(newId, name.trim())
   }
@@ -117,49 +90,12 @@ export function CreateWorkspaceDialog({ open, onOpenChange, onCreated }: CreateW
               />
             </div>
 
-            {/* Badges */}
-            <div className="space-y-2">
-              <Label>{t('project_settings.badges')}</Label>
-              {badges.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {badges.map((badge) => (
-                    <EditableBadge
-                      key={badge.id}
-                      label={localized(badge.label, i18n.language)}
-                      color={badge.color}
-                      onRemove={() => handleRemoveBadge(badge.id)}
-                      onRename={(next) => handleRenameBadge(badge.id, next)}
-                    />
-                  ))}
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Input
-                  value={newBadgeLabel}
-                  onChange={(e) => setNewBadgeLabel(e.target.value)}
-                  // Enter adds the badge here; the shell must not also submit.
-                  data-no-enter-submit
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBadge() } }}
-                  placeholder={t('project_settings.badge_label_placeholder')}
-                  className="h-8 flex-1 text-sm"
-                />
-                <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleAddBadge}
-                  disabled={!newBadgeLabel.trim() || badgeLabelExists}
-                  className="gap-1"
-                >
-                  <Plus size={14} />
-                  {t('project_settings.add_badge')}
-                </Button>
-              </div>
-              {badgeLabelExists && (
-                <p className="text-xs text-destructive">{t('project_settings.badge_label_exists')}</p>
-              )}
-            </div>
+            <BadgeEditor
+              value={badges}
+              onChange={setBadges}
+              suggestions={badgeSuggestions}
+              label={t('project_settings.badges')}
+            />
 
             {/* Organization picker */}
             <div className="border-t pt-4">

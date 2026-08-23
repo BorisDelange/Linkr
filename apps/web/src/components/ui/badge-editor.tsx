@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, X } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
+import { EditableBadge } from '@/components/ui/editable-badge'
 import { SectionLabel } from '@/components/ui/section-label'
 import { getBadgeClasses, getBadgeStyle } from '@/lib/badge-colors'
 import { localized, setLocalized } from '@/lib/localized'
@@ -102,20 +103,18 @@ export function BadgeEditor({ value, onChange, suggestions = [], label }: BadgeE
       {value.length > 0 && (
         <div className="mb-1 flex flex-wrap gap-1.5">
           {value.map((badge) => (
-            <span
+            <EditableBadge
               key={badge.id}
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${getBadgeClasses(badge.color)}`}
-              style={getBadgeStyle(badge.color)}
-            >
-              {localized(badge.label, language)}
-              <button
-                type="button"
-                className="ml-0.5 opacity-60 hover:opacity-100"
-                onClick={() => onChange(value.filter((b) => b.id !== badge.id))}
-              >
-                <X size={10} />
-              </button>
-            </span>
+              label={localized(badge.label, language)}
+              color={badge.color}
+              onRemove={() => onChange(value.filter((b) => b.id !== badge.id))}
+              // Renaming a typo shouldn't mean removing the badge and retyping
+              // it — the workspace dialog had this before it moved onto this
+              // component, and every dialog gets it now.
+              onRename={(next) => onChange(value.map((b) => (
+                b.id === badge.id ? { ...b, label: setLocalized(b.label, language, next) } : b
+              )))}
+            />
           ))}
         </div>
       )}
@@ -148,6 +147,8 @@ export function BadgeEditor({ value, onChange, suggestions = [], label }: BadgeE
           <Input
             value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)}
+            // Enter adds the badge here; the shell must not also submit the form.
+            data-no-enter-submit
             placeholder={t('concept_mapping.badge_label_placeholder')}
             className={`h-8 flex-1 ${conflict ? 'border-destructive focus-visible:ring-destructive' : ''}`}
             onKeyDown={(e) => {

@@ -12,7 +12,7 @@ import { useFileStore } from '@/stores/file-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { getStorage } from '@/lib/storage'
-import { paths } from '@/lib/paths'
+import { paths, type SummaryTab } from '@/lib/paths'
 import { buildProjectZip, parseProjectZip, deleteProjectData, importProjectContent } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil, Settings2, BookOpen, Scale } from 'lucide-react'
@@ -49,7 +49,6 @@ import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
 import { formatApiError, isServerMode, type FormattedError } from '@/lib/api-client'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
-import { EntityDocsDialog, type DocsTab } from '@/components/ui/entity-docs-dialog'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
 import type { Project } from '@/types'
@@ -59,7 +58,7 @@ export function ProjectsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { wsUid } = useResolvedParams()
-  const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject, loadProjects, updateProjectReadme, updateProjectLicense, language } = useAppStore()
+  const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject, loadProjects } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(activeWorkspaceId)
   // A project shows its origin org: its own inlined snapshot (imports) when present,
@@ -79,7 +78,6 @@ export function ProjectsPage() {
   const [sort, setSort] = useState<SortState | null>(null)
   const [importOpen, setImportOpen] = useState(false)
 
-  const [docsTarget, setDocsTarget] = useState<{ uid: string; tab: DocsTab } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ uid: string; name: string } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
@@ -157,13 +155,9 @@ export function ProjectsPage() {
     },
   ], [t, statusFilter, badgeFilter, allBadges])
 
-  const handleOpenProject = (uid: string, name: string) => {
+  const handleOpenProject = (uid: string, name: string, tab?: SummaryTab) => {
     openProject(uid, name)
-    if (wsUid) {
-      navigate(paths.projectSummary(wsUid, uid))
-    } else {
-      navigate(paths.projectSummary(activeWorkspaceId ?? '', uid))
-    }
+    navigate(paths.projectSummary(wsUid ?? activeWorkspaceId ?? '', uid, tab))
   }
 
   const handleDelete = async () => {
@@ -438,13 +432,13 @@ export function ProjectsPage() {
                               <GitBranch size={14} />
                               {t('common.versioning')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDocsTarget({ uid: project.uid, tab: 'readme' }) }}>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenProject(project.uid, project.name, 'readme') }}>
                               <BookOpen size={14} />
                               {t('summary.tab_readme')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDocsTarget({ uid: project.uid, tab: 'license' }) }}>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenProject(project.uid, project.name, 'license') }}>
                               <Scale size={14} />
-                              {t('license.title')}
+                              {t('summary.tab_license')}
                             </DropdownMenuItem>
                             <DropdownMenuItem disabled={!canEditWs} onClick={(e) => { e.stopPropagation(); handleDuplicateProject(project.uid) }}>
                               <Copy size={14} />
@@ -523,29 +517,6 @@ export function ProjectsPage() {
         onOpenChange={(open) => { if (!open) setEditingProject(null) }}
         workspaceId={wsUid}
       />
-
-      {/* README + license, the same editors the project's Summary tabs use —
-          so a project can be documented without opening it first. */}
-      {docsTarget && (() => {
-        const raw = _projectsRaw.find((p) => p.uid === docsTarget.uid)
-        if (!raw) return null
-        return (
-          <EntityDocsDialog
-            open
-            onOpenChange={(open) => { if (!open) setDocsTarget(null) }}
-            initialTab={docsTarget.tab}
-            entityName={localized(raw.name, language)}
-            readme={raw.readme}
-            // The store keys the README by language itself, so hand back the
-            // string for the current one rather than the whole localized map.
-            onSaveReadme={(readme) => updateProjectReadme(raw.uid, localized(readme, language))}
-            license={raw.license}
-            onSaveLicense={(license) => updateProjectLicense(raw.uid, license)}
-            canEdit={canEditWs}
-            attachmentOwner={{ type: 'project', id: raw.uid, workspaceId: raw.workspaceId }}
-          />
-        )
-      })()}
 
       {/* Import conflict dialog */}
       <ImportConflictDialog

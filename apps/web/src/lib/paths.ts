@@ -25,19 +25,23 @@ export function shortProjectId(projectUid: string): string {
   return shortenIdAmong(projectUid, all)
 }
 
+/** Tabs shared by the project summary and the workspace home, keyed by `?tab=`. */
+export type SummaryTab = 'overview' | 'readme' | 'license' | 'tasks'
+
 const ws = (wsUid: string) => `/workspaces/${shortWorkspaceId(wsUid)}`
 const proj = (wsUid: string, projectUid: string) => `${ws(wsUid)}/projects/${shortProjectId(projectUid)}`
 
 export const paths = {
   workspace: (wsUid: string) => ws(wsUid),
-  workspaceHome: (wsUid: string) => `${ws(wsUid)}/home`,
+  workspaceHome: (wsUid: string, tab?: SummaryTab) => `${ws(wsUid)}/home${tab ? `?tab=${tab}` : ''}`,
   workspaceSettings: (wsUid: string, tab?: string) => `${ws(wsUid)}/settings${tab ? `/${tab}` : ''}`,
   workspaceVersioning: (wsUid: string, tab?: 'export' | 'git') =>
     `${ws(wsUid)}/versioning${tab ? `?tab=${tab}` : ''}`,
   projects: (wsUid: string) => `${ws(wsUid)}/projects`,
 
   project: (wsUid: string, projectUid: string) => proj(wsUid, projectUid),
-  projectSummary: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/summary`,
+  projectSummary: (wsUid: string, projectUid: string, tab?: SummaryTab) =>
+    `${proj(wsUid, projectUid)}/summary${tab ? `?tab=${tab}` : ''}`,
   projectSettings: (wsUid: string, projectUid: string, tab?: string) => `${proj(wsUid, projectUid)}/settings${tab ? `/${tab}` : ''}`,
   projectVersioning: (wsUid: string, projectUid: string, tab?: 'export' | 'git') =>
     `${proj(wsUid, projectUid)}/versioning${tab ? `?tab=${tab}` : ''}`,

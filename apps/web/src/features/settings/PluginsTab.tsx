@@ -141,7 +141,7 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onOpenDocs('license') }}>
                         <Scale size={14} />
-                        {t('license.title')}
+                        {t('summary.tab_license')}
                       </DropdownMenuItem>
                     </>
                   )}

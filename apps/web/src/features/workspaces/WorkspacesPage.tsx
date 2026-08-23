@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
-import { paths } from '@/lib/paths'
+import { paths, type SummaryTab } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
@@ -50,7 +50,6 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import { localized } from '@/lib/localized'
-import { EntityDocsDialog, type DocsTab } from '@/components/ui/entity-docs-dialog'
 import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent, createEntityAttachments } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
@@ -68,7 +67,7 @@ function copyLocalizedName(name: LocalizedString): LocalizedString {
 export function WorkspacesPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
-  const { workspaces, _workspacesRaw, openWorkspace, deleteWorkspace, updateWorkspaceReadme, updateWorkspaceLicense } = useWorkspaceStore()
+  const { workspaces, _workspacesRaw, openWorkspace, deleteWorkspace } = useWorkspaceStore()
   const { getWorkspaceProjects, loadProjects } = useAppStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
@@ -133,8 +132,6 @@ export function WorkspacesPage() {
     }
   }, [searchParams, setSearchParams])
   const [importOpen, setImportOpen] = useState(false)
-
-  const [docsTarget, setDocsTarget] = useState<{ id: string; tab: DocsTab } | null>(null)
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
@@ -242,9 +239,9 @@ export function WorkspacesPage() {
   // Delete progress state — modal shown while a workspace is being cascaded.
   const [deleteProgress, setDeleteProgress] = useState<{ phaseKey: string } | null>(null)
 
-  const handleOpenWorkspace = (id: string, name: string) => {
+  const handleOpenWorkspace = (id: string, name: string, tab?: SummaryTab) => {
     openWorkspace(id, name)
-    navigate(paths.workspaceHome(id))
+    navigate(paths.workspaceHome(id, tab))
   }
 
   const handleDelete = async () => {
@@ -975,13 +972,13 @@ export function WorkspacesPage() {
                             <GitBranch size={14} />
                             {t('common.versioning')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDocsTarget({ id: ws.id, tab: 'readme' }) }}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenWorkspace(ws.id, ws.name, 'readme') }}>
                             <BookOpen size={14} />
                             {t('summary.tab_readme')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDocsTarget({ id: ws.id, tab: 'license' }) }}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenWorkspace(ws.id, ws.name, 'license') }}>
                             <Scale size={14} />
-                            {t('license.title')}
+                            {t('summary.tab_license')}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(paths.workspaceSettings(ws.id)) }}>
                             <Settings2 size={14} />
@@ -1037,28 +1034,6 @@ export function WorkspacesPage() {
         workspace={editingWorkspace ?? undefined}
         onOpenChange={(open) => { if (!open) setEditingWorkspace(null) }}
       />
-
-      {/* README + license, the same editors the workspace home page uses — so a
-          workspace can be documented without opening it first. */}
-      {docsTarget && (() => {
-        const raw = _workspacesRaw.find((w) => w.id === docsTarget.id)
-        if (!raw) return null
-        return (
-          <EntityDocsDialog
-            open
-            onOpenChange={(open) => { if (!open) setDocsTarget(null) }}
-            initialTab={docsTarget.tab}
-            entityName={localized(raw.name, i18n.language)}
-            readme={raw.readme}
-            // The store keys the README by language itself, so hand back the
-            // string for the current one rather than the whole localized map.
-            onSaveReadme={(readme) => updateWorkspaceReadme(raw.id, localized(readme, i18n.language))}
-            license={raw.license}
-            onSaveLicense={(license) => updateWorkspaceLicense(raw.id, license)}
-            attachmentOwner={{ type: 'workspace', id: raw.id, workspaceId: raw.id }}
-          />
-        )
-      })()}
 
       {/* Import a workspace from a ZIP or a git clone */}
       <ImportSourceDialog open={importOpen} onOpenChange={setImportOpen} accept=".zip" onImport={handleImportSource} />
