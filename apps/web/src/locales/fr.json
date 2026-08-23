@@ -1290,7 +1290,9 @@
     "plot_builder_bar_y_must_be_numeric": "« {{column}} » n'est pas numérique. Les diagrammes en barres moyennent un Y numérique par X catégoriel (ou laissez Y vide pour compter les lignes).",
     "refresh_files": "Rafraîchir les datasets (rescan disque)",
     "delete_analysis_title": "Supprimer l'analyse",
-    "delete_analysis_description": "Supprimer l'analyse « {{name}} » ? Cette action est irréversible."
+    "delete_analysis_description": "Supprimer l'analyse « {{name}} » ? Cette action est irréversible.",
+    "analysis_resize_hint": "Glisser pour redimensionner le résultat",
+    "analysis_reset_size": "Ajuster au panneau"
   },
   "survey": {
     "respondents": "répondants",
@@ -1311,9 +1313,17 @@
     "stat_missing": "Sans réponse",
     "distinct_answers": "{{distinct}} réponses distinctes pour {{respondents}} répondants",
     "given_once": "{{count}} réponse(s) données une seule fois",
-    "response_rate_hint": "{{respondents}} répondants sur {{total}} ont répondu ({{missing}} n'ont pas répondu).",
     "col_answer": "Réponse",
-    "col_count": "n (%)"
+    "col_count": "n (%)",
+    "answered": "Répondu",
+    "n_answered": "{{count}} réponses",
+    "n_missing": "{{count}} manquantes",
+    "kind_single": "Choix unique",
+    "kind_multiple": "Choix multiple",
+    "kind_scale": "Échelle",
+    "kind_numeric": "Numérique",
+    "kind_date": "Date",
+    "kind_text": "Texte libre"
   },
   "subsets": {
     "title": "Sous-ensembles",

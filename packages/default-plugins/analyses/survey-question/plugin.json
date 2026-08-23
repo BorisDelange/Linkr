@@ -140,7 +140,6 @@
       "visibleWhen": {
         "field": "chart",
         "values": [
-          "auto",
           "histogram"
         ]
       },
@@ -164,7 +163,6 @@
       "visibleWhen": {
         "field": "chart",
         "values": [
-          "auto",
           "histogram"
         ]
       }
@@ -333,7 +331,6 @@
       "visibleWhen": {
         "field": "chart",
         "values": [
-          "auto",
           "column",
           "histogram"
         ]

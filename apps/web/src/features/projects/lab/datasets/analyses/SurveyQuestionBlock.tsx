@@ -23,6 +23,7 @@
 
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   Bar,
   BarChart,
@@ -34,11 +35,13 @@ import {
   PieChart,
   ReferenceLine,
   ResponsiveContainer,
-  Tooltip,
+  Tooltip as ChartTooltip,
   XAxis,
   YAxis,
 } from 'recharts'
 import { cn } from '@/lib/utils'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import type { DatasetColumn } from '@/types'
 import { resolveColor, resolvePalette, TOOLTIP_STYLE } from '@/lib/plugins/shared-styles'
 import { niceTicks } from '@/lib/chart-ticks'
 import { BoxPlot } from '@/components/charts/box-plot'
@@ -88,6 +91,8 @@ export interface SurveyQuestionBlockProps {
   summary?: QuestionSummary
   /** Numeric values for the histogram, when `summary` came from the server. */
   values?: number[]
+  /** The dataset columns, for the question's identity tooltip (id/label/description). */
+  columns?: DatasetColumn[]
 }
 
 function pickText(label: Record<string, string> | undefined, lang: string): string {
@@ -129,36 +134,46 @@ function round(n: number): string {
  * n/N with a filled bar — the response-rate indicator every slide of the source
  * report carries. Non-response is a finding, not a footnote.
  */
-function ResponseRate({
-  summary,
-  compact,
-  hex,
-}: {
-  summary: QuestionSummary
-  compact?: boolean
-  hex: string
-}) {
+function ResponseRate({ summary, compact }: { summary: QuestionSummary; compact?: boolean }) {
   const { t } = useTranslation()
-  const pct = Math.round(summary.responseRate * 100)
+  const pct = summary.total > 0 ? (summary.respondents / summary.total) * 100 : 0
   return (
-    <div
-      className="flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground"
-      title={t('survey.response_rate_hint', {
-        respondents: summary.respondents,
-        total: summary.total,
-        missing: summary.missing,
-      })}
-    >
-      <span className="whitespace-nowrap tabular-nums">
-        {summary.respondents}/{summary.total} ({pct}%)
-      </span>
-      {/* The answered share takes the widget's own colour: `bg-primary` is a
-          near-black in this theme, which read as chrome rather than as data. */}
-      <span className={cn('flex overflow-hidden rounded-full bg-muted', compact ? 'h-1 w-12' : 'h-1.5 w-16')}>
-        <span className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: hex }} />
-      </span>
+    <div className="shrink-0 space-y-1" style={{ width: compact ? 120 : 150 }}>
+      <div className="flex items-baseline justify-between gap-2 text-[10px] text-muted-foreground">
+        <span>{t('survey.answered')}</span>
+        <span className="tabular-nums">{pct.toFixed(1)}%</span>
+      </div>
+      {/* Green answered / red missing, matching the column-stats sidebar's
+          completeness bar — the same reading in both places. */}
+      <div className="h-3 w-full overflow-hidden rounded-sm bg-destructive/15">
+        <div className="h-full rounded-sm bg-emerald-500/70 transition-all" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="flex items-baseline justify-between gap-2 text-[10px] tabular-nums text-muted-foreground">
+        <span>{t('survey.n_answered', { count: summary.respondents })}</span>
+        <span>{t('survey.n_missing', { count: summary.missing })}</span>
+      </div>
     </div>
   )
+}
+
+/** How the question was asked, in words — the reader needs to know whether the
+ *  percentages can sum past 100% before reading them. */
+function questionKindLabel(question: SurveyQuestion, t: TFunction): string {
+  switch (question.kind) {
+    case 'select_one':
+      return question.measure === 'ordinal' ? t('survey.kind_scale') : t('survey.kind_single')
+    case 'select_multiple':
+      return t('survey.kind_multiple')
+    case 'integer':
+    case 'decimal':
+    case 'range':
+      return t('survey.kind_numeric')
+    case 'date':
+    case 'datetime':
+      return t('survey.kind_date')
+    default:
+      return t('survey.kind_text')
+  }
 }
 
 /** Fold everything past `max` into a single "Others" row, so a long option list
@@ -193,6 +208,7 @@ export function SurveyQuestionBlock({
   lang = 'fr',
   summary: providedSummary,
   values: providedValues,
+  columns,
 }: SurveyQuestionBlockProps) {
   const { t } = useTranslation()
 
@@ -218,17 +234,51 @@ export function SurveyQuestionBlock({
   const questionText = title || pickText(question.label, lang) || question.name
   const resolved = resolveColor(color)
 
+  // The question's own column, for the identity tooltip. A multiple-choice
+  // question spans several columns; its FIRST one carries the shared metadata.
+  const identityColumn = useMemo(() => {
+    const first = questionColumns(question)[0]
+    if (!first || !columns) return undefined
+    return columns.find((c) => c.id === first || c.name === first)
+  }, [question, columns])
+
   const header = (
     <div className="flex shrink-0 items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
         {showQuestionText && (
-          <p
-            className={cn('font-medium leading-snug text-foreground/90', compact ? 'text-xs' : 'text-sm')}
-            title={questionText}
-          >
-            {questionText}
-          </p>
+          <TooltipProvider delayDuration={400}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <p
+                  className={cn(
+                    'cursor-default font-medium leading-snug text-foreground/90',
+                    compact ? 'text-xs' : 'text-sm',
+                  )}
+                >
+                  {questionText}
+                </p>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-80">
+                {/* Same three rows as a dataset column header's tooltip, so the
+                    identity of a field reads identically wherever you meet it. */}
+                <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs">
+                  <span className="text-muted-foreground">{t('datasets.col_meta_col_id')}</span>
+                  <span className="font-mono break-all">{identityColumn?.name ?? question.name}</span>
+                  <span className="text-muted-foreground">{t('datasets.col_meta_label')}</span>
+                  <span className="break-words">{identityColumn?.label || questionText || '—'}</span>
+                  <span className="text-muted-foreground">{t('datasets.col_meta_description')}</span>
+                  <span className="break-words">{identityColumn?.description || '—'}</span>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
+        <p className="mt-0.5 text-[10px] text-muted-foreground">
+          {questionKindLabel(question, t)}
+          {question.kind === 'select_multiple' && summary.selections !== undefined && (
+            <> · {t('survey.multi_footnote', { mean: (summary.meanSelections ?? 0).toFixed(1) })}</>
+          )}
+        </p>
         {question.relevant && (
           // The question was only asked on a branch, so its denominator is that
           // branch — say so rather than letting the reader assume the full sample.
@@ -237,9 +287,7 @@ export function SurveyQuestionBlock({
           </p>
         )}
       </div>
-      {showResponseRate && (
-        <ResponseRate summary={summary} compact={compact} hex={resolved.hex} />
-      )}
+      {showResponseRate && <ResponseRate summary={summary} compact={compact} />}
     </div>
   )
 
@@ -303,20 +351,10 @@ export function SurveyQuestionBlock({
     }
   })()
 
-  // A multiple-choice question's percentages are over respondents and may sum
-  // past 100% — stated on the block, never left to a footnote.
-  const footnote =
-    question.kind === 'select_multiple' && summary.selections !== undefined
-      ? t('survey.multi_footnote', { mean: (summary.meanSelections ?? 0).toFixed(1) })
-      : null
-
   return (
     <div className={cn('flex h-full min-h-0 flex-col gap-2', compact ? 'p-3' : 'p-4')}>
       {header}
       <div className="min-h-0 flex-1">{body}</div>
-      {footnote && (
-        <p className="shrink-0 text-[10px] leading-snug text-muted-foreground">{footnote}</p>
-      )}
     </div>
   )
 }
@@ -439,7 +477,7 @@ function ColumnChart({
           ticks={scale?.ticks}
           tick={<TruncatedNumericTick formatter={formatCount} />}
         />
-        <Tooltip
+        <ChartTooltip
           {...TOOLTIP_STYLE}
           formatter={(value: unknown, _n: unknown, item: unknown) => {
             const p = (item as { payload?: AnswerCount })?.payload
@@ -514,7 +552,7 @@ function SharePie({
             <Cell key={c.code} fill={colors[i % colors.length]} />
           ))}
         </Pie>
-        <Tooltip
+        <ChartTooltip
           {...TOOLTIP_STYLE}
           formatter={(value: unknown, name: unknown) => [
             `${Number(value)} (${total ? ((Number(value) / total) * 100).toFixed(0) : 0}%)`,
@@ -607,7 +645,7 @@ function Histogram({
           ticks={scale?.ticks}
           tick={<TruncatedNumericTick formatter={formatCount} />}
         />
-        <Tooltip {...TOOLTIP_STYLE} />
+        <ChartTooltip {...TOOLTIP_STYLE} />
         <Bar dataKey="value" fill={hex} fillOpacity={0.8} radius={[2, 2, 0, 0]} isAnimationActive={false} />
         {showMedian && median !== undefined && data.length > 1 && (
           <ReferenceLine

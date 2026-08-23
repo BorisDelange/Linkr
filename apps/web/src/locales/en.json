@@ -1290,7 +1290,9 @@
     "plot_builder_bar_y_must_be_numeric": "\"{{column}}\" is not numeric. Bar charts average a numeric Y over a categorical X (or leave Y empty to count rows).",
     "refresh_files": "Refresh datasets (rescan disk)",
     "delete_analysis_title": "Delete analysis",
-    "delete_analysis_description": "Delete the analysis \"{{name}}\"? This cannot be undone."
+    "delete_analysis_description": "Delete the analysis \"{{name}}\"? This cannot be undone.",
+    "analysis_resize_hint": "Drag to resize the result",
+    "analysis_reset_size": "Fit to panel"
   },
   "survey": {
     "respondents": "respondents",
@@ -1311,9 +1313,17 @@
     "stat_missing": "No answer",
     "distinct_answers": "{{distinct}} distinct answers from {{respondents}} respondents",
     "given_once": "{{count}} answer(s) given once",
-    "response_rate_hint": "{{respondents}} of {{total}} respondents answered ({{missing}} did not).",
     "col_answer": "Answer",
-    "col_count": "n (%)"
+    "col_count": "n (%)",
+    "answered": "Answered",
+    "n_answered": "{{count}} answered",
+    "n_missing": "{{count}} missing",
+    "kind_single": "Single choice",
+    "kind_multiple": "Multiple choice",
+    "kind_scale": "Scale",
+    "kind_numeric": "Numeric",
+    "kind_date": "Date",
+    "kind_text": "Free text"
   },
   "subsets": {
     "title": "Subsets",

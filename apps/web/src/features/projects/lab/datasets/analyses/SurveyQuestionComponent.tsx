@@ -140,6 +140,7 @@ export function SurveyQuestionComponent({
     showGrid: config.showGrid !== false,
     compact,
     lang: i18n.language,
+    columns,
     ...(server && serverSummary ? { summary: serverSummary } : {}),
   }
 

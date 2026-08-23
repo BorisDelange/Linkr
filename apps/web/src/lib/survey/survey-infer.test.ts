@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { inferSurveySchema } from './survey-infer'
 import { questionColumns, questionChoices } from './survey-schema'
+import { summarizeQuestion } from './survey-analysis'
 import type { DatasetColumn } from '@/types'
 
 /** Terse column builder — ids match names, which is what the widget sees. */
@@ -168,5 +169,36 @@ describe('inferSurveySchema — housekeeping', () => {
     const columns = [col('adresse.rue', 'string'), col('adresse.ville', 'string')]
     const schema = inferSurveySchema(columns, [])
     expect(schema.questions.every((q) => q.kind !== 'select_multiple')).toBe(true)
+  })
+})
+
+describe('boolean columns with declared labels', () => {
+  // Regression: `oui`/`non` are recognized boolean tokens, so the import types
+  // the column `boolean` and coerces its cells to real booleans — while the
+  // importer's valueLabels still key on `oui`/`non`. Counting by string equality
+  // then reported BOTH vocabularies, one of them always at zero.
+  const rows = [
+    ...Array.from({ length: 44 }, () => ({ zone_dechocage: true })),
+    ...Array.from({ length: 137 }, () => ({ zone_dechocage: false })),
+  ]
+  const column = col('zone_dechocage', 'boolean', { valueLabels: { oui: 'Oui', non: 'Non' } })
+
+  it('states the declared choices in the stored vocabulary', () => {
+    const schema = inferSurveySchema([column], rows)
+    const q = schema.questions.find((x) => x.name === 'zone_dechocage')!
+    expect(q.kind).toBe('select_one')
+    expect(schema.choices[q.listName!].map((c) => c.name)).toEqual(['true', 'false'])
+  })
+
+  it('counts every respondent once, under one vocabulary', () => {
+    const schema = inferSurveySchema([column], rows)
+    const q = schema.questions.find((x) => x.name === 'zone_dechocage')!
+    const summary = summarizeQuestion(schema, q, rows, 'fr')
+    expect(summary.respondents).toBe(181)
+    expect(summary.counts).toHaveLength(2)
+    expect(summary.counts.map((c) => [c.label, c.count])).toEqual([
+      ['Oui', 44],
+      ['Non', 137],
+    ])
   })
 })
