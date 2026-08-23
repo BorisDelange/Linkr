@@ -17,7 +17,6 @@ import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { localized } from '@/lib/localized'
 import { resolveByIdPrefix } from '@/lib/short-id'
-import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { paths } from '@/lib/paths'
 import { clearAllData } from '@/lib/version-check'
 import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, User, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet, Pencil, Download, GitBranch } from 'lucide-react'
@@ -286,11 +285,14 @@ export function Header() {
       if (cmId) return cmName ? localized(cmName, language) : t('app_warehouse.nav_concept_mapping')
       if (dqId) return dqName ? localized(dqName, language) : t('app_warehouse.nav_data_quality')
 
-      // Schema detail: show preset label
+      // Schema detail: the label comes from the workspace's stored preset, like every
+      // other entity above. It used to read the compiled built-in table, so any schema
+      // the user installed showed its raw id in the breadcrumb.
       const schemaMatch = segment.match(/^warehouse\/schemas\/(.+)$/)
       if (schemaMatch) {
-        const preset = SCHEMA_PRESETS[schemaMatch[1]]
-        return preset?.presetLabel ? localized(preset.presetLabel, language) : schemaMatch[1]
+        return schemaPreset?.mapping.presetLabel
+          ? localized(schemaPreset.mapping.presetLabel, language)
+          : schemaMatch[1]
       }
 
       const key = workspaceSegmentTitleKeys[segment]

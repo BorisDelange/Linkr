@@ -1,7 +1,6 @@
 import type { SchemaMapping, SchemaPresetId, ErdGroup } from '@/types/schema-mapping'
 import { ALL_OMOP_TABLES } from '@/lib/duckdb/omop-tables'
 import { OMOP_54_DDL } from '@/lib/schema-ddl/omop-5.4-ddl'
-import { MIMIC_III_DDL } from '@/lib/schema-ddl/mimic-iii-ddl'
 import { MIMIC_IV_DDL } from '@/lib/schema-ddl/mimic-iv-ddl'
 
 // ---------------------------------------------------------------------------
@@ -220,159 +219,6 @@ const omop54: SchemaMapping = {
 }
 
 // ---------------------------------------------------------------------------
-// OMOP CDM 5.3 (date columns without _datetime)
-// ---------------------------------------------------------------------------
-
-const omop53: SchemaMapping = {
-  ...omop54,
-  presetId: 'omop-5.3',
-  presetLabel: { en: 'OMOP CDM 5.3', fr: 'OMOP CDM 5.3' },
-  deathTable: {
-    table: 'death',
-    patientIdColumn: 'person_id',
-    dateColumn: 'death_date',
-  },
-  noteTable: {
-    ...omop54.noteTable!,
-    dateColumn: 'note_date',
-  },
-  patientTable: {
-    ...omop54.patientTable!,
-    birthDateColumn: undefined,
-  },
-  visitTable: {
-    ...omop54.visitTable!,
-    startDateColumn: 'visit_start_date',
-    endDateColumn: 'visit_end_date',
-  },
-  visitDetailTable: {
-    ...omop54.visitDetailTable!,
-    startDateColumn: 'visit_detail_start_date',
-    endDateColumn: 'visit_detail_end_date',
-  },
-  eventTables: {
-    Measurement: {
-      ...omop54.eventTables!.Measurement,
-      dateColumn: 'measurement_date',
-    },
-    Condition: {
-      ...omop54.eventTables!.Condition,
-      dateColumn: 'condition_start_date',
-    },
-    Drug: {
-      ...omop54.eventTables!.Drug,
-      dateColumn: 'drug_exposure_start_date',
-    },
-    Procedure: {
-      ...omop54.eventTables!.Procedure,
-      dateColumn: 'procedure_date',
-    },
-    Observation: {
-      ...omop54.eventTables!.Observation,
-      dateColumn: 'observation_date',
-    },
-  },
-}
-
-// ---------------------------------------------------------------------------
-// MIMIC-III
-// ---------------------------------------------------------------------------
-
-const MIMIC_III_TABLES = [
-  'patients', 'admissions', 'icustays', 'transfers', 'services',
-  'chartevents', 'labevents', 'noteevents', 'datetimeevents',
-  'diagnoses_icd', 'procedures_icd', 'cptevents',
-  'prescriptions', 'inputevents_cv', 'inputevents_mv', 'outputevents',
-  'microbiologyevents', 'drgcodes',
-  'd_items', 'd_labitems', 'd_icd_diagnoses', 'd_icd_procedures', 'd_cpt',
-  'caregivers', 'callout',
-]
-
-const mimicIII: SchemaMapping = {
-  presetId: 'mimic-iii',
-  presetLabel: { en: 'MIMIC-III', fr: 'MIMIC-III' },
-  patientTable: {
-    table: 'patients',
-    idColumn: 'subject_id',
-    birthDateColumn: 'dob',
-    genderColumn: 'gender',
-    deathDateColumn: 'dod',
-  },
-  visitTable: {
-    table: 'admissions',
-    idColumn: 'hadm_id',
-    patientIdColumn: 'subject_id',
-    startDateColumn: 'admittime',
-    endDateColumn: 'dischtime',
-    typeColumn: 'admission_type',
-  },
-  noteTable: {
-    table: 'noteevents',
-    idColumn: 'row_id',
-    patientIdColumn: 'subject_id',
-    visitIdColumn: 'hadm_id',
-    dateColumn: 'chartdate',
-    titleColumn: 'description',
-    textColumn: 'text',
-    typeColumn: 'category',
-  },
-  visitDetailTable: {
-    table: 'icustays',
-    idColumn: 'icustay_id',
-    visitIdColumn: 'hadm_id',
-    patientIdColumn: 'subject_id',
-    startDateColumn: 'intime',
-    endDateColumn: 'outtime',
-    unitColumn: 'first_careunit',
-  },
-  conceptTables: [
-    {
-      key: 'd_items',
-      table: 'd_items',
-      idColumn: 'itemid',
-      nameColumn: 'label',
-      terminologyIdColumn: 'dbsource',
-      categoryColumn: 'category',
-    },
-    {
-      key: 'd_labitems',
-      table: 'd_labitems',
-      idColumn: 'itemid',
-      nameColumn: 'label',
-      categoryColumn: 'category',
-    },
-  ],
-  eventTables: {
-    'Chart events': {
-      table: 'chartevents',
-      conceptIdColumn: 'itemid',
-      valueColumn: 'valuenum',
-      valueUnitColumn: 'valueuom',
-      valueStringColumn: 'value',
-      patientIdColumn: 'subject_id',
-      dateColumn: 'charttime',
-      conceptDictionaryKey: 'd_items',
-    },
-    'Lab events': {
-      table: 'labevents',
-      conceptIdColumn: 'itemid',
-      valueColumn: 'valuenum',
-      valueUnitColumn: 'valueuom',
-      valueStringColumn: 'value',
-      patientIdColumn: 'subject_id',
-      dateColumn: 'charttime',
-      conceptDictionaryKey: 'd_labitems',
-    },
-  },
-  genderValues: {
-    male: 'M',
-    female: 'F',
-  },
-  knownTables: MIMIC_III_TABLES,
-  ddl: MIMIC_III_DDL,
-}
-
-// ---------------------------------------------------------------------------
 // MIMIC-IV — ERD Groups
 // ---------------------------------------------------------------------------
 
@@ -550,18 +396,34 @@ const mimicIV: SchemaMapping = {
 }
 
 // ---------------------------------------------------------------------------
-// Built-in presets registry
+// Compiled schema table
 // ---------------------------------------------------------------------------
 
-/** Built-in preset IDs in display order. */
-export const BUILTIN_PRESET_IDS: SchemaPresetId[] = ['omop-5.4', 'omop-5.3', 'mimic-iv', 'mimic-iii']
-
-/** Built-in presets keyed by ID. */
+/**
+ * Schemas a *seeded* database may name by id.
+ *
+ * This is no longer a catalogue of presets offered to the user: schema presets are
+ * ordinary entities now, installed from the community catalog (see
+ * docs/planning/default-data-repos-plan.md §11.10). Nothing in the UI reads this table
+ * — the Schemas page and both database dialogs list the workspace's stored presets.
+ *
+ * What keeps it alive is the seed: a seeded database declares its schema inline or by
+ * id (`"schema": "omop-5.4"`), and that id must resolve even when no preset entity is
+ * installed. `idb-storage` also reads it in an old IndexedDB migration. So it holds
+ * exactly the ids those two paths can ask for, and nothing else — `omop-5.3` and
+ * `mimic-iii` were dropped when the built-in pickers went away, since no seed, store or
+ * screen could reach them. Their published repos are the source of truth now.
+ *
+ * `omop-5.3` in particular was worth deleting rather than keeping: it was built as
+ * `{ ...omop54, presetId: 'omop-5.3' }`, so it inherited `OMOP_54_DDL` and would have
+ * created 5.4 tables for anyone who reached it. Correcting it here would only have
+ * duplicated, less well, the real 5.3 DDL the catalog already publishes.
+ *
+ * It disappears entirely once seeded databases ship as repos (same plan, §3bis B).
+ */
 export const SCHEMA_PRESETS: Record<string, SchemaMapping> = {
   'omop-5.4': omop54,
-  'omop-5.3': omop53,
   'mimic-iv': mimicIV,
-  'mimic-iii': mimicIII,
 }
 
 /** Get a built-in preset by ID. Returns undefined if not found. */
