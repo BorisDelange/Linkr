@@ -21,6 +21,7 @@ import { normalizeGitUrl } from '@/lib/git-clone'
 import { isServerMode } from '@/lib/api-client'
 import { getStorage } from '@/lib/storage'
 import { localized, setLocalized } from '@/lib/localized'
+import { mintEntityId } from '@/components/ui/entity-id-field'
 import { stampAuthored } from '@/stores/app-store'
 import type { Storage } from '@/lib/storage'
 import type { GitRemoteConfig, LocalizedString } from '@/types'
@@ -74,6 +75,20 @@ export function idOf(type: CatalogEntry['type'], meta: Record<string, unknown>):
     if (typeof value === 'string' && value) return value
   }
   return null
+}
+
+/**
+ * A fresh local id for a duplicate install.
+ *
+ * A schema preset's id IS its user-facing Identifier: it fills that field, it is what
+ * the URL carries, and it is how two schemas are told apart. Minting a raw uuid there
+ * put a 36-character string in front of the user. The Schemas page's own ZIP importer
+ * already mints `custom-<8 hex>` when duplicating — same situation, same answer.
+ *
+ * The other types key on an opaque uuid the user never sees, so they keep one.
+ */
+export function freshId(type: CatalogEntry['type']): string {
+  return type === 'schema-preset' ? mintEntityId() : crypto.randomUUID()
 }
 
 export interface ExistingRow {
@@ -336,7 +351,7 @@ export async function commitCatalogInstall(
   // whatever the caller passed for `duplicate`.
   const unrelatedCollision = prepared.idCollision && !prepared.existingName
   const reuseId = !duplicate && !unrelatedCollision
-  const id = reuseId ? prepared.repoId : crypto.randomUUID()
+  const id = reuseId ? prepared.repoId : freshId(entry.type)
   const storage = getStorage()
   const git: GitRemoteConfig = { url, branch }
 

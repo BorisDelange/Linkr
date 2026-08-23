@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { idOf, isSameEntity, type ExistingRow } from './install'
+import { freshId, idOf, isSameEntity, type ExistingRow } from './install'
 import type { CatalogEntry } from './types'
 
 function entry(overrides: Partial<CatalogEntry> = {}): CatalogEntry {
@@ -63,5 +63,25 @@ describe('idOf', () => {
     expect(idOf('project', {})).toBeNull()
     expect(idOf('project', { projectId: '' })).toBeNull()
     expect(idOf('etl-pipeline', { id: 42 })).toBeNull()
+  })
+})
+
+describe('freshId', () => {
+  // A preset's id is its user-facing Identifier (it fills that field and rides in the
+  // URL), so a duplicate install used to put a 36-char uuid in front of the user.
+  it('mints a short readable slug for a schema preset', () => {
+    const id = freshId('schema-preset')
+    expect(id).toMatch(/^custom-[0-9a-f]{8}$/)
+  })
+
+  it('keeps an opaque uuid for the types whose id the user never sees', () => {
+    for (const type of ['project', 'etl-pipeline', 'mapping-project'] as const) {
+      expect(freshId(type)).toMatch(/^[0-9a-f-]{36}$/)
+    }
+  })
+
+  it('does not repeat itself', () => {
+    const ids = new Set(Array.from({ length: 50 }, () => freshId('schema-preset')))
+    expect(ids.size).toBe(50)
   })
 })

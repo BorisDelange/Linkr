@@ -105,6 +105,21 @@ export function isEntityIdValid(value: string, existingIds: string[]): boolean {
   return true
 }
 
+/**
+ * Mint a fresh entity id when the user did not choose one (creating from scratch,
+ * or duplicating an entity whose id is taken).
+ *
+ * A short readable slug, NOT a raw uuid: for the entity types that key on this field
+ * — schema presets above all — the id is user-facing. It fills the Identifier field,
+ * it is what the entity's URL carries, and it is what a colleague reads to tell two
+ * schemas apart. A 36-character uuid there is unreadable and unmatchable against the
+ * repo it came from. 8 hex chars is short enough to read and wide enough that a
+ * collision inside one workspace is not a practical concern.
+ */
+export function mintEntityId(prefix = 'custom'): string {
+  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`
+}
+
 /** Reset touched state — call this via ref or re-mount when dialog opens. */
 EntityIdField.reset = () => {}
 

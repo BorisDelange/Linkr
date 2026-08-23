@@ -44,7 +44,7 @@ import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { parseImportZip, SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
-import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { EntityIdField, isEntityIdValid, mintEntityId } from '@/components/ui/entity-id-field'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { useSchemaPresetStore, buildSchemaPreset } from '@/stores/schema-preset-store'
@@ -1333,7 +1333,7 @@ export function SchemaPresetsPage() {
   }, [allSchemas, searchQuery, sort, language])
 
   const duplicatePreset = async (sourceMapping: SchemaMapping) => {
-    const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`
+    const presetId = mintEntityId()
     const newMapping: SchemaMapping = {
       ...structuredClone(sourceMapping),
       presetId,
@@ -1349,7 +1349,7 @@ export function SchemaPresetsPage() {
   }
 
   const doPresetImport = useCallback(async (mapping: SchemaMapping, duplicate: boolean, gitRemote?: ImportGitRemote, parsed?: Record<string, unknown>) => {
-    const presetId = duplicate ? `custom-${crypto.randomUUID().slice(0, 8)}` : mapping.presetId!
+    const presetId = duplicate ? mintEntityId() : mapping.presetId!
     // Legacy export ZIPs may carry a plain-string label; coerce so it stays bilingual.
     const label = typeof mapping.presetLabel === 'string' ? { en: mapping.presetLabel, fr: mapping.presetLabel } : mapping.presetLabel
     const importedMapping: SchemaMapping = {
@@ -1446,7 +1446,7 @@ export function SchemaPresetsPage() {
     const description = newPresetDescription.trim() ? setLocalized({}, language, newPresetDescription.trim()) : undefined
 
     // What the user typed always wins; otherwise derive a free id.
-    const presetId = newPresetId.trim() || `custom-${crypto.randomUUID().slice(0, 8)}`
+    const presetId = newPresetId.trim() || mintEntityId()
     const newMapping: SchemaMapping = { presetId, presetLabel: label, description }
     await storeSave(buildSchemaPreset(presetId, newMapping, undefined, wsUid))
     setShowCreateDialog(false)
