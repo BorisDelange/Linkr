@@ -60,8 +60,16 @@ export const paths = {
 
   // --- Workspace: warehouse list + detail ---
   warehouseEtl: (wsUid: string) => `${ws(wsUid)}/warehouse/etl`,
+  warehouseEtlPipeline: (wsUid: string, pipelineId: string) =>
+    `${ws(wsUid)}/warehouse/etl/${shortenId(pipelineId)}`,
   warehouseDataQuality: (wsUid: string) => `${ws(wsUid)}/warehouse/data-quality`,
+  warehouseDqRuleSet: (wsUid: string, ruleSetId: string) =>
+    `${ws(wsUid)}/warehouse/data-quality/${shortenId(ruleSetId)}`,
   warehouseSchemas: (wsUid: string) => `${ws(wsUid)}/warehouse/schemas`,
+  // A preset's id is its presetId, which is already a readable slug — not shortened,
+  // unlike the uuid-keyed entities above.
+  warehouseSchema: (wsUid: string, presetId: string) =>
+    `${ws(wsUid)}/warehouse/schemas/${presetId}`,
   warehouseDatabases: (wsUid: string) => `${ws(wsUid)}/warehouse/databases`,
   warehouseConceptMapping: (wsUid: string) => `${ws(wsUid)}/warehouse/concept-mapping/projects`,
   warehouseConceptMappingProject: (wsUid: string, mappingProjectId: string) =>

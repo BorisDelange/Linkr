@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { Download, ExternalLink, FolderOpen, Loader2, MoreHorizontal, RefreshCw, Store, Upload } from 'lucide-react'
+import { Check, Download, ExternalLink, FolderOpen, Loader2, MoreHorizontal, RefreshCw, Store, Upload } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -87,9 +87,10 @@ export function CatalogPage() {
   const inst = useCatalogInstall(workspaceId, bumpInstalled)
 
   /**
-   * Where an installed entity lives in the app. Types with no page of their own
-   * (sql collections, data catalogs) return null, and their card keeps opening the
-   * repo — better than routing to a page that cannot show the entity.
+   * Where an installed entity lives in the app — the entity itself, not the list page
+   * it sits on. Types with no detail route of their own (sql collections, data
+   * catalogs) return undefined, and their card keeps opening the repo, which is more
+   * useful than a list that does not say which row was just installed.
    */
   const openInApp = useCallback(
     (entry: CatalogEntry, info?: InstalledInfo): (() => void) | undefined => {
@@ -97,9 +98,9 @@ export function CatalogPage() {
       const to =
         entry.type === 'project' ? paths.projectSummary(workspaceId, info.id)
         : entry.type === 'mapping-project' ? paths.warehouseConceptMappingProject(workspaceId, info.id)
-        : entry.type === 'etl-pipeline' ? paths.warehouseEtl(workspaceId)
-        : entry.type === 'dq-rule-set' ? paths.warehouseDataQuality(workspaceId)
-        : entry.type === 'schema-preset' ? paths.warehouseSchemas(workspaceId)
+        : entry.type === 'etl-pipeline' ? paths.warehouseEtlPipeline(workspaceId, info.id)
+        : entry.type === 'dq-rule-set' ? paths.warehouseDqRuleSet(workspaceId, info.id)
+        : entry.type === 'schema-preset' ? paths.warehouseSchema(workspaceId, info.id)
         : null
       return to ? () => navigate(to) : undefined
     },
@@ -382,8 +383,8 @@ function CatalogEntryCard({ entry, language, serverMode, hasWorkspace, installed
       {/* Deliberately the SAME skeleton as ListPageTemplate's card (min-h-44, the
           `px-4 pt-5` column, the `flex-1 items-center` body row, `mt-auto` on the
           footer): a catalog card must be visually interchangeable with the card of
-          the entity it installs. Only two things differ — no `⋯` menu, and Install
-          rides in the footer's trailing slot. */}
+          the entity it installs — same `⋯` menu on the title row, with the published
+          version beside it. Install rides in the footer's trailing slot. */}
       <div className="flex flex-1 flex-col px-4 pt-5">
         <div className="flex flex-1 items-center gap-4">
           <div className="min-w-0 flex-1">
@@ -399,6 +400,12 @@ function CatalogEntryCard({ entry, language, serverMode, hasWorkspace, installed
                 <TooltipContent side="top" className="text-xs">{typeLabel}</TooltipContent>
               </Tooltip>
               <span className="truncate text-sm font-medium">{name}</span>
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                {entry.version && (
+                  <Badge variant="outline" className="font-mono">v{entry.version}</Badge>
+                )}
+                <EntryMenu entry={entry} installed={state !== 'not-installed'} onOpen={onOpen} />
+              </div>
             </div>
 
             {/* h-4 and no placeholder, exactly like the list pages: an entity with no
@@ -445,14 +452,13 @@ function CatalogEntryCard({ entry, language, serverMode, hasWorkspace, installed
           // The footer already swallows clicks, so the button can't reach the card's
           // open-the-repo handler.
           trailing={
-            <EntryActions
-              entry={entry}
+            <InstallButton
               state={state}
               serverMode={serverMode}
               hasWorkspace={hasWorkspace}
+              localVersion={installed?.version}
               busy={busy}
-              onInstall={onInstall}
-              onOpen={onOpen}
+              onClick={onInstall}
             />
           }
         />
@@ -461,85 +467,122 @@ function CatalogEntryCard({ entry, language, serverMode, hasWorkspace, installed
   )
 }
 
-interface EntryActionsProps {
+/**
+ * The `⋯` menu on the title row — the same affordance every other entity card uses.
+ *
+ * A catalog entry has two useful destinations at once: the repo it comes from, and,
+ * once installed, the entity in the app. A single control had to hide one of them.
+ */
+function EntryMenu({
+  entry,
+  installed,
+  onOpen,
+}: {
   entry: CatalogEntry
+  installed: boolean
+  onOpen?: () => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className={cardMenuTriggerClass}
+          aria-label={t('common.actions')}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <MoreHorizontal size={14} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+        {installed && onOpen && (
+          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onOpen() }}>
+            <FolderOpen size={14} />
+            {t('catalog.open_in_app')}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openRepo(entry.git.url) }}>
+          <ExternalLink size={14} />
+          {t('catalog.open_repository')}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+interface InstallButtonProps {
   state: 'not-installed' | 'installed' | 'outdated'
   serverMode: boolean
   hasWorkspace: boolean
+  localVersion?: string
   busy: boolean
-  onInstall: () => void
-  onOpen?: () => void
+  onClick: () => void
 }
 
 /**
- * The card's trailing controls: the published version, then a `⋯` menu — the same
- * affordance every other entity card in the app uses, rather than a bespoke button.
+ * The card's install action, in the footer's trailing slot.
  *
- * Installing writes on click (no confirm step), so while it runs the menu is replaced
- * by a spinner: the card itself is the progress indicator.
+ * Clicking writes immediately — the card already carries everything a confirm dialog
+ * would have restated — so while it runs the button itself is the progress indicator.
+ * "Installed" stays clickable: re-installing an up-to-date entry is legitimate
+ * (restoring a locally-broken copy), it just isn't advertised, hence the muted
+ * outline. The duplicate-or-overwrite prompt still guards the write in every case.
  *
- * Why a menu rather than one button: a catalog entry has two useful destinations at
- * once — the repo it comes from and, once installed, the entity in the app. A single
- * button had to pick one and hide the other.
+ * In client-only mode the button is still rendered, disabled, with the reason in its
+ * tooltip — a greyed control on each card says "this entry could be installed, but not
+ * here" far more precisely than one banner above the whole list.
  */
-function EntryActions({ entry, state, serverMode, hasWorkspace, busy, onInstall, onOpen }: EntryActionsProps) {
+function InstallButton({ state, serverMode, hasWorkspace, localVersion, busy, onClick }: InstallButtonProps) {
   const { t } = useTranslation()
-  const installed = state !== 'not-installed'
+
+  const label = state === 'outdated'
+    ? t('catalog.update')
+    : state === 'installed' ? t('catalog.installed') : t('catalog.install')
+  const Icon = state === 'outdated' ? Upload : state === 'installed' ? Check : Download
+  const disabled = !serverMode || !hasWorkspace || busy
+
+  const button = (
+    <Button
+      size="sm"
+      // Update is the call to action, so it keeps the filled default; an already-installed
+      // entry recedes to an outline so a screenful of them doesn't read as a screenful of
+      // primary actions.
+      variant={state === 'installed' ? 'outline' : 'default'}
+      className="h-6 gap-1 px-2 text-xs"
+      disabled={disabled}
+      onClick={(e) => { e.stopPropagation(); onClick() }}
+    >
+      {busy ? <Loader2 size={12} className="animate-spin" /> : <Icon size={12} />}
+      {busy ? t('catalog.installing') : label}
+    </Button>
+  )
+
   // Server mode is checked first: without a backend, which workspace is selected is
   // moot, so "pick a workspace" would be misleading advice.
-  const blocked = !serverMode
-    ? t('catalog.install_requires_server_short')
-    : !hasWorkspace
-      ? t('catalog.select_workspace_first')
-      : null
-
-  const installLabel = state === 'outdated' ? t('catalog.update') : t('catalog.install')
-  const InstallIcon = state === 'outdated' ? Upload : Download
+  const hint = busy
+    ? null
+    : !serverMode
+      ? t('catalog.install_requires_server_short')
+      : !hasWorkspace
+        ? t('catalog.select_workspace_first')
+        : state === 'outdated'
+          ? t('catalog.update_from_version', { version: localVersion ?? '—' })
+          : state === 'installed'
+            ? t('catalog.installed_hint')
+            : null
+  if (!hint) return button
 
   return (
-    <div className="flex items-center gap-1.5">
-      {entry.version && (
-        <Badge variant="outline" className="shrink-0 font-mono">v{entry.version}</Badge>
-      )}
-      {busy ? (
-        <span className="inline-flex size-6 items-center justify-center" title={t('catalog.installing')}>
-          <Loader2 size={14} className="animate-spin text-muted-foreground" />
-        </span>
-      ) : (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={cardMenuTriggerClass}
-              aria-label={t('common.actions')}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreHorizontal size={14} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-            {installed && onOpen && (
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onOpen() }}>
-                <FolderOpen size={14} />
-                {t('catalog.open_in_app')}
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openRepo(entry.git.url) }}>
-              <ExternalLink size={14} />
-              {t('catalog.open_repository')}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!!blocked}
-              title={blocked ?? undefined}
-              onClick={(e) => { e.stopPropagation(); onInstall() }}
-            >
-              <InstallIcon size={14} />
-              {installed && state !== 'outdated' ? t('catalog.reinstall') : installLabel}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-    </div>
+    <Tooltip>
+      {/* A disabled button fires no pointer events, so the trigger needs a wrapper to
+          stay hoverable — otherwise the "pick a workspace" hint never shows. */}
+      <TooltipTrigger asChild>
+        <span className="inline-flex">{button}</span>
+      </TooltipTrigger>
+      {/* max-w forces the longer hints to wrap instead of running off as one line. */}
+      <TooltipContent side="top" className="max-w-56 text-xs">{hint}</TooltipContent>
+    </Tooltip>
   )
 }
