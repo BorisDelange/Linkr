@@ -13,8 +13,10 @@ class DataSourceCreate(CamelModel):
     entity_id: str | None = None
     workspace_id: str | None = None
     alias: str
-    name: str
-    description: str = ""
+    # LocalizedString. `str` is still accepted so older clients and seed
+    # manifests that post a bare name keep working (LocalizedText reads it back).
+    name: dict | str
+    description: dict | str | None = None
     source_type: str = "database"
     connection_config: dict = {}  # password/token stripped before persistence
     schema_mapping: dict | None = None
@@ -39,8 +41,8 @@ class DataSourceCreate(CamelModel):
 class DataSourceUpdate(CamelModel):
     entity_id: str | None = None
     alias: str | None = None
-    name: str | None = None
-    description: str | None = None
+    name: dict | str | None = None
+    description: dict | str | None = None
     connection_config: dict | None = None
     schema_mapping: dict | None = None
     status: str | None = None
@@ -62,8 +64,8 @@ class DataSourceResponse(CamelModel):
     entity_id: str | None = None
     workspace_id: str | None = None
     alias: str
-    name: str
-    description: str
+    name: dict | str
+    description: dict | str | None = None
     source_type: str
     connection_config: dict
     schema_mapping: dict | None = None

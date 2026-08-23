@@ -1,7 +1,7 @@
 from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin, UUIDPKMixin
+from app.models.base import JSONB_or_JSON, Base, LocalizedText, TimestampMixin, UUIDPKMixin
 
 
 class DataSource(Base, UUIDPKMixin, TimestampMixin):
@@ -21,8 +21,11 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     # Human-readable, URL-safe id set once at creation (folder name in exports).
     entity_id: Mapped[str | None] = mapped_column(String(255))
     alias: Mapped[str] = mapped_column(String(255))
-    name: Mapped[str] = mapped_column(String(255))
-    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # LocalizedString. LocalizedText (not JSONB_or_JSON) because these columns
+    # already hold plain strings from before databases were multilingual: it
+    # reads a legacy "Demo Hospital" back unchanged instead of failing to decode.
+    name: Mapped[dict] = mapped_column(LocalizedText, default=dict)
+    description: Mapped[dict | None] = mapped_column(LocalizedText)
     source_type: Mapped[str] = mapped_column(String(20))  # 'database' | 'fhir'
     connection_config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     # Encrypted external-DB password (Fernet). Never returned by the API; only
