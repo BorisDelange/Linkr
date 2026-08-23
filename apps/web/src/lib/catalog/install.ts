@@ -188,7 +188,10 @@ export type PrepareResult =
  * reading the index has to be able to install it. CI in the index repo rejects an entry
  * whose repo it can't reach anonymously.
  */
-export async function prepareCatalogInstall(entry: CatalogEntry): Promise<PrepareResult> {
+export async function prepareCatalogInstall(
+  entry: CatalogEntry,
+  workspaceId?: string,
+): Promise<PrepareResult> {
   if (!isServerMode()) return { ok: false, failure: 'server-mode-required' }
 
   const branch = entry.git.branch || 'main'
@@ -214,7 +217,15 @@ export async function prepareCatalogInstall(entry: CatalogEntry): Promise<Prepar
     // entity (matching lineage / git remote). Otherwise the ids just happen to
     // coincide and we must install as a fresh copy, never offer to overwrite an
     // unrelated entity the user owns.
-    const existing = await findExisting(entry.type, repoId, getStorage())
+    // Scoped to the workspace being installed into. `findExisting` looks an id up
+    // across the whole instance, but installing targets ONE workspace: the same schema
+    // already installed in another workspace is not a collision here, and treating it
+    // as one forced a minted id — so a first install of OMOP CDM 5.4 into a second
+    // workspace landed as `custom-xxxxxxxx` instead of the repo's `omop-cdm-5-4`.
+    const found = await findExisting(entry.type, repoId, getStorage())
+    const existing = found && (!workspaceId || !found.workspaceId || found.workspaceId === workspaceId)
+      ? found
+      : null
     const sameEntity = existing ? isSameEntity(existing, entry) : false
     return {
       ok: true,

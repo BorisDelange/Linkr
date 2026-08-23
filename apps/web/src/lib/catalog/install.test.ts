@@ -66,6 +66,24 @@ describe('idOf', () => {
   })
 })
 
+describe('isSameEntity, for a repo that publishes no lineageId', () => {
+  // The published schema repos carry neither lineageId nor gitRemoteConfig (those are
+  // instance fields, stripped on export), so identity rests on the git URL the install
+  // stamps locally. A row predating that stamping matches nothing — which is why a
+  // re-install of OMOP CDM 5.4 read as an unrelated collision and minted a fresh id.
+  const schema = entry({ type: 'schema-preset', git: { url: 'https://framagit.org/g/omop-cdm-5.4', branch: 'main' } })
+
+  it('matches a row the install stamped with the same remote', () => {
+    expect(isSameEntity({ gitRemoteConfig: { url: 'https://framagit.org/g/omop-cdm-5.4.git' } }, schema)).toBe(true)
+  })
+
+  it('does NOT match a row carrying no remote at all', () => {
+    // Documents the real limitation: such a row is indistinguishable from an unrelated
+    // entity that happens to share the id, and overwriting it would destroy user data.
+    expect(isSameEntity({ workspaceId: 'ws-1' }, schema)).toBe(false)
+  })
+})
+
 describe('freshId', () => {
   // A preset's id is its user-facing Identifier (it fills that field and rides in the
   // URL), so a duplicate install used to put a 36-char uuid in front of the user.

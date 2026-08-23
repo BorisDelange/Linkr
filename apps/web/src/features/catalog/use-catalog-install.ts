@@ -95,7 +95,7 @@ export function useCatalogInstall(
       try {
         // Clone first, then check for a collision: the id that decides it is declared
         // by the repo, so it is not knowable before the clone.
-        const prep = await prepareCatalogInstall(entry)
+        const prep = await prepareCatalogInstall(entry, workspaceId)
         if (!prep.ok) {
           setFailure({ entry, detail: prep.error ?? t('catalog.install_failed') })
           return
@@ -115,7 +115,7 @@ export function useCatalogInstall(
         setBusyId((id) => (id === entry.id ? null : id))
       }
     },
-    [t, commit],
+    [t, commit, workspaceId],
   )
 
   const install = useCallback(
