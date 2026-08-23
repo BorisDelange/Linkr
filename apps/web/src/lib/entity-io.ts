@@ -2682,16 +2682,36 @@ export async function buildEtlPipelineFolder(
 }
 
 /**
- * Strip sensitive fields from a DatabaseConnectionConfig: password, tokens, local
- * file refs (fileId, fileIds, fileNames, fileHandleIds) AND the connection details
- * (host, port, database, schema, username, baseUrl, authType). Only `engine` is
- * kept so the data source entry remains useful as a reference — connection details
- * never leave the machine.
+ * The only `connectionConfig` keys that may leave the machine.
+ *
+ * `engine` says what kind of database it is, `inMemory` and `managed` say how it
+ * is held — none of the three can address or authenticate against anything.
+ *
+ * Keep this in sync with `_CONNECTION_CONFIG_EXPORTED` (workspace_export.py);
+ * the golden tests compare the two builders byte for byte.
  */
-function sanitizeConnectionConfig(config: Record<string, unknown>): Record<string, unknown> {
-  const { password: _, token: _tk, fileId: _f, fileIds: _fi, fileNames: _fn, fileHandleIds: _fh, ...rest } = config
-  const { host: _h, port: _p, database: _d, schema: _s, username: _u, baseUrl: _bu, authType: _at, ...minimal } = rest
-  return minimal
+const EXPORTED_CONNECTION_KEYS = ['engine', 'inMemory', 'managed'] as const
+
+/**
+ * Reduce a ConnectionConfig to the fields that are safe to publish.
+ *
+ * An ALLOWLIST, deliberately: a denylist keeps whatever it has not been taught
+ * to remove, so the day someone adds `sslCert`, `dsn` or `apiKey` to a config,
+ * a denylist would publish it and nothing would say so. Here a new field is
+ * withheld until it is explicitly listed above — the failure mode is a missing
+ * field in an export, not a credential in a public repo.
+ *
+ * Hosts, ports, database and schema names, usernames, passwords, tokens and
+ * local file references therefore never leave the machine.
+ */
+export function sanitizeConnectionConfig(config: Record<string, unknown>): Record<string, unknown> {
+  const safe: Record<string, unknown> = {}
+  for (const key of EXPORTED_CONNECTION_KEYS) {
+    // `!= null` covers null too: JSON.stringify keeps an explicit null, and the
+    // Python builder drops it — the two must agree byte for byte.
+    if (config[key] != null) safe[key] = config[key]
+  }
+  return safe
 }
 
 /** Resolve a user plugin's manifest id from its bundled plugin.json (falls back to undefined). */

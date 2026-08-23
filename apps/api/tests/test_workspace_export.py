@@ -19,6 +19,7 @@ from pathlib import Path
 from app.services.mapping_project_export import build_mapping_project_tree
 from app.services.project_export import build_project_tree
 from app.services.workspace_export import (
+    _sanitize_connection_config,
     _slugify,
     _strip_instance_fields,
     build_workspace_tree,
@@ -193,3 +194,66 @@ def test_org_snapshot_helper_matches_fixture():
         k: v for k, v in data["organization"].items() if k != "updatedAt"
     }
     assert "createdAt" in _strip_instance_fields(data["organization"])
+
+
+# --- connection config sanitizer -------------------------------------------
+#
+# Twin of sanitize-connection-config.test.ts. These assertions ARE the security
+# boundary: a workspace export can be pushed to a public git repo and indexed by
+# the catalog, so anything surviving this function is world-readable.
+
+_FULL_CONFIG = {
+    "engine": "postgres",
+    "host": "db.chu-rennes.fr",
+    "port": 5432,
+    "database": "omop_prod",
+    "schema": "cdm",
+    "username": "bdelange",
+    "password": "hunter2",
+    "token": "ghp_deadbeef",
+    "baseUrl": "https://fhir.example.org",
+    "authType": "bearer",
+    "fileId": "f1",
+    "fileIds": ["f1", "f2"],
+    "fileNames": ["patients.parquet"],
+    "fileHandleIds": ["h1"],
+}
+
+
+def test_sanitizer_keeps_only_the_engine():
+    assert _sanitize_connection_config(_FULL_CONFIG) == {"engine": "postgres"}
+
+
+def test_sanitizer_leaks_no_credential_host_or_file_reference():
+    out = json.dumps(_sanitize_connection_config(_FULL_CONFIG))
+    for secret in (
+        "hunter2", "ghp_deadbeef", "bdelange",
+        "db.chu-rennes.fr", "5432", "omop_prod", "cdm",
+        "fhir.example.org", "bearer",
+        "f1", "f2", "patients.parquet", "h1",
+    ):
+        assert secret not in out
+
+
+def test_sanitizer_withholds_an_unknown_field():
+    # A denylist would publish every one of these. The allowlist is the point.
+    assert _sanitize_connection_config({
+        "engine": "postgres",
+        "sslCert": "-----BEGIN CERTIFICATE-----",
+        "dsn": "postgres://user:pw@host/db",
+        "apiKey": "sk-live-1234",
+        "connectionString": "Server=x;Password=y",
+    }) == {"engine": "postgres"}
+
+
+def test_sanitizer_keeps_structural_flags_and_drops_none():
+    assert _sanitize_connection_config(
+        {"engine": "duckdb", "inMemory": True, "managed": False}
+    ) == {"engine": "duckdb", "inMemory": True, "managed": False}
+    # None is dropped on both sides, or the two builders emit different bytes.
+    assert _sanitize_connection_config({"engine": "duckdb", "inMemory": None}) == {"engine": "duckdb"}
+
+
+def test_sanitizer_emits_keys_in_allowlist_order():
+    out = _sanitize_connection_config({"managed": True, "inMemory": True, "engine": "duckdb"})
+    assert list(out.keys()) == ["engine", "inMemory", "managed"]

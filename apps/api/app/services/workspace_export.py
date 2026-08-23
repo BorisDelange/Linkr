@@ -121,14 +121,20 @@ def _eid(entity: dict) -> str:
     return _slugify(_localized_en(entity.get("name")) or entity.get("id") or "unknown")
 
 
+#: Mirrors ``EXPORTED_CONNECTION_KEYS`` (entity-io.ts). Order matters: both
+#: builders emit the keys in this order, and the golden tests compare bytes.
+_CONNECTION_CONFIG_EXPORTED = ("engine", "inMemory", "managed")
+
+
 def _sanitize_connection_config(config: dict) -> dict:
-    """Port of ``sanitizeConnectionConfig`` (entity-io.ts): strip password/token +
-    local file refs AND the connection details, leaving only ``engine`` (and any
-    other non-listed field) — connection details never leave the machine."""
-    always_strip = {"password", "token", "fileId", "fileIds", "fileNames", "fileHandleIds"}
-    rest = {k: v for k, v in config.items() if k not in always_strip}
-    creds = {"host", "port", "database", "schema", "username", "baseUrl", "authType"}
-    return {k: v for k, v in rest.items() if k not in creds}
+    """Port of ``sanitizeConnectionConfig`` (entity-io.ts).
+
+    An allowlist, deliberately: a denylist keeps whatever it was not taught to
+    remove, so a config that grows an ``sslCert`` or ``apiKey`` would publish it
+    silently. Hosts, ports, database and schema names, usernames, passwords,
+    tokens and local file references never leave the machine.
+    """
+    return {k: config[k] for k in _CONNECTION_CONFIG_EXPORTED if config.get(k) is not None}
 
 
 # --- git link manifest ------------------------------------------------------
