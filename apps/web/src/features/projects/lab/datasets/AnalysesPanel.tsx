@@ -195,7 +195,11 @@ export function AnalysesPanel({ datasetFileId, hideTabBar }: AnalysesPanelProps)
       <div className="flex h-full flex-col">
         <div className="min-h-0 flex-1">
           {activeAnalysis ? (
-            <AnalysisContent key={activeAnalysis.id} analysis={activeAnalysis} />
+            // No `key`: switching analyses must NOT remount the content, or every
+            // switch re-runs the widget. Same intent as the dashboard's "reload
+            // widgets on tab switch" when it is off. Per-analysis state that must
+            // not leak across a switch is keyed by analysis id inside the shells.
+            <AnalysisContent analysis={activeAnalysis} />
           ) : (
             <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
               {t('datasets.select_analysis')}
@@ -216,7 +220,7 @@ export function AnalysesPanel({ datasetFileId, hideTabBar }: AnalysesPanelProps)
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-auto">
         {activeAnalysis ? (
-          <AnalysisContent key={activeAnalysis.id} analysis={activeAnalysis} />
+          <AnalysisContent analysis={activeAnalysis} />
         ) : (
           <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
             {t('datasets.select_analysis')}

@@ -190,7 +190,9 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
     return (
       <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
         <DialogContent className="sm:max-w-6xl h-[80vh] max-h-[80vh] overflow-hidden flex flex-col p-0 gap-0">
-          <div className="flex items-center gap-2 border-b px-4 py-3 shrink-0">
+          {/* pr-12 keeps the actions clear of the dialog's own close X, which is
+              positioned over the top-right corner. */}
+          <div className="flex items-center gap-2 border-b py-3 pl-4 pr-12 shrink-0">
             <Button variant="ghost" size="icon-xs" onClick={() => setConfigPlugin(null)}>
               <ArrowLeft size={14} />
             </Button>

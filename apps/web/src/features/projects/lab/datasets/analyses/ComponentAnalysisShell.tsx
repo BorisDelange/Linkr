@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, Suspense } from 'rea
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Settings, Check, RotateCcw } from 'lucide-react'
+import { Settings, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
@@ -16,14 +16,7 @@ interface ComponentAnalysisShellProps {
   componentId: string
 }
 
-export function ComponentAnalysisShell(props: ComponentAnalysisShellProps) {
-  // Remount per analysis so the uncommitted draft below resets cleanly — the
-  // same trick the dashboard widget editor uses, and it keeps the re-seed out of
-  // an effect.
-  return <ComponentAnalysisEditor key={props.analysis.id} {...props} />
-}
-
-function ComponentAnalysisEditor({ analysis, configPanel, componentId }: ComponentAnalysisShellProps) {
+export function ComponentAnalysisShell({ analysis, configPanel, componentId }: ComponentAnalysisShellProps) {
   const { t } = useTranslation()
   const { files, getFileRows, updateAnalysis, saveAnalysis } = useDatasetStore()
 
@@ -36,19 +29,43 @@ function ComponentAnalysisEditor({ analysis, configPanel, componentId }: Compone
 
   // --- Local DRAFT state -----------------------------------------------------
   // Nothing is committed until Save, matching the dashboard widget editor. The
-  // preview runs off the draft, so it still reflects uncommitted edits; Cancel
-  // restores the last saved config. Re-seeded when the analysis changes.
+  // result runs off the draft, so it reflects uncommitted edits; Cancel restores
+  // the last saved config.
+  //
+  // Drafts are keyed BY ANALYSIS rather than reset on switch, so moving between
+  // analyses keeps each one's pending edits — and, more importantly, does not
+  // remount the component. A remount would re-run the widget on every switch,
+  // which is exactly what the dashboard avoids when "reload widgets on tab
+  // switch" is off.
   const savedConfig = analysis.config
-  const [draft, setDraft] = useState<Record<string, unknown>>(savedConfig)
+  const [drafts, setDrafts] = useState<Record<string, Record<string, unknown>>>({})
+  const draft = drafts[analysis.id] ?? savedConfig
 
   const dirty = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(savedConfig),
     [draft, savedConfig],
   )
 
+  const setDraft = useCallback(
+    (update: (prev: Record<string, unknown>) => Record<string, unknown>) => {
+      setDrafts((prev) => ({ ...prev, [analysis.id]: update(prev[analysis.id] ?? savedConfig) }))
+    },
+    [analysis.id, savedConfig],
+  )
+
   const handleConfigChange = useCallback((changes: Record<string, unknown>) => {
     setDraft((prev) => ({ ...prev, ...changes }))
-  }, [])
+  }, [setDraft])
+
+  // The result's size is config like any other, so it rides the same draft:
+  // Save keeps the new proportions, Cancel restores the previous ones.
+  const handleResize = useCallback(({ widthPct, heightPct }: { widthPct: number; heightPct: number }) => {
+    setDraft((prev) => ({
+      ...prev,
+      [SIZE_KEYS.width]: Math.round(widthPct * 10) / 10,
+      [SIZE_KEYS.height]: Math.round(heightPct * 10) / 10,
+    }))
+  }, [setDraft])
 
   // Save commits the draft WITHOUT closing anything — the user keeps editing.
   // "Saved" is a brief transient, then the button greys out until the next edit.
@@ -58,6 +75,13 @@ function ComponentAnalysisEditor({ analysis, configPanel, componentId }: Compone
     if (!dirty) return
     updateAnalysis(analysis.id, { config: draft })
     saveAnalysis(analysis.id)
+    // Drop the draft: `draft` now falls back to the config just committed, so
+    // the editor is clean without comparing two copies of the same object.
+    setDrafts((prev) => {
+      const next = { ...prev }
+      delete next[analysis.id]
+      return next
+    })
     setSavedFlash(true)
     clearTimeout(savedTimerRef.current)
     savedTimerRef.current = setTimeout(() => setSavedFlash(false), 1500)
@@ -67,7 +91,13 @@ function ComponentAnalysisEditor({ analysis, configPanel, componentId }: Compone
   // dirty is itself the signal that the flash no longer applies.
   const justSaved = savedFlash && !dirty
 
-  const handleCancel = useCallback(() => { setDraft(savedConfig) }, [savedConfig])
+  const handleCancel = useCallback(() => {
+    setDrafts((prev) => {
+      const next = { ...prev }
+      delete next[analysis.id]
+      return next
+    })
+  }, [analysis.id])
 
   // Cmd/Ctrl+S saves in place. Kept as a ref so the window listener always calls
   // the latest closure without re-binding every render.
@@ -141,7 +171,11 @@ function ComponentAnalysisEditor({ analysis, configPanel, componentId }: Compone
                 {t('datasets.component_server_unavailable')}
               </div>
             ) : Component ? (
-              <ResizableResult>
+              <ResizableResult
+                widthPct={(draft[SIZE_KEYS.width] as number) ?? 100}
+                heightPct={(draft[SIZE_KEYS.height] as number) ?? 100}
+                onResize={handleResize}
+              >
                 <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">…</div>}>
                   {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
                   <Component
@@ -164,45 +198,65 @@ function ComponentAnalysisEditor({ analysis, configPanel, componentId }: Compone
   )
 }
 
+/** Config keys holding the result's size, as a PERCENTAGE of the pane. */
+const SIZE_KEYS = { width: '__widthPct', height: '__heightPct' } as const
+const MIN_PCT = 15
+
 /**
- * The result at a size the user can try out.
+ * The result, at a size the user picks and keeps.
  *
- * Unlike the dashboard's preview there are no grid cells to snap to — an
- * analysis is not laid out on a grid — so this is free-form, and starts filling
- * the pane. Resizing is an inspection aid: it changes nothing that is saved.
- * The dashboard's "557 × 288 px / 25 × 15 cells" bar is deliberately absent,
- * since neither number means anything here.
+ * The size is stored as a PERCENTAGE of the pane, which is the dashboard's own
+ * trick (there, cells out of a fixed 48×40 grid): a proportion cannot overflow
+ * its container, so the result stays whole when the window, the sidebar split,
+ * or the config panel changes width. Storing pixels would need re-clamping on
+ * every one of those, and would still scroll the moment the pane got smaller.
+ *
+ * It lives in the analysis config, so it is part of the draft — Save keeps the
+ * new proportions and Cancel restores the previous ones, with no extra wiring.
  */
-function ResizableResult({ children }: { children: React.ReactNode }) {
+function ResizableResult({
+  widthPct,
+  heightPct,
+  onResize,
+  children,
+}: {
+  widthPct: number
+  heightPct: number
+  onResize: (size: { widthPct: number; heightPct: number }) => void
+  children: React.ReactNode
+}) {
   const { t } = useTranslation()
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
-  const dragRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null)
   const [resizing, setResizing] = useState(false)
-  const boxRef = useRef<HTMLDivElement | null>(null)
+  const frameRef = useRef<HTMLDivElement | null>(null)
+  const dragRef = useRef<{ startX: number; startY: number; startW: number; startH: number; frameW: number; frameH: number } | null>(null)
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-    // Until the first drag the box is auto-sized to the pane; measure it so the
-    // drag continues from what the user currently sees rather than jumping.
-    const rect = boxRef.current?.getBoundingClientRect()
+    const frame = frameRef.current?.getBoundingClientRect()
+    if (!frame || frame.width === 0 || frame.height === 0) return
     dragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
-      startW: rect?.width ?? 0,
-      startH: rect?.height ?? 0,
+      startW: (widthPct / 100) * frame.width,
+      startH: (heightPct / 100) * frame.height,
+      frameW: frame.width,
+      frameH: frame.height,
     }
     setResizing(true)
-  }, [])
+  }, [widthPct, heightPct])
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const d = dragRef.current
     if (!d) return
-    setSize({
-      width: Math.max(160, Math.round(d.startW + (e.clientX - d.startX))),
-      height: Math.max(120, Math.round(d.startH + (e.clientY - d.startY))),
+    // Clamped to [MIN_PCT, 100]: the result can never be dragged past the pane,
+    // so there is nothing to scroll to.
+    const clamp = (pct: number) => Math.min(100, Math.max(MIN_PCT, pct))
+    onResize({
+      widthPct: clamp(((d.startW + (e.clientX - d.startX)) / d.frameW) * 100),
+      heightPct: clamp(((d.startH + (e.clientY - d.startY)) / d.frameH) * 100),
     })
-  }, [])
+  }, [onResize])
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     dragRef.current = null
@@ -211,24 +265,14 @@ function ResizableResult({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <div className="h-full overflow-auto bg-muted/30 p-4">
+    <div ref={frameRef} className="h-full overflow-hidden bg-muted/30 p-4">
       <div
-        ref={boxRef}
-        className={cn('relative', size ? '' : 'h-full w-full')}
-        style={size ? { width: size.width, height: size.height } : undefined}
+        className="relative"
+        style={{ width: `${widthPct}%`, height: `${heightPct}%`, maxWidth: '100%', maxHeight: '100%' }}
       >
         <div className="h-full w-full overflow-auto rounded-lg border bg-card shadow-sm">
           {children}
         </div>
-        {size && (
-          <button
-            onClick={() => setSize(null)}
-            className="absolute -top-1 right-4 z-10 inline-flex items-center gap-1 rounded bg-background/80 px-1 text-[10px] text-muted-foreground hover:text-foreground"
-            title={t('datasets.analysis_reset_size')}
-          >
-            <RotateCcw size={10} />
-          </button>
-        )}
         {resizing && <div className="pointer-events-none absolute inset-0 rounded-lg bg-destructive/10" />}
         {/* The grip is drawn here rather than borrowed from react-grid-layout's
             stylesheet: that CSS is imported by the dashboard and patient-data

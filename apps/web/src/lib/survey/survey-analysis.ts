@@ -81,6 +81,33 @@ export function isBlank(value: unknown): boolean {
   return false
 }
 
+/** The yes/no spellings that mean the same answer across exports and locales. */
+const YES_TOKENS = new Set(['true', 'yes', 'oui', 'y', 'o', 'vrai'])
+const NO_TOKENS = new Set(['false', 'no', 'non', 'n', 'faux'])
+
+/**
+ * The key a value and a declared code are matched on.
+ *
+ * Yes/no questions are the one place where a single answer legitimately has
+ * several spellings in play at once: the cell may hold `"oui"` (as exported)
+ * while the column was typed `boolean`, so a re-parse elsewhere may hold `true`
+ * — and the importer's own `valueLabels` key on yet another spelling. Matching
+ * on the raw string then splits ONE question into two rival pairs, one of them
+ * always at zero. Folding the yes/no spellings to a canonical token keeps a
+ * question's answers together however each side spells them.
+ *
+ * Deliberately narrow: only yes/no is folded. `1`/`0` are left alone because a
+ * numeric code is a category in its own right on a scale question.
+ */
+export function matchKey(value: unknown): string {
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  const s = String(value).trim()
+  const lower = s.toLowerCase()
+  if (YES_TOKENS.has(lower)) return 'true'
+  if (NO_TOKENS.has(lower)) return 'false'
+  return s
+}
+
 /**
  * Whether a one-hot cell reads as ticked. Exports disagree on the truthy token
  * (`1`, `"1"`, `true`, `"Checked"`, `"Yes"`), so accept the common spellings
@@ -168,7 +195,7 @@ function summarizeSingle(
     const raw = row[column]
     if (isBlank(raw)) continue
     respondents++
-    const code = String(raw).trim()
+    const code = matchKey(raw)
     tally.set(code, (tally.get(code) ?? 0) + 1)
   }
 
@@ -177,8 +204,9 @@ function summarizeSingle(
   // Declared choices first, in their declared order — a zero-count choice is
   // meaningful ("nobody picked this") and must not vanish from the chart.
   for (const choice of questionChoices(schema, question)) {
-    const count = tally.get(choice.name) ?? 0
-    seen.add(choice.name)
+    const key = matchKey(choice.name)
+    const count = tally.get(key) ?? 0
+    seen.add(key)
     counts.push({
       code: choice.name,
       label: text(choice.label, lang) || choice.name,

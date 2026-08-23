@@ -352,9 +352,9 @@ export function SurveyQuestionBlock({
   })()
 
   return (
-    <div className={cn('flex h-full min-h-0 flex-col gap-2', compact ? 'p-3' : 'p-4')}>
+    <div className={cn('flex h-full min-h-0 flex-col', compact ? 'p-3' : 'p-4')}>
       {header}
-      <div className="min-h-0 flex-1">{body}</div>
+      <div className={cn('min-h-0 flex-1', compact ? 'mt-2' : 'mt-4')}>{body}</div>
     </div>
   )
 }

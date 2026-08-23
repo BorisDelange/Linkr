@@ -2,21 +2,8 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import {
-  FilePlus,
-  FolderPlus,
-  Upload,
-  RefreshCw,
-  PanelLeft,
-  PanelRight,
-  X,
-  Table2,
-  Plus,
-  BarChart3,
-  Zap,
-} from 'lucide-react'
+import { FilePlus, FolderPlus, Upload, RefreshCw, PanelLeft, PanelRight, X, Table2, BarChart3, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { GatedButton } from '@/components/ui/gated-button'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Tooltip,
@@ -492,48 +479,19 @@ export function DatasetsPage() {
 
                   <Allotment.Pane minSize={100} preferredSize="40%">
                     <div className="flex h-full flex-col border-t overflow-hidden">
-                      {/* Analyses header bar */}
-                      <div className="flex items-center justify-between border-b px-2 py-1.5">
-                        <span className="text-xs font-medium text-muted-foreground">
-                          {t('datasets.analyses')}
-                        </span>
-                        {canCreateAnalysis ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                onClick={() => setCreateAnalysisOpen(true)}
-                                aria-label={t('datasets.new_analysis')}
-                              >
-                                <Plus size={14} />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('datasets.new_analysis')}</TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          /* GatedButton, not a plain disabled Button: a disabled element
-                             emits no pointer events, so its own tooltip never opens —
-                             and greyed-out is exactly when the reason needs explaining. */
-                          <GatedButton
-                            allowed={false}
-                            notAllowedReason={
-                              !selectedFileId
-                                ? t('datasets.new_analysis_needs_dataset')
-                                : t('common.insufficient_permissions')
-                            }
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-label={t('datasets.new_analysis')}
-                          >
-                            <Plus size={14} />
-                          </GatedButton>
-                        )}
-                      </div>
-
-                      {/* Analyses list (self-contained: owns its rename/delete state so
-                          interacting with it doesn't re-render the dataset table). */}
-                      <AnalysisList selectedFileId={selectedFileId} />
+                      {/* Analyses panel (self-contained: owns its header actions,
+                          search and rename/delete state, so interacting with it
+                          doesn't re-render the dataset table). */}
+                      <AnalysisList
+                        selectedFileId={selectedFileId}
+                        canCreate={canCreateAnalysis}
+                        onCreate={() => setCreateAnalysisOpen(true)}
+                        createDisabledReason={
+                          !selectedFileId
+                            ? t('datasets.new_analysis_needs_dataset')
+                            : t('common.insufficient_permissions')
+                        }
+                      />
                     </div>
                   </Allotment.Pane>
                 </Allotment>

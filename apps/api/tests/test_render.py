@@ -311,6 +311,30 @@ def test_survey_question_single_matches_numeric_codes_read_as_floats():
     assert [c["count"] for c in out["counts"]] == [2, 2, 1]
 
 
+@pytest.mark.parametrize(
+    "yes,no",
+    [("oui", "non"), (True, False), ("Yes", "No")],
+)
+def test_survey_question_folds_yes_no_spellings(yes, no):
+    """A yes/no question must not split into two rival pairs.
+
+    `oui`/`non` are recognized boolean tokens, so the column may be typed boolean
+    while the cells stay strings — and the declared codes may use a third
+    spelling again. Matching on the raw string reported "True 0 / False 0 /
+    oui 44 / non 137"; the spellings are folded to one key instead.
+    """
+    import pandas as pd
+
+    df = pd.DataFrame({"v": [yes] * 44 + [no] * 137 + [None] * 33})
+    out = _run_survey(df, {
+        "kind": "select_one", "column": "v",
+        "choices": [{"code": "oui", "label": "Oui"}, {"code": "non", "label": "Non"}],
+    })
+    assert (out["total"], out["respondents"], out["missing"]) == (214, 181, 33)
+    assert len(out["counts"]) == 2  # never four
+    assert [c["count"] for c in out["counts"]] == [44, 137]
+
+
 def test_survey_question_numeric_matches_r_type7_quartiles():
     import pandas as pd
 

@@ -1292,7 +1292,8 @@
     "delete_analysis_title": "Supprimer l'analyse",
     "delete_analysis_description": "Supprimer l'analyse « {{name}} » ? Cette action est irréversible.",
     "analysis_resize_hint": "Glisser pour redimensionner le résultat",
-    "analysis_reset_size": "Ajuster au panneau"
+    "search_analyses": "Rechercher une analyse",
+    "no_analyses_match": "Aucune analyse ne correspond à cette recherche."
   },
   "survey": {
     "respondents": "répondants",

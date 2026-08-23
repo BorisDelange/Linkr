@@ -16,7 +16,6 @@
 import type { DatasetColumn } from '@/types'
 import type { SurveyChoice, SurveyQuestion, SurveySchema, QuestionKind } from './survey-schema'
 import { isTicked, toNumber, isBlank } from './survey-analysis'
-import { parseBoolean } from '@/lib/dataset-utils'
 
 /** The separators one-hot exports use between a question and its choice code. */
 const ONE_HOT_SEPARATORS = ['___', '.'] as const
@@ -106,7 +105,7 @@ function inferSingleType(
   const valueLabels = column.valueLabels
   if (valueLabels && Object.keys(valueLabels).length > 0) {
     const choices = Object.entries(valueLabels).map(([code, label]) => ({
-      name: normalizeCode(code, column.type),
+      name: code,
       label: { und: label },
     }))
     return {
@@ -171,22 +170,6 @@ function inferSingleType(
     .sort((a, b) => a.localeCompare(b))
     .map((v) => ({ name: v, label: { und: v } }))
   return { kind: 'select_one', measure: 'nominal', choices }
-}
-
-/**
- * Restate a declared code in the vocabulary the stored cells actually use.
- *
- * `oui`/`non` (and `yes`/`no`, `1`/`0`…) are recognized boolean tokens, so a
- * column of them is typed `boolean` on import and its cells are coerced to real
- * booleans. The importer's `valueLabels` still key on the original spelling, and
- * counting is by string equality — so the declared `oui` matched nothing while
- * the actual `true` was reported as an undeclared extra. That is exactly the
- * "True/False *and* Oui/Non, one pair always at 0" symptom.
- */
-function normalizeCode(code: string, type: DatasetColumn['type']): string {
-  if (type !== 'boolean') return code
-  const b = parseBoolean(code)
-  return b === null ? code : String(b)
 }
 
 /** Consecutive integer codes (3+) read as an ordered scale. */

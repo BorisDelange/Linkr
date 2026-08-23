@@ -113,6 +113,26 @@ def _linkr_ticked(v):
         return v.strip().lower() in ("1", "y", "true", "checked", "yes", "oui")
     return False
 
+_LINKR_YES = ("true", "yes", "oui", "y", "o", "vrai")
+_LINKR_NO = ("false", "no", "non", "n", "faux")
+
+def _linkr_match_key(v):
+    # Parity with matchKey(): fold the yes/no spellings to one token so a cell
+    # spelled "oui", a coerced True, and a declared code "non" all land on the
+    # same key. Without it one question splits into two rival pairs, one at zero.
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, float) and v.is_integer():
+        s = str(int(v))
+    else:
+        s = str(v).strip()
+    lower = s.lower()
+    if lower in _LINKR_YES:
+        return "true"
+    if lower in _LINKR_NO:
+        return "false"
+    return s
+
 def _linkr_num(v):
     # Parity with toNumber(): tolerate the decimal comma French exports produce.
     if isinstance(v, bool):
@@ -278,19 +298,15 @@ def _linkr_print_survey(dataset, spec):
         if _linkr_blank(v):
             continue
         respondents += 1
-        # Match the client's String(raw).trim(); a numeric code read as 1.0 by
-        # pandas must still match the declared code "1".
-        if isinstance(v, float) and v.is_integer():
-            key = str(int(v))
-        else:
-            key = str(v).strip()
+        key = _linkr_match_key(v)
         tally[key] = tally.get(key, 0) + 1
 
     counts = []
     seen = set()
     for c in choices:
-        n = tally.get(c["code"], 0)
-        seen.add(c["code"])
+        key = _linkr_match_key(c["code"])
+        n = tally.get(key, 0)
+        seen.add(key)
         counts.append({
             "code": c["code"],
             "label": c["label"],

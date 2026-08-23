@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BarChart3, Pencil, Trash2, Zap } from 'lucide-react'
+import { BarChart3, Pencil, Plus, Search, Trash2, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { GatedButton } from '@/components/ui/gated-button'
+import { Input } from '@/components/ui/input'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -54,7 +57,17 @@ function LanguageBadge({ language, type }: { language?: AnalysisLanguage | strin
  * whole DatasetsPage — which was making right-click → Rename feel laggy by
  * re-rendering the dataset table alongside it.
  */
-export function AnalysisList({ selectedFileId }: { selectedFileId: string | null }) {
+export function AnalysisList({
+  selectedFileId,
+  canCreate,
+  onCreate,
+  createDisabledReason,
+}: {
+  selectedFileId: string | null
+  canCreate: boolean
+  onCreate: () => void
+  createDisabledReason: string
+}) {
   const { t } = useTranslation()
   const analyses = useDatasetStore((s) => s.analyses)
   const selectedAnalysisId = useDatasetStore((s) => s.selectedAnalysisId)
@@ -64,20 +77,128 @@ export function AnalysisList({ selectedFileId }: { selectedFileId: string | null
 
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const listRef = useRef<HTMLDivElement | null>(null)
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return analyses
+    return analyses.filter((a) => a.name.toLowerCase().includes(q))
+  }, [analyses, query])
+
+  // Closing search clears the query: leaving a filter applied behind a hidden
+  // field would silently hide analyses with no visible reason why.
+  const toggleSearch = useCallback(() => {
+    setSearchOpen((open) => {
+      if (open) setQuery('')
+      return !open
+    })
+  }, [])
+
+  /** Move the selection by one, staying within the filtered list. */
+  const step = useCallback(
+    (delta: number) => {
+      if (visible.length === 0) return
+      const at = visible.findIndex((a) => a.id === selectedAnalysisId)
+      // Nothing selected yet: Down enters at the top, Up at the bottom.
+      const next = at === -1
+        ? (delta > 0 ? 0 : visible.length - 1)
+        : Math.min(visible.length - 1, Math.max(0, at + delta))
+      selectAnalysis(visible[next].id)
+      listRef.current
+        ?.querySelector(`[data-analysis-id="${visible[next].id}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+    },
+    [visible, selectedAnalysisId, selectAnalysis],
+  )
+
+  const onListKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      // Renaming owns the keyboard while its input is open.
+      if (renamingId) return
+      if (e.key === 'ArrowDown') { e.preventDefault(); step(1) }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); step(-1) }
+    },
+    [renamingId, step],
+  )
 
   return (
+    <div className="flex h-full min-h-0 flex-col" onKeyDown={onListKeyDown}>
+      {/* Analyses header bar */}
+      <div className="flex items-center justify-between border-b px-2 py-1.5">
+        <span className="text-xs font-medium text-muted-foreground">
+          {t('datasets.analyses')}
+        </span>
+        <div className="flex items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={toggleSearch}
+                // Kept at the hover shade while open, so the toggle reads as ON
+                // even when the pointer is elsewhere.
+                className={cn(searchOpen && 'bg-accent text-accent-foreground')}
+                aria-pressed={searchOpen}
+                aria-label={t('datasets.search_analyses')}
+              >
+                <Search size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('datasets.search_analyses')}</TooltipContent>
+          </Tooltip>
+          {canCreate ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onCreate}
+                  aria-label={t('datasets.new_analysis')}
+                >
+                  <Plus size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('datasets.new_analysis')}</TooltipContent>
+            </Tooltip>
+          ) : (
+            /* GatedButton, not a plain disabled Button: a disabled element
+               emits no pointer events, so its own tooltip never opens —
+               and greyed-out is exactly when the reason needs explaining. */
+            <GatedButton
+              allowed={false}
+              notAllowedReason={createDisabledReason}
+              variant="ghost"
+              size="icon-xs"
+              aria-label={t('datasets.new_analysis')}
+            >
+              <Plus size={14} />
+            </GatedButton>
+          )}
+        </div>
+      </div>
+
+      {searchOpen && (
+        <div className="border-b p-1.5">
+          <SearchField value={query} onChange={setQuery} onClose={toggleSearch} onStep={step} />
+        </div>
+      )}
+
     <ScrollArea className="h-full min-h-0 flex-1">
       {!selectedFileId ? (
         <div className="flex items-center justify-center p-4 text-center">
           <p className="text-xs text-muted-foreground">{t('datasets.no_analyses_select_dataset')}</p>
         </div>
-      ) : analyses.length === 0 ? (
+      ) : visible.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-4 text-center">
-          <p className="text-xs text-muted-foreground">{t('datasets.no_analyses')}</p>
+          <p className="text-xs text-muted-foreground">
+            {query.trim() ? t('datasets.no_analyses_match') : t('datasets.no_analyses')}
+          </p>
         </div>
       ) : (
-        <div className="py-1">
-          {analyses.map((analysis) => {
+        <div className="py-1" ref={listRef}>
+          {visible.map((analysis) => {
             const isActive = analysis.id === selectedAnalysisId
             return (
               <ContextMenu key={analysis.id}>
@@ -97,6 +218,7 @@ export function AnalysisList({ selectedFileId }: { selectedFileId: string | null
                     </div>
                   ) : (
                     <button
+                      data-analysis-id={analysis.id}
                       onClick={() => selectAnalysis(isActive ? null : analysis.id)}
                       onDoubleClick={() => setRenamingId(analysis.id)}
                       className={cn(
@@ -155,5 +277,45 @@ export function AnalysisList({ selectedFileId }: { selectedFileId: string | null
         </AlertDialogContent>
       </AlertDialog>
     </ScrollArea>
+    </div>
+  )
+}
+
+/**
+ * The search field, self-focusing on open.
+ *
+ * A separate component so the focus-on-mount lives in ITS mount rather than in a
+ * conditional effect of the list — the field only exists while search is open,
+ * so mounting is exactly the moment to focus.
+ */
+function SearchField({
+  value,
+  onChange,
+  onClose,
+  onStep,
+}: {
+  value: string
+  onChange: (v: string) => void
+  onClose: () => void
+  onStep: (delta: number) => void
+}) {
+  const { t } = useTranslation()
+  const ref = useRef<HTMLInputElement | null>(null)
+  useEffect(() => { ref.current?.focus() }, [])
+  return (
+    <Input
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={t('datasets.search_analyses')}
+      className="h-6 text-xs"
+      onKeyDown={(e) => {
+        // Arrows walk the results without leaving the field, so you can type
+        // then pick without reaching for the mouse.
+        if (e.key === 'ArrowDown') { e.preventDefault(); onStep(1) }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); onStep(-1) }
+        else if (e.key === 'Escape') { e.preventDefault(); onClose() }
+      }}
+    />
   )
 }

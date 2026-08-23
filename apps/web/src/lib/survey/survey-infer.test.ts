@@ -172,33 +172,40 @@ describe('inferSurveySchema — housekeeping', () => {
   })
 })
 
-describe('boolean columns with declared labels', () => {
-  // Regression: `oui`/`non` are recognized boolean tokens, so the import types
-  // the column `boolean` and coerces its cells to real booleans — while the
-  // importer's valueLabels still key on `oui`/`non`. Counting by string equality
-  // then reported BOTH vocabularies, one of them always at zero.
-  const rows = [
-    ...Array.from({ length: 44 }, () => ({ zone_dechocage: true })),
-    ...Array.from({ length: 137 }, () => ({ zone_dechocage: false })),
+describe('yes/no questions, however each side spells them', () => {
+  // Regression: `oui`/`non` are recognized boolean tokens, so the column is
+  // TYPED boolean at import — but remapRows only renames keys, it does not
+  // coerce, so the cells stay 'oui'/'non' strings while the importer's
+  // valueLabels key on 'oui'/'non' and the inference declares 'true'/'false'.
+  // Matching on the raw string split ONE question into two rival pairs, one of
+  // them always at zero: "True 0 / False 0 / oui 44 / non 137".
+  const shapes: [string, unknown, unknown][] = [
+    ['as exported (strings)', 'oui', 'non'],
+    ['after coercion (booleans)', true, false],
+    ['english spelling', 'Yes', 'No'],
   ]
-  const column = col('zone_dechocage', 'boolean', { valueLabels: { oui: 'Oui', non: 'Non' } })
+  const labelSets: (Record<string, string> | undefined)[] = [
+    { oui: 'Oui', non: 'Non' },
+    undefined,
+  ]
 
-  it('states the declared choices in the stored vocabulary', () => {
-    const schema = inferSurveySchema([column], rows)
-    const q = schema.questions.find((x) => x.name === 'zone_dechocage')!
-    expect(q.kind).toBe('select_one')
-    expect(schema.choices[q.listName!].map((c) => c.name)).toEqual(['true', 'false'])
-  })
-
-  it('counts every respondent once, under one vocabulary', () => {
-    const schema = inferSurveySchema([column], rows)
-    const q = schema.questions.find((x) => x.name === 'zone_dechocage')!
-    const summary = summarizeQuestion(schema, q, rows, 'fr')
-    expect(summary.respondents).toBe(181)
-    expect(summary.counts).toHaveLength(2)
-    expect(summary.counts.map((c) => [c.label, c.count])).toEqual([
-      ['Oui', 44],
-      ['Non', 137],
-    ])
-  })
+  for (const [what, yes, no] of shapes) {
+    for (const valueLabels of labelSets) {
+      it(`counts one pair — ${what}, ${valueLabels ? 'declared' : 'inferred'} labels`, () => {
+        const rows = [
+          ...Array.from({ length: 44 }, () => ({ zone_dechocage: yes })),
+          ...Array.from({ length: 137 }, () => ({ zone_dechocage: no })),
+          ...Array.from({ length: 33 }, () => ({ zone_dechocage: null })),
+        ]
+        const column = col('zone_dechocage', 'boolean', valueLabels ? { valueLabels } : {})
+        const schema = inferSurveySchema([column], rows)
+        const q = schema.questions.find((x) => x.name === 'zone_dechocage')!
+        const summary = summarizeQuestion(schema, q, rows, 'fr')
+        expect([summary.total, summary.respondents, summary.missing]).toEqual([214, 181, 33])
+        // Two rows, never four: no undeclared spelling shows up alongside.
+        expect(summary.counts).toHaveLength(2)
+        expect(summary.counts.map((c) => c.count)).toEqual([44, 137])
+      })
+    }
+  }
 })

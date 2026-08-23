@@ -1292,7 +1292,8 @@
     "delete_analysis_title": "Delete analysis",
     "delete_analysis_description": "Delete the analysis \"{{name}}\"? This cannot be undone.",
     "analysis_resize_hint": "Drag to resize the result",
-    "analysis_reset_size": "Fit to panel"
+    "search_analyses": "Search analyses",
+    "no_analyses_match": "No analysis matches this search."
   },
   "survey": {
     "respondents": "respondents",
