@@ -69,6 +69,14 @@ export interface SurveyQuestionBlockProps {
   /** Dense rendering, for a dashboard widget. */
   compact?: boolean
   lang?: string
+  /**
+   * A summary computed elsewhere — the server, in fullstack mode, where `rows`
+   * is empty because the data never reaches the browser. Same shape either way,
+   * so the rendering below does not branch on where the numbers came from.
+   */
+  summary?: QuestionSummary
+  /** Numeric values for the histogram, when `summary` came from the server. */
+  values?: number[]
 }
 
 function pickText(label: Record<string, string> | undefined, lang: string): string {
@@ -145,13 +153,16 @@ export function SurveyQuestionBlock({
   showMedian = true,
   compact,
   lang = 'fr',
+  summary: providedSummary,
+  values: providedValues,
 }: SurveyQuestionBlockProps) {
   const { t } = useTranslation()
 
-  const summary = useMemo(
-    () => summarizeQuestion(schema, question, rows, lang),
-    [schema, question, rows, lang],
+  const localSummary = useMemo(
+    () => (providedSummary ? null : summarizeQuestion(schema, question, rows, lang)),
+    [providedSummary, schema, question, rows, lang],
   )
+  const summary = providedSummary ?? localSummary!
 
   const effectiveChart = chart === 'auto' ? defaultChart(question) : chart
 
@@ -216,7 +227,7 @@ export function SurveyQuestionBlock({
       case 'histogram':
         return (
           <Histogram
-            values={numericValues(question, rows)}
+            values={providedValues ?? numericValues(question, rows)}
             bins={bins}
             showMedian={showMedian}
             median={summary.stats?.median}

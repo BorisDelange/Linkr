@@ -413,10 +413,7 @@ export function registerDefaultPlugins() {
     templates: null,
     componentId: 'plot-builder',
   })
-  // No `supportsServer`: the questionnaire structure is recovered from the rows
-  // themselves, which server mode does not ship to the client. Server-side
-  // aggregation needs the schema persisted to the sidecar first.
-  registerComponent('survey-question', () => import('@/features/projects/lab/datasets/analyses/SurveyQuestionComponent').then(m => ({ default: m.SurveyQuestionComponent })))
+  registerComponent('survey-question', () => import('@/features/projects/lab/datasets/analyses/SurveyQuestionComponent').then(m => ({ default: m.SurveyQuestionComponent })), { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(surveyQuestionManifest as unknown as Record<string, unknown>),
     templates: null,

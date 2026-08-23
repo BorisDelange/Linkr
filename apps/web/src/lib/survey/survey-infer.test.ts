@@ -153,4 +153,20 @@ describe('inferSurveySchema — housekeeping', () => {
     expect(schema.questions).toHaveLength(1)
     expect(schema.questions[0].kind).toBe('text')
   })
+
+  it('still groups one-hot columns with no rows — server mode ships none', () => {
+    const columns = [
+      col('usi___usic', 'number', { label: 'Cardiologie', description: 'Quelles USI ?' }),
+      col('usi___usinv', 'number', { label: 'Neuro-vasculaire', description: 'Quelles USI ?' }),
+    ]
+    const q = inferSurveySchema(columns, []).questions[0]
+    expect(q.kind).toBe('select_multiple')
+    expect(questionColumns(q)).toEqual(['usi___usic', 'usi___usinv'])
+  })
+
+  it('does not group non-numeric same-prefix columns when there are no rows', () => {
+    const columns = [col('adresse.rue', 'string'), col('adresse.ville', 'string')]
+    const schema = inferSurveySchema(columns, [])
+    expect(schema.questions.every((q) => q.kind !== 'select_multiple')).toBe(true)
+  })
 })

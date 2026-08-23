@@ -65,7 +65,12 @@ function looksBinary(column: DatasetColumn, rows: Record<string, unknown>[]): bo
     if (v === '0' || v === 'false' || v === 'unchecked' || v === 'no' || v === 'non') continue
     return false
   }
-  return seen > 0
+  // No values to judge by — server mode ships columns without rows. Fall back to
+  // the declared type plus the naming convention (the caller only asks about
+  // columns that already share a `q___code` / `q.code` parent), rather than
+  // refusing to group and leaving one question split across N numeric columns.
+  if (seen === 0) return column.type === 'number' || column.type === 'boolean' || column.type === 'unknown'
+  return true
 }
 
 /** Distinct non-blank values of a column, capped — beyond the cap it is not a

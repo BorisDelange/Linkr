@@ -87,7 +87,10 @@ export function isTicked(value: unknown): boolean {
   if (typeof value === 'number') return value === 1
   if (typeof value === 'string') {
     const v = value.trim().toLowerCase()
-    return v === '1' || v === 'true' || v === 'checked' || v === 'yes' || v === 'oui'
+    // `y` is LimeSurvey's own ticked value. Note 2 is deliberately NOT ticked:
+    // with its "convert Y/N" export option on, 1 means yes but **2 means no**,
+    // so a "non-zero is ticked" rule would read every No as a Yes.
+    return v === '1' || v === 'y' || v === 'true' || v === 'checked' || v === 'yes' || v === 'oui'
   }
   return false
 }

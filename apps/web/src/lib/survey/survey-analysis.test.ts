@@ -79,8 +79,18 @@ describe('cell predicates', () => {
     for (const v of [1, '1', true, 'true', 'Checked', 'Yes', 'oui']) expect(isTicked(v)).toBe(true)
   })
 
+  it("accepts LimeSurvey's bare Y", () => {
+    expect(isTicked('Y')).toBe(true)
+    expect(isTicked('y')).toBe(true)
+  })
+
   it('rejects unticked and empty values', () => {
-    for (const v of [0, '0', false, '', null, undefined, 'no', 2]) expect(isTicked(v)).toBe(false)
+    for (const v of [0, '0', false, '', null, undefined, 'no', 'N']) expect(isTicked(v)).toBe(false)
+  })
+
+  it('does not read LimeSurvey 2 as ticked — with Y/N conversion on, 2 means No', () => {
+    expect(isTicked(2)).toBe(false)
+    expect(isTicked('2')).toBe(false)
   })
 
   it('parses numbers, tolerating the decimal comma', () => {
