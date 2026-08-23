@@ -13,6 +13,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * shrinks (a badge removed) releases the space instead of pinning the dialog to a
  * height nothing needs any more.
  */
+/**
+ * `offsetHeight`, not `getBoundingClientRect()`: a dialog opens under a
+ * `zoom-in-95` animation, and a rect measured mid-zoom comes back 5% short —
+ * enough to leave the container a few pixels under the tallest panel until the
+ * user switches tabs and forces a re-measure. `offsetHeight` ignores transforms,
+ * so the first measurement is already the final one.
+ */
+const panelHeight = (el: HTMLElement) => el.offsetHeight
 export function useTallestPanel() {
   const [heights, setHeights] = useState<Record<string, number>>({})
   const observers = useRef(new Map<string, ResizeObserver>())
@@ -28,7 +36,7 @@ export function useTallestPanel() {
         return
       }
       const measure = () => {
-        const h = el.getBoundingClientRect().height
+        const h = panelHeight(el)
         setHeights((prev) => (prev[key] === h ? prev : { ...prev, [key]: h }))
       }
       measure()

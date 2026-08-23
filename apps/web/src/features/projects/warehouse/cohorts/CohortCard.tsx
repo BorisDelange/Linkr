@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
   Trash2,
   Pencil,
+  Copy,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
@@ -27,6 +28,7 @@ interface CohortCardProps {
   href: string
   onRemove: () => void
   onEdit: () => void
+  onDuplicate: () => void
   /** Gate the edit / remove menu items (default true for front-only mode). */
   canEdit?: boolean
   canDelete?: boolean
@@ -43,6 +45,7 @@ export function CohortCard({
   href,
   onRemove,
   onEdit,
+  onDuplicate,
   canEdit = true,
   canDelete = true,
 }: CohortCardProps) {
@@ -90,6 +93,10 @@ export function CohortCard({
               <DropdownMenuItem disabled={!canEdit} onClick={(e) => { e.stopPropagation(); onEdit() }}>
                 <Pencil size={14} />
                 {t('common.edit')}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!canEdit} onClick={(e) => { e.stopPropagation(); onDuplicate() }}>
+                <Copy size={14} />
+                {t('common.duplicate')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

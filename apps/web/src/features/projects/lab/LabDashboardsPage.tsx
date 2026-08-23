@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import type { Dashboard } from '@/types'
 import { paths } from '@/lib/paths'
-import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil, TriangleAlert } from 'lucide-react'
+import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil, TriangleAlert, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
@@ -52,7 +52,7 @@ export function LabDashboardsPage() {
   const canEdit = atLeast('editor')
   const canDelete = atLeast('owner')
 
-  const { dashboards, loaded, loadProjectDashboards, createDashboard, deleteDashboard } = useDashboardStore()
+  const { dashboards, loaded, loadProjectDashboards, createDashboard, duplicateDashboard, deleteDashboard } = useDashboardStore()
   const { loadProjectDatasets } = useDatasetStore()
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -208,6 +208,10 @@ export function LabDashboardsPage() {
                           <DropdownMenuItem disabled={!canEdit} onClick={() => setEditTarget(dash)}>
                             <Pencil size={14} />
                             {t('common.edit')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem disabled={!canEdit} onClick={() => { void duplicateDashboard(dash.id) }}>
+                            <Copy size={14} />
+                            {t('common.duplicate')}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem disabled={!canDelete} variant="destructive" onClick={() => setDeleteTarget(dash.id)}>

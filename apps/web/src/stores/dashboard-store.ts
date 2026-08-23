@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import type { Dashboard, DashboardTab, DashboardWidget, DashboardWidgetSource, FilterValue, LocalizedString } from '@/types'
 import { getStorage } from '@/lib/storage'
-import { localized, toLocalized } from '@/lib/localized'
+import { toLocalized } from '@/lib/localized'
+import { copyName } from '@/lib/copy-name'
 import { stampAuthored } from '@/stores/app-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { remapWidgetColumns } from '@/features/projects/dashboard/remap-widget-columns'
@@ -33,6 +34,8 @@ interface DashboardState {
     name: LocalizedString,
     description?: LocalizedString,
   ) => Promise<string>
+  /** Deep-copy a dashboard with its tabs and widgets. Returns the new id. */
+  duplicateDashboard: (id: string) => Promise<string | null>
   updateDashboard: (id: string, changes: Partial<Dashboard>) => void
   deleteDashboard: (id: string) => void
   setActiveDashboard: (id: string | null) => void
@@ -263,6 +266,58 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     return id
   },
 
+  duplicateDashboard: async (id) => {
+    const state = get()
+    const source = state.dashboards.find((d) => d.id === id)
+    if (!source) return null
+
+    const now = new Date().toISOString()
+    const clone: Dashboard = {
+      ...structuredClone(source),
+      id: uid(),
+      name: copyName(source.name, state.dashboards.filter((d) => d.projectUid === source.projectUid).map((d) => d.name)),
+      // The copy is this user's work from now on, and it starts its own history.
+      ...stampAuthored(),
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    // Tabs are remapped first so a sub-tab's parentTabId can point at the CLONE
+    // of its parent rather than at the original dashboard's tab.
+    const tabIdMap = new Map<string, string>()
+    const sourceTabs = state.tabs.filter((t) => t.dashboardId === id)
+    for (const tab of sourceTabs) tabIdMap.set(tab.id, uid())
+    const tabs: DashboardTab[] = sourceTabs.map((tab) => ({
+      ...structuredClone(tab),
+      id: tabIdMap.get(tab.id)!,
+      dashboardId: clone.id,
+      parentTabId: tab.parentTabId ? tabIdMap.get(tab.parentTabId) ?? null : tab.parentTabId,
+    }))
+
+    const widgets: DashboardWidget[] = state.widgets
+      .filter((w) => tabIdMap.has(w.tabId))
+      .map((w) => ({ ...structuredClone(w), id: uid(), tabId: tabIdMap.get(w.tabId)! }))
+
+    set((s) => ({
+      dashboards: [...s.dashboards, clone],
+      tabs: [...s.tabs, ...tabs],
+      widgets: [...s.widgets, ...widgets],
+    }))
+
+    // Persisted parent-first: in server mode a tab POST 404s if it races ahead
+    // of its dashboard, and a widget POST ahead of its tab.
+    try {
+      const storage = getStorage()
+      await storage.dashboards.create(clone)
+      for (const tab of tabs) await storage.dashboardTabs.create(tab)
+      for (const widget of widgets) await storage.dashboardWidgets.create(widget)
+    } catch (e) {
+      console.warn('[dashboard-store] persist error:', e)
+    }
+
+    return clone.id
+  },
+
   updateDashboard: (id, changes) => {
     set((s) => ({
       dashboards: s.dashboards.map((d) =>
@@ -491,16 +546,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     const siblings = get().widgets.filter((w) => w.tabId === tabId)
     const bottom = siblings.reduce((max, w) => Math.max(max, w.layout.y + w.layout.h), 0)
 
-    // Generate a unique "(copy)" name among the target tab's widgets. Names are localized:
-    // append "(copy)" to every language, and dedup on the English resolution (any language
-    // collides in practice since both are suffixed together).
-    const taken = new Set(siblings.map((w) => localized(w.name, 'en').toLowerCase()))
-    const suffix = (n: number) => (n > 1 ? ` (copy) ${n}` : ' (copy)')
-    let n = 1
-    while (taken.has((localized(widget.name, 'en') + suffix(n)).toLowerCase())) n++
-    const name: LocalizedString = Object.fromEntries(
-      Object.entries(toLocalized(widget.name)).map(([lang, val]) => [lang, `${val}${suffix(n)}`]),
-    )
+    const name = copyName(widget.name, siblings.map((w) => w.name))
 
     const clone: DashboardWidget = {
       ...widget,

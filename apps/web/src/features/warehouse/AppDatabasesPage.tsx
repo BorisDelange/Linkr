@@ -10,7 +10,7 @@ import type { DataSource, CustomSchemaPreset } from '@/types'
 import { Database, Plus, FileCode, Search, Plug, ChevronDown, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { OverflowBadgeList } from '@/components/ui/overflow-badge-list'
 import { Input } from '@/components/ui/input'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
@@ -403,19 +403,14 @@ export function AppDatabasesPage() {
                 onRemove={() => setSourceToRemove(ds)}
                 belowStats={
                   linkedProjects.length > 0 ? (
-                    <div className="mt-1 flex items-center gap-1 overflow-hidden">
-                      <span className="shrink-0 text-[10px] text-muted-foreground">
-                        {t('app_warehouse.linked_projects')}:
-                      </span>
-                      {linkedProjects.map((p) => {
-                        const name = p.name[language] ?? p.name['en'] ?? Object.values(p.name)[0] ?? ''
-                        return (
-                          <Badge key={p.uid} variant="secondary" className="shrink-0 truncate px-1.5 py-0">
-                            {name}
-                          </Badge>
-                        )
-                      })}
-                    </div>
+                    <OverflowBadgeList
+                      className="mt-1"
+                      label={`${t('app_warehouse.linked_projects')}:`}
+                      items={linkedProjects.map((p) => ({
+                        key: p.uid,
+                        label: p.name[language] ?? p.name['en'] ?? Object.values(p.name)[0] ?? '',
+                      }))}
+                    />
                   ) : (
                     <p className="mt-1 text-[10px] text-muted-foreground/60">
                       {t('app_warehouse.no_linked_projects')}

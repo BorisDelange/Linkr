@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { stampAuthored } from '@/stores/app-store'
+import { copyNameString } from '@/lib/copy-name'
 import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
 import * as engine from '@/lib/duckdb/engine'
 import type {
@@ -180,6 +181,8 @@ interface CohortState {
     version?: string
   }) => Promise<string>
 
+  /** Copy a cohort's definition (not its execution output). Returns the new id. */
+  duplicateCohort: (id: string) => Promise<string | null>
   updateCohort: (id: string, changes: Partial<Cohort>) => Promise<void>
   removeCohort: (id: string) => Promise<void>
   setCustomSql: (id: string, sql: string | null) => Promise<void>
@@ -256,6 +259,33 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     await getStorage().cohorts.create(newCohort)
     set((s) => ({ cohorts: [...s.cohorts, newCohort] }))
     return id
+  },
+
+  duplicateCohort: async (id) => {
+    const state = get()
+    const source = state.cohorts.find((c) => c.id === id)
+    if (!source) return null
+
+    const now = new Date().toISOString()
+    const clone: Cohort = {
+      ...structuredClone(source),
+      id: crypto.randomUUID(),
+      name: copyNameString(source.name, state.cohorts.filter((c) => c.projectUid === source.projectUid).map((c) => c.name)),
+      // Execution output is deliberately dropped: the copy has never run, and
+      // carrying a count or a frozen membership over would show numbers that
+      // describe the original's last run, not this cohort.
+      resultCount: undefined,
+      attrition: undefined,
+      materialization: undefined,
+      // The copy is this user's work from now on, and it starts its own history.
+      ...stampAuthored(),
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    await getStorage().cohorts.create(clone)
+    set((s) => ({ cohorts: [...s.cohorts, clone] }))
+    return clone.id
   },
 
   updateCohort: async (id, changes) => {

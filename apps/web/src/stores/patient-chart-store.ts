@@ -6,7 +6,8 @@ import type {
   PatientDashboardWidget,
 } from '@/types'
 import { toLocalized, setLocalized } from '@/lib/localized'
-import { useAppStore } from '@/stores/app-store'
+import { useAppStore, stampAuthored } from '@/stores/app-store'
+import { copyName } from '@/lib/copy-name'
 import { getStorage } from '@/lib/storage'
 
 // ---------------------------------------------------------------------------
@@ -77,6 +78,8 @@ interface PatientChartState {
     name?: string,
     description?: string,
   ) => Promise<string>
+  /** Deep-copy a board with its tabs and widgets. Returns the new id. */
+  duplicateDashboard: (dashboardId: string) => Promise<string | null>
   renameDashboard: (dashboardId: string, name: string) => void
   updateDashboard: (dashboardId: string, changes: Partial<PatientDashboard>) => void
   removeDashboard: (dashboardId: string) => void
@@ -440,6 +443,58 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
       warn('createDashboard')(e)
     }
     return id
+  },
+
+  duplicateDashboard: async (dashboardId) => {
+    const state = get()
+    const source = state.dashboards.find((d) => d.id === dashboardId)
+    if (!source) return null
+
+    const siblings = state.dashboards.filter((d) => d.projectUid === source.projectUid)
+    const now = new Date().toISOString()
+    const clone: PatientDashboard = {
+      ...structuredClone(source),
+      id: uid(),
+      name: copyName(source.name, siblings.map((d) => d.name)),
+      // Last in the list, rather than sharing the original's slot.
+      displayOrder: siblings.length,
+      // The copy is this user's work from now on, and it starts its own history.
+      ...stampAuthored(),
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    const tabIdMap = new Map<string, string>()
+    const sourceTabs = state.tabs.filter((t) => t.patientDashboardId === dashboardId)
+    for (const tab of sourceTabs) tabIdMap.set(tab.id, uid())
+    const tabs: PatientDashboardTab[] = sourceTabs.map((tab) => ({
+      ...structuredClone(tab),
+      id: tabIdMap.get(tab.id)!,
+      patientDashboardId: clone.id,
+    }))
+
+    const widgets: PatientDashboardWidget[] = state.widgets
+      .filter((w) => tabIdMap.has(w.tabId))
+      .map((w) => ({ ...structuredClone(w), id: uid(), tabId: tabIdMap.get(w.tabId)! }))
+
+    set((s) => ({
+      dashboards: [...s.dashboards, clone],
+      tabs: [...s.tabs, ...tabs],
+      widgets: [...s.widgets, ...widgets],
+    }))
+
+    // Persisted parent-first: in server mode a tab POST 404s if it races ahead
+    // of its board, and a widget POST ahead of its tab.
+    try {
+      const storage = getStorage()
+      await storage.patientDashboards.create(clone)
+      for (const tab of tabs) await storage.patientDashboardTabs.create(tab)
+      for (const widget of widgets) await storage.patientDashboardWidgets.create(widget)
+    } catch (e) {
+      warn('duplicateDashboard')(e)
+    }
+
+    return clone.id
   },
 
   renameDashboard: (dashboardId, name) =>

@@ -30,7 +30,7 @@ export function CohortListPage() {
   const { projectUid: uid, wsUid } = useResolvedParams()
   const { can } = useMyProjectRole(uid)
   const navigate = useNavigate()
-  const { addCohort, removeCohort, updateCohort } = useCohortStore()
+  const { addCohort, duplicateCohort, removeCohort, updateCohort } = useCohortStore()
   // Subscribe to the cohorts array itself (not the getProjectCohorts action, whose
   // reference is stable) so the list re-derives when a cohort is added/removed.
   const allCohorts = useCohortStore((s) => s.cohorts)
@@ -123,6 +123,7 @@ export function CohortListPage() {
                 href={paths.cohort(wsUid ?? '', uid ?? '', cohort.id, cohortIds)}
                 onRemove={() => setDeleteTarget(cohort)}
                 onEdit={() => setEditingCohort(cohort)}
+                onDuplicate={() => { void duplicateCohort(cohort.id) }}
                 canEdit={can('cohorts:write')}
                 canDelete={can('cohorts:delete')}
               />

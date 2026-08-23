@@ -159,8 +159,9 @@ export function PluginPicker({
         </div>
       )}
 
-      {/* Plugin cards */}
-      <div className={cn(fillHeight ? 'min-h-0 flex-1 overflow-auto' : maxHeight, !fillHeight && 'overflow-auto')}>
+      {/* Plugin cards. `pr-2` keeps the last column clear of the overlay
+          scrollbar, which paints over the cards rather than beside them. */}
+      <div className={cn('pr-2', fillHeight ? 'min-h-0 flex-1 overflow-auto' : maxHeight, !fillHeight && 'overflow-auto')}>
         <div className="grid grid-cols-1 gap-3 p-0.5 sm:grid-cols-2 lg:grid-cols-3">
           {filteredPlugins.map((plugin) => {
             const m = plugin.manifest

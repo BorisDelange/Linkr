@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Plus, User, MoreHorizontal, Trash2, Pencil, TriangleAlert } from 'lucide-react'
+import { Plus, User, MoreHorizontal, Trash2, Pencil, TriangleAlert, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
@@ -56,6 +56,7 @@ export function PatientDataListPage() {
   const loadError = usePatientChartStore((s) => s.loadError)
   const loadProjectDashboards = usePatientChartStore((s) => s.loadProjectDashboards)
   const createDashboard = usePatientChartStore((s) => s.createDashboard)
+  const duplicateDashboard = usePatientChartStore((s) => s.duplicateDashboard)
   const removeDashboard = usePatientChartStore((s) => s.removeDashboard)
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -229,6 +230,10 @@ export function PatientDataListPage() {
                             <DropdownMenuItem disabled={!canEdit} onClick={() => setEditTarget(board)}>
                               <Pencil size={14} />
                               {t('common.edit')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled={!canEdit} onClick={() => { void duplicateDashboard(board.id) }}>
+                              <Copy size={14} />
+                              {t('common.duplicate')}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem

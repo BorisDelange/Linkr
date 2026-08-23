@@ -15,7 +15,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { isServerMode, formatApiError, type FormattedError } from '@/lib/api-client'
-import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
+import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2, BookOpen, Scale } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
@@ -50,6 +50,7 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import { localized } from '@/lib/localized'
+import { EntityDocsDialog, type DocsTab } from '@/components/ui/entity-docs-dialog'
 import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent, createEntityAttachments } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
@@ -67,7 +68,7 @@ function copyLocalizedName(name: LocalizedString): LocalizedString {
 export function WorkspacesPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
-  const { workspaces, _workspacesRaw, openWorkspace, deleteWorkspace } = useWorkspaceStore()
+  const { workspaces, _workspacesRaw, openWorkspace, deleteWorkspace, updateWorkspaceReadme, updateWorkspaceLicense } = useWorkspaceStore()
   const { getWorkspaceProjects, loadProjects } = useAppStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
@@ -132,6 +133,8 @@ export function WorkspacesPage() {
     }
   }, [searchParams, setSearchParams])
   const [importOpen, setImportOpen] = useState(false)
+
+  const [docsTarget, setDocsTarget] = useState<{ id: string; tab: DocsTab } | null>(null)
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
@@ -972,6 +975,14 @@ export function WorkspacesPage() {
                             <GitBranch size={14} />
                             {t('common.versioning')}
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDocsTarget({ id: ws.id, tab: 'readme' }) }}>
+                            <BookOpen size={14} />
+                            {t('summary.tab_readme')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDocsTarget({ id: ws.id, tab: 'license' }) }}>
+                            <Scale size={14} />
+                            {t('license.title')}
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(paths.workspaceSettings(ws.id)) }}>
                             <Settings2 size={14} />
                             {t('nav.settings')}
@@ -1026,6 +1037,28 @@ export function WorkspacesPage() {
         workspace={editingWorkspace ?? undefined}
         onOpenChange={(open) => { if (!open) setEditingWorkspace(null) }}
       />
+
+      {/* README + license, the same editors the workspace home page uses — so a
+          workspace can be documented without opening it first. */}
+      {docsTarget && (() => {
+        const raw = _workspacesRaw.find((w) => w.id === docsTarget.id)
+        if (!raw) return null
+        return (
+          <EntityDocsDialog
+            open
+            onOpenChange={(open) => { if (!open) setDocsTarget(null) }}
+            initialTab={docsTarget.tab}
+            entityName={localized(raw.name, i18n.language)}
+            readme={raw.readme}
+            // The store keys the README by language itself, so hand back the
+            // string for the current one rather than the whole localized map.
+            onSaveReadme={(readme) => updateWorkspaceReadme(raw.id, localized(readme, i18n.language))}
+            license={raw.license}
+            onSaveLicense={(license) => updateWorkspaceLicense(raw.id, license)}
+            attachmentOwner={{ type: 'workspace', id: raw.id, workspaceId: raw.id }}
+          />
+        )
+      })()}
 
       {/* Import a workspace from a ZIP or a git clone */}
       <ImportSourceDialog open={importOpen} onOpenChange={setImportOpen} accept=".zip" onImport={handleImportSource} />
