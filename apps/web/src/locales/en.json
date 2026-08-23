@@ -1293,7 +1293,10 @@
     "delete_analysis_description": "Delete the analysis \"{{name}}\"? This cannot be undone.",
     "analysis_resize_hint": "Drag to resize the result",
     "search_analyses": "Search analyses",
-    "no_analyses_match": "No analysis matches this search."
+    "no_analyses_match": "No analysis matches this search.",
+    "export_png": "Download as PNG",
+    "export_copy_table": "Copy table",
+    "export_latex": "Copy as LaTeX"
   },
   "survey": {
     "respondents": "respondents",

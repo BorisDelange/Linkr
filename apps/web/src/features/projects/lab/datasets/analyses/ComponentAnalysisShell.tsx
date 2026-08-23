@@ -5,6 +5,8 @@ import 'allotment/dist/style.css'
 import { Settings, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { AnalysisExportMenu } from '@/components/ui/analysis-export-menu'
+import type { ExportTable } from '@/lib/table-export'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { isServerMode } from '@/lib/api-client'
 import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
@@ -16,11 +18,23 @@ interface ComponentAnalysisShellProps {
   componentId: string
 }
 
+/**
+ * Where an analysis publishes its tabular form, for the Export menu.
+ *
+ * A ref rather than a prop: the shell renders the component but does not know
+ * what it produced, and the component is several layers down. It writes its
+ * table here as a side effect of rendering, and the menu reads it on click —
+ * so a chart simply never writes, and the table entries stay hidden.
+ */
+export const analysisTableRef: { current: (() => ExportTable | null) | null } = { current: null }
+
 export function ComponentAnalysisShell({ analysis, configPanel, componentId }: ComponentAnalysisShellProps) {
   const { t } = useTranslation()
   const { files, getFileRows, updateAnalysis, saveAnalysis } = useDatasetStore()
 
   const [configVisible, setConfigVisible] = useState(true)
+  // The rendered result, for the Export menu's PNG.
+  const resultRef = useRef<HTMLDivElement | null>(null)
 
   const server = isServerMode()
   const file = files.find((f) => f.id === analysis.datasetFileId)
@@ -134,13 +148,13 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
         </button>
 
         <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-xs"
-            onClick={handleCancel}
-            disabled={!dirty}
-          >
+          <AnalysisExportMenu
+            name={analysis.name}
+            nodeRef={resultRef}
+            getTable={() => analysisTableRef.current?.() ?? null}
+          />
+          <div className="mx-1 h-4 w-px bg-border" />
+          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleCancel} disabled={!dirty}>
             {t('common.cancel')}
           </Button>
           <Button size="sm" className="h-6 gap-1 text-xs" onClick={handleSave} disabled={!dirty}>
@@ -175,6 +189,7 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
                 widthPct={(draft[SIZE_KEYS.width] as number) ?? 100}
                 heightPct={(draft[SIZE_KEYS.height] as number) ?? 100}
                 onResize={handleResize}
+                contentRef={resultRef}
               >
                 <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">…</div>}>
                   {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
@@ -218,11 +233,14 @@ function ResizableResult({
   widthPct,
   heightPct,
   onResize,
+  contentRef,
   children,
 }: {
   widthPct: number
   heightPct: number
   onResize: (size: { widthPct: number; heightPct: number }) => void
+  /** The card holding the result — what an image export rasterizes. */
+  contentRef?: React.Ref<HTMLDivElement>
   children: React.ReactNode
 }) {
   const { t } = useTranslation()
@@ -270,7 +288,7 @@ function ResizableResult({
         className="relative"
         style={{ width: `${widthPct}%`, height: `${heightPct}%`, maxWidth: '100%', maxHeight: '100%' }}
       >
-        <div className="h-full w-full overflow-auto rounded-lg border bg-card shadow-sm">
+        <div ref={contentRef} className="h-full w-full overflow-auto rounded-lg border bg-card shadow-sm">
           {children}
         </div>
         {resizing && <div className="pointer-events-none absolute inset-0 rounded-lg bg-destructive/10" />}

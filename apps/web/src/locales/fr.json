@@ -1293,7 +1293,10 @@
     "delete_analysis_description": "Supprimer l'analyse « {{name}} » ? Cette action est irréversible.",
     "analysis_resize_hint": "Glisser pour redimensionner le résultat",
     "search_analyses": "Rechercher une analyse",
-    "no_analyses_match": "Aucune analyse ne correspond à cette recherche."
+    "no_analyses_match": "Aucune analyse ne correspond à cette recherche.",
+    "export_png": "Télécharger en PNG",
+    "export_copy_table": "Copier le tableau",
+    "export_latex": "Copier en LaTeX"
   },
   "survey": {
     "respondents": "répondants",
