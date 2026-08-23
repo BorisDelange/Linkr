@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Upload, GitBranch, Loader2, FileArchive } from 'lucide-react'
+import { Upload, GitBranch, Loader2, FileArchive, Store } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,13 @@ import { gitCloneToZip } from '@/lib/api/git'
 import { isServerMode } from '@/lib/api-client'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { GitErrorInline } from '@/components/versioning/GitErrorInline'
+import { ImportCatalogTab } from '@/components/ui/import-catalog-tab'
+import { CatalogInstallOutcome } from '@/features/catalog/CatalogInstallDialog'
+import { useCatalogInstall } from '@/features/catalog/use-catalog-install'
+import { catalogTypeForScope } from '@/lib/catalog/scope'
+import { useAppStore } from '@/stores/app-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import type { GitScope } from '@/lib/api/git'
 
 /** Git link captured during an import-from-git, so the caller can pre-configure
  *  the imported entity's Versioning page with the same repo. */
@@ -43,16 +50,33 @@ interface ImportSourceDialogProps {
   /** Hide the "clone from Git" tab, leaving only ZIP upload. Used when a git remote
    *  is already linked (there, pulling — not re-importing — is the git path). */
   hideGit?: boolean
+  /**
+   * Sync scope of the page that opened the dialog. When it maps to a catalog entry type,
+   * a third tab lists that type's published entries and installs them in place. Omit it
+   * (or pass a scope the catalog does not publish) to keep the two-source dialog.
+   */
+  scope?: GitScope
+  /** Called after a catalog install, so the caller can refresh its list. */
+  onCatalogInstalled?: () => void
 }
 
 /**
- * Two-source import dialog: upload a ZIP, or clone a Git repository.
- * Git clone runs SERVER-SIDE only: the backend clones the repo and returns a ZIP,
- * which flows through the same import path as an upload. In client-only (WASM)
+ * Import dialog: upload a ZIP, clone a Git repository, or install from the community
+ * catalog. Git clone runs SERVER-SIDE only: the backend clones the repo and returns a
+ * ZIP, which flows through the same import path as an upload. In client-only (WASM)
  * mode the git tab shows a "not available" notice — the in-browser CORS-proxy
- * clone was dropped (too fragile for too little value).
+ * clone was dropped (too fragile for too little value). The catalog tab appears only
+ * when `scope` names a type the catalog publishes.
  */
-export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImport, hideGit = false }: ImportSourceDialogProps) {
+export function ImportSourceDialog({
+  open,
+  onOpenChange,
+  accept = '.zip',
+  onImport,
+  hideGit = false,
+  scope,
+  onCatalogInstalled,
+}: ImportSourceDialogProps) {
   const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [url, setUrl] = useState('')
@@ -65,6 +89,17 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
 
   // Git clone is server-side only.
   const serverMode = isServerMode()
+
+  const catalogType = catalogTypeForScope(scope)
+  const language = useAppStore((s) => s.language)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  /** Re-read what is installed after each install, exactly as the Catalog page does. */
+  const [installedNonce, setInstalledNonce] = useState(0)
+  const afterInstall = useCallback(() => {
+    setInstalledNonce((n) => n + 1)
+    onCatalogInstalled?.()
+  }, [onCatalogInstalled])
+  const catalogInstall = useCatalogInstall(activeWorkspaceId ?? '', afterInstall)
 
   const submitFile = async (file: File) => {
     // Keep the modal open with a blocking loader until the import (upload + parse
@@ -154,6 +189,12 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
                 {t('import_source.tab_git')}
               </TabsTrigger>
             )}
+            {catalogType && (
+              <TabsTrigger value="catalog" className="flex-1 gap-1.5">
+                <Store size={14} />
+                {t('import_source.tab_catalog')}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* Upload ZIP — drag-and-drop zone (matches the dataset upload dialog) */}
@@ -213,7 +254,24 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
             )}
           </TabsContent>
           )}
+
+          {/* Install from the community catalog — the third import source. */}
+          {catalogType && (
+            <TabsContent value="catalog" className="min-h-[230px] pt-3">
+              <ImportCatalogTab
+                type={catalogType}
+                workspaceId={activeWorkspaceId ?? ''}
+                install={catalogInstall}
+                language={language}
+                installedNonce={installedNonce}
+              />
+            </TabsContent>
+          )}
         </Tabs>
+
+        {/* The install's own confirm / conflict / failure dialogs, same as on the
+            Catalog page. Rendered inside this dialog so they stack above it. */}
+        {catalogType && <CatalogInstallOutcome install={catalogInstall} language={language} />}
       </DialogContent>
     </Dialog>
   )

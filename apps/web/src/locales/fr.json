@@ -4501,6 +4501,8 @@
     "importing": "Import en cours… cela peut prendre un moment pour les gros fichiers.",
     "tab_upload": "Téléverser un ZIP",
     "tab_git": "Depuis Git",
+    "tab_catalog": "Depuis le catalogue",
+    "catalog_empty": "Aucun élément de ce type n'est encore publié dans le catalogue.",
     "drag_drop_or": "Glissez-déposez un fichier ici, ou cliquez pour parcourir",
     "upload_hint": "Fichier ZIP exporté depuis Linkr",
     "choose_file": "Choisir un fichier",

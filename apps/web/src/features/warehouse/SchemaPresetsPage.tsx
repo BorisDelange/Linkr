@@ -1609,12 +1609,15 @@ export function SchemaPresetsPage() {
                 />
           </DialogShell>
 
-          {/* Import source (ZIP or git) — same modal as the other list pages */}
+          {/* Import source (ZIP, git or catalog) — same modal as the other list pages.
+              Since the built-in presets were retired, the catalog tab is how OMOP and
+              MIMIC schemas reach a fresh instance. */}
           <ImportSourceDialog
             open={importOpen}
             onOpenChange={(o) => { setImportOpen(o); if (!o) setImportError(null) }}
             accept=".zip,.json"
             onImport={handleImportSource}
+            scope="schema-presets"
           />
 
           <AlertDialog open={importError !== null} onOpenChange={(open) => { if (!open) setImportError(null) }}>

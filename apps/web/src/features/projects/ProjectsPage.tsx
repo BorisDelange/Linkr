@@ -518,8 +518,8 @@ export function ProjectsPage() {
         onOverwrite={() => { if (importConflict) doImport(importConflict.pending, false, importConflict.gitRemote); setImportConflict(null) }}
       />
 
-      {/* Import project (ZIP upload or git clone) */}
-      <ImportSourceDialog open={importOpen} onOpenChange={setImportOpen} accept=".zip" onImport={handleImportSource} />
+      {/* Import project (ZIP upload, git clone, or catalog install) */}
+      <ImportSourceDialog open={importOpen} onOpenChange={setImportOpen} accept=".zip" onImport={handleImportSource} scope="projects" />
 
       {/* Delete project confirmation */}
       <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteConfirm('') } }}>

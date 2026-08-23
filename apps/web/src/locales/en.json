@@ -4501,6 +4501,8 @@
     "importing": "Importing… this can take a while for large files.",
     "tab_upload": "Upload ZIP",
     "tab_git": "From Git",
+    "tab_catalog": "From the catalog",
+    "catalog_empty": "Nothing of this type is published in the catalog yet.",
     "drag_drop_or": "Drag and drop a file here, or click to browse",
     "upload_hint": "ZIP file exported from Linkr",
     "choose_file": "Choose file",

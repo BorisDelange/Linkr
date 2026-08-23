@@ -306,6 +306,9 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
           onOpenChange={setImportOpen}
           accept={importAccept}
           onImport={onImport}
+          // Same scope the page already declares for git sync: it also names the
+          // catalog type whose entries this page can install.
+          scope={syncScope}
         />
       )}
     </PageContainer>
