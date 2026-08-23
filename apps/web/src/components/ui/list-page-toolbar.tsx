@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDown, ArrowUp, Check, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { SearchInput } from '@/components/ui/search-input'
@@ -178,9 +178,16 @@ export function ListPageToolbar({
                             active ? 'bg-accent/60' : 'hover:bg-accent/30',
                           )}
                         >
+                          {/* Unsorted shows a dimmed up/down pair rather than an empty
+                              slot: it fills the gutter and advertises that the row sorts. */}
                           <span className="flex size-3.5 shrink-0 items-center justify-center">
-                            {dir === 'asc' && <ArrowUp size={13} className="text-primary" strokeWidth={2.5} />}
-                            {dir === 'desc' && <ArrowDown size={13} className="text-primary" strokeWidth={2.5} />}
+                            {dir === 'asc' ? (
+                              <ArrowUp size={13} className="text-primary" strokeWidth={2.5} />
+                            ) : dir === 'desc' ? (
+                              <ArrowDown size={13} className="text-primary" strokeWidth={2.5} />
+                            ) : (
+                              <ArrowUpDown size={13} className="text-muted-foreground/40" strokeWidth={2} />
+                            )}
                           </span>
                           <span className="truncate">{field.label}</span>
                         </button>
