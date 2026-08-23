@@ -91,6 +91,8 @@ export function ImportSourceDialog({
   const serverMode = isServerMode()
 
   const catalogType = catalogTypeForScope(scope)
+  /** Tracked only to widen the dialog on the catalog tab, whose cards need the room. */
+  const [tab, setTab] = useState('upload')
   const language = useAppStore((s) => s.language)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   /** Re-read what is installed after each install, exactly as the Catalog page does. */
@@ -171,13 +173,16 @@ export function ImportSourceDialog({
       if (!o) setError(null)
       onOpenChange(o)
     }}>
-      <DialogContent>
+      {/* The catalog tab shows the same cards as the Catalog page, two to a row; the
+          default lg modal is far too narrow for them, so the dialog grows on that tab
+          only and the other two keep their compact size. */}
+      <DialogContent className={tab === 'catalog' ? 'sm:max-w-4xl' : undefined}>
         <DialogHeader>
           <DialogTitle>{t('import_source.title')}</DialogTitle>
           <DialogDescription>{t('import_source.description')}</DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="upload">
+        <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="w-full">
             <TabsTrigger value="upload" className="flex-1 gap-1.5">
               <FileArchive size={14} />
@@ -257,7 +262,7 @@ export function ImportSourceDialog({
 
           {/* Install from the community catalog — the third import source. */}
           {catalogType && (
-            <TabsContent value="catalog" className="min-h-[230px] pt-3">
+            <TabsContent value="catalog" className="pt-3">
               <ImportCatalogTab
                 type={catalogType}
                 workspaceId={activeWorkspaceId ?? ''}
