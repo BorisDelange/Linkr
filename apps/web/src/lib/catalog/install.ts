@@ -5,10 +5,11 @@
  *   gitCloneToZip → create a minimal record → applyClonedEntity
  *
  * That is the same sequence `WorkspacesPage.cloneEntityContent` runs for git-linked
- * entities, and it reads the **git repo layout**. The standalone per-page importers read
- * the *standalone export* layout, which differs for dq-rule-sets (`ruleset.json` vs the
- * repo's `rule-set.json`) and schema-presets (which rebuild version/createdAt) — so
- * routing a clone through them would silently fail or lose fields.
+ * entities. Both read the **git repo layout**, which is now the only layout: every
+ * per-page ZIP export goes through the same `build*Folder` builders as the git sync,
+ * so an exported ZIP and a cloned repo are the same tree. (They were not: the DQ
+ * export wrote `ruleset.json` where the repo writes `rule-set.json`, and the schema
+ * export wrote a bare mapping JSON with no `schema.ddl` at all.)
  *
  * `applyClonedEntity` only ever *updates* a row (it assumes the workspace import already
  * created one from a pointer), hence the minimal-record step below.

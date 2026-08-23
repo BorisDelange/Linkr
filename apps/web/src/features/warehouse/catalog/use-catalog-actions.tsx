@@ -2,7 +2,8 @@ import { useCallback } from 'react'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { localized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, slugify } from '@/lib/entity-io'
+import JSZip from 'jszip'
+import { buildDataCatalogFolder, downloadBlob, slugify } from '@/lib/entity-io'
 import { CreateCatalogDialog } from './CreateCatalogDialog'
 import type { DataCatalog, GitRemoteConfig } from '@/types'
 import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
@@ -29,11 +30,14 @@ export function useCatalogActions(): CatalogActions {
   const deleteCatalog = useCatalogStore((s) => s.deleteCatalog)
   const loadCatalogs = useCatalogStore((s) => s.loadCatalogs)
 
+  // Same builder the git sync uses, so a ZIP export and a push produce the same tree.
+  // Writing catalog.json by hand skipped stripInstanceFields (workspaceId and
+  // gitRemoteConfig travelled) and the README/LICENSE files.
   const onExport = useCallback(async (catalog: DataCatalog) => {
-    await exportEntityZip(
-      [{ filename: 'catalog.json', data: catalog }],
-      `${slugify(localized(catalog.name, 'en'))}.zip`,
-    )
+    const zip = new JSZip()
+    await buildDataCatalogFolder(zip, '', catalog, getStorage())
+    const blob = await zip.generateAsync({ type: 'blob' })
+    downloadBlob(blob, `${slugify(localized(catalog.name, 'en'))}.zip`)
   }, [])
 
   const onSaveGitRemote = useCallback(async (c: DataCatalog, config: GitRemoteConfig | null) => {

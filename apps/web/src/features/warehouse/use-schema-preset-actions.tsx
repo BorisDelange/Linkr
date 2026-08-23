@@ -2,7 +2,9 @@ import { useCallback } from 'react'
 import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { SchemaPresetRenameDialog } from './SchemaPresetRenameDialog'
 import { localized } from '@/lib/localized'
-import type { CustomSchemaPreset, GitRemoteConfig, LocalizedString, SchemaMapping } from '@/types'
+import { getStorage } from '@/lib/storage'
+import { buildSchemaPresetZip, downloadBlob, slugify } from '@/lib/entity-io'
+import type { CustomSchemaPreset, GitRemoteConfig, LocalizedString } from '@/types'
 import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 
 /** A CustomSchemaPreset adapted to EntityActionsMenu's `{ id, name }` contract. */
@@ -25,19 +27,6 @@ export interface SchemaPresetActions {
   docs: EntityDocsAccessors<SchemaPresetItem>
 }
 
-function downloadMapping(mapping: SchemaMapping) {
-  const exportData = structuredClone(mapping)
-  delete (exportData as { knownTables?: string[] }).knownTables
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  const slug = localized(mapping.presetLabel, 'en').replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase()
-  a.download = `linkr-schema-${slug}.json`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 /**
  * Shared per-item actions config for a schema preset (edit / export / git link /
  * delete). Used by both the list page cards and the header badge menu so the two
@@ -52,9 +41,18 @@ export function useSchemaPresetActions(): SchemaPresetActions {
     await setGitRemote(item.presetId, config)
   }, [setGitRemote])
 
+  // Same builder the git sync uses. The export used to be a bare mapping JSON, which
+  // dropped the DDL entirely — re-importing it created every table with no columns —
+  // along with the README/LICENSE and the preset's own metadata (version, author).
+  const onExport = useCallback(async (item: SchemaPresetItem) => {
+    const built = await buildSchemaPresetZip(item.presetId, getStorage())
+    if (!built) return
+    downloadBlob(built.blob, `${slugify(localized(item.mapping.presetLabel, 'en') || item.presetId)}.zip`)
+  }, [])
+
   return {
     onDelete: (id) => deletePreset(id),
-    onExport: (item) => downloadMapping(item.mapping),
+    onExport,
     getGitRemote: (item) => item.gitRemoteConfig ?? null,
     onSaveGitRemote,
     exportSupportsIncludeData: false,

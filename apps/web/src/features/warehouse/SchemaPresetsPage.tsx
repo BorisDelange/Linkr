@@ -1370,14 +1370,13 @@ export function SchemaPresetsPage() {
     await storeSave(preset)
   }, [wsUid, language, storeDelete, storeSave])
 
-  // A schema-preset export ZIP carries the preset in preset.json and its DDL in
-  // schema.ddl beside it; a plain file upload is a bare mapping JSON carrying its
-  // own ddl. Accept both — the ZIP's DDL has to be folded back in, since
-  // preset.json no longer holds it. The docs are applied separately, from the
-  // same parsed ZIP (see doPresetImport).
+  // One layout, whether the ZIP came from an export or a clone: preset.json holds
+  // the mapping and schema.ddl holds the DDL beside it (buildSchemaPresetFolder).
+  // The DDL has to be folded back in, since preset.json no longer carries it. The
+  // docs are applied separately, from the same parsed ZIP (see doPresetImport).
   const extractMapping = (parsed: Record<string, unknown>): SchemaMapping | null => {
     const presetFile = parsed['preset.json'] as { mapping?: SchemaMapping } | undefined
-    const mapping = (presetFile?.mapping ?? parsed['preset.json'] ?? Object.values(parsed)[0]) as SchemaMapping | undefined
+    const mapping = presetFile?.mapping
     if (!mapping?.presetId || !mapping?.presetLabel) return null
     const ddl = parsed[SCHEMA_PRESET_DDL_FILE]
     return typeof ddl === 'string' && ddl ? { ...mapping, ddl } : mapping
@@ -1385,19 +1384,8 @@ export function SchemaPresetsPage() {
 
   const handleImportSource = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     try {
-      // A schema preset exports as a bare mapping .json (see useSchemaPresetActions)
-      // or, via git, as a ZIP with preset.json. Try the plain JSON first, then the
-      // ZIP layout — so both the file upload and a git clone work.
-      let parsed: Record<string, unknown> | null = null
-      let mapping: SchemaMapping | null = null
-      try {
-        parsed = { 'preset.json': JSON.parse(await file.text()) }
-        mapping = extractMapping(parsed)
-      } catch { /* not plain JSON — fall through to ZIP */ }
-      if (!mapping) {
-        parsed = await parseImportZip(file)
-        mapping = extractMapping(parsed)
-      }
+      const parsed = await parseImportZip(file)
+      const mapping = extractMapping(parsed)
       if (!mapping || !parsed) {
         setImportError(t('settings.schema_preset_import_invalid'))
         return
@@ -1615,7 +1603,7 @@ export function SchemaPresetsPage() {
           <ImportSourceDialog
             open={importOpen}
             onOpenChange={(o) => { setImportOpen(o); if (!o) setImportError(null) }}
-            accept=".zip,.json"
+            accept=".zip"
             onImport={handleImportSource}
             scope="schema-presets"
           />

@@ -2,7 +2,8 @@ import { useCallback } from 'react'
 import { useDqStore } from '@/stores/dq-store'
 import { localized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, slugify } from '@/lib/entity-io'
+import JSZip from 'jszip'
+import { buildDqRuleSetFolder, downloadBlob, slugify } from '@/lib/entity-io'
 import { CreateDqRuleSetDialog } from './CreateDqRuleSetDialog'
 import type { DqRuleSet, GitRemoteConfig } from '@/types'
 import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
@@ -29,15 +30,14 @@ export function useDqRuleSetActions(): DqRuleSetActions {
   const deleteRuleSet = useDqStore((s) => s.deleteRuleSet)
   const loadDqRuleSets = useDqStore((s) => s.loadDqRuleSets)
 
+  // Same builder the git sync uses. The hand-rolled version wrote `ruleset.json`
+  // where the git layout writes `rule-set.json`, so a ZIP export and a push produced
+  // two incompatible trees — and it skipped stripInstanceFields and the docs.
   const onExport = useCallback(async (rs: DqRuleSet) => {
-    const checks = await getStorage().dqCustomChecks.getByRuleSet(rs.id)
-    await exportEntityZip(
-      [
-        { filename: 'ruleset.json', data: rs },
-        { filename: 'checks.json', data: checks },
-      ],
-      `${slugify(localized(rs.name, 'en'))}.zip`,
-    )
+    const zip = new JSZip()
+    await buildDqRuleSetFolder(zip, '', rs, getStorage())
+    const blob = await zip.generateAsync({ type: 'blob' })
+    downloadBlob(blob, `${slugify(localized(rs.name, 'en'))}.zip`)
   }, [])
 
   const onSaveGitRemote = useCallback(async (rs: DqRuleSet, config: GitRemoteConfig | null) => {
