@@ -1296,7 +1296,12 @@
     "no_analyses_match": "Aucune analyse ne correspond à cette recherche.",
     "export_png": "Télécharger en PNG",
     "export_copy_table": "Copier le tableau",
-    "export_latex": "Copier en LaTeX"
+    "export_latex": "Copier en LaTeX",
+    "table1_variable": "Variable",
+    "table1_missing": "Manquants",
+    "table1_others": "Autres",
+    "table1_overall": "Total",
+    "table1_no_columns": "Choisissez au moins une variable à décrire."
   },
   "survey": {
     "respondents": "répondants",

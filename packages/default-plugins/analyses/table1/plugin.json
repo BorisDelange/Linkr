@@ -1,47 +1,185 @@
 {
   "id": "linkr-analysis-table1",
   "name": {
-    "en": "Table 1",
-    "fr": "Tableau 1"
+    "en": "Descriptive table",
+    "fr": "Tableau descriptif"
   },
   "description": {
-    "en": "Descriptive statistics table with counts, percentages, means, medians, and IQR for each variable. Supports optional group-by.",
-    "fr": "Tableau de statistiques descriptives avec effectifs, pourcentages, moyennes, médianes et IQR pour chaque variable. Supporte un regroupement optionnel."
+    "en": "The descriptive table of a paper: one row per variable, one column per group, typeset the way a journal prints it. Categorical variables get one indented row per level; numeric ones a median [IQR] or mean ± SD.",
+    "fr": "Le tableau descriptif d'un article : une ligne par variable, une colonne par groupe, mis en forme comme dans une revue. Les variables qualitatives ont une ligne indentée par modalité, les quantitatives une médiane [IQR] ou moyenne ± ET."
   },
-  "version": "1.0.0",
+  "version": "2.0.0",
   "category": "analysis",
-  "tags": ["descriptive", "table"],
-  "runtime": ["component"],
+  "tags": [
+    "descriptive",
+    "table",
+    "table1",
+    "baseline",
+    "characteristics",
+    "publication"
+  ],
+  "runtime": [
+    "component"
+  ],
   "languages": [],
   "icon": "TableIcon",
   "configSchema": {
     "selectedColumns": {
       "type": "column-select",
       "multi": true,
-      "label": { "en": "Variables", "fr": "Variables" },
-      "defaultAll": true
+      "label": {
+        "en": "Variables",
+        "fr": "Variables"
+      },
+      "defaultAll": true,
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "The rows of the table, in this order.",
+        "fr": "Les lignes du tableau, dans cet ordre."
+      }
     },
     "groupByColumn": {
       "type": "column-select",
       "multi": false,
       "optional": true,
       "filter": "categorical",
-      "label": { "en": "Group by", "fr": "Grouper par" }
+      "label": {
+        "en": "Group by",
+        "fr": "Grouper par"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "One column per group, each headed by its own n. The grouping variable is never described as a row of itself.",
+        "fr": "Une colonne par groupe, chacune avec son effectif. La variable de regroupement n'est jamais décrite comme une ligne d'elle-même."
+      }
     },
-    "metrics": {
+    "stat": {
       "type": "select",
-      "multi": true,
-      "label": { "en": "Metrics", "fr": "Métriques" },
-      "defaultAll": true,
+      "label": {
+        "en": "Numeric summary",
+        "fr": "Résumé numérique"
+      },
+      "default": "median_iqr",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Median [IQR] is the default: lengths of stay and scores are rarely gaussian, and a mean misleads on exactly those.",
+        "fr": "Médiane [IQR] par défaut : les durées de séjour et les scores sont rarement gaussiens, et la moyenne y induit en erreur."
+      },
       "options": [
-        { "value": "n", "label": { "en": "n", "fr": "n" } },
-        { "value": "missing", "label": { "en": "Missing", "fr": "Manquants" } },
-        { "value": "mean_sd", "label": { "en": "Mean ± SD", "fr": "Moyenne ± ET" } },
-        { "value": "median_iqr", "label": { "en": "Median [IQR]", "fr": "Médiane [IQR]" } },
-        { "value": "min_max", "label": { "en": "Min / Max", "fr": "Min / Max" } },
-        { "value": "range", "label": { "en": "Range", "fr": "Étendue" } },
-        { "value": "categories", "label": { "en": "Categories", "fr": "Catégories" } }
+        {
+          "value": "median_iqr",
+          "label": {
+            "en": "Median [IQR]",
+            "fr": "Médiane [IQR]"
+          }
+        },
+        {
+          "value": "mean_sd",
+          "label": {
+            "en": "Mean ± SD",
+            "fr": "Moyenne ± ET"
+          }
+        },
+        {
+          "value": "min_max",
+          "label": {
+            "en": "Min / Max",
+            "fr": "Min / Max"
+          }
+        },
+        {
+          "value": "range",
+          "label": {
+            "en": "Range",
+            "fr": "Étendue"
+          }
+        }
       ]
+    },
+    "maxLevels": {
+      "type": "number",
+      "label": {
+        "en": "Max levels",
+        "fr": "Modalités au maximum"
+      },
+      "default": 0,
+      "min": 0,
+      "max": 50,
+      "row": "dataOpts",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "0 shows every level. Otherwise the rest are folded into 'Other' rather than dropped.",
+        "fr": "0 affiche toutes les modalités. Sinon les autres sont regroupées en « Autres » plutôt que supprimées."
+      }
+    },
+    "showMissing": {
+      "type": "boolean",
+      "label": {
+        "en": "Missing row",
+        "fr": "Ligne manquants"
+      },
+      "default": true,
+      "row": "dataOpts",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Percentages are over those who answered, so missing data is reported on its own row rather than silently shrinking every other percentage.",
+        "fr": "Les pourcentages portent sur les répondants ; les données manquantes ont donc leur propre ligne plutôt que de réduire silencieusement tous les autres pourcentages."
+      }
+    },
+    "showOverall": {
+      "type": "boolean",
+      "label": {
+        "en": "Overall column",
+        "fr": "Colonne Total"
+      },
+      "default": false,
+      "row": "styleOpts",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "groupByColumn",
+        "notEmpty": true
+      },
+      "description": {
+        "en": "A column pooling every group. Counts only — a median cannot be pooled from group medians.",
+        "fr": "Une colonne cumulant tous les groupes. Effectifs seulement — une médiane ne se cumule pas à partir des médianes de groupe."
+      }
+    },
+    "wrap": {
+      "type": "boolean",
+      "label": {
+        "en": "Wrap long text",
+        "fr": "Retour à la ligne"
+      },
+      "default": false,
+      "row": "styleOpts",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Off by default: irregular row heights break the vertical scan that is the point of a column of figures. Long text is truncated with the full value on hover.",
+        "fr": "Désactivé par défaut : des hauteurs de lignes irrégulières cassent la lecture verticale d'une colonne de chiffres. Le texte long est tronqué, la valeur complète au survol."
+      }
     }
   }
 }

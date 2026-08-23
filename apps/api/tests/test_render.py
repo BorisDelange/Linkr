@@ -16,7 +16,7 @@ from app.services.execution.render import (
 # The built-in analyses and a minimal valid spec for each (column names +
 # options), enough for validate_spec to pass and build_code to emit runnable code.
 _KINDS = {
-    "table1": {"selected": [{"name": "age", "numeric": True}], "group": None, "metrics": ["n"]},
+    "table1": {"selected": [{"name": "age", "label": "Age", "numeric": True}], "group": None, "stat": "median_iqr"},
     "correlation-matrix": {"names": ["a", "b"], "method": "pearson"},
     "map": {"lat": "lat", "lon": "lon", "popup": []},
     "kaplan-meier": {"time": "t", "event": "e", "group": None, "confidenceLevel": 95},
@@ -57,23 +57,25 @@ def test_build_render_code_unknown_kind_raises():
 
 def test_table1_validate_spec_normalizes_and_filters():
     spec = table1.validate_spec({
-        "selected": [{"name": "age", "numeric": True}, {"name": "sex"}],
-        "group": "arm",
-        "metrics": ["n", "mean_sd", "bogus"],  # bogus dropped
+        "selected": [{"name": "age", "label": "Age", "numeric": True}, {"name": "sex"}],
+        "group": {"name": "arm"},
+        "stat": "bogus",  # falls back rather than reaching the Python
     })
     assert spec["selected"] == [
-        {"name": "age", "numeric": True},
-        {"name": "sex", "numeric": False},
+        {"name": "age", "label": "Age", "numeric": True},
+        # A variable with no label prints its storage name rather than nothing.
+        {"name": "sex", "label": "sex", "numeric": False},
     ]
-    assert spec["group"] == "arm"
-    assert spec["metrics"] == ["n", "mean_sd"]  # unknown metric filtered out
+    assert spec["group"] == {"name": "arm", "label": "arm"}
+    assert spec["stat"] == "median_iqr"
 
 
 @pytest.mark.parametrize("bad", [
     {"selected": "not-a-list"},
     {"selected": [{"numeric": True}]},  # missing name
     {"selected": [{"name": 123}]},      # non-string name
-    {"selected": [], "group": 5},       # non-string group
+    {"selected": [], "group": 5},       # group must be {name, label}
+    {"selected": [], "group": {"label": "x"}},  # group without a name
     "not-a-dict",
 ])
 def test_table1_validate_spec_rejects_malformed(bad):
@@ -204,6 +206,132 @@ def test_plot_builder_unique_per_keeps_non_numeric_first():
 
 def pytest_approx_stats(v):
     return {"min": v, "q1": v, "median": v, "q3": v, "max": v, "mean": v}
+
+
+# ---------------------------------------------------------------------------
+# table1 (descriptive table)
+#
+# Parity with buildDescriptiveTable() in
+# apps/web/src/lib/stats/descriptive-table.ts. The denominators are what must
+# match: a level's percentage is over those who ANSWERED, while the missing row
+# is over the group total.
+# ---------------------------------------------------------------------------
+
+
+def _run_table1(df, spec):
+    """Execute the built render code against a DataFrame, as the kernel does."""
+    import contextlib
+    import io
+    import json as _json
+
+    code = table1.build_code(table1.validate_spec(spec))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        exec(compile(code, "<render:table1>", "exec"), {"dataset": df})  # noqa: S102
+    return _json.loads(buf.getvalue().strip())
+
+
+def _svc_spec(**over):
+    spec = {
+        "selected": [{"name": "svc", "label": "Service", "numeric": False}],
+        "group": None,
+        "stat": "median_iqr",
+        "showMissing": True,
+        "missingLabel": "Missing",
+        "maxLevels": 0,
+        "othersLabel": "Other",
+    }
+    spec.update(over)
+    return spec
+
+
+def test_table1_emits_heading_then_indented_levels():
+    import pandas as pd
+
+    df = pd.DataFrame({"svc": ["ICU", "ICU", "ICU", "HDU", "HDU", None]})
+    out = _run_table1(df, _svc_spec())
+    assert [(r["label"], r["indent"]) for r in out["rows"]] == [
+        ("Service", False),
+        ("ICU", True),
+        ("HDU", True),
+        ("Missing", True),
+    ]
+
+
+def test_table1_level_percentages_are_over_those_who_answered():
+    import pandas as pd
+
+    # 5 answered of 6: ICU is 3/5 = 60%, not 3/6 = 50%.
+    df = pd.DataFrame({"svc": ["ICU", "ICU", "ICU", "HDU", "HDU", None]})
+    out = _run_table1(df, _svc_spec())
+    assert out["rows"][1]["cells"][""]["text"] == "3 (60%)"
+    # Missing is the exception: its denominator IS everyone.
+    assert out["rows"][3]["cells"][""]["text"] == "1 (17%)"
+
+
+def test_table1_rounds_half_up_like_javascript():
+    """Python's round() is banker's rounding, Math.round() is not.
+
+    1 of 8 is 12.5%: round() gives 12, Math.round gives 13. Left alone this
+    prints a different number server-side than client-side on the same data.
+    """
+    import pandas as pd
+
+    df = pd.DataFrame({"svc": ["a"] + ["b"] * 7})
+    out = _run_table1(df, _svc_spec())
+    assert out["rows"][2]["cells"][""]["text"] == "1 (13%)"
+
+
+def test_table1_numeric_uses_sample_sd_and_r_type7_quartiles():
+    import pandas as pd
+
+    df = pd.DataFrame({"age": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]})
+    spec = _svc_spec(selected=[{"name": "age", "label": "Age", "numeric": True}])
+    med = _run_table1(df, spec)["rows"][0]["cells"][""]["text"]
+    assert med == "5.5 [3.3–7.8]"
+    spec["stat"] = "mean_sd"
+    # Sample SD is 3.0277; the population one would be 2.87.
+    assert _run_table1(df, spec)["rows"][0]["cells"][""]["text"] == "5.5 ± 3.0"
+
+
+def test_table1_groups_and_keeps_missing_group_as_its_own():
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "arm": ["A", "A", "A", "B", "B", None],
+        "svc": ["ICU", "ICU", "HDU", "ICU", "HDU", "ICU"],
+    })
+    out = _run_table1(df, _svc_spec(group={"name": "arm", "label": "Arm"}))
+    # Dropping the ungrouped row would change every other denominator.
+    assert "—" in out["groups"]
+    assert out["groupSizes"]["A"] == 3
+    icu = next(r for r in out["rows"] if r["label"] == "ICU")
+    assert icu["cells"]["A"]["text"] == "2 (67%)"
+    assert icu["cells"]["B"]["text"] == "1 (50%)"
+
+
+def test_table1_folds_the_tail_into_others():
+    import pandas as pd
+
+    df = pd.DataFrame({"svc": ["a", "a", "a", "b", "b", "c", "d"]})
+    out = _run_table1(df, _svc_spec(maxLevels=2, othersLabel="Autres"))
+    levels = [r["label"] for r in out["rows"] if r["indent"]]
+    assert levels == ["a", "b", "Autres"]
+    others = next(r for r in out["rows"] if r["label"] == "Autres")
+    assert others["cells"][""]["text"] == "2 (29%)"
+
+
+def test_table1_shows_a_dash_rather_than_nan():
+    import pandas as pd
+
+    df = pd.DataFrame({"age": [None, None]})
+    spec = _svc_spec(selected=[{"name": "age", "label": "Age", "numeric": True}])
+    assert _run_table1(df, spec)["rows"][0]["cells"][""]["text"] == "—"
+
+
+def test_table1_rejects_a_malformed_group():
+    with pytest.raises(ValueError):
+        table1.validate_spec({"selected": [], "group": "arm"})
 
 
 # ---------------------------------------------------------------------------
