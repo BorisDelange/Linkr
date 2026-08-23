@@ -21,7 +21,7 @@
  * bare table — the sidebar's shape, which reads at a glance and never clips.
  */
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Bar,
@@ -29,7 +29,6 @@ import {
   CartesianGrid,
   Cell,
   LabelList,
-  Legend,
   Pie,
   PieChart,
   ReferenceLine,
@@ -42,7 +41,7 @@ import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { DatasetColumn } from '@/types'
 import { resolveColor, resolvePalette, TOOLTIP_STYLE } from '@/lib/plugins/shared-styles'
-import { niceTicks } from '@/lib/chart-ticks'
+import { niceTicks, tightHistogramScale } from '@/lib/chart-ticks'
 import { BoxPlot } from '@/components/charts/box-plot'
 import { TruncatedTick, TruncatedNumericTick } from './chart-axis-helpers'
 import {
@@ -517,51 +516,80 @@ function SharePie({
   palette: string
   compact?: boolean
 }) {
+  const { t } = useTranslation()
   const colors = resolvePalette(palette)
   const total = counts.reduce((s, c) => s + c.count, 0)
+  const pct = (n: number) => (total ? (n / total) * 100 : 0)
+
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
-        <Pie
-          data={counts}
-          dataKey="count"
-          nameKey="label"
-          cx={compact ? '50%' : '38%'}
-          innerRadius={donut ? '48%' : 0}
-          outerRadius="82%"
-          paddingAngle={counts.length > 1 ? 1.5 : 0}
-          strokeWidth={0}
-          isAnimationActive={false}
-          label={false}
-        >
-          {counts.map((c, i) => (
-            <Cell key={c.code} fill={colors[i % colors.length]} />
-          ))}
-        </Pie>
-        <ChartTooltip
-          {...TOOLTIP_STYLE}
-          formatter={(value: unknown, name: unknown) => [
-            `${Number(value)} (${total ? ((Number(value) / total) * 100).toFixed(0) : 0}%)`,
-            String(name),
-          ]}
-        />
-        {!compact && (
-          <Legend
-            layout="vertical"
-            align="right"
-            verticalAlign="middle"
-            wrapperStyle={{
-              fontSize: 10,
-              lineHeight: 1.4,
-              maxWidth: '42%',
-              maxHeight: '100%',
-              overflowY: 'auto',
-              overflowX: 'hidden',
-            }}
-          />
+    <div className={cn('flex h-full min-h-0 w-full', compact ? 'flex-col' : 'items-center gap-3')}>
+      <div className={cn('relative min-h-0', compact ? 'h-full w-full' : 'h-full flex-[3]')}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+            <Pie
+              data={counts}
+              dataKey="count"
+              nameKey="label"
+              cx="50%"
+              cy="50%"
+              innerRadius={donut ? '55%' : 0}
+              outerRadius="88%"
+              paddingAngle={counts.length > 1 ? 1.5 : 0}
+              strokeWidth={0}
+              isAnimationActive={false}
+              label={false}
+            >
+              {counts.map((c, i) => (
+                <Cell key={c.code} fill={colors[i % colors.length]} />
+              ))}
+            </Pie>
+            <ChartTooltip
+              {...TOOLTIP_STYLE}
+              formatter={(value: unknown, name: unknown) => [
+                `${formatCount(Number(value))} (${pct(Number(value)).toFixed(1)}%)`,
+                String(name),
+              ]}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        {/* The hole is the natural place for the total, and an empty one just
+            reads as a missing centre. Only for a donut — over a full pie this
+            would sit on top of the slices. */}
+        {donut && (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <span className={cn('font-semibold tabular-nums', compact ? 'text-sm' : 'text-lg')}>
+              {formatCount(total)}
+            </span>
+            <span className="text-[10px] text-muted-foreground">{t('survey.col_count')}</span>
+          </div>
         )}
-      </PieChart>
-    </ResponsiveContainer>
+      </div>
+
+      {/* A real legend rather than recharts': the share is the point of a pie,
+          and reading it off the slices is guesswork. Swatch, label, count and
+          percentage, with the full label on hover when it is clipped. */}
+      {!compact && (
+        <ul className="h-full min-w-0 flex-[2] space-y-0.5 overflow-y-auto pr-1 text-xs">
+          {counts.map((c, i) => (
+            <li key={c.code} className="flex items-center gap-1.5">
+              <span
+                className="size-2 shrink-0 rounded-[2px]"
+                style={{ background: colors[i % colors.length] }}
+              />
+              <span className="min-w-0 flex-1 truncate" title={c.label}>
+                {c.label}
+              </span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {formatCount(c.count)}
+              </span>
+              <span className="w-10 shrink-0 text-right tabular-nums font-medium">
+                {pct(c.count).toFixed(1)}%
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 
@@ -586,69 +614,142 @@ function Histogram({
   showGrid: boolean
   compact?: boolean
 }) {
-  const data = useMemo(() => {
-    if (values.length === 0) return []
+  const { t } = useTranslation()
+
+  const { data, width } = useMemo(() => {
+    if (values.length === 0) return { data: [], width: 1 }
     const min = Math.min(...values)
     const max = Math.max(...values)
-    if (min === max) return [{ label: String(min), value: values.length, start: min }]
+    if (min === max) return { data: [{ center: min, start: min, end: min, value: values.length }], width: 1 }
     // Sturges' rule when the caller does not pick a bin count.
     const count = bins > 0 ? bins : Math.min(20, Math.ceil(Math.log2(values.length) + 1))
-    const width = (max - min) / count
+    const w = (max - min) / count
     const buckets = Array.from({ length: count }, (_, i) => ({
-      start: min + i * width,
+      start: min + i * w,
+      end: min + (i + 1) * w,
+      // Bars sit at the bin's CENTRE on a numeric axis, so a bar visually spans
+      // the interval it counts instead of starting at its left edge.
+      center: min + (i + 0.5) * w,
       value: 0,
-      label: '',
     }))
     for (const v of values) {
-      const idx = Math.min(count - 1, Math.floor((v - min) / width))
-      buckets[idx].value++
+      buckets[Math.min(count - 1, Math.floor((v - min) / w))].value++
     }
-    for (const b of buckets) {
-      b.label = Number.isInteger(width) ? String(Math.round(b.start)) : b.start.toFixed(1)
-    }
-    return buckets
+    return { data: buckets, width: w }
   }, [values, bins])
 
-  const scale = niceTicks([0, Math.max(...data.map((d) => d.value), 1)], true)
+  // A REAL numeric x axis, not one category per bin. Bin edges are arbitrary
+  // numbers (467.3, 1041.8…), so as categories they can never be round — the
+  // axis has to carry the scale for the ticks to land on values a reader
+  // recognises. It also puts the median line at its true position rather than
+  // snapping it to the nearest bin label.
+  const xScale = useMemo(() => {
+    if (data.length === 0) return null
+    const lo = data[0].start
+    const hi = data[data.length - 1].end
+    return tightHistogramScale([lo, hi])
+  }, [data])
+
+  const yScale = niceTicks([0, Math.max(...data.map((d) => d.value), 1)], true)
+
+  // Bin width as a fraction of the plotted domain, turned into pixels against
+  // the container. Measured rather than assumed: the domain is padded half a
+  // bin either side, so bins do not simply divide the width evenly.
+  const [plotWidth, setPlotWidth] = useState(0)
+  const holderRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = holderRef.current
+    if (!el) return
+    const measure = () => setPlotWidth(el.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  const domainSpan = xScale ? xScale.domain[1] - xScale.domain[0] : 0
+  const axisPixels = Math.max(0, plotWidth - Y_AXIS_WIDTH)
+  const barPixels =
+    domainSpan > 0 && axisPixels > 0
+      ? Math.max(1, (width / domainSpan) * axisPixels - 1)
+      : undefined
+
+  if (data.length === 0) return <Empty text={t('survey.no_answers')} />
 
   return (
+    <div ref={holderRef} className="h-full w-full">
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 4, left: 0 }} barCategoryGap={1}>
+      <BarChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} vertical={false} />}
         <XAxis
-          dataKey="label"
+          type="number"
+          dataKey="center"
+          domain={xScale ? xScale.domain : ['dataMin', 'dataMax']}
+          ticks={xScale?.ticks}
           tickLine={false}
           axisLine={false}
-          interval="preserveStartEnd"
           height={compact ? 20 : 24}
-          tick={<TruncatedTick maxLen={compact ? 6 : 10} />}
+          tick={{ fontSize: compact ? 9 : 10, fill: 'var(--color-muted-foreground)' }}
+          tickFormatter={formatAxisNumber}
         />
         <YAxis
           tickLine={false}
           axisLine={false}
-          width={40}
-          domain={scale?.domain}
-          ticks={scale?.ticks}
+          width={Y_AXIS_WIDTH}
+          domain={yScale?.domain}
+          ticks={yScale?.ticks}
           tick={<TruncatedNumericTick formatter={formatCount} />}
         />
-        <ChartTooltip {...TOOLTIP_STYLE} />
-        <Bar dataKey="value" fill={hex} fillOpacity={0.8} radius={[2, 2, 0, 0]} isAnimationActive={false} />
-        {showMedian && median !== undefined && data.length > 1 && (
+        <ChartTooltip
+          {...TOOLTIP_STYLE}
+          // The bar's x is a bin CENTRE, which is not a value anyone entered.
+          // Name the interval it stands for instead.
+          labelFormatter={(_label, payload) => {
+            const b = payload?.[0]?.payload as { start: number; end: number } | undefined
+            if (!b) return ''
+            return `${formatAxisNumber(b.start)} – ${formatAxisNumber(b.end)}`
+          }}
+          formatter={(value: number | string) => [formatCount(value), t('survey.col_count')]}
+        />
+        {/* A numeric axis gives recharts no category width to derive a bar
+            width from, so it draws hairlines. The bin's share of the domain is
+            the honest width: a histogram bar should span the interval it
+            counts, leaving a small gap so adjacent bins stay legible. */}
+        <Bar
+          dataKey="value"
+          fill={hex}
+          fillOpacity={0.85}
+          radius={[2, 2, 0, 0]}
+          isAnimationActive={false}
+          barSize={barPixels}
+          maxBarSize={9999}
+        />
+        {showMedian && median !== undefined && (
           <ReferenceLine
-            x={
-              data.reduce(
-                (best, b) => (Math.abs(b.start - median) < Math.abs(best.start - median) ? b : best),
-                data[0],
-              ).label
-            }
+            x={median}
             stroke="var(--color-destructive)"
             strokeDasharray="4 3"
-            label={{ value: `~${round(median)}`, position: 'top', fontSize: 9, fill: 'var(--color-destructive)' }}
+            label={{
+              value: formatAxisNumber(median),
+              position: 'top',
+              fontSize: 9,
+              fill: 'var(--color-destructive)',
+            }}
           />
         )}
       </BarChart>
     </ResponsiveContainer>
+    </div>
   )
+}
+
+/** Width reserved for the y axis, shared by the layout and the bar-width maths. */
+const Y_AXIS_WIDTH = 40
+
+/** Axis numbers with thousands separators and at most two decimals. */
+function formatAxisNumber(v: number | string): string {
+  const n = typeof v === 'string' ? Number(v) : v
+  if (!Number.isFinite(n)) return ''
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
 // ---------------------------------------------------------------------------
