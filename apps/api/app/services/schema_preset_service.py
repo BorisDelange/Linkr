@@ -72,6 +72,13 @@ async def save(db: AsyncSession, data: SchemaPresetSave) -> SchemaPreset:
         # fixed for the *Update schemas but this upsert PUT was not covered.
         if payload.get("created_at") is None:
             payload.pop("created_at", None)
+        # Same reasoning for the lineage: it is the row's cross-instance identity, so
+        # a client that sends none (an ordinary edit, or an older client) must not
+        # clear the one already stored — that would make the entity unrecognisable to
+        # every other instance holding a copy.
+        for key in ("lineage_id", "parent_lineage_id"):
+            if payload.get(key) is None:
+                payload.pop(key, None)
         for key, value in payload.items():
             setattr(preset, key, value)
     await db.commit()

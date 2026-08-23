@@ -1,5 +1,5 @@
 import type { EntityLicense, GitRemoteConfig, LocalizedString } from './index'
-import type { Authored } from './author'
+import type { Authored, Lineaged } from './author'
 
 /**
  * Schema preset identifier.
@@ -290,7 +290,7 @@ export interface EventTable {
  * A custom schema preset stored in IndexedDB.
  * Wraps a SchemaMapping with metadata for persistence.
  */
-export interface CustomSchemaPreset extends Authored {
+export interface CustomSchemaPreset extends Authored, Lineaged {
   presetId: string
   workspaceId?: string
   mapping: SchemaMapping

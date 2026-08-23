@@ -25,3 +25,8 @@ class SchemaPreset(Base, TimestampMixin):
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
     created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Stable cross-instance identity (separate from the local PK). Preserved across
+    # export/import; a fork mints a new lineage_id and points parent_lineage_id at its
+    # source. Same contract as SqlScriptCollection / DataCatalog / EtlPipeline.
+    lineage_id: Mapped[str | None] = mapped_column(String(36))
+    parent_lineage_id: Mapped[str | None] = mapped_column(String(36))

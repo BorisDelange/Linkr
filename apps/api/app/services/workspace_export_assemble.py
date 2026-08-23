@@ -804,6 +804,12 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
     # see buildSchemaPresetFolder (entity-io.ts) for why. Both ends must emit the
     # same tree or git shows a false diff, so keep them in step.
     dumped = _dump(SchemaPresetResponse, preset)
+    # A preset that never got a lineage carries None on both keys; the client's
+    # JSON.stringify omits them entirely, so emitting explicit nulls here would show
+    # as a false git diff. Same rule as _badged_dump.
+    for key in ("lineageId", "parentLineageId"):
+        if dumped.get(key) is None:
+            dumped.pop(key, None)
     stripped = strip_entity_docs(_strip_instance_fields(dumped))
     mapping = dict(stripped.get("mapping") or {})
     ddl = mapping.pop("ddl", None)

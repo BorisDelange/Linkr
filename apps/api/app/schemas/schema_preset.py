@@ -21,6 +21,9 @@ class SchemaPresetSave(CamelModel):
     # Creation date preserved on import round-trip; applied only when creating.
     created_at: datetime | None = None
     version: str = "0.1.0"
+    # Cross-instance identity, preserved verbatim across export/import.
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
 
 
 class SchemaPresetResponse(CamelModel):
@@ -36,3 +39,5 @@ class SchemaPresetResponse(CamelModel):
     created_at: datetime
     updated_at: datetime
     version: str
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None

@@ -47,7 +47,7 @@ import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { EntityIdField, isEntityIdValid, mintEntityId } from '@/components/ui/entity-id-field'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
-import { useSchemaPresetStore, buildSchemaPreset } from '@/stores/schema-preset-store'
+import { useSchemaPresetStore, buildSchemaPreset, forkedLineage } from '@/stores/schema-preset-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
@@ -1358,6 +1358,7 @@ export function SchemaPresetsPage() {
   }
 
   const doPresetImport = useCallback(async (mapping: SchemaMapping, duplicate: boolean, gitRemote?: ImportGitRemote, parsed?: Record<string, unknown>) => {
+    const sourceLineage = (parsed?.['preset.json'] as CustomSchemaPreset | undefined)
     const presetId = duplicate ? mintEntityId() : mapping.presetId!
     // Legacy export ZIPs may carry a plain-string label; coerce so it stays bilingual.
     const label = typeof mapping.presetLabel === 'string' ? { en: mapping.presetLabel, fr: mapping.presetLabel } : mapping.presetLabel
@@ -1370,6 +1371,16 @@ export function SchemaPresetsPage() {
       await storeDelete(mapping.presetId!).catch(() => {})
     }
     const preset = buildSchemaPreset(presetId, importedMapping, undefined, wsUid)
+    // Lineage: replacing the preset keeps the published identity verbatim, so the
+    // two copies stay recognisable as the same work. Keeping BOTH makes a fork — a
+    // new identity pointing back at its source, since two rows must never claim to
+    // be the same published entity. A repo exported before lineage existed carries
+    // none; buildSchemaPreset already minted one, so leave it be.
+    if (duplicate) Object.assign(preset, forkedLineage(sourceLineage))
+    else if (sourceLineage?.lineageId) {
+      preset.lineageId = sourceLineage.lineageId
+      preset.parentLineageId = sourceLineage.parentLineageId
+    }
     // Imported from a git repo → pre-link the preset's Versioning to that repo.
     if (gitRemote) preset.gitRemoteConfig = gitRemote
     // README.md / LICENSE.md are entity fields living in files beside the

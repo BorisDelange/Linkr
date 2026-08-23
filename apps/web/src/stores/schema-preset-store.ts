@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
-import { stampAuthored } from '@/stores/app-store'
+import { stampAuthored, stampLineage } from '@/stores/app-store'
 import type { CustomSchemaPreset, GitRemoteConfig, SchemaMapping } from '@/types'
 
 interface SchemaPresetState {
@@ -86,6 +86,13 @@ export function buildSchemaPreset(
   const authored = existing
     ? { createdById: existing.createdById, createdBy: existing.createdBy, createdByDetails: existing.createdByDetails }
     : stampAuthored()
+  // Same rule for the lineage: minted once, then carried unchanged. It is the
+  // preset's cross-instance identity, so re-minting it on every save would make
+  // every other instance holding a copy stop recognising it. A duplicate does NOT
+  // come through here with `existing` — it calls buildForkedSchemaPreset below.
+  const lineage = existing?.lineageId
+    ? { lineageId: existing.lineageId, parentLineageId: existing.parentLineageId }
+    : stampLineage()
   return {
     presetId,
     mapping: { ...mapping, presetId },
@@ -95,5 +102,17 @@ export function buildSchemaPreset(
     updatedAt: now,
     workspaceId: workspaceId ?? existing?.workspaceId,
     ...authored,
+    ...lineage,
   }
+}
+
+/**
+ * Lineage for a preset created as a *copy* of another (duplicate on import, or an
+ * install that kept both). A fork is a new work: it mints its own lineageId and
+ * records where it came from in parentLineageId — a weak reference, since the source
+ * may not exist on this instance. Sharing the source's lineageId instead would make
+ * the two copies claim to be the same published entity.
+ */
+export function forkedLineage(source: CustomSchemaPreset | undefined) {
+  return { ...stampLineage(), ...(source?.lineageId ? { parentLineageId: source.lineageId } : {}) }
 }
