@@ -44,8 +44,9 @@ import { cn } from '@/lib/utils'
 import { findDatasetConflict, resolveDatasetUploadTarget } from './dataset-upload-target'
 import { isServerMode } from '@/lib/api-client'
 import { importDatasetBySha, previewDatasetBySha, previewDatasetOnServer, importDatasetOnServer, setDatasetColumnMeta } from '@/lib/api/datasets'
-import { isGoupileWorkbook, parseGoupileWorkbook, type GoupileColumnMeta, type SheetMap } from '@/lib/goupile-import'
-import { Checkbox } from '@/components/ui/checkbox'
+import { parseGoupileWorkbook, type GoupileColumnMeta, type SheetMap } from '@/lib/goupile-import'
+import { SURVEY_PRESETS, presetsForFile, suggestPreset, findPreset } from '@/lib/survey/survey-presets'
+import type { SurveySource } from '@/lib/survey/survey-schema'
 import { TypeBadge, renderTypeMenuItems } from './TypeBadge'
 import type { DatasetColumn, DatasetParseOptions } from '@/types'
 
@@ -236,11 +237,12 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   const [sheetNames, setSheetNames] = useState<string[]>([])
   const [selectedSheet, setSelectedSheet] = useState<string>('')
 
-  // Goupile eCRF import: detected when the workbook carries @definitions +
-  // @propositions. When on, all form sheets are joined on __tid into one wide
-  // dataset labelled from the dictionary (see lib/goupile-import.ts).
-  const [goupileDetected, setGoupileDetected] = useState(false)
-  const [goupileMode, setGoupileMode] = useState(true)
+  // Questionnaire import preset. The user picks it from a dropdown; sniffing the
+  // file only PRESELECTS an entry (`suggestedPreset`), it never decides silently
+  // — a questionnaire read the wrong way fails invisibly, in a chart nobody can
+  // explain later. See lib/survey/survey-presets.ts.
+  const [preset, setPreset] = useState<SurveySource | 'none'>('none')
+  const [suggestedPreset, setSuggestedPreset] = useState<SurveySource | 'none'>('none')
 
   useEffect(() => {
     if (!open) {
@@ -257,21 +259,21 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setSelectedSheet('')
       setNaValues(null)
       setColumnTypes({})
-      setGoupileDetected(false)
-      setGoupileMode(true)
+      setPreset('none')
+      setSuggestedPreset('none')
       uploadedShaRef.current = null
       previewSeqRef.current++
     }
   }, [open])
 
-  // Re-parse when options change (if file is set). goupileMode re-routes between the
-  // joined import and the normal single-sheet import.
+  // Re-parse when options change (if file is set). `preset` re-routes between the
+  // questionnaire importers and the normal table import.
   useEffect(() => {
     if (file && !loading) {
       parseFile(file)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet, goupileMode])
+  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet, preset])
 
   // Server mode infers types in SQL, so NA tokens only take effect on a re-preview.
   // Front-only recomputes them locally in effectiveParsed — no re-parse needed.
@@ -362,9 +364,10 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       return
     }
 
-    // A detected Goupile export in Goupile mode is joined client-side (both server
-    // and local modes) into one wide CSV, regardless of the normal parse path.
-    if (isExcel(f) && goupileDetected && goupileMode) {
+    // A questionnaire preset is applied client-side (in both server and local
+    // modes): the importer reshapes the file into one wide table before the
+    // normal dataset-create path takes over.
+    if (preset === 'goupile' && isExcel(f)) {
       parseGoupile(f)
       return
     }
@@ -383,7 +386,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     // parseGoupile/parseCSV/parseExcel/parseParquet are declared below; the
     // disable keeps them out of deps (they're stable useCallbacks).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet, goupileDetected, goupileMode, isCSVLike, isExcel, isParquet, parseServer, t])
+  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet, preset, isCSVLike, isExcel, isParquet, parseServer, t])
 
   const parseCSV = useCallback((f: File) => {
     const papaConfig: Papa.ParseLocalConfig<Record<string, unknown>, File> = {
@@ -602,28 +605,31 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setError(null)
       // Overrides are keyed by columnId — they mean nothing for a different file.
       setColumnTypes({})
-      // Sniff an Excel workbook's sheet names client-side (both modes) to detect a
-      // Goupile export before choosing the parse path; parseGoupile handles it when on.
+      // Sniff the workbook's sheet names to SUGGEST a preset, then parse with it.
+      // The dropdown shows what was chosen and the user can override it.
       if (isExcel(f)) {
         setLoading(true)
         const reader = new FileReader()
         reader.onload = (e) => {
-          let detected = false
+          let suggestion: SurveySource | 'none' = 'none'
           try {
             const wb = XLSX.read(new Uint8Array(e.target?.result as ArrayBuffer), { type: 'array', bookSheets: true })
-            detected = isGoupileWorkbook(wb.SheetNames)
-          } catch { /* fall through to the normal parse */ }
-          setGoupileDetected(detected)
-          if (detected && goupileMode) parseGoupile(f)
+            suggestion = suggestPreset(wb.SheetNames, [])
+          } catch { /* fall through to the plain-table parse */ }
+          setSuggestedPreset(suggestion)
+          setPreset(suggestion)
+          if (suggestion === 'goupile') parseGoupile(f)
           else parseFile(f)
         }
         reader.onerror = () => parseFile(f)
         reader.readAsArrayBuffer(f)
         return
       }
+      setSuggestedPreset('none')
+      setPreset('none')
       parseFile(f)
     },
-    [parseFile, parseGoupile, isExcel, goupileMode],
+    [parseFile, parseGoupile, isExcel],
   )
 
   const handleDrop = useCallback(
@@ -798,11 +804,30 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     onOpenChange(false)
   }, [onOpenChange])
 
+  // Clearing the file must also drop everything derived from it. The sheet
+  // selection especially: a leftover sheet name from a previous workbook is
+  // requested from the next one, which doesn't have it, and the import fails
+  // with "no columns found".
   const handleClearFile = useCallback(() => {
     setFile(null)
     setParsed(null)
     setError(null)
+    setWarning(null)
+    setSheetNames([])
+    setSelectedSheet('')
+    setColumnTypes({})
+    setPreset('none')
+    setSuggestedPreset('none')
+    uploadedShaRef.current = null
+    previewSeqRef.current++
   }, [])
+
+  // Only the presets that can actually read this extension, so the dropdown
+  // never offers a Goupile import for a .csv.
+  const availablePresets = useMemo(
+    () => (file ? presetsForFile(file.name) : SURVEY_PRESETS),
+    [file],
+  )
 
   const showCSVOptions = file && isCSVLike(file)
   const showExcelOptions = file && isExcel(file)
@@ -862,22 +887,33 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                 </Button>
               </div>
 
-              {/* Goupile eCRF detected — offer the joined, labelled import. */}
-              {goupileDetected && (
-                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2.5 space-y-1.5">
-                  <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                    {t('datasets.goupile_detected')}
-                  </p>
-                  <label className="flex items-start gap-2 text-xs cursor-pointer">
-                    <Checkbox
-                      checked={goupileMode}
-                      onCheckedChange={(v) => setGoupileMode(v === true)}
-                      className="mt-0.5"
-                    />
-                    <span className="text-muted-foreground">{t('datasets.goupile_join_hint')}</span>
-                  </label>
+              {/* Import preset. Always shown, defaulting to the plain table, so
+                  how the file will be read is never implicit. */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Label>{t('datasets.preset_label')}</Label>
+                  {suggestedPreset !== 'none' && suggestedPreset === preset && (
+                    <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-400">
+                      {t('datasets.preset_suggested')}
+                    </span>
+                  )}
                 </div>
-              )}
+                <Select value={preset} onValueChange={(v) => setPreset(v as SurveySource | 'none')}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePresets.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {t(p.labelKey)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground">
+                  {t(findPreset(preset)?.hintKey ?? 'datasets.preset_none_hint')}
+                </p>
+              </div>
 
               {/* Parse options (CSV/TSV) */}
               {showCSVOptions && (

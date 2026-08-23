@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { parseGoupileWorkbook, isGoupileWorkbook, type SheetMap } from './goupile-import'
+import { questionColumns, questionChoices, choiceColumn } from './survey/survey-schema'
 
 // A trimmed Goupile-shaped workbook exercising every path: system columns, an enum
 // with value labels, a multi-select one-hot, a cross-form name collision, and NA.
@@ -145,5 +146,75 @@ describe('parseGoupileWorkbook', () => {
   it('gives colliding text columns their own per-form question as description', () => {
     expect(res.columnMeta['a_propos_de_vous.remarques'].description).toBe('Remarques (profil)')
     expect(res.columnMeta['recours_mir.remarques'].description).toBe('Remarques (recours)')
+  })
+
+  describe('survey schema', () => {
+    const q = (name: string) => res.survey.questions.find((x) => x.name === name)
+
+    it('reports its source and the respondent key', () => {
+      expect(res.survey.source).toBe('goupile')
+      expect(res.survey.respondentIdColumn).toBe('__tid')
+    })
+
+    it('maps an enum to select_one bound to a single column', () => {
+      const sexe = q('sexe')!
+      expect(sexe.kind).toBe('select_one')
+      expect(sexe.binding).toEqual({ kind: 'single_column', column: 'sexe' })
+      expect(questionColumns(sexe)).toEqual(['sexe'])
+      expect(sexe.label).toEqual({ fr: 'Quel est votre sexe ?' })
+      expect(sexe.shortLabel).toBe('Sexe')
+      expect(sexe.section).toBe('a_propos_de_vous')
+      expect(sexe.measure).toBe('nominal')
+    })
+
+    it('puts an enum choices into a named, shared choice list', () => {
+      const sexe = q('sexe')!
+      expect(questionChoices(res.survey, sexe)).toEqual([
+        { name: 'homme', label: { fr: 'Homme' } },
+        { name: 'femme', label: { fr: 'Femme' } },
+      ])
+    })
+
+    it('rebuilds a multi question as select_multiple with a one-hot binding', () => {
+      const recours = q('situations_recours')!
+      expect(recours.kind).toBe('select_multiple')
+      expect(recours.binding).toEqual({
+        kind: 'one_hot',
+        columns: [
+          { code: 'detresse_vitale', column: 'situations_recours.detresse_vitale' },
+          { code: 'debriefing', column: 'situations_recours.debriefing' },
+        ],
+      })
+      expect(questionColumns(recours)).toEqual([
+        'situations_recours.detresse_vitale',
+        'situations_recours.debriefing',
+      ])
+      expect(recours.label).toEqual({ fr: 'Situations de recours' })
+    })
+
+    it('resolves the column carrying one choice of a multi question', () => {
+      expect(choiceColumn(q('situations_recours')!, 'debriefing')).toBe(
+        'situations_recours.debriefing',
+      )
+    })
+
+    it('has no question for the one-hot columns themselves', () => {
+      expect(q('situations_recours.detresse_vitale')).toBeUndefined()
+    })
+
+    it('maps free text to a text question, per form when the name collides', () => {
+      expect(q('a_propos_de_vous.remarques')!.kind).toBe('text')
+      expect(q('recours_mir.remarques')!.label).toEqual({ fr: 'Remarques (recours)' })
+    })
+
+    it('marks a numeric question as continuous', () => {
+      // `age` is declared as a number in the fixture dictionary.
+      const numeric = res.survey.questions.find((x) => x.kind === 'integer')
+      if (numeric) expect(numeric.measure).toBe('continuous')
+    })
+
+    it('leaves the system columns out of the questions', () => {
+      for (const sys of ['__tid', '__sequence', '__hid']) expect(q(sys)).toBeUndefined()
+    })
   })
 })

@@ -1,0 +1,392 @@
+{
+  "id": "linkr-analysis-survey-question",
+  "name": {
+    "en": "Survey question",
+    "fr": "Question de questionnaire"
+  },
+  "description": {
+    "en": "Analyse one questionnaire question (eCRF, Goupile, REDCap): response rate, answer distribution, and the chart that fits its type — including multiple-choice questions whose options span several columns.",
+    "fr": "Analyse une question de questionnaire (eCRF, Goupile, REDCap) : taux de réponse, distribution des réponses et le graphique adapté à son type — y compris les questions à choix multiples dont les options occupent plusieurs colonnes."
+  },
+  "version": "1.0.0",
+  "category": "visualization",
+  "tags": [
+    "survey",
+    "questionnaire",
+    "ecrf",
+    "goupile",
+    "redcap",
+    "likert"
+  ],
+  "runtime": [
+    "component"
+  ],
+  "languages": [],
+  "icon": "ClipboardList",
+  "iconColor": "teal",
+  "configSchema": {
+    "questionColumn": {
+      "type": "column-select",
+      "multi": false,
+      "label": {
+        "en": "Question",
+        "fr": "Question"
+      },
+      "description": {
+        "en": "Any column of the question. For a multiple-choice question, picking one of its options selects the whole question.",
+        "fr": "N'importe quelle colonne de la question. Pour une question à choix multiples, choisir une de ses options sélectionne la question entière."
+      },
+      "section": {
+        "en": "Question",
+        "fr": "Question"
+      }
+    },
+    "chart": {
+      "type": "select",
+      "label": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "default": "auto",
+      "section": {
+        "en": "Question",
+        "fr": "Question"
+      },
+      "description": {
+        "en": "Auto picks the chart that fits the question type. Options that do not apply to the selected question fall back to Auto.",
+        "fr": "Auto choisit le graphique adapté au type de question. Les options inapplicables à la question sélectionnée retombent sur Auto."
+      },
+      "options": [
+        {
+          "value": "auto",
+          "label": {
+            "en": "Auto",
+            "fr": "Auto"
+          }
+        },
+        {
+          "value": "bar",
+          "label": {
+            "en": "Horizontal bars",
+            "fr": "Barres horizontales"
+          }
+        },
+        {
+          "value": "column",
+          "label": {
+            "en": "Vertical bars",
+            "fr": "Barres verticales"
+          }
+        },
+        {
+          "value": "pie",
+          "label": {
+            "en": "Pie",
+            "fr": "Camembert"
+          }
+        },
+        {
+          "value": "donut",
+          "label": {
+            "en": "Donut",
+            "fr": "Anneau"
+          }
+        },
+        {
+          "value": "histogram",
+          "label": {
+            "en": "Histogram",
+            "fr": "Histogramme"
+          }
+        },
+        {
+          "value": "stats",
+          "label": {
+            "en": "Summary statistics",
+            "fr": "Statistiques descriptives"
+          }
+        },
+        {
+          "value": "table",
+          "label": {
+            "en": "Table",
+            "fr": "Tableau"
+          }
+        }
+      ]
+    },
+    "title": {
+      "type": "string",
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
+      "default": "",
+      "optional": true,
+      "section": {
+        "en": "Question",
+        "fr": "Question"
+      },
+      "description": {
+        "en": "Overrides the question text. Leave empty to use the question as asked.",
+        "fr": "Remplace le texte de la question. Laisser vide pour utiliser la question telle que posée."
+      }
+    },
+    "sort": {
+      "type": "select",
+      "label": {
+        "en": "Sort",
+        "fr": "Tri"
+      },
+      "default": "frequency",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "options": [
+        {
+          "value": "frequency",
+          "label": {
+            "en": "By frequency",
+            "fr": "Par fréquence"
+          }
+        },
+        {
+          "value": "declared",
+          "label": {
+            "en": "Questionnaire order",
+            "fr": "Ordre du questionnaire"
+          }
+        },
+        {
+          "value": "alphabetical",
+          "label": {
+            "en": "Alphabetical",
+            "fr": "Alphabétique"
+          }
+        }
+      ],
+      "description": {
+        "en": "Scales always keep their questionnaire order — sorting a 1-to-5 scale by frequency would destroy its meaning.",
+        "fr": "Les échelles conservent toujours l'ordre du questionnaire — trier une échelle de 1 à 5 par fréquence détruirait son sens."
+      }
+    },
+    "hideEmptyChoices": {
+      "type": "boolean",
+      "label": {
+        "en": "Hide unpicked options",
+        "fr": "Masquer les options non choisies"
+      },
+      "default": false,
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "An option nobody picked is a finding in itself, so it is shown by default.",
+        "fr": "Une option que personne n'a choisie est un résultat en soi, elle est donc affichée par défaut."
+      }
+    },
+    "maxChoices": {
+      "type": "number",
+      "label": {
+        "en": "Max options shown",
+        "fr": "Options affichées au maximum"
+      },
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "0 shows every option. Otherwise the rest are grouped as 'Others'.",
+        "fr": "0 affiche toutes les options. Sinon les autres sont regroupées en « Autres »."
+      }
+    },
+    "showResponseRate": {
+      "type": "boolean",
+      "label": {
+        "en": "Show response rate",
+        "fr": "Afficher le taux de réponse"
+      },
+      "default": true,
+      "section": {
+        "en": "Display",
+        "fr": "Affichage"
+      },
+      "description": {
+        "en": "The n/N bar showing how many respondents answered this question.",
+        "fr": "La barre n/N indiquant combien de répondants ont répondu à cette question."
+      }
+    },
+    "valueLabel": {
+      "type": "select",
+      "label": {
+        "en": "Bar labels",
+        "fr": "Étiquettes des barres"
+      },
+      "default": "both",
+      "section": {
+        "en": "Display",
+        "fr": "Affichage"
+      },
+      "options": [
+        {
+          "value": "both",
+          "label": {
+            "en": "n and %",
+            "fr": "n et %"
+          }
+        },
+        {
+          "value": "count",
+          "label": {
+            "en": "Count",
+            "fr": "Effectif"
+          }
+        },
+        {
+          "value": "percent",
+          "label": {
+            "en": "Percentage",
+            "fr": "Pourcentage"
+          }
+        },
+        {
+          "value": "none",
+          "label": {
+            "en": "None",
+            "fr": "Aucune"
+          }
+        }
+      ]
+    },
+    "showQuestionText": {
+      "type": "boolean",
+      "label": {
+        "en": "Show question text",
+        "fr": "Afficher le texte de la question"
+      },
+      "default": true,
+      "section": {
+        "en": "Display",
+        "fr": "Affichage"
+      }
+    },
+    "color": {
+      "type": "color-select",
+      "label": {
+        "en": "Color",
+        "fr": "Couleur"
+      },
+      "default": "blue",
+      "section": {
+        "en": "Display",
+        "fr": "Affichage"
+      }
+    },
+    "bins": {
+      "type": "number",
+      "label": {
+        "en": "Bins",
+        "fr": "Classes"
+      },
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "section": {
+        "en": "Display",
+        "fr": "Affichage"
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "auto",
+          "histogram"
+        ]
+      },
+      "description": {
+        "en": "0 picks a bin count from the data.",
+        "fr": "0 choisit un nombre de classes d'après les données."
+      }
+    },
+    "showMedian": {
+      "type": "boolean",
+      "label": {
+        "en": "Show median line",
+        "fr": "Afficher la médiane"
+      },
+      "default": true,
+      "section": {
+        "en": "Display",
+        "fr": "Affichage"
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "auto",
+          "histogram"
+        ]
+      }
+    },
+    "colorPalette": {
+      "type": "select",
+      "label": {
+        "en": "Palette",
+        "fr": "Palette"
+      },
+      "default": "default",
+      "section": {
+        "en": "Display",
+        "fr": "Affichage"
+      },
+      "optionPreview": "palette",
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "pie",
+          "donut"
+        ]
+      },
+      "options": [
+        {
+          "value": "default",
+          "label": {
+            "en": "Default",
+            "fr": "Par défaut"
+          }
+        },
+        {
+          "value": "tableau10",
+          "label": {
+            "en": "Tableau 10",
+            "fr": "Tableau 10"
+          }
+        },
+        {
+          "value": "pastel",
+          "label": {
+            "en": "Pastel",
+            "fr": "Pastel"
+          }
+        },
+        {
+          "value": "vivid",
+          "label": {
+            "en": "Vivid",
+            "fr": "Vif"
+          }
+        },
+        {
+          "value": "cool",
+          "label": {
+            "en": "Cool",
+            "fr": "Froide"
+          }
+        }
+      ]
+    }
+  }
+}

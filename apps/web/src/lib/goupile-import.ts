@@ -16,6 +16,8 @@
  * Design: docs/planning/goupile-import-plan.md
  */
 
+import type { SurveyChoice, SurveyQuestion, SurveySchema, QuestionKind } from './survey/survey-schema'
+
 /** System columns Goupile prefixes every data sheet with. `__tid` is the join key. */
 export const GOUPILE_SYSTEM_COLUMNS = ['__tid', '__sequence', '__hid'] as const
 
@@ -52,6 +54,10 @@ export interface GoupileParseResult {
    *  row per (form, __tid), so a repeatable form's extra entries are dropped —
    *  surface this so the user knows the data isn't silently complete. */
   duplicateForms: string[]
+  /** The questionnaire structure behind those columns, in the tool-agnostic model.
+   *  Column metadata alone cannot express that a `multi` question owns several
+   *  one-hot columns, which is what questionnaire analysis needs. */
+  survey: SurveySchema
 }
 
 /** Sheets as SheetJS `sheet_to_json` yields them: name → array of row objects. */
@@ -202,7 +208,117 @@ export function parseGoupileWorkbook(
     return full
   })
 
-  return { columns, rows, columnMeta, duplicateForms }
+  const survey = buildSurveySchema(columns, defs, props, dataSheetNames, wideName)
+
+  return { columns, rows, columnMeta, duplicateForms, survey }
+}
+
+/**
+ * Derive the questionnaire structure from the dictionary + the wide column list.
+ *
+ * A `multi` variable has NO column of its own — only its one-hot `var.prop`
+ * children — so it is rebuilt from `@definitions`, gathering the children that
+ * actually made it into the wide table. Every other type maps to a single column.
+ *
+ * Choice lists are named after the form + variable that declared them: Goupile
+ * declares propositions per variable, with no shared-list concept, so there is
+ * no sharing to preserve.
+ */
+function buildSurveySchema(
+  columns: string[],
+  defs: Map<string, Definition>,
+  props: Map<string, Record<string, string>>,
+  dataSheetNames: string[],
+  wideName: (sheetName: string, rawName: string) => string,
+): SurveySchema {
+  const present = new Set(columns)
+  const questions: SurveyQuestion[] = []
+  const choices: Record<string, SurveyChoice[]> = {}
+
+  for (const sheetName of dataSheetNames) {
+    for (const [key, def] of defs) {
+      const [table, variable] = key.split('\t')
+      if (table !== sheetName) continue
+
+      const propLabels = props.get(key)
+      const listName = `${sheetName}_${variable}`
+
+      if (def.type === 'multi') {
+        // Children are named `<variable>.<prop>` inside the form, then possibly
+        // prefixed by the form when the name collides across forms.
+        const list: SurveyChoice[] = []
+        const oneHot: { code: string; column: string }[] = []
+        for (const [code, label] of Object.entries(propLabels ?? {})) {
+          const column = wideName(sheetName, `${variable}.${code}`)
+          if (!present.has(column)) continue
+          list.push({ name: code, label: { fr: label } })
+          oneHot.push({ code, column })
+        }
+        if (oneHot.length === 0) continue
+        choices[listName] = list
+        questions.push({
+          name: wideName(sheetName, variable),
+          kind: 'select_multiple',
+          listName,
+          label: { fr: def.label || variable },
+          shortLabel: humanizeName(variable),
+          section: sheetName,
+          measure: 'nominal',
+          binding: { kind: 'one_hot', columns: oneHot },
+        })
+        continue
+      }
+
+      const column = wideName(sheetName, variable)
+      if (!present.has(column)) continue
+
+      const kind = goupileKind(def.type)
+      const question: SurveyQuestion = {
+        name: column,
+        kind,
+        label: { fr: def.label || variable },
+        shortLabel: humanizeName(variable),
+        section: sheetName,
+        binding: { kind: 'single_column', column },
+      }
+      if (kind === 'select_one' && propLabels && Object.keys(propLabels).length > 0) {
+        choices[listName] = Object.entries(propLabels).map(([code, label]) => ({
+          name: code,
+          label: { fr: label },
+        }))
+        question.listName = listName
+        question.measure = looksOrdinal(Object.keys(propLabels)) ? 'ordinal' : 'nominal'
+      } else if (kind === 'integer' || kind === 'decimal') {
+        question.measure = 'continuous'
+      }
+      questions.push(question)
+    }
+  }
+
+  return { source: 'goupile', questions, choices, respondentIdColumn: '__tid' }
+}
+
+/** Consecutive integer codes (3+) read as an ordered scale rather than
+ *  unordered categories — a 1..5 satisfaction must keep its order. */
+function looksOrdinal(codes: string[]): boolean {
+  if (codes.length < 3) return false
+  const nums = codes.map(Number)
+  if (nums.some((n) => !Number.isInteger(n))) return false
+  const sorted = [...nums].sort((a, b) => a - b)
+  return sorted.every((n, i) => i === 0 || n === sorted[i - 1] + 1)
+}
+
+function goupileKind(type: string): QuestionKind {
+  switch (type) {
+    case 'enum':
+      return 'select_one'
+    case 'number':
+      return 'integer'
+    case 'date':
+      return 'date'
+    default:
+      return 'text'
+  }
 }
 
 /**

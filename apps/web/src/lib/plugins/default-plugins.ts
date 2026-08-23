@@ -17,6 +17,7 @@ import regressionManifest from '@default-plugins/analyses/regression/plugin.json
 import kaplanMeierManifest from '@default-plugins/analyses/kaplan-meier/plugin.json'
 import correlationMatrixManifest from '@default-plugins/analyses/correlation-matrix/plugin.json'
 import sankeyManifest from '@default-plugins/analyses/sankey/plugin.json'
+import surveyQuestionManifest from '@default-plugins/analyses/survey-question/plugin.json'
 
 /** Normalise a manifest from JSON (runtime may be string or array). */
 function normaliseManifest(raw: Record<string, unknown>): PluginManifest {
@@ -411,6 +412,15 @@ export function registerDefaultPlugins() {
     manifest: normaliseManifest(plotBuilderManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'plot-builder',
+  })
+  // No `supportsServer`: the questionnaire structure is recovered from the rows
+  // themselves, which server mode does not ship to the client. Server-side
+  // aggregation needs the schema persisted to the sidecar first.
+  registerComponent('survey-question', () => import('@/features/projects/lab/datasets/analyses/SurveyQuestionComponent').then(m => ({ default: m.SurveyQuestionComponent })))
+  registerPlugin({
+    manifest: normaliseManifest(surveyQuestionManifest as unknown as Record<string, unknown>),
+    templates: null,
+    componentId: 'survey-question',
   })
 
   registerComponent('map', () => import('@/features/projects/lab/datasets/analyses/MapComponent').then(m => ({ default: m.MapComponent })), { supportsServer: true })

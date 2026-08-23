@@ -206,6 +206,31 @@ trade-off is the whole point of decision (b).
 Steps 1–5 already ship a usable product (rich report with filtered, frozen widgets).
 6 and 7 are independent of each other.
 
+### 8. Questionnaire report — one block per question (later)
+
+Arbitrated 2026-08-23 while building the survey plugin: rendering **every**
+question of a questionnaire in sequence belongs here, not to dashboards. A
+dashboard is composed one widget at a time; a 47-question report is not.
+
+The model comes from `presentation_questionnaire.Rmd` (CNP-CEMIR): one section
+per question, each with the question as asked, an `n/N (%)` response bar, and
+the chart its type calls for.
+
+The survey plugin is already built for this. `SurveyQuestionBlock`
+(`lab/datasets/analyses/SurveyQuestionBlock.tsx`) is deliberately split from its
+dashboard wrapper and takes exactly what a BlockNote block needs:
+
+```tsx
+<SurveyQuestionBlock schema={schema} question={q} rows={rows} chart="auto" />
+```
+
+So the step is: read the questionnaire schema from the dataset sidecar
+(`survey` key), then map over `schema.questions` inserting one `linkrWidget`
+block each — an "insert questionnaire report" slash-menu command rather than new
+rendering code. Effort: S, once step 3 exists.
+
+See `survey-plugin-plan.md` §4(c).
+
 ## Open points
 
 - Measure the real lazy-loaded bundle cost on the static WASM build before committing step 7.
