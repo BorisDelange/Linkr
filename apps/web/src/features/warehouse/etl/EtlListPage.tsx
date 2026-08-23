@@ -11,6 +11,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
@@ -80,12 +81,7 @@ export function EtlListPage() {
     label: t('common.badges'),
     selected: badgeFilter,
     onChange: setBadgeFilter,
-    options: allBadges.map((b) => ({
-      value: b.label,
-      label: b.label,
-      badgeClass: getBadgeClasses(b.color),
-      badgeStyle: getBadgeStyle(b.color),
-    })),
+    options: badgeFilterOptions(allBadges, badgeCategories, i18n.language, t('badge_categories.no_category')),
   }] : []
 
   // No id at all = the database was left unset (it is optional at creation), which

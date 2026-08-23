@@ -39,6 +39,7 @@ import type { AuthorDetails, OrganizationInfo } from '@/types'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { getStorage } from '@/lib/storage'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
 import { getPluginIcon, getPluginIconColorProps } from './plugin-icon'
 import { PluginSettingsDialog } from './PluginSettingsDialog'
@@ -321,12 +322,7 @@ export function PluginsTab() {
         label: t('plugins.filter_badges'),
         selected: badgeFilter,
         onChange: setBadgeFilter,
-        options: allBadges.map((b) => ({
-          value: b.label,
-          label: b.label,
-          badgeClass: getBadgeClasses(b.color),
-          badgeStyle: getBadgeStyle(b.color),
-        })),
+        options: badgeFilterOptions(allBadges, badgeCategories, i18n.language, t('badge_categories.no_category')),
       })
     }
     return groups

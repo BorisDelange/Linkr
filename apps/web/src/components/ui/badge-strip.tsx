@@ -2,6 +2,9 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getBadgeClasses, getBadgeStyle } from '@/lib/badge-colors'
+import { categoryOf, splitLabel } from '@/lib/badge-categories'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
+import { CategoryBadge } from '@/components/ui/category-badge'
 import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
 import type { ProjectBadge } from '@/types'
@@ -29,7 +32,10 @@ const badgeClass =
  */
 export function BadgeStrip({ badges, prefix, className }: BadgeStripProps) {
   const { i18n } = useTranslation()
+  const categories = useBadgeCategories()
   const label = (b: ProjectBadge) => localized(b.label, i18n.language)
+  /** Two-tone chip for a badge whose prefix names a declared category. */
+  const scoped = (b: ProjectBadge) => categoryOf(b, categories, i18n.language)
   const containerRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(badges.length)
@@ -75,7 +81,7 @@ export function BadgeStrip({ badges, prefix, className }: BadgeStripProps) {
     ro.observe(container)
     compute()
     return () => ro.disconnect()
-  }, [badges, prefix])
+  }, [badges, prefix, categories])
 
   if (badges.length === 0) return null
 
@@ -88,29 +94,56 @@ export function BadgeStrip({ badges, prefix, className }: BadgeStripProps) {
       )}
       {/* Off-screen measurement layer: natural widths, never wraps, not visible. */}
       <div ref={measureRef} aria-hidden className="pointer-events-none invisible absolute left-0 top-0 flex gap-1">
-        {badges.map((badge) => (
-          <span
-            key={badge.id}
-            data-measure-badge
-            className={badgeClass}
-            style={getBadgeStyle(badge.color)}
-          >
-            {label(badge)}
-          </span>
-        ))}
+        {badges.map((badge) => {
+          // A scoped chip is drawn as two padded halves, so it is wider than its
+          // text — measure that shape, not the plain one, or the last chip on a
+          // tight row would be kept and then overflow.
+          const category = scoped(badge)
+          return category ? (
+            <CategoryBadge
+              key={badge.id}
+              data-measure-badge
+              category={localized(category.name, i18n.language)}
+              value={splitLabel(label(badge)).value}
+              color={category.color}
+              className="max-w-40"
+            />
+          ) : (
+            <span
+              key={badge.id}
+              data-measure-badge
+              className={badgeClass}
+              style={getBadgeStyle(badge.color)}
+            >
+              {label(badge)}
+            </span>
+          )
+        })}
         <span data-measure-more className="inline-block rounded-full px-2 py-0.5 text-[10px] font-medium">+{badges.length}</span>
       </div>
 
-      {badges.slice(0, visibleCount).map((badge) => (
-        <Tooltip key={badge.id}>
-          <TooltipTrigger asChild>
-            <span className={cn(badgeClass, getBadgeClasses(badge.color))} style={getBadgeStyle(badge.color)}>
-              {label(badge)}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="text-xs">{label(badge)}</TooltipContent>
-        </Tooltip>
-      ))}
+      {badges.slice(0, visibleCount).map((badge) => {
+        const category = scoped(badge)
+        return (
+          <Tooltip key={badge.id}>
+            <TooltipTrigger asChild>
+              {category ? (
+                <CategoryBadge
+                  category={localized(category.name, i18n.language)}
+                  value={splitLabel(label(badge)).value}
+                  color={category.color}
+                  className="max-w-40"
+                />
+              ) : (
+                <span className={cn(badgeClass, getBadgeClasses(badge.color))} style={getBadgeStyle(badge.color)}>
+                  {label(badge)}
+                </span>
+              )}
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">{label(badge)}</TooltipContent>
+          </Tooltip>
+        )
+      })}
       {hidden.length > 0 && (
         <Tooltip>
           <TooltipTrigger asChild>

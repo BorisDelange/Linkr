@@ -31,6 +31,9 @@ export interface PluginConfigField {
   columnField?: string
   default?: unknown
   defaultAll?: boolean
+  /** `column-select` with `multi`: the chosen columns can be dragged into an
+   *  explicit order, and that order is what the value's array preserves. */
+  orderable?: boolean
   min?: number
   max?: number
   options?: { value: string; label: { en: string; fr: string }; onlyForColumnType?: 'numeric' | 'categorical' }[]

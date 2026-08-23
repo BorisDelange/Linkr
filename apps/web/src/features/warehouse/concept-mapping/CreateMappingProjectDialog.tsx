@@ -42,6 +42,7 @@ import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { VersionField } from '@/components/ui/version-field'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { localized, setLocalized } from '@/lib/localized'
 import { useSaveForm } from '@/hooks/use-save-form'
@@ -150,6 +151,7 @@ export function CreateMappingProjectDialog({
 
   /** Suggestions = distinct badges from other workspace mapping projects (excluding the current one).
    *  When the same label appears with different colors across projects, we keep the first-seen color. */
+  const badgeCategories = useBadgeCategories()
   const badgeSuggestions = useMemo<ProjectBadge[]>(() => {
     if (!activeWorkspaceId) return []
     const seen = new Map<string, ProjectBadge>()
@@ -1130,6 +1132,7 @@ export function CreateMappingProjectDialog({
             </div>
 
             <BadgeEditor
+              categories={badgeCategories}
               value={badges}
               onChange={setBadges}
               suggestions={badgeSuggestions}

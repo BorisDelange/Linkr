@@ -130,3 +130,28 @@ describe('toHtml', () => {
     expect(out).toContain('padding-left:24px')
   })
 })
+
+describe('toLatex preamble', () => {
+  const table: ExportTable = {
+    head: [[{ text: 'Variable' }, { text: 'Overall' }]],
+    body: [[{ text: 'age' }, { text: '61' }]],
+  }
+
+  it('names the packages the fragment needs, as a comment', () => {
+    // Pasted into an existing manuscript, a real \usepackage in the body would
+    // be an error — but the reader still has to know booktabs is required.
+    const out = toLatex(table)
+    expect(out).toMatch(/^% Requires in your preamble: \\usepackage\{booktabs\}/)
+    expect(out).toContain('\\begin{table}')
+    expect(out).not.toContain('\\begin{document}')
+  })
+
+  it('standalone compiles on its own: class, packages, document', () => {
+    const out = toLatex(table, { standalone: true })
+    expect(out).toContain('\\documentclass{article}')
+    expect(out).toContain('\\usepackage{booktabs}')
+    expect(out.indexOf('\\begin{document}')).toBeLessThan(out.indexOf('\\begin{table}'))
+    expect(out.indexOf('\\end{table}')).toBeLessThan(out.indexOf('\\end{document}'))
+    expect(out).not.toContain('% Requires')
+  })
+})

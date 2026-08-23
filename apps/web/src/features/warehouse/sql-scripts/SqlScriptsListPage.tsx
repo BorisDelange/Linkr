@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
@@ -78,12 +79,7 @@ export function SqlScriptsListPage() {
     label: t('common.badges'),
     selected: badgeFilter,
     onChange: setBadgeFilter,
-    options: allBadges.map((b) => ({
-      value: b.label,
-      label: b.label,
-      badgeClass: getBadgeClasses(b.color),
-      badgeStyle: getBadgeStyle(b.color),
-    })),
+    options: badgeFilterOptions(allBadges, badgeCategories, i18n.language, t('badge_categories.no_category')),
   }] : []
 
   // --- Import ---

@@ -3,6 +3,7 @@ import {
   looksLikeIdentifier,
   isDefaultAnalysisColumn,
   defaultAnalysisColumns,
+  orderSelection,
 } from './analysis-default-columns'
 import type { DatasetColumn } from '@/types'
 
@@ -59,5 +60,49 @@ describe('defaultAnalysisColumns', () => {
 
   it('returns nothing for no columns, without throwing', () => {
     expect(defaultAnalysisColumns([])).toEqual([])
+  })
+})
+
+describe('orderSelection', () => {
+  const columns = [col('zebra'), col('alpha'), col('mid'), col('unused')]
+
+  it('custom keeps the selection array as-is — the array IS the order', () => {
+    expect(orderSelection(['mid', 'zebra', 'alpha'], columns, 'custom')).toEqual([
+      'mid', 'zebra', 'alpha',
+    ])
+  })
+
+  it('dataset order follows the column list, not the tick order', () => {
+    // The point: ticking a variable late must not park it at the end.
+    expect(orderSelection(['mid', 'zebra', 'alpha'], columns, 'dataset')).toEqual([
+      'zebra', 'alpha', 'mid',
+    ])
+  })
+
+  it('alphabetical sorts by the label when one is given', () => {
+    const labelled = [
+      { ...col('a'), label: 'Zebra' },
+      { ...col('b'), label: 'Alpha' },
+    ]
+    expect(orderSelection(['a', 'b'], labelled, 'alphabetical', (c) => c.label ?? c.name)).toEqual([
+      'b', 'a',
+    ])
+  })
+
+  it('sorts accented labels by base letter, not by byte', () => {
+    // "Âge" must come first; byte order would put it after "Zone".
+    const labelled = [
+      { ...col('a'), label: 'Zone' },
+      { ...col('b'), label: 'Âge' },
+    ]
+    expect(orderSelection(['a', 'b'], labelled, 'alphabetical', (c) => c.label ?? c.name)).toEqual([
+      'b', 'a',
+    ])
+  })
+
+  it('drops ids of columns that no longer exist, in every mode', () => {
+    for (const mode of ['custom', 'dataset', 'alphabetical'] as const) {
+      expect(orderSelection(['alpha', 'ghost'], columns, mode)).toEqual(['alpha'])
+    }
   })
 })

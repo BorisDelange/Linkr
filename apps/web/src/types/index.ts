@@ -90,6 +90,30 @@ export interface ProjectBadge {
   color: BadgeColor
 }
 
+/**
+ * A badge category declared by the workspace — GitLab's scoped labels.
+ *
+ * A category is a naming convention, not a container: the badge's own `label`
+ * stays the single source of truth, holding the whole `Category::value` string.
+ * Categories only drive entry (a picker instead of free text), display (the
+ * two-tone chip) and filtering (grouped options). Deleting one therefore
+ * rewrites nothing — its badges keep their labels verbatim and simply lose the
+ * two-tone rendering. Stripping the prefix instead would silently merge
+ * `Source::MIMIC` and `Domain::MIMIC` into the same badge.
+ *
+ * Lives on the workspace rather than as an entity of its own: it has no page, no
+ * URL, no git scope and no lifecycle — it is a workspace setting, next to
+ * `defaultEnvPackages`, and it rides along in `workspace.json` for free.
+ */
+export interface BadgeCategory {
+  id: string
+  /** Shown before the separator on a chip, e.g. "Source". */
+  name: LocalizedString
+  color: BadgeColor
+  /** One value of this category per entity — picking a second replaces the first. */
+  exclusive: boolean
+}
+
 // --- Organization & Catalog Types (shared by plugins and projects) ---
 
 /** Organization or author metadata. */
@@ -157,6 +181,8 @@ export interface Workspace extends Seedable, Authored, Lineaged {
   /** @deprecated Kept for backward compat after v17 migration. Use organizationId instead. */
   organization?: OrganizationInfo
   badges?: ProjectBadge[]
+  /** Badge categories this workspace declares, shared by every entity in it. */
+  badgeCategories?: BadgeCategory[]
   readme?: LocalizedString
   license?: EntityLicense
   gitRemoteConfig?: GitRemoteConfig

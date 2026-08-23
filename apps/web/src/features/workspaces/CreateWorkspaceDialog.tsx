@@ -9,6 +9,7 @@ import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { localized } from '@/lib/localized'
 import {
@@ -39,6 +40,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange, onCreated }: CreateW
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   // A workspace's siblings are the other workspaces, so the suggestions are the
   // whole list — not useBadgeSuggestions, which scopes items to one workspace.
+  const badgeCategories = useBadgeCategories()
   const badgeSuggestions = useMemo(() => _workspacesRaw.flatMap((w) => w.badges ?? []), [_workspacesRaw])
 
   const handleSubmit = async () => {
@@ -91,6 +93,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange, onCreated }: CreateW
             </div>
 
             <BadgeEditor
+              categories={badgeCategories}
               value={badges}
               onChange={setBadges}
               suggestions={badgeSuggestions}

@@ -13,6 +13,7 @@ import {
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useSaveForm } from '@/hooks/use-save-form'
@@ -51,6 +52,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
   const isEditing = !!editingCollection
   const { collections } = useSqlScriptsStore()
   const existingIds = collections.map(c => c.entityId).filter((id): id is string => !!id)
+  const badgeCategories = useBadgeCategories()
   const badgeSuggestions = useBadgeSuggestions(collections, activeWorkspaceId, editingCollection?.id)
 
   useEffect(() => {
@@ -207,7 +209,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
         }
         metadata={
           <>
-            <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
+            <BadgeEditor value={badges} onChange={setBadges} categories={badgeCategories} suggestions={badgeSuggestions} />
             <VersionField value={version} onChange={setVersion} />
           </>
         }

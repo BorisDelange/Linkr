@@ -46,3 +46,44 @@ export function defaultAnalysisColumns(columns: DatasetColumn[]): DatasetColumn[
   // all rather than an empty analysis the user cannot explain.
   return kept.length > 0 ? kept : columns
 }
+
+/**
+ * How a table orders the variables it was given.
+ *
+ * `custom` is the one that matters for a manuscript: papers order Table 1 by
+ * meaning — demographics, then severity, then outcomes — which is neither the
+ * file's column order nor alphabetical.
+ */
+export type VariableOrder = 'dataset' | 'alphabetical' | 'custom'
+
+/**
+ * Apply a `VariableOrder` to a set of chosen column ids.
+ *
+ * `custom` returns the selection untouched: the array IS the order, maintained
+ * by the drag handles in the picker. The other two sort by the column list, so
+ * that ticking a variable later drops it into its proper place rather than at
+ * the end — which is what makes the non-custom modes stable.
+ *
+ * Unknown ids are dropped rather than kept in place: they name columns that no
+ * longer exist, and a table cannot render a row for them anyway.
+ */
+export function orderSelection(
+  selectedIds: string[],
+  columns: DatasetColumn[],
+  order: VariableOrder,
+  /** How a column is named for sorting; defaults to the storage name. */
+  labelOf: (column: DatasetColumn) => string = (c) => c.name,
+): string[] {
+  const chosen = new Set(selectedIds)
+  if (order === 'custom') {
+    const known = new Set(columns.map((c) => c.id))
+    return selectedIds.filter((id) => known.has(id))
+  }
+  const kept = columns.filter((c) => chosen.has(c.id))
+  if (order === 'alphabetical') {
+    // localeCompare, not <: the labels are French here as often as English, and
+    // byte order puts "Âge" after "Zone".
+    kept.sort((a, b) => labelOf(a).localeCompare(labelOf(b), undefined, { sensitivity: 'base' }))
+  }
+  return kept.map((c) => c.id)
+}

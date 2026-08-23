@@ -27,6 +27,7 @@ import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
 import { formatApiError, type FormattedError } from '@/lib/api-client'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
 import { ListPageTemplate } from '../ListPageTemplate'
@@ -157,12 +158,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       label: t('concept_mapping.project_badges'),
       selected: badgeFilter,
       onChange: setBadgeFilter,
-      options: allBadges.map((b) => ({
-        value: b.label,
-        label: b.label,
-        badgeClass: getBadgeClasses(b.color),
-        badgeStyle: getBadgeStyle(b.color),
-      })),
+      options: badgeFilterOptions(allBadges, badgeCategories, i18n.language, t('badge_categories.no_category')),
     },
   ]
 

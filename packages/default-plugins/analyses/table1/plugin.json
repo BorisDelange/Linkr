@@ -37,9 +37,49 @@
         "fr": "Données"
       },
       "description": {
-        "en": "The rows of the table, in this order.",
-        "fr": "Les lignes du tableau, dans cet ordre."
-      }
+        "en": "The rows of the table. Drag to reorder when the order is Custom.",
+        "fr": "Les lignes du tableau. Glissez pour réordonner quand l'ordre est Personnalisé."
+      },
+      "orderable": true
+    },
+    "variableOrder": {
+      "type": "select",
+      "label": {
+        "en": "Variable order",
+        "fr": "Ordre des variables"
+      },
+      "default": "dataset",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Dataset order matches the columns as they sit in the file. Custom lets you drag the variables into the order the table should read — the usual choice for a paper, where demographics come before severity and outcomes come last.",
+        "fr": "L'ordre du jeu de données suit les colonnes telles qu'elles sont dans le fichier. Personnalisé permet de glisser les variables dans l'ordre de lecture du tableau — le choix habituel pour un article, où la démographie précède la gravité et les critères de jugement viennent en dernier."
+      },
+      "options": [
+        {
+          "value": "dataset",
+          "label": {
+            "en": "Dataset order",
+            "fr": "Ordre du jeu de données"
+          }
+        },
+        {
+          "value": "alphabetical",
+          "label": {
+            "en": "Alphabetical",
+            "fr": "Alphabétique"
+          }
+        },
+        {
+          "value": "custom",
+          "label": {
+            "en": "Custom (drag to reorder)",
+            "fr": "Personnalisé (glisser pour réordonner)"
+          }
+        }
+      ]
     },
     "groupByColumn": {
       "type": "column-select",

@@ -47,6 +47,7 @@ import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { EntityIdField, isEntityIdValid, mintEntityId } from '@/components/ui/entity-id-field'
 import { slugifyId, uniqueEntityId } from '@/lib/slugify-id'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -1443,6 +1444,7 @@ export function SchemaPresetsPage() {
   }
 
   /** Badges already used by the other schemas in this workspace. */
+  const badgeCategories = useBadgeCategories()
   const schemaBadgeSuggestions = useMemo(
     () => customPresets.flatMap((p) => p.badges ?? []),
     [customPresets],
@@ -1644,6 +1646,7 @@ export function SchemaPresetsPage() {
               metadata={
                 <>
                   <BadgeEditor
+                    categories={badgeCategories}
                     value={newPresetBadges}
                     onChange={setNewPresetBadges}
                     suggestions={schemaBadgeSuggestions}

@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { RequiredMark } from '@/components/ui/required-mark'
 import {
@@ -37,6 +38,7 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
   const allWorkspaces = useWorkspaceStore((s) => s.workspaces)
   // A workspace has no parent workspace, so useBadgeSuggestions (which scopes by
   // workspaceId) doesn't apply: the siblings here are the other workspaces.
+  const badgeCategories = useBadgeCategories()
   const badgeSuggestions = useMemo(
     () => allWorkspaces.filter((w) => w.id !== workspace?.id).flatMap((w) => w.badges ?? []),
     [allWorkspaces, workspace?.id],
@@ -153,6 +155,7 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
         }
         metadata={
           <BadgeEditor
+            categories={badgeCategories}
             value={badges}
             onChange={setBadges}
             suggestions={badgeSuggestions}

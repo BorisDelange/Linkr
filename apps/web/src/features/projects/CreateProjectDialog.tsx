@@ -16,6 +16,7 @@ import {
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { useSaveForm } from '@/hooks/use-save-form'
@@ -63,6 +64,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
     }
   }, [open, editingProject, language])
 
+  const badgeCategories = useBadgeCategories()
   const badgeSuggestions = useBadgeSuggestions(_projectsRaw, workspaceId, editingProject?.uid)
 
   const existingIds = _projectsRaw
@@ -181,6 +183,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
               </Select>
             </div>
             <BadgeEditor
+              categories={badgeCategories}
               value={badges}
               onChange={setBadges}
               suggestions={badgeSuggestions}

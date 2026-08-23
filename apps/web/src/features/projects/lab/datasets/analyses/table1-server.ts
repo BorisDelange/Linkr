@@ -1,4 +1,5 @@
 import { displayColumnName } from '@/lib/dataset-utils'
+import { orderSelection, type VariableOrder } from '@/lib/analysis-default-columns'
 import type { SummaryStat } from '@/lib/stats/descriptive-table'
 import type { DatasetColumn } from '@/types'
 
@@ -35,10 +36,13 @@ export function buildTable1Spec(
     maxLevels: number
     missingLabel: string
     othersLabel: string
+    variableOrder: VariableOrder
   },
 ): Table1Spec {
   const byId = new Map(columns.map((c) => [c.id, c]))
-  const selected = selectedColumnIds
+  // Order resolved HERE, not server-side: `custom` lives only in the client's
+  // config array, and alphabetical sorts by label, which the server never sees.
+  const selected = orderSelection(selectedColumnIds, columns, options.variableOrder, displayColumnName)
     .map((id) => byId.get(id))
     .filter((c): c is DatasetColumn => !!c && c.id !== groupByColumnId)
     .map((c) => ({ name: c.name, label: displayColumnName(c), numeric: c.type === 'number' }))

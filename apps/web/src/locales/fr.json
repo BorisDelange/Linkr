@@ -1316,6 +1316,8 @@
     "export_png": "Télécharger en PNG",
     "export_copy_table": "Copier le tableau",
     "export_latex": "Copier en LaTeX",
+    "export_latex_document": "Copier en document LaTeX",
+    "table1_row_order": "Ordre des lignes",
     "table1_variable": "Variable",
     "table1_missing": "Manquants",
     "table1_others": "Autres",

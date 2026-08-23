@@ -47,6 +47,7 @@ import { FieldInfo } from '@/components/ui/field-info'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -117,6 +118,7 @@ export function AddDatabaseDialog({
   const { addDataSource, updateDataSource, removeDataSource, retestDataSource, dataSources } = useDataSourceStore()
   const [step, setStep] = useState<1 | 2>(1)
   const [dbTab, setDbTab] = useState<DbTab>('general')
+  const badgeCategories = useBadgeCategories()
   const badgeSuggestions = useBadgeSuggestions(
     dataSources.filter((ds) => ds.id !== editingSource?.id),
     wsUid,
@@ -805,6 +807,7 @@ export function AddDatabaseDialog({
 
               <TabsContent value="metadata" className="space-y-4 pt-3">
                 <BadgeEditor
+                  categories={badgeCategories}
                   value={badges}
                   onChange={setBadges}
                   suggestions={badgeSuggestions}

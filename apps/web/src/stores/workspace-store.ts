@@ -3,7 +3,7 @@ import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { isShellHtml, toLocalized, setLocalized, localized } from '@/lib/localized'
-import type { Workspace, GitRemoteConfig, Language, ProjectBadge, LocalizedString, EntityLicense } from '@/types'
+import type { Workspace, GitRemoteConfig, Language, ProjectBadge, BadgeCategory, LocalizedString, EntityLicense } from '@/types'
 import { useAppStore, registerWorkspaceStore, stampAuthored, stampLineage } from './app-store'
 import { useOrganizationStore } from './organization-store'
 
@@ -56,6 +56,8 @@ interface WorkspaceState {
   }) => Promise<string>
   updateWorkspace: (id: string, changes: Partial<Workspace>) => Promise<void>
   updateWorkspaceBadges: (id: string, badges: ProjectBadge[]) => Promise<void>
+  /** Replace the workspace's declared badge categories. */
+  updateBadgeCategories: (id: string, categories: BadgeCategory[]) => Promise<void>
   updateWorkspaceReadme: (id: string, readme: string) => Promise<void>
   updateWorkspaceLicense: (id: string, license: EntityLicense | null) => Promise<void>
   deleteWorkspace: (id: string, onProgress?: (phaseKey: string) => void) => Promise<void>
@@ -148,6 +150,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
                 ? (changes.name[lang] ?? changes.name['en'] ?? Object.values(changes.name)[0] ?? s.activeWorkspaceName)
                 : s.activeWorkspaceName)
             : s.activeWorkspaceName,
+      }
+    })
+  },
+
+  updateBadgeCategories: async (id, badgeCategories) => {
+    await getStorage().workspaces.update(id, { badgeCategories })
+    const lang = useAppStore.getState().language
+    set((s) => {
+      const newRaw = s._workspacesRaw.map((ws) =>
+        ws.id === id ? { ...ws, badgeCategories, updatedAt: new Date().toISOString() } : ws,
+      )
+      return {
+        _workspacesRaw: newRaw,
+        workspaces: newRaw.map((ws) => workspaceToItem(ws, lang)),
       }
     })
   },

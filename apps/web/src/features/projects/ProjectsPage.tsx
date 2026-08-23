@@ -51,6 +51,7 @@ import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
+import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import type { Project } from '@/types'
 
 export function ProjectsPage() {
@@ -146,12 +147,7 @@ export function ProjectsPage() {
       label: t('project_settings.badges'),
       selected: badgeFilter,
       onChange: setBadgeFilter,
-      options: allBadges.map((b) => ({
-        value: b.label,
-        label: b.label,
-        badgeClass: getBadgeClasses(b.color),
-        badgeStyle: getBadgeStyle(b.color),
-      })),
+      options: badgeFilterOptions(allBadges, badgeCategories, i18n.language, t('badge_categories.no_category')),
     },
   ], [t, statusFilter, badgeFilter, allBadges])
 

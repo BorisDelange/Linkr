@@ -33,6 +33,12 @@ export interface FilterOption {
   badgeClass?: string
   /** Inline style for custom-hex badge colours. */
   badgeStyle?: React.CSSProperties
+  /**
+   * Sub-heading printed above this option, splitting a group into labelled runs
+   * (badge categories). Set it on the FIRST option of each run; repeating the
+   * same text on consecutive options prints it once.
+   */
+  subheading?: string
 }
 
 export interface FilterGroup {
@@ -200,11 +206,23 @@ export function ListPageToolbar({
                 <div key={group.key}>
                   {sectionHeader(group.label, sortFields.length === 0 && gi === 0)}
                   <div className="space-y-0.5">
-                    {group.options.map((opt) => {
+                    {group.options.map((opt, oi) => {
                       const checked = group.selected.includes(opt.value)
+                      // Printed once per run, not once per option.
+                      const heading = opt.subheading && opt.subheading !== group.options[oi - 1]?.subheading
+                        ? opt.subheading
+                        : null
                       return (
+                        <div key={opt.value}>
+                        {heading && (
+                          <p className={cn(
+                            'truncate px-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70',
+                            oi > 0 && 'mt-1.5',
+                          )}>
+                            {heading}
+                          </p>
+                        )}
                         <button
-                          key={opt.value}
                           type="button"
                           onClick={() => toggle(group, opt.value)}
                           className={cn(
@@ -233,6 +251,7 @@ export function ListPageToolbar({
                             <span className="truncate">{opt.label}</span>
                           )}
                         </button>
+                        </div>
                       )
                     })}
                   </div>

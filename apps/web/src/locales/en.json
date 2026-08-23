@@ -1316,6 +1316,8 @@
     "export_png": "Download as PNG",
     "export_copy_table": "Copy table",
     "export_latex": "Copy as LaTeX",
+    "export_latex_document": "Copy as LaTeX document",
+    "table1_row_order": "Row order",
     "table1_variable": "Variable",
     "table1_missing": "Missing",
     "table1_others": "Other",

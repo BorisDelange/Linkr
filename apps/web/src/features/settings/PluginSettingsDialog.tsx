@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { VersionField } from '@/components/ui/version-field'
 import { useTallestPanel } from '@/hooks/use-tallest-panel'
 import { Textarea } from '@/components/ui/textarea'
@@ -57,6 +58,7 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
   const [entityId, setEntityId] = useState('')
 
   /** Badges already used by the other plugins, offered as suggestions. */
+  const badgeCategories = useBadgeCategories()
   const badgeSuggestions = useMemo(
     () => pluginList.filter((p) => p.id !== targetId).flatMap((p) => p.manifest.badges ?? []),
     [pluginList, targetId],
@@ -224,6 +226,7 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
             <TabsContent forceMount value="metadata" className="mt-0 max-h-[60vh] overflow-y-auto data-[state=inactive]:pointer-events-none data-[state=inactive]:invisible data-[state=inactive]:absolute data-[state=inactive]:inset-x-0 data-[state=inactive]:top-0">
               <div className="grid gap-4 p-1">
                 <BadgeEditor
+                  categories={badgeCategories}
                   value={fields.badges}
                   onChange={(next) => set('badges', next)}
                   suggestions={badgeSuggestions}

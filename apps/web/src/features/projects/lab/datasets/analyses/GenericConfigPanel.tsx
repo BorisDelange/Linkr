@@ -1,6 +1,22 @@
 import { useCallback, useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Puzzle, ChevronsUpDown, Info, Ban, ChevronRight } from 'lucide-react'
+import { Check, Puzzle, ChevronsUpDown, Info, Ban, ChevronRight, GripVertical } from 'lucide-react'
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import * as LucideIcons from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
@@ -526,17 +542,36 @@ function MultiColumnSelect({
     onConfigChange({ [fieldKey]: [] })
   }, [fieldKey, onConfigChange])
 
+  // Search both the label and the storage name: the list DISPLAYS labels, so
+  // typing what you can see must match, but the name stays searchable for
+  // someone who knows the column by how it is stored.
   const searchFiltered = useMemo(() => {
     if (!search.trim()) return filtered
     const q = search.toLowerCase()
-    return filtered.filter(c => c.name.toLowerCase().includes(q))
+    return filtered.filter(
+      c => displayColumnName(c).toLowerCase().includes(q) || c.name.toLowerCase().includes(q),
+    )
   }, [filtered, search])
 
   // Column LABELS, not ids: the trigger is read, so it should say what the user
   // named the column rather than its storage name.
-  const selectedLabels = useMemo(
-    () => filtered.filter(c => selected.includes(c.id)).map(displayColumnName),
-    [filtered, selected],
+  //
+  // Ordered by `selected` rather than by the column list when the field is
+  // orderable: the trigger then previews the order the table will actually use.
+  const selectedLabels = useMemo(() => {
+    const byId = new Map(filtered.map(c => [c.id, c]))
+    if (field.orderable) {
+      return selected
+        .map(id => byId.get(id))
+        .filter((c): c is DatasetColumn => !!c)
+        .map(displayColumnName)
+    }
+    return filtered.filter(c => selected.includes(c.id)).map(displayColumnName)
+  }, [filtered, selected, field.orderable])
+
+  const reorder = useCallback(
+    (next: string[]) => onConfigChange({ [fieldKey]: next }),
+    [fieldKey, onConfigChange],
   )
 
   return (
@@ -606,8 +641,97 @@ function MultiColumnSelect({
               <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
             )}
           </div>
+          {/* The order editor only appears once the user has asked for a custom
+              order — otherwise it invites dragging that the sort would discard. */}
+          {field.orderable && config.variableOrder === 'custom' && selected.length > 1 && (
+            <SelectedColumnOrderList selected={selected} columns={filtered} onReorder={reorder} />
+          )}
         </PopoverContent>
       </Popover>
+    </div>
+  )
+}
+
+/**
+ * Drag-to-reorder list of the CHOSEN columns, in the order the table will read.
+ *
+ * Separate from the checkbox list above it because the two answer different
+ * questions — which variables, then in what order — and merging them would make
+ * a long dataset's list unusable: you would have to scroll past unselected
+ * columns to move one selected row past another.
+ */
+function SelectedColumnOrderList({
+  selected,
+  columns,
+  onReorder,
+}: {
+  selected: string[]
+  columns: DatasetColumn[]
+  onReorder: (next: string[]) => void
+}) {
+  const { t } = useTranslation()
+  // A small distance before a drag starts, or the click that ticks a checkbox
+  // is swallowed as a drag.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  const byId = useMemo(() => new Map(columns.map(c => [c.id, c])), [columns])
+  const ordered = useMemo(() => selected.filter(id => byId.has(id)), [selected, byId])
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      if (!over || active.id === over.id) return
+      const from = ordered.indexOf(String(active.id))
+      const to = ordered.indexOf(String(over.id))
+      if (from < 0 || to < 0) return
+      onReorder(arrayMove(ordered, from, to))
+    },
+    [ordered, onReorder],
+  )
+
+  return (
+    <div className="mt-2 border-t pt-2">
+      <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        {t('datasets.table1_row_order')}
+      </p>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext items={ordered} strategy={verticalListSortingStrategy}>
+          <div className="max-h-[160px] overflow-y-auto overscroll-contain rounded-md border divide-y divide-border">
+            {ordered.map((id, i) => (
+              <SortableColumnRow
+                key={id}
+                id={id}
+                index={i}
+                label={displayColumnName(byId.get(id)!)}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+    </div>
+  )
+}
+
+function SortableColumnRow({ id, index, label }: { id: string; index: number; label: string }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        'flex items-center gap-2 bg-popover px-2 py-1.5 text-xs',
+        isDragging && 'relative z-10 opacity-80 shadow-sm',
+      )}
+      {...attributes}
+      {...listeners}
+    >
+      <GripVertical size={12} className="shrink-0 cursor-grab text-muted-foreground/50" />
+      <span className="w-4 shrink-0 text-[10px] text-muted-foreground/60">{index + 1}</span>
+      <span className="truncate">{label}</span>
     </div>
   )
 }
@@ -651,10 +775,15 @@ function SingleColumnSelect({
     setSearch('')
   }, [fieldKey, field.autoSet, columns, onConfigChange])
 
+  // Search both the label and the storage name: the list DISPLAYS labels, so
+  // typing what you can see must match, but the name stays searchable for
+  // someone who knows the column by how it is stored.
   const searchFiltered = useMemo(() => {
     if (!search.trim()) return filtered
     const q = search.toLowerCase()
-    return filtered.filter(c => c.name.toLowerCase().includes(q))
+    return filtered.filter(
+      c => displayColumnName(c).toLowerCase().includes(q) || c.name.toLowerCase().includes(q),
+    )
   }, [filtered, search])
 
   return (

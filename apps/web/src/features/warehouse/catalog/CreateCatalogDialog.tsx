@@ -16,6 +16,7 @@ import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
@@ -52,6 +53,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
   const isEdit = !!editingCatalog
   const { catalogs } = useCatalogStore()
   const existingIds = catalogs.map(c => c.entityId).filter((id): id is string => !!id)
+  const badgeCategories = useBadgeCategories()
   const badgeSuggestions = useBadgeSuggestions(catalogs, activeWorkspaceId, editingCatalog?.id)
 
   useEffect(() => {
@@ -192,7 +194,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         }
         metadata={
           <>
-            <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
+            <BadgeEditor value={badges} onChange={setBadges} categories={badgeCategories} suggestions={badgeSuggestions} />
             <VersionField value={version} onChange={setVersion} />
           </>
         }

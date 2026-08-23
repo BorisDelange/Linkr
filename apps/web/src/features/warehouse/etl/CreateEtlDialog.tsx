@@ -18,6 +18,7 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
@@ -52,6 +53,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   const isEditing = !!editingPipeline
   const { etlPipelines } = useEtlStore()
   const existingIds = etlPipelines.map(p => p.entityId).filter((id): id is string => !!id)
+  const badgeCategories = useBadgeCategories()
   const badgeSuggestions = useBadgeSuggestions(etlPipelines, activeWorkspaceId, editingPipeline?.id)
 
   // Populate fields when opening in edit mode
@@ -226,7 +228,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
         }
         metadata={
           <>
-            <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
+            <BadgeEditor value={badges} onChange={setBadges} categories={badgeCategories} suggestions={badgeSuggestions} />
             <VersionField value={version} onChange={setVersion} />
           </>
         }

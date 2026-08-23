@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembersTab } from '@/features/settings/MembersTab'
 import { DefaultEnvironmentsTab } from '@/features/workspaces/DefaultEnvironmentsTab'
+import { BadgeCategoriesTab } from '@/features/workspaces/BadgeCategoriesTab'
 import { AgentSettingsTab } from '@/features/settings/AgentSettingsTab'
 import { AgentBenchTab } from '@/features/settings/AgentBenchTab'
 import { isServerMode } from '@/lib/api-client'
@@ -93,6 +94,7 @@ export function WorkspaceSettingsPage() {
       >
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
+          <TabsTrigger value="badges">{t('badge_categories.title')}</TabsTrigger>
           {isServerMode() && <TabsTrigger value="environments">{t('workspace_env.title')}</TabsTrigger>}
           <TabsTrigger value="assistant">{t('settings.tab_agent')}</TabsTrigger>
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>}
@@ -101,6 +103,13 @@ export function WorkspaceSettingsPage() {
         {/* Members */}
         <TabsContent value="members" className="min-h-0 flex-1 overflow-auto pb-6">
           <MembersTab scope="workspace" targetId={wsUid} />
+        </TabsContent>
+
+        {/* Badge categories — the workspace's shared badge vocabulary */}
+        <TabsContent value="badges" className="min-h-0 flex-1 overflow-auto pb-6">
+          {workspace && (
+            <BadgeCategoriesTab workspace={workspace} canWrite={can('workspace-settings:write')} />
+          )}
         </TabsContent>
 
         {/* Default environments (server mode) */}

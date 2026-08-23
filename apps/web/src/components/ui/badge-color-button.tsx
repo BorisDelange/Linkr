@@ -9,6 +9,8 @@ import { cn } from '@/lib/utils'
 interface BadgeColorButtonProps {
   value: BadgeColor
   onChange: (color: BadgeColor) => void
+  /** Read-only: the swatch still shows the colour, but the popover won't open. */
+  disabled?: boolean
   className?: string
 }
 
@@ -17,21 +19,23 @@ interface BadgeColorButtonProps {
  * with the preset palette + a custom hex picker. Keeps the badge-add row on one
  * line instead of spreading every swatch across it.
  */
-export function BadgeColorButton({ value, onChange, className }: BadgeColorButtonProps) {
+export function BadgeColorButton({ value, onChange, disabled, className }: BadgeColorButtonProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const custom = isCustomColor(value)
   const preset = PRESET_COLORS.find((c) => c.value === value)
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={(next) => { if (!disabled) setOpen(next) }}>
       <PopoverTrigger asChild>
         <button
           type="button"
+          disabled={disabled}
           aria-label={t('project_settings.badge_color', { defaultValue: 'Badge color' })}
           title={t('project_settings.badge_color', { defaultValue: 'Badge color' })}
           className={cn(
-            'flex size-8 shrink-0 items-center justify-center rounded-md border transition-colors hover:bg-accent/50',
+            'flex size-8 shrink-0 items-center justify-center rounded-md border transition-colors',
+            disabled ? 'cursor-default opacity-60' : 'hover:bg-accent/50',
             className,
           )}
         >

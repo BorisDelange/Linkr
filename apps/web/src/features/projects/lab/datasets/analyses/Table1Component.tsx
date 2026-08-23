@@ -19,7 +19,7 @@ import { Table as TableIcon } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import { displayColumnName } from '@/lib/dataset-utils'
-import { defaultAnalysisColumns } from '@/lib/analysis-default-columns'
+import { defaultAnalysisColumns, orderSelection, type VariableOrder } from '@/lib/analysis-default-columns'
 import {
   buildDescriptiveTable,
   DASH,
@@ -61,20 +61,23 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
   const maxLevels = (config.maxLevels as number) ?? 0
   const wrap = config.wrap === true
   const showOverall = config.showOverall === true
+  const variableOrder = ((config.variableOrder as VariableOrder) ?? 'dataset')
 
   // Variables carry their LABEL: this table is read and exported, so a storage
   // name like `zone_dechocage` makes it unusable as-is.
   const variables = useMemo<VariableSpec[]>(() => {
     const byId = new Map(columns.map((c) => [c.id, c]))
-    return selectedIds
+    // Sorted by the LABEL, which is what the reader sees: sorting by storage
+    // name would look arbitrary in a table that prints labels.
+    const picked = orderSelection(selectedIds, columns, variableOrder, displayColumnName)
       .map((id) => byId.get(id))
       .filter((c): c is DatasetColumn => !!c && c.id !== groupByColumn)
-      .map((c) => ({
-        id: c.id,
-        label: displayColumnName(c),
-        kind: isNumericColumn(c) ? ('numeric' as const) : ('categorical' as const),
-      }))
-  }, [columns, selectedIds, groupByColumn])
+    return picked.map((c) => ({
+      id: c.id,
+      label: displayColumnName(c),
+      kind: isNumericColumn(c) ? ('numeric' as const) : ('categorical' as const),
+    }))
+  }, [columns, selectedIds, groupByColumn, variableOrder])
 
   const groupColumn = groupByColumn ? columns.find((c) => c.id === groupByColumn) : undefined
 
@@ -104,6 +107,7 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
         maxLevels,
         missingLabel: t('datasets.table1_missing'),
         othersLabel: t('datasets.table1_others'),
+        variableOrder,
       })
     : null
   // Stable string keys: the spec is rebuilt every render, so comparing the

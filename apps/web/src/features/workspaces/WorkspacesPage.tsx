@@ -44,6 +44,7 @@ import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
 import { EditWorkspaceDialog } from './EditWorkspaceDialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { BadgeStrip } from '@/components/ui/badge-strip'
@@ -111,12 +112,7 @@ export function WorkspacesPage() {
     {
       key: 'badges',
       label: t('common.badges'),
-      options: allBadges.map((b) => ({
-        value: b.label,
-        label: b.label,
-        badgeClass: getBadgeClasses(b.color),
-        badgeStyle: getBadgeStyle(b.color),
-      })),
+      options: badgeFilterOptions(allBadges, badgeCategories, i18n.language, t('badge_categories.no_category')),
       selected: badgeFilter,
       onChange: setBadgeFilter,
     },
