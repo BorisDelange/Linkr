@@ -38,8 +38,8 @@ import {
 export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedString | string }> {
   item: T
   onDelete: (id: string) => void | Promise<void>
-  /** Adds a Duplicate item after Edit. Omit for an entity that can't be copied
-   *  (a workspace, whose contents are too tangled to clone meaningfully). */
+  /** Adds a Duplicate item last before Delete. Omit for an entity that can't be
+   *  copied (a workspace, whose contents are too tangled to clone meaningfully). */
   onDuplicate?: (item: T) => void | Promise<void>
   onExport?: (item: T) => void
   getGitRemote?: (item: T) => GitRemoteConfig | null
@@ -171,12 +171,6 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             <Pencil size={14} />
             {t('common.edit')}
           </DropdownMenuItem>
-          {onDuplicate && (
-            <DropdownMenuItem disabled={!canEdit} onClick={(e) => { e.stopPropagation(); onDuplicate(item) }}>
-              <Copy size={14} />
-              {t('common.duplicate')}
-            </DropdownMenuItem>
-          )}
           {(onExport || onExportOverride) && (
             <DropdownMenuItem onClick={(e) => {
               e.stopPropagation()
@@ -209,6 +203,14 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
                 {t('license.title')}
               </DropdownMenuItem>
             </>
+          )}
+          {/* Duplicate sits last before Delete, where the hand-rolled menus
+              (projects, plugins) and the schema page's extraItems put it. */}
+          {onDuplicate && (
+            <DropdownMenuItem disabled={!canEdit} onClick={(e) => { e.stopPropagation(); onDuplicate(item) }}>
+              <Copy size={14} />
+              {t('common.duplicate')}
+            </DropdownMenuItem>
           )}
           {extraItems}
           <DropdownMenuSeparator />
