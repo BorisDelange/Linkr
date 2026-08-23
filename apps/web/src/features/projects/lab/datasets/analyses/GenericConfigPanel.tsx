@@ -28,6 +28,7 @@ import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
+import { defaultAnalysisColumns } from '@/lib/analysis-default-columns'
 import { inferSurveySchema } from '@/lib/survey/survey-infer'
 import { questionColumns } from '@/lib/survey/survey-schema'
 import { questionKindLabel } from '@/lib/survey/question-kind-label'
@@ -502,7 +503,8 @@ function MultiColumnSelect({
   // Memoized: the `??` fallback builds a fresh array each render, which would
   // otherwise re-run every hook that depends on `selected` on every render.
   const selected = useMemo(
-    () => (value as string[] | undefined) ?? (field.defaultAll ? filtered.map(c => c.id) : []),
+    () => (value as string[] | undefined)
+      ?? (field.defaultAll ? defaultAnalysisColumns(filtered).map(c => c.id) : []),
     [value, field.defaultAll, filtered],
   )
 

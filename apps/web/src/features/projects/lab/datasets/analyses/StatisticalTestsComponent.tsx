@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { FlaskConical, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
+import { defaultAnalysisColumns } from '@/lib/analysis-default-columns'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildStatisticalTestsSpec } from './statistical-tests-server'
@@ -1067,10 +1068,11 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
 
   const showCol = (col: string) => visibleColumns.has(col)
 
-  // Default: all columns except group column
+  // Default: every column worth testing, minus the grouping one. Identifiers
+  // and dates are left unticked — see lib/analysis-default-columns.
   const valueColumnIds = rawValueColumns?.length
     ? rawValueColumns
-    : columns.filter((c) => c.id !== groupColumnId).map((c) => c.id)
+    : defaultAnalysisColumns(columns.filter((c) => c.id !== groupColumnId)).map((c) => c.id)
 
   const localResults = useMemo(
     () => (server ? null : computeAllTests(rows, columns, groupColumnId, valueColumnIds, testPreference, alpha)),

@@ -19,6 +19,7 @@ import { Table as TableIcon } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import { displayColumnName } from '@/lib/dataset-utils'
+import { defaultAnalysisColumns } from '@/lib/analysis-default-columns'
 import {
   buildDescriptiveTable,
   DASH,
@@ -49,9 +50,11 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
   const { t } = useTranslation()
   const server = isServerMode()
 
+  // Identifiers and dates start unticked: an id column has a meaningless mean
+  // and one level per patient, and a raw timestamp describes nothing.
   const selectedIds = (config.selectedColumns as string[] | undefined)?.length
     ? (config.selectedColumns as string[])
-    : columns.map((c) => c.id)
+    : defaultAnalysisColumns(columns).map((c) => c.id)
   const groupByColumn = (config.groupByColumn as string) || null
   const stat = ((config.stat as SummaryStat) ?? 'median_iqr')
   const showMissing = config.showMissing !== false
