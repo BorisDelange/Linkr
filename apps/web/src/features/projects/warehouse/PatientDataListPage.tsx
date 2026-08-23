@@ -269,18 +269,18 @@ export function PatientDataListPage() {
         onOpenChange={setCreateOpen}
         title={t('patient_data.create_board_title')}
         description={t('patient_data.create_board_description')}
-        contentClassName="space-y-3 py-2"
+        contentClassName="space-y-4 py-2"
         onConfirm={handleCreate}
         confirmLabel={t('patient_data.create_board')}
         confirmDisabled={!isNameValid}
       >
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label>{t('common.name')}<RequiredMark /></Label>
               <Input
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder={t('patient_data.board_name_placeholder')}
-                className={cn('h-8 text-sm', nameError && 'border-destructive')}
+                className={cn(nameError && 'border-destructive')}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') { e.preventDefault(); handleCreate() }
                 }}
@@ -293,13 +293,13 @@ export function PatientDataListPage() {
                 </p>
               )}
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label>{t('common.description')}</Label>
               <Textarea
                 value={createDescription}
                 onChange={(e) => setCreateDescription(e.target.value)}
                 rows={3}
-                className="resize-none text-sm"
+                className="resize-none"
               />
             </div>
       </DialogShell>

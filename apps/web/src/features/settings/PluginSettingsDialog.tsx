@@ -208,12 +208,12 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
               <div className="grid gap-2">
                 <Label>{t('plugins.icon')}</Label>
                 <div className="flex items-center gap-2">
+                  <BadgeColorButton value={fields.iconColor ?? 'blue'} onChange={(c) => set('iconColor', c)} />
                   <IconPicker
                     value={fields.icon}
                     onChange={(name) => set('icon', name)}
                     iconColor={iconColorCustom ? (fields.iconColor as string) : undefined}
                   />
-                  <BadgeColorButton value={fields.iconColor ?? 'blue'} onChange={(c) => set('iconColor', c)} />
                 </div>
               </div>
 

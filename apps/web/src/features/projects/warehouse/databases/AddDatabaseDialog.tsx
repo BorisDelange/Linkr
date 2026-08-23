@@ -42,6 +42,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
+import { FieldInfo } from '@/components/ui/field-info'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -562,7 +563,10 @@ export function AddDatabaseDialog({
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-1.5">
-                <Label>{t('databases.field_identifier')}</Label>
+                <Label className="flex items-center gap-1.5">
+                  {t('databases.field_identifier')}
+                  <FieldInfo text={t('databases.field_alias_hint')} />
+                </Label>
                 <TooltipProvider>
                   <Tooltip delayDuration={200}>
                     <TooltipTrigger asChild>
@@ -590,7 +594,6 @@ export function AddDatabaseDialog({
                 readOnly={isEditMode}
                 disabled={isEditMode}
               />
-              <p className="text-[11px] text-muted-foreground">{t('databases.field_alias_hint')}</p>
             </div>
             <div className="space-y-2">
               <Label>{t('databases.field_description')}</Label>

@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { Label } from '@/components/ui/label'
+import { FieldInfo } from '@/components/ui/field-info'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import {
@@ -195,7 +196,10 @@ function CreateFromPresetDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>{t('databases.field_identifier')}</Label>
+            <Label className="flex items-center gap-1.5">
+              {t('databases.field_identifier')}
+              <FieldInfo text={t('databases.field_alias_hint')} />
+            </Label>
             <Input
               value={alias}
               onChange={(e) => {
@@ -205,7 +209,6 @@ function CreateFromPresetDialog({
               placeholder="mimic_iv_raw"
               className="font-mono text-xs"
             />
-            <p className="text-[11px] text-muted-foreground">{t('databases.field_alias_hint')}</p>
           </div>
 
           <div className="space-y-2">

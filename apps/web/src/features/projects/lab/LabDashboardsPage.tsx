@@ -244,18 +244,18 @@ export function LabDashboardsPage() {
         onOpenChange={setCreateOpen}
         title={t('dashboard.create_dialog_title')}
         description={t('dashboard.create_dialog_description')}
-        contentClassName="space-y-3 py-2"
+        contentClassName="space-y-4 py-2"
         onConfirm={handleCreate}
         confirmLabel={t('dashboard.create_dashboard')}
         confirmDisabled={!isNameValid}
       >
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label>{t('dashboard.field_name')}<RequiredMark /></Label>
               <Input
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder={t('dashboard.field_name_placeholder')}
-                className={cn('h-8 text-sm', nameError && 'border-destructive')}
+                className={cn(nameError && 'border-destructive')}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate() } }}
                 autoFocus
               />
@@ -266,13 +266,13 @@ export function LabDashboardsPage() {
                 </p>
               )}
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label>{t('common.description')}</Label>
               <Textarea
                 value={createDescription}
                 onChange={(e) => setCreateDescription(e.target.value)}
                 rows={3}
-                className="resize-none text-sm"
+                className="resize-none"
               />
             </div>
       </DialogShell>
