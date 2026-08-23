@@ -1,6 +1,12 @@
 import { useState } from 'react'
 import { Check, Pencil, X } from 'lucide-react'
-import { getBadgeClasses, getBadgeStyle, isCustomColor } from '@/lib/badge-colors'
+import {
+  darkenForWhiteBackground,
+  getBadgeClasses,
+  getBadgeOutlineClasses,
+  getBadgeStyle,
+  isCustomColor,
+} from '@/lib/badge-colors'
 import { cn } from '@/lib/utils'
 import type { BadgeColor } from '@/types'
 
@@ -24,11 +30,12 @@ interface CategoryBadgeProps extends Omit<React.HTMLAttributes<HTMLSpanElement>,
 }
 
 /**
- * A two-tone chip for a scoped badge: the category half is darker than the
- * value half, so `Source::MIMIC` reads as one badge that says which axis it is
- * on — the same visual grammar GitLab uses for scoped labels.
+ * A two-tone chip for a scoped badge, in GitLab's scoped-label grammar: the
+ * category half is the ordinary filled badge, the value half is the same colour
+ * as border and text on the page ground. `Source::MIMIC` then reads as one badge
+ * that says which axis it is on.
  *
- * The separator itself is not drawn: the tone change already marks the boundary,
+ * The separator itself is not drawn: the fill change already marks the boundary,
  * and printing `::` inside a chip that is already split reads as a typo.
  *
  * Carries the same inline rename/remove controls as `EditableBadge`, in the same
@@ -55,18 +62,21 @@ export function CategoryBadge({
     setEditing(false)
   }
 
-  // The two halves differ only in tone: presets darken the category via a filter,
-  // a custom hex builds both from the same colour at different alphas.
+  // Left half: the ordinary filled badge. Right half: the same colour drawn as
+  // border and text on the page ground, so the two read as one chip split in
+  // two rather than two badges that happen to touch.
   const pad = size === 'md' ? 'px-2.5' : 'px-2'
-  const categoryHalf = cn(
-    pad,
-    'py-0.5',
-    !custom && getBadgeClasses(color),
-    !custom && 'brightness-95 dark:brightness-125',
-  )
-  const categoryStyle = custom ? { backgroundColor: `${color}38`, color } : undefined
-  const valueHalf = cn(!custom && getBadgeClasses(color))
-  const valueStyle = custom ? getBadgeStyle(color) : undefined
+  // The transparent border matches the value half's real one, so both sides are
+  // the same height and the text sits on one baseline.
+  const categoryHalf = cn(pad, 'border border-transparent py-0.5', !custom && getBadgeClasses(color))
+  const categoryStyle = custom ? getBadgeStyle(color) : undefined
+
+  // A user-picked hex may be far too pale to read as text on white; presets
+  // never are, their outline token being the shade meant for a light ground.
+  const valueHalf = cn('border bg-background', !custom && getBadgeOutlineClasses(color))
+  const valueStyle = custom
+    ? { borderColor: `${color}80`, color: darkenForWhiteBackground(color) }
+    : undefined
 
   const controlClass = 'rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/20'
 
