@@ -3585,6 +3585,7 @@
   },
   "sql_scripts": {
     "tab_scripts": "Scripts",
+    "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire ce que font ces scripts.",
     "title": "Collections de scripts",
     "description": "Organisez et exécutez des scripts SQL sur vos bases de données.",
     "new_collection": "Nouvelle collection",

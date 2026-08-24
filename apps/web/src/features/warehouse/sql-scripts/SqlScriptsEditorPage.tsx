@@ -29,6 +29,8 @@ import {
   GitBranch,
   MoreHorizontal,
   Scale,
+  Info,
+  ArrowUpRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -54,6 +56,13 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
+import { Badge } from '@/components/ui/badge'
+import { BadgeStrip } from '@/components/ui/badge-strip'
+import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import ReactMarkdown from 'react-markdown'
+import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
+import type { SqlScriptCollection } from '@/types'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
@@ -87,15 +96,12 @@ const SQL_EDITOR_SHORTCUT_ACTIONS: ShortcutActionId[] = [
   'toggle_comment',
 ]
 
-const SQL_TAB_IDS = ['scripts', 'readme', 'license', 'versioning'] as const
+const SQL_TAB_IDS = ['overview', 'scripts', 'readme', 'license', 'versioning'] as const
 type SqlTabId = (typeof SQL_TAB_IDS)[number]
 
 /**
  * Readme, licence, export and versioning fold behind one trigger, as on the ETL
  * pipeline, the schema, the mapping project and the database.
- *
- * Scripts is the only primary tab: the editor is the page, and everything else
- * is what you reach for occasionally.
  *
  * 'export' is not a tab of its own — a collection exports as a ZIP download, so
  * selecting it runs the action and leaves the active tab alone.
@@ -147,7 +153,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   const [activeTab, setActiveTab] = useUrlTab<SqlTabId>({
     key: `sql-collection:${collectionId}`,
     tabs: SQL_TAB_IDS,
-    defaultTab: 'scripts',
+    defaultTab: 'overview',
   })
 
   const [explorerVisible, setExplorerVisible] = useState(true)
@@ -421,6 +427,10 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
           <div className="flex shrink-0 items-center px-6 pt-2">
             <div className="flex-1" />
             <TabsList>
+              <TabsTrigger value="overview">
+                <Info size={14} />
+                {t('databases.detail_overview')}
+              </TabsTrigger>
               <TabsTrigger value="scripts">
                 <Code size={14} />
                 {t('sql_scripts.tab_scripts')}
@@ -433,6 +443,18 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
             </TabsList>
             <div className="flex-1" />
           </div>
+
+          <TabsContent value="overview" className="m-0 min-h-0 flex-1 p-0">
+            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+              {collection && (
+                <SqlOverviewTab
+                  collection={collection}
+                  onSeeReadme={() => setActiveTab('readme')}
+                  onSeeLicense={() => setActiveTab('license')}
+                />
+              )}
+            </div>
+          </TabsContent>
 
           <TabsContent value="readme" className="m-0 min-h-0 flex-1 p-0">
             <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
@@ -481,7 +503,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
         {/* The editor keeps its own mount across tab switches: Monaco, the open
             files and the output panes are expensive to rebuild, and coming back
             to a re-initialised editor would lose the session. */}
-        <div className={cn('min-h-0 flex-1 overflow-hidden', activeTab === 'scripts' ? '' : 'hidden')}>
+        <div className={cn('mt-2 min-h-0 flex-1 overflow-hidden border-t', activeTab === 'scripts' ? '' : 'hidden')}>
           <Allotment>
             {/* Explorer sidebar */}
             <Allotment.Pane preferredSize={240} minSize={140} maxSize={400} visible={explorerVisible}>
@@ -976,6 +998,151 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
         actionIds={SQL_EDITOR_SHORTCUT_ACTIONS}
       />
     </TooltipProvider>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Overview tab
+// ---------------------------------------------------------------------------
+
+function SqlOverviewTab({
+  collection,
+  onSeeReadme,
+  onSeeLicense,
+}: {
+  collection: SqlScriptCollection
+  onSeeReadme: () => void
+  onSeeLicense: () => void
+}) {
+  const { i18n } = useTranslation()
+  const { resolveAttachmentUrls } = useReadmeAttachments(
+    'sql-collection',
+    collection.id,
+    collection.workspaceId,
+  )
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
+      {/* The README gets the room — it is what whoever installs this from the
+          catalog reads first — with the identity card beside it. `self-start`
+          on the second column: the readme stretches to full height and scrolls
+          inside itself, while About keeps the height its content needs. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <SqlReadmePreview
+          readme={localized(collection.readme, i18n.language)}
+          resolveUrls={resolveAttachmentUrls}
+          onViewFull={onSeeReadme}
+        />
+        <div className="flex flex-col gap-4 self-start">
+          <SqlIdentityCard collection={collection} onSeeLicense={onSeeLicense} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** The README, as much of it as fits, with a way through to the whole thing. */
+function SqlReadmePreview({
+  readme,
+  resolveUrls,
+  onViewFull,
+}: {
+  readme: string
+  resolveUrls: (md: string) => string
+  onViewFull: () => void
+}) {
+  const { t } = useTranslation()
+  // Rewrite attachments/<file> paths to blob URLs so images render, as the
+  // README tab does before handing the markdown to the renderer.
+  const resolved = resolveUrls(readme)
+
+  return (
+    <div className="flex min-h-0 flex-col rounded-xl border bg-card p-5 pr-2 shadow-sm">
+      <div className="flex shrink-0 items-center justify-between pr-3">
+        <div className="flex items-center gap-2">
+          <FileText size={14} className="text-muted-foreground" />
+          <h3 className="text-sm font-semibold">{t('common.readme')}</h3>
+        </div>
+        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onViewFull}>
+          {t('summary.view_full')}
+          <ArrowUpRight size={12} />
+        </Button>
+      </div>
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
+        {readme.trim() ? (
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            <ReactMarkdown
+              remarkPlugins={remarkPlugins}
+              rehypePlugins={rehypePlugins}
+              urlTransform={urlTransform}
+            >
+              {resolved}
+            </ReactMarkdown>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onViewFull}
+            className="text-sm text-muted-foreground underline-offset-2 hover:underline"
+          >
+            {t('sql_scripts.readme_empty_hint')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Who made this collection, when, under what licence, and how it is tagged. */
+function SqlIdentityCard({
+  collection,
+  onSeeLicense,
+}: {
+  collection: SqlScriptCollection
+  onSeeLicense: () => void
+}) {
+  const { t, i18n } = useTranslation()
+  const workspace = useWorkspaceStore((s) =>
+    s._workspacesRaw.find((w) => w.id === collection.workspaceId),
+  )
+  const description = localized(collection.description, i18n.language)
+
+  return (
+    <div className="flex min-w-0 shrink-0 flex-col gap-4 rounded-xl border bg-card p-5 pb-0 shadow-sm">
+      <div className="flex items-center gap-2">
+        <Info size={14} className="text-muted-foreground" />
+        <h3 className="text-sm font-semibold">{t('databases.detail_about')}</h3>
+      </div>
+
+      {description && <p className="text-xs break-words text-muted-foreground">{description}</p>}
+
+      {!!collection.badges?.length && <BadgeStrip badges={collection.badges} />}
+
+      {collection.version && (
+        <div className="flex">
+          <Badge variant="outline" className="font-mono">v{collection.version}</Badge>
+        </div>
+      )}
+
+      {/* Author, organization, dates and licence, resolved the same way every
+          card footer resolves them (live identity, frozen snapshot fallback).
+          The card drops its bottom padding (`pb-0`) because CardMetaFooter
+          carries its own pt-3/pb-2, and `-mt-1` trims the container's gap-4 —
+          this row is fine print, not a section. */}
+      <CardMetaFooter
+        className="-mt-1"
+        createdById={collection.createdById}
+        createdBy={collection.createdBy}
+        createdByDetails={collection.createdByDetails}
+        organizationId={collection.organization ? undefined : workspace?.organizationId}
+        organization={collection.organization}
+        createdAt={collection.createdAt}
+        updatedAt={collection.updatedAt}
+        license={collection.license}
+        showLicenseWhenEmpty
+        onOpenLicense={onSeeLicense}
+      />
+    </div>
   )
 }
 
