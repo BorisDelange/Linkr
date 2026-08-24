@@ -23,6 +23,7 @@ import { localized } from '@/lib/localized'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -544,9 +545,8 @@ function IdentityCard({ source, onSeeLicense }: { source: DataSource; onSeeLicen
       {!!source.badges?.length && <BadgeStrip badges={source.badges} />}
 
       {source.version && (
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">{t('common.version')}</span>
-          <span className="font-medium tabular-nums">{source.version}</span>
+        <div className="flex">
+          <Badge variant="outline" className="font-mono">v{source.version}</Badge>
         </div>
       )}
 

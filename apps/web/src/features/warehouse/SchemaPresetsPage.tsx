@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import ReactMarkdown from 'react-markdown'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -1172,7 +1173,16 @@ function SchemaDetailView({
           name, export and delete now live in the global header badge menu. */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SchemaTabId)} className="flex-1 flex flex-col min-h-0">
         <div className="flex items-center px-6 pt-2 shrink-0">
-          <div className="flex-1" />
+          {/* The left spacer that balances the toolbar also carries the
+              diagram/source switch, so the tabs stay centred. */}
+          <div className="flex flex-1 items-center">
+            {(activeTab === 'ddl' || activeTab === 'mapping') && (
+              <SchemaViewToggle
+                value={activeTab === 'ddl' ? ddlView : mappingView}
+                onChange={activeTab === 'ddl' ? setDdlView : setMappingView}
+              />
+            )}
+          </div>
           <TabsList>
             <TabsTrigger value="overview">
               <Info size={14} />
@@ -1196,14 +1206,6 @@ function SchemaDetailView({
             </TabsTrigger>
           </TabsList>
           <div className="flex flex-1 items-center justify-end gap-1">
-            {/* Diagram / source switch for the tab that has two faces. */}
-            {(activeTab === 'ddl' || activeTab === 'mapping') && (
-              <SchemaViewToggle
-                value={activeTab === 'ddl' ? ddlView : mappingView}
-                onChange={activeTab === 'ddl' ? setDdlView : setMappingView}
-              />
-            )}
-
             {activeTab === 'ddl' && ddlView === 'diagram' ? (
               // DDL diagram: Filter + Edit(=layout editing). In edit mode,
               // Reset layout / Groups / Done. The DDL editor isn't used here.
@@ -1382,7 +1384,7 @@ function SchemaViewToggle({
     { id: 'source', label: t('schemas.view_source'), icon: Code },
   ]
   return (
-    <div className="mr-1 flex items-center gap-0.5 rounded-md border bg-muted/50 p-0.5">
+    <div className="flex items-center gap-0.5 rounded-md border bg-muted/50 p-0.5">
       {options.map((o) => (
         <button
           key={o.id}
@@ -1627,9 +1629,8 @@ function SchemaIdentityCard({
       {!!preset.badges?.length && <BadgeStrip badges={preset.badges} />}
 
       {preset.version && (
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">{t('common.version')}</span>
-          <span className="font-medium tabular-nums">{preset.version}</span>
+        <div className="flex">
+          <Badge variant="outline" className="font-mono">v{preset.version}</Badge>
         </div>
       )}
 
