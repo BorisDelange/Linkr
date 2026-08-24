@@ -295,14 +295,13 @@ export function Header() {
       if (dqId) return dqName ? localized(dqName, language) : t('app_warehouse.nav_data_quality')
       if (dbId) return dbEntity ? localized(dbEntity.name, language) : t('app_warehouse.nav_databases')
 
-      // Schema detail: the label comes from the workspace's stored preset, like every
-      // other entity above. It used to read the compiled built-in table, so any schema
-      // the user installed showed its raw id in the breadcrumb.
-      const schemaMatch = segment.match(/^warehouse\/schemas\/(.+)$/)
-      if (schemaMatch) {
-        return schemaPreset?.mapping.presetLabel
-          ? localized(schemaPreset.mapping.presetLabel, language)
-          : schemaMatch[1]
+      // Schema detail. Unlike the entities above, never fall back to the raw id
+      // from the URL: the name belongs in the entity badge, and printing it here
+      // too gave the schema pages a bare title where every other detail page
+      // shows only its section. Until the preset resolves, the section label is
+      // the honest answer — the badge appears alongside as soon as it does.
+      if (/^warehouse\/schemas\/.+$/.test(segment)) {
+        return t('app_warehouse.nav_schemas')
       }
 
       const key = workspaceSegmentTitleKeys[segment]
