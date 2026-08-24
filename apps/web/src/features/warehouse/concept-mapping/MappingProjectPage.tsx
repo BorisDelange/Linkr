@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import {
   ArrowRightLeft,
-  ArrowUpRight,
+  Pencil,
   BarChart3,
   ChevronDown,
   Download,
@@ -61,6 +61,23 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
     tabs: TABS,
     defaultTab: 'overview',
   })
+
+  // Set by the overview's Edit button so the Readme tab opens in edit mode.
+  // Cleared on the way out, or reaching the tab through its own trigger later
+  // would land in the editor unasked.
+  const [readmeEditing, setReadmeEditing] = useState(false)
+  // Cleared only once the Readme tab has actually been left. Checking
+  // `activeTab !== 'readme'` during render would fire immediately instead:
+  // setActiveTab writes the URL, so activeTab is still the previous tab on the
+  // render right after the Edit click, and the flag died before it was read.
+  const wasOnReadme = useRef(false)
+  useEffect(() => {
+    if (activeTab === 'readme') wasOnReadme.current = true
+    else if (wasOnReadme.current) {
+      wasOnReadme.current = false
+      setReadmeEditing(false)
+    }
+  }, [activeTab])
   // Once the editor has been opened at least once, keep its component mounted so
   // its (expensive) source-concepts query and DuckDB cache survive tab switches.
   // The other tabs stay lazy — their store subscriptions are too heavy to leave
@@ -157,11 +174,11 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
             tab answers "what is this project and who made it" instead. */}
         <TabsContent value="overview" className="min-h-0 flex-1 overflow-hidden">
           {activeTab === 'overview' && (
-            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+            <div className="flex h-full flex-col px-6 pb-1.5">
               <MappingProjectOverviewTab
                 project={project}
                 onSeeProgress={() => setActiveTab('progress')}
-                onSeeReadme={() => setActiveTab('readme')}
+                onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
                 onSeeLicense={() => setActiveTab('license')}
               />
             </div>
@@ -187,14 +204,14 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         </TabsContent>
         <TabsContent value="readme" className="min-h-0 flex-1 overflow-hidden">
           {activeTab === 'readme' && (
-            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
-              <MappingProjectReadmeTab project={project} />
+            <div className="flex h-full flex-col px-6 pb-1.5">
+              <MappingProjectReadmeTab project={project} editing={readmeEditing} />
             </div>
           )}
         </TabsContent>
         <TabsContent value="license" className="min-h-0 flex-1 overflow-hidden">
           {activeTab === 'license' && (
-            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+            <div className="flex h-full flex-col px-6 pb-1.5">
               <MappingProjectLicenseTab project={project} />
             </div>
           )}
@@ -299,11 +316,15 @@ function SecondaryTabsTrigger({
 // Overview, readme and licence tabs
 // ---------------------------------------------------------------------------
 
-function MappingProjectReadmeTab({ project }: { project: MappingProject }) {
+function MappingProjectReadmeTab({ project, editing }: { project: MappingProject; editing?: boolean }) {
   const canWrite = useMyWorkspaceRole().can('concept_mapping:write')
   const updateMappingProject = useConceptMappingStore((s) => s.updateMappingProject)
   return (
     <EntityReadmePanel
+      // Remounted when arriving from the overview's Edit button, so the
+      // editor picks up the requested mode — initialMode only applies on mount.
+      key={editing ? 'edit' : 'view'}
+      initialMode={editing ? 'edit' : 'view'}
       readme={project.readme}
       onSave={(readme) => updateMappingProject(project.id, { readme })}
       canEdit={canWrite}
@@ -340,12 +361,12 @@ function MappingProjectLicenseTab({ project }: { project: MappingProject }) {
 function MappingProjectOverviewTab({
   project,
   onSeeProgress,
-  onSeeReadme,
+  onEditReadme,
   onSeeLicense,
 }: {
   project: MappingProject
   onSeeProgress: () => void
-  onSeeReadme: () => void
+  onEditReadme: () => void
   onSeeLicense: () => void
 }) {
   const { i18n } = useTranslation()
@@ -365,7 +386,7 @@ function MappingProjectOverviewTab({
         <MappingProjectReadmePreview
           readme={localized(project.readme, i18n.language)}
           resolveUrls={resolveAttachmentUrls}
-          onViewFull={onSeeReadme}
+          onEdit={onEditReadme}
         />
         <div className="flex flex-col gap-4 self-start">
           <MappingProjectIdentityCard project={project} onSeeLicense={onSeeLicense} />
@@ -380,11 +401,11 @@ function MappingProjectOverviewTab({
 function MappingProjectReadmePreview({
   readme,
   resolveUrls,
-  onViewFull,
+  onEdit,
 }: {
   readme: string
   resolveUrls: (md: string) => string
-  onViewFull: () => void
+  onEdit: () => void
 }) {
   const { t } = useTranslation()
   // Rewrite attachments/<file> paths to blob URLs so images render, as the
@@ -398,9 +419,9 @@ function MappingProjectReadmePreview({
           <FileText size={14} className="text-muted-foreground" />
           <h3 className="text-sm font-semibold">{t('common.readme')}</h3>
         </div>
-        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onViewFull}>
-          {t('summary.view_full')}
-          <ArrowUpRight size={12} />
+        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onEdit}>
+          <Pencil size={12} />
+          {t('common.edit')}
         </Button>
       </div>
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
@@ -417,7 +438,7 @@ function MappingProjectReadmePreview({
         ) : (
           <button
             type="button"
-            onClick={onViewFull}
+            onClick={onEdit}
             className="text-sm text-muted-foreground underline-offset-2 hover:underline"
           >
             {t('concept_mapping.readme_empty_hint')}

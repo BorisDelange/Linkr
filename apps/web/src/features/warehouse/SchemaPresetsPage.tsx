@@ -23,7 +23,6 @@ import {
   Palette,
   Info,
   FileText,
-  ArrowUpRight,
   Table,
   Table2,
   Columns3,
@@ -1139,6 +1138,22 @@ function SchemaDetailView({
   // away and back returns to the view you left, and so the two are independent.
   const [ddlView, setDdlView] = useState<SchemaView>('diagram')
   const [mappingView, setMappingView] = useState<SchemaView>('source')
+  // Set by the overview's Edit button so the Readme tab opens in edit mode.
+  // Cleared on the way out, or reaching the tab through its own trigger later
+  // would land in the editor unasked.
+  const [readmeEditing, setReadmeEditing] = useState(false)
+  // Cleared only once the Readme tab has actually been left. Checking
+  // `activeTab !== 'readme'` during render would fire immediately instead:
+  // setActiveTab writes the URL, so activeTab is still the previous tab on the
+  // render right after the Edit click, and the flag died before it was read.
+  const wasOnReadme = useRef(false)
+  useEffect(() => {
+    if (activeTab === 'readme') wasOnReadme.current = true
+    else if (wasOnReadme.current) {
+      wasOnReadme.current = false
+      setReadmeEditing(false)
+    }
+  }, [activeTab])
   // ERD (Schema DDL tab) controls, lifted out of DdlERD so they sit on the tabs row.
   const [layoutEditing, setLayoutEditing] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -1306,7 +1321,7 @@ function SchemaDetailView({
                 mapping={displayMapping}
                 onSeeDdl={() => setActiveTab('ddl')}
                 onSeeMapping={() => setActiveTab('mapping')}
-                onSeeReadme={() => setActiveTab('readme')}
+                onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
                 onSeeLicense={() => setActiveTab('license')}
               />
             )}
@@ -1377,13 +1392,17 @@ function SchemaDetailView({
         </TabsContent>
 
         <TabsContent value="readme" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
-            {preset && <SchemaReadmeTab preset={preset} />}
+          {/* Full width in both modes: the markdown source wants the room when
+              editing, and the rendered README's own prose measure keeps it
+              readable when not. */}
+          <div className="flex h-full flex-col px-6 pb-1.5">
+            {preset && <SchemaReadmeTab preset={preset} editing={readmeEditing} />}
           </div>
         </TabsContent>
 
         <TabsContent value="license" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+          {/* Full width in both modes, like the Readme tab. */}
+          <div className="flex h-full flex-col px-6 pb-1.5">
             {preset && <SchemaLicenseTab preset={preset} />}
           </div>
         </TabsContent>
@@ -1517,17 +1536,21 @@ function SchemaViewToggle({
   )
 }
 
-function SchemaReadmeTab({ preset }: { preset: CustomSchemaPreset }) {
+function SchemaReadmeTab({ preset, editing }: { preset: CustomSchemaPreset; editing?: boolean }) {
   const canWrite = useMyWorkspaceRole().can('schemas:write')
   const updatePreset = useSchemaPresetStore((s) => s.updatePreset)
   return (
     <EntityReadmePanel
+      // Remounted when arriving from the overview's Edit button, so the editor
+      // picks up the requested mode — initialMode only applies on mount.
+      key={editing ? 'edit' : 'view'}
       readme={preset.readme}
       onSave={(readme) => updatePreset(preset.presetId, { readme })}
       canEdit={canWrite}
       attachmentOwner={{ type: 'schema-preset', id: preset.presetId, workspaceId: preset.workspaceId }}
       // The tab already says "Readme".
       showTitle={false}
+      initialMode={editing ? 'edit' : 'view'}
     />
   )
 }
@@ -1562,14 +1585,14 @@ function SchemaOverviewTab({
   mapping,
   onSeeDdl,
   onSeeMapping,
-  onSeeReadme,
+  onEditReadme,
   onSeeLicense,
 }: {
   preset: CustomSchemaPreset
   mapping: SchemaMapping
   onSeeDdl: () => void
   onSeeMapping: () => void
-  onSeeReadme: () => void
+  onEditReadme: () => void
   onSeeLicense: () => void
 }) {
   const { i18n } = useTranslation()
@@ -1595,7 +1618,7 @@ function SchemaOverviewTab({
       <SchemaReadmePreview
         readme={localized(preset.readme, i18n.language)}
         resolveUrls={resolveAttachmentUrls}
-        onViewFull={onSeeReadme}
+        onEdit={onEditReadme}
       />
       <div className="flex min-h-0 flex-col gap-4">
         <SchemaIdentityCard preset={preset} onSeeLicense={onSeeLicense} />
@@ -1671,11 +1694,11 @@ function SchemaStatCards({
 function SchemaReadmePreview({
   readme,
   resolveUrls,
-  onViewFull,
+  onEdit,
 }: {
   readme: string
   resolveUrls: (md: string) => string
-  onViewFull: () => void
+  onEdit: () => void
 }) {
   const { t } = useTranslation()
   // Rewrite attachments/<file> paths to blob URLs so images render, as the
@@ -1683,18 +1706,23 @@ function SchemaReadmePreview({
   const resolved = resolveUrls(readme)
 
   return (
+    /* `pr-2` keeps the scrollbar near the card's edge; the scroll container's
+       own `pr-4` is what holds the text clear of it. Padding inside the
+       scroller rather than margin outside, so the bar rides the border. */
     <div className="flex min-h-0 flex-col rounded-xl border bg-card p-5 pr-2 shadow-sm">
-      <div className="flex shrink-0 items-center justify-between pr-3">
+      <div className="flex shrink-0 items-center justify-between pr-4">
         <div className="flex items-center gap-2">
           <FileText size={14} className="text-muted-foreground" />
           <h3 className="text-sm font-semibold">{t('common.readme')}</h3>
         </div>
-        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onViewFull}>
-          {t('summary.view_full')}
-          <ArrowUpRight size={12} />
+        {/* Edit, not "view full": the preview already shows the whole README,
+            so the only thing the tab adds is editing it. */}
+        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onEdit}>
+          <Pencil size={12} />
+          {t('common.edit')}
         </Button>
       </div>
-      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-4">
         {readme.trim() ? (
           <div className="prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown
@@ -1708,7 +1736,7 @@ function SchemaReadmePreview({
         ) : (
           <button
             type="button"
-            onClick={onViewFull}
+            onClick={onEdit}
             className="text-sm text-muted-foreground underline-offset-2 hover:underline"
           >
             {t('schemas.readme_empty_hint')}

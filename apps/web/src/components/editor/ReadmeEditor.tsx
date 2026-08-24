@@ -27,6 +27,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
+import { SplitEditorPreview } from '@/components/editor/SplitEditorPreview'
 
 // ---------------------------------------------------------------------------
 // Markdown plugins & sanitization
@@ -93,15 +94,21 @@ interface ReadmeEditorProps {
   showTitle?: boolean
   /** Overrides the root wrapper classes (defaults to `flex h-full flex-col pt-2`). */
   className?: string
+  /**
+   * Mode to open in. Lets a caller arrive straight in edit mode — the overview's
+   * Edit button does this, since the README is already fully visible there and
+   * "view it" would be a no-op. Ignored when `canEdit` is false.
+   */
+  initialMode?: 'view' | 'edit'
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEdit = true, showTitle = true, className = 'flex h-full flex-col pt-2' }: ReadmeEditorProps) {
+export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEdit = true, showTitle = true, className = 'flex h-full flex-col pt-2', initialMode = 'view' }: ReadmeEditorProps) {
   const { t } = useTranslation()
-  const [mode, setMode] = useState<'view' | 'edit'>('view')
+  const [mode, setMode] = useState<'view' | 'edit'>(canEdit ? initialMode : 'view')
   const [localReadme, setLocalReadme] = useState(readme)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -267,25 +274,25 @@ export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEd
       {mode === 'edit' ? (
         <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card shadow-xs">
           <MarkdownToolbar onFormat={applyFormat} />
-          <div className="grid min-h-0 flex-1 grid-cols-2 gap-0">
-            <div className="overflow-auto border-r">
+          <SplitEditorPreview
+            editor={
               <textarea
                 ref={textareaRef}
                 value={localReadme}
                 onChange={(e) => setLocalReadme(e.target.value)}
                 placeholder={t('summary.readme_placeholder')}
-                className="h-full w-full resize-none border-0 bg-transparent p-4 font-mono text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+                className="h-full w-full resize-none border-0 bg-transparent p-4 font-mono text-xs leading-relaxed text-foreground outline-none scrollbar-none placeholder:text-muted-foreground"
                 spellCheck={false}
               />
-            </div>
-            <div className="overflow-auto p-4">
+            }
+            preview={
               <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
                 <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
                   {resolvedContent}
                 </ReactMarkdown>
               </div>
-            </div>
-          </div>
+            }
+          />
         </div>
       ) : (
         <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border bg-card shadow-sm">

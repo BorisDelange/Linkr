@@ -30,7 +30,7 @@ import {
   MoreHorizontal,
   Scale,
   Info,
-  ArrowUpRight,
+  Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -155,6 +155,23 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     tabs: SQL_TAB_IDS,
     defaultTab: 'overview',
   })
+
+  // Set by the overview's Edit button so the Readme tab opens in edit mode.
+  // Cleared on the way out, or reaching the tab through its own trigger later
+  // would land in the editor unasked.
+  const [readmeEditing, setReadmeEditing] = useState(false)
+  // Cleared only once the Readme tab has actually been left. Checking
+  // `activeTab !== 'readme'` during render would fire immediately instead:
+  // setActiveTab writes the URL, so activeTab is still the previous tab on the
+  // render right after the Edit click, and the flag died before it was read.
+  const wasOnReadme = useRef(false)
+  useEffect(() => {
+    if (activeTab === 'readme') wasOnReadme.current = true
+    else if (wasOnReadme.current) {
+      wasOnReadme.current = false
+      setReadmeEditing(false)
+    }
+  }, [activeTab])
 
   const [explorerVisible, setExplorerVisible] = useState(true)
   const [editorVisible, setEditorVisible] = useState(true)
@@ -445,11 +462,11 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
           </div>
 
           <TabsContent value="overview" className="m-0 min-h-0 flex-1 p-0">
-            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+            <div className="flex h-full flex-col px-6 pb-1.5">
               {collection && (
                 <SqlOverviewTab
                   collection={collection}
-                  onSeeReadme={() => setActiveTab('readme')}
+                  onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
                   onSeeLicense={() => setActiveTab('license')}
                 />
               )}
@@ -457,9 +474,13 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
           </TabsContent>
 
           <TabsContent value="readme" className="m-0 min-h-0 flex-1 p-0">
-            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+            <div className="flex h-full flex-col px-6 pb-1.5">
               {collection && (
                 <EntityReadmePanel
+                  // Remounted when arriving from the overview's Edit button, so the
+                  // editor picks up the requested mode — initialMode only applies on mount.
+                  key={readmeEditing ? 'edit' : 'view'}
+                  initialMode={readmeEditing ? 'edit' : 'view'}
                   readme={collection.readme}
                   onSave={(readme) => updateCollection(collection.id, { readme })}
                   canEdit={canWrite}
@@ -472,7 +493,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
           </TabsContent>
 
           <TabsContent value="license" className="m-0 min-h-0 flex-1 p-0">
-            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+            <div className="flex h-full flex-col px-6 pb-1.5">
               {collection && (
                 <EntityLicensePanel
                   license={collection.license ?? null}
@@ -1007,11 +1028,11 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
 
 function SqlOverviewTab({
   collection,
-  onSeeReadme,
+  onEditReadme,
   onSeeLicense,
 }: {
   collection: SqlScriptCollection
-  onSeeReadme: () => void
+  onEditReadme: () => void
   onSeeLicense: () => void
 }) {
   const { i18n } = useTranslation()
@@ -1031,7 +1052,7 @@ function SqlOverviewTab({
         <SqlReadmePreview
           readme={localized(collection.readme, i18n.language)}
           resolveUrls={resolveAttachmentUrls}
-          onViewFull={onSeeReadme}
+          onEdit={onEditReadme}
         />
         <div className="flex flex-col gap-4 self-start">
           <SqlIdentityCard collection={collection} onSeeLicense={onSeeLicense} />
@@ -1045,11 +1066,11 @@ function SqlOverviewTab({
 function SqlReadmePreview({
   readme,
   resolveUrls,
-  onViewFull,
+  onEdit,
 }: {
   readme: string
   resolveUrls: (md: string) => string
-  onViewFull: () => void
+  onEdit: () => void
 }) {
   const { t } = useTranslation()
   // Rewrite attachments/<file> paths to blob URLs so images render, as the
@@ -1063,9 +1084,9 @@ function SqlReadmePreview({
           <FileText size={14} className="text-muted-foreground" />
           <h3 className="text-sm font-semibold">{t('common.readme')}</h3>
         </div>
-        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onViewFull}>
-          {t('summary.view_full')}
-          <ArrowUpRight size={12} />
+        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onEdit}>
+          <Pencil size={12} />
+          {t('common.edit')}
         </Button>
       </div>
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
@@ -1082,7 +1103,7 @@ function SqlReadmePreview({
         ) : (
           <button
             type="button"
-            onClick={onViewFull}
+            onClick={onEdit}
             className="text-sm text-muted-foreground underline-offset-2 hover:underline"
           >
             {t('sql_scripts.readme_empty_hint')}

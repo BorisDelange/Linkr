@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
 import { MarkdownToolbar, applyMarkdownFormat, type MarkdownFormat } from '@/components/editor/MarkdownToolbar'
+import { SplitEditorPreview } from '@/components/editor/SplitEditorPreview'
 import {
   LICENSE_CATEGORY_KEYS,
   LICENSE_TEMPLATES,
@@ -38,6 +39,27 @@ interface LicenseEditorProps {
 }
 
 type Mode = 'view' | 'pick' | 'edit'
+
+/**
+ * One licence body, rendered as markdown — the same way GitLab and GitHub
+ * render a LICENSE.md, so a licence looks here like it looks on the forge it
+ * came from.
+ *
+ * Markdown already covers both shapes these texts come in, and no
+ * `whitespace-pre-wrap` may be added on top: an indented header (Apache's
+ * centred title block) is a code block and keeps its layout, while an
+ * unindented paragraph written as one long line reflows. Honouring source
+ * newlines everywhere would break that second kind apart mid-sentence.
+ */
+function LicenseText({ text }: { text: string }) {
+  return (
+    <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
+      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  )
+}
 
 export function LicenseEditor({
   license,
@@ -201,27 +223,19 @@ export function LicenseEditor({
             />
           </div>
           <MarkdownToolbar onFormat={applyFormat} />
-          <div className="grid min-h-0 flex-1 grid-cols-2 gap-0">
-            <div className="overflow-auto border-r">
+          <SplitEditorPreview
+            editor={
               <textarea
                 ref={textareaRef}
                 value={draft.text}
                 onChange={(e) => setDraft({ ...draft, text: e.target.value })}
                 placeholder={t('license.text_placeholder')}
-                className="h-full w-full resize-none border-0 bg-transparent p-4 font-mono text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+                className="h-full w-full resize-none border-0 bg-transparent p-4 font-mono text-xs leading-relaxed text-foreground outline-none scrollbar-none placeholder:text-muted-foreground"
                 spellCheck={false}
               />
-            </div>
-            <div className="overflow-auto p-4">
-              {/* Preview as markdown: standard texts are plain prose either way, and a
-                  custom license may legitimately use headings or lists. */}
-              <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap [&>*:first-child]:!mt-0">
-                <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
-                  {draft.text}
-                </ReactMarkdown>
-              </div>
-            </div>
-          </div>
+            }
+            preview={<LicenseText text={draft.text} />}
+          />
         </div>
       ) : (
         <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border bg-card shadow-sm">
@@ -232,9 +246,10 @@ export function LicenseEditor({
                   <Scale size={14} className="text-muted-foreground" />
                   <span className="text-sm font-medium text-card-foreground">{licenseTitle(license)}</span>
                 </div>
-                <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-foreground">
-                  {license.text}
-                </pre>
+                {/* Same renderer as the edit preview: the two disagreed before,
+                    so a licence looked one way while writing it and another
+                    once saved. */}
+                <LicenseText text={license.text} />
               </>
             ) : (
               <div className="flex flex-col items-start gap-3">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import {
@@ -17,7 +17,7 @@ import {
   GitBranch,
   MoreHorizontal,
   ChevronDown,
-  ArrowUpRight,
+  Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -104,6 +104,23 @@ export function CatalogDetailPage({ catalogId }: Props) {
     tabs: TAB_IDS,
     defaultTab: 'overview',
   })
+
+  // Set by the overview's Edit button so the Readme tab opens in edit mode.
+  // Cleared on the way out, or reaching the tab through its own trigger later
+  // would land in the editor unasked.
+  const [readmeEditing, setReadmeEditing] = useState(false)
+  // Cleared only once the Readme tab has actually been left. Checking
+  // `activeTab !== 'readme'` during render would fire immediately instead:
+  // setActiveTab writes the URL, so activeTab is still the previous tab on the
+  // render right after the Edit click, and the flag died before it was read.
+  const wasOnReadme = useRef(false)
+  useEffect(() => {
+    if (activeTab === 'readme') wasOnReadme.current = true
+    else if (wasOnReadme.current) {
+      wasOnReadme.current = false
+      setReadmeEditing(false)
+    }
+  }, [activeTab])
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { catalogs, catalogsLoaded, loadCatalogs, activeResultCache, loadResultCache, updateCatalog } = useCatalogStore()
@@ -193,13 +210,17 @@ export function CatalogDetailPage({ catalogId }: Props) {
               catalog={catalog}
               statusBadge={statusBadge}
               sourceName={sourceName}
-              onSeeReadme={() => setActiveTab('readme')}
+              onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
               onSeeLicense={() => setActiveTab('license')}
             />
           </TabsContent>
 
           <TabsContent value="readme" className="mt-4">
             <EntityReadmePanel
+              // Remounted when arriving from the overview's Edit button, so the
+              // editor picks up the requested mode — initialMode only applies on mount.
+              key={readmeEditing ? 'edit' : 'view'}
+              initialMode={readmeEditing ? 'edit' : 'view'}
               readme={catalog.readme}
               onSave={(readme) => updateCatalog(catalog.id, { readme })}
               canEdit={canWrite}
@@ -295,13 +316,13 @@ function CatalogOverviewTab({
   catalog,
   statusBadge,
   sourceName,
-  onSeeReadme,
+  onEditReadme,
   onSeeLicense,
 }: {
   catalog: DataCatalog
   statusBadge: React.ReactNode
   sourceName: string
-  onSeeReadme: () => void
+  onEditReadme: () => void
   onSeeLicense: () => void
 }) {
   const { i18n } = useTranslation()
@@ -321,7 +342,7 @@ function CatalogOverviewTab({
         <CatalogReadmePreview
           readme={localized(catalog.readme, i18n.language)}
           resolveUrls={resolveAttachmentUrls}
-          onViewFull={onSeeReadme}
+          onEdit={onEditReadme}
         />
         <div className="flex flex-col gap-4 self-start">
           <CatalogIdentityCard
@@ -340,11 +361,11 @@ function CatalogOverviewTab({
 function CatalogReadmePreview({
   readme,
   resolveUrls,
-  onViewFull,
+  onEdit,
 }: {
   readme: string
   resolveUrls: (md: string) => string
-  onViewFull: () => void
+  onEdit: () => void
 }) {
   const { t } = useTranslation()
   // Rewrite attachments/<file> paths to blob URLs so images render, as the
@@ -358,9 +379,9 @@ function CatalogReadmePreview({
           <FileText size={14} className="text-muted-foreground" />
           <h3 className="text-sm font-semibold">{t('common.readme')}</h3>
         </div>
-        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onViewFull}>
-          {t('summary.view_full')}
-          <ArrowUpRight size={12} />
+        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onEdit}>
+          <Pencil size={12} />
+          {t('common.edit')}
         </Button>
       </div>
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
@@ -377,7 +398,7 @@ function CatalogReadmePreview({
         ) : (
           <button
             type="button"
-            onClick={onViewFull}
+            onClick={onEdit}
             className="text-sm text-muted-foreground underline-offset-2 hover:underline"
           >
             {t('data_catalog.readme_empty_hint')}

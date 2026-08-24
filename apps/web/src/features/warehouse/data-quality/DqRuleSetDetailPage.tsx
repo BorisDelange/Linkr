@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import {
@@ -12,7 +12,7 @@ import {
   GitBranch,
   MoreHorizontal,
   ChevronDown,
-  ArrowUpRight,
+  Pencil,
 } from 'lucide-react'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useUrlTab } from '@/hooks/use-url-tab'
@@ -96,6 +96,23 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     tabs: TAB_IDS,
     defaultTab: 'overview',
   })
+
+  // Set by the overview's Edit button so the Readme tab opens in edit mode.
+  // Cleared on the way out, or reaching the tab through its own trigger later
+  // would land in the editor unasked.
+  const [readmeEditing, setReadmeEditing] = useState(false)
+  // Cleared only once the Readme tab has actually been left. Checking
+  // `activeTab !== 'readme'` during render would fire immediately instead:
+  // setActiveTab writes the URL, so activeTab is still the previous tab on the
+  // render right after the Edit click, and the flag died before it was read.
+  const wasOnReadme = useRef(false)
+  useEffect(() => {
+    if (activeTab === 'readme') wasOnReadme.current = true
+    else if (wasOnReadme.current) {
+      wasOnReadme.current = false
+      setReadmeEditing(false)
+    }
+  }, [activeTab])
   const dqActions = useDqRuleSetActions()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
 
@@ -202,18 +219,22 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
         </div>
 
         <TabsContent value="overview" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+          <div className="flex h-full flex-col px-6 pb-1.5">
             <DqOverviewTab
               ruleSet={ruleSet}
-              onSeeReadme={() => setActiveTab('readme')}
+              onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
               onSeeLicense={() => setActiveTab('license')}
             />
           </div>
         </TabsContent>
 
         <TabsContent value="readme" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+          <div className="flex h-full flex-col px-6 pb-1.5">
             <EntityReadmePanel
+              // Remounted when arriving from the overview's Edit button, so the
+              // editor picks up the requested mode — initialMode only applies on mount.
+              key={readmeEditing ? 'edit' : 'view'}
+              initialMode={readmeEditing ? 'edit' : 'view'}
               readme={ruleSet.readme}
               onSave={(readme) => updateRuleSet(ruleSet.id, { readme })}
               canEdit={canWrite}
@@ -225,7 +246,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
         </TabsContent>
 
         <TabsContent value="license" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+          <div className="flex h-full flex-col px-6 pb-1.5">
             <DqLicenseTab ruleSet={ruleSet} />
           </div>
         </TabsContent>
@@ -277,11 +298,11 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
 
 function DqOverviewTab({
   ruleSet,
-  onSeeReadme,
+  onEditReadme,
   onSeeLicense,
 }: {
   ruleSet: DqRuleSet
-  onSeeReadme: () => void
+  onEditReadme: () => void
   onSeeLicense: () => void
 }) {
   const { i18n } = useTranslation()
@@ -301,7 +322,7 @@ function DqOverviewTab({
         <DqReadmePreview
           readme={localized(ruleSet.readme, i18n.language)}
           resolveUrls={resolveAttachmentUrls}
-          onViewFull={onSeeReadme}
+          onEdit={onEditReadme}
         />
         <div className="flex flex-col gap-4 self-start">
           <DqIdentityCard ruleSet={ruleSet} onSeeLicense={onSeeLicense} />
@@ -315,11 +336,11 @@ function DqOverviewTab({
 function DqReadmePreview({
   readme,
   resolveUrls,
-  onViewFull,
+  onEdit,
 }: {
   readme: string
   resolveUrls: (md: string) => string
-  onViewFull: () => void
+  onEdit: () => void
 }) {
   const { t } = useTranslation()
   // Rewrite attachments/<file> paths to blob URLs so images render, as the
@@ -333,9 +354,9 @@ function DqReadmePreview({
           <FileText size={14} className="text-muted-foreground" />
           <h3 className="text-sm font-semibold">{t('common.readme')}</h3>
         </div>
-        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onViewFull}>
-          {t('summary.view_full')}
-          <ArrowUpRight size={12} />
+        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onEdit}>
+          <Pencil size={12} />
+          {t('common.edit')}
         </Button>
       </div>
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
@@ -352,7 +373,7 @@ function DqReadmePreview({
         ) : (
           <button
             type="button"
-            onClick={onViewFull}
+            onClick={onEdit}
             className="text-sm text-muted-foreground underline-offset-2 hover:underline"
           >
             {t('data_quality.readme_empty_hint')}

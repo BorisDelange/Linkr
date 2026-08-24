@@ -25,6 +25,8 @@ export interface EntityReadmePanelProps {
   /** Hidden when a tab already names the panel. */
   showTitle?: boolean
   className?: string
+  /** Mode to open in — see `ReadmeEditor`. Ignored when `canEdit` is false. */
+  initialMode?: 'view' | 'edit'
 }
 
 /**
@@ -43,6 +45,7 @@ export function EntityReadmePanel({
   attachmentOwner,
   showTitle = true,
   className = 'flex h-full flex-col pt-2 pb-1.5',
+  initialMode,
 }: EntityReadmePanelProps) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -65,6 +68,7 @@ export function EntityReadmePanel({
         resolveUrls={attachmentOwner ? resolveAttachmentUrls : undefined}
         canEdit={canEdit}
         showTitle={showTitle}
+        initialMode={initialMode}
         headerActions={attachmentOwner ? (
           <Button
             variant="ghost"

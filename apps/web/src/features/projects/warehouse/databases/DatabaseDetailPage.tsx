@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
@@ -6,6 +6,7 @@ import {
   Activity,
   ArrowLeft,
   ArrowUpRight,
+  Pencil,
   BarChart3,
   BedDouble,
   ChevronDown,
@@ -116,6 +117,23 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
     tabs: DATABASE_TAB_IDS,
     defaultTab: 'overview',
   })
+
+  // Set by the overview's Edit button so the Readme tab opens in edit mode.
+  // Cleared on the way out, or reaching the tab through its own trigger later
+  // would land in the editor unasked.
+  const [readmeEditing, setReadmeEditing] = useState(false)
+  // Cleared only once the Readme tab has actually been left. Checking
+  // `activeTab !== 'readme'` during render would fire immediately instead:
+  // setActiveTab writes the URL, so activeTab is still the previous tab on the
+  // render right after the Edit click, and the flag died before it was read.
+  const wasOnReadme = useRef(false)
+  useEffect(() => {
+    if (activeTab === 'readme') wasOnReadme.current = true
+    else if (wasOnReadme.current) {
+      wasOnReadme.current = false
+      setReadmeEditing(false)
+    }
+  }, [activeTab])
   // Sticky latch: once the schema tab has been opened its browser stays mounted,
   // so leaving and coming back does not re-introspect the database. Adjusted
   // during render rather than in an effect (the documented pattern for state
@@ -180,13 +198,13 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
             readme scrolls inside its own card. Letting the page scroll instead
             would give that card unbounded height and nothing would ever scroll. */}
         <TabsContent value="overview" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+          <div className="flex h-full flex-col px-6 pb-1.5">
             <OverviewTab
               source={source}
               statsMapping={statsMapping}
               hasMappedSchema={hasMappedSchema}
               onSeeStatistics={() => setActiveTab('statistics')}
-              onSeeReadme={() => setActiveTab('readme')}
+              onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
               onSeeLicense={() => setActiveTab('license')}
             />
           </div>
@@ -231,13 +249,13 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
           )}
         </TabsContent>
         <TabsContent value="readme" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
-            <DatabaseReadmeTab source={source} />
+          <div className="flex h-full flex-col px-6 pb-1.5">
+            <DatabaseReadmeTab source={source} editing={readmeEditing} />
           </div>
         </TabsContent>
 
         <TabsContent value="license" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+          <div className="flex h-full flex-col px-6 pb-1.5">
             <DatabaseLicenseTab source={source} />
           </div>
         </TabsContent>
@@ -389,11 +407,15 @@ function ConnectionCard({ source }: { source: DataSource }) {
   )
 }
 
-function DatabaseReadmeTab({ source }: { source: DataSource }) {
+function DatabaseReadmeTab({ source, editing }: { source: DataSource; editing?: boolean }) {
   const canWrite = useMyWorkspaceRole().can('databases:write')
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   return (
     <EntityReadmePanel
+      // Remounted when arriving from the overview's Edit button, so the
+      // editor picks up the requested mode — initialMode only applies on mount.
+      key={editing ? 'edit' : 'view'}
+      initialMode={editing ? 'edit' : 'view'}
       readme={source.readme}
       onSave={(readme) => updateDataSource(source.id, { readme })}
       canEdit={canWrite}
@@ -432,23 +454,26 @@ function OverviewTab({
   statsMapping,
   hasMappedSchema,
   onSeeStatistics,
-  onSeeReadme,
+  onEditReadme,
   onSeeLicense,
 }: {
   source: DataSource
   statsMapping: SchemaMapping
   hasMappedSchema: boolean
   onSeeStatistics: () => void
-  onSeeReadme: () => void
+  onEditReadme: () => void
   onSeeLicense: () => void
 }) {
   const { t, i18n } = useTranslation()
   const { resolveAttachmentUrls } = useReadmeAttachments('data-source', source.id, source.workspaceId)
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
+    /* One grid for the whole tab, so the two columns line up across both rows:
+       the stat cards stop where About starts, and the README's bottom edge
+       meets the side column's. */
+    <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden pt-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
       {source.status === 'error' && source.errorMessage && (
-        <div className="shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+        <div className="col-span-full shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
           <p className="text-xs font-medium text-destructive">{t('databases.detail_error')}</p>
           <p className="mt-1 break-all font-mono text-xs text-destructive/80">{source.errorMessage}</p>
         </div>
@@ -465,20 +490,15 @@ function OverviewTab({
       {/* The README is what documents a shared database — the thing whoever
           installs it from the catalog reads first — so it gets the room, with
           the identity card beside it. */}
-      {/* `items-start` on the second column only: the readme stretches to the
-          full height and scrolls inside itself, while About and the schema card
-          keep the height their content needs. */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <ReadmePreview
-          readme={localized(source.readme, i18n.language)}
-          resolveUrls={resolveAttachmentUrls}
-          onViewFull={onSeeReadme}
-        />
-        <div className="flex flex-col gap-4 self-start">
-          <IdentityCard source={source} onSeeLicense={onSeeLicense} />
-          <SchemaCard source={source} />
-          <ConnectionCard source={source} />
-        </div>
+      <ReadmePreview
+        readme={localized(source.readme, i18n.language)}
+        resolveUrls={resolveAttachmentUrls}
+        onEdit={onEditReadme}
+      />
+      <div className="flex min-h-0 flex-col gap-4">
+        <IdentityCard source={source} onSeeLicense={onSeeLicense} />
+        <SchemaCard source={source} />
+        <ConnectionCard source={source} />
       </div>
     </div>
   )
@@ -504,7 +524,7 @@ function DatabaseStatCards({
   // Nothing computed yet: an explicit trigger rather than a row of zeros, so a
   // billion-row database is only scanned on request.
   if (!cache && !isLoading) {
-    return <div className="shrink-0"><LoadStatisticsPrompt onLoad={refresh} /></div>
+    return <div className="col-span-full shrink-0"><LoadStatisticsPrompt onLoad={refresh} /></div>
   }
 
   const cards = [
@@ -519,7 +539,10 @@ function DatabaseStatCards({
   ]
 
   return (
-    <div className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
+    /* Spans the parent grid's two columns and repeats its track sizes, so the
+       first three cards sit over the README and the last sits over the side
+       column — the two column edges line up down the whole tab. */
+    <div className="col-span-full grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-[repeat(3,minmax(0,1fr))_20rem]">
       {cards.map((c) => (
         <button
           key={c.key}
@@ -581,11 +604,11 @@ function SchemaCard({ source }: { source: DataSource }) {
 function ReadmePreview({
   readme,
   resolveUrls,
-  onViewFull,
+  onEdit,
 }: {
   readme: string
   resolveUrls: (md: string) => string
-  onViewFull: () => void
+  onEdit: () => void
 }) {
   const { t } = useTranslation()
   // Rewrite attachments/<file> paths to blob URLs so images render, as the
@@ -599,9 +622,9 @@ function ReadmePreview({
           <FileText size={14} className="text-muted-foreground" />
           <h3 className="text-sm font-semibold">{t('common.readme')}</h3>
         </div>
-        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onViewFull}>
-          {t('summary.view_full')}
-          <ArrowUpRight size={12} />
+        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onEdit}>
+          <Pencil size={12} />
+          {t('common.edit')}
         </Button>
       </div>
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
@@ -618,7 +641,7 @@ function ReadmePreview({
         ) : (
           <button
             type="button"
-            onClick={onViewFull}
+            onClick={onEdit}
             className="text-sm text-muted-foreground underline-offset-2 hover:underline"
           >
             {t('databases.readme_empty_hint')}
