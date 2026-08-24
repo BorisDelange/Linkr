@@ -1335,7 +1335,10 @@
     "table1_no_columns": "Pick at least one variable to describe.",
     "stats_pick_test": "Click to choose the test for this variable",
     "stats_test_auto": "Auto (from the data)",
-    "stats_select_group": "Select a group column to begin."
+    "stats_select_group": "Select a group column to begin.",
+    "stats_test_pinned": "Chosen for this variable, not from the data. Click to change.",
+    "stats_select_values": "Select at least one value column.",
+    "stats_legend_pinned": "† test chosen for that variable, not from the data"
   },
   "survey": {
     "choice_order_hint": "Drag the answers into the order the chart should read.",

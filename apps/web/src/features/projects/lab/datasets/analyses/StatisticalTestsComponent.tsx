@@ -1452,7 +1452,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
   // same columns the table renders, so what you copy is what you see — including
   // which statistics are currently shown.
   usePublishAnalysisTable(
-    statRows.length > 0 ? () => toExportTable(statRows, tableColumns, lang, alpha) : null,
+    statRows.length > 0 ? () => toExportTable(statRows, tableColumns, lang, alpha, testOverrides) : null,
     [statRows, tableColumns, lang, alpha],
   )
 
@@ -1497,25 +1497,40 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <FlaskConical size={24} className="opacity-40" />
-        <p className="text-xs">
-          {lang === 'fr'
-            ? 'Sélectionnez au moins une colonne de valeurs.'
-            : 'Select at least one value column.'}
-        </p>
+        <p className="text-xs">{t('datasets.stats_select_values')}</p>
       </div>
     )
   }
 
 
 
+  // A pinned test is only legible if the table says what the mark means, so the
+  // note is shown exactly when at least one row carries one.
+  const anyPinned = statRows.some((r) => r.columnId && testOverrides[r.columnId])
+
   return (
-    <PublicationTable
-      rows={statRows}
-      columns={tableColumns}
-      wrap={wrap}
-      className={cn('h-full', !compact && 'p-4')}
-      emptyMessage={t('common.no_results')}
-    />
+    <div className={cn('flex h-full flex-col', !compact && 'p-4')}>
+      <div className="min-h-0 flex-1">
+        <PublicationTable
+          rows={statRows}
+          columns={tableColumns}
+          wrap={wrap}
+          className="h-full"
+          emptyMessage={t('common.no_results')}
+        />
+      </div>
+      {/* The legend a statistical table is expected to carry. Until now this
+          one printed * ** *** and left the reader to assume the thresholds. */}
+      <div
+        className={cn(
+          'shrink-0 space-y-0.5 pt-2 text-muted-foreground',
+          compact ? 'text-[8px]' : 'text-[10px]',
+        )}
+      >
+        <p>* p &lt; 0.05 &nbsp; ** p &lt; 0.01 &nbsp; *** p &lt; 0.001</p>
+        {anyPinned && <p>{t('datasets.stats_legend_pinned')}</p>}
+      </div>
+    </div>
   )
 }
 
@@ -1570,12 +1585,13 @@ function TestCell({
   const { t } = useTranslation()
   const label = result.testLabel[lang]
 
+  // A pinned test is marked with a DAGGER, not an asterisk: this table uses
+  // * ** *** for significance thresholds two columns away, and one symbol
+  // cannot carry both meanings. The legend below the table explains it.
   const name = (
     <span className={cn(pinned && 'font-medium')}>
       {label}
-      {/* A pinned row is marked, so a reader can see at a glance which results
-          came from the data and which from a decision. */}
-      {pinned && <span className="ml-1 text-muted-foreground">*</span>}
+      {pinned && <span className="ml-0.5 text-muted-foreground">†</span>}
     </span>
   )
 
@@ -1608,7 +1624,7 @@ function TestCell({
         <button
           type="button"
           className="group -mx-1 flex w-full items-center gap-1 rounded px-1 text-left hover:bg-accent"
-          title={t('datasets.stats_pick_test')}
+          title={pinned ? t('datasets.stats_test_pinned') : t('datasets.stats_pick_test')}
         >
           <span className="min-w-0 truncate">{name}</span>
           <ChevronDown
@@ -1700,6 +1716,7 @@ function toExportTable(
   columns: PublicationColumn<StatRow>[],
   lang: 'en' | 'fr',
   alpha: number,
+  overrides: Record<string, TestName>,
 ): ExportTable {
   const head: ExportTableCell[][] = []
   // A group header row, only when some column declares one.
@@ -1715,18 +1732,26 @@ function toExportTable(
   head.push(columns.map((c) => ({ text: c.header, align: c.align })))
 
   const body = rows.map((r) =>
-    columns.map((c) => ({ text: exportCellText(c.id, r, lang, alpha), align: c.align })),
+    columns.map((c) => ({ text: exportCellText(c.id, r, lang, alpha, overrides), align: c.align })),
   )
   return { head, body }
 }
 
-function exportCellText(columnId: string, row: StatRow, lang: 'en' | 'fr', alpha: number): string {
+function exportCellText(
+  columnId: string,
+  row: StatRow,
+  lang: 'en' | 'fr',
+  alpha: number,
+  overrides: Record<string, TestName>,
+): string {
   const r = row.result
   if (columnId === '__variable__') return row.label
   if (columnId.startsWith('g:')) return descriptiveText(r, columnId.slice(2))
   switch (columnId) {
     case 'test':
-      return r.testLabel[lang]
+      // The dagger travels with the export: a copied table that hides which
+      // tests were chosen by hand would misrepresent the analysis.
+      return r.testLabel[lang] + (row.columnId && overrides[row.columnId] ? ' †' : '')
     case 'statistic':
       return r.statistic != null ? `${r.statisticLabel} = ${fmt(r.statistic)}` : DASH
     case 'df':
