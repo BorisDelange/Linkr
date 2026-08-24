@@ -93,7 +93,7 @@ export function DqRuleSetListPage() {
   }] : []
 
   const getSourceName = (sourceId: string) =>
-    dataSources.find((ds) => ds.id === sourceId)?.name ?? '—'
+    localized(dataSources.find((ds) => ds.id === sourceId)?.name, language) || '—'
 
   // --- Import ---
   const [conflict, setConflict] = useState<{ name: string; pending: DqRuleSet; pendingChecks: import('@/types').DqCustomCheck[] } | null>(null)

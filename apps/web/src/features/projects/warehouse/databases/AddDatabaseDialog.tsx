@@ -4,7 +4,7 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
-import { localized } from '@/lib/localized'
+import { localized, localizedRaw, setLocalized } from '@/lib/localized'
 import { commonDirPrefix, extractTableName, generateAlias } from '@/lib/duckdb/engine'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
@@ -142,12 +142,12 @@ export function AddDatabaseDialog({
   // Pre-populate fields when editing
   useEffect(() => {
     if (open && editingSource) {
-      setName(editingSource.name)
+      setName(localizedRaw(editingSource.name, language))
       setBadges(editingSource.badges ?? [])
       setVersion(editingSource.version ?? '0.1.0')
       setAlias(editingSource.alias ?? '')
       setAliasManuallyEdited(true)
-      setDescription(editingSource.description)
+      setDescription(localizedRaw(editingSource.description, language))
       setSelectedType(editingSource.sourceType)
       setStep(2)
       setDbTab('general')
@@ -291,8 +291,8 @@ export function AddDatabaseDialog({
                 : {}),
             }
             const newId = await addDataSource({
-              name: name.trim(),
-              description: description.trim(),
+              name: setLocalized({}, language, name.trim()),
+              description: setLocalized({}, language, description.trim()),
               sourceType: 'database',
               connectionConfig,
               schemaMapping: mapping,
@@ -306,9 +306,9 @@ export function AddDatabaseDialog({
           // No new files — update metadata. Include the connection config for
           // non-file engines so host/port/credentials edits are actually saved.
           const changes: Partial<DataSource> = {
-            name: name.trim(),
+            name: setLocalized(editingSource.name, language, name.trim()),
             alias: alias.trim() || editingSource.alias,
-            description: description.trim(),
+            description: setLocalized(editingSource.description, language, description.trim()),
             schemaMapping: mapping,
             badges,
             version: version.trim() || '0.1.0',
@@ -362,8 +362,8 @@ export function AddDatabaseDialog({
         const mapping = resolveMapping()
 
         const newId = await addDataSource({
-          name: name.trim(),
-          description: description.trim(),
+          name: setLocalized({}, language, name.trim()),
+          description: setLocalized({}, language, description.trim()),
           sourceType: 'database',
           connectionConfig,
           schemaMapping: mapping,
@@ -381,8 +381,8 @@ export function AddDatabaseDialog({
         }
 
         const newId = await addDataSource({
-          name: name.trim(),
-          description: description.trim(),
+          name: setLocalized({}, language, name.trim()),
+          description: setLocalized({}, language, description.trim()),
           sourceType: 'fhir',
           connectionConfig,
           alias: alias.trim() || undefined,
@@ -439,7 +439,7 @@ export function AddDatabaseDialog({
   // so the check would match the row we just created and report the name we are
   // importing under as already taken.
   const nameIsDuplicate = !uploading && name.trim()
-    && dataSources.some(ds => ds.name.toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id)
+    && dataSources.some(ds => localized(ds.name, language).toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id)
 
   const isNameValid = !!name.trim() && !nameIsDuplicate
   const isConnectionValid =

@@ -32,7 +32,7 @@ import type {
   DatasetFile, DatasetColumn,
   LocalizedString, TodoItem,
 } from '@/types'
-import { toLocalized } from '@/lib/localized'
+import { localized, toLocalized } from '@/lib/localized'
 
 /** Languages seeded from per-language README files (README.md = en, README.fr.md = fr). */
 const SEED_LANGUAGES = ['en', 'fr'] as const
@@ -58,8 +58,10 @@ function normalizeTodos(todos: unknown): TodoItem[] {
 export interface SeedDatabase {
   id: string
   alias: string
-  name: string
-  description: string
+  /** A bare string is still accepted: the manifests predate multilingual
+   *  databases, and toLocalized() files one under every language on read. */
+  name: LocalizedString | string
+  description?: LocalizedString | string
   /** Schema preset id (e.g. 'omop-5.4', 'mimic-iv') or inline SchemaMapping */
   schema: SchemaPresetId | SchemaMapping
   /** Base path relative to public/ (e.g. '/data/mimic-iv-demo-omop') */
@@ -877,8 +879,8 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
     const dataSource: DataSource = {
       id: db.id,
       alias: db.alias,
-      name: db.name,
-      description: db.description,
+      name: toLocalized(db.name),
+      description: toLocalized(db.description),
       sourceType: 'database',
       connectionConfig,
       schemaMapping,
@@ -895,7 +897,7 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
       await engine.mountEmptyFromDDL(db.id, schemaMapping.ddl!, db.alias)
     }
     localStorage.setItem(lsKey, '1')
-    console.info(`[seed-loader] In-memory database "${db.name}" created`)
+    console.info(`[seed-loader] In-memory database "${localized(db.name, 'en')}" created`)
     return
   }
 
@@ -944,8 +946,8 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
   const dataSource: DataSource = {
     id: db.id,
     alias: db.alias,
-    name: db.name,
-    description: db.description,
+    name: toLocalized(db.name),
+    description: toLocalized(db.description),
     sourceType: 'database',
     connectionConfig,
     schemaMapping,
@@ -978,7 +980,7 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
   }
 
   localStorage.setItem(lsKey, '1')
-  console.info(`[seed-loader] Database "${db.name}" seeded (${storedFiles.length} tables)`)
+  console.info(`[seed-loader] Database "${localized(db.name, 'en')}" seeded (${storedFiles.length} tables)`)
 }
 
 // ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
-import { localized } from '@/lib/localized'
+import { localized, setLocalized } from '@/lib/localized'
 import type { DataSource, CustomSchemaPreset } from '@/types'
 import { Database, Plus, FileCode, Search, Plug, ChevronDown, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -121,8 +121,9 @@ function CreateFromPresetDialog({
     setCreating(true)
     try {
       await createEmptyDatabase({
-        name: name.trim(),
-        description: description.trim() || t('databases.created_from_preset', { preset: selectedPreset.label }),
+        name: setLocalized({}, language, name.trim()),
+        description: setLocalized({}, language,
+          description.trim() || t('databases.created_from_preset', { preset: selectedPreset.label })),
         schemaMapping: selectedPreset.mapping,
         ddl: selectedPreset.ddl,
         alias: alias.trim() || undefined,
@@ -268,7 +269,7 @@ export function AppDatabasesPage() {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
     const matched = visibleSources.filter((ds) => {
       if (words.length) {
-        const haystack = `${ds.name} ${ds.description ?? ''}`.toLowerCase()
+        const haystack = `${localized(ds.name, language)} ${localized(ds.description, language)}`.toLowerCase()
         if (!words.every((w) => haystack.includes(w))) return false
       }
       if (statusFilter.length && !statusFilter.includes(ds.status)) return false
@@ -279,7 +280,7 @@ export function AppDatabasesPage() {
       return true
     })
     return applySort(matched, sort, {
-      name: (ds) => ds.name,
+      name: (ds) => localized(ds.name, language),
       createdAt: (ds) => ds.createdAt,
       updatedAt: (ds) => ds.updatedAt,
     })

@@ -1197,7 +1197,7 @@ export function CreateMappingProjectDialog({
                   <SelectContent>
                     {connectedDatabases.map((ds) => (
                       <SelectItem key={ds.id} value={ds.id}>
-                        {ds.name}
+                        {localized(ds.name, language)}
                       </SelectItem>
                     ))}
                   </SelectContent>

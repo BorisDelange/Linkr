@@ -33,6 +33,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import type { Node, Edge } from '@xyflow/react'
 import type { PipelineNodeData, PipelineNodeType, PipelineScript, DataSource, Cohort } from '@/types'
+import { localized } from '@/lib/localized'
 
 // --- Type config ---
 
@@ -231,7 +232,7 @@ export function PipelineNodePanel({
   onReorderScripts,
   onClose,
 }: PipelineNodePanelProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const nodeData = node.data
   const config = typeConfig[nodeData.type]
   const Icon = config.icon
@@ -412,7 +413,7 @@ export function PipelineNodePanel({
               <option value="">{t('pipeline.select_database_placeholder')}</option>
               {dataSources.map((ds) => (
                 <option key={ds.id} value={ds.id}>
-                  {ds.name}
+                  {localized(ds.name, i18n.language)}
                 </option>
               ))}
             </select>

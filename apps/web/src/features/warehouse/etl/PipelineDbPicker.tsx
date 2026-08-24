@@ -16,6 +16,7 @@ import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { cn } from '@/lib/utils'
 import type { DataSource } from '@/types'
 import { compareByRole, roleIconColor, type PipelineRole } from './role-presentation'
+import { localized } from '@/lib/localized'
 
 interface Props {
   databases: DataSource[]
@@ -37,12 +38,12 @@ export function PipelineDbPicker({
   roleOf,
   placeholder,
 }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { ref, overflows, triggerProps } = useOverflowTooltip()
 
   const ordered = [...databases].sort((a, b) => compareByRole(a.id, b.id, roleOf))
   const selected = databases.find((ds) => ds.id === selectedId)
-  const label = selected?.name ?? placeholder ?? ''
+  const label = localized(selected?.name, i18n.language) || placeholder || ''
   const selectedRole = roleOf(selectedId)
 
   if (databases.length === 0) return null
@@ -82,10 +83,10 @@ export function PipelineDbPicker({
               key={ds.id}
               onClick={() => onSelect(ds.id)}
               className="gap-2 py-1 text-xs"
-              title={ds.name}
+              title={localized(ds.name, i18n.language)}
             >
               <Database size={12} className={cn('shrink-0', roleIconColor(role))} />
-              <span className="truncate">{ds.name}</span>
+              <span className="truncate">{localized(ds.name, i18n.language)}</span>
               {role && (
                 <span className="shrink-0 text-[10px] text-muted-foreground">
                   ({t(`etl.${role}`)})

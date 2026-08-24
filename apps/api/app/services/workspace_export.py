@@ -287,7 +287,9 @@ def _build_databases_section(
                 else None
             ),
         }
-        tree[f"databases/{_slugify(ds.get('name') or ds['id'])}.json"] = _json(safe)
+        # _eid, like every other section: prefers the stable entityId, so
+        # renaming a database no longer moves its file and churns the git diff.
+        tree[f"databases/{_eid(ds)}.json"] = _json(safe)
 
 
 def _build_sql_scripts_section(

@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/dialog'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { SchemaBrowser } from './SchemaBrowser'
+import { localized } from '@/lib/localized'
 
 /**
  * Modal wrapper around the shared {@link SchemaBrowser}. Rendered very wide so
@@ -24,11 +25,11 @@ export function SchemaBrowserDialog({
   /** Forwarded to SchemaBrowser — see its `tableQualifier` prop. */
   tableQualifier?: string
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   // Title the modal with the database being browsed; every caller already knows
   // it is a schema browser, the useful part is WHICH database.
   const dbName = useDataSourceStore(
-    (s) => s.dataSources.find((ds) => ds.id === dataSourceId)?.name,
+    (s) => localized(s.dataSources.find((ds) => ds.id === dataSourceId)?.name, i18n.language),
   )
 
   return (

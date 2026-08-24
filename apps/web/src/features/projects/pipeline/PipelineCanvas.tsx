@@ -18,6 +18,7 @@ import { PipelineNodePalette } from './PipelineNodePalette'
 import { PipelineNodePanel } from './PipelineNodePanel'
 import { DatabaseNode, CohortNode, ScriptsNode, DatasetNode, DashboardNode, GroupNode } from './nodes'
 import type { PipelineNodeType, PipelineNodeData } from '@/types'
+import { localized } from '@/lib/localized'
 
 // Defined outside to prevent re-renders
 const nodeTypes = {
@@ -30,7 +31,7 @@ const nodeTypes = {
 }
 
 export function PipelineCanvas() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const {
     pipeline,
     nodes,
@@ -165,7 +166,7 @@ export function PipelineCanvas() {
     (dataSourceId: string) => {
       if (!selectedNodeId) return
       const ds = dataSources.find((d) => d.id === dataSourceId)
-      updateNodeData(selectedNodeId, { dataSourceId, label: ds?.name ?? 'Database' })
+      updateNodeData(selectedNodeId, { dataSourceId, label: localized(ds?.name, i18n.language) ?? 'Database' })
     },
     [selectedNodeId, dataSources, updateNodeData],
   )

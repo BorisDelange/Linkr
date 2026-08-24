@@ -20,6 +20,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { DqChecksTab } from './DqChecksTab'
 import { DqResultsView } from './DqResultsView'
 import type { DqReport } from '@/lib/duckdb/data-quality'
+import { localized } from '@/lib/localized'
 
 const TAB_IDS = ['checks', 'results'] as const
 type TabId = (typeof TAB_IDS)[number]
@@ -34,7 +35,7 @@ interface Props {
 }
 
 export function DqRuleSetDetailPage({ ruleSetId }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
   const {
@@ -163,7 +164,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
             <SelectContent>
               {dbSources.map((ds) => (
                 <SelectItem key={ds.id} value={ds.id}>
-                  {ds.name}
+                  {localized(ds.name, i18n.language)}
                 </SelectItem>
               ))}
             </SelectContent>

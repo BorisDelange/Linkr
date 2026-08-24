@@ -5,6 +5,7 @@ import { createFromDdlOnServer, retestConnectionOnServer, testConnectionOnServer
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { localized } from '@/lib/localized'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useConnectionStore } from '@/stores/connection-store'
@@ -18,6 +19,7 @@ import type {
   StoredFile,
   StoredFileHandle,
   ProjectBadge,
+  LocalizedString,
 } from '@/types'
 
 // --- Active data source persistence (localStorage) ---
@@ -56,8 +58,8 @@ interface DataSourceState {
   getActiveSource: (projectUid: string) => DataSource | undefined
 
   addDataSource: (source: {
-    name: string
-    description: string
+    name: LocalizedString
+    description: LocalizedString
     sourceType: DataSourceType
     connectionConfig: ConnectionConfig
     schemaMapping?: SchemaMapping
@@ -92,8 +94,8 @@ interface DataSourceState {
    * Returns the new data source ID.
    */
   createEmptyDatabase: (source: {
-    name: string
-    description: string
+    name: LocalizedString
+    description: LocalizedString
     schemaMapping: SchemaMapping
     ddl: string
     alias?: string
@@ -152,7 +154,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
         for (const ds of all) {
           let dirty = false
           if (!ds.alias) {
-            const base = generateAlias(ds.name)
+            const base = generateAlias(localized(ds.name, 'en'))
             ds.alias = ensureUniqueAlias(base, existingAliases)
             existingAliases.push(ds.alias)
             dirty = true
@@ -326,7 +328,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
     // Generate unique alias from name (or use explicit override)
     const existingAliases = get().dataSources.map((ds) => ds.alias).filter(Boolean)
-    const baseAlias = source.alias ?? generateAlias(source.name)
+    const baseAlias = source.alias ?? generateAlias(localized(source.name, 'en'))
     const alias = ensureUniqueAlias(baseAlias, existingAliases)
 
     const newSource: DataSource = {
@@ -526,7 +528,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
     // Generate unique alias
     const existingAliases = get().dataSources.map((ds) => ds.alias).filter(Boolean)
-    const baseAlias = source.alias ?? generateAlias(source.name)
+    const baseAlias = source.alias ?? generateAlias(localized(source.name, 'en'))
     const alias = ensureUniqueAlias(baseAlias, existingAliases)
 
     const newSource: DataSource = {

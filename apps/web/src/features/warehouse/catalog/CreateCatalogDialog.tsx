@@ -184,7 +184,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
                 <SelectContent>
                   {dbSources.map((ds) => (
                     <SelectItem key={ds.id} value={ds.id}>
-                      {ds.name}
+                      {localized(ds.name, language)}
                     </SelectItem>
                   ))}
                 </SelectContent>

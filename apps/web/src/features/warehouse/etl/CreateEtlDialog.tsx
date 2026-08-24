@@ -196,7 +196,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
                     <SelectContent>
                       {dbSources.map((ds) => (
                         <SelectItem key={ds.id} value={ds.id}>
-                          {ds.name}
+                          {localized(ds.name, language)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -215,7 +215,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
                     <SelectContent>
                       {dbSources.map((ds) => (
                         <SelectItem key={ds.id} value={ds.id}>
-                          {ds.name}
+                          {localized(ds.name, language)}
                         </SelectItem>
                       ))}
                     </SelectContent>

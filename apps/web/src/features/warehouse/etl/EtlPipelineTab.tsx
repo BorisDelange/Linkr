@@ -809,7 +809,7 @@ function DatabaseSidebarDetail({
         <div className="space-y-4 p-3">
           {/* Basic info */}
           <div className="space-y-2 text-xs">
-            <DetailRow label={t('etl.pipeline_db_name')} value={ds.name} />
+            <DetailRow label={t('etl.pipeline_db_name')} value={localized(ds.name, i18n.language)} />
             <DetailRow label={t('etl.pipeline_db_engine')} value={(ds.connectionConfig && 'engine' in ds.connectionConfig ? ds.connectionConfig.engine : undefined) ?? '—'} />
             {ds.schemaMapping?.presetLabel && (
               <DetailRow label={t('etl.pipeline_db_schema')} value={localized(ds.schemaMapping.presetLabel, i18n.language)} />
@@ -1210,7 +1210,7 @@ function ScriptOrderList({
   onRunScript,
   onBrowseSchema,
 }: ScriptOrderListProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor),
@@ -1412,7 +1412,7 @@ function ScriptOrderList({
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium">{t('etl.source')}</div>
                   {sourceDs
-                    ? <div className="text-[10px] text-muted-foreground">{sourceDs.name}</div>
+                    ? <div className="text-[10px] text-muted-foreground">{localized(sourceDs.name, i18n.language)}</div>
                     : <div className="text-[10px] text-destructive">{t('etl.pipeline_define_source')}</div>}
                 </div>
               </button>
@@ -1516,7 +1516,7 @@ function ScriptOrderList({
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium">{t('etl.target')}</div>
                   {targetDs
-                    ? <div className="text-[10px] text-muted-foreground">{targetDs.name}</div>
+                    ? <div className="text-[10px] text-muted-foreground">{localized(targetDs.name, i18n.language)}</div>
                     : <div className="text-[10px] text-destructive">{t('etl.pipeline_define_target')}</div>}
                 </div>
               </button>

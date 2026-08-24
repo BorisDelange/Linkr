@@ -3,6 +3,8 @@ import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
 import { uploadDataSourceFile } from '@/lib/api/data-sources'
+import { localized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from './data-source-store'
 import type {
   IdeConnection,
@@ -107,7 +109,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       .filter((ds) => ds.sourceType === 'database')
       .map((ds) => ({
         id: ds.id,
-        name: ds.name,
+        // Flattened for display: ConnectionEntry is a projection, not an entity.
+        name: localized(ds.name, useAppStore.getState().language),
         source: 'warehouse' as const,
         engine: (ds.connectionConfig as DatabaseConnectionConfig).engine,
         status: ds.status,

@@ -102,7 +102,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   // (via createMapping / updateMapping / deleteMapping in the store). No need to recompute
   // them on every list-page mount.
   const getSourceName = (sourceId: string) =>
-    dataSources.find((ds) => ds.id === sourceId)?.name ?? t('concept_mapping.unknown_source')
+    localized(dataSources.find((ds) => ds.id === sourceId)?.name, language) || t('concept_mapping.unknown_source')
 
   // Search + filter state (only used in the projects list sub-view)
   const [searchQuery, setSearchQuery] = useState('')

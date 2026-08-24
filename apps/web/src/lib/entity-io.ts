@@ -2912,7 +2912,9 @@ export async function buildWorkspaceZip(
           ? sanitizeConnectionConfig(connectionConfig as Record<string, unknown>)
           : undefined,
       }
-      zip.file(`databases/${slugify((ds as { name?: string }).name || (ds as { id: string }).id)}.json`, json(safeDsJson))
+      // eid(), like every other section: prefers the stable entityId, so renaming
+      // a database no longer moves its file and churns the git diff.
+      zip.file(`databases/${eid(ds)}.json`, json(safeDsJson))
     }
   }
 

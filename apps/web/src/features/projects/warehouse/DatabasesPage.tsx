@@ -4,6 +4,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { GatedButton } from '@/components/ui/gated-button'
 import { useAppStore } from '@/stores/app-store'
+import { localized } from '@/lib/localized'
 import type { DataSource } from '@/types'
 import { Database, Link as LinkIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -36,6 +37,7 @@ const STATUS_DOT: Record<string, string> = {
 
 export function DatabasesPage() {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const { projectUid: uid } = useResolvedParams()
   const canEdit = useMyProjectRole(uid).atLeast('editor')
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -73,14 +75,14 @@ export function DatabasesPage() {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
     const filtered = sources.filter((ds) => {
       if (words.length) {
-        const haystack = `${ds.name} ${ds.description ?? ''}`.toLowerCase()
+        const haystack = `${localized(ds.name, language)} ${localized(ds.description, language)}`.toLowerCase()
         if (!words.every((w) => haystack.includes(w))) return false
       }
       if (statusFilter.length && !statusFilter.includes(ds.status)) return false
       return true
     })
     return applySort(filtered, sort, {
-      name: (ds) => ds.name,
+      name: (ds) => localized(ds.name, language),
       createdAt: (ds) => ds.createdAt,
       updatedAt: (ds) => ds.updatedAt,
     })

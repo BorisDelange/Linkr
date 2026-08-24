@@ -198,7 +198,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
                   <SelectItem value="__none__">—</SelectItem>
                   {dbSources.map((ds) => (
                     <SelectItem key={ds.id} value={ds.id}>
-                      {ds.name}
+                      {localized(ds.name, language)}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -70,7 +70,7 @@ import { ImportConceptSetDialog, extractMetadata, extractTranslations } from './
 import { ConceptSetDetailSheet } from './ConceptSetDetailSheet'
 import type { MappingProject, DataSource, ConceptSet, SchemaMapping, SchemaPresetId } from '@/types'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
-import { localized } from '@/lib/localized'
+import { localized, toLocalized } from '@/lib/localized'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import {
   compareVocabFiles,
@@ -746,8 +746,8 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     setVocabError(null)
     try {
       const dsId = await addDataSource({
-        name: `ATHENA Vocabulary — ${localized(project.name, i18n.language)}`,
-        description: 'OHDSI ATHENA vocabulary reference for concept mapping.',
+        name: toLocalized(`ATHENA Vocabulary — ${localized(project.name, i18n.language)}`),
+        description: toLocalized('OHDSI ATHENA vocabulary reference for concept mapping.'),
         sourceType: 'database',
         connectionConfig: { engine: 'duckdb' as const },
         // knownTables must describe what this reference HOLDS, not what the app
@@ -1414,7 +1414,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium">{t('concept_mapping.vocab_import_success')}</span>
-                        <span className="text-xs text-muted-foreground">{vocabDs.name}</span>
+                        <span className="text-xs text-muted-foreground">{localized(vocabDs.name, i18n.language)}</span>
                         {(() => {
                           const count = vocabTableNames.length || vocabDs.stats?.tableCount
                           if (count == null) return null

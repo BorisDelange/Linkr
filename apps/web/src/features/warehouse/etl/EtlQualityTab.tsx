@@ -55,6 +55,7 @@ import {
   type TableSortKey,
 } from './quality-diff'
 import type { DatabaseStatsCache, DataSource, TableRowCount } from '@/types'
+import { localized } from '@/lib/localized'
 
 type QualityTab = 'statistics' | 'concepts'
 
@@ -319,7 +320,7 @@ function StatsColumn({
   loading: boolean
   accent: 'orange' | 'emerald'
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const borderColor = accent === 'orange' ? 'border-orange-500/30' : 'border-emerald-500/30'
   const iconColor = accent === 'orange' ? 'text-orange-500' : 'text-emerald-500'
 
@@ -337,7 +338,7 @@ function StatsColumn({
       <div className="flex min-w-0 items-center gap-2">
         <Database size={14} className={cn('shrink-0', iconColor)} />
         <span className="shrink-0 text-xs font-medium">{label}</span>
-        <span className="min-w-0 truncate text-xs text-muted-foreground">— {ds.name}</span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">— {localized(ds.name, i18n.language)}</span>
       </div>
 
       {loading && (

@@ -187,7 +187,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
                 {byUpdatedDesc(dataSources).slice(0, MAX_LIST_ITEMS).map((ds) => (
                   <ListItem key={ds.id} to={paths.databases(wsUid ?? '', uid)}>
                     <StatusDot status={ds.status} />
-                    <span className="flex-1 truncate text-xs">{ds.name}</span>
+                    <span className="flex-1 truncate text-xs">{localized(ds.name, language)}</span>
                     <span className="text-[10px] text-muted-foreground">{ds.sourceType}</span>
                   </ListItem>
                 ))}

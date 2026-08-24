@@ -179,7 +179,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
                 <SelectContent>
                   {dbSources.map((ds) => (
                     <SelectItem key={ds.id} value={ds.id}>
-                      {ds.name}
+                      {localized(ds.name, language)}
                     </SelectItem>
                   ))}
                 </SelectContent>

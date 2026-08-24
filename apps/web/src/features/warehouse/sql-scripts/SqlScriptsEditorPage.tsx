@@ -63,6 +63,7 @@ import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShort
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import type { ShortcutActionId } from '@/types/shortcuts'
 import * as duckdbEngine from '@/lib/duckdb/engine'
+import { localized } from '@/lib/localized'
 
 /** Shortcut actions surfaced in the SQL editor (subset of the IDE's set;
  * no terminal here, so no toggle/clear-terminal). */
@@ -80,7 +81,7 @@ interface Props {
 }
 
 export function SqlScriptsEditorPage({ collectionId }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('sql-scripts:write')
   const {
     collections,
@@ -498,7 +499,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                         <span className="truncate">
                           {dbSources.length === 0
                             ? t('sql_scripts.no_database_available')
-                            : activeDb?.name ?? t('sql_scripts.select_database')}
+                            : localized(activeDb?.name, i18n.language) || t('sql_scripts.select_database')}
                         </span>
                         <ChevronDown size={10} className="shrink-0 opacity-50" />
                       </Button>
@@ -509,10 +510,10 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                           key={ds.id}
                           onClick={() => updateCollection(collectionId, { defaultDataSourceId: ds.id })}
                           className="gap-2 py-1 text-xs"
-                          title={ds.name}
+                          title={localized(ds.name, i18n.language)}
                         >
                           <Database size={12} className="shrink-0 text-amber-500" />
-                          <span className="truncate">{ds.name}</span>
+                          <span className="truncate">{localized(ds.name, i18n.language)}</span>
                           {activeDbId === ds.id && <Check size={12} className="ml-auto shrink-0" />}
                         </DropdownMenuItem>
                       ))}

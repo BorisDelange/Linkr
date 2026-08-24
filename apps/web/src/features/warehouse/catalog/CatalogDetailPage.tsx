@@ -80,7 +80,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
   }
 
   const statusInfo = STATUS_BADGE[catalog.status]
-  const sourceName = dataSources.find((ds) => ds.id === catalog.dataSourceId)?.name ?? '—'
+  const sourceName = localized(dataSources.find((ds) => ds.id === catalog.dataSourceId)?.name, language) || '—'
 
   return (
     <div className="h-full overflow-auto">

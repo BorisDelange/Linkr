@@ -73,7 +73,7 @@ export function DatabaseDetailSheet({
       <SheetContent side="right" className="sm:max-w-xl w-full p-0 flex flex-col overflow-hidden">
         <SheetHeader className="px-6 pt-6 pb-0 shrink-0">
           <div className="flex items-center gap-3">
-            <SheetTitle>{source.name}</SheetTitle>
+            <SheetTitle>{localized(source.name, i18n.language)}</SheetTitle>
             <div className="flex items-center gap-1.5">
               <span
                 className={`h-2 w-2 rounded-full ${statusColors[source.status] ?? statusColors.disconnected}`}
@@ -208,7 +208,7 @@ function OverviewTab({
       {source.description && (
         <>
           <Section title={t('databases.field_description')}>
-            <p className="text-sm text-muted-foreground">{source.description}</p>
+            <p className="text-sm text-muted-foreground">{localized(source.description, i18n.language)}</p>
           </Section>
           <Separator />
         </>

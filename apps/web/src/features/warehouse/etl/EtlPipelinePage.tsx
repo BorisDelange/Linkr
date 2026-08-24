@@ -23,6 +23,7 @@ import { EtlSchemasTab } from './EtlSchemasTab'
 import { EtlVocabularyTab } from './EtlVocabularyTab'
 import { EtlQualityTab } from './EtlQualityTab'
 import { vocabularyReadiness } from './vocabulary-readiness'
+import { localized } from '@/lib/localized'
 
 const TAB_IDS = ['pipeline', 'scripts', 'schemas', 'vocabulary', 'quality'] as const
 type TabId = (typeof TAB_IDS)[number]
@@ -40,7 +41,7 @@ interface Props {
 }
 
 export function EtlPipelinePage({ pipelineId }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
   const { etlPipelines, etlPipelinesLoaded, loadEtlPipelines, loadPipelineFiles, updatePipeline, files, filesLoaded, activePipelineId } = useEtlStore()
@@ -179,7 +180,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
             <SelectContent>
               {dbSources.map((ds) => (
                 <SelectItem key={ds.id} value={ds.id}>
-                  {ds.name}
+                  {localized(ds.name, i18n.language)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -198,7 +199,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
             <SelectContent>
               {dbSources.map((ds) => (
                 <SelectItem key={ds.id} value={ds.id}>
-                  {ds.name}
+                  {localized(ds.name, i18n.language)}
                 </SelectItem>
               ))}
             </SelectContent>

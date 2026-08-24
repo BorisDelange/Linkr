@@ -52,6 +52,7 @@ import { getStorage } from '@/lib/storage'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildPatientListQuery, buildVisitListQuery, buildVisitDetailListQuery } from '@/lib/duckdb/patient-data-queries'
 import type { DatasetColumn } from '@/types'
+import { localized } from '@/lib/localized'
 
 function getFileIcon(filename: string) {
   const ext = filename.split('.').pop()?.toLowerCase()
@@ -91,7 +92,7 @@ interface PluginFileListProps {
 }
 
 export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLanguages }: PluginFileListProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const projects = useAppStore((s) => s.projects)
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const {
@@ -422,7 +423,7 @@ export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLa
                         <SelectContent>
                           {connectedSources.map((ds) => (
                             <SelectItem key={ds.id} value={ds.id} className="text-xs py-1">
-                              {ds.name || ds.id}
+                              {localized(ds.name, i18n.language) || ds.id}
                             </SelectItem>
                           ))}
                         </SelectContent>

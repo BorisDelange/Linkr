@@ -2,12 +2,23 @@
   "_comment": "Frozen shared input for the workspace export golden test, in the FULLSTACK API shape: every field present, null for absent (the API has no exclude_none). Read by BOTH the TS test (workspace-export-golden.test.ts) and the Python builder test (test_workspace_export.py), so they exercise the same case and prove server==client bytes. Covers: a lightweight project, a full-data project (nested tree), a git-linked project (pointer), a wiki page + attachment, a database (credentials stripped, password never), a full mapping project, and git-links.json. Deterministic: no timestamps/uuids reach the export path.",
   "workspace": {
     "id": "ws1",
-    "name": { "en": "Rennes Workspace", "fr": "Espace Rennes" },
-    "description": { "en": "Demo workspace" },
+    "name": {
+      "en": "Rennes Workspace",
+      "fr": "Espace Rennes"
+    },
+    "description": {
+      "en": "Demo workspace"
+    },
     "organizationId": "org1",
     "badges": [],
-    "readme": { "en": "# Workspace README", "fr": "# LisezMoi" },
-    "gitRemoteConfig": { "url": "https://git.example.org/ws.git", "branch": "main" },
+    "readme": {
+      "en": "# Workspace README",
+      "fr": "# LisezMoi"
+    },
+    "gitRemoteConfig": {
+      "url": "https://git.example.org/ws.git",
+      "branch": "main"
+    },
     "origin": "user",
     "ownerId": 1,
     "createdById": null,
@@ -20,10 +31,16 @@
   },
   "organization": {
     "id": "org1",
-    "name": { "en": "CHU Rennes" },
+    "name": {
+      "en": "CHU Rennes"
+    },
     "type": "hospital",
-    "location": { "en": "Rennes" },
-    "country": { "en": "France" },
+    "location": {
+      "en": "Rennes"
+    },
+    "country": {
+      "en": "France"
+    },
     "website": "https://chu-rennes.fr",
     "email": null,
     "customType": null,
@@ -37,8 +54,12 @@
       "uid": "proj-light",
       "projectId": "light-proj",
       "workspaceId": "ws1",
-      "name": { "en": "Lightweight Project" },
-      "description": { "en": "Metadata only" },
+      "name": {
+        "en": "Lightweight Project"
+      },
+      "description": {
+        "en": "Metadata only"
+      },
       "shortDescription": {},
       "config": {},
       "gitRemoteConfig": null,
@@ -46,7 +67,9 @@
       "badges": null,
       "todos": null,
       "notes": null,
-      "readme": { "en": "# Light README" },
+      "readme": {
+        "en": "# Light README"
+      },
       "linkedDataSourceIds": null,
       "organization": null,
       "lineageId": null,
@@ -65,8 +88,12 @@
       "uid": "proj-full",
       "projectId": "full-proj",
       "workspaceId": "ws1",
-      "name": { "en": "Full Project" },
-      "description": { "en": "Full nested export" },
+      "name": {
+        "en": "Full Project"
+      },
+      "description": {
+        "en": "Full nested export"
+      },
       "shortDescription": {},
       "config": {},
       "gitRemoteConfig": null,
@@ -74,7 +101,9 @@
       "badges": null,
       "todos": null,
       "notes": null,
-      "readme": { "en": "# Full README" },
+      "readme": {
+        "en": "# Full README"
+      },
       "linkedDataSourceIds": null,
       "organization": null,
       "lineageId": null,
@@ -93,16 +122,25 @@
       "uid": "proj-linked",
       "projectId": "linked-proj",
       "workspaceId": "ws1",
-      "name": { "en": "Linked Project" },
-      "description": { "en": "Git-linked pointer" },
+      "name": {
+        "en": "Linked Project"
+      },
+      "description": {
+        "en": "Git-linked pointer"
+      },
       "shortDescription": {},
       "config": {},
-      "gitRemoteConfig": { "url": "https://git.example.org/linked.git", "branch": "main" },
+      "gitRemoteConfig": {
+        "url": "https://git.example.org/linked.git",
+        "branch": "main"
+      },
       "status": "active",
       "badges": null,
       "todos": null,
       "notes": null,
-      "readme": { "en": "# Linked README" },
+      "readme": {
+        "en": "# Linked README"
+      },
       "linkedDataSourceIds": null,
       "organization": null,
       "lineageId": null,
@@ -138,10 +176,15 @@
       "workspaceId": "ws1",
       "entityId": "home",
       "parentId": null,
-      "title": { "en": "Home" },
+      "title": {
+        "en": "Home"
+      },
       "slug": "home",
       "icon": null,
-      "content": { "en": "# Home page", "fr": "# Accueil" },
+      "content": {
+        "en": "# Home page",
+        "fr": "# Accueil"
+      },
       "template": null,
       "owner": null,
       "verified": false,
@@ -195,6 +238,41 @@
       "createdByDetails": null,
       "createdAt": "2026-01-01T00:00:00.000Z",
       "updatedAt": "2026-02-01T00:00:00.000Z"
+    },
+    {
+      "id": "ds2",
+      "entityId": "mimic-demo",
+      "workspaceId": "ws1",
+      "alias": "mimic",
+      "name": {
+        "en": "MIMIC-IV demo",
+        "fr": "MIMIC-IV démo"
+      },
+      "description": {
+        "en": "Public demo dataset.",
+        "fr": "Jeu de démonstration public."
+      },
+      "sourceType": "database",
+      "connectionConfig": {
+        "engine": "duckdb",
+        "inMemory": true,
+        "fileId": "f1",
+        "password": "SECRET2"
+      },
+      "status": "connected",
+      "isVocabularyReference": false,
+      "version": "1.2.0",
+      "readme": {
+        "en": "# MIMIC-IV demo\n"
+      },
+      "license": {
+        "id": "ODbL-1.0",
+        "text": "ODbL text\n"
+      },
+      "origin": "user",
+      "createdBy": "Boris Delange",
+      "createdAt": "2026-01-02T00:00:00.000Z",
+      "updatedAt": "2026-02-02T00:00:00.000Z"
     }
   ],
   "mappingProjects": [
@@ -202,16 +280,32 @@
       "id": "mp1",
       "workspaceId": "ws1",
       "entityId": "adult-icu",
-      "name": { "en": "Adult ICU" },
-      "description": { "en": "ICU mapping" },
+      "name": {
+        "en": "Adult ICU"
+      },
+      "description": {
+        "en": "ICU mapping"
+      },
       "status": "in_progress",
-      "badges": [{ "id": "b1", "label": { "en": "Rennes" }, "color": "blue" }],
+      "badges": [
+        {
+          "id": "b1",
+          "label": {
+            "en": "Rennes"
+          },
+          "color": "blue"
+        }
+      ],
       "sourceType": "file",
       "dataSourceId": "ds-local-uuid",
       "vocabularyDataSourceId": null,
       "fileSourceData": {
         "fileName": "source-concepts.csv",
-        "columns": ["terminology", "concept_code", "concept_name"],
+        "columns": [
+          "terminology",
+          "concept_code",
+          "concept_name"
+        ],
         "columnMapping": {
           "terminologyColumn": "terminology",
           "conceptCodeColumn": "concept_code",
@@ -243,8 +337,12 @@
       "id": "mp-linked",
       "workspaceId": "ws1",
       "entityId": "linked-mapping",
-      "name": { "en": "Linked Mapping" },
-      "description": { "en": "Git-linked mapping pointer" },
+      "name": {
+        "en": "Linked Mapping"
+      },
+      "description": {
+        "en": "Git-linked mapping pointer"
+      },
       "status": "in_progress",
       "badges": [],
       "sourceType": "file",
@@ -258,7 +356,10 @@
       "conceptSetIds": null,
       "stats": null,
       "importBatches": null,
-      "gitRemoteConfig": { "url": "https://git.example.org/mapping.git", "branch": "main" },
+      "gitRemoteConfig": {
+        "url": "https://git.example.org/mapping.git",
+        "branch": "main"
+      },
       "origin": "user",
       "createdById": null,
       "createdBy": "Boris Delange",
@@ -273,13 +374,67 @@
   ],
   "sourceCsvBase64": "dGVybWlub2xvZ3ksY29uY2VwdF9jb2RlLGNvbmNlcHRfbmFtZQpMT0lOQywyMDExMi05LFRpZGFsIHZvbHVtZQpMT0lOQywiYSxiIixDb21tYSBuYW1lCg==",
   "mappings": [
-    { "sourceConceptId": 1, "sourceConceptName": "tidal", "sourceVocabularyId": "LOINC", "sourceDomainId": null, "sourceConceptCode": "AA", "sourceFrequency": null, "sourceCategoryId": null, "sourceSubcategoryId": null, "sourceConceptClassId": null, "targetConceptId": 3000905, "targetConceptName": "Tidal volume", "targetVocabularyId": "LOINC", "targetDomainId": null, "targetConceptCode": "20112-9", "targetConceptClassId": null, "targetStandardConcept": null, "conceptSetId": null, "mappingType": null, "equivalence": "skos:exactMatch", "status": "unchecked", "matchScore": null, "comments": null, "reviews": null, "mappedBy": "Boris", "mappedByDetails": null, "mappedOn": null, "assignedReviewer": null, "reviewedBy": null, "reviewedByDetails": null, "reviewedOn": null, "reviewComment": null, "id": "m1", "projectId": "mp1", "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z" }
+    {
+      "sourceConceptId": 1,
+      "sourceConceptName": "tidal",
+      "sourceVocabularyId": "LOINC",
+      "sourceDomainId": null,
+      "sourceConceptCode": "AA",
+      "sourceFrequency": null,
+      "sourceCategoryId": null,
+      "sourceSubcategoryId": null,
+      "sourceConceptClassId": null,
+      "targetConceptId": 3000905,
+      "targetConceptName": "Tidal volume",
+      "targetVocabularyId": "LOINC",
+      "targetDomainId": null,
+      "targetConceptCode": "20112-9",
+      "targetConceptClassId": null,
+      "targetStandardConcept": null,
+      "conceptSetId": null,
+      "mappingType": null,
+      "equivalence": "skos:exactMatch",
+      "status": "unchecked",
+      "matchScore": null,
+      "comments": null,
+      "reviews": null,
+      "mappedBy": "Boris",
+      "mappedByDetails": null,
+      "mappedOn": null,
+      "assignedReviewer": null,
+      "reviewedBy": null,
+      "reviewedByDetails": null,
+      "reviewedOn": null,
+      "reviewComment": null,
+      "id": "m1",
+      "projectId": "mp1",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
   ],
   "ranges": [
-    { "id": "ws1__Rennes", "workspaceId": "ws1", "badgeLabel": "Rennes", "rangeStart": 2000000001, "rangeEnd": 2001000000, "nextId": 2000000003, "totalConcepts": 2, "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z" }
+    {
+      "id": "ws1__Rennes",
+      "workspaceId": "ws1",
+      "badgeLabel": "Rennes",
+      "rangeStart": 2000000001,
+      "rangeEnd": 2001000000,
+      "nextId": 2000000003,
+      "totalConcepts": 2,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
   ],
   "entries": [
-    { "id": "ws1__Rennes__LOINC__20112-9", "workspaceId": "ws1", "badgeLabel": "Rennes", "vocabularyId": "LOINC", "conceptCode": "20112-9", "sourceConceptId": 2000000001, "createdAt": "2026-01-01T00:00:00.000Z" }
+    {
+      "id": "ws1__Rennes__LOINC__20112-9",
+      "workspaceId": "ws1",
+      "badgeLabel": "Rennes",
+      "vocabularyId": "LOINC",
+      "conceptCode": "20112-9",
+      "sourceConceptId": 2000000001,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
   ],
   "userPlugins": [
     {

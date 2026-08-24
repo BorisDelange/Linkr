@@ -101,7 +101,7 @@ export const DatabaseCard = memo(function DatabaseCard({
         </div>
 
         <div className="min-w-0 flex-1">
-          <TruncatedText text={source.name} readOnly className="min-w-0 flex-1 text-sm font-medium" />
+          <TruncatedText text={localized(source.name, i18n.language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
           <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
             <span
               className={`size-2 shrink-0 rounded-full ${statusColors[source.status] ?? statusColors.disconnected}`}

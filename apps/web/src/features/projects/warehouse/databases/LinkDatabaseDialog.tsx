@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { AddDatabaseDialog } from './AddDatabaseDialog'
+import { localized } from '@/lib/localized'
 
 interface LinkDatabaseDialogProps {
   open: boolean
@@ -24,7 +25,7 @@ interface LinkDatabaseDialogProps {
 const EMPTY_IDS: string[] = []
 
 export function LinkDatabaseDialog({ open, onOpenChange, projectUid }: LinkDatabaseDialogProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const linkedIds = useAppStore((s) =>
     s._projectsRaw.find((p) => p.uid === projectUid)?.linkedDataSourceIds ?? EMPTY_IDS,
@@ -79,7 +80,7 @@ export function LinkDatabaseDialog({ open, onOpenChange, projectUid }: LinkDatab
                       <Database size={16} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{ds.name}</p>
+                      <p className="truncate text-sm font-medium">{localized(ds.name, i18n.language)}</p>
                       <p className="text-xs text-muted-foreground">{engine}</p>
                     </div>
                     <Link size={14} className="shrink-0 text-muted-foreground" />

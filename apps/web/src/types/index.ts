@@ -355,8 +355,8 @@ export interface DataSource extends Seedable, Authored, Lineaged {
   workspaceId?: string
   /** Short, URL-safe identifier used as the DuckDB schema name. Auto-generated from `name`, editable. */
   alias: string
-  name: string
-  description: string
+  name: LocalizedString
+  description: LocalizedString
   sourceType: DataSourceType
   connectionConfig: ConnectionConfig
   schemaMapping?: import('./schema-mapping').SchemaMapping
