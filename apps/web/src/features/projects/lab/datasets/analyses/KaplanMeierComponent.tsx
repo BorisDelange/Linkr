@@ -1,15 +1,17 @@
-import { useMemo, useRef, useState, useEffect } from 'react'
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Activity, AlertTriangle, Table as TableIcon } from 'lucide-react'
+import { Activity, AlertTriangle, Table as TableIcon, TrendingUp } from 'lucide-react'
 import { Allotment } from 'allotment'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildKaplanMeierSpec } from './kaplan-meier-server'
+import { buildCoxSpec, type CoxResult, type CoxCoefficient } from './cox-server'
 import { resolvePalette } from '@/lib/plugins/shared-styles'
 import { displayColumnName } from '@/lib/dataset-utils'
 import { niceStep } from '@/lib/chart-ticks'
+import { coefficientRelabeler } from '@/lib/stats/coefficient-labels'
 import { PublicationTable, type PublicationColumn } from '@/components/ui/publication-table'
 import { usePublishAnalysisTable } from './analysis-table-context'
 import type { ExportTable, ExportTableCell } from '@/lib/table-export'
@@ -25,8 +27,17 @@ export type KmWarning =
   /** The server sends its warnings as ready-made English sentences. */
   | string
 
-/** How the curves and the summary table share the panel. */
-type DisplayMode = 'plot' | 'table' | 'both' | 'both-tabs'
+/** How the curves, the summary table and the Cox model share the panel. */
+type DisplayMode = 'plot' | 'table' | 'cox' | 'both' | 'both-tabs'
+
+/** Which pane is showing in tabs mode. */
+type KmView = 'plot' | 'table' | 'cox'
+
+/** A Cox coefficient plus a stable row id. */
+interface CoxRow {
+  id: string
+  coef: CoxCoefficient
+}
 
 /** A group's summary plus its index, which fixes its colour. */
 interface KmRow {
@@ -511,6 +522,17 @@ function fmtP(p: number): string {
   return p.toFixed(3)
 }
 
+/**
+ * A number that may be absent.
+ *
+ * The Cox program returns null where a value overflowed — a near-separated fit
+ * sends the hazard ratio past what a float can hold — so a dash here means
+ * "not representable", not "not computed".
+ */
+function fmtOrDash(v: number | null, decimals = 2): string {
+  return v === null ? DASH : fmt(v, decimals)
+}
+
 // ===========================================================================
 // SVG Survival Curve
 // ===========================================================================
@@ -822,7 +844,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
   const displayMode = (config.displayMode as DisplayMode) ?? 'both'
   // Which pane shows in tabs mode. Local, not persisted: it is a way of looking
   // at the result, not a property of the analysis.
-  const [activeView, setActiveView] = useState<'table' | 'plot'>('plot')
+  const [activeView, setActiveView] = useState<KmView>('plot')
   const colors = useMemo(
     () => resolvePalette((config.colorPalette as string) ?? 'default'),
     [config.colorPalette],
@@ -862,6 +884,49 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const result = server ? serverResult : localResult
+
+  // --- Cox proportional hazards --------------------------------------------
+  // Server only: the fit needs lifelines, and carrying a second implementation
+  // of Newton-Raphson into the browser bundle to keep in parity is a worse
+  // trade than telling the reader the tab needs a backend.
+  const coxPredictorIds = useMemo(
+    () => (config.coxPredictors as string[] | undefined) ?? [],
+    [config.coxPredictors],
+  )
+  const coxSpec =
+    server && datasetFileId && timeId && eventId && coxPredictorIds.length > 0
+      ? buildCoxSpec(columns, timeId, eventId, coxPredictorIds, confidenceLevel)
+      : null
+  const coxSpecKey = coxSpec ? JSON.stringify(coxSpec) : null
+  // Keyed by the spec it answers, so a result can never be shown for a
+  // different model: dropping the predictors makes the key null and the fit
+  // below is ignored, with no effect needed to clear it.
+  const [coxFetched, setCoxFetched] = useState<{ key: string; result: CoxResult } | null>(null)
+  const coxResult = coxFetched && coxFetched.key === coxSpecKey ? coxFetched.result : null
+  // The error is keyed too, so a failure from a previous set of predictors is
+  // not still on screen after the reader changes them.
+  const [coxFailed, setCoxFailed] = useState<{ key: string; message: string } | null>(null)
+  const coxError = coxFailed && coxFailed.key === coxSpecKey ? coxFailed.message : null
+  const setCoxError = useCallback(
+    (message: string | null) =>
+      setCoxFailed(message !== null && coxSpecKey ? { key: coxSpecKey, message } : null),
+    [coxSpecKey],
+  )
+  useEffect(() => {
+    if (!coxSpecKey || !datasetFileId) return
+    let cancelled = false
+    renderOnServer('cox', JSON.parse(coxSpecKey), { datasetFileId, datasetFilters })
+      .then((out) => {
+        if (cancelled) return
+        if (out.stderr) { setCoxError(out.stderr); return }
+        try {
+          setCoxFetched({ key: coxSpecKey, result: JSON.parse(out.stdout.trim()) as CoxResult })
+          setCoxError(null)
+        } catch { setCoxError(out.stdout || 'Failed to parse result') }
+      })
+      .catch((e) => { if (!cancelled) setCoxError(String(e)) })
+    return () => { cancelled = true }
+  }, [coxSpecKey, datasetFileId, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const summaryRows = useMemo<KmRow[]>(
     () => (result?.groups ?? []).map((g, i) => ({ id: `${g.name}:${i}`, group: g, index: i })),
@@ -919,9 +984,78 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
     [t, colors, confidenceLevel],
   )
 
+  // The spec sends storage NAMES, so the fit comes back naming its terms `site`
+  // or `site: CH Vannes`. Relabel both the coefficients and the assumption
+  // check, which names the same terms.
+  const relabelCox = useMemo(() => coefficientRelabeler(columns), [columns])
+  const coxRows = useMemo<CoxRow[]>(
+    () =>
+      (coxResult?.coefficients ?? []).map((c, i) => ({
+        id: `${c.name}:${i}`,
+        coef: { ...c, name: relabelCox(c.name) },
+      })),
+    [coxResult, relabelCox],
+  )
+  const coxPhRows = useMemo(
+    () => (coxResult?.proportionalHazards ?? []).map((r) => ({ ...r, name: relabelCox(r.name) })),
+    [coxResult, relabelCox],
+  )
+
+  const coxColumns = useMemo<PublicationColumn<CoxRow>[]>(
+    () => [
+      {
+        id: 'term',
+        header: t('datasets.table1_variable'),
+        cell: (r) => r.coef.name,
+        align: 'left',
+        width: 200,
+        minWidth: 110,
+      },
+      {
+        id: 'hr',
+        header: t('analyses.cox_col_hr'),
+        cell: (r) => fmtOrDash(r.coef.hazardRatio),
+        align: 'right',
+        width: 96,
+      },
+      {
+        id: 'ci',
+        header: t('analyses.reg_col_ci', { level: confidenceLevel }),
+        cell: (r) =>
+          r.coef.ciLow !== null && r.coef.ciHigh !== null
+            ? `[${fmt(r.coef.ciLow)}, ${fmt(r.coef.ciHigh)}]`
+            : DASH,
+        align: 'right',
+        width: 132,
+      },
+      { id: 'z', header: 'z', cell: (r) => fmtOrDash(r.coef.z), align: 'right', width: 72 },
+      {
+        id: 'p',
+        header: t('analyses.reg_col_p'),
+        cell: (r) => (
+          <span className={cn(r.coef.pValue !== null && r.coef.pValue < 0.05 && 'font-semibold text-foreground')}>
+            {r.coef.pValue !== null ? fmtP(r.coef.pValue) : DASH}
+          </span>
+        ),
+        align: 'right',
+        width: 104,
+      },
+    ],
+    [t, confidenceLevel],
+  )
+
+  // The Cox tab owns the Export menu while it is showing: exporting the group
+  // summary while the reader is looking at a model would be the wrong table.
+  const showingCox = displayMode === 'cox' || (displayMode === 'both-tabs' && activeView === 'cox')
   usePublishAnalysisTable(
-    summaryRows.length > 0 ? () => toExportTable(summaryRows, summaryColumns, t) : null,
-    [summaryRows, summaryColumns, t],
+    showingCox
+      ? coxRows.length > 0
+        ? () => toCoxExportTable(coxRows, coxColumns)
+        : null
+      : summaryRows.length > 0
+        ? () => toExportTable(summaryRows, summaryColumns, t)
+        : null,
+    [showingCox, coxRows, coxColumns, summaryRows, summaryColumns, t],
   )
 
 
@@ -1019,6 +1153,82 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
     </div>
   )
 
+  const coxView = (
+    <div className={cn('h-full overflow-auto', compact ? 'text-[9px]' : 'text-[11px]')}>
+      {!server ? (
+        // Stated plainly rather than hidden: the reader who picked this tab
+        // needs to know the analysis exists and what it would take to run it.
+        <Placeholder text={t('analyses.cox_server_only')} />
+      ) : coxPredictorIds.length === 0 ? (
+        <Placeholder text={t('analyses.cox_select_predictors')} />
+      ) : coxError ? (
+        <Placeholder text={coxError} />
+      ) : !coxResult ? (
+        <Placeholder text={t('common.loading')} />
+      ) : coxResult.error ? (
+        <Placeholder text={coxResult.error} />
+      ) : (
+        <>
+          {/* Model summary: the fit's size and how well it separates. */}
+          <div className={cn('mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground')}>
+            <span className="font-semibold text-foreground">{t('analyses.cox_title')}</span>
+            <span>n = {coxResult.nObs}</span>
+            <span>{t('analyses.cox_events')} = {coxResult.nEvents}</span>
+            {coxResult.concordance !== null && (
+              <span title={t('analyses.cox_concordance_hint')}>
+                C = {fmt(coxResult.concordance)}
+              </span>
+            )}
+            {coxResult.aic !== null && <span>AIC = {fmt(coxResult.aic, 1)}</span>}
+            {coxResult.logLikelihoodRatioTest?.pValue != null && (
+              <span>
+                {t('analyses.cox_lr_test')} p = {fmtP(coxResult.logLikelihoodRatioTest.pValue)}
+              </span>
+            )}
+          </div>
+
+          {coxResult.warnings.length > 0 && (
+            <div className={cn('mb-3 rounded border border-yellow-300/50 bg-yellow-50/50 dark:bg-yellow-900/10', compact ? 'px-2 py-1' : 'px-3 py-1.5')}>
+              {coxResult.warnings.map((w, i) => (
+                <div key={i} className="flex items-start gap-1.5 text-yellow-700 dark:text-yellow-400">
+                  <AlertTriangle size={compact ? 10 : 12} className="mt-0.5 shrink-0" />
+                  <span>{w}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <PublicationTable rows={coxRows} columns={coxColumns} wrap={wrap} />
+
+          {/* The proportional-hazards check. A hazard ratio is one number for
+              the whole follow-up, which only means anything if the effect is
+              in fact constant over it — so a failing term is reported next to
+              the estimate it qualifies, not buried. */}
+          {coxPhRows.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-1 font-semibold text-foreground">
+                {t('analyses.cox_ph_title')}
+              </div>
+              <div className="mb-2 text-muted-foreground">{t('analyses.cox_ph_hint')}</div>
+              {coxPhRows.map((row) => {
+                const violated = row.pValue !== null && row.pValue < 0.05
+                return (
+                  <div key={row.name} className="flex items-center gap-2 py-0.5">
+                    <span className="min-w-0 flex-1 truncate" title={row.name}>{row.name}</span>
+                    <span className="text-muted-foreground">p = {row.pValue !== null ? fmtP(row.pValue) : DASH}</span>
+                    <span className={cn('shrink-0', violated ? 'font-semibold text-yellow-700 dark:text-yellow-400' : 'text-muted-foreground')}>
+                      {violated ? t('analyses.cox_ph_violated') : t('analyses.cox_ph_ok')}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+
   return (
     <div className={cn('flex h-full flex-col overflow-hidden', compact ? 'p-2' : 'p-4')}>
       {/* Warnings */}
@@ -1039,6 +1249,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
           {([
             ['plot', Activity, t('analyses.km_view_plot')],
             ['table', TableIcon, t('analyses.km_view_table')],
+            ['cox', TrendingUp, t('analyses.cox_view')],
           ] as const).map(([view, Icon, label]) => (
             <button
               key={view}
@@ -1072,7 +1283,11 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
             </Allotment.Pane>
           </Allotment>
         ) : displayMode === 'both-tabs' ? (
-          <div className="h-full overflow-auto">{activeView === 'table' ? tableView : plotView}</div>
+          <div className="h-full overflow-auto">
+            {activeView === 'cox' ? coxView : activeView === 'table' ? tableView : plotView}
+          </div>
+        ) : displayMode === 'cox' ? (
+          coxView
         ) : displayMode === 'table' ? (
           tableView
         ) : (
@@ -1083,6 +1298,46 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
   )
 }
 
+
+/** A centred message inside the Cox pane — empty state, error, or loading. */
+function Placeholder({ text }: { text: string }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-muted-foreground">
+      <p className="whitespace-pre-wrap">{text}</p>
+    </div>
+  )
+}
+
+/** The Cox coefficients as plain text, for copy / LaTeX. */
+function toCoxExportTable(rows: CoxRow[], columns: PublicationColumn<CoxRow>[]): ExportTable {
+  const head: ExportTableCell[][] = [columns.map((c) => ({ text: c.header, align: c.align }))]
+  const body = rows.map((r) =>
+    columns.map((c) => {
+      const k = r.coef
+      switch (c.id) {
+        case 'term':
+          return { text: k.name, align: c.align }
+        case 'hr':
+          return { text: fmtOrDash(k.hazardRatio), align: c.align }
+        case 'ci':
+          return {
+            text:
+              k.ciLow !== null && k.ciHigh !== null
+                ? `[${fmt(k.ciLow)}, ${fmt(k.ciHigh)}]`
+                : DASH,
+            align: c.align,
+          }
+        case 'z':
+          return { text: fmtOrDash(k.z), align: c.align }
+        case 'p':
+          return { text: k.pValue !== null ? fmtP(k.pValue) : DASH, align: c.align }
+        default:
+          return { text: '', align: c.align }
+      }
+    }),
+  )
+  return { head, body }
+}
 
 /** The summary table as plain text, for copy / LaTeX. */
 function toExportTable(

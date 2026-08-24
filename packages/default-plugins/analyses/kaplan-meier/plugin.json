@@ -5,8 +5,8 @@
     "fr": "Kaplan-Meier"
   },
   "description": {
-    "en": "Survival analysis: Kaplan-Meier curves, log-rank test, median survival, and at-risk table.",
-    "fr": "Analyse de survie : courbes de Kaplan-Meier, test du log-rank, médiane de survie et tableau at-risk."
+    "en": "Survival analysis: Kaplan-Meier curves, log-rank test, median survival, at-risk table, and a Cox proportional-hazards model with its assumption check.",
+    "fr": "Analyse de survie : courbes de Kaplan-Meier, test du log-rank, médiane de survie, tableau at-risk, et modèle de Cox à risques proportionnels avec vérification de son hypothèse."
   },
   "version": "1.0.0",
   "category": "statistics",
@@ -14,6 +14,8 @@
     "survival",
     "kaplan-meier",
     "log-rank",
+    "cox",
+    "proportional-hazards",
     "time-to-event",
     "statistics"
   ],
@@ -98,6 +100,25 @@
         "fr": "Largeur des bandes de confiance. Elles s'élargissent à mesure que la courbe avance, car il reste moins de personnes à risque pour l'informer."
       }
     },
+    "coxPredictors": {
+      "type": "column-select",
+      "multi": true,
+      "label": {
+        "en": "Cox predictors",
+        "fr": "Prédicteurs du modèle de Cox"
+      },
+      "defaultAll": false,
+      "orderable": true,
+      "optional": true,
+      "section": {
+        "en": "Cox model",
+        "fr": "Modèle de Cox"
+      },
+      "description": {
+        "en": "Covariates adjusted for one another in a Cox proportional-hazards model. Each returns a hazard ratio; a categorical covariate gives one row per level, read against the level left out. Requires the server backend. Leave empty for curves only.",
+        "fr": "Covariables ajustées les unes sur les autres dans un modèle de Cox à risques proportionnels. Chacune donne un rapport de risques ; une covariable qualitative donne une ligne par modalité, lue par rapport à la modalité de référence omise. Nécessite le backend serveur. Laisser vide pour les courbes seules."
+      }
+    },
     "showCI": {
       "type": "boolean",
       "label": {
@@ -179,8 +200,8 @@
         "defaultOpen": false
       },
       "description": {
-        "en": "Show the survival curves, the summary table, both stacked with a draggable divider, or both switchable via tabs.",
-        "fr": "Afficher les courbes de survie, le tableau de synthèse, les deux empilés avec une barre de redimensionnement, ou les deux avec des onglets pour basculer."
+        "en": "Show the survival curves, the summary table, the Cox model, both stacked with a draggable divider, or all switchable via tabs.",
+        "fr": "Afficher les courbes de survie, le tableau de synthèse, le modèle de Cox, les deux empilés avec une barre de redimensionnement, ou l'ensemble avec des onglets pour basculer."
       },
       "options": [
         {
@@ -198,6 +219,13 @@
           }
         },
         {
+          "value": "cox",
+          "label": {
+            "en": "Cox model",
+            "fr": "Modèle de Cox"
+          }
+        },
+        {
           "value": "both",
           "label": {
             "en": "Curves + table (stacked)",
@@ -207,8 +235,8 @@
         {
           "value": "both-tabs",
           "label": {
-            "en": "Curves + table (tabs)",
-            "fr": "Courbes + tableau (onglets)"
+            "en": "All (tabs)",
+            "fr": "Tout (onglets)"
           }
         }
       ]

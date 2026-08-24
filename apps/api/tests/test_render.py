@@ -5,6 +5,7 @@ import pytest
 
 from app.services.execution import render
 from app.services.execution.render import (
+    cox,
     key_indicator,
     regression,
     statistical_tests,
@@ -20,6 +21,8 @@ _KINDS = {
     "correlation-matrix": {"names": ["a", "b"], "method": "pearson"},
     "map": {"lat": "lat", "lon": "lon", "popup": []},
     "kaplan-meier": {"time": "t", "event": "e", "group": None, "confidenceLevel": 95},
+    "cox": {"time": "t", "event": "e",
+            "predictors": [{"name": "x", "numeric": True}], "confidenceLevel": 95},
     "sankey": {"sourceMode": "long", "entity": "id", "stage": "s"},
     "key-indicator": {"column": {"name": "x", "numeric": True}, "aggregate": "mean"},
     "regression": {"outcome": {"name": "y", "numeric": True},
@@ -502,3 +505,126 @@ def test_survey_question_reports_a_missing_column_rather_than_crashing():
     out = _run_survey(pd.DataFrame({"other": [1]}),
                       {"kind": "numeric", "column": "absent", "choices": []})
     assert out["error"] == "no_column"
+
+
+# ---------------------------------------------------------------------------
+# Cox proportional hazards
+# ---------------------------------------------------------------------------
+
+
+def _run_cox(df, spec):
+    """Execute the built render code against a DataFrame, as the kernel does."""
+    import contextlib
+    import io
+    import json as _json
+
+    code = cox.build_code(cox.validate_spec(spec))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        exec(compile(code, "<render:cox>", "exec"), {"dataset": df})  # noqa: S102
+    return _json.loads(buf.getvalue())
+
+
+@pytest.mark.parametrize("bad", [
+    {"time": "", "event": "e", "predictors": [{"name": "x", "numeric": True}]},
+    {"time": "t", "event": "", "predictors": [{"name": "x", "numeric": True}]},
+    {"time": "t", "event": "e", "predictors": []},
+    {"time": "t", "event": "e", "predictors": "x"},
+    # Every predictor is the outcome itself, so none survives deduplication.
+    {"time": "t", "event": "e", "predictors": [{"name": "t", "numeric": True}]},
+    {"time": "t", "event": "e", "predictors": [{"name": "x", "numeric": True}],
+     "confidenceLevel": float("nan")},
+])
+def test_cox_rejects_malformed(bad):
+    with pytest.raises(ValueError):
+        cox.validate_spec(bad)
+
+
+def test_cox_drops_duplicate_predictors():
+    spec = cox.validate_spec({"time": "t", "event": "e", "predictors": [
+        {"name": "x", "numeric": True}, {"name": "x", "numeric": True},
+        {"name": "y", "numeric": False},
+    ]})
+    assert [p["name"] for p in spec["predictors"]] == ["x", "y"]
+
+
+def _survival_frame():
+    """A frame where the hazard rises with `x`, so the fitted HR must exceed 1.
+
+    The groups deliberately OVERLAP — some high-x subjects survive and some
+    low-x subjects die. Perfect separation sends the coefficient to infinity,
+    which is a real case the program has to survive but a useless one to assert
+    a finite interval against.
+    """
+    import pandas as pd
+
+    times, events, xs = [], [], []
+    for i in range(120):
+        high = i % 2 == 0
+        xs.append(10.0 if high else 1.0)
+        # 1 in 5 of each group behaves like the other, so neither is perfectly
+        # predicted by x.
+        crossover = i % 10 in (0, 1)
+        dies = (not crossover) if high else crossover
+        times.append((2 + (i % 5)) if dies else (40 + (i % 7)))
+        events.append(1 if dies else 0)
+    return pd.DataFrame({"t": times, "e": events, "x": xs})
+
+
+def test_cox_fits_and_recovers_the_direction_of_the_effect():
+    out = _run_cox(_survival_frame(), {
+        "time": "t", "event": "e",
+        "predictors": [{"name": "x", "numeric": True}], "confidenceLevel": 95,
+    })
+    assert "error" not in out
+    (coef,) = out["coefficients"]
+    assert coef["name"] == "x"
+    assert coef["hazardRatio"] > 1  # more x, more hazard
+    assert coef["ciLow"] <= coef["hazardRatio"] <= coef["ciHigh"]
+    assert coef["ciLow"] > 1  # the effect is significant, not merely positive
+    assert out["nObs"] == 120
+    assert 0 < out["nEvents"] < 120  # both events and censoring are present
+    # The PH assumption is reported: it is the model's central claim.
+    assert {d["name"] for d in out["proportionalHazards"]} == {"x"}
+
+
+def test_cox_confidence_level_widens_the_interval():
+    frame = _survival_frame()
+    narrow = _run_cox(frame, {"time": "t", "event": "e", "confidenceLevel": 90,
+                              "predictors": [{"name": "x", "numeric": True}]})
+    wide = _run_cox(frame, {"time": "t", "event": "e", "confidenceLevel": 99,
+                            "predictors": [{"name": "x", "numeric": True}]})
+    n, w = narrow["coefficients"][0], wide["coefficients"][0]
+    # The estimate is the same fit; only the interval around it should move.
+    assert n["hazardRatio"] == pytest.approx(w["hazardRatio"])
+    assert w["ciLow"] < n["ciLow"] and w["ciHigh"] > n["ciHigh"]
+
+
+def test_cox_names_a_dummy_by_its_level():
+    import pandas as pd
+
+    frame = _survival_frame()
+    frame["arm"] = ["A" if i % 2 else "B" for i in range(len(frame))]
+    out = _run_cox(frame, {"time": "t", "event": "e", "confidenceLevel": 95,
+                           "predictors": [{"name": "arm", "numeric": False}]})
+    # Reference level A is omitted; the contrast carries its own level.
+    assert [c["name"] for c in out["coefficients"]] == ["arm: B"]
+
+
+def test_cox_skips_a_constant_predictor_rather_than_failing():
+    frame = _survival_frame()
+    frame["flat"] = 1.0
+    out = _run_cox(frame, {"time": "t", "event": "e", "confidenceLevel": 95,
+                           "predictors": [{"name": "x", "numeric": True},
+                                          {"name": "flat", "numeric": True}]})
+    assert [c["name"] for c in out["coefficients"]] == ["x"]
+    assert any("flat" in w for w in out["warnings"])
+
+
+def test_cox_reports_no_events_rather_than_crashing():
+    frame = _survival_frame()
+    frame["e"] = 0
+    out = _run_cox(frame, {"time": "t", "event": "e", "confidenceLevel": 95,
+                           "predictors": [{"name": "x", "numeric": True}]})
+    assert "error" in out
+    assert out["nEvents"] == 0

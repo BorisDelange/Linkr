@@ -1317,7 +1317,6 @@
     "delete_analysis_title": "Supprimer l'analyse",
     "delete_analysis_description": "Supprimer l'analyse « {{name}} » ? Cette action est irréversible.",
     "analysis_resize_hint": "Glisser pour redimensionner le résultat",
-    "analysis_run": "Exécuter",
     "analysis_run_hint": "Relancer sur les données actuelles. Modifier un paramètre relance de soi-même.",
     "search_analyses": "Rechercher une analyse",
     "no_analyses_match": "Aucune analyse ne correspond à cette recherche.",
@@ -4875,6 +4874,18 @@
     "reg_view_table": "Tableau",
     "reg_view_plot": "Forest plot",
     "km_view_table": "Tableau",
-    "km_view_plot": "Courbes"
+    "km_view_plot": "Courbes",
+    "cox_view": "Cox",
+    "cox_title": "Modèle de Cox à risques proportionnels",
+    "cox_events": "événements",
+    "cox_col_hr": "HR",
+    "cox_lr_test": "Rapport de vraisemblance",
+    "cox_concordance_hint": "Concordance : la proportion de paires de patients que le modèle classe dans le bon ordre. 0,5 correspond au hasard.",
+    "cox_server_only": "Le modèle de Cox est ajusté côté serveur. Cet espace fonctionne entièrement dans le navigateur : les courbes et le test du log-rank sont donc disponibles ici, mais pas le modèle.",
+    "cox_select_predictors": "Choisissez une ou plusieurs covariables pour ajuster un modèle de Cox.",
+    "cox_ph_title": "Hypothèse des risques proportionnels",
+    "cox_ph_hint": "Un rapport de risques est un chiffre unique pour tout le suivi, ce qui n'a de sens que si l'effet y est constant. Un petit p indique que ce n'est pas le cas.",
+    "cox_ph_ok": "vérifiée",
+    "cox_ph_violated": "non vérifiée"
   }
 }

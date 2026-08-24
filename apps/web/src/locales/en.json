@@ -1317,7 +1317,6 @@
     "delete_analysis_title": "Delete analysis",
     "delete_analysis_description": "Delete the analysis \"{{name}}\"? This cannot be undone.",
     "analysis_resize_hint": "Drag to resize the result",
-    "analysis_run": "Run",
     "analysis_run_hint": "Re-run against the current data. Changing a parameter re-runs on its own.",
     "search_analyses": "Search analyses",
     "no_analyses_match": "No analysis matches this search.",
@@ -4875,6 +4874,18 @@
     "reg_view_table": "Table",
     "reg_view_plot": "Forest plot",
     "km_view_table": "Table",
-    "km_view_plot": "Curves"
+    "km_view_plot": "Curves",
+    "cox_view": "Cox",
+    "cox_title": "Cox proportional hazards",
+    "cox_events": "events",
+    "cox_col_hr": "HR",
+    "cox_lr_test": "Likelihood ratio",
+    "cox_concordance_hint": "Concordance: the share of patient pairs the model ranks in the right order. 0.5 is chance.",
+    "cox_server_only": "The Cox model is fitted on the server. This workspace runs entirely in the browser, so the curves and the log-rank test are available here but the model is not.",
+    "cox_select_predictors": "Choose one or more Cox predictors to fit a model.",
+    "cox_ph_title": "Proportional hazards assumption",
+    "cox_ph_hint": "A hazard ratio is one number for the whole follow-up, which holds only if the effect is constant over it. A small p means it is not.",
+    "cox_ph_ok": "holds",
+    "cox_ph_violated": "violated"
   }
 }

@@ -16,6 +16,7 @@ from collections.abc import Callable
 
 from app.services.execution.render import (
     correlation_matrix,
+    cox,
     kaplan_meier,
     key_indicator,
     map as map_,
@@ -35,6 +36,7 @@ _BUILDERS: dict[str, tuple[Callable[[dict], dict], Callable[[dict], str]]] = {
     "correlation-matrix": (correlation_matrix.validate_spec, correlation_matrix.build_code),
     "map": (map_.validate_spec, map_.build_code),
     "kaplan-meier": (kaplan_meier.validate_spec, kaplan_meier.build_code),
+    "cox": (cox.validate_spec, cox.build_code),
     "sankey": (sankey.validate_spec, sankey.build_code),
     "key-indicator": (key_indicator.validate_spec, key_indicator.build_code),
     "regression": (regression.validate_spec, regression.build_code),

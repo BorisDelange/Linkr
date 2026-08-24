@@ -14,6 +14,7 @@ import { Table as TableIcon, BarChartHorizontal } from 'lucide-react'
 /** How the coefficients table and the forest plot share the panel. */
 type DisplayMode = 'table' | 'plot' | 'both' | 'both-tabs'
 import { displayColumnName } from '@/lib/dataset-utils'
+import { coefficientRelabeler } from '@/lib/stats/coefficient-labels'
 import { orderSelection, type VariableOrder } from '@/lib/analysis-default-columns'
 import { PublicationTable, type PublicationColumn } from '@/components/ui/publication-table'
 import { usePublishAnalysisTable } from './analysis-table-context'
@@ -52,28 +53,15 @@ function isIntercept(name: string): boolean {
 /**
  * Rename server coefficients from storage names to labels.
  *
- * The spec sends `c.name`, so a fit comes back naming its terms `sofa_score`
- * and, for a dummy, `site: CH Vannes`. The local path already builds those
- * names from `displayColumnName`, so only the server result needs this.
- *
- * Longest name first: with columns `site` and `site_type`, matching `site`
- * against "site_type: A" would relabel it "Site_type: A".
+ * The local path already builds its names from `displayColumnName`, so only a
+ * server result needs this. The naming rule is shared with the Cox model,
+ * whose server program spells its dummies the same way.
  */
 function relabelCoefficients(
   result: RegressionResult,
   columns: DatasetColumn[],
 ): RegressionResult {
-  const byName = [...columns]
-    .sort((a, b) => b.name.length - a.name.length)
-    .map((c) => [c.name, displayColumnName(c)] as const)
-  const relabel = (name: string): string => {
-    for (const [storage, label] of byName) {
-      if (name === storage) return label
-      // A dummy term: the column name, then ": " and the category level.
-      if (name.startsWith(`${storage}: `)) return `${label}${name.slice(storage.length)}`
-    }
-    return name
-  }
+  const relabel = coefficientRelabeler(columns)
   return {
     ...result,
     coefficients: result.coefficients.map((c) =>
