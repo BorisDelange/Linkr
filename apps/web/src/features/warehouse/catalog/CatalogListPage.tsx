@@ -192,6 +192,10 @@ export function CatalogListPage() {
       onExport={catalogActions.onExport}
       getGitRemote={catalogActions.getGitRemote}
       docs={catalogActions.docs}
+      // The catalog page owns these as tabs, so open it there rather than
+      // stacking a dialog over the list.
+      onOpenDocs={(item, tab) => navigate(`${item.id}?tab=${tab}`)}
+      onVersioningOverride={(item) => navigate(`${item.id}?tab=versioning`)}
       onSaveGitRemote={catalogActions.onSaveGitRemote}
       exportSupportsIncludeData={catalogActions.exportSupportsIncludeData}
       syncScope="data-catalogs"

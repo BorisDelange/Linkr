@@ -479,6 +479,9 @@ export function Header() {
       {...catalogActions}
       syncScope="data-catalogs"
       align="start"
+      // Already on the catalog's page: switch tab rather than open the dialog.
+      onOpenDocs={(_item, tab) => navigate(`${pathname}?tab=${tab}`, { replace: true })}
+      onVersioningOverride={() => navigate(`${pathname}?tab=versioning`, { replace: true })}
       onDeleted={handleEntityDeleted}
       open={catalogMenuOpen}
       onOpenChange={setCatalogMenuOpen}
