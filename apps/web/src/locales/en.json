@@ -685,6 +685,8 @@
     "no_vocabulary": "No vocabulary configured for this database.",
     "no_vocabulary_hint": "Select a schema preset with vocabulary support (e.g. OMOP CDM 5.4) to browse concepts.",
     "detail_see_all_statistics": "See all statistics",
+    "detail_about": "About",
+    "readme_empty_hint": "No readme yet — write one to say what this database contains.",
     "detail_schema": "Schema",
     "not_found": "Database not found",
     "schema_needs_connection": "Connect the database to browse its schema.",
@@ -1315,6 +1317,8 @@
     "delete_analysis_title": "Delete analysis",
     "delete_analysis_description": "Delete the analysis \"{{name}}\"? This cannot be undone.",
     "analysis_resize_hint": "Drag to resize the result",
+    "analysis_run": "Run",
+    "analysis_run_hint": "Re-run against the current data. Changing a parameter re-runs on its own.",
     "search_analyses": "Search analyses",
     "no_analyses_match": "No analysis matches this search.",
     "export_png": "Download as PNG",
@@ -4869,6 +4873,8 @@
     "km_overall": "Overall",
     "km_no_observations": "No usable observations: every row was missing a time or an event.",
     "reg_view_table": "Table",
-    "reg_view_plot": "Forest plot"
+    "reg_view_plot": "Forest plot",
+    "km_view_table": "Table",
+    "km_view_plot": "Curves"
   }
 }

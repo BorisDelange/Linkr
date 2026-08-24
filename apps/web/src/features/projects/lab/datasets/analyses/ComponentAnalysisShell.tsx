@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, Suspense } from 'rea
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Settings, Check } from 'lucide-react'
+import { Settings, Check, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { AnalysisExportMenu } from '@/components/ui/analysis-export-menu'
@@ -10,6 +10,7 @@ import type { ExportTable } from '@/lib/table-export'
 import { AnalysisTableContext } from './analysis-table-context'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { isServerMode } from '@/lib/api-client'
+import { clearRenderCache } from '@/lib/api/execution'
 import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
 import type { DatasetAnalysis } from '@/types'
 
@@ -127,6 +128,19 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
     })
   }, [analysis.id])
 
+  // Re-run against the data as it stands now.
+  //
+  // Renders are cached on the spec, so an unchanged analysis normally shows its
+  // previous result instantly instead of refitting on every visit. That is the
+  // point — but the key describes the QUESTION, not the data behind it, so a
+  // dataset rewritten underneath would keep answering from the old fit. Dropping
+  // this dataset's entries and remounting is what makes that recoverable.
+  const [runNonce, setRunNonce] = useState(0)
+  const handleRun = useCallback(() => {
+    clearRenderCache(analysis.datasetFileId)
+    setRunNonce((n) => n + 1)
+  }, [analysis.datasetFileId])
+
   // Cmd/Ctrl+S saves in place. Kept as a ref so the window listener always calls
   // the latest closure without re-binding every render.
   const saveRef = useRef(handleSave)
@@ -169,6 +183,21 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
             getTable={hasTable ? () => tableRef.current?.() ?? null : undefined}
           />
           <div className="mx-1 h-4 w-px bg-border" />
+          {/* Force a re-run. Editing a parameter already re-runs on its own —
+              this is for the case the cache cannot see: the DATA changed while
+              the parameters did not. */}
+          {server && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 text-xs"
+              onClick={handleRun}
+              title={t('datasets.analysis_run_hint')}
+            >
+              <RefreshCw size={12} />
+              {t('datasets.analysis_run')}
+            </Button>
+          )}
           <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleCancel} disabled={!dirty}>
             {t('common.cancel')}
           </Button>
@@ -207,8 +236,12 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
                 contentRef={resultRef}
               >
                 <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">…</div>}>
+                  {/* The nonce is part of the key so Run remounts the
+                      component: its result lives in its own state, which a
+                      re-render alone would keep. */}
                   {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
                   <Component
+                    key={`${analysis.id}:${runNonce}`}
                     config={draft}
                     columns={columns}
                     rows={rows}

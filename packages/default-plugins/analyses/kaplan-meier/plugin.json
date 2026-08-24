@@ -166,6 +166,53 @@
         "fr": "Combien de personnes restent à risque sous chaque graduation. Une revue l'attend : c'est ce qui permet de juger ce que vaut la fin de la courbe."
       }
     },
+    "displayMode": {
+      "type": "select",
+      "label": {
+        "en": "Display",
+        "fr": "Affichage"
+      },
+      "default": "both",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Show the survival curves, the summary table, both stacked with a draggable divider, or both switchable via tabs.",
+        "fr": "Afficher les courbes de survie, le tableau de synthèse, les deux empilés avec une barre de redimensionnement, ou les deux avec des onglets pour basculer."
+      },
+      "options": [
+        {
+          "value": "plot",
+          "label": {
+            "en": "Curves",
+            "fr": "Courbes"
+          }
+        },
+        {
+          "value": "table",
+          "label": {
+            "en": "Table",
+            "fr": "Tableau"
+          }
+        },
+        {
+          "value": "both",
+          "label": {
+            "en": "Curves + table (stacked)",
+            "fr": "Courbes + tableau (empilés)"
+          }
+        },
+        {
+          "value": "both-tabs",
+          "label": {
+            "en": "Curves + table (tabs)",
+            "fr": "Courbes + tableau (onglets)"
+          }
+        }
+      ]
+    },
     "timeLabel": {
       "type": "string",
       "label": {

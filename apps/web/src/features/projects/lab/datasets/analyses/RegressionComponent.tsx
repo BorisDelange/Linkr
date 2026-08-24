@@ -50,6 +50,39 @@ function isIntercept(name: string): boolean {
 }
 
 /**
+ * Rename server coefficients from storage names to labels.
+ *
+ * The spec sends `c.name`, so a fit comes back naming its terms `sofa_score`
+ * and, for a dummy, `site: CH Vannes`. The local path already builds those
+ * names from `displayColumnName`, so only the server result needs this.
+ *
+ * Longest name first: with columns `site` and `site_type`, matching `site`
+ * against "site_type: A" would relabel it "Site_type: A".
+ */
+function relabelCoefficients(
+  result: RegressionResult,
+  columns: DatasetColumn[],
+): RegressionResult {
+  const byName = [...columns]
+    .sort((a, b) => b.name.length - a.name.length)
+    .map((c) => [c.name, displayColumnName(c)] as const)
+  const relabel = (name: string): string => {
+    for (const [storage, label] of byName) {
+      if (name === storage) return label
+      // A dummy term: the column name, then ": " and the category level.
+      if (name.startsWith(`${storage}: `)) return `${label}${name.slice(storage.length)}`
+    }
+    return name
+  }
+  return {
+    ...result,
+    coefficients: result.coefficients.map((c) =>
+      isIntercept(c.name) ? c : { ...c, name: relabel(c.name) },
+    ),
+  }
+}
+
+/**
  * Forest-plot marker colours.
  *
  * Theme tokens rather than raw hex: the previous #16a34a / #6b7280 stayed put
@@ -1007,7 +1040,14 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const result = server ? serverResult : localResult
+  const rawResult = server ? serverResult : localResult
+  // The spec sends the server storage NAMES, so its coefficients come back
+  // named `site` or `site: CH Vannes`. Relabel them here — locally the names
+  // are already labels, so this only has work to do in server mode.
+  const result = useMemo(
+    () => (rawResult && server ? relabelCoefficients(rawResult, columns) : rawResult),
+    [rawResult, server, columns],
+  )
   const isLogistic = result?.type === 'logistic'
 
   /** One table row per coefficient, the intercept named in the reader's language. */

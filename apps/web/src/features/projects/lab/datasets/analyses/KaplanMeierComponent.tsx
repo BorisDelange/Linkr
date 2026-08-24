@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Activity, AlertTriangle } from 'lucide-react'
+import { Activity, AlertTriangle, Table as TableIcon } from 'lucide-react'
+import { Allotment } from 'allotment'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
@@ -23,6 +24,9 @@ export type KmWarning =
   | { code: 'no_observations' }
   /** The server sends its warnings as ready-made English sentences. */
   | string
+
+/** How the curves and the summary table share the panel. */
+type DisplayMode = 'plot' | 'table' | 'both' | 'both-tabs'
 
 /** A group's summary plus its index, which fixes its colour. */
 interface KmRow {
@@ -511,6 +515,15 @@ function fmtP(p: number): string {
 // SVG Survival Curve
 // ===========================================================================
 
+/**
+ * The plot's viewBox width and its left margin, in viewBox units.
+ *
+ * Shared with the summary table below the figure, which indents by their ratio
+ * so its first column lines up with the start of the curves.
+ */
+const PLOT_BASE_WIDTH = { compact: 400, full: 600 } as const
+const PLOT_MARGIN_LEFT = { compact: 35, full: 50 } as const
+
 interface SurvivalPlotProps {
   groups: GroupSurvival[]
   showCI: boolean
@@ -536,14 +549,14 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
     top: compact ? 10 : 20,
     right: compact ? 10 : 20,
     // With the at-risk block: the tick row, the time label, the "At risk"
-    // caption, then one line per group.
+    // caption, then TWO lines per group — its name, then its counts.
     bottom: showAtRisk
-      ? groups.length * (compact ? 14 : 18) + (compact ? 34 : 46)
+      ? groups.length * (compact ? 24 : 30) + (compact ? 34 : 46)
       : compact ? 25 : 35,
-    left: compact ? 35 : 50,
+    left: PLOT_MARGIN_LEFT[compact ? 'compact' : 'full'],
   }
 
-  const baseWidth = compact ? 400 : 600
+  const baseWidth = PLOT_BASE_WIDTH[compact ? 'compact' : 'full']
   const baseHeight = compact ? 220 : 320
 
   // Find max time across all groups
@@ -736,14 +749,15 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
           </text>
         )}
         {showAtRisk && groups.map((g, idx) => {
-          const yBase = margin.top + plotHeight + (compact ? 44 : 56) + idx * (compact ? 14 : 18)
+          const yBase = margin.top + plotHeight + (compact ? 52 : 66) + idx * (compact ? 24 : 30)
           return (
             <g key={`atrisk-${idx}`}>
-              <text x={margin.left - 4} y={yBase + 4} textAnchor="end" fill={colors[idx % colors.length]} fontSize={smallFontSize} fontWeight={600}>
-                {/* Clipped to the left gutter, so the full value on hover is
-                    the only way to tell two long group names apart. */}
+              {/* On its OWN line above the counts, not in the left gutter: the
+                  gutter ends where the first tick is centred, so a right-anchored
+                  name there ran straight into the count at time 0. */}
+              <text x={margin.left} y={yBase - (compact ? 8 : 10)} textAnchor="start" fill={colors[idx % colors.length]} fontSize={smallFontSize} fontWeight={600}>
                 <title>{g.name}</title>
-                {g.name.length > (compact ? 8 : 12) ? g.name.slice(0, compact ? 6 : 10) + '…' : g.name}
+                {g.name.length > (compact ? 16 : 24) ? g.name.slice(0, compact ? 14 : 22) + '…' : g.name}
               </text>
               {ticks.map(t => (
                 <text key={t} x={xScale(t)} y={yBase + 4} textAnchor="middle" fill="currentColor" opacity={0.6} fontSize={smallFontSize}>
@@ -805,6 +819,10 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
     (config.timeLabel as string) || (timeColumn ? displayColumnName(timeColumn) : '')
   const wrap = config.wrap === true
   const showGrid = config.showGrid !== false
+  const displayMode = (config.displayMode as DisplayMode) ?? 'both'
+  // Which pane shows in tabs mode. Local, not persisted: it is a way of looking
+  // at the result, not a property of the analysis.
+  const [activeView, setActiveView] = useState<'table' | 'plot'>('plot')
   const colors = useMemo(
     () => resolvePalette((config.colorPalette as string) ?? 'default'),
     [config.colorPalette],
@@ -955,42 +973,35 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
     )
   }
 
-  return (
-    <div className={cn('h-full overflow-auto', compact ? 'p-2' : 'p-4')}>
-      {/* Warnings */}
-      {result.warnings.length > 0 && (
-        <div className={cn('mb-3 rounded border border-yellow-300/50 bg-yellow-50/50 dark:bg-yellow-900/10', compact ? 'px-2 py-1 text-[9px]' : 'px-3 py-1.5 text-[11px]')}>
-          {result.warnings.map((w, i) => (
-            <div key={i} className="flex items-start gap-1.5 text-yellow-700 dark:text-yellow-400">
-              <AlertTriangle size={compact ? 10 : 12} className="mt-0.5 shrink-0" />
-              <span>{kmWarningText(w, t)}</span>
-            </div>
-          ))}
-        </div>
-      )}
+  const plotView = (
+    <SurvivalPlot
+      groups={result.groups}
+      showCI={showCI}
+      showCensor={showCensor}
+      showMedian={showMedian}
+      showAtRisk={showAtRisk}
+      compact={compact}
+      timeLabel={timeLabel}
+      survivalLabel={t('analyses.km_survival')}
+      atRiskLabel={t('analyses.km_at_risk')}
+      colors={colors}
+      showGrid={showGrid}
+    />
+  )
 
-      {/* Survival plot */}
-      <SurvivalPlot
-        groups={result.groups}
-        showCI={showCI}
-        showCensor={showCensor}
-        showMedian={showMedian}
-        showAtRisk={showAtRisk}
-        compact={compact}
-        timeLabel={timeLabel}
-        survivalLabel={t('analyses.km_survival')}
-        atRiskLabel={t('analyses.km_at_risk')}
-        colors={colors}
-        showGrid={showGrid}
-      />
-
-      {/* Summary table — PublicationTable, matching the other analyses:
-          resizable columns, no vertical rules, no striping. */}
-      <div className={cn('mt-3', compact && 'mt-2')}>
-        <PublicationTable rows={summaryRows} columns={summaryColumns} wrap={wrap} />
-      </div>
-
-      {/* Log-rank test */}
+  const tableView = (
+    // Indented by the plot's own left margin so the table's first column starts
+    // where the curves start, rather than out at the pane edge under the axis
+    // labels. The margin is a fraction of the viewBox and the SVG scales to the
+    // width, so the inset is a percentage — a pixel value would drift on resize.
+    <div
+      className="h-full overflow-auto"
+      style={{ paddingLeft: `${(PLOT_MARGIN_LEFT[compact ? 'compact' : 'full'] / PLOT_BASE_WIDTH[compact ? 'compact' : 'full']) * 100}%` }}
+    >
+      <PublicationTable rows={summaryRows} columns={summaryColumns} wrap={wrap} />
+      {/* Log-rank travels with the table: it is a number to read, not part of
+          the figure, and a curve pane showing a p-value with no table to put
+          it beside reads as a stray caption. */}
       {result.logRank && (
         <div className={cn('mt-3 text-muted-foreground', compact ? 'text-[9px]' : 'text-[11px]')}>
           <span className="font-semibold text-foreground">
@@ -1005,6 +1016,69 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
           )}
         </div>
       )}
+    </div>
+  )
+
+  return (
+    <div className={cn('flex h-full flex-col overflow-hidden', compact ? 'p-2' : 'p-4')}>
+      {/* Warnings */}
+      {result.warnings.length > 0 && (
+        <div className={cn('mb-3 shrink-0 rounded border border-yellow-300/50 bg-yellow-50/50 dark:bg-yellow-900/10', compact ? 'px-2 py-1 text-[9px]' : 'px-3 py-1.5 text-[11px]')}>
+          {result.warnings.map((w, i) => (
+            <div key={i} className="flex items-start gap-1.5 text-yellow-700 dark:text-yellow-400">
+              <AlertTriangle size={compact ? 10 : 12} className="mt-0.5 shrink-0" />
+              <span>{kmWarningText(w, t)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tabs, when the two views share the panel by switching. */}
+      {displayMode === 'both-tabs' && (
+        <div className="mb-2 flex shrink-0 items-center justify-center gap-1">
+          {([
+            ['plot', Activity, t('analyses.km_view_plot')],
+            ['table', TableIcon, t('analyses.km_view_table')],
+          ] as const).map(([view, Icon, label]) => (
+            <button
+              key={view}
+              type="button"
+              onClick={() => setActiveView(view)}
+              className={cn(
+                'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors',
+                activeView === view
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Icon size={12} />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* The curves and the summary, laid out as the Display setting asks.
+          Stacked uses Allotment so the divider is draggable, matching Sankey
+          and regression. The figure leads: this is a survival analysis. */}
+      <div className="min-h-0 flex-1">
+        {displayMode === 'both' ? (
+          <Allotment vertical>
+            <Allotment.Pane minSize={80}>
+              <div className="h-full overflow-auto">{plotView}</div>
+            </Allotment.Pane>
+            <Allotment.Pane minSize={80} preferredSize="40%">
+              <div className="h-full overflow-auto border-t border-border pt-2">{tableView}</div>
+            </Allotment.Pane>
+          </Allotment>
+        ) : displayMode === 'both-tabs' ? (
+          <div className="h-full overflow-auto">{activeView === 'table' ? tableView : plotView}</div>
+        ) : displayMode === 'table' ? (
+          tableView
+        ) : (
+          <div className="h-full overflow-auto">{plotView}</div>
+        )}
+      </div>
     </div>
   )
 }

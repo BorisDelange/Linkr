@@ -176,31 +176,91 @@ export function streamOnServer(
 }
 
 /**
+ * Rendered results, keyed by everything that determines them.
+ *
+ * Switching between two analyses unmounts the component and loses the state
+ * holding its result, so coming back refetched a fit that had not changed —
+ * seconds of waiting for an identical answer. The cache lives here rather than
+ * in each plugin because all of them reach the server through this one call.
+ *
+ * A stale entry is impossible to produce by editing config: the key contains
+ * the whole spec, so any parameter change is a different key and a real run.
+ * What the key CANNOT see is the data behind `datasetFileId` changing under
+ * it, which is why `clearRenderCache` exists and the shell offers Run.
+ */
+const renderCache = new Map<string, RuntimeOutput>()
+
+/** Drop cached renders — all of them, or just one dataset's. */
+export function clearRenderCache(datasetFileId?: string): void {
+  if (!datasetFileId) {
+    renderCache.clear()
+    return
+  }
+  const field = `\u0000${datasetFileId}\u0000`
+  for (const key of [...renderCache.keys()]) {
+    if (key.includes(field)) renderCache.delete(key)
+  }
+}
+
+/**
  * Run a built-in component render server-side from a structured spec. Unlike
  * executeOnServer this sends no code — the backend owns the analysis program per
  * `kind` and injects only the (validated) spec, so a viewer can trigger it safely
  * (project read). Returns the same RuntimeOutput; callers parse out.stdout as before.
+ *
+ * Results are memoized on (kind, spec, dataset, filters, project). Pass
+ * `force` to bypass a hit and refresh the entry.
  */
-export function renderOnServer(
+export async function renderOnServer(
   kind: string,
   spec: unknown,
-  opts?: { projectUid?: string; sessionId?: string; datasetFileId?: string; datasetFilters?: unknown[] },
+  opts?: {
+    projectUid?: string
+    sessionId?: string
+    datasetFileId?: string
+    datasetFilters?: unknown[]
+    /** Re-run even on a cache hit — the data may have changed underneath. */
+    force?: boolean
+  },
 ): Promise<RuntimeOutput> {
   const projectUid = opts?.projectUid ?? useAppStore.getState().activeProjectUid ?? null
   if (!projectUid) throw new Error('Cannot render without an active project')
   // Render kernels are language-agnostic here; default namespace.
   const sessionId = opts?.sessionId ?? (projectUid ? activeSessionFor(projectUid, 'python') : 'default')
-  return apiRequest<RuntimeOutput>('/execute/render', {
+  const datasetFileId = opts?.datasetFileId ?? null
+  // NUL-delimited, and the dataset id is padded with empty fields so it ends up
+  // surrounded by delimiters — that is what lets `clearRenderCache` match it as
+  // a whole field rather than as a substring of another id or of the spec.
+  const cacheKey = [
+    kind,
+    projectUid,
+    '',
+    datasetFileId ?? '',
+    '',
+    JSON.stringify(opts?.datasetFilters ?? null),
+    JSON.stringify(spec ?? null),
+  ].join('\u0000')
+
+  if (!opts?.force) {
+    const hit = renderCache.get(cacheKey)
+    if (hit) return hit
+  }
+
+  const out = await apiRequest<RuntimeOutput>('/execute/render', {
     method: 'POST',
     body: JSON.stringify({
       kind,
       spec,
       projectUid,
       sessionId,
-      datasetFileId: opts?.datasetFileId ?? null,
+      datasetFileId,
       datasetFilters: opts?.datasetFilters ?? null,
     }),
   })
+  // Only a clean run is worth keeping: caching an error would make a transient
+  // failure stick until the user thought to press Run.
+  if (!out.stderr) renderCache.set(cacheKey, out)
+  return out
 }
 
 /** Kill the persistent kernel for (project, language, session) — next run starts fresh. */

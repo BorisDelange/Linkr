@@ -380,17 +380,19 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
 
   const n = result.names.length
   const pad = compact ? 8 : 16
-  const headerLine = compact ? 16 : 20 // method line height
-  const footerLine = showSignificance ? (compact ? 14 : 18) : 0
   const legendWidth = compact ? 32 : 44
 
-  // Compute cell size from available space
-  const availW = Math.max(200, containerSize.width - pad * 2 - legendWidth - 8)
-  const availH = Math.max(200, containerSize.height - pad * 2 - headerLine - footerLine - 4)
   // Reserve space for rotated column headers and row labels
   const labelReserve = compact ? 60 : 80
-  const gridSpace = Math.min(availW - labelReserve, availH - labelReserve)
-  const cellSize = Math.max(24, Math.floor(gridSpace / n))
+  // Sized from the WIDTH alone, then drawn at its own aspect ratio.
+  //
+  // The height is deliberately not consulted. This component sits in a card
+  // that is `overflow-auto`, which imposes no height on its child, so a
+  // measured height here collapses towards zero and the matrix vanishes
+  // between the header and the legend. Every other analysis plugin scales a
+  // fixed-aspect viewBox off the width for the same reason.
+  const availW = Math.max(200, containerSize.width - pad * 2 - legendWidth - 8)
+  const cellSize = Math.max(24, Math.floor((availW - labelReserve) / n))
 
   const gridW = n * cellSize
   const gridH = n * cellSize
@@ -407,7 +409,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
   const gridY = labelReserve
 
   return (
-    <div ref={containerRef} className={cn('h-full w-full overflow-hidden flex flex-col', compact ? 'p-2' : 'p-4')}>
+    <div ref={containerRef} className={cn('flex w-full flex-col', compact ? 'p-2' : 'p-4')}>
       {/* Method header */}
       <div className={cn('mb-1 shrink-0 text-muted-foreground', compact ? 'text-[9px]' : 'text-[11px]')}>
         <span className="font-semibold text-foreground">
@@ -417,21 +419,14 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
         {' '}(n = {totalN})
       </div>
 
-      {/* Heatmap SVG — fills remaining space.
-          `overflow-auto`, not hidden: the grid has a floor of 24px per cell, so
-          a dozen variables in a short pane genuinely need to scroll. Clipping
-          them showed an empty panel between the header and the legend. */}
-      <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center">
+      {/* The matrix keeps its own aspect: `w-full` plus a viewBox, with no
+          pixel height, so it can never be measured down to nothing. */}
+      <div className="flex items-start justify-center">
         {containerSize.width > 0 && (
           <svg
             viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-            // Never below the SVG's own aspect: clamping the height against the
-            // remaining pane could reach zero, which painted nothing at all
-            // while the header and legend around it still rendered.
-            width={Math.max(1, Math.min(containerSize.width - pad * 2, svgWidth))}
-            height={Math.max(1, Math.min(containerSize.height - pad * 2 - headerLine - footerLine, svgHeight))}
-            className="text-foreground"
-            style={{ fontSize: labelFontSize }}
+            className="h-auto w-full text-foreground"
+            style={{ fontSize: labelFontSize, maxWidth: svgWidth }}
           >
             {/* Column headers (rotated, above grid) */}
             {result.names.map((name, j) => {

@@ -685,6 +685,8 @@
     "no_vocabulary": "Aucun vocabulaire configuré pour cette base.",
     "no_vocabulary_hint": "Sélectionnez un modèle de schéma avec vocabulaire (ex. OMOP CDM 5.4) pour naviguer dans les concepts.",
     "detail_see_all_statistics": "Voir toutes les statistiques",
+    "detail_about": "À propos",
+    "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire le contenu de cette base.",
     "detail_schema": "Schéma",
     "not_found": "Base de données introuvable",
     "schema_needs_connection": "Connectez la base de données pour explorer son schéma.",
@@ -1315,6 +1317,8 @@
     "delete_analysis_title": "Supprimer l'analyse",
     "delete_analysis_description": "Supprimer l'analyse « {{name}} » ? Cette action est irréversible.",
     "analysis_resize_hint": "Glisser pour redimensionner le résultat",
+    "analysis_run": "Exécuter",
+    "analysis_run_hint": "Relancer sur les données actuelles. Modifier un paramètre relance de soi-même.",
     "search_analyses": "Rechercher une analyse",
     "no_analyses_match": "Aucune analyse ne correspond à cette recherche.",
     "export_png": "Télécharger en PNG",
@@ -4869,6 +4873,8 @@
     "km_overall": "Ensemble",
     "km_no_observations": "Aucune observation exploitable : chaque ligne manquait d'un temps ou d'un événement.",
     "reg_view_table": "Tableau",
-    "reg_view_plot": "Forest plot"
+    "reg_view_plot": "Forest plot",
+    "km_view_table": "Tableau",
+    "km_view_plot": "Courbes"
   }
 }
