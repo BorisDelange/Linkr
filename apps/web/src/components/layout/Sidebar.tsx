@@ -179,6 +179,7 @@ const projectBottomItems: SegmentNavItem[] = [
 // Segments that have sub-routes (e.g. lab/dashboards/:dashboardId)
 const segmentsWithSubRoutes = new Set([
   'warehouse/schemas',
+  'warehouse/databases',
   'warehouse/concept-mapping',
   'warehouse/data-quality',
   'warehouse/etl',

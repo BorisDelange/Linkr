@@ -2576,7 +2576,9 @@
     "overview_foreign_keys": "Clés étrangères",
     "overview_indexes": "Index",
     "overview_mapped_tables": "Tables mappées",
-    "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire ce que ce schéma représente."
+    "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire ce que ce schéma représente.",
+    "view_diagram": "Diagramme",
+    "view_source": "Source"
   },
   "organization": {
     "title": "Organisation",

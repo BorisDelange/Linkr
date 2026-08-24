@@ -6,13 +6,16 @@ import {
   Activity,
   ArrowLeft,
   ArrowUpRight,
+  BarChart3,
   BedDouble,
   FileSpreadsheet,
   Database as DatabaseIcon,
   FileText,
   Info,
   Plug,
+  Scale,
   Table,
+  Table2,
   Users,
 } from 'lucide-react'
 import type { DataSource, DatabaseConnectionConfig, SchemaMapping } from '@/types'
@@ -120,11 +123,26 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
         <div className="flex shrink-0 items-center px-6 pt-2">
           <div className="flex-1" />
           <TabsList>
-            <TabsTrigger value="overview">{t('databases.detail_overview')}</TabsTrigger>
-            <TabsTrigger value="statistics">{t('databases.detail_statistics')}</TabsTrigger>
-            <TabsTrigger value="schema">{t('databases.detail_schema')}</TabsTrigger>
-            <TabsTrigger value="readme">{t('common.readme')}</TabsTrigger>
-            <TabsTrigger value="license">{t('license.title')}</TabsTrigger>
+            <TabsTrigger value="overview">
+              <Info size={14} />
+              {t('databases.detail_overview')}
+            </TabsTrigger>
+            <TabsTrigger value="statistics">
+              <BarChart3 size={14} />
+              {t('databases.detail_statistics')}
+            </TabsTrigger>
+            <TabsTrigger value="schema">
+              <Table2 size={14} />
+              {t('databases.detail_schema')}
+            </TabsTrigger>
+            <TabsTrigger value="readme">
+              <FileText size={14} />
+              {t('common.readme')}
+            </TabsTrigger>
+            <TabsTrigger value="license">
+              <Scale size={14} />
+              {t('license.title')}
+            </TabsTrigger>
           </TabsList>
           {/* Balances the spacer so the tabs sit centred, as on the Schemas page.
               The status reads as one of the connection facts, so it lives in the
@@ -499,7 +517,7 @@ function ReadmePreview({
           <button
             type="button"
             onClick={onViewFull}
-            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+            className="text-sm text-muted-foreground underline-offset-2 hover:underline"
           >
             {t('databases.readme_empty_hint')}
           </button>

@@ -2576,7 +2576,9 @@
     "overview_foreign_keys": "Foreign keys",
     "overview_indexes": "Indexes",
     "overview_mapped_tables": "Mapped tables",
-    "readme_empty_hint": "No readme yet — write one to say what this schema describes."
+    "readme_empty_hint": "No readme yet — write one to say what this schema describes.",
+    "view_diagram": "Diagram",
+    "view_source": "Source"
   },
   "organization": {
     "title": "Organization",

@@ -25,8 +25,12 @@ import {
   FileText,
   ArrowUpRight,
   Table,
+  Table2,
   Columns3,
+  Network,
+  Scale,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import ReactMarkdown from 'react-markdown'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -1065,8 +1069,15 @@ function SchemaCard({
 // Schema detail page (full page with 4 tabs)
 // ---------------------------------------------------------------------------
 
-const SCHEMA_TAB_IDS = ['overview', 'erd-ddl', 'ddl', 'mapping', 'erd-mapping', 'readme', 'license'] as const
+const SCHEMA_TAB_IDS = ['overview', 'ddl', 'mapping', 'readme', 'license'] as const
 type SchemaTabId = (typeof SCHEMA_TAB_IDS)[number]
+
+/**
+ * The DDL and Mapping tabs each show the same thing two ways — as a diagram or
+ * as its source. That is a view switch within one subject, not two subjects, so
+ * it rides inside the tab rather than doubling the tab count.
+ */
+type SchemaView = 'diagram' | 'source'
 
 function SchemaDetailView({
   schemaId,
@@ -1095,8 +1106,12 @@ function SchemaDetailView({
   const [activeTab, setActiveTab] = useUrlTab<SchemaTabId>({
     key: `schema:${schemaId}`,
     tabs: SCHEMA_TAB_IDS,
-    defaultTab: 'erd-ddl',
+    defaultTab: 'overview',
   })
+  // Which face of the DDL / Mapping tab is showing. Kept per tab so switching
+  // away and back returns to the view you left, and so the two are independent.
+  const [ddlView, setDdlView] = useState<SchemaView>('diagram')
+  const [mappingView, setMappingView] = useState<SchemaView>('source')
   // ERD (Schema DDL tab) controls, lifted out of DdlERD so they sit on the tabs row.
   const [layoutEditing, setLayoutEditing] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -1159,21 +1174,39 @@ function SchemaDetailView({
         <div className="flex items-center px-6 pt-2 shrink-0">
           <div className="flex-1" />
           <TabsList>
-            <TabsTrigger value="overview">{t('databases.detail_overview')}</TabsTrigger>
-            <TabsTrigger value="erd-ddl">{t('schemas.tab_schema_ddl')}</TabsTrigger>
-            <TabsTrigger value="ddl" className="gap-1.5">
-              <Code size={12} />
+            <TabsTrigger value="overview">
+              <Info size={14} />
+              {t('databases.detail_overview')}
+            </TabsTrigger>
+            <TabsTrigger value="ddl">
+              <Code size={14} />
               DDL
             </TabsTrigger>
-            <TabsTrigger value="mapping">{t('schemas.tab_mapping')}</TabsTrigger>
-            <TabsTrigger value="erd-mapping">{t('schemas.tab_schema_mapping')}</TabsTrigger>
-            <TabsTrigger value="readme">{t('common.readme')}</TabsTrigger>
-            <TabsTrigger value="license">{t('license.title')}</TabsTrigger>
+            <TabsTrigger value="mapping">
+              <Table2 size={14} />
+              {t('schemas.tab_mapping')}
+            </TabsTrigger>
+            <TabsTrigger value="readme">
+              <FileText size={14} />
+              {t('common.readme')}
+            </TabsTrigger>
+            <TabsTrigger value="license">
+              <Scale size={14} />
+              {t('license.title')}
+            </TabsTrigger>
           </TabsList>
           <div className="flex flex-1 items-center justify-end gap-1">
-            {activeTab === 'erd-ddl' ? (
-              // Schema (DDL) diagram: Filter + Edit(=layout editing). In edit mode,
-              // Reset layout / Groups / Done. The mapping/DDL editor isn't used here.
+            {/* Diagram / source switch for the tab that has two faces. */}
+            {(activeTab === 'ddl' || activeTab === 'mapping') && (
+              <SchemaViewToggle
+                value={activeTab === 'ddl' ? ddlView : mappingView}
+                onChange={activeTab === 'ddl' ? setDdlView : setMappingView}
+              />
+            )}
+
+            {activeTab === 'ddl' && ddlView === 'diagram' ? (
+              // DDL diagram: Filter + Edit(=layout editing). In edit mode,
+              // Reset layout / Groups / Done. The DDL editor isn't used here.
               layoutEditing ? (
                 <>
                   {baseMapping.erdLayout && Object.keys(baseMapping.erdLayout).length > 0 && (
@@ -1205,7 +1238,8 @@ function SchemaDetailView({
                   </Button>
                 </>
               )
-            ) : activeTab === 'erd-mapping' || activeTab === 'overview'
+            ) : (activeTab === 'mapping' && mappingView === 'diagram')
+                || activeTab === 'overview'
                 || activeTab === 'readme' || activeTab === 'license' ? (
               // Read-only diagram, or a tab that carries its own edit affordance
               // (the readme and licence panels have their own Edit button).
@@ -1241,7 +1275,7 @@ function SchemaDetailView({
               <SchemaOverviewTab
                 preset={preset}
                 mapping={displayMapping}
-                onSeeDdl={() => setActiveTab('erd-ddl')}
+                onSeeDdl={() => setActiveTab('ddl')}
                 onSeeMapping={() => setActiveTab('mapping')}
                 onSeeReadme={() => setActiveTab('readme')}
                 onSeeLicense={() => setActiveTab('license')}
@@ -1250,9 +1284,13 @@ function SchemaDetailView({
           </div>
         </TabsContent>
 
-        {/* Tab 1: ERD from DDL */}
-        <TabsContent value="erd-ddl" className="flex-1 min-h-0 m-0 p-0">
-          {displayMapping.ddl ? (
+        {/* DDL — the diagram and the SQL that produces it, same subject. */}
+        <TabsContent value="ddl" className="flex-1 min-h-0 m-0 p-0">
+          {!displayMapping.ddl ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {t('settings.schema_preset_no_ddl')}
+            </div>
+          ) : ddlView === 'diagram' ? (
             <DdlERD
               ddl={displayMapping.ddl}
               erdGroups={baseMapping.erdGroups}
@@ -1273,54 +1311,40 @@ function SchemaDetailView({
               }}
             />
           ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              {t('settings.schema_preset_no_ddl')}
-            </div>
+            (() => {
+              const ddlValue = isEditing && editMapping ? (editMapping.ddl ?? '') : (displayMapping.ddl ?? '')
+              return (
+                <div className="flex h-full">
+                  <DdlTableOfContents ddl={ddlValue} editorRef={ddlEditorRef} />
+                  <div className="flex-1 min-w-0">
+                    <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading editor...</div>}>
+                      <LazyCodeEditor
+                        value={ddlValue}
+                        language="sql"
+                        editorRef={ddlEditorRef}
+                        readOnly={!(isEditing && editMapping)}
+                        onChange={isEditing && editMapping ? (v) => setEditMapping({ ...editMapping, ddl: v ?? '' }) : undefined}
+                      />
+                    </Suspense>
+                  </div>
+                </div>
+              )
+            })()
           )}
         </TabsContent>
 
-        {/* Tab 2: DDL editor */}
-        <TabsContent value="ddl" className="flex-1 min-h-0 m-0 p-0">
-          {(() => {
-            const ddlValue = isEditing && editMapping ? (editMapping.ddl ?? '') : (displayMapping.ddl ?? '')
-            if (!ddlValue) {
-              return (
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                  {t('settings.schema_preset_no_ddl')}
-                </div>
-              )
-            }
-            return (
-              <div className="flex h-full">
-                <DdlTableOfContents ddl={ddlValue} editorRef={ddlEditorRef} />
-                <div className="flex-1 min-w-0">
-                  <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading editor...</div>}>
-                    <LazyCodeEditor
-                      value={ddlValue}
-                      language="sql"
-                      editorRef={ddlEditorRef}
-                      readOnly={!(isEditing && editMapping)}
-                      onChange={isEditing && editMapping ? (v) => setEditMapping({ ...editMapping, ddl: v ?? '' }) : undefined}
-                    />
-                  </Suspense>
-                </div>
-              </div>
-            )
-          })()}
-        </TabsContent>
-
-        {/* Tab 3: Mapping config */}
-        <TabsContent value="mapping" className="flex-1 min-h-0 m-0 overflow-auto px-6 py-4">
-          {isEditing && editMapping ? (
+        {/* Mapping — the diagram it describes, and the fields that define it. */}
+        <TabsContent
+          value="mapping"
+          className={`flex-1 min-h-0 m-0 ${mappingView === 'diagram' ? 'p-0' : 'overflow-auto px-6 py-4'}`}
+        >
+          {mappingView === 'diagram' ? (
+            <SchemaERD mapping={displayMapping} fullscreen />
+          ) : isEditing && editMapping ? (
             <PresetEditor mapping={editMapping} onChange={setEditMapping} />
           ) : (
             <PresetDetail mapping={displayMapping} />
           )}
-        </TabsContent>
-
-        {/* Tab 4: ERD from mapping */}
-        <TabsContent value="erd-mapping" className="flex-1 min-h-0 m-0 p-0">
-          <SchemaERD mapping={displayMapping} fullscreen />
         </TabsContent>
 
         <TabsContent value="readme" className="m-0 min-h-0 flex-1 p-0">
@@ -1343,6 +1367,42 @@ function SchemaDetailView({
 // ---------------------------------------------------------------------------
 // Detail view — overview, readme and licence tabs
 // ---------------------------------------------------------------------------
+
+/** Diagram / source switch, shared by the DDL and Mapping tabs. */
+function SchemaViewToggle({
+  value,
+  onChange,
+}: {
+  value: SchemaView
+  onChange: (v: SchemaView) => void
+}) {
+  const { t } = useTranslation()
+  const options: { id: SchemaView; label: string; icon: typeof Network }[] = [
+    { id: 'diagram', label: t('schemas.view_diagram'), icon: Network },
+    { id: 'source', label: t('schemas.view_source'), icon: Code },
+  ]
+  return (
+    <div className="mr-1 flex items-center gap-0.5 rounded-md border bg-muted/50 p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          aria-pressed={value === o.id}
+          className={cn(
+            'flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors',
+            value === o.id
+              ? 'bg-background font-medium text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <o.icon size={12} />
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 function SchemaReadmeTab({ preset }: { preset: CustomSchemaPreset }) {
   const canWrite = useMyWorkspaceRole().can('schemas:write')
@@ -1475,9 +1535,11 @@ function SchemaStatCards({
           className="rounded-xl border bg-card p-4 text-left shadow-sm transition-colors hover:bg-accent"
         >
           <div className="flex items-center gap-3">
-            <c.icon size={16} className="text-teal-600 dark:text-teal-400" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100 dark:bg-teal-950">
+              <c.icon size={16} className="text-teal-600 dark:text-teal-400" />
+            </div>
             <div className="min-w-0">
-              <div className="text-lg font-semibold tabular-nums">{c.value}</div>
+              <div className="text-2xl font-bold tabular-nums">{c.value.toLocaleString()}</div>
               <div className="truncate text-xs text-muted-foreground">{c.label}</div>
             </div>
           </div>
@@ -1529,7 +1591,7 @@ function SchemaReadmePreview({
           <button
             type="button"
             onClick={onViewFull}
-            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+            className="text-sm text-muted-foreground underline-offset-2 hover:underline"
           >
             {t('schemas.readme_empty_hint')}
           </button>
