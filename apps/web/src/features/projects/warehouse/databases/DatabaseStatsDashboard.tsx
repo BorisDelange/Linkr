@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { Fragment, useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, Users, Activity, BarChart3, Table } from 'lucide-react'
 import {
@@ -139,7 +139,7 @@ export function DatabaseStatsDashboard({
     // and an nth-child rule would tighten the wrong gap when it is absent.
     // A negative margin did this before and pulled up whatever followed,
     // including the no-data-model notice, which slid under the refresh button.
-    <div className="space-y-8">
+    <div className="space-y-5">
       {!neverLoaded && (
         <div className="flex items-center justify-between [&+*]:!mt-3">
           <span className="text-xs text-muted-foreground">
@@ -348,28 +348,68 @@ function SectionHeader({
   )
 }
 
+interface TooltipEntry {
+  name: string
+  value: number
+  color?: string
+  fill?: string
+  /** The datum the series was built from — a pie keeps the slice colour here. */
+  payload?: { fill?: string; color?: string }
+}
+
+/**
+ * The swatch colour for one tooltip row, or undefined when the series has none.
+ *
+ * A bar or line puts it on the entry itself, but a Pie leaves `color`/`fill`
+ * undefined and carries the Cell's fill one level down, on the datum. Reading
+ * only the top level left the pie with a transparent 8px swatch that still took
+ * its grid column — the "margin" to the left of the label.
+ */
+function entryColor(entry: TooltipEntry): string | undefined {
+  return entry.color || entry.fill || entry.payload?.fill || entry.payload?.color
+}
+
 /** Shared custom tooltip matching the app design system. */
 function ChartTooltip({ active, payload, label }: {
   active?: boolean
-  payload?: Array<{ name: string; value: number; color?: string; fill?: string }>
+  payload?: TooltipEntry[]
   label?: string
 }) {
   if (!active || !payload?.length) return null
+  // Without a colour the swatch is invisible, so drop the column rather than
+  // reserve width for something that never paints.
+  const showSwatch = payload.some((entry) => entryColor(entry) !== undefined)
   return (
-    <div className="rounded-md border bg-popover px-3 py-2 shadow-md">
-      {label && <p className="mb-1 text-[11px] font-medium text-foreground">{label}</p>}
-      {payload.map((entry) => (
-        <div key={entry.name} className="flex items-center gap-2 text-[11px]">
-          <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{ backgroundColor: entry.color || entry.fill }}
-          />
-          <span className="text-muted-foreground">{entry.name}</span>
-          <span className="ml-auto font-medium tabular-nums text-foreground">
-            {entry.value.toLocaleString()}
-          </span>
-        </div>
-      ))}
+    // A grid, not a stack of flex rows: each column is sized by its widest cell,
+    // so the values line up across series without `ml-auto` stretching a short
+    // row to a width the content never asked for. The box is absolutely
+    // positioned, so `w-fit` keeps it from being laid out against the viewport.
+    <div className="w-fit rounded-md border bg-popover px-3 py-2 shadow-md">
+      {/* A pie passes the slice index as `label`; only a real category name is
+          worth a heading, and a stray "0" above the row widened the box. */}
+      {label != null && label !== '' && typeof label === 'string' && (
+        <p className="mb-1 text-[11px] font-medium text-foreground">{label}</p>
+      )}
+      <div
+        className={`grid items-center gap-x-2 gap-y-0.5 text-[11px] ${
+          showSwatch ? 'grid-cols-[auto_auto_auto]' : 'grid-cols-[auto_auto]'
+        }`}
+      >
+        {payload.map((entry) => (
+          <Fragment key={entry.name}>
+            {showSwatch && (
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: entryColor(entry) }}
+              />
+            )}
+            <span className="text-muted-foreground">{entry.name}</span>
+            <span className="justify-self-end font-medium tabular-nums text-foreground">
+              {entry.value.toLocaleString()}
+            </span>
+          </Fragment>
+        ))}
+      </div>
     </div>
   )
 }
@@ -501,12 +541,6 @@ function DescriptiveStatsTable({ stats }: { stats: DescriptiveStats }) {
       label: t('databases.stats_visits_per_patient_median'),
       value: stats.visitsPerPatientMedian != null ? `${stats.visitsPerPatientMedian}` : '—',
     })
-    rows.push({
-      label: t('databases.stats_visits_per_patient_range'),
-      value: stats.visitsPerPatientMin != null && stats.visitsPerPatientMax != null
-        ? `${stats.visitsPerPatientMin} – ${stats.visitsPerPatientMax}`
-        : '—',
-    })
   }
 
   // Visit unit length of stay
@@ -524,14 +558,16 @@ function DescriptiveStatsTable({ stats }: { stats: DescriptiveStats }) {
   if (rows.length === 0) return null
 
   return (
-    <div className="space-y-1">
+    // Two columns: each row is a short label and a short value, so one column
+    // left most of the width empty and made the list twice as tall as it needs.
+    <div className="grid grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-2">
       {rows.map(({ label, value }) => (
         <div
           key={label}
-          className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-1.5"
+          className="flex items-center justify-between gap-3 rounded-md bg-muted/50 px-3 py-1.5"
         >
-          <span className="text-xs text-muted-foreground">{label}</span>
-          <span className="text-xs font-medium tabular-nums">{value}</span>
+          <span className="min-w-0 truncate text-xs text-muted-foreground">{label}</span>
+          <span className="shrink-0 text-xs font-medium tabular-nums">{value}</span>
         </div>
       ))}
     </div>
@@ -588,21 +624,52 @@ function AgeHistogramChart({ data }: { data: AgePyramidBucket[] }) {
   )
 }
 
+/** An x-axis tick rotated -45°, ending at the tick rather than hanging past it. */
+function RotatedDateTick({ x, y, payload }: {
+  x?: number
+  y?: number
+  payload?: { value: string }
+}) {
+  if (x == null || y == null || !payload) return null
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={4}
+      textAnchor="end"
+      transform={`rotate(-45, ${x}, ${y})`}
+      className="fill-muted-foreground"
+      fontSize={10}
+    >
+      {payload.value}
+    </text>
+  )
+}
+
 function AdmissionTimelineChart({ data }: { data: AdmissionTimelineBucket[] }) {
   return (
-    <ResponsiveContainer width="100%" height={200}>
+    <ResponsiveContainer width="100%" height={220}>
       <LineChart
         data={data}
         margin={{ top: 5, right: 10, left: 10, bottom: 5 }}
       >
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+        {/* A custom tick rather than `angle` + `tick={{…}}`: recharts anchors a
+            bottom axis's text with verticalAnchor="start", so a rotated label
+            grows downward from the tick and its end hangs below the axis. That
+            prop is filtered out of `tick`, so the rotation is applied here
+            instead, around a point just under the tick — which puts the end of
+            the text at the tick, where it belongs. */}
         <XAxis
           dataKey="month"
-          tick={{ fontSize: 10 }}
           interval="preserveStartEnd"
+          tick={<RotatedDateTick />}
+          // Not for rendering — the custom tick does that — but for spacing:
+          // getTicks() measures each label's projected width from `angle`, and
+          // without it recharts assumes horizontal text, over-spaces, and drops
+          // a tick that would in fact have fitted.
           angle={-45}
-          textAnchor="end"
-          height={50}
+          height={56}
         />
         <YAxis tick={{ fontSize: 11 }} />
         <Tooltip content={<ChartTooltip />} />

@@ -7,7 +7,8 @@ import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { CategoryBadge } from '@/components/ui/category-badge'
 import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
-import type { ProjectBadge } from '@/types'
+import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
+import type { BadgeCategory, ProjectBadge } from '@/types'
 
 interface BadgeStripProps {
   badges: ProjectBadge[]
@@ -22,6 +23,56 @@ const GAP_PX = 4 // matches gap-1
 
 const badgeClass =
   'inline-block max-w-32 shrink-0 truncate rounded-full px-2 py-0.5 text-[10px] font-medium align-top'
+
+/**
+ * One badge, with a tooltip only when its label is actually clipped.
+ *
+ * A badge that fits shows its whole label already, so a tooltip repeating it is
+ * noise on every hover. Measured on pointer enter rather than on render: the
+ * width depends on the container, which the strip resizes as badges come and go.
+ */
+function VisibleBadge({
+  badge,
+  label,
+  category,
+  categoryName,
+}: {
+  badge: ProjectBadge
+  label: string
+  category: BadgeCategory | undefined
+  categoryName: string
+}) {
+  const { ref, overflows, triggerProps } = useOverflowTooltip<HTMLSpanElement>()
+
+  const chip = category ? (
+    <CategoryBadge
+      ref={ref}
+      category={categoryName}
+      value={splitLabel(label).value}
+      color={category.color}
+      className="max-w-40"
+      {...triggerProps}
+    />
+  ) : (
+    <span
+      ref={ref}
+      className={cn(badgeClass, getBadgeClasses(badge.color))}
+      style={getBadgeStyle(badge.color)}
+      {...triggerProps}
+    >
+      {label}
+    </span>
+  )
+
+  if (!overflows) return chip
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{chip}</TooltipTrigger>
+      <TooltipContent side="top" className="text-xs">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 /**
  * One-line badge row that adapts to the container width. Every badge is measured
@@ -125,23 +176,13 @@ export function BadgeStrip({ badges, prefix, className }: BadgeStripProps) {
       {badges.slice(0, visibleCount).map((badge) => {
         const category = scoped(badge)
         return (
-          <Tooltip key={badge.id}>
-            <TooltipTrigger asChild>
-              {category ? (
-                <CategoryBadge
-                  category={localized(category.name, i18n.language)}
-                  value={splitLabel(label(badge)).value}
-                  color={category.color}
-                  className="max-w-40"
-                />
-              ) : (
-                <span className={cn(badgeClass, getBadgeClasses(badge.color))} style={getBadgeStyle(badge.color)}>
-                  {label(badge)}
-                </span>
-              )}
-            </TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">{label(badge)}</TooltipContent>
-          </Tooltip>
+          <VisibleBadge
+            key={badge.id}
+            badge={badge}
+            label={label(badge)}
+            category={category}
+            categoryName={category ? localized(category.name, i18n.language) : ''}
+          />
         )
       })}
       {hidden.length > 0 && (

@@ -11,6 +11,8 @@ import { cn } from '@/lib/utils'
 import type { BadgeColor } from '@/types'
 
 interface CategoryBadgeProps extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'onChange'> {
+  /** Forwarded to the outer chip, so callers can measure whether it is clipped. */
+  ref?: React.Ref<HTMLSpanElement>
   /** Text before the separator, e.g. "Source". Rendered darker. */
   category: string
   /** Text after it, e.g. "MIMIC". */
@@ -43,6 +45,7 @@ interface CategoryBadgeProps extends Omit<React.HTMLAttributes<HTMLSpanElement>,
  * affordances just because it has a category. Only the value is editable.
  */
 export function CategoryBadge({
+  ref,
   category,
   value,
   color,
@@ -87,6 +90,7 @@ export function CategoryBadge({
 
   return (
     <span
+      ref={ref}
       {...rest}
       className={cn(
         'inline-flex shrink-0 items-center overflow-hidden rounded-full border font-medium',

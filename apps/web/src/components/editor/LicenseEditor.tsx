@@ -32,6 +32,8 @@ interface LicenseEditorProps {
   /** Pre-fills the copyright holder of licenses that ask for one (MIT, BSD). */
   copyrightHolder?: string
   canEdit?: boolean
+  /** Hidden when a tab already names the panel — the row still holds the actions. */
+  showTitle?: boolean
   className?: string
 }
 
@@ -42,6 +44,7 @@ export function LicenseEditor({
   onSave,
   copyrightHolder,
   canEdit = true,
+  showTitle = true,
   className = 'flex h-full flex-col pt-2',
 }: LicenseEditorProps) {
   const { t } = useTranslation()
@@ -103,9 +106,11 @@ export function LicenseEditor({
     <div className={className}>
       {/* Header bar */}
       <div className="flex shrink-0 items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase text-muted-foreground">
-          {t('license.title')}
-        </h2>
+        {showTitle ? (
+          <h2 className="text-xs font-semibold uppercase text-muted-foreground">
+            {t('license.title')}
+          </h2>
+        ) : <span />}
         <div className="flex items-center gap-1">
           {mode === 'view' && canEdit && license && (
             <>

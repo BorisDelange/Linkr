@@ -402,6 +402,8 @@ export function AppDatabasesPage() {
               key={ds.id}
               source={ds}
               onClick={() => navigate(paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds))}
+              onOpenLicense={() => navigate(`${paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds)}?tab=license`)}
+              onOpenDocs={(tab) => navigate(`${paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds)}?tab=${tab}`)}
               onTestConnection={() => connectAction(ds.id)}
               onDisconnect={() => disconnectDataSource(ds.id)}
               onReconnect={() => reconnectAction(ds.id)}

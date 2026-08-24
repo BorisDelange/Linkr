@@ -76,6 +76,12 @@ export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedS
   syncScope?: GitScope
   /** When set, adds Readme and License items opening the shared docs dialog. */
   docs?: EntityDocsAccessors<T>
+  /**
+   * Opens the entity's own Readme/License tabs instead of the shared dialog,
+   * for entities whose detail page carries them. Same shape as
+   * `onExportOverride`: the menu items stay, only their destination changes.
+   */
+  onOpenDocs?: (item: T, tab: DocsTab) => void
 }
 
 /** How an entity's README and license are read and written, for the docs dialog. */
@@ -118,6 +124,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   extraItems,
   syncScope,
   docs,
+  onOpenDocs,
 }: EntityActionsMenuProps<T>) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -192,13 +199,24 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
               {t('common.versioning')}
             </DropdownMenuItem>
           )}
-          {docs && (
+          {/* An entity whose detail page owns these as tabs passes onOpenDocs and
+              goes there instead: the dialog would be a second, divergent way to
+              edit the same thing. */}
+          {(docs || onOpenDocs) && (
             <>
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDocsOpen({ item, tab: 'readme' }) }}>
+              <DropdownMenuItem onClick={(e) => {
+                e.stopPropagation()
+                if (onOpenDocs) onOpenDocs(item, 'readme')
+                else setDocsOpen({ item, tab: 'readme' })
+              }}>
                 <BookOpen size={14} />
                 {t('summary.tab_readme')}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDocsOpen({ item, tab: 'license' }) }}>
+              <DropdownMenuItem onClick={(e) => {
+                e.stopPropagation()
+                if (onOpenDocs) onOpenDocs(item, 'license')
+                else setDocsOpen({ item, tab: 'license' })
+              }}>
                 <Scale size={14} />
                 {t('license.title')}
               </DropdownMenuItem>

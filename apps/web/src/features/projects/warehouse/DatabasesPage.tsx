@@ -198,6 +198,8 @@ export function DatabasesPage() {
                 source={ds}
                 isActive={activeSource?.id === ds.id}
                 onClick={() => navigate(paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds))}
+                onOpenLicense={() => navigate(`${paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds)}?tab=license`)}
+                onOpenDocs={(tab) => navigate(`${paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds)}?tab=${tab}`)}
                 onSetActive={() => uid && setActiveDataSource(uid, ds.id)}
                 onTestConnection={() => testConnection(ds.id)}
                 onDisconnect={() => disconnectDataSource(ds.id)}

@@ -89,6 +89,8 @@ interface ReadmeEditorProps {
   headerActions?: React.ReactNode
   /** When false, the Edit button is hidden (view-only). Default true. */
   canEdit?: boolean
+  /** Hidden when a tab already names the panel — the row still holds the actions. */
+  showTitle?: boolean
   /** Overrides the root wrapper classes (defaults to `flex h-full flex-col pt-2`). */
   className?: string
 }
@@ -97,7 +99,7 @@ interface ReadmeEditorProps {
 // Component
 // ---------------------------------------------------------------------------
 
-export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEdit = true, className = 'flex h-full flex-col pt-2' }: ReadmeEditorProps) {
+export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEdit = true, showTitle = true, className = 'flex h-full flex-col pt-2' }: ReadmeEditorProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [localReadme, setLocalReadme] = useState(readme)
@@ -234,9 +236,11 @@ export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEd
     <div className={className}>
       {/* Header bar */}
       <div className="flex shrink-0 items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase text-muted-foreground">
-          {t('summary.readme')}
-        </h2>
+        {showTitle ? (
+          <h2 className="text-xs font-semibold uppercase text-muted-foreground">
+            {t('summary.readme')}
+          </h2>
+        ) : <span />}
         <div className="flex items-center gap-1">
           {headerActions}
           {mode === 'edit' ? (
