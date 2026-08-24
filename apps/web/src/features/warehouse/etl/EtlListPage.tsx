@@ -210,6 +210,9 @@ export function EtlListPage() {
       getGitRemote={etlActions.getGitRemote}
       docs={etlActions.docs}
       onOpenDocs={(item, tab) => navigate(`${item.id}?tab=${tab}`)}
+      // The pipeline page owns these as tabs, so open it there rather than
+      // stacking a dialog over the list.
+      onVersioningOverride={(item) => navigate(`${item.id}?tab=versioning`)}
       onSaveGitRemote={etlActions.onSaveGitRemote}
       exportSupportsIncludeData={etlActions.exportSupportsIncludeData}
       syncScope="etl-pipelines"

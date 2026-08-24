@@ -2049,6 +2049,9 @@ export function SchemaPresetsPage() {
                       item={item}
                       {...schemaActions}
                       onOpenDocs={(_item, tab) => navigateToSchemaTab(id, tab)}
+                      // The schema page owns these as tabs, so open it there
+                      // rather than stacking a dialog over the list.
+                      onVersioningOverride={() => navigateToSchemaTab(id, 'versioning')}
                       syncScope="schema-presets"
                       canEdit={canWrite}
                       canDelete={canDelete}
