@@ -1,5 +1,7 @@
 import { useMemo, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ChartScatter } from 'lucide-react'
+import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import {
   ResponsiveContainer,
   ScatterChart,
@@ -445,6 +447,7 @@ function buildLegendProps(position: string, fontSize = 11): Record<string, unkno
 export function PlotBuilderComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t } = useTranslation()
   const server = isServerMode()
+  const pluginName = usePluginName('plot-builder')
 
   // Config
   const cardIcon = (config.cardIcon as string) ?? '__none__'
@@ -657,7 +660,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
   }
   // Server mode: hold the frame until the aggregate arrives (empty rows would render "No data").
   if (server && !serverData) {
-    return <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">{t('common.loading', 'Loading…')}</div>
+    return <AnalysisLoading icon={ChartScatter} name={pluginName} compact={compact} />
   }
   const sd = server ? serverData : null
 

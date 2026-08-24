@@ -28,6 +28,7 @@ import {
   type VariableSpec,
 } from '@/lib/stats/descriptive-table'
 import { PublicationTable, type PublicationColumn } from '@/components/ui/publication-table'
+import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import type { ExportTable, ExportTableCell } from '@/lib/table-export'
 import { usePublishAnalysisTable } from './analysis-table-context'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
@@ -49,6 +50,7 @@ function isNumericColumn(col: DatasetColumn): boolean {
 export function Table1Component({ config, columns, rows, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t } = useTranslation()
   const server = isServerMode()
+  const pluginName = usePluginName('table1')
 
   // Identifiers and dates start unticked: an id column has a meaningless mean
   // and one level per patient, and a raw timestamp describes nothing.
@@ -204,7 +206,7 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
     return <Placeholder text={serverError} />
   }
   if (!table) {
-    return <Placeholder text={t('common.loading')} />
+    return <AnalysisLoading icon={TableIcon} name={pluginName} />
   }
   if (variables.length === 0) {
     return <Placeholder icon text={t('datasets.table1_no_columns')} />

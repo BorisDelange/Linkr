@@ -17,6 +17,7 @@ import {
 } from '@/lib/analysis-default-columns'
 import { displayColumnName } from '@/lib/dataset-utils'
 import { PublicationTable, type PublicationColumn } from '@/components/ui/publication-table'
+import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import {
   Tooltip,
   TooltipContent,
@@ -1195,6 +1196,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
   const { t, i18n } = useTranslation()
   const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
   const server = isServerMode()
+  const pluginName = usePluginName('statistical-tests')
 
   const groupColumnId = config.groupColumn as string | undefined
   const rawValueColumns = config.valueColumns as string[] | undefined
@@ -1486,11 +1488,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
 
   // Server mode: hold the frame until results arrive (empty array is a real "no columns" state).
   if (server && serverResults === null) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
-        <FlaskConical size={24} className="opacity-40" />
-      </div>
-    )
+    return <AnalysisLoading icon={FlaskConical} name={pluginName} compact={compact} />
   }
 
   if (statRows.length === 0) {
