@@ -684,6 +684,9 @@
     "schema_preset_group_custom": "Presets personnalisés",
     "no_vocabulary": "Aucun vocabulaire configuré pour cette base.",
     "no_vocabulary_hint": "Sélectionnez un modèle de schéma avec vocabulaire (ex. OMOP CDM 5.4) pour naviguer dans les concepts.",
+    "detail_schema": "Schéma",
+    "not_found": "Base de données introuvable",
+    "schema_needs_connection": "Connectez la base de données pour explorer son schéma.",
     "detail_overview": "Aperçu",
     "detail_statistics": "Statistiques",
     "detail_connection": "Connexion",
@@ -4850,6 +4853,18 @@
     "reg_forest_axis_or": "← protecteur · risque → (absence d'effet = 1)",
     "reg_forest_axis_linear": "← négatif · positif → (absence d'effet = 0)",
     "reg_outcome_not_binary": "La régression logistique demande une variable dépendante à deux valeurs ; celle-ci en a {{count}}.",
-    "reg_rows_excluded": "{{count}} lignes exclues (valeurs manquantes ou invalides)."
+    "reg_rows_excluded": "{{count}} lignes exclues (valeurs manquantes ou invalides).",
+    "km_select_columns": "Sélectionnez les variables de temps et d'événement.",
+    "km_failed": "Impossible de calculer les courbes de survie.",
+    "km_survival": "Survie",
+    "km_col_group": "Groupe",
+    "km_col_events": "Événements",
+    "km_col_median": "Médiane",
+    "km_logrank": "Test du log-rank",
+    "km_not_reached": "non atteinte",
+    "km_rows_excluded": "{{count}} lignes exclues (valeurs manquantes ou invalides).",
+    "km_at_risk": "À risque",
+    "km_overall": "Ensemble",
+    "km_no_observations": "Aucune observation exploitable : chaque ligne manquait d'un temps ou d'un événement."
   }
 }

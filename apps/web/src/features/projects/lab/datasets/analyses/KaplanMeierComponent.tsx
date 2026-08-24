@@ -6,6 +6,30 @@ import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildKaplanMeierSpec } from './kaplan-meier-server'
+import { resolvePalette } from '@/lib/plugins/shared-styles'
+import { displayColumnName } from '@/lib/dataset-utils'
+import { niceStep } from '@/lib/chart-ticks'
+import { PublicationTable, type PublicationColumn } from '@/components/ui/publication-table'
+import { usePublishAnalysisTable } from './analysis-table-context'
+import type { ExportTable, ExportTableCell } from '@/lib/table-export'
+import type { TFunction } from 'i18next'
+
+/**
+ * A model warning as DATA rather than as a sentence, so the render can say it
+ * in the reader's language — the compute path runs far from i18n.
+ */
+export type KmWarning =
+  | { code: 'rows_excluded'; count: number }
+  | { code: 'no_observations' }
+  /** The server sends its warnings as ready-made English sentences. */
+  | string
+
+/** A group's summary plus its index, which fixes its colour. */
+interface KmRow {
+  id: string
+  group: GroupSurvival
+  index: number
+}
 
 // ===========================================================================
 // Types
@@ -40,7 +64,7 @@ interface LogRankResult {
 interface KMResult {
   groups: GroupSurvival[]
   logRank: LogRankResult | null
-  warnings: string[]
+  warnings: KmWarning[]
 }
 
 const DASH = '\u2014'
@@ -49,11 +73,8 @@ const DASH = '\u2014'
 // Color palette
 // ===========================================================================
 
-const COLORS = [
-  '#4e79a7', '#e15759', '#59a14f', '#f28e2b', '#76b7b2',
-  '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab',
-]
-
+// Group curve colours come from the shared palette (config: colorPalette),
+// so a Kaplan-Meier figure matches the other charts in the same report.
 // ===========================================================================
 // Distribution CDF (chi-square only needed for log-rank)
 // ===========================================================================
@@ -405,7 +426,7 @@ function computeKMResult(
   groupId: string | null,
   confidenceLevel: number,
 ): KMResult {
-  const warnings: string[] = []
+  const warnings: KmWarning[] = []
   const alpha = 1 - confidenceLevel / 100
   const zCrit = inverseNormalCDF(1 - alpha / 2)
 
@@ -430,11 +451,11 @@ function computeKMResult(
   }
 
   if (nMissing > 0) {
-    warnings.push(`${nMissing} row(s) excluded (missing/invalid values)`)
+    warnings.push({ code: 'rows_excluded', count: nMissing })
   }
 
   if (allObs.length === 0) {
-    return { groups: [], logRank: null, warnings: [...warnings, 'No valid observations'] }
+    return { groups: [], logRank: null, warnings: [...warnings, { code: 'no_observations' }] }
   }
 
   // Split by group
@@ -498,10 +519,15 @@ interface SurvivalPlotProps {
   showAtRisk: boolean
   compact?: boolean
   timeLabel: string
-  lang: 'en' | 'fr'
+  /** Already-translated axis title; the plot does no i18n of its own. */
+  survivalLabel: string
+  /** Already-translated caption for the at-risk rows. */
+  atRiskLabel: string
+  colors: string[]
+  showGrid: boolean
 }
 
-function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, compact, timeLabel, lang }: SurvivalPlotProps) {
+function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, compact, timeLabel, survivalLabel, atRiskLabel, colors, showGrid }: SurvivalPlotProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
 
@@ -509,7 +535,11 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
   const margin = {
     top: compact ? 10 : 20,
     right: compact ? 10 : 20,
-    bottom: (showAtRisk ? groups.length * (compact ? 14 : 18) + (compact ? 20 : 30) : (compact ? 25 : 35)),
+    // With the at-risk block: the tick row, the time label, the "At risk"
+    // caption, then one line per group.
+    bottom: showAtRisk
+      ? groups.length * (compact ? 14 : 18) + (compact ? 34 : 46)
+      : compact ? 25 : 35,
     left: compact ? 35 : 50,
   }
 
@@ -527,7 +557,9 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
 
   // Nice axis ticks
   const nTicks = compact ? 5 : 8
-  const tickInterval = niceInterval(maxTime, nTicks)
+  // The shared helper, not a local copy: these ticks label the x axis AND head
+  // the at-risk columns, so they must round the same way as every other chart.
+  const tickInterval = niceStep(maxTime / nTicks)
   const ticks: number[] = []
   for (let t = 0; t <= maxTime + tickInterval * 0.5; t += tickInterval) {
     ticks.push(Math.round(t * 1000) / 1000)
@@ -536,6 +568,14 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
 
   const plotWidth = baseWidth - margin.left - margin.right
   const plotHeight = baseHeight - margin.top - margin.bottom
+
+  // Widest legend label in characters, so every swatch lines up at the same x
+  // instead of stepping in and out with each name's length.
+  const legendTextWidth =
+    groups.length > 1
+      ? Math.min(compact ? 12 : 18, Math.max(...groups.map(g => g.name.length))) *
+        (compact ? 4.4 : 5.4)
+      : 0
 
   const xScale = (t: number) => margin.left + (t / xMax) * plotWidth
   const yScale = (s: number) => margin.top + (1 - s) * plotHeight
@@ -618,19 +658,19 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
 
         {/* CI bands */}
         {showCI && groups.map((g, idx) => (
-          <path key={`ci-${idx}`} d={buildCIPath(g.steps)} fill={COLORS[idx % COLORS.length]} opacity={0.12} />
+          <path key={`ci-${idx}`} d={buildCIPath(g.steps)} fill={colors[idx % colors.length]} opacity={0.12} />
         ))}
 
         {/* Step curves */}
         {groups.map((g, idx) => (
-          <path key={`curve-${idx}`} d={buildPath(g.steps)} fill="none" stroke={COLORS[idx % COLORS.length]} strokeWidth={compact ? 1.5 : 2} />
+          <path key={`curve-${idx}`} d={buildPath(g.steps)} fill="none" stroke={colors[idx % colors.length]} strokeWidth={compact ? 1.5 : 2} />
         ))}
 
         {/* Censor marks */}
         {showCensor && groups.map((g, idx) => {
           const marks = getCensorMarks(g.steps)
           return marks.map((m, mi) => (
-            <line key={`censor-${idx}-${mi}`} x1={m.x} y1={m.y - 4} x2={m.x} y2={m.y + 4} stroke={COLORS[idx % COLORS.length]} strokeWidth={1.5} />
+            <line key={`censor-${idx}-${mi}`} x1={m.x} y1={m.y - 4} x2={m.x} y2={m.y + 4} stroke={colors[idx % colors.length]} strokeWidth={1.5} />
           ))
         })}
 
@@ -639,9 +679,24 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
           if (g.medianSurvival === null) return null
           const mx = xScale(g.medianSurvival)
           return (
-            <line key={`median-${idx}`} x1={mx} y1={yScale(0.5)} x2={mx} y2={margin.top + plotHeight} stroke={COLORS[idx % COLORS.length]} strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
+            <line key={`median-${idx}`} x1={mx} y1={yScale(0.5)} x2={mx} y2={margin.top + plotHeight} stroke={colors[idx % colors.length]} strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
           )
         })}
+
+        {/* Grid: a rule at each labelled survival level, so a reader can carry
+            a value across to the axis without a straightedge. */}
+        {showGrid && [0.25, 0.5, 0.75].map(g => (
+          <line
+            key={`grid-${g}`}
+            x1={margin.left}
+            x2={margin.left + plotWidth}
+            y1={yScale(g)}
+            y2={yScale(g)}
+            stroke="currentColor"
+            strokeDasharray="3 3"
+            opacity={0.15}
+          />
+        ))}
 
         {/* Y axis */}
         <line x1={margin.left} x2={margin.left} y1={margin.top} y2={margin.top + plotHeight} stroke="currentColor" strokeWidth={1} opacity={0.3} />
@@ -651,7 +706,7 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
           </text>
         ))}
         <text x={margin.left - (compact ? 22 : 32)} y={margin.top + plotHeight / 2} textAnchor="middle" fill="currentColor" opacity={0.5} fontSize={smallFontSize} transform={`rotate(-90, ${margin.left - (compact ? 22 : 32)}, ${margin.top + plotHeight / 2})`}>
-          {lang === 'fr' ? 'Survie' : 'Survival'}
+          {survivalLabel}
         </text>
 
         {/* X axis */}
@@ -668,11 +723,26 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
         )}
 
         {/* At-risk table */}
+        {showAtRisk && groups.length > 0 && (
+          <text
+            x={margin.left}
+            y={margin.top + plotHeight + (compact ? 32 : 40)}
+            fill="currentColor"
+            opacity={0.5}
+            fontSize={smallFontSize}
+            fontWeight={600}
+          >
+            {atRiskLabel}
+          </text>
+        )}
         {showAtRisk && groups.map((g, idx) => {
-          const yBase = margin.top + plotHeight + (compact ? 28 : 35) + idx * (compact ? 14 : 18)
+          const yBase = margin.top + plotHeight + (compact ? 44 : 56) + idx * (compact ? 14 : 18)
           return (
             <g key={`atrisk-${idx}`}>
-              <text x={margin.left - 4} y={yBase + 4} textAnchor="end" fill={COLORS[idx % COLORS.length]} fontSize={smallFontSize} fontWeight={600}>
+              <text x={margin.left - 4} y={yBase + 4} textAnchor="end" fill={colors[idx % colors.length]} fontSize={smallFontSize} fontWeight={600}>
+                {/* Clipped to the left gutter, so the full value on hover is
+                    the only way to tell two long group names apart. */}
+                <title>{g.name}</title>
                 {g.name.length > (compact ? 8 : 12) ? g.name.slice(0, compact ? 6 : 10) + '…' : g.name}
               </text>
               {ticks.map(t => (
@@ -686,13 +756,23 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
 
         {/* Legend */}
         {groups.length > 1 && groups.map((g, idx) => {
-          const lx = margin.left + plotWidth - (compact ? 8 : 12)
+          const lx = margin.left + plotWidth - (compact ? 4 : 8)
           const ly = margin.top + (compact ? 8 : 12) + idx * (compact ? 12 : 16)
           return (
             <g key={`legend-${idx}`}>
-              <line x1={lx - (compact ? 16 : 20)} y1={ly} x2={lx - 4} y2={ly} stroke={COLORS[idx % COLORS.length]} strokeWidth={2} />
-              <text x={lx} y={ly + 3.5} fill="currentColor" opacity={0.8} fontSize={smallFontSize}>
-                {g.name}
+              {/* Anchored at the RIGHT edge and running leftwards: anchored at
+                  the left, a long group name ran off the plot entirely. */}
+              <line
+                x1={lx - legendTextWidth - (compact ? 16 : 20)}
+                y1={ly}
+                x2={lx - legendTextWidth - 4}
+                y2={ly}
+                stroke={colors[idx % colors.length]}
+                strokeWidth={2}
+              />
+              <text x={lx} y={ly + 3.5} textAnchor="end" fill="currentColor" opacity={0.8} fontSize={smallFontSize}>
+                <title>{g.name}</title>
+                {g.name.length > (compact ? 12 : 18) ? `${g.name.slice(0, compact ? 10 : 16)}…` : g.name}
               </text>
             </g>
           )
@@ -702,26 +782,12 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
   )
 }
 
-/** Compute a nice tick interval for an axis. */
-function niceInterval(maxVal: number, targetTicks: number): number {
-  const rough = maxVal / targetTicks
-  const mag = Math.pow(10, Math.floor(Math.log10(rough)))
-  const residual = rough / mag
-  let nice: number
-  if (residual <= 1.5) nice = 1
-  else if (residual <= 3) nice = 2
-  else if (residual <= 7) nice = 5
-  else nice = 10
-  return nice * mag
-}
-
 // ===========================================================================
 // Component
 // ===========================================================================
 
 export function KaplanMeierComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
-  const { i18n } = useTranslation()
-  const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
+  const { t } = useTranslation()
   const server = isServerMode()
 
   const timeId = (config.timeColumn as string) ?? ''
@@ -732,7 +798,17 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
   const showAtRisk = (config.showAtRisk as boolean) ?? true
   const showMedian = (config.showMedian as boolean) ?? true
   const showCensor = (config.showCensor as boolean) ?? true
-  const timeLabel = (config.timeLabel as string) ?? ''
+  // Falls back to the time column's own label: an unnamed time axis is the
+  // common case, and "Days since admission" is already recorded on the column.
+  const timeColumn = columns.find((c) => c.id === timeId)
+  const timeLabel =
+    (config.timeLabel as string) || (timeColumn ? displayColumnName(timeColumn) : '')
+  const wrap = config.wrap === true
+  const showGrid = config.showGrid !== false
+  const colors = useMemo(
+    () => resolvePalette((config.colorPalette as string) ?? 'default'),
+    [config.colorPalette],
+  )
 
   const localResult = useMemo(
     () => {
@@ -769,6 +845,68 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
 
   const result = server ? serverResult : localResult
 
+  const summaryRows = useMemo<KmRow[]>(
+    () => (result?.groups ?? []).map((g, i) => ({ id: `${g.name}:${i}`, group: g, index: i })),
+    [result],
+  )
+
+  const summaryColumns = useMemo<PublicationColumn<KmRow>[]>(
+    () => [
+      {
+        id: 'group',
+        header: t('analyses.km_col_group'),
+        cell: (r) => (
+          <span className="flex items-center gap-1.5">
+            <span
+              className="inline-block size-2.5 shrink-0 rounded-sm"
+              style={{ backgroundColor: colors[r.index % colors.length] }}
+            />
+            {/* A single ungrouped curve has no group value to name. */}
+            {r.group.name || t('analyses.km_overall')}
+          </span>
+        ),
+        align: 'left',
+        width: 180,
+        minWidth: 100,
+      },
+      { id: 'n', header: 'n', cell: (r) => r.group.totalN, align: 'right', width: 70 },
+      {
+        id: 'events',
+        header: t('analyses.km_col_events'),
+        cell: (r) => r.group.totalEvents,
+        align: 'right',
+        width: 96,
+      },
+      {
+        id: 'median',
+        header: t('analyses.km_col_median'),
+        // "not reached" rather than a dash: the curve never crossed 50%, which
+        // is a result, where a dash reads as a value that could not be computed.
+        cell: (r) =>
+          r.group.medianSurvival !== null ? fmt(r.group.medianSurvival) : t('analyses.km_not_reached'),
+        align: 'right',
+        width: 110,
+      },
+      {
+        id: 'ci',
+        header: t('analyses.reg_col_ci', { level: confidenceLevel }),
+        cell: (r) =>
+          r.group.medianCiLow !== null && r.group.medianCiHigh !== null
+            ? `[${fmt(r.group.medianCiLow)}, ${fmt(r.group.medianCiHigh)}]`
+            : DASH,
+        align: 'right',
+        width: 130,
+      },
+    ],
+    [t, colors, confidenceLevel],
+  )
+
+  usePublishAnalysisTable(
+    summaryRows.length > 0 ? () => toExportTable(summaryRows, summaryColumns, t) : null,
+    [summaryRows, summaryColumns, t],
+  )
+
+
   if (server && serverError) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
@@ -783,7 +921,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <Activity size={24} className="opacity-40" />
-        <p className="text-xs">{lang === 'fr' ? 'Aucune donnée disponible.' : 'No data available.'}</p>
+        <p className="text-xs">{t('analyses.no_data')}</p>
       </div>
     )
   }
@@ -793,9 +931,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <Activity size={24} className="opacity-40" />
         <p className="text-xs">
-          {lang === 'fr'
-            ? 'Sélectionnez les variables de temps et d\u2019événement.'
-            : 'Select the time and event variables.'}
+          {t('analyses.km_select_columns')}
         </p>
       </div>
     )
@@ -814,7 +950,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <AlertTriangle size={24} className="opacity-40" />
-        <p className="text-xs">{lang === 'fr' ? 'Impossible de calculer les courbes.' : 'Unable to compute survival curves.'}</p>
+        <p className="text-xs">{t('analyses.km_failed')}</p>
       </div>
     )
   }
@@ -827,7 +963,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
           {result.warnings.map((w, i) => (
             <div key={i} className="flex items-start gap-1.5 text-yellow-700 dark:text-yellow-400">
               <AlertTriangle size={compact ? 10 : 12} className="mt-0.5 shrink-0" />
-              <span>{w}</span>
+              <span>{kmWarningText(w, t)}</span>
             </div>
           ))}
         </div>
@@ -842,57 +978,23 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
         showAtRisk={showAtRisk}
         compact={compact}
         timeLabel={timeLabel}
-        lang={lang}
+        survivalLabel={t('analyses.km_survival')}
+        atRiskLabel={t('analyses.km_at_risk')}
+        colors={colors}
+        showGrid={showGrid}
       />
 
-      {/* Summary table */}
+      {/* Summary table — PublicationTable, matching the other analyses:
+          resizable columns, no vertical rules, no striping. */}
       <div className={cn('mt-3', compact && 'mt-2')}>
-        <table className={cn('w-full border-collapse', compact ? 'text-[10px]' : 'text-xs')}>
-          <thead>
-            <tr className="bg-muted">
-              <th className={cn('border-b border-r font-medium text-left', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
-                {lang === 'fr' ? 'Groupe' : 'Group'}
-              </th>
-              <th className={cn('border-b border-r font-medium text-left', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>n</th>
-              <th className={cn('border-b border-r font-medium text-left', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
-                {lang === 'fr' ? 'Événements' : 'Events'}
-              </th>
-              <th className={cn('border-b border-r font-medium text-left', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
-                {lang === 'fr' ? 'Médiane' : 'Median'}
-              </th>
-              <th className={cn('border-b font-medium text-left', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
-                {`${confidenceLevel}% CI`}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.groups.map((g, idx) => (
-              <tr key={idx} className={cn('transition-colors hover:bg-accent/30', idx % 2 === 1 && 'bg-muted/30')}>
-                <td className={cn('border-b border-r font-medium', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
-                  <span className="inline-block w-2.5 h-2.5 rounded-sm mr-1.5" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
-                  {g.name}
-                </td>
-                <td className={cn('border-b border-r', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>{g.totalN}</td>
-                <td className={cn('border-b border-r', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>{g.totalEvents}</td>
-                <td className={cn('border-b border-r', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
-                  {g.medianSurvival !== null ? fmt(g.medianSurvival) : DASH}
-                </td>
-                <td className={cn('border-b', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
-                  {g.medianCiLow !== null && g.medianCiHigh !== null
-                    ? `[${fmt(g.medianCiLow)}, ${fmt(g.medianCiHigh)}]`
-                    : DASH}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <PublicationTable rows={summaryRows} columns={summaryColumns} wrap={wrap} />
       </div>
 
       {/* Log-rank test */}
       {result.logRank && (
         <div className={cn('mt-3 text-muted-foreground', compact ? 'text-[9px]' : 'text-[11px]')}>
           <span className="font-semibold text-foreground">
-            {lang === 'fr' ? 'Test du log-rank' : 'Log-rank test'}
+            {t('analyses.km_logrank')}
           </span>
           {' '}{DASH}{' '}
           <span>χ² = {fmt(result.logRank.chiSquare)}, df = {result.logRank.df}, p = {fmtP(result.logRank.pValue)}</span>
@@ -905,4 +1007,58 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
       )}
     </div>
   )
+}
+
+
+/** The summary table as plain text, for copy / LaTeX. */
+function toExportTable(
+  rows: KmRow[],
+  columns: PublicationColumn<KmRow>[],
+  t: TFunction,
+): ExportTable {
+  const head: ExportTableCell[][] = [columns.map((c) => ({ text: c.header, align: c.align }))]
+  const body = rows.map((r) =>
+    columns.map((c) => {
+      const g = r.group
+      switch (c.id) {
+        case 'group':
+          return { text: g.name || t('analyses.km_overall'), align: c.align }
+        case 'n':
+          return { text: String(g.totalN), align: c.align }
+        case 'events':
+          return { text: String(g.totalEvents), align: c.align }
+        case 'median':
+          return {
+            text: g.medianSurvival !== null ? fmt(g.medianSurvival) : t('analyses.km_not_reached'),
+            align: c.align,
+          }
+        case 'ci':
+          return {
+            text:
+              g.medianCiLow !== null && g.medianCiHigh !== null
+                ? `[${fmt(g.medianCiLow)}, ${fmt(g.medianCiHigh)}]`
+                : DASH,
+            align: c.align,
+          }
+        default:
+          return { text: '', align: c.align }
+      }
+    }),
+  )
+  return { head, body }
+}
+
+
+/**
+ * A Kaplan-Meier warning, said in the reader's language.
+ *
+ * A plain string passes through: the server's pandas program emits finished
+ * English sentences, and showing one untranslated beats dropping a warning
+ * about excluded rows.
+ */
+function kmWarningText(w: KmWarning, t: TFunction): string {
+  if (typeof w === 'string') return w
+  return w.code === 'rows_excluded'
+    ? t('analyses.km_rows_excluded', { count: w.count })
+    : t('analyses.km_no_observations')
 }

@@ -684,6 +684,9 @@
     "schema_preset_group_custom": "Custom presets",
     "no_vocabulary": "No vocabulary configured for this database.",
     "no_vocabulary_hint": "Select a schema preset with vocabulary support (e.g. OMOP CDM 5.4) to browse concepts.",
+    "detail_schema": "Schema",
+    "not_found": "Database not found",
+    "schema_needs_connection": "Connect the database to browse its schema.",
     "detail_overview": "Overview",
     "detail_statistics": "Statistics",
     "detail_connection": "Connection",
@@ -4850,6 +4853,18 @@
     "reg_forest_axis_or": "← protective · risk → (no effect = 1)",
     "reg_forest_axis_linear": "← negative · positive → (no effect = 0)",
     "reg_outcome_not_binary": "Logistic regression needs a two-valued outcome; this one has {{count}}.",
-    "reg_rows_excluded": "{{count}} rows excluded (missing or invalid values)."
+    "reg_rows_excluded": "{{count}} rows excluded (missing or invalid values).",
+    "km_select_columns": "Select the time and event variables.",
+    "km_failed": "Unable to compute the survival curves.",
+    "km_survival": "Survival",
+    "km_col_group": "Group",
+    "km_col_events": "Events",
+    "km_col_median": "Median",
+    "km_logrank": "Log-rank test",
+    "km_not_reached": "not reached",
+    "km_rows_excluded": "{{count}} rows excluded (missing or invalid values).",
+    "km_at_risk": "At risk",
+    "km_overall": "Overall",
+    "km_no_observations": "No usable observations: every row was missing a time or an event."
   }
 }

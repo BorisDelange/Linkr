@@ -10,65 +10,284 @@
   },
   "version": "1.0.0",
   "category": "statistics",
-  "tags": ["survival", "kaplan-meier", "log-rank", "time-to-event", "statistics"],
-  "runtime": ["component"],
+  "tags": [
+    "survival",
+    "kaplan-meier",
+    "log-rank",
+    "time-to-event",
+    "statistics"
+  ],
+  "runtime": [
+    "component"
+  ],
   "languages": [],
   "icon": "Activity",
   "iconColor": "rose",
   "configSchema": {
     "timeColumn": {
       "type": "column-select",
-      "label": { "en": "Time variable", "fr": "Variable de temps" },
+      "label": {
+        "en": "Time variable",
+        "fr": "Variable de temps"
+      },
       "filter": "numeric",
-      "hint": { "en": "required", "fr": "requis" }
+      "hint": {
+        "en": "required",
+        "fr": "requis"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Time from entry to the event or to last contact. Every row contributes its own follow-up, which is what lets the curve use patients who have not yet had the event.",
+        "fr": "Durée entre l'inclusion et l'événement ou le dernier contact. Chaque ligne apporte son propre suivi, ce qui permet à la courbe d'exploiter les patients qui n'ont pas encore eu l'événement."
+      }
     },
     "eventColumn": {
       "type": "column-select",
-      "label": { "en": "Event variable (1 = event)", "fr": "Variable d'événement (1 = événement)" },
-      "hint": { "en": "required", "fr": "requis" }
+      "label": {
+        "en": "Event variable (1 = event)",
+        "fr": "Variable d'événement (1 = événement)"
+      },
+      "hint": {
+        "en": "required",
+        "fr": "requis"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "1 when the event happened, 0 when follow-up simply ended. A zero is not a missing value — it is censoring, and it is information the curve uses.",
+        "fr": "1 si l'événement a eu lieu, 0 si le suivi s'est simplement arrêté. Un zéro n'est pas une valeur manquante — c'est une censure, et c'est une information que la courbe exploite."
+      }
     },
     "groupColumn": {
       "type": "column-select",
-      "label": { "en": "Group variable", "fr": "Variable de groupe" },
+      "label": {
+        "en": "Group variable",
+        "fr": "Variable de groupe"
+      },
       "filter": "categorical",
-      "optional": true
+      "optional": true,
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "One curve per group, compared by a log-rank test. Left empty, a single curve describes the whole cohort.",
+        "fr": "Une courbe par groupe, comparées par un test du log-rank. Laissé vide, une courbe unique décrit toute la cohorte."
+      }
     },
     "confidenceLevel": {
       "type": "number",
-      "label": { "en": "Confidence level (%)", "fr": "Niveau de confiance (%)" },
+      "label": {
+        "en": "Confidence level (%)",
+        "fr": "Niveau de confiance (%)"
+      },
       "default": 95,
       "min": 80,
       "max": 99,
-      "row": "options"
+      "section": {
+        "en": "Curve",
+        "fr": "Courbe"
+      },
+      "description": {
+        "en": "Width of the confidence bands. They widen as the curve advances, because fewer people remain at risk to inform it.",
+        "fr": "Largeur des bandes de confiance. Elles s'élargissent à mesure que la courbe avance, car il reste moins de personnes à risque pour l'informer."
+      }
     },
     "showCI": {
       "type": "boolean",
-      "label": { "en": "Confidence bands", "fr": "Bandes de confiance" },
+      "label": {
+        "en": "Confidence bands",
+        "fr": "Bandes de confiance"
+      },
       "default": true,
-      "row": "options"
-    },
-    "showAtRisk": {
-      "type": "boolean",
-      "label": { "en": "At-risk table", "fr": "Tableau at-risk" },
-      "default": true,
-      "row": "options"
-    },
-    "showMedian": {
-      "type": "boolean",
-      "label": { "en": "Median survival", "fr": "Médiane de survie" },
-      "default": true,
-      "row": "options"
+      "row": "curveOpts",
+      "section": {
+        "en": "Curve",
+        "fr": "Courbe"
+      },
+      "description": {
+        "en": "Where the curve's tail is uncertain, the band shows it. Without them a curve based on three remaining patients looks as firm as its start.",
+        "fr": "Là où la fin de courbe est incertaine, la bande le montre. Sans elles, une courbe reposant sur trois patients restants paraît aussi solide que son début."
+      }
     },
     "showCensor": {
       "type": "boolean",
-      "label": { "en": "Censor marks", "fr": "Marques de censure" },
+      "label": {
+        "en": "Censoring marks",
+        "fr": "Marques de censure"
+      },
       "default": true,
-      "row": "options"
+      "row": "curveOpts",
+      "section": {
+        "en": "Curve",
+        "fr": "Courbe"
+      },
+      "description": {
+        "en": "A tick where someone left follow-up without the event. Their absence further along is not a drop in survival.",
+        "fr": "Une marque là où quelqu'un a quitté le suivi sans événement. Son absence plus loin n'est pas une baisse de survie."
+      }
+    },
+    "showMedian": {
+      "type": "boolean",
+      "label": {
+        "en": "Median survival",
+        "fr": "Survie médiane"
+      },
+      "default": true,
+      "row": "curveOpts2",
+      "section": {
+        "en": "Curve",
+        "fr": "Courbe"
+      },
+      "description": {
+        "en": "The time by which half the group has had the event. Undefined when the curve never reaches 50% — which the table then says rather than inventing a number.",
+        "fr": "Le délai au bout duquel la moitié du groupe a eu l'événement. Non défini si la courbe n'atteint jamais 50 % — le tableau le dit alors plutôt que d'inventer un chiffre."
+      }
+    },
+    "showAtRisk": {
+      "type": "boolean",
+      "label": {
+        "en": "At-risk table",
+        "fr": "Tableau des effectifs à risque"
+      },
+      "default": true,
+      "row": "curveOpts2",
+      "section": {
+        "en": "Curve",
+        "fr": "Courbe"
+      },
+      "description": {
+        "en": "How many remain at risk under each axis tick. A journal expects it: it is what lets a reader judge how much the tail of the curve is worth.",
+        "fr": "Combien de personnes restent à risque sous chaque graduation. Une revue l'attend : c'est ce qui permet de juger ce que vaut la fin de la courbe."
+      }
     },
     "timeLabel": {
       "type": "string",
-      "label": { "en": "Time axis label", "fr": "Légende axe temps" },
-      "default": ""
+      "label": {
+        "en": "Time axis label",
+        "fr": "Libellé de l'axe du temps"
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Name the unit — days, months, years. The numbers alone do not say which.",
+        "fr": "Nommez l'unité — jours, mois, années. Les nombres seuls ne le disent pas."
+      }
+    },
+    "colorPalette": {
+      "type": "select",
+      "label": {
+        "en": "Palette",
+        "fr": "Palette"
+      },
+      "default": "default",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Colours for the group curves, shared with the other chart plugins.",
+        "fr": "Couleurs des courbes de groupe, partagées avec les autres plugins graphiques."
+      },
+      "options": [
+        {
+          "value": "default",
+          "label": {
+            "en": "Default",
+            "fr": "Par défaut"
+          }
+        },
+        {
+          "value": "tableau",
+          "label": {
+            "en": "Tableau (classic)",
+            "fr": "Tableau (classique)"
+          }
+        },
+        {
+          "value": "tableau10",
+          "label": {
+            "en": "Tableau 10",
+            "fr": "Tableau 10"
+          }
+        },
+        {
+          "value": "pastel",
+          "label": {
+            "en": "Pastel",
+            "fr": "Pastel"
+          }
+        },
+        {
+          "value": "vivid",
+          "label": {
+            "en": "Vivid",
+            "fr": "Vif"
+          }
+        },
+        {
+          "value": "cool",
+          "label": {
+            "en": "Cool",
+            "fr": "Froid"
+          }
+        },
+        {
+          "value": "warm",
+          "label": {
+            "en": "Warm",
+            "fr": "Chaud"
+          }
+        },
+        {
+          "value": "monochrome",
+          "label": {
+            "en": "Monochrome",
+            "fr": "Monochrome"
+          }
+        }
+      ]
+    },
+    "showGrid": {
+      "type": "boolean",
+      "label": {
+        "en": "Show grid",
+        "fr": "Grille"
+      },
+      "default": true,
+      "row": "styleChecks",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "wrap": {
+      "type": "boolean",
+      "label": {
+        "en": "Wrap long text",
+        "fr": "Retour à la ligne"
+      },
+      "default": false,
+      "row": "styleChecks",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Off by default: irregular row heights break the vertical scan that is the point of a column of figures. Long text is truncated with the full value on hover.",
+        "fr": "Désactivé par défaut : des hauteurs de lignes irrégulières cassent la lecture verticale d'une colonne de chiffres. Le texte long est tronqué, la valeur complète au survol."
+      }
     }
   }
 }
