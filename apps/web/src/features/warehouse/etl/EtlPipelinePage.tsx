@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import {
   ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, Code, Workflow, Table2, Database,
-  BookOpen, GitCompare, FileText, Info, MoreHorizontal, Scale,
+  BookOpen, GitCompare, FileText, Info, MoreHorizontal, Scale, Download, GitBranch,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import {
@@ -36,6 +36,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useEtlStore } from '@/stores/etl-store'
+import { useEtlActions } from './use-etl-actions'
+import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { EtlScriptsTab } from './EtlScriptsTab'
 import { EtlPipelineTab } from './EtlPipelineTab'
@@ -46,7 +48,8 @@ import { vocabularyReadiness } from './vocabulary-readiness'
 import { localized } from '@/lib/localized'
 
 const TAB_IDS = [
-  'overview', 'pipeline', 'scripts', 'schemas', 'vocabulary', 'quality', 'readme', 'license',
+  'overview', 'pipeline', 'scripts', 'schemas', 'vocabulary', 'quality',
+  'readme', 'license', 'versioning',
 ] as const
 type TabId = (typeof TAB_IDS)[number]
 
@@ -60,11 +63,14 @@ const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: nu
 ]
 
 /**
- * Readme and licence fold behind one trigger, as on the mapping project: they
- * are the tabs you reach for occasionally, and this row already carries the
- * source→target selects on its right.
+ * Export, versioning, readme and licence fold behind one trigger, as on the
+ * mapping project: they are what you reach for occasionally, not while
+ * building the pipeline.
+ *
+ * 'export' is not a tab of its own — a pipeline exports as a ZIP download, so
+ * selecting it runs the action and leaves the active tab alone.
  */
-const SECONDARY_TABS = ['readme', 'license'] as const
+const SECONDARY_TABS = ['versioning', 'readme', 'license'] as const
 type SecondaryTabId = (typeof SECONDARY_TABS)[number]
 
 function isSecondaryTab(tab: TabId): tab is SecondaryTabId {
@@ -81,6 +87,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   const { wsUid } = useResolvedParams()
   const { etlPipelines, etlPipelinesLoaded, loadEtlPipelines, loadPipelineFiles, updatePipeline, files, filesLoaded, activePipelineId } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
+  const etlActions = useEtlActions()
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [activeTab, setActiveTab] = useUrlTab<TabId>({
@@ -196,7 +203,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
                 )}
               </TabsTrigger>
             ))}
-            <SecondaryTabsTrigger activeTab={activeTab} onSelect={setActiveTab} />
+            <SecondaryTabsTrigger activeTab={activeTab} onSelect={setActiveTab} onExport={() => etlActions.onExport(pipeline)} />
           </TabsList>
         </Tabs>
 
@@ -260,6 +267,18 @@ export function EtlPipelinePage({ pipelineId }: Props) {
             <EtlLicenseTab pipeline={pipeline} />
           </div>
         )}
+        {activeTab === 'versioning' && (
+          <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col px-6 py-6">
+            {/* Git link + push-only sync panel. Export is a menu action here, so
+                no export UI in this tab. */}
+            <GitRepositoryTab
+              gitRemote={pipeline.gitRemoteConfig ?? null}
+              onSave={(cfg) => updatePipeline(pipeline.id, { gitRemoteConfig: cfg ?? undefined })}
+              syncScope="etl-pipelines"
+              syncId={pipeline.id}
+            />
+          </div>
+        )}
         {activeTab === 'scripts' && (
           <EtlScriptsTab pipelineId={pipeline.id} onBrowseSchema={handleBrowseSchema} />
         )}
@@ -294,15 +313,22 @@ export function EtlPipelinePage({ pipelineId }: Props) {
 function SecondaryTabsTrigger({
   activeTab,
   onSelect,
+  onExport,
 }: {
   activeTab: TabId
   onSelect: (tab: TabId) => void
+  onExport: () => void
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const active = isSecondaryTab(activeTab) ? activeTab : undefined
 
-  const items: { id: SecondaryTabId; label: string; icon: typeof FileText }[] = [
+  // Export downloads a ZIP rather than opening a view, so it has no tab id and
+  // never becomes the active one — it sits here because this is where the
+  // occasional actions live.
+  const items: { id: SecondaryTabId | 'export'; label: string; icon: typeof FileText }[] = [
+    { id: 'export', label: t('common.export'), icon: Download },
+    { id: 'versioning', label: t('common.versioning'), icon: GitBranch },
     { id: 'readme', label: t('common.readme'), icon: FileText },
     { id: 'license', label: t('license.title'), icon: Scale },
   ]
@@ -330,7 +356,7 @@ function SecondaryTabsTrigger({
         {items.map((item) => (
           <DropdownMenuItem
             key={item.id}
-            onSelect={() => onSelect(item.id)}
+            onSelect={() => { if (item.id === 'export') onExport(); else onSelect(item.id) }}
             className={item.id === active ? 'bg-accent' : undefined}
           >
             <item.icon size={14} className="text-muted-foreground" />
@@ -509,7 +535,7 @@ function EtlIdentityCard({
           carries its own pt-3/pb-2, and `-mt-1` trims the container's gap-4 —
           this row is fine print, not a section. */}
       <CardMetaFooter
-        className="-mt-1 flex-wrap"
+        className="-mt-1"
         createdById={pipeline.createdById}
         createdBy={pipeline.createdBy}
         createdByDetails={pipeline.createdByDetails}

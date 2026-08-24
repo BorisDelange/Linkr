@@ -1640,7 +1640,7 @@ function SchemaIdentityCard({
           carries its own pt-3/pb-2, and `-mt-1` trims the container's gap-4 —
           this row is fine print, not a section. */}
       <CardMetaFooter
-        className="-mt-1 flex-wrap"
+        className="-mt-1"
         createdById={preset.createdById}
         createdBy={preset.createdBy}
         createdByDetails={preset.createdByDetails}

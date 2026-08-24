@@ -1,6 +1,8 @@
 import { useCallback } from 'react'
+import { useNavigate } from 'react-router'
 import JSZip from 'jszip'
 import { useEtlStore } from '@/stores/etl-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { localized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { buildEtlPipelineFolder, downloadBlob, slugify } from '@/lib/entity-io'
@@ -14,6 +16,8 @@ export interface EtlActions {
   getGitRemote: (item: EtlPipeline) => GitRemoteConfig | null
   onSaveGitRemote: (item: EtlPipeline, config: GitRemoteConfig | null) => Promise<void>
   exportSupportsIncludeData: boolean
+  /** The pipeline owns a Versioning tab, so the menu goes there, not to a dialog. */
+  onVersioningOverride: (item: EtlPipeline) => void
   renderEditDialog: (props: { item: EtlPipeline; onOpenChange: (open: boolean) => void }) => React.ReactNode
   deleteConfirmTitleKey: string
   deleteConfirmDescriptionKey: string
@@ -29,6 +33,13 @@ export function useEtlActions(): EtlActions {
   const deletePipeline = useEtlStore((s) => s.deletePipeline)
   const loadEtlPipelines = useEtlStore((s) => s.loadEtlPipelines)
   const updatePipeline = useEtlStore((s) => s.updatePipeline)
+  const navigate = useNavigate()
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+
+  const onVersioningOverride = useCallback((p: EtlPipeline) => {
+    const wsId = activeWorkspaceId ?? p.workspaceId
+    navigate(`/workspaces/${wsId}/warehouse/etl/${p.id}?tab=versioning`)
+  }, [navigate, activeWorkspaceId])
 
   const onExport = useCallback(async (pipeline: EtlPipeline) => {
     const zip = new JSZip()
@@ -48,6 +59,7 @@ export function useEtlActions(): EtlActions {
     getGitRemote: (p) => p.gitRemoteConfig ?? null,
     onSaveGitRemote,
     exportSupportsIncludeData: false,
+    onVersioningOverride,
     renderEditDialog: ({ item, onOpenChange }) => (
       <CreateEtlDialog open onOpenChange={onOpenChange} editingPipeline={item} />
     ),

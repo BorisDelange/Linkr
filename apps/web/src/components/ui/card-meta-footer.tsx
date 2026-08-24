@@ -318,7 +318,12 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
           then sliding between chips is instant. Leave the row for longer than
           skipDelayDuration and the dwell is required again. */}
       <TooltipProvider delayDuration={200} skipDelayDuration={500}>
-        <div className="flex items-center gap-2 border-t pt-2 text-[11px] text-muted-foreground">
+        {/* `min-w-0`: a flex row's default min-width is its content, so in a
+            narrow card (the About panel of a detail page, one third of the
+            grid) the author + date + licence chips set a floor the card cannot
+            go below and it widens past its column. The chips already truncate
+            individually; this lets them. */}
+        <div className="flex min-w-0 items-center gap-2 border-t pt-2 text-[11px] text-muted-foreground">
           {leading && <span className="min-w-0 truncate">{leading}</span>}
           {leading && (label || created || updated) && <Sep />}
           {label && (

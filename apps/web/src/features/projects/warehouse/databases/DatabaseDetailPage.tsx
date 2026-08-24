@@ -556,7 +556,7 @@ function IdentityCard({ source, onSeeLicense }: { source: DataSource; onSeeLicen
           (`pb-0`) because CardMetaFooter carries its own pt-3/pb-2, and `-mt-1`
           trims the container's gap-4 — this row is fine print, not a section. */}
       <CardMetaFooter
-        className="-mt-1 flex-wrap"
+        className="-mt-1"
         createdById={source.createdById}
         createdBy={source.createdBy}
         createdByDetails={source.createdByDetails}
