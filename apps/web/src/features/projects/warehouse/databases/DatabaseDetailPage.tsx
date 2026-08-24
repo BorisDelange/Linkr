@@ -167,7 +167,7 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
         onValueChange={(v) => setActiveTab(v as DatabaseTabId)}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <div className="flex shrink-0 items-center px-6 pt-2">
+        <div className="flex shrink-0 items-center px-6 py-3">
           <div className="flex-1" />
           <TabsList>
             <TabsTrigger value="overview">
@@ -471,7 +471,7 @@ function OverviewTab({
     /* One grid for the whole tab, so the two columns line up across both rows:
        the stat cards stop where About starts, and the README's bottom edge
        meets the side column's. */
-    <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden pt-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_20rem]">
       {source.status === 'error' && source.errorMessage && (
         <div className="col-span-full shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
           <p className="text-xs font-medium text-destructive">{t('databases.detail_error')}</p>

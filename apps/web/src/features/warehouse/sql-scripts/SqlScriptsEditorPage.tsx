@@ -441,7 +441,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
           onValueChange={(v) => setActiveTab(v as SqlTabId)}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <div className="flex shrink-0 items-center px-6 pt-2">
+          <div className="flex shrink-0 items-center px-6 py-3">
             <div className="flex-1" />
             <TabsList>
               <TabsTrigger value="overview">
@@ -1043,7 +1043,7 @@ function SqlOverviewTab({
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
       {/* The README gets the room — it is what whoever installs this from the
           catalog reads first — with the identity card beside it. `self-start`
           on the second column: the readme stretches to full height and scrolls

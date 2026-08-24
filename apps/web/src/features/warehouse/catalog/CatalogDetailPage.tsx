@@ -185,13 +185,19 @@ export function CatalogDetailPage({ catalogId }: Props) {
     )
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="px-6 py-6">
-        {/* No page header: the catalog's name lives in the global header badge
-            like every other entity, and its status and source now sit in the
-            overview's About card. */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)}>
-          <div className="flex shrink-0 items-center justify-center px-6 pt-2">
+    /* Fills the height and lets each tab scroll inside itself, like the other
+       entity pages — the page used to scroll as a whole, which put the tab row
+       under a `py-6` wrapper on top of its own padding. */
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* No page header: the catalog's name lives in the global header badge
+          like every other entity, and its status and source now sit in the
+          overview's About card. */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as TabId)}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+          <div className="flex shrink-0 items-center justify-center px-6 py-3">
             <TabsList>
               {TABS.map((tab) => (
                 <TabsTrigger key={tab.id} value={tab.id}>
@@ -207,7 +213,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
             </TabsList>
           </div>
 
-          <TabsContent value="overview" className="mt-4">
+          <TabsContent value="overview" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
             <CatalogOverviewTab
               catalog={catalog}
               statusBadge={statusBadge}
@@ -217,7 +223,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
             />
           </TabsContent>
 
-          <TabsContent value="readme" className="mt-4">
+          <TabsContent value="readme" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
             <EntityReadmePanel
               // Remounted when arriving from the overview's Edit button, so the
               // editor picks up the requested mode — initialMode only applies on mount.
@@ -232,11 +238,11 @@ export function CatalogDetailPage({ catalogId }: Props) {
             />
           </TabsContent>
 
-          <TabsContent value="license" className="mt-4">
+          <TabsContent value="license" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
             <CatalogLicenseTab catalog={catalog} />
           </TabsContent>
 
-          <TabsContent value="versioning" className="mt-4">
+          <TabsContent value="versioning" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
             <div className="mx-auto w-full max-w-3xl">
               {/* Git link + push-only sync panel. Export is a menu action here,
                   so no export UI in this tab. */}
@@ -249,11 +255,11 @@ export function CatalogDetailPage({ catalogId }: Props) {
             </div>
           </TabsContent>
 
-          <TabsContent value="config" className="mt-4">
+          <TabsContent value="config" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
             <CatalogConfigTab catalog={catalog} />
           </TabsContent>
 
-          <TabsContent value="data" className="mt-4">
+          <TabsContent value="data" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
             {activeResultCache ? (
               <CatalogDataTab catalog={catalog} cache={activeResultCache} />
             ) : (
@@ -269,7 +275,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
             )}
           </TabsContent>
 
-          <TabsContent value="anonymization" className="mt-4">
+          <TabsContent value="anonymization" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
             {activeResultCache ? (
               <CatalogAnonymizationTab catalog={catalog} cache={activeResultCache} />
             ) : (
@@ -285,11 +291,11 @@ export function CatalogDetailPage({ catalogId }: Props) {
             )}
           </TabsContent>
 
-          <TabsContent value="dcat" className="mt-4">
+          <TabsContent value="dcat" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
             <CatalogDcatTab catalog={catalog} cache={activeResultCache} />
           </TabsContent>
 
-          <TabsContent value="export" className="mt-4">
+          <TabsContent value="export" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
             {activeResultCache ? (
               <CatalogExportTab catalog={catalog} cache={activeResultCache} />
             ) : (
@@ -304,8 +310,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
               </Card>
             )}
           </TabsContent>
-        </Tabs>
-      </div>
+      </Tabs>
     </div>
   )
 }

@@ -187,7 +187,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header with pipeline tabs */}
-      <div className="flex shrink-0 items-center px-6 pt-2">
+      <div className="flex shrink-0 items-center px-6 py-3">
         {/* Spacer: balances the source→target selects on the right so the tabs
             sit centred, matching the database and schema detail pages. */}
         <div className="min-w-0 flex-1" />
@@ -405,7 +405,7 @@ function EtlOverviewTab({
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
       {/* The README gets the room — it is what whoever installs this from the
           catalog reads first — with the identity card beside it. `self-start`
           on the second column: the readme stretches to full height and scrolls

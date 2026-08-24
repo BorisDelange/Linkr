@@ -195,7 +195,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
         onValueChange={(v) => setActiveTab(v as TabId)}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <div className="flex shrink-0 items-center px-6 pt-2">
+        <div className="flex shrink-0 items-center px-6 py-3">
           {/* Balances the database picker so the tabs sit centred, as on the
               database, schema and ETL pipeline pages. */}
           <div className="min-w-0 flex-1" />
@@ -313,7 +313,7 @@ function DqOverviewTab({
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
       {/* The README gets the room — it is what whoever installs this from the
           catalog reads first — with the identity card beside it. `self-start`
           on the second column: the readme stretches to full height and scrolls

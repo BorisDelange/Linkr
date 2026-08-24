@@ -1213,7 +1213,7 @@ function SchemaDetailView({
       {/* Tabs — the Edit/Save controls sit on this row, top-right. The schema's
           name, export and delete now live in the global header badge menu. */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SchemaTabId)} className="flex-1 flex flex-col min-h-0">
-        <div className="flex shrink-0 items-center px-6 pt-2">
+        <div className="flex shrink-0 items-center px-6 py-3">
           {/* The left spacer that balances the toolbar also carries the
               diagram/source switch, so the tabs stay centred. */}
           <div className="flex flex-1 items-center">
@@ -1609,7 +1609,7 @@ function SchemaOverviewTab({
        the About column); row 2 is the README beside About, taking the rest of
        the height — the README scrolls inside itself and About stretches to
        match rather than ending short. */
-    <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden pt-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_20rem]">
       <SchemaStatCards mapping={mapping} onSeeDdl={onSeeDdl} onSeeMapping={onSeeMapping} />
 
       {/* The README is what documents a shared schema — the thing whoever
