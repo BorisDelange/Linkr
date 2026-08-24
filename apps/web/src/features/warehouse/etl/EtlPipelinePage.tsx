@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import {
-  ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, Code, Workflow, Table2, Database,
+  ArrowLeft, ArrowUpRight, ChevronDown, Code, Workflow, Table2,
   BookOpen, GitCompare, FileText, Info, MoreHorizontal, Scale, Download, GitBranch,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -28,17 +28,9 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { useEtlStore } from '@/stores/etl-store'
 import { useEtlActions } from './use-etl-actions'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
-import { useDataSourceStore } from '@/stores/data-source-store'
 import { EtlScriptsTab } from './EtlScriptsTab'
 import { EtlPipelineTab } from './EtlPipelineTab'
 import { EtlSchemasTab } from './EtlSchemasTab'
@@ -82,13 +74,11 @@ interface Props {
 }
 
 export function EtlPipelinePage({ pipelineId }: Props) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
   const { etlPipelines, etlPipelinesLoaded, loadEtlPipelines, loadPipelineFiles, updatePipeline, files, filesLoaded, activePipelineId } = useEtlStore()
-  const dataSources = useDataSourceStore((s) => s.dataSources)
   const etlActions = useEtlActions()
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [activeTab, setActiveTab] = useUrlTab<TabId>({
     key: `etl:${pipelineId}`,
@@ -207,43 +197,10 @@ export function EtlPipelinePage({ pipelineId }: Props) {
           </TabsList>
         </Tabs>
 
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
-          <Select
-            value={pipeline.sourceDataSourceId}
-            onValueChange={(value) => updatePipeline(pipeline.id, { sourceDataSourceId: value })}
-          >
-            <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
-              <Database size={12} className="text-muted-foreground" />
-              <SelectValue placeholder={t('etl.select_source')} />
-            </SelectTrigger>
-            <SelectContent>
-              {dbSources.map((ds) => (
-                <SelectItem key={ds.id} value={ds.id}>
-                  {localized(ds.name, i18n.language)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <ArrowRight size={12} className="shrink-0 text-muted-foreground" />
-
-          <Select
-            value={pipeline.targetDataSourceId ?? ''}
-            onValueChange={(value) => updatePipeline(pipeline.id, { targetDataSourceId: value || undefined })}
-          >
-            <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
-              <Database size={12} className="text-muted-foreground" />
-              <SelectValue placeholder={t('etl.select_target')} />
-            </SelectTrigger>
-            <SelectContent>
-              {dbSources.map((ds) => (
-                <SelectItem key={ds.id} value={ds.id}>
-                  {localized(ds.name, i18n.language)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Balances the left spacer so the tabs stay centred. The
+            source/target pickers moved into the Pipeline tab, beside the
+            scripts they govern. */}
+        <div className="min-w-0 flex-1" />
       </div>
 
       {/* Tab content — full remaining space */}

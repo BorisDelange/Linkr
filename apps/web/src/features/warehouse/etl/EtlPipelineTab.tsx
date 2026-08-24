@@ -35,6 +35,7 @@ import {
   AlertCircle,
   Loader2,
   Database,
+  ArrowRight,
   History,
   ChevronDown,
   ChevronRight,
@@ -84,6 +85,13 @@ import {
   type ParquetTablePath,
 } from '@/lib/api/data-sources'
 import { localized } from '@/lib/localized'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { formatDateTimeLocale, formatDuration } from '@/lib/format-helpers'
 import { etlLanguageLabel, orderByNamePatch } from './etl-file-language'
 import { usePipelineRunner } from './use-pipeline-runner'
@@ -110,7 +118,7 @@ interface Props {
 }
 
 export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
   const {
     etlPipelines,
@@ -123,8 +131,12 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
     pausedRun,
     discardPausedRun,
     updateFile,
+    updatePipeline,
   } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
+  // Databases a pipeline can read from or write to: a vocabulary reference is
+  // neither, so it never appears in the source/target pickers.
+  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
   const sourceDs = dataSources.find((ds) => ds.id === pipeline?.sourceDataSourceId)
@@ -314,8 +326,46 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
               how long it has been going — the same readout as the Scripts tab. */}
           <RunProgressBar files={sqlFiles} />
 
+          {/* Source → target. These live here rather than on the page's tab row
+              because they are pipeline settings, not page chrome: they belong
+              beside the scripts they govern, and only this tab needs them. */}
+          <div className="ml-auto flex min-w-0 items-center gap-1">
+            <Select
+              value={pipeline?.sourceDataSourceId ?? ''}
+              onValueChange={(value) => updatePipeline(pipelineId, { sourceDataSourceId: value })}
+              disabled={!canWrite}
+            >
+              <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
+                <Database size={12} className="text-muted-foreground" />
+                <SelectValue placeholder={t('etl.select_source')} />
+              </SelectTrigger>
+              <SelectContent>
+                {dbSources.map((ds) => (
+                  <SelectItem key={ds.id} value={ds.id}>{localized(ds.name, i18n.language)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-          <div className="ml-auto flex items-center gap-1">
+            <ArrowRight size={12} className="shrink-0 text-muted-foreground" />
+
+            <Select
+              value={pipeline?.targetDataSourceId ?? ''}
+              onValueChange={(value) => updatePipeline(pipelineId, { targetDataSourceId: value || undefined })}
+              disabled={!canWrite}
+            >
+              <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
+                <Database size={12} className="text-muted-foreground" />
+                <SelectValue placeholder={t('etl.select_target')} />
+              </SelectTrigger>
+              <SelectContent>
+                {dbSources.map((ds) => (
+                  <SelectItem key={ds.id} value={ds.id}>{localized(ds.name, i18n.language)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
