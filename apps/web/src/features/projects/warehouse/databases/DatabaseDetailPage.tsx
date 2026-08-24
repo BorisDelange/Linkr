@@ -1,20 +1,24 @@
 import { useTranslation } from 'react-i18next'
-import { Users, Table, Activity, BedDouble, Database as DatabaseIcon, ArrowLeft } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
+import { Database as DatabaseIcon, ArrowLeft } from 'lucide-react'
 import type { DataSource, DatabaseConnectionConfig, SchemaMapping } from '@/types'
-import { localized } from '@/lib/localized'
+import { localized, setLocalized } from '@/lib/localized'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { BadgeStrip } from '@/components/ui/badge-strip'
 import {
   DatabaseStatsDashboard,
   LoadStatisticsPrompt,
   useDatabaseStats,
 } from './DatabaseStatsDashboard'
 import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
+import { ReadmeEditor } from '@/components/editor/ReadmeEditor'
+import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { useDataSourceStore } from '@/stores/data-source-store'
 
 const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
@@ -52,7 +56,7 @@ interface DatabaseDetailPageProps {
  * hence no title here, only the tabs.
  */
 export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [activeTab, setActiveTab] = useUrlTab<DatabaseTabId>({
     key: `database:${source?.id ?? 'none'}`,
     tabs: DATABASE_TAB_IDS,
@@ -76,9 +80,6 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
   // Without a data model there are no patient/visit tables to count, but table
   // row counts still make sense — and that is where the refresh button lives.
   const statsMapping = source.schemaMapping ?? EMPTY_MAPPING
-
-  const formatDate = (iso: string) =>
-    new Date(iso).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
 
   return (
     <div className="flex h-full flex-col">
@@ -110,9 +111,9 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
             <div className="mx-auto max-w-3xl px-6 pb-8">
               <OverviewTab
                 source={source}
-                formatDate={formatDate}
                 statsMapping={statsMapping}
                 hasMappedSchema={hasMappedSchema}
+                onSeeStatistics={() => setActiveTab('statistics')}
               />
             </div>
           </ScrollArea>
@@ -152,14 +153,14 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
 
 function OverviewTab({
   source,
-  formatDate,
   statsMapping,
   hasMappedSchema,
+  onSeeStatistics,
 }: {
   source: DataSource
-  formatDate: (iso: string) => string
   statsMapping: SchemaMapping
   hasMappedSchema: boolean
+  onSeeStatistics: () => void
 }) {
   const { t, i18n } = useTranslation()
 
@@ -201,8 +202,6 @@ function OverviewTab({
             }
             return null
           })()}
-          <InfoRow label={t('databases.field_identifier')} value={source.alias} />
-          {source.version && <InfoRow label={t('common.version')} value={source.version} />}
         </InfoGrid>
       </Section>
 
@@ -219,95 +218,111 @@ function OverviewTab({
         </>
       )}
 
-      {!!source.badges?.length && (
-        <>
-          <Section title={t('common.badges')}>
-            <BadgeStrip badges={source.badges} />
-          </Section>
-          <Separator />
-        </>
-      )}
-
-      {/* Headline figures. The per-table breakdown deliberately lives in the
-          Statistics tab only — showing it in both made the split arbitrary. */}
-      <Section title={t('databases.detail_statistics')}>
+      {/* Orders of magnitude, one line: enough to judge whether the database is
+          worth opening. Every figure, chart and per-table count is one tab away,
+          and repeating them here made the two tabs near-identical. */}
+      <Section title="">
         <SummaryCounts
           dataSourceId={source.id}
           schemaMapping={statsMapping}
           sourceStatus={source.status}
           hasMappedSchema={hasMappedSchema}
+          onSeeAll={onSeeStatistics}
         />
       </Section>
 
+      {/* What a shared database is really documented by — the thing someone
+          installing it from the catalog needs to read. It was editable from the
+          actions menu but visible nowhere. */}
       <Separator />
-
-      <Section title="">
-        <InfoGrid>
-          <InfoRow label={t('databases.detail_created_at')} value={formatDate(source.createdAt)} />
-          <InfoRow label={t('databases.detail_updated_at')} value={formatDate(source.updatedAt)} />
-        </InfoGrid>
+      <Section title={t('common.readme')}>
+        <DatabaseReadme source={source} />
       </Section>
     </div>
   )
 }
 
-/** Headline figures for the Overview tab. Table count is always meaningful;
- *  the clinical figures need a data model, so without one they are replaced by
- *  a pointer to the Statistics tab rather than shown as a misleading zero. */
+/** The database's README, rendered — and editable in place for anyone allowed to. */
+function DatabaseReadme({ source }: { source: DataSource }) {
+  const { i18n } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('databases:write')
+  const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
+  const { resolveAttachmentUrls } = useReadmeAttachments('data-source', source.id, source.workspaceId)
+
+  return (
+    <ReadmeEditor
+      className="flex flex-col"
+      readme={localized(source.readme, i18n.language)}
+      onSave={(content) => {
+        void updateDataSource(source.id, {
+          readme: setLocalized(source.readme ?? {}, i18n.language, content),
+        })
+      }}
+      resolveUrls={resolveAttachmentUrls}
+      canEdit={canWrite}
+    />
+  )
+}
+
+/**
+ * Orders of magnitude on one line, with a way through to the real thing.
+ *
+ * This used to be four big cards repeating the Statistics tab's own figures,
+ * which made the two tabs near-identical and answered nothing the other did
+ * not. What an overview owes the reader is only "how big is this, roughly" —
+ * the charts, the per-table counts and the refresh control stay one tab away.
+ */
 function SummaryCounts({
   dataSourceId,
   schemaMapping,
   sourceStatus,
   hasMappedSchema,
+  onSeeAll,
 }: {
   dataSourceId: string
   schemaMapping: SchemaMapping
   sourceStatus?: string
   hasMappedSchema: boolean
+  onSeeAll: () => void
 }) {
   const { t } = useTranslation()
   const { cache, isLoading, refresh } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
-  // Nothing computed yet: an explicit trigger rather than a grid of zeros, so a
+  // Nothing computed yet: an explicit trigger rather than a row of zeros, so a
   // billion-row database is only scanned on request.
   if (!cache && !isLoading) {
     return <LoadStatisticsPrompt onLoad={refresh} />
   }
 
+  if (isLoading && !cache) {
+    return <Skeleton className="h-5 w-72" />
+  }
+
+  const figures = [
+    { key: 'tables', value: cache?.summary.tableCount, label: t('databases.detail_tables') },
+    ...(hasMappedSchema
+      ? [
+          { key: 'patients', value: cache?.summary.patientCount, label: t('databases.detail_patients') },
+          { key: 'visits', value: cache?.summary.visitCount, label: t('databases.detail_visits') },
+        ]
+      : []),
+  ]
+
   return (
-    <div className="grid grid-cols-2 gap-3">
-      <StatCard
-        icon={Table}
-        label={t('databases.detail_tables')}
-        value={cache?.summary.tableCount}
-        loading={isLoading}
-      />
-      {hasMappedSchema ? (
-        <>
-          <StatCard
-            icon={Users}
-            label={t('databases.detail_patients')}
-            value={cache?.summary.patientCount}
-            loading={isLoading}
-          />
-          <StatCard
-            icon={Activity}
-            label={t('databases.detail_visits')}
-            value={cache?.summary.visitCount}
-            loading={isLoading}
-          />
-          <StatCard
-            icon={BedDouble}
-            label={t('databases.detail_visit_units')}
-            value={cache?.summary.visitDetailCount}
-            loading={isLoading}
-          />
-        </>
-      ) : (
-        <div className="rounded-lg border border-dashed p-4">
-          <p className="text-xs text-muted-foreground">{t('databases.stats_no_data_model_short')}</p>
-        </div>
-      )}
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <p className="text-sm">
+        {figures.map((f, i) => (
+          <span key={f.key}>
+            {i > 0 && <span className="mx-2 text-muted-foreground/50">·</span>}
+            <span className="font-medium tabular-nums">{(f.value ?? 0).toLocaleString()}</span>
+            <span className="ml-1.5 text-muted-foreground">{f.label.toLowerCase()}</span>
+          </span>
+        ))}
+      </p>
+      <Button variant="link" size="sm" onClick={onSeeAll} className="h-auto gap-1 p-0 text-xs">
+        {t('databases.detail_see_all_statistics')}
+        <ArrowRight size={12} />
+      </Button>
     </div>
   )
 }
@@ -332,32 +347,6 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="text-xs font-medium">{value}</span>
-    </div>
-  )
-}
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  loading,
-}: {
-  icon: React.ComponentType<{ size?: number; className?: string }>
-  label: string
-  value: number | undefined
-  loading: boolean
-}) {
-  return (
-    <div className="rounded-lg border bg-card p-4">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Icon size={14} />
-        <span className="text-xs font-medium">{label}</span>
-      </div>
-      {loading && value == null ? (
-        <Skeleton className="mt-2 h-7 w-24" />
-      ) : (
-        <p className="mt-2 text-2xl font-bold tabular-nums">{(value ?? 0).toLocaleString()}</p>
-      )}
     </div>
   )
 }

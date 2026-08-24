@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router'
 import { ArrowLeft, ArrowRight, Code, Workflow, Table2, Database, BookOpen, GitCompare } from 'lucide-react'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useUrlTab } from '@/hooks/use-url-tab'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { Button } from '@/components/ui/button'
@@ -14,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { cn } from '@/lib/utils'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { EtlScriptsTab } from './EtlScriptsTab'
@@ -138,37 +138,33 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header with pipeline tabs */}
-      <div className="flex items-center gap-2 border-b px-3 py-1.5">
-        <div className="flex items-center gap-0.5">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors',
-                activeTab === tab.id
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-              )}
-            >
-              <tab.icon size={14} />
-              {t(tab.labelKey)}
-              {/* An amber dot for a tab that needs attention before the pipeline can
-                  run. A freshly git-imported pipeline has neither databases nor a
-                  dictionary, and without this the first sign of it was a SQL error
-                  from a script whose message says nothing about the cause. */}
-              {needsAttention[tab.id] && (
-                <span
-                  className="size-1.5 shrink-0 rounded-full bg-amber-500"
-                  title={t(needsAttention[tab.id]!)}
-                  aria-label={t(needsAttention[tab.id]!)}
-                />
-              )}
-            </button>
-          ))}
-        </div>
+      <div className="flex items-center gap-2 border-b px-3 py-1.5 pt-2">
+        {/* Spacer: balances the source→target selects on the right so the tabs
+            sit centred, matching the database and schema detail pages. */}
+        <div className="min-w-0 flex-1" />
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)}>
+          <TabsList>
+            {TABS.map((tab) => (
+              <TabsTrigger key={tab.id} value={tab.id}>
+                <tab.icon size={14} />
+                {t(tab.labelKey)}
+                {/* An amber dot for a tab that needs attention before the pipeline can
+                    run. A freshly git-imported pipeline has neither databases nor a
+                    dictionary, and without this the first sign of it was a SQL error
+                    from a script whose message says nothing about the cause. */}
+                {needsAttention[tab.id] && (
+                  <span
+                    className="size-1.5 shrink-0 rounded-full bg-amber-500"
+                    title={t(needsAttention[tab.id]!)}
+                    aria-label={t(needsAttention[tab.id]!)}
+                  />
+                )}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
-        <div className="ml-auto flex items-center gap-1">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
           <Select
             value={pipeline.sourceDataSourceId}
             onValueChange={(value) => updatePipeline(pipeline.id, { sourceDataSourceId: value })}

@@ -133,10 +133,15 @@ export function DatabaseStatsDashboard({
   const neverLoaded = !cache && !isLoading
 
   return (
+    // Sections sit 8 apart. The toolbar is a control strip, not a section, so
+    // the element after it overrides that gap down to 3 — keyed off the toolbar
+    // itself (`[&+*]`) rather than a position, since the toolbar is conditional
+    // and an nth-child rule would tighten the wrong gap when it is absent.
+    // A negative margin did this before and pulled up whatever followed,
+    // including the no-data-model notice, which slid under the refresh button.
     <div className="space-y-8">
-      {/* Header with timestamp and refresh */}
       {!neverLoaded && (
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between [&+*]:!mt-3">
           <span className="text-xs text-muted-foreground">
             {cache
               ? t('databases.stats_last_refreshed', { date: formatDate(cache.computedAt) })
