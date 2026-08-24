@@ -404,6 +404,7 @@ export function AppDatabasesPage() {
               onClick={() => navigate(paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds))}
               onOpenLicense={() => navigate(`${paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds)}?tab=license`)}
               onOpenDocs={(tab) => navigate(`${paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds)}?tab=${tab}`)}
+              onOpenVersioning={() => navigate(`${paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds)}?tab=versioning`)}
               onTestConnection={() => connectAction(ds.id)}
               onDisconnect={() => disconnectDataSource(ds.id)}
               onReconnect={() => reconnectAction(ds.id)}

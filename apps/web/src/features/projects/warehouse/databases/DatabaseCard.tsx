@@ -30,6 +30,8 @@ interface DatabaseCardProps {
   onOpenLicense?: () => void
   /** Sends the menu's Readme/License items to the detail page's own tabs. */
   onOpenDocs?: (tab: 'readme' | 'license') => void
+  /** Sends the menu's Versioning item to the detail page's own tab. */
+  onOpenVersioning?: () => void
   /** When false, edit/remove actions are disabled (viewer). Default true. */
   canEdit?: boolean
   /** Extra content rendered under the stats row (e.g. the linked-projects strip). */
@@ -67,6 +69,7 @@ export const DatabaseCard = memo(function DatabaseCard({
   onRemove,
   onOpenLicense,
   onOpenDocs,
+  onOpenVersioning,
   canEdit = true,
   belowStats,
 }: DatabaseCardProps) {
@@ -145,6 +148,7 @@ export const DatabaseCard = memo(function DatabaseCard({
           canDelete={canEdit}
           onDelete={async () => onRemove()}
           onOpenDocs={onOpenDocs ? (_item, tab) => onOpenDocs(tab) : undefined}
+          onVersioningOverride={onOpenVersioning ? () => onOpenVersioning() : undefined}
           extraItems={
             <>
               {source.status === 'connected' && onDisconnect && (

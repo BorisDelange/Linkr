@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Trash2, Pencil, Copy, Download, GitBranch, MoreHorizontal, BookOpen, Scale } from 'lucide-react'
+import { Trash2, Pencil, Copy, Download, GitBranch, MoreHorizontal } from 'lucide-react'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
-import { EntityDocsDialog, type DocsTab } from '@/components/ui/entity-docs-dialog'
+import { type DocsTab } from '@/components/ui/entity-docs-dialog'
 import { EtlPipelinePull } from '@/components/versioning/EtlPipelinePull'
 import { SchemaPresetPull } from '@/components/versioning/SchemaPresetPull'
 import { useEtlStore } from '@/stores/etl-store'
@@ -77,9 +77,10 @@ export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedS
   /** When set, adds Readme and License items opening the shared docs dialog. */
   docs?: EntityDocsAccessors<T>
   /**
-   * Opens the entity's own Readme/License tabs instead of the shared dialog,
-   * for entities whose detail page carries them. Same shape as
-   * `onExportOverride`: the menu items stay, only their destination changes.
+   * Opens the entity's own Readme/License tabs. The menu itself no longer lists
+   * them — the card footer's licence chip and the detail page's tabs do — but
+   * callers still pass this through `{...actions}` spreads, and the surrounding
+   * card uses it to wire that chip.
    */
   onOpenDocs?: (item: T, tab: DocsTab) => void
 }
@@ -123,8 +124,6 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   canDelete = true,
   extraItems,
   syncScope,
-  docs,
-  onOpenDocs,
 }: EntityActionsMenuProps<T>) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -136,7 +135,6 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   const [toEdit, setToEdit] = useState<T | null>(null)
   const [toDelete, setToDelete] = useState<T | null>(null)
   const [versioning, setVersioning] = useState<{ item: T; tab: 'export' | 'git' } | null>(null)
-  const [docsOpen, setDocsOpen] = useState<{ item: T; tab: DocsTab } | null>(null)
 
   // Git versioning is available whenever the entity exposes a remote getter/setter.
   // The Export tab of the dialog needs a real onExport; when the entity exports via
@@ -144,6 +142,14 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   const hasGit = !!getGitRemote && !!onSaveGitRemote
   const versioningEnabled = hasGit && !!onExport
   const gitOnly = hasGit && !onExport
+
+  // Export goes through the dialog only when there is something to decide: the
+  // include-data checkbox, offered when the entity supports it and isn't
+  // git-linked (a linked entity exports through git instead, so the panel is a
+  // hint with no choice). Otherwise the dialog was a Download button behind an
+  // extra click — download straight away.
+  const exportNeedsChoice =
+    versioningEnabled && exportSupportsIncludeData && !getGitRemote?.(item)?.url
 
   const handleDelete = async () => {
     if (toDelete) {
@@ -182,7 +188,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             <DropdownMenuItem onClick={(e) => {
               e.stopPropagation()
               if (onExportOverride) onExportOverride(item)
-              else if (versioningEnabled) setVersioning({ item, tab: 'export' })
+              else if (exportNeedsChoice) setVersioning({ item, tab: 'export' })
               else onExport?.(item)
             }}>
               <Download size={14} />
@@ -202,26 +208,9 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
           {/* An entity whose detail page owns these as tabs passes onOpenDocs and
               goes there instead: the dialog would be a second, divergent way to
               edit the same thing. */}
-          {(docs || onOpenDocs) && (
-            <>
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                if (onOpenDocs) onOpenDocs(item, 'readme')
-                else setDocsOpen({ item, tab: 'readme' })
-              }}>
-                <BookOpen size={14} />
-                {t('summary.tab_readme')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                if (onOpenDocs) onOpenDocs(item, 'license')
-                else setDocsOpen({ item, tab: 'license' })
-              }}>
-                <Scale size={14} />
-                {t('license.title')}
-              </DropdownMenuItem>
-            </>
-          )}
+          {/* No Readme or Licence items: the card footer's licence chip opens the
+              docs, and the entity's own page carries them as tabs. The menu keeps
+              only what it alone can do. */}
           {/* Duplicate sits last before Delete, where the hand-rolled menus
               (projects, plugins) and the schema page's extraItems put it. */}
           {onDuplicate && (
@@ -310,26 +299,6 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             onSaveGitRemote={async (config) => {
               await onSaveGitRemote(versioning.item, config)
             }}
-          />
-        )}
-
-        {/* Readme + license */}
-        {docsOpen && docs && (
-          <EntityDocsDialog
-            open
-            onOpenChange={(open) => { if (!open) setDocsOpen(null) }}
-            initialTab={docsOpen.tab}
-            entityName={localized(docsOpen.item.name, language)}
-            readme={docs.getReadme(docsOpen.item)}
-            onSaveReadme={(readme) => docs.onSaveReadme(docsOpen.item, readme)}
-            license={docs.getLicense(docsOpen.item)}
-            onSaveLicense={(license) => docs.onSaveLicense(docsOpen.item, license)}
-            canEdit={canEdit}
-            attachmentOwner={docs.attachmentOwnerType ? {
-              type: docs.attachmentOwnerType,
-              id: docs.getOwnerId?.(docsOpen.item) ?? docsOpen.item.id,
-              workspaceId: docs.getWorkspaceId?.(docsOpen.item),
-            } : undefined}
           />
         )}
 

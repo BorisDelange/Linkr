@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import type { EntityLicense } from '@/types'
 import { useTranslation } from 'react-i18next'
-import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, Search, Pencil, GitBranch, BookOpen, Scale } from 'lucide-react'
+import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, Search, Pencil, GitBranch } from 'lucide-react'
 import JSZip from 'jszip'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { Button } from '@/components/ui/button'
@@ -134,18 +134,8 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
                     <GitBranch size={14} />
                     {t('common.versioning')}
                   </DropdownMenuItem>
-                  {onOpenDocs && (
-                    <>
-                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onOpenDocs('readme') }}>
-                        <BookOpen size={14} />
-                        {t('summary.tab_readme')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onOpenDocs('license') }}>
-                        <Scale size={14} />
-                        {t('summary.tab_license')}
-                      </DropdownMenuItem>
-                    </>
-                  )}
+                  {/* No Readme or Licence items: the card footer's licence chip
+                      opens the docs, as on every other entity card. */}
                   <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDuplicate(plugin.id) }}>
                     <Copy size={14} />
                     {t('common.duplicate')}

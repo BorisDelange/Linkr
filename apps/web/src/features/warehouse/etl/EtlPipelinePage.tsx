@@ -62,7 +62,7 @@ const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: nu
  * 'export' is not a tab of its own — a pipeline exports as a ZIP download, so
  * selecting it runs the action and leaves the active tab alone.
  */
-const SECONDARY_TABS = ['versioning', 'readme', 'license'] as const
+const SECONDARY_TABS = ['readme', 'license', 'versioning'] as const
 type SecondaryTabId = (typeof SECONDARY_TABS)[number]
 
 function isSecondaryTab(tab: TabId): tab is SecondaryTabId {
@@ -284,10 +284,10 @@ function SecondaryTabsTrigger({
   // never becomes the active one — it sits here because this is where the
   // occasional actions live.
   const items: { id: SecondaryTabId | 'export'; label: string; icon: typeof FileText }[] = [
-    { id: 'export', label: t('common.export'), icon: Download },
-    { id: 'versioning', label: t('common.versioning'), icon: GitBranch },
     { id: 'readme', label: t('common.readme'), icon: FileText },
     { id: 'license', label: t('license.title'), icon: Scale },
+    { id: 'export', label: t('common.export'), icon: Download },
+    { id: 'versioning', label: t('common.versioning'), icon: GitBranch },
   ]
   const current = items.find((i) => i.id === active)
 

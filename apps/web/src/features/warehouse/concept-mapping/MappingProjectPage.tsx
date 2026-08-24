@@ -223,7 +223,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
 // ---------------------------------------------------------------------------
 
 /** The tabs that fold into the "..." trigger, in the order they appear there. */
-const SECONDARY_TABS = ['export', 'versioning', 'readme', 'license'] as const
+const SECONDARY_TABS = ['readme', 'license', 'export', 'versioning'] as const
 type SecondaryTabId = (typeof SECONDARY_TABS)[number]
 
 function isSecondaryTab(tab: TabId): tab is SecondaryTabId {
@@ -249,10 +249,10 @@ function SecondaryTabsTrigger({
   const active = isSecondaryTab(activeTab) ? activeTab : undefined
 
   const items: { id: SecondaryTabId; label: string; icon: typeof Download }[] = [
-    { id: 'export', label: t('concept_mapping.tab_export'), icon: Download },
-    { id: 'versioning', label: t('common.versioning'), icon: GitBranch },
     { id: 'readme', label: t('common.readme'), icon: FileText },
     { id: 'license', label: t('license.title'), icon: Scale },
+    { id: 'export', label: t('concept_mapping.tab_export'), icon: Download },
+    { id: 'versioning', label: t('common.versioning'), icon: GitBranch },
   ]
   const current = items.find((i) => i.id === active)
 

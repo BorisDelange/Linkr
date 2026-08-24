@@ -546,6 +546,7 @@ export function Header() {
       align="start"
       // Already on the database's page: switch tab rather than open the dialog.
       onOpenDocs={(_item, tab) => navigate(`${pathname}?tab=${tab}`, { replace: true })}
+      onVersioningOverride={() => navigate(`${pathname}?tab=versioning`, { replace: true })}
       onDeleted={handleEntityDeleted}
       open={dbMenuOpen}
       onOpenChange={setDbMenuOpen}

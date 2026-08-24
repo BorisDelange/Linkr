@@ -8,10 +8,14 @@ import {
   ArrowUpRight,
   BarChart3,
   BedDouble,
+  ChevronDown,
+  Download,
   FileSpreadsheet,
   Database as DatabaseIcon,
   FileText,
+  GitBranch,
   Info,
+  MoreHorizontal,
   Plug,
   Scale,
   Table,
@@ -42,12 +46,34 @@ import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
+import { useDatabaseActions } from './use-database-actions'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 
-const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'readme', 'license'] as const
+const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
+
+/**
+ * Readme, licence, export and versioning fold behind one trigger, as on the ETL
+ * pipeline, the schema and the mapping project.
+ *
+ * 'export' is not a tab of its own — a database exports as a ZIP download, so
+ * selecting it runs the action and leaves the active tab alone.
+ */
+const DATABASE_SECONDARY_TABS = ['readme', 'license', 'versioning'] as const
+type DatabaseSecondaryTabId = (typeof DATABASE_SECONDARY_TABS)[number]
+
+function isDatabaseSecondaryTab(tab: DatabaseTabId): tab is DatabaseSecondaryTabId {
+  return (DATABASE_SECONDARY_TABS as readonly string[]).includes(tab)
+}
 
 /** Stand-in for a source with no data model: every clinical table is unknown, so
  *  only the table row counts can be computed. */
@@ -83,6 +109,8 @@ interface DatabaseDetailPageProps {
  */
 export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) {
   const { t } = useTranslation()
+  const dbActions = useDatabaseActions()
+  const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const [activeTab, setActiveTab] = useUrlTab<DatabaseTabId>({
     key: `database:${source?.id ?? 'none'}`,
     tabs: DATABASE_TAB_IDS,
@@ -136,14 +164,11 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
               <Table2 size={14} />
               {t('databases.detail_schema')}
             </TabsTrigger>
-            <TabsTrigger value="readme">
-              <FileText size={14} />
-              {t('common.readme')}
-            </TabsTrigger>
-            <TabsTrigger value="license">
-              <Scale size={14} />
-              {t('license.title')}
-            </TabsTrigger>
+            <DatabaseSecondaryTabsTrigger
+              activeTab={activeTab}
+              onSelect={setActiveTab}
+              onExport={() => void dbActions.onExport(source)}
+            />
           </TabsList>
           {/* Balances the spacer so the tabs sit centred, as on the Schemas page.
               The status reads as one of the connection facts, so it lives in the
@@ -216,8 +241,84 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
             <DatabaseLicenseTab source={source} />
           </div>
         </TabsContent>
+
+        <TabsContent value="versioning" className="m-0 min-h-0 flex-1 p-0">
+          <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col px-6 py-6">
+            {/* Git link only: there is no `data-source` GitScope yet, so no
+                push/pull panel. Export is a menu action, so no export UI here. */}
+            <GitRepositoryTab
+              gitRemote={source.gitRemoteConfig ?? null}
+              onSave={(cfg) => updateDataSource(source.id, { gitRemoteConfig: cfg ?? undefined })}
+            />
+          </div>
+        </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+/**
+ * One trigger standing in for the occasional tabs.
+ *
+ * It is a real TabsTrigger for whichever of them is active, so the tab
+ * semantics are the ones Radix provides; when none is active it only opens the
+ * menu.
+ */
+function DatabaseSecondaryTabsTrigger({
+  activeTab,
+  onSelect,
+  onExport,
+}: {
+  activeTab: DatabaseTabId
+  onSelect: (tab: DatabaseTabId) => void
+  onExport: () => void
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const active = isDatabaseSecondaryTab(activeTab) ? activeTab : undefined
+
+  // Export downloads a ZIP rather than opening a view, so it has no tab id and
+  // never becomes the active one — it sits here because this is where the
+  // occasional actions live.
+  const items: { id: DatabaseSecondaryTabId | 'export'; label: string; icon: typeof FileText }[] = [
+    { id: 'readme', label: t('common.readme'), icon: FileText },
+    { id: 'license', label: t('license.title'), icon: Scale },
+    { id: 'export', label: t('common.export'), icon: Download },
+    { id: 'versioning', label: t('common.versioning'), icon: GitBranch },
+  ]
+  const current = items.find((i) => i.id === active)
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <TabsTrigger
+          value={active ?? '__secondary__'}
+          // TabsTrigger paints "active" from data-state, but DropdownMenuTrigger
+          // owns that attribute on a composed trigger and writes open/closed into
+          // it. aria-selected stays the tab's own, so drive the styles off that.
+          className="aria-selected:bg-background aria-selected:text-foreground aria-selected:shadow-sm"
+          // The menu is the point: let it open instead of switching tab.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => { e.preventDefault(); setOpen((v) => !v) }}
+        >
+          {current ? <current.icon size={14} /> : <MoreHorizontal size={14} />}
+          {current ? current.label : t('common.more')}
+          <ChevronDown size={12} className="opacity-60" />
+        </TabsTrigger>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40">
+        {items.map((item) => (
+          <DropdownMenuItem
+            key={item.id}
+            onSelect={() => { if (item.id === 'export') onExport(); else onSelect(item.id) }}
+            className={item.id === active ? 'bg-accent' : undefined}
+          >
+            <item.icon size={14} className="text-muted-foreground" />
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
