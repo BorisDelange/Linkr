@@ -367,7 +367,7 @@ function OverviewTab({
       {/* `items-start` on the second column only: the readme stretches to the
           full height and scrolls inside itself, while About and the schema card
           keep the height their content needs. */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <ReadmePreview
           readme={localized(source.readme, i18n.language)}
           resolveUrls={resolveAttachmentUrls}

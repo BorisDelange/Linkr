@@ -361,7 +361,7 @@ function MappingProjectOverviewTab({
           catalog reads first — with the identity card beside it. `self-start`
           on the second column: the readme stretches to full height and scrolls
           inside itself, while About keeps the height its content needs. */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <MappingProjectReadmePreview
           readme={localized(project.readme, i18n.language)}
           resolveUrls={resolveAttachmentUrls}

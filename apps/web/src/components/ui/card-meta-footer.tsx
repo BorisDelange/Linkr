@@ -181,7 +181,11 @@ function AuthorChip({
           takes focus, so the tooltip would never open for a keyboard or
           screen-reader user. */}
       <TooltipTrigger asChild>
-        <span tabIndex={0} className="min-w-0 cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">{name}</span>
+        {/* `shrink`, not just `min-w-0`: this chip and the licence one are the
+            two that may give ground when the row is narrower than its content.
+            Without it the author name holds its full width and the row — and
+            with it the card — refuses to go below that. */}
+        <span tabIndex={0} className="min-w-0 shrink cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">{name}</span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs text-xs">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
