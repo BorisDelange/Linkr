@@ -1332,7 +1332,10 @@
     "table1_missing": "Missing",
     "table1_others": "Other",
     "table1_overall": "Overall",
-    "table1_no_columns": "Pick at least one variable to describe."
+    "table1_no_columns": "Pick at least one variable to describe.",
+    "stats_pick_test": "Click to choose the test for this variable",
+    "stats_test_auto": "Auto (from the data)",
+    "stats_select_group": "Select a group column to begin."
   },
   "survey": {
     "choice_order_hint": "Drag the answers into the order the chart should read.",
@@ -3575,7 +3578,8 @@
     "vocab_export_empty_one": "{{files}} holds no rows. The scripts will run but write no mappings. Check the status filter, then regenerate.",
     "vocab_export_empty_other": "{{files}} hold no rows. The scripts will run but write no mappings. Check the status filter, then regenerate.",
     "attention_vocab_export_missing": "The mapping export is missing",
-    "vocab_artefacts": "Files to write"
+    "vocab_artefacts": "Files to write",
+    "readme_empty_hint": "No readme yet — write one to say what this pipeline transforms."
   },
   "sql_scripts": {
     "title": "Script Collections",

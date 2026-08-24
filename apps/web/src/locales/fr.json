@@ -1332,7 +1332,10 @@
     "table1_missing": "Manquants",
     "table1_others": "Autres",
     "table1_overall": "Total",
-    "table1_no_columns": "Choisissez au moins une variable à décrire."
+    "table1_no_columns": "Choisissez au moins une variable à décrire.",
+    "stats_pick_test": "Cliquer pour choisir le test de cette variable",
+    "stats_test_auto": "Auto (d'après les données)",
+    "stats_select_group": "Sélectionnez une colonne de groupe pour commencer."
   },
   "survey": {
     "choice_order_hint": "Glissez les réponses dans l’ordre de lecture du graphique.",
@@ -3575,7 +3578,8 @@
     "vocab_export_empty_one": "{{files}} ne contient aucune ligne. Les scripts s'exécuteront mais n'écriront aucun alignement. Vérifiez le filtre de statuts, puis régénérez.",
     "vocab_export_empty_other": "{{files}} ne contiennent aucune ligne. Les scripts s'exécuteront mais n'écriront aucun alignement. Vérifiez le filtre de statuts, puis régénérez.",
     "attention_vocab_export_missing": "L'export des alignements est manquant",
-    "vocab_artefacts": "Fichiers à écrire"
+    "vocab_artefacts": "Fichiers à écrire",
+    "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire ce que ce pipeline transforme."
   },
   "sql_scripts": {
     "title": "Collections de scripts",

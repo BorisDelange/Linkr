@@ -1,7 +1,27 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowLeft, ArrowRight, Code, Workflow, Table2, Database, BookOpen, GitCompare } from 'lucide-react'
+import {
+  ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, Code, Workflow, Table2, Database,
+  BookOpen, GitCompare, FileText, Info, MoreHorizontal, Scale,
+} from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Badge } from '@/components/ui/badge'
+import { BadgeStrip } from '@/components/ui/badge-strip'
+import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
+import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useOrganizationStore } from '@/stores/organization-store'
+import type { EtlPipeline } from '@/types'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -25,16 +45,31 @@ import { EtlQualityTab } from './EtlQualityTab'
 import { vocabularyReadiness } from './vocabulary-readiness'
 import { localized } from '@/lib/localized'
 
-const TAB_IDS = ['pipeline', 'scripts', 'schemas', 'vocabulary', 'quality'] as const
+const TAB_IDS = [
+  'overview', 'pipeline', 'scripts', 'schemas', 'vocabulary', 'quality', 'readme', 'license',
+] as const
 type TabId = (typeof TAB_IDS)[number]
 
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
+  { id: 'overview', labelKey: 'databases.detail_overview', icon: Info },
   { id: 'pipeline', labelKey: 'etl.tab_pipeline', icon: Workflow },
   { id: 'scripts', labelKey: 'etl.tab_scripts', icon: Code },
   { id: 'schemas', labelKey: 'etl.tab_schemas', icon: Table2 },
   { id: 'vocabulary', labelKey: 'etl.tab_vocabulary', icon: BookOpen },
   { id: 'quality', labelKey: 'etl.tab_quality', icon: GitCompare },
 ]
+
+/**
+ * Readme and licence fold behind one trigger, as on the mapping project: they
+ * are the tabs you reach for occasionally, and this row already carries the
+ * source→target selects on its right.
+ */
+const SECONDARY_TABS = ['readme', 'license'] as const
+type SecondaryTabId = (typeof SECONDARY_TABS)[number]
+
+function isSecondaryTab(tab: TabId): tab is SecondaryTabId {
+  return (SECONDARY_TABS as readonly string[]).includes(tab)
+}
 
 interface Props {
   pipelineId: string
@@ -51,7 +86,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   const [activeTab, setActiveTab] = useUrlTab<TabId>({
     key: `etl:${pipelineId}`,
     tabs: TAB_IDS,
-    defaultTab: 'pipeline',
+    defaultTab: 'overview',
   })
   // Database the schemas tab should open on when the scripts tab sends the user
   // there ("Browse schema"), rather than its own default.
@@ -161,6 +196,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
                 )}
               </TabsTrigger>
             ))}
+            <SecondaryTabsTrigger activeTab={activeTab} onSelect={setActiveTab} />
           </TabsList>
         </Tabs>
 
@@ -205,6 +241,25 @@ export function EtlPipelinePage({ pipelineId }: Props) {
 
       {/* Tab content — full remaining space */}
       <div className="min-h-0 flex-1 overflow-hidden">
+        {activeTab === 'overview' && (
+          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+            <EtlOverviewTab
+              pipeline={pipeline}
+              onSeeReadme={() => setActiveTab('readme')}
+              onSeeLicense={() => setActiveTab('license')}
+            />
+          </div>
+        )}
+        {activeTab === 'readme' && (
+          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+            <EtlReadmeTab pipeline={pipeline} />
+          </div>
+        )}
+        {activeTab === 'license' && (
+          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+            <EtlLicenseTab pipeline={pipeline} />
+          </div>
+        )}
         {activeTab === 'scripts' && (
           <EtlScriptsTab pipelineId={pipeline.id} onBrowseSchema={handleBrowseSchema} />
         )}
@@ -221,6 +276,251 @@ export function EtlPipelinePage({ pipelineId }: Props) {
         {activeTab === 'vocabulary' && <EtlVocabularyTab pipelineId={pipeline.id} />}
         {activeTab === 'quality' && <EtlQualityTab pipelineId={pipeline.id} />}
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Secondary tabs ("...")
+// ---------------------------------------------------------------------------
+
+/**
+ * One trigger standing in for the occasional tabs.
+ *
+ * It is a real TabsTrigger for whichever of them is active, so the tab
+ * semantics are the ones Radix provides; when none is active it only opens the
+ * menu.
+ */
+function SecondaryTabsTrigger({
+  activeTab,
+  onSelect,
+}: {
+  activeTab: TabId
+  onSelect: (tab: TabId) => void
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const active = isSecondaryTab(activeTab) ? activeTab : undefined
+
+  const items: { id: SecondaryTabId; label: string; icon: typeof FileText }[] = [
+    { id: 'readme', label: t('common.readme'), icon: FileText },
+    { id: 'license', label: t('license.title'), icon: Scale },
+  ]
+  const current = items.find((i) => i.id === active)
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <TabsTrigger
+          value={active ?? '__secondary__'}
+          // TabsTrigger paints "active" from data-state, but DropdownMenuTrigger
+          // owns that attribute on a composed trigger and writes open/closed into
+          // it. aria-selected stays the tab's own, so drive the styles off that.
+          className="aria-selected:bg-background aria-selected:text-foreground aria-selected:shadow-sm"
+          // The menu is the point: let it open instead of switching tab.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => { e.preventDefault(); setOpen((v) => !v) }}
+        >
+          {current ? <current.icon size={14} /> : <MoreHorizontal size={14} />}
+          {current ? current.label : t('common.more')}
+          <ChevronDown size={12} className="opacity-60" />
+        </TabsTrigger>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40">
+        {items.map((item) => (
+          <DropdownMenuItem
+            key={item.id}
+            onSelect={() => onSelect(item.id)}
+            className={item.id === active ? 'bg-accent' : undefined}
+          >
+            <item.icon size={14} className="text-muted-foreground" />
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Overview, readme and licence tabs
+// ---------------------------------------------------------------------------
+
+function EtlReadmeTab({ pipeline }: { pipeline: EtlPipeline }) {
+  const canWrite = useMyWorkspaceRole().can('etl:write')
+  const updatePipeline = useEtlStore((s) => s.updatePipeline)
+  return (
+    <EntityReadmePanel
+      readme={pipeline.readme}
+      onSave={(readme) => updatePipeline(pipeline.id, { readme })}
+      canEdit={canWrite}
+      attachmentOwner={{ type: 'etl-pipeline', id: pipeline.id, workspaceId: pipeline.workspaceId }}
+      // The tab already says "Readme".
+      showTitle={false}
+    />
+  )
+}
+
+function EtlLicenseTab({ pipeline }: { pipeline: EtlPipeline }) {
+  const { i18n } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('etl:write')
+  const updatePipeline = useEtlStore((s) => s.updatePipeline)
+  // The pipeline's own frozen provenance wins; otherwise the workspace's live
+  // organization — the rule every other licence tab follows.
+  const workspace = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === pipeline.workspaceId))
+  const org = useOrganizationStore((s) =>
+    workspace?.organizationId ? s.getOrganization(workspace.organizationId) : undefined,
+  )
+  const holder = pipeline.organization?.name ?? org?.name
+
+  return (
+    <EntityLicensePanel
+      license={pipeline.license ?? null}
+      onSave={(license) => updatePipeline(pipeline.id, { license: license ?? undefined })}
+      canEdit={canWrite}
+      copyrightHolder={holder ? localized(holder, i18n.language) : undefined}
+      showTitle={false}
+    />
+  )
+}
+
+function EtlOverviewTab({
+  pipeline,
+  onSeeReadme,
+  onSeeLicense,
+}: {
+  pipeline: EtlPipeline
+  onSeeReadme: () => void
+  onSeeLicense: () => void
+}) {
+  const { i18n } = useTranslation()
+  const { resolveAttachmentUrls } = useReadmeAttachments(
+    'etl-pipeline',
+    pipeline.id,
+    pipeline.workspaceId,
+  )
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
+      {/* The README gets the room — it is what whoever installs this from the
+          catalog reads first — with the identity card beside it. `self-start`
+          on the second column: the readme stretches to full height and scrolls
+          inside itself, while About keeps the height its content needs. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
+        <EtlReadmePreview
+          readme={localized(pipeline.readme, i18n.language)}
+          resolveUrls={resolveAttachmentUrls}
+          onViewFull={onSeeReadme}
+        />
+        <div className="flex flex-col gap-4 self-start">
+          <EtlIdentityCard pipeline={pipeline} onSeeLicense={onSeeLicense} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** The README, as much of it as fits, with a way through to the whole thing. */
+function EtlReadmePreview({
+  readme,
+  resolveUrls,
+  onViewFull,
+}: {
+  readme: string
+  resolveUrls: (md: string) => string
+  onViewFull: () => void
+}) {
+  const { t } = useTranslation()
+  // Rewrite attachments/<file> paths to blob URLs so images render, as the
+  // README tab does before handing the markdown to the renderer.
+  const resolved = resolveUrls(readme)
+
+  return (
+    <div className="flex min-h-0 flex-col rounded-xl border bg-card p-5 pr-2 shadow-sm">
+      <div className="flex shrink-0 items-center justify-between pr-3">
+        <div className="flex items-center gap-2">
+          <FileText size={14} className="text-muted-foreground" />
+          <h3 className="text-sm font-semibold">{t('common.readme')}</h3>
+        </div>
+        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onViewFull}>
+          {t('summary.view_full')}
+          <ArrowUpRight size={12} />
+        </Button>
+      </div>
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
+        {readme.trim() ? (
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            <ReactMarkdown
+              remarkPlugins={remarkPlugins}
+              rehypePlugins={rehypePlugins}
+              urlTransform={urlTransform}
+            >
+              {resolved}
+            </ReactMarkdown>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onViewFull}
+            className="text-sm text-muted-foreground underline-offset-2 hover:underline"
+          >
+            {t('etl.readme_empty_hint')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Who made this pipeline, when, under what licence, and how it is tagged. */
+function EtlIdentityCard({
+  pipeline,
+  onSeeLicense,
+}: {
+  pipeline: EtlPipeline
+  onSeeLicense: () => void
+}) {
+  const { t, i18n } = useTranslation()
+  const workspace = useWorkspaceStore((s) =>
+    s._workspacesRaw.find((w) => w.id === pipeline.workspaceId),
+  )
+  const description = localized(pipeline.description, i18n.language)
+
+  return (
+    <div className="flex min-w-0 shrink-0 flex-col gap-4 rounded-xl border bg-card p-5 pb-0 shadow-sm">
+      <div className="flex items-center gap-2">
+        <Info size={14} className="text-muted-foreground" />
+        <h3 className="text-sm font-semibold">{t('databases.detail_about')}</h3>
+      </div>
+
+      {description && <p className="text-xs break-words text-muted-foreground">{description}</p>}
+
+      {!!pipeline.badges?.length && <BadgeStrip badges={pipeline.badges} />}
+
+      {pipeline.version && (
+        <div className="flex">
+          <Badge variant="outline" className="font-mono">v{pipeline.version}</Badge>
+        </div>
+      )}
+
+      {/* Author, organization, dates and licence, resolved the same way every
+          card footer resolves them (live identity, frozen snapshot fallback).
+          The card drops its bottom padding (`pb-0`) because CardMetaFooter
+          carries its own pt-3/pb-2, and `-mt-1` trims the container's gap-4 —
+          this row is fine print, not a section. */}
+      <CardMetaFooter
+        className="-mt-1 flex-wrap"
+        createdById={pipeline.createdById}
+        createdBy={pipeline.createdBy}
+        createdByDetails={pipeline.createdByDetails}
+        organizationId={pipeline.organization ? undefined : workspace?.organizationId}
+        organization={pipeline.organization}
+        createdAt={pipeline.createdAt}
+        updatedAt={pipeline.updatedAt}
+        license={pipeline.license}
+        showLicenseWhenEmpty
+        onOpenLicense={onSeeLicense}
+      />
     </div>
   )
 }

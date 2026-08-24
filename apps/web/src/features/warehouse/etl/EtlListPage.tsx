@@ -209,6 +209,7 @@ export function EtlListPage() {
       onExport={etlActions.onExport}
       getGitRemote={etlActions.getGitRemote}
       docs={etlActions.docs}
+      onOpenDocs={(item, tab) => navigate(`${item.id}?tab=${tab}`)}
       onSaveGitRemote={etlActions.onSaveGitRemote}
       exportSupportsIncludeData={etlActions.exportSupportsIncludeData}
       syncScope="etl-pipelines"

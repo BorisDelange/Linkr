@@ -107,9 +107,15 @@ export function BadgeStrip({ badges, prefix, className }: BadgeStripProps) {
       const moreW = moreChip?.offsetWidth ?? 24
 
       // First, does everything fit with no "+N"?
+      //
+      // A row that fills the width to the last pixel puts the final chip flush
+      // against the container's edge, which reads as a badge sliced by the card
+      // border rather than a full row — so require a gap's worth of slack. The
+      // "+N" branch below then keeps one fewer badge and says so explicitly,
+      // which is honest where a truncated chip touching the edge is not.
       let total = 0
       for (let i = 0; i < widths.length; i++) total += widths[i]! + (i > 0 ? GAP_PX : 0)
-      if (total <= avail) {
+      if (total + GAP_PX <= avail) {
         setVisibleCount(badges.length)
         return
       }

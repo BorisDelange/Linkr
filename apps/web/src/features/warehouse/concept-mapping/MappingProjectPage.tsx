@@ -443,13 +443,13 @@ function MappingProjectIdentityCard({
   const description = localized(project.description, i18n.language)
 
   return (
-    <div className="flex shrink-0 flex-col gap-4 rounded-xl border bg-card p-5 pb-0 shadow-sm">
+    <div className="flex min-w-0 shrink-0 flex-col gap-4 rounded-xl border bg-card p-5 pb-0 shadow-sm">
       <div className="flex items-center gap-2">
         <Info size={14} className="text-muted-foreground" />
         <h3 className="text-sm font-semibold">{t('databases.detail_about')}</h3>
       </div>
 
-      {description && <p className="text-xs text-muted-foreground">{description}</p>}
+      {description && <p className="text-xs break-words text-muted-foreground">{description}</p>}
 
       {!!project.badges?.length && <BadgeStrip badges={project.badges} />}
 
