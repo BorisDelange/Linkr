@@ -628,3 +628,77 @@ def test_cox_reports_no_events_rather_than_crashing():
                            "predictors": [{"name": "x", "numeric": True}]})
     assert "error" in out
     assert out["nEvents"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Statistical tests: per-variable overrides
+# ---------------------------------------------------------------------------
+
+
+def _run_stats(df, spec):
+    """Execute the statistical-tests render code against a DataFrame."""
+    import contextlib
+    import io
+    import json as _json
+
+    code = statistical_tests.build_code(statistical_tests.validate_spec(spec))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        exec(compile(code, "<render:statistical-tests>", "exec"), {"dataset": df})  # noqa: S102
+    return _json.loads(buf.getvalue())
+
+
+def _two_group_frame(groups=2):
+    import pandas as pd
+
+    n = 40 * groups
+    return pd.DataFrame({
+        "g": [f"G{i % groups}" for i in range(n)],
+        "x": [float((i * 7) % 23) + (i % groups) * 3 for i in range(n)],
+    })
+
+
+def test_stats_override_keeps_only_known_test_names():
+    spec = statistical_tests.validate_spec({
+        "group": "g", "values": [{"name": "x", "type": "number"}],
+        "overrides": {"x": "mann-whitney", "y": "not-a-test", "z": 7},
+    })
+    assert spec["overrides"] == {"x": "mann-whitney"}
+
+
+def test_stats_override_rejects_a_non_object():
+    with pytest.raises(ValueError):
+        statistical_tests.validate_spec({
+            "group": "g", "values": [{"name": "x", "type": "number"}], "overrides": "welch-t",
+        })
+
+
+def test_stats_override_forces_the_pinned_test():
+    frame = _two_group_frame()
+    base = {"group": "g", "values": [{"name": "x", "type": "number"}], "alpha": 0.05}
+    assert _run_stats(frame, base)[0]["testName"] == "welch-t"
+    pinned = _run_stats(frame, {**base, "overrides": {"x": "mann-whitney"}})
+    assert pinned[0]["testName"] == "mann-whitney"
+
+
+def test_stats_override_is_ignored_when_it_cannot_apply():
+    # The case the applicability rule exists for: a k-sample test pinned on two
+    # groups, and a two-sample test pinned on five. Both must fall back to the
+    # automatic choice rather than run on data that cannot support them.
+    two = _two_group_frame(2)
+    five = _two_group_frame(5)
+    base2 = {"group": "g", "values": [{"name": "x", "type": "number"}], "alpha": 0.05}
+
+    assert _run_stats(two, {**base2, "overrides": {"x": "anova"}})[0]["testName"] == "welch-t"
+    assert _run_stats(five, {**base2, "overrides": {"x": "welch-t"}})[0]["testName"] == "anova"
+    # ...while the k-sample pin DOES apply on five groups.
+    assert _run_stats(five, {**base2, "overrides": {"x": "kruskal-wallis"}})[0]["testName"] == "kruskal-wallis"
+
+
+def test_stats_override_outranks_the_global_preference():
+    frame = _two_group_frame()
+    out = _run_stats(frame, {
+        "group": "g", "values": [{"name": "x", "type": "number"}],
+        "preference": "nonparametric", "overrides": {"x": "welch-t"},
+    })
+    assert out[0]["testName"] == "welch-t"

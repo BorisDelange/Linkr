@@ -17,6 +17,7 @@ import { displayColumnName } from '@/lib/dataset-utils'
 import { coefficientRelabeler } from '@/lib/stats/coefficient-labels'
 import { orderSelection, type VariableOrder } from '@/lib/analysis-default-columns'
 import { PublicationTable, type PublicationColumn } from '@/components/ui/publication-table'
+import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { usePublishAnalysisTable } from './analysis-table-context'
 import type { ExportTable, ExportTableCell } from '@/lib/table-export'
 import type { DatasetColumn } from '@/types'
@@ -882,7 +883,14 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
   const refX = xScale(refValue)
 
   return (
-    <svg width={totalWidth} height={totalHeight} className="text-foreground" style={{ fontSize: compact ? 9 : 11 }}>
+    <svg
+      width={totalWidth}
+      height={totalHeight}
+      // The width is in pixels (rows and label column), so the plot sits flush
+      // left in a wider pane unless centred.
+      className="mx-auto block text-foreground"
+      style={{ fontSize: compact ? 9 : 11 }}
+    >
       {/* Header */}
       <text x={labelWidth + plotWidth / 2} y={compact ? 12 : 16} textAnchor="middle" fill="currentColor" fontWeight={600} fontSize={compact ? 10 : 12}>
         {isLogistic ? t('analyses.reg_forest_or') : t('analyses.reg_forest_estimate')}
@@ -969,6 +977,7 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
 export function RegressionComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t } = useTranslation()
   const server = isServerMode()
+  const pluginName = usePluginName('regression')
 
   const outcomeId = (config.outcomeColumn as string) ?? ''
   const variableOrder = (config.variableOrder as VariableOrder) ?? 'dataset'
@@ -1134,11 +1143,7 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
 
   // Server mode: hold the frame until the fit returns (null before load = still computing).
   if (server && !serverLoaded) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
-        <TrendingUp size={24} className="opacity-40" />
-      </div>
-    )
+    return <AnalysisLoading icon={TrendingUp} name={pluginName} compact={compact} />
   }
 
   if (!result) {

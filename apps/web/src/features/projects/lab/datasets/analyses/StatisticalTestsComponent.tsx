@@ -1,6 +1,12 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useCallback, useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FlaskConical, AlertTriangle } from 'lucide-react'
+import { FlaskConical, AlertTriangle, Check } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
 import {
@@ -17,6 +23,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { groupsLookNormal } from '@/lib/stats/normality'
+import { applicableTests, overrideApplies, type TestName } from '@/lib/stats/applicable-tests'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildStatisticalTestsSpec } from './statistical-tests-server'
@@ -27,7 +34,7 @@ import type { ExportTable, ExportTableCell } from '@/lib/table-export'
 // Types
 // ===========================================================================
 
-type TestName = 'welch-t' | 'mann-whitney' | 'chi-square' | 'fisher' | 'anova' | 'kruskal-wallis'
+
 
 interface TestResult {
   variable: string
@@ -57,6 +64,8 @@ interface StatRow {
   id: string
   result: TestResult
   label: string
+  /** The dataset column this row tests, which keys its per-variable override. */
+  columnId: string | undefined
 }
 
 interface GroupDescriptive {
@@ -796,7 +805,22 @@ function selectTest(
   isTwoByTwo: boolean,
   minExpectedCount: number,
   groupValues: number[][] = [],
+  /** This variable's own pinned test, which outranks everything below. */
+  override?: TestName,
 ): { testName: TestName; rationale: { en: string; fr: string } } {
+  // A test pinned on the row wins outright — over the data AND over the global
+  // preference. Whether it SUITS the variable is checked by the caller, which
+  // has the group count; an override that cannot apply is dropped there rather
+  // than silently producing a test the data cannot support.
+  if (override) {
+    return {
+      testName: override,
+      rationale: {
+        en: 'Chosen for this variable in the results table; neither the data nor the global setting was consulted.',
+        fr: 'Choisi pour cette variable dans le tableau des résultats ; ni les données ni le réglage global n’ont été consultés.',
+      },
+    }
+  }
   if (variableType === 'categorical') {
     if (isTwoByTwo && minExpectedCount < 5) {
       return {
@@ -868,6 +892,8 @@ function computeAllTests(
   valueColumnIds: string[],
   testPreference: TestPreference,
   alpha: number,
+  /** Per-variable pinned tests, keyed by COLUMN ID. */
+  testOverrides: Record<string, TestName> = {},
 ): TestResult[] {
   if (!groupColumnId || valueColumnIds.length === 0 || rows.length === 0) return []
 
@@ -950,8 +976,10 @@ function computeAllTests(
         continue
       }
 
+      const pinned = testOverrides[col.id]
       const { testName, rationale } = selectTest(
         'numeric', validGroupNames.length, testPreference, false, 0, groupArrays,
+        overrideApplies(pinned, 'numeric', validGroupNames.length) ? pinned : undefined,
       )
 
       if (testName === 'welch-t') {
@@ -1086,8 +1114,10 @@ function computeAllTests(
         }
       }
 
+      const pinnedCat = testOverrides[col.id]
       const { testName, rationale } = selectTest(
-        'categorical', groupCount, testPreference, isTwoByTwo, minExpected,
+        'categorical', groupCount, testPreference, isTwoByTwo, minExpected, [],
+        overrideApplies(pinnedCat, 'categorical', groupCount) ? pinnedCat : undefined,
       )
 
       if (testName === 'fisher') {
@@ -1160,7 +1190,7 @@ function fmt(val: number, decimals = 2): string {
 
 const ALL_TABLE_COLUMNS = ['test', 'statistic', 'df', 'p', 'ci', 'effectSize', 'descriptive'] as const
 
-export function StatisticalTestsComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
+export function StatisticalTestsComponent({ config, columns, rows, compact, datasetFileId, datasetFilters, onConfigChange }: ComponentPluginProps) {
   const { t, i18n } = useTranslation()
   const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
   const server = isServerMode()
@@ -1187,17 +1217,49 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
     displayColumnName,
   )
 
+  // Per-variable pinned tests, keyed by column id. Config like any other, so it
+  // rides the analysis draft and is saved with it.
+  const testOverrides = useMemo(
+    () => (config.testOverrides as Record<string, TestName> | undefined) ?? {},
+    [config.testOverrides],
+  )
+  const setOverride = useCallback(
+    (columnId: string, test: TestName | null) => {
+      if (!onConfigChange) return
+      const next = { ...testOverrides }
+      // Removing the pin returns the row to Auto rather than storing a
+      // "no preference" value the compute path would have to special-case.
+      if (test === null) delete next[columnId]
+      else next[columnId] = test
+      onConfigChange({ testOverrides: next })
+    },
+    [onConfigChange, testOverrides],
+  )
+
   const localResults = useMemo(
-    () => (server ? null : computeAllTests(rows, columns, groupColumnId, valueColumnIds, testPreference, alpha)),
-    [server, rows, columns, groupColumnId, valueColumnIds, testPreference, alpha],
+    () => (server ? null : computeAllTests(rows, columns, groupColumnId, valueColumnIds, testPreference, alpha, testOverrides)),
+    [server, rows, columns, groupColumnId, valueColumnIds, testPreference, alpha, testOverrides],
   )
   // Stable string keys so the effect only re-fetches on a semantic change.
+  const [serverResults, setServerResults] = useState<TestResult[] | null>(null)
+  // How many groups the last result compared, which gates whether a pinned test
+  // still applies. Read from the RESULT rather than the data: in server mode
+  // `rows` is empty. A count one render stale is harmless here — it only decides
+  // whether an override survives — where making the spec depend on its own
+  // output would not be.
+  const serverGroupCount = useMemo(
+    () => serverResults?.find((r) => r.groupDescriptives)?.groupDescriptives?.length ?? 0,
+    [serverResults],
+  )
+
   const spec = server && datasetFileId && groupColumnId
-    ? buildStatisticalTestsSpec(columns, groupColumnId, valueColumnIds, testPreference, alpha)
+    ? buildStatisticalTestsSpec(
+        columns, groupColumnId, valueColumnIds, testPreference, alpha,
+        testOverrides, serverGroupCount,
+      )
     : null
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
-  const [serverResults, setServerResults] = useState<TestResult[] | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
@@ -1218,11 +1280,15 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
   // Results identify a variable by its column NAME (both ends agree on that);
   // the table prints the LABEL, so map back through the column list here.
   const statRows = useMemo<StatRow[]>(() => {
-    const labelByName = new Map(columns.map((c) => [c.name, displayColumnName(c)]))
+    const byName = new Map(columns.map((c) => [c.name, c]))
     return results.map((result, i) => ({
       id: `${result.variable}:${i}`,
       result,
-      label: labelByName.get(result.variable) ?? result.variable,
+      label: (() => {
+        const col = byName.get(result.variable)
+        return col ? displayColumnName(col) : result.variable
+      })(),
+      columnId: byName.get(result.variable)?.id,
     }))
   }, [results, columns])
 
@@ -1285,7 +1351,19 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
       cols.push({
         id: 'test',
         header: t('datasets.stats_col_test'),
-        cell: (r) => <TestCell result={r.result} lang={lang} />,
+        cell: (r) => (
+          <TestCell
+            result={r.result}
+            lang={lang}
+            groupCount={allGroupNames.length}
+            pinned={r.columnId ? testOverrides[r.columnId] : undefined}
+            onPick={
+              onConfigChange && r.columnId
+                ? (test) => setOverride(r.columnId!, test)
+                : undefined
+            }
+          />
+        ),
         align: 'left',
         width: 140,
       })
@@ -1380,11 +1458,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <FlaskConical size={24} className="opacity-40" />
-        <p className="text-xs">
-          {lang === 'fr'
-            ? 'Sélectionnez une colonne de groupe pour commencer.'
-            : 'Select a group column to begin.'}
-        </p>
+        <p className="text-xs">{t('datasets.stats_select_group')}</p>
       </div>
     )
   }
@@ -1475,20 +1549,75 @@ function descriptiveCell(result: TestResult, groupName: string) {
  * alone does not tell a reader whether the tool judged the data non-normal or
  * whether someone forced it, and those support very different conclusions.
  */
-function TestCell({ result, lang }: { result: TestResult; lang: 'en' | 'fr' }) {
+function TestCell({
+  result,
+  lang,
+  groupCount,
+  pinned,
+  onPick,
+}: {
+  result: TestResult
+  lang: 'en' | 'fr'
+  groupCount: number
+  /** The test pinned on this variable, if any. */
+  pinned?: TestName
+  /** Absent where the config is read-only (a dashboard widget): then this is just text. */
+  onPick?: (test: TestName | null) => void
+}) {
+  const { t } = useTranslation()
   const label = result.testLabel[lang]
-  if (!result.rationale) return <span>{label}</span>
-  return (
+
+  const name = (
+    <span className={cn(pinned && 'font-medium')}>
+      {label}
+      {/* A pinned row is marked, so a reader can see at a glance which results
+          came from the data and which from a decision. */}
+      {pinned && <span className="ml-1 text-muted-foreground">*</span>}
+    </span>
+  )
+
+  const withRationale = result.rationale ? (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="cursor-help underline decoration-dotted underline-offset-2">{label}</span>
+          <span className="cursor-help underline decoration-dotted underline-offset-2">{name}</span>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">
           <p className="text-xs">{result.rationale[lang]}</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  ) : (
+    name
+  )
+
+  if (!onPick) return withRationale
+
+  const choices = applicableTests(result.variableType, groupCount)
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="-mx-1 rounded px-1 text-left hover:bg-accent"
+          title={t('datasets.stats_pick_test')}
+        >
+          {withRationale}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="text-xs">
+        <DropdownMenuItem onClick={() => onPick(null)}>
+          {t('datasets.stats_test_auto')}
+          {!pinned && <Check size={12} className="ml-auto" />}
+        </DropdownMenuItem>
+        {choices.map((test) => (
+          <DropdownMenuItem key={test} onClick={() => onPick(test)}>
+            {TEST_LABELS[test][lang]}
+            {pinned === test && <Check size={12} className="ml-auto" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

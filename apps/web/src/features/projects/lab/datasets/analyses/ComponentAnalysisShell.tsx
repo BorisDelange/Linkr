@@ -247,6 +247,7 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
                   <Component
                     key={`${analysis.id}:${runNonce}`}
                     config={draft}
+                    onConfigChange={handleConfigChange}
                     columns={columns}
                     rows={rows}
                     datasetFileId={server ? analysis.datasetFileId : undefined}

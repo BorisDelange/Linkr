@@ -14,6 +14,17 @@ export interface ComponentPluginProps {
    *  not yet migrated ignore them and are gated by the caller. */
   datasetFileId?: string | null
   datasetFilters?: unknown[]
+  /**
+   * Write back into the analysis config, for a control the RESULT itself owns.
+   *
+   * Most settings belong in the config panel. This is for a choice that only
+   * makes sense next to the thing it applies to — picking the test for one row
+   * of a results table, where a panel would need a control per variable.
+   *
+   * Absent in read-only surfaces (a dashboard widget), so a component must
+   * treat its own controls as unavailable when it is not passed.
+   */
+  onConfigChange?: (changes: Record<string, unknown>) => void
 }
 
 type ComponentLoader = () => Promise<{ default: ComponentType<ComponentPluginProps> }>

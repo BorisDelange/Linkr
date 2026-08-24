@@ -11,6 +11,13 @@ import json
 _ALLOWED_PREFERENCES = {"auto", "parametric", "nonparametric"}
 
 
+# The tests _select_test can return. Guards spec.overrides: a name outside this
+# set would be reported as the test used while a different one actually ran.
+_ALLOWED_TESTS = frozenset(
+    {"welch-t", "mann-whitney", "chi-square", "fisher", "anova", "kruskal-wallis"}
+)
+
+
 def validate_spec(spec: dict) -> dict:
     """Coerce + validate the client spec into the shape _STAT_PY expects:
     {group: str|None, values: [{name: str, type: str}], preference: str, alpha: float}.
@@ -42,7 +49,18 @@ def validate_spec(spec: dict) -> dict:
     if alpha != alpha or alpha in (float("inf"), float("-inf")):
         raise ValueError("statistical-tests spec.alpha must be finite")
     alpha = min(max(alpha, 1e-6), 1 - 1e-6)
-    return {"group": group, "values": values, "preference": preference, "alpha": alpha}
+    # Per-variable pinned tests, keyed by column NAME. Only known test names are
+    # kept: an unrecognised one would fall through _select_test and be returned
+    # as a label with no matching computation.
+    raw_overrides = spec.get("overrides") or {}
+    if not isinstance(raw_overrides, dict):
+        raise ValueError("statistical-tests spec.overrides must be an object")
+    overrides = {
+        k: v for k, v in raw_overrides.items()
+        if isinstance(k, str) and v in _ALLOWED_TESTS
+    }
+    return {"group": group, "values": values, "preference": preference, "alpha": alpha,
+            "overrides": overrides}
 
 
 def build_code(spec: dict) -> str:
@@ -296,7 +314,20 @@ def _fisher(cat_groups, group_names):
     ]
     return {"p": float(p), "v": v, "desc": desc}
 
-def _select_test(vtype, group_count, pref, is_2x2, min_exp):
+def _applicable_tests(vtype, group_count):
+    # Parity with lib/stats/applicable-tests.ts — the client fills its picker
+    # from the same rule, so the two must agree on what a variable can run.
+    if vtype == "categorical":
+        return ("chi-square", "fisher")
+    return ("welch-t", "mann-whitney") if group_count == 2 else ("anova", "kruskal-wallis")
+
+def _select_test(vtype, group_count, pref, is_2x2, min_exp, override=None):
+    # A test pinned on the variable wins over the data AND the global preference,
+    # but only where it can legitimately run: a pinned two-sample test is dropped
+    # once the group column has three levels, rather than silently comparing two
+    # of them.
+    if override and override in _applicable_tests(vtype, group_count):
+        return override
     if vtype == "categorical":
         if is_2x2 and min_exp < 5:
             return "fisher"
@@ -311,6 +342,7 @@ def _linkr_print_stats(dataset, spec):
     values = spec.get("values", [])
     pref = spec.get("preference", "auto")
     alpha = spec.get("alpha", 0.05)
+    overrides = spec.get("overrides") or {}
     if not group or group not in dataset.columns or not values:
         print(_json.dumps([])); return
 
@@ -348,7 +380,7 @@ def _linkr_print_stats(dataset, spec):
             if len(valid) < 2:
                 results.append(_mk_result(name, "numeric", "welch-t", warning="Insufficient data in groups", statisticLabel=""))
                 continue
-            test = _select_test("numeric", len(valid), pref, False, 0)
+            test = _select_test("numeric", len(valid), pref, False, 0, overrides.get(name))
             if test == "welch-t":
                 res = _welch(arrays[0], arrays[1], valid[0], valid[1], alpha)
                 if not res:
@@ -395,7 +427,7 @@ def _linkr_print_stats(dataset, spec):
                             e = row_tot[i] * col_tot[j] / N
                             if e < min_exp:
                                 min_exp = e
-            test = _select_test("categorical", group_count, pref, is_2x2, min_exp)
+            test = _select_test("categorical", group_count, pref, is_2x2, min_exp, overrides.get(name))
             if test == "fisher":
                 res = _fisher(cat_groups, group_names)
                 results.append(_mk_result(name, "categorical", test,

@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { buildCorrelationMatrixSpec } from './correlation-matrix-server'
 import { displayColumnName } from '@/lib/dataset-utils'
 import { defaultAnalysisColumns, orderSelection, type VariableOrder } from '@/lib/analysis-default-columns'
@@ -255,6 +256,7 @@ function pStars(p: number): string {
 export function CorrelationMatrixComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t } = useTranslation()
   const server = isServerMode()
+  const pluginName = usePluginName('correlation-matrix')
 
   const rawSelectedColumns = config.selectedColumns as string[] | undefined
   const method = (config.method as 'pearson' | 'spearman') ?? 'pearson'
@@ -344,11 +346,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
 
   // Server mode: hold the frame until the matrix arrives.
   if (!result) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
-        <Grid3X3 size={24} className="opacity-40" />
-      </div>
-    )
+    return <AnalysisLoading icon={Grid3X3} name={pluginName} compact={compact} />
   }
 
   if (result.names.length < 2) {

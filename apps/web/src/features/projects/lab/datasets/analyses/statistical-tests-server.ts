@@ -1,10 +1,19 @@
 import type { DatasetColumn } from '@/types'
+import { overrideApplies, type TestName } from '@/lib/stats/applicable-tests'
 
 export interface StatisticalTestsSpec {
   group: string | null
   values: { name: string; type: string }[]
   preference: 'auto' | 'parametric' | 'nonparametric'
   alpha: number
+  /**
+   * Per-variable pinned tests, keyed by column NAME.
+   *
+   * Config stores them by column ID; the spec speaks names, like every other
+   * field here. Translated in the builder rather than at the call site so the
+   * two cannot drift.
+   */
+  overrides?: Record<string, TestName>
 }
 
 /**
@@ -20,18 +29,32 @@ export function buildStatisticalTestsSpec(
   valueColumnIds: string[],
   testPreference: 'auto' | 'parametric' | 'nonparametric',
   alpha: number,
+  /** Pinned tests keyed by column ID, as stored in the config. */
+  testOverrides: Record<string, TestName> = {},
+  /** Distinct group values, so an override that no longer fits is dropped. */
+  groupCount = 0,
 ): StatisticalTestsSpec {
   const byId = new Map(columns.map((c) => [c.id, c]))
   const groupCol = groupColumnId ? byId.get(groupColumnId) : undefined
-  const values = valueColumnIds
+  const picked = valueColumnIds
     .map((id) => byId.get(id))
     .filter((c): c is DatasetColumn => !!c && c.id !== groupColumnId)
-    .map((c) => ({ name: c.name, type: c.type }))
+  const values = picked.map((c) => ({ name: c.name, type: c.type }))
+
+  const overrides: Record<string, TestName> = {}
+  for (const c of picked) {
+    const pinned = testOverrides[c.id]
+    const kind = c.type === 'number' ? 'numeric' : 'categorical'
+    if (overrideApplies(pinned, kind, groupCount)) overrides[c.name] = pinned!
+  }
 
   return {
     group: groupCol ? groupCol.name : null,
     values,
     preference: testPreference,
     alpha,
+    // Omitted when empty so the cache key (and the golden specs) do not change
+    // for an analysis that pins nothing.
+    ...(Object.keys(overrides).length > 0 ? { overrides } : null),
   }
 }

@@ -146,6 +146,15 @@ client and server, with parity tests, as was done for `survey-question`.
 - (a) Whether the descriptive table should offer a "stratified" mode (a second
   grouping nested under the first). Common in papers, but doubles the header
   complexity — deferred until asked for.
-- (b) Whether Statistical tests should also get the booktabs style. It is a
-  working object (§1), so probably not; revisit once the descriptive table
-  exists.
+
+## Settled
+
+- (b) Statistical tests DOES use the booktabs style: it moved to
+  `PublicationTable` along with the other analyses, so it gets the rules,
+  resizable columns and truncation for free. The plan's reasoning (a working
+  object, not a figure) argued against it, but sharing one table component beat
+  keeping a second styling path for one plugin.
+- Per-variable test choice: the test name in the results table is a picker
+  (`applicableTests` in `lib/stats/applicable-tests.ts`, mirrored in
+  `render/statistical_tests.py`). It outranks the global preference, and is
+  ignored — not erased — when the group count changes so it no longer applies.

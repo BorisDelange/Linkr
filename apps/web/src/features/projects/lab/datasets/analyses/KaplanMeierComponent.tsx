@@ -13,6 +13,7 @@ import { displayColumnName } from '@/lib/dataset-utils'
 import { niceStep } from '@/lib/chart-ticks'
 import { coefficientRelabeler } from '@/lib/stats/coefficient-labels'
 import { PublicationTable, type PublicationColumn } from '@/components/ui/publication-table'
+import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { usePublishAnalysisTable } from './analysis-table-context'
 import type { ExportTable, ExportTableCell } from '@/lib/table-export'
 import type { TFunction } from 'i18next'
@@ -837,6 +838,7 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
 export function KaplanMeierComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t } = useTranslation()
   const server = isServerMode()
+  const pluginName = usePluginName('kaplan-meier')
 
   const timeId = (config.timeColumn as string) ?? ''
   const eventId = (config.eventColumn as string) ?? ''
@@ -1155,11 +1157,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
 
   // Server mode: hold the frame until the fit returns.
   if (server && !serverLoaded) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
-        <Activity size={24} className="opacity-40" />
-      </div>
-    )
+    return <AnalysisLoading icon={Activity} name={pluginName} compact={compact} />
   }
 
   if (!result || result.groups.length === 0) {
