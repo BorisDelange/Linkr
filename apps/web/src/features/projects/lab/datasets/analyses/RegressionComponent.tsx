@@ -86,7 +86,7 @@ interface RegressionResult {
   fPValue?: number
   aic?: number
   logLikelihood?: number
-  warnings: string[]
+  warnings: RegressionWarning[]
 }
 
 const DASH = '\u2014'
@@ -338,7 +338,7 @@ interface PreparedData {
   nObs: number
   nComplete: number
   predictorNames: string[]  // length p (includes "(Intercept)")
-  warnings: string[]
+  warnings: RegressionWarning[]
   binaryOutcomeMap?: Map<string, number>
 }
 

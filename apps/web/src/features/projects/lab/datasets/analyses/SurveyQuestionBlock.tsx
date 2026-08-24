@@ -358,7 +358,7 @@ export function SurveyQuestionBlock({
       case 'stats':
         return <Stats summary={summary} compact={compact} />
       case 'answers':
-        return <AnswerList counts={counts} summary={summary} hex={resolved.hex} />
+        return <AnswerList counts={counts} summary={summary} hex={resolved.hex} opacity={opacity} />
       case 'table':
         return <CountsTable counts={counts} valueLabel={valueLabel} hex={resolved.hex} />
       default:
@@ -818,7 +818,7 @@ function Histogram({
             if (!b) return ''
             return `${formatAxisNumber(b.start, decimals)} – ${formatAxisNumber(b.end, decimals)}`
           }}
-          formatter={(value: number | string) => [formatCount(value), t('survey.col_count')]}
+          formatter={(value: unknown) => [formatCount(Number(value)), t('survey.col_count')]}
         />
         {/* A numeric axis gives recharts no category width to derive a bar
             width from, so it draws hairlines. The bin's share of the domain is
@@ -930,10 +930,12 @@ function AnswerList({
   counts,
   summary,
   hex,
+  opacity,
 }: {
   counts: AnswerCount[]
   summary: QuestionSummary
   hex: string
+  opacity: number
 }) {
   const { t } = useTranslation()
   const repeated = counts.filter((c) => c.count > 1)
@@ -947,7 +949,7 @@ function AnswerList({
         })}
       </p>
       {repeated.length > 0 && (
-        <RankedBars counts={repeated} valueLabel="both" hex={hex} compact />
+        <RankedBars counts={repeated} valueLabel="both" hex={hex} opacity={opacity} compact />
       )}
       {once.length > 0 && (
         <div className="min-h-0">
