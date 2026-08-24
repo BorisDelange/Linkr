@@ -684,6 +684,7 @@
     "schema_preset_group_custom": "Custom presets",
     "no_vocabulary": "No vocabulary configured for this database.",
     "no_vocabulary_hint": "Select a schema preset with vocabulary support (e.g. OMOP CDM 5.4) to browse concepts.",
+    "detail_see_all_statistics": "See all statistics",
     "detail_schema": "Schema",
     "not_found": "Database not found",
     "schema_needs_connection": "Connect the database to browse its schema.",
@@ -3029,6 +3030,7 @@
     "invalid": "Must be 2–50 characters, lowercase letters, digits and hyphens only."
   },
   "common": {
+    "readme": "Readme",
     "tab_general": "General",
     "tab_metadata": "Metadata",
     "tab_attribution": "Attribution",
@@ -4865,6 +4867,8 @@
     "km_rows_excluded": "{{count}} rows excluded (missing or invalid values).",
     "km_at_risk": "At risk",
     "km_overall": "Overall",
-    "km_no_observations": "No usable observations: every row was missing a time or an event."
+    "km_no_observations": "No usable observations: every row was missing a time or an event.",
+    "reg_view_table": "Table",
+    "reg_view_plot": "Forest plot"
   }
 }

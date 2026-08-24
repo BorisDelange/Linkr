@@ -162,23 +162,52 @@
         "fr": "La largeur de chaque intervalle, et avec elle le seuil de significativité (α = 1 − niveau). 95 % est la convention ; un intervalle plus large n'est pas plus certain, seulement plus prudent sur la position de l'estimation."
       }
     },
-    "showForestPlot": {
-      "type": "boolean",
+    "displayMode": {
+      "type": "select",
       "label": {
-        "en": "Forest plot",
-        "fr": "Forest plot"
+        "en": "Display",
+        "fr": "Affichage"
       },
-      "default": true,
-      "row": "styleOpts",
+      "default": "both",
       "section": {
         "en": "Style",
         "fr": "Style",
         "defaultOpen": false
       },
       "description": {
-        "en": "Each estimate with its interval on a shared scale. What the table cannot show at a glance is which intervals cross the line of no effect.",
-        "fr": "Chaque estimation avec son intervalle sur une échelle commune. Ce que le tableau ne montre pas d'un coup d'œil : quels intervalles franchissent la ligne d'absence d'effet."
-      }
+        "en": "Show the coefficients table, the forest plot, both stacked with a draggable divider, or both switchable via tabs.",
+        "fr": "Afficher le tableau des coefficients, le forest plot, les deux empilés avec une barre de redimensionnement, ou les deux avec des onglets pour basculer."
+      },
+      "options": [
+        {
+          "value": "table",
+          "label": {
+            "en": "Table",
+            "fr": "Tableau"
+          }
+        },
+        {
+          "value": "plot",
+          "label": {
+            "en": "Forest plot",
+            "fr": "Forest plot"
+          }
+        },
+        {
+          "value": "both",
+          "label": {
+            "en": "Table + plot (stacked)",
+            "fr": "Tableau + graphique (empilés)"
+          }
+        },
+        {
+          "value": "both-tabs",
+          "label": {
+            "en": "Table + plot (tabs)",
+            "fr": "Tableau + graphique (onglets)"
+          }
+        }
+      ]
     },
     "highlightSignificant": {
       "type": "boolean",

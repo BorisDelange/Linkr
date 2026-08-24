@@ -8,6 +8,11 @@ import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildRegressionSpec } from './regression-server'
 import { niceTicks } from '@/lib/chart-ticks'
+import { Allotment } from 'allotment'
+import { Table as TableIcon, BarChartHorizontal } from 'lucide-react'
+
+/** How the coefficients table and the forest plot share the panel. */
+type DisplayMode = 'table' | 'plot' | 'both' | 'both-tabs'
 import { displayColumnName } from '@/lib/dataset-utils'
 import { orderSelection, type VariableOrder } from '@/lib/analysis-default-columns'
 import { PublicationTable, type PublicationColumn } from '@/components/ui/publication-table'
@@ -26,6 +31,8 @@ export type RegressionWarning =
   | { code: 'too_many_categories'; name: string; count: number }
   | { code: 'outcome_not_binary'; count: number }
   | { code: 'rows_excluded'; count: number }
+  /** The server sends its warnings as ready-made English sentences. */
+  | string
 
 /** Placeholder for the intercept row, swapped for a localized name at render. */
 const INTERCEPT = '__intercept__'
@@ -954,7 +961,10 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
   )
   const regressionType = (config.regressionType as 'auto' | 'linear' | 'logistic') ?? 'auto'
   const confidenceLevel = (config.confidenceLevel as number) ?? 95
-  const showForestPlot = (config.showForestPlot as boolean) ?? true
+  const displayMode = (config.displayMode as DisplayMode) ?? 'both'
+  // Which pane shows in tabs mode. Local, not persisted: it is a way of looking
+  // at the result, not a property of the analysis.
+  const [activeView, setActiveView] = useState<'table' | 'plot'>('table')
   const visibleColumns = (config.visibleColumns as string[]) ?? []
   const highlightSignificant = (config.highlightSignificant as boolean) ?? true
   const wrap = config.wrap === true
@@ -1114,8 +1124,35 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
     )
   }
 
+  // A forest plot needs at least one predictor besides the intercept.
+  const plotShowable = result.coefficients.length > 1
+  const showsBoth = displayMode === 'both' || displayMode === 'both-tabs'
+
+  const tableView =
+    result.coefficients.length > 0 ? (
+      // PublicationTable, so it matches the descriptive table and statistical
+      // tests: resizable columns, no vertical rules, no striping, long names
+      // truncated with the full value on hover.
+      <PublicationTable
+        rows={coefRows}
+        columns={tableColumns}
+        wrap={wrap}
+        className="h-full"
+        emptyMessage={t('common.no_results')}
+      />
+    ) : null
+
+  const plotView = plotShowable ? (
+    <ForestPlot
+      coefficients={result.coefficients}
+      isLogistic={isLogistic}
+      compact={compact}
+      alpha={alpha}
+    />
+  ) : null
+
   return (
-    <div className={cn('h-full overflow-auto', compact ? 'p-2' : 'p-4')}>
+    <div className={cn('flex h-full flex-col overflow-hidden', compact ? 'p-2' : 'p-4')}>
       {/* Model summary */}
       <div className={cn('mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground', compact ? 'text-[9px]' : 'text-[11px]')}>
         <span className="font-semibold text-foreground">
@@ -1143,29 +1180,49 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
         </div>
       )}
 
-      {/* Coefficients table — PublicationTable, so it matches the descriptive
-          table and statistical tests: resizable columns, no vertical rules, no
-          striping, and long names truncated with the full value on hover. */}
-      {result.coefficients.length > 0 && (
-        <PublicationTable
-          rows={coefRows}
-          columns={tableColumns}
-          wrap={wrap}
-          emptyMessage={t('common.no_results')}
-        />
-      )}
-
-      {/* Forest plot */}
-      {showForestPlot && result.coefficients.length > 1 && (
-        <div className={cn('mt-4', compact && 'mt-2')}>
-          <ForestPlot
-            coefficients={result.coefficients}
-            isLogistic={isLogistic}
-            compact={compact}
-            alpha={alpha}
-          />
+      {/* Tabs, when the two views share the panel by switching. */}
+      {showsBoth && displayMode === 'both-tabs' && (
+        <div className="mb-2 flex shrink-0 items-center justify-center gap-1">
+          {([
+            ['table', TableIcon, t('analyses.reg_view_table')],
+            ['plot', BarChartHorizontal, t('analyses.reg_view_plot')],
+          ] as const).map(([view, Icon, label]) => (
+            <button
+              key={view}
+              type="button"
+              onClick={() => setActiveView(view)}
+              className={cn(
+                'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors',
+                activeView === view
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Icon size={12} />
+              {label}
+            </button>
+          ))}
         </div>
       )}
+
+      {/* The table and the plot, laid out as the Display setting asks. Stacked
+          uses Allotment so the divider is draggable, matching Sankey. */}
+      <div className="min-h-0 flex-1">
+        {displayMode === 'both' && plotShowable ? (
+          <Allotment vertical>
+            <Allotment.Pane minSize={80}>{tableView}</Allotment.Pane>
+            <Allotment.Pane minSize={80} preferredSize="45%">
+              <div className="h-full overflow-auto border-t border-border pt-2">{plotView}</div>
+            </Allotment.Pane>
+          </Allotment>
+        ) : displayMode === 'both-tabs' && plotShowable ? (
+          activeView === 'plot' ? plotView : tableView
+        ) : displayMode === 'plot' && plotShowable ? (
+          plotView
+        ) : (
+          tableView
+        )}
+      </div>
     </div>
   )
 }
@@ -1251,8 +1308,15 @@ function exportCellText(columnId: string, coef: CoefficientResult, isLogistic: b
   }
 }
 
-/** A model warning, said in the reader's language. */
+/**
+ * A model warning, said in the reader's language.
+ *
+ * A plain string passes through: the server's pandas program emits finished
+ * English sentences, and showing one untranslated beats dropping a warning
+ * about a predictor that was left out of the model.
+ */
 function warningText(w: RegressionWarning, t: TFunction): string {
+  if (typeof w === 'string') return w
   switch (w.code) {
     case 'single_category':
       return t('analyses.reg_skipped_single', { name: w.name })

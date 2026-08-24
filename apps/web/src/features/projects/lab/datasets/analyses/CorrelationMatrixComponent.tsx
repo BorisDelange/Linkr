@@ -417,13 +417,19 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
         {' '}(n = {totalN})
       </div>
 
-      {/* Heatmap SVG — fills remaining space */}
-      <div className="flex-1 min-h-0 flex items-center justify-center">
+      {/* Heatmap SVG — fills remaining space.
+          `overflow-auto`, not hidden: the grid has a floor of 24px per cell, so
+          a dozen variables in a short pane genuinely need to scroll. Clipping
+          them showed an empty panel between the header and the legend. */}
+      <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center">
         {containerSize.width > 0 && (
           <svg
             viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-            width={Math.min(containerSize.width - pad * 2, svgWidth)}
-            height={Math.min(containerSize.height - pad * 2 - headerLine - footerLine, svgHeight)}
+            // Never below the SVG's own aspect: clamping the height against the
+            // remaining pane could reach zero, which painted nothing at all
+            // while the header and legend around it still rendered.
+            width={Math.max(1, Math.min(containerSize.width - pad * 2, svgWidth))}
+            height={Math.max(1, Math.min(containerSize.height - pad * 2 - headerLine - footerLine, svgHeight))}
             className="text-foreground"
             style={{ fontSize: labelFontSize }}
           >

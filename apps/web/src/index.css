@@ -303,6 +303,16 @@ body {
 .config-section > * + * {
   margin-top: 0.75rem;
 }
+/* A checkbox is a single line of text with no label above it, so the 0.75rem
+   meant for a labelled input leaves it floating. Tighten on BOTH sides — after
+   any field and before any field — not only between two checkboxes, which was
+   the old rule and left a lone trailing checkbox with a full gap above it. */
+.config-section > [data-boolean-field] {
+  margin-top: 0.25rem;
+}
+.config-section > [data-boolean-field] + * {
+  margin-top: 0.5rem;
+}
 .config-section > [data-boolean-field] + [data-boolean-field] {
   margin-top: 0.125rem;
 }

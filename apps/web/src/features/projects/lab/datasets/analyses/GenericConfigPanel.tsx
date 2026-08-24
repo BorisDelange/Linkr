@@ -207,7 +207,19 @@ export function GenericConfigPanel({
         // Tighter vertical gap so color swatches wrapping onto a second line don't leave a big gap.
         <div
           key={group.keys.join('-')}
-          className={cn('flex flex-wrap items-end', allBoolean ? 'gap-x-5 gap-y-1 -mt-1' : 'gap-x-4 gap-y-1.5')}
+          className={cn(
+            allBoolean
+              // Evenly divided rather than packed left: two checkboxes each
+              // take half the panel, three a third, so the column of controls
+              // lines up instead of stepping in with each label's length.
+              ? 'grid gap-x-3 gap-y-1'
+              : 'flex flex-wrap items-end gap-x-4 gap-y-1.5',
+          )}
+          style={
+            allBoolean
+              ? { gridTemplateColumns: `repeat(${Math.min(group.keys.length, 3)}, minmax(0, 1fr))` }
+              : undefined
+          }
         >
           {group.keys.map((key, idx) => (
             <FieldRenderer
@@ -1320,7 +1332,11 @@ function BooleanField({
     <div data-boolean-field className={cn('flex flex-col', field.row && 'justify-end')}>
       <button
         onClick={() => onConfigChange({ [fieldKey]: !checked })}
-        className="flex h-8 items-center gap-2 text-xs"
+        // h-8 matched a labelled input's control height, but a checkbox has no
+        // label above it — the extra height read as padding around the row.
+        // Kept full height inside a `row` group so it still aligns with the
+        // input it sits beside.
+        className={cn('flex items-center gap-2 text-xs', field.row ? 'h-8' : 'h-6')}
       >
         <div
           className={cn(

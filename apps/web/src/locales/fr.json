@@ -684,6 +684,7 @@
     "schema_preset_group_custom": "Presets personnalisés",
     "no_vocabulary": "Aucun vocabulaire configuré pour cette base.",
     "no_vocabulary_hint": "Sélectionnez un modèle de schéma avec vocabulaire (ex. OMOP CDM 5.4) pour naviguer dans les concepts.",
+    "detail_see_all_statistics": "Voir toutes les statistiques",
     "detail_schema": "Schéma",
     "not_found": "Base de données introuvable",
     "schema_needs_connection": "Connectez la base de données pour explorer son schéma.",
@@ -3029,6 +3030,7 @@
     "invalid": "Doit contenir 2 à 50 caractères : lettres minuscules, chiffres et tirets uniquement."
   },
   "common": {
+    "readme": "Readme",
     "tab_general": "Général",
     "tab_metadata": "Métadonnées",
     "tab_attribution": "Attribution",
@@ -4865,6 +4867,8 @@
     "km_rows_excluded": "{{count}} lignes exclues (valeurs manquantes ou invalides).",
     "km_at_risk": "À risque",
     "km_overall": "Ensemble",
-    "km_no_observations": "Aucune observation exploitable : chaque ligne manquait d'un temps ou d'un événement."
+    "km_no_observations": "Aucune observation exploitable : chaque ligne manquait d'un temps ou d'un événement.",
+    "reg_view_table": "Tableau",
+    "reg_view_plot": "Forest plot"
   }
 }
