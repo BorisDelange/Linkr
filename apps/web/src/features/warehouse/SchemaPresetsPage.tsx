@@ -1296,7 +1296,10 @@ function SchemaDetailView({
             readme scrolls inside its own card. Letting the page scroll instead
             would give that card unbounded height and nothing would ever scroll. */}
         <TabsContent value="overview" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+          {/* Full width, unlike the readme/licence tabs: the stat cards and the
+              README preview both use the room, and About is a fixed 20rem
+              column that doesn't stretch with it. */}
+          <div className="flex h-full flex-col px-6 pb-1.5">
             {preset && (
               <SchemaOverviewTab
                 preset={preset}
@@ -1577,23 +1580,25 @@ function SchemaOverviewTab({
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
+    /* One grid for the whole tab, so the two columns line up across both rows:
+       the stat cards stop where About starts, and the README's bottom edge
+       meets About's. Row 1 is the stat strip (3 cards left, Mapped tables in
+       the About column); row 2 is the README beside About, taking the rest of
+       the height — the README scrolls inside itself and About stretches to
+       match rather than ending short. */
+    <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden pt-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <SchemaStatCards mapping={mapping} onSeeDdl={onSeeDdl} onSeeMapping={onSeeMapping} />
 
       {/* The README is what documents a shared schema — the thing whoever
           installs it from the catalog reads first — so it gets the room, with
-          the identity card beside it. `self-start` on the second column: the
-          readme stretches to full height and scrolls inside itself, while
-          About keeps the height its content needs. */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <SchemaReadmePreview
-          readme={localized(preset.readme, i18n.language)}
-          resolveUrls={resolveAttachmentUrls}
-          onViewFull={onSeeReadme}
-        />
-        <div className="flex flex-col gap-4 self-start">
-          <SchemaIdentityCard preset={preset} onSeeLicense={onSeeLicense} />
-        </div>
+          the identity card beside it. */}
+      <SchemaReadmePreview
+        readme={localized(preset.readme, i18n.language)}
+        resolveUrls={resolveAttachmentUrls}
+        onViewFull={onSeeReadme}
+      />
+      <div className="flex min-h-0 flex-col gap-4">
+        <SchemaIdentityCard preset={preset} onSeeLicense={onSeeLicense} />
       </div>
     </div>
   )
@@ -1636,7 +1641,10 @@ function SchemaStatCards({
   ]
 
   return (
-    <div className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
+    /* Spans the parent grid's two columns and repeats its track sizes, so the
+       first three cards sit over the README and Mapped tables sits over About
+       — the two column edges line up down the whole tab. */
+    <div className="col-span-full grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-[repeat(3,minmax(0,1fr))_20rem]">
       {cards.map((c) => (
         <button
           key={c.key}
