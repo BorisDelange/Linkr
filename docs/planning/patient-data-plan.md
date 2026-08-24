@@ -321,7 +321,76 @@ re-pointed at the new store in Step 1 with modest rework.
    needs one — the same denormalisation `ConceptListItem` uses to stay readable after the
    source database is detached.
 
-## 10. Manual testing
+## 10. Widget follow-ups (captured 2026-08-22, not arbitrated)
+
+### 10.1 "Data overview" — expose an editable SQL (🤔, M)
+
+The widget's queries are already fully `schemaMapping`-driven — the header of
+`lib/duckdb/patient-overview-queries.ts:10-14` states it, and the inventory query
+iterates `Object.entries(mapping.eventTables)` (l.56-64) rather than naming OMOP
+tables. So the "must not hardcode OMOP" requirement is **already met**; what is
+missing is that the generated SQL is invisible and not editable.
+
+The other three patient widgets do surface it: `widget-sql.ts` switches on
+`TIMELINE_PLUGIN_ID` / `NOTES_PLUGIN_ID` / `PATIENT_SUMMARY_PLUGIN_ID` (l.8-12) and
+the overview plugin is simply absent from that switch.
+
+Why it is harder than adding a fourth case: the widget runs **six** builders
+(`buildOverviewInventoryQuery`, `…Density`, `…Events`, `…UnitStays`, `…StayWindow`,
+`…Death`), not one, and the layout logic in `widgets/overview-layout.ts` consumes
+their results in a specific shape. Categories, concept classes and concepts are
+derived across several of them.
+
+To arbitrate:
+
+- **Read-only first.** Surface the six statements in the SQL tab, labelled, so a user
+  can see and copy what runs. Cheap, and already most of the value.
+- **Editable then.** An edited statement has to keep returning the columns the layout
+  expects, so an override needs either a documented result contract per statement, or
+  a "custom SQL replaces this section" escape hatch that degrades the section rather
+  than the widget. The cohort builder's criteria/SQL toggle is the precedent: switching
+  to SQL is a one-way door out of the structured editor, which is honest.
+
+Do read-only unless the editable case has a concrete demand behind it.
+
+### 10.2 Timeline — points and bars, not only continuous signal (🤔, M)
+
+The timeline renders with **dygraphs** (`TimelineWidget.tsx:3-4`), which is the right
+choice for the signal case: it is fast on dense time series, and the zoom/pan sync
+across widgets is already built on it (`patient-data/timeline-sync.ts`).
+
+But Data overview shows three mark types — continuous signal, discrete points, and
+bars/intervals — and the timeline only does the first. Users want the same three here.
+
+Options, to evaluate:
+
+- **Stay on dygraphs.** It supports `drawPoints` / `strokeWidth: 0` for point series
+  and per-series styling; interval bars are the awkward case (custom plotters, or
+  underlays drawn on the canvas). Keeps one library, keeps the sync, keeps the perf.
+- **Two libraries, chosen per series type.** A second renderer for point/bar series
+  layered over the same time axis. Buys expressiveness, but the axis and the
+  zoom/pan sync now have to be kept coherent across two canvases — that is the real
+  cost, not the bundle size.
+- **Reuse whatever Data overview already draws** for its point/bar marks
+  (`PatientOverviewWidget.tsx`) rather than introducing a third rendering path.
+
+The last one is worth checking first: if the overview's mark rendering is already
+generic enough, the timeline gains two mark types without a new dependency.
+
+Whatever is chosen, the config schema gains a per-series `markType`
+(`line | points | bars`), which is a `configSchema` change on
+`packages/default-plugins/patient-data/timeline/plugin.json` and therefore a
+`version` bump + plugin-drift badge for existing widgets.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🤔 | 10.1 Data overview: read-only SQL tab (six labelled statements); editable only on demand | M |
+| 🤔 | 10.2 Timeline: evaluate dygraphs-only vs a second renderer vs reusing the overview marks | S (spike) |
+| 🔜 | 10.2 then: per-series `markType` in the timeline `configSchema` + version bump | M |
+
+---
+
+## 11. Manual testing
 
 Not covered by the automated suites, worth checking once against real data:
 

@@ -98,6 +98,8 @@ entity + LLM provider config, local models by default.
 |----|------|--------|
 | 🤔 | Foundation: `skills`/`llm-config`/`agents` permissions + `LlmProvider` (Fernet key, derived `is_local`, remote-API acknowledgement, `LINKR_ALLOW_REMOTE_LLM=false`) | M |
 | 🔜 | Skills entity (workspace-scoped, one entity = one skill; file tree like SQL collections) | M |
+| 🔜 | Project-level skill selection (picker; export carries references, not copies) — plan §1b | M |
+| 🔜 | Generated `AGENTS.md` per project (not a Skill — different unit) + user override | S |
 | 🔜 | Spike: local-model tool-calling on 3 dashboard tools — de-risks the copilot | S |
 | 🔜 | Track A1: generated `opencode.json` + skills → `.agents/skills/` + launch in the existing PTY | S/M |
 | 🤔 | Track B: right-sidebar copilot (agent loop, dashboard tools, per-turn undo) | L |
@@ -148,7 +150,40 @@ Arbitrated: harmonise plugin **storage/declaration**, keep the props contracts s
 | ✅ | 1–5: `PatientDashboard` entity (IDB+API+Alembic), export/versioning with a byte-parity Python twin, full widget kebab, file-based plugins, shared concept cells | L |
 | 🔜 | **[TO TEST]** Manual: localStorage migration, server round-trip, export→reimport→export stability | S |
 | 🔜 | Pull group for patient boards (a selective pull carries them through unfiltered) | S |
+| 🤔 | Data overview: surface its SQL (six mapping-driven statements, read-only first) — plan §10.1 | M |
+| 🤔 | Timeline: points + bars alongside the signal — spike dygraphs-only vs a 2nd renderer — plan §10.2 | S then M |
 | 💤 | `ConceptPickerDialog` still ~950 lines with its own `useReactTable` | M |
+
+## Cohorts — patient review tab — [cohort-patient-review-plan.md](cohort-patient-review-plan.md)
+
+A third tab after Attrition showing the **patient charts of the current result set**,
+so a query can be reviewed without creating (then deleting) a cohort. Reuses the
+Patient data widgets — one configuration per project, not several boards.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🤔 | Reserved `PatientDashboard` vs a new entity; transient ids vs SQL subquery | S (decision) |
+| 🔜 | `'review'` tab + patient selector wired to `PatientChartContext` | M |
+| 🔜 | Board configuration reusing `PatientChartGrid` | M |
+| 💤 | Cohort-level (aggregate) widgets — different props contract | L |
+
+## Databases — page with tabs + datamarts — [database-page-datamarts-plan.md](database-page-datamarts-plan.md)
+
+Replace the right-hand `DatabaseDetailSheet` with a real page (Overview / Schema /
+Statistics / Datamarts / Data quality), and add **derived sub-databases**: select
+patients with the cohort criteria builder, then either materialise a new
+Parquet-backed `DataSource` or create a schema in the source database. The criteria
+builder gets **extracted and shared**, not forked.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🤔 | Naming (datamart?), entity shape, and where the cohort/datamart line sits | S (decision) |
+| 🔜 | Database detail **page** with tabs; the sheet is retired | M |
+| 🔜 | Extract the cohort criteria builder into a shared component | M |
+| 🔜 | Datamart entity + builder + provenance (parent, criteria, built-at) | L |
+| 🔜 | Mode (a): materialise to a new Parquet-backed `DataSource` | M |
+| 🤔 | Mode (b): create a schema in the source DB (permission + engine support) | L |
+| 🤔 | Data quality tab: run a DQ rule set against a database | M |
 
 ## OMOP C/CR migration
 
@@ -185,6 +220,7 @@ generating STCM (detected from its files, not a stored flag), and the seed loade
 | 💤 | PTY idle sweep (kernel sessions sweep; PTY is bounded by WS lifetime) | S |
 | 🔜 | Workspace export: dq / catalogs / schemas are flat files, so their README/LICENSE only ship in a standalone entity export — move them to folders | M |
 | 🔜 | Seed loader: read `LICENSE.md` (and the entity docs) from the bundled default data | S |
+| 🔜 | Plugins: import via Git. Every other entity goes through the shared `ImportSourceDialog` (ZIP + clone-from-Git tabs); `PluginsTab.tsx:466` is the last bare `<input type="file">`. Plugins already push/pull via `EntityVersioningDialog`, so only the import path is missing | S |
 
 ## Long-term vision — [../vision-roadmap.md](../vision-roadmap.md)
 

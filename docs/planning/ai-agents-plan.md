@@ -86,6 +86,56 @@ Worth adding: validate `SKILL.md` (frontmatter present, `name`/`description`
 non-empty) and surface the result in the list. An invalid skill is silently ignored
 by agents, which is painful to diagnose.
 
+### 1b. Selecting skills per project (captured 2026-08-22)
+
+Skills are authored in the **workspace** (an AI Skills page next to the other
+workspace entities); a **project picks** which of them it uses. The picked set then:
+
+- is materialised into the project's IDE working directory, so opening the terminal
+  gives the agent access with no further action (§3 already specifies the path, and
+  that it is generated + gitignored — the pick is what decides *which* skills land there);
+- **travels with the project export**, as a list of references, not copies. A copy
+  would fork the skill and defeat the workspace-level authoring; a reference means an
+  imported project states what it needs and the missing skills are installable from the
+  catalog, which is exactly the mechanism `catalog-plan.md` already provides.
+
+Open: what an import does when a referenced skill is absent — flag it in the project
+(a "missing skills" state) rather than failing the import, on the "simple tolerant read"
+preference. Confirm at build time.
+
+This answers §9 question 1: **workspace-scoped authoring + project-level selection**,
+rather than project-scoped skills.
+
+### 1c. Beyond `SKILL.md` — `AGENTS.md` and non-Claude runtimes
+
+Two things not to conflate:
+
+- **`SKILL.md`** — one folder = one capability, the agentskills.io standard, already
+  the model above. Read by Claude Code, OpenCode, Codex, Cursor and others.
+- **`AGENTS.md`** — a single repo-root file describing *the project* to any agent
+  (build commands, conventions, layout). Different unit, different lifetime: it is a
+  property of the project, not a shareable, versionable, catalog-publishable entity.
+
+So `AGENTS.md` is **not** a Skill. It is best generated per project into the IDE working
+directory alongside the skills tree — from the project's own metadata (name,
+description, datasets, schema mapping, IDE paths), with a user-editable override. Worth
+one item, not an entity.
+
+**Non-Anthropic models are already covered.** `LlmProvider.kind` includes `mistral`,
+`openai`, `gemini` and `local-openai-compatible` (§2), and the provider config is
+**done** — OpenRouter is an OpenAI-compatible `base_url`, so it needs no new kind, at
+most a preset in the provider dialog. What determines whether a given model can *use*
+skills is the agent binary (OpenCode, Claude Code…), not the provider — and OpenCode
+reads `.agents/skills/` whatever model sits behind it. Nothing to investigate on the
+protocol side; the open item is only which agent binaries we test against.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Project-level skill selection (picker + reference list in the project export) | M |
+| 🤔 | Import with a missing referenced skill: flag, offer catalog install, never fail | S |
+| 🔜 | Generated `AGENTS.md` per project (from project metadata) + user override | S |
+| 💤 | OpenRouter preset in the provider dialog (no new `kind` needed) | S |
+
 ---
 
 ## 2. LLM providers & permissions (the foundation for both tracks)
