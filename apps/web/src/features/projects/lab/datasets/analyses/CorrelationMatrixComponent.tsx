@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Grid3X3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -256,22 +256,6 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
   const { t } = useTranslation()
   const server = isServerMode()
 
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
-
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const ro = new ResizeObserver(entries => {
-      const entry = entries[0]
-      if (entry) {
-        setContainerSize({ width: entry.contentRect.width, height: entry.contentRect.height })
-      }
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
   const rawSelectedColumns = config.selectedColumns as string[] | undefined
   const method = (config.method as 'pearson' | 'spearman') ?? 'pearson'
   const showValues = (config.showValues as boolean) ?? true
@@ -379,20 +363,20 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
   }
 
   const n = result.names.length
-  const pad = compact ? 8 : 16
   const legendWidth = compact ? 32 : 44
 
   // Reserve space for rotated column headers and row labels
   const labelReserve = compact ? 60 : 80
-  // Sized from the WIDTH alone, then drawn at its own aspect ratio.
+  // The grid is sized in VIEWBOX units and scaled by CSS, with no measurement
+  // of the container at all.
   //
-  // The height is deliberately not consulted. This component sits in a card
-  // that is `overflow-auto`, which imposes no height on its child, so a
-  // measured height here collapses towards zero and the matrix vanishes
-  // between the header and the legend. Every other analysis plugin scales a
-  // fixed-aspect viewBox off the width for the same reason.
-  const availW = Math.max(200, containerSize.width - pad * 2 - legendWidth - 8)
-  const cellSize = Math.max(24, Math.floor((availW - labelReserve) / n))
+  // It used to size itself from a measured width, which never arrived: the
+  // ResizeObserver effect ran once on mount, when the component was still
+  // returning its loading placeholder, so the ref was null and nothing was
+  // ever observed. The width stayed 0, the render was gated on it being
+  // positive, and no <svg> was emitted — an empty box between the header and
+  // the legend. Every other analysis plugin scales a fixed viewBox instead.
+  const cellSize = compact ? 34 : 46
 
   const gridW = n * cellSize
   const gridH = n * cellSize
@@ -409,7 +393,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
   const gridY = labelReserve
 
   return (
-    <div ref={containerRef} className={cn('flex w-full flex-col', compact ? 'p-2' : 'p-4')}>
+    <div className={cn('flex w-full flex-col', compact ? 'p-2' : 'p-4')}>
       {/* Method header */}
       <div className={cn('mb-1 shrink-0 text-muted-foreground', compact ? 'text-[9px]' : 'text-[11px]')}>
         <span className="font-semibold text-foreground">
@@ -422,7 +406,6 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
       {/* The matrix keeps its own aspect: `w-full` plus a viewBox, with no
           pixel height, so it can never be measured down to nothing. */}
       <div className="flex items-start justify-center">
-        {containerSize.width > 0 && (
           <svg
             viewBox={`0 0 ${svgWidth} ${svgHeight}`}
             className="h-auto w-full text-foreground"
@@ -540,7 +523,6 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
               )
             })()}
           </svg>
-        )}
       </div>
 
       {/* Significance footer */}

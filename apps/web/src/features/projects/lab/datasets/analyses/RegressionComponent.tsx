@@ -1156,6 +1156,15 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
   const plotShowable = result.coefficients.length > 1
   const showsBoth = displayMode === 'both' || displayMode === 'both-tabs'
 
+  // What the coefficients table needs to show every row without scrolling:
+  // PublicationTable draws `px-3 py-1` cells at text-xs, so ~26px per row, plus
+  // a header row and the container padding. Capped at 60% of a typical pane so
+  // a twenty-term model still leaves the forest plot something to occupy.
+  const tableIntrinsicHeight = Math.min(
+    (result.coefficients.length + 1) * 26 + 12,
+    360,
+  )
+
   const tableView =
     result.coefficients.length > 0 ? (
       // PublicationTable, so it matches the descriptive table and statistical
@@ -1238,8 +1247,16 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
       <div className="min-h-0 flex-1">
         {displayMode === 'both' && plotShowable ? (
           <Allotment vertical>
-            <Allotment.Pane minSize={80}>{tableView}</Allotment.Pane>
-            <Allotment.Pane minSize={80} preferredSize="45%">
+            {/* Sized from the CONTENT, not a fixed 45/55. Both panes have a
+                known intrinsic height — one row per coefficient in the table,
+                the same rows plus an axis in the plot — so a fixed split made
+                the table scroll while the plot still had room below it. The
+                table asks for exactly its rows; Allotment gives the rest to
+                the plot and the divider still overrides both. */}
+            <Allotment.Pane minSize={80} preferredSize={tableIntrinsicHeight}>
+              {tableView}
+            </Allotment.Pane>
+            <Allotment.Pane minSize={80}>
               <div className="h-full overflow-auto border-t border-border pt-2">{plotView}</div>
             </Allotment.Pane>
           </Allotment>

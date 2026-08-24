@@ -1,8 +1,8 @@
 {
   "id": "linkr-analysis-kaplan-meier",
   "name": {
-    "en": "Kaplan-Meier",
-    "fr": "Kaplan-Meier"
+    "en": "Survival",
+    "fr": "Survie"
   },
   "description": {
     "en": "Survival analysis: Kaplan-Meier curves, log-rank test, median survival, at-risk table, and a Cox proportional-hazards model with its assumption check.",
@@ -193,7 +193,7 @@
         "en": "Display",
         "fr": "Affichage"
       },
-      "default": "both",
+      "default": "both-tabs",
       "section": {
         "en": "Style",
         "fr": "Style",
@@ -204,6 +204,13 @@
         "fr": "Afficher les courbes de survie, le tableau de synthèse, le modèle de Cox, les deux empilés avec une barre de redimensionnement, ou l'ensemble avec des onglets pour basculer."
       },
       "options": [
+        {
+          "value": "both-tabs",
+          "label": {
+            "en": "All (tabs)",
+            "fr": "Tout (onglets)"
+          }
+        },
         {
           "value": "plot",
           "label": {
@@ -230,13 +237,6 @@
           "label": {
             "en": "Curves + table (stacked)",
             "fr": "Courbes + tableau (empilés)"
-          }
-        },
-        {
-          "value": "both-tabs",
-          "label": {
-            "en": "All (tabs)",
-            "fr": "Tout (onglets)"
           }
         }
       ]

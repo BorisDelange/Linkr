@@ -39,6 +39,14 @@ interface CoxRow {
   coef: CoxCoefficient
 }
 
+/** One term's proportional-hazards check, as a table row. */
+interface CoxPhRow {
+  id: string
+  name: string
+  statistic: number | null
+  pValue: number | null
+}
+
 /** A group's summary plus its index, which fixes its colour. */
 interface KmRow {
   id: string
@@ -579,7 +587,11 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
   }
 
   const baseWidth = PLOT_BASE_WIDTH[compact ? 'compact' : 'full']
-  const baseHeight = compact ? 220 : 320
+  // The viewBox GROWS with the at-risk block rather than the curves shrinking
+  // to make room for it: plotHeight is baseHeight minus the margins, so a
+  // five-group at-risk table on a fixed height left the curves squeezed into a
+  // third of the box.
+  const baseHeight = (compact ? 220 : 320) + (showAtRisk ? groups.length * (compact ? 24 : 30) : 0)
 
   // Find max time across all groups
   let maxTime = 0
@@ -841,7 +853,9 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
     (config.timeLabel as string) || (timeColumn ? displayColumnName(timeColumn) : '')
   const wrap = config.wrap === true
   const showGrid = config.showGrid !== false
-  const displayMode = (config.displayMode as DisplayMode) ?? 'both'
+  // Matches the manifest default: tabs, so all three views are reachable
+  // without the reader having to discover the Display setting first.
+  const displayMode = (config.displayMode as DisplayMode) ?? 'both-tabs'
   // Which pane shows in tabs mode. Local, not persisted: it is a way of looking
   // at the result, not a property of the analysis.
   const [activeView, setActiveView] = useState<KmView>('plot')
@@ -996,9 +1010,59 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
       })),
     [coxResult, relabelCox],
   )
-  const coxPhRows = useMemo(
-    () => (coxResult?.proportionalHazards ?? []).map((r) => ({ ...r, name: relabelCox(r.name) })),
+  const coxPhRows = useMemo<CoxPhRow[]>(
+    () =>
+      (coxResult?.proportionalHazards ?? []).map((r, i) => ({
+        id: `${r.name}:${i}`,
+        name: relabelCox(r.name),
+        statistic: r.statistic,
+        pValue: r.pValue,
+      })),
     [coxResult, relabelCox],
+  )
+
+  const coxPhColumns = useMemo<PublicationColumn<CoxPhRow>[]>(
+    () => [
+      {
+        id: 'term',
+        header: t('datasets.table1_variable'),
+        cell: (r) => r.name,
+        align: 'left',
+        width: 200,
+        minWidth: 110,
+      },
+      {
+        id: 'chi2',
+        // The Schoenfeld-residual test statistic. Reported rather than only its
+        // p: a term can fail on a large sample at a size that does not matter.
+        header: t('analyses.cox_ph_col_stat'),
+        cell: (r) => fmtOrDash(r.statistic),
+        align: 'right',
+        width: 96,
+      },
+      {
+        id: 'p',
+        header: t('analyses.reg_col_p'),
+        cell: (r) => (r.pValue !== null ? fmtP(r.pValue) : DASH),
+        align: 'right',
+        width: 104,
+      },
+      {
+        id: 'verdict',
+        header: t('analyses.cox_ph_col_verdict'),
+        cell: (r) => {
+          const violated = r.pValue !== null && r.pValue < 0.05
+          return (
+            <span className={cn(violated && 'font-semibold text-yellow-700 dark:text-yellow-400')}>
+              {violated ? t('analyses.cox_ph_violated') : t('analyses.cox_ph_ok')}
+            </span>
+          )
+        },
+        align: 'right',
+        width: 110,
+      },
+    ],
+    [t],
   )
 
   const coxColumns = useMemo<PublicationColumn<CoxRow>[]>(
@@ -1154,7 +1218,15 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
   )
 
   const coxView = (
-    <div className={cn('h-full overflow-auto', compact ? 'text-[9px]' : 'text-[11px]')}>
+    // Centred and capped: the tables are ~5 narrow columns, so a wide pane left
+    // them stretched across the whole width with the numbers far from their
+    // labels. `mx-auto` on a max-width keeps them a readable block.
+    <div
+      className={cn(
+        'mx-auto h-full w-full max-w-3xl overflow-auto',
+        compact ? 'text-[9px]' : 'text-[11px]',
+      )}
+    >
       {!server ? (
         // Stated plainly rather than hidden: the reader who picked this tab
         // needs to know the analysis exists and what it would take to run it.
@@ -1210,18 +1282,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
                 {t('analyses.cox_ph_title')}
               </div>
               <div className="mb-2 text-muted-foreground">{t('analyses.cox_ph_hint')}</div>
-              {coxPhRows.map((row) => {
-                const violated = row.pValue !== null && row.pValue < 0.05
-                return (
-                  <div key={row.name} className="flex items-center gap-2 py-0.5">
-                    <span className="min-w-0 flex-1 truncate" title={row.name}>{row.name}</span>
-                    <span className="text-muted-foreground">p = {row.pValue !== null ? fmtP(row.pValue) : DASH}</span>
-                    <span className={cn('shrink-0', violated ? 'font-semibold text-yellow-700 dark:text-yellow-400' : 'text-muted-foreground')}>
-                      {violated ? t('analyses.cox_ph_violated') : t('analyses.cox_ph_ok')}
-                    </span>
-                  </div>
-                )
-              })}
+              <PublicationTable rows={coxPhRows} columns={coxPhColumns} wrap={wrap} />
             </div>
           )}
         </>
@@ -1278,7 +1339,13 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
             <Allotment.Pane minSize={80}>
               <div className="h-full overflow-auto">{plotView}</div>
             </Allotment.Pane>
-            <Allotment.Pane minSize={80} preferredSize="40%">
+            {/* Sized from the content: one row per group plus a header and the
+                log-rank line, rather than a fixed share that left the table
+                scrolling while the curves had room to spare. */}
+            <Allotment.Pane
+              minSize={80}
+              preferredSize={Math.min((summaryRows.length + 1) * 26 + 40, 320)}
+            >
               <div className="h-full overflow-auto border-t border-border pt-2">{tableView}</div>
             </Allotment.Pane>
           </Allotment>

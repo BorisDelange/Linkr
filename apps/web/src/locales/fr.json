@@ -4891,6 +4891,8 @@
     "cox_ph_title": "Hypothèse des risques proportionnels",
     "cox_ph_hint": "Un rapport de risques est un chiffre unique pour tout le suivi, ce qui n'a de sens que si l'effet y est constant. Un petit p indique que ce n'est pas le cas.",
     "cox_ph_ok": "vérifiée",
-    "cox_ph_violated": "non vérifiée"
+    "cox_ph_violated": "non vérifiée",
+    "cox_ph_col_stat": "χ²",
+    "cox_ph_col_verdict": "Hypothèse"
   }
 }

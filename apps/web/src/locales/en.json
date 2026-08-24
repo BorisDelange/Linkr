@@ -4891,6 +4891,8 @@
     "cox_ph_title": "Proportional hazards assumption",
     "cox_ph_hint": "A hazard ratio is one number for the whole follow-up, which holds only if the effect is constant over it. A small p means it is not.",
     "cox_ph_ok": "holds",
-    "cox_ph_violated": "violated"
+    "cox_ph_violated": "violated",
+    "cox_ph_col_stat": "χ²",
+    "cox_ph_col_verdict": "Assumption"
   }
 }
