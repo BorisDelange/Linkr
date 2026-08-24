@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   Code,
   BarChart3,
-  Database,
   Info,
   FileText,
   Scale,
@@ -20,13 +19,6 @@ import { useUrlTab } from '@/hooks/use-url-tab'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,7 +75,7 @@ interface Props {
 }
 
 export function DqRuleSetDetailPage({ ruleSetId }: Props) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
   const {
@@ -98,7 +90,6 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   } = useDqStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [activeTab, setActiveTab] = useUrlTab<TabId>({
     key: `dq:${ruleSetId}`,
@@ -204,26 +195,10 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
               onExport={() => void dqActions.onExport(ruleSet)}
             />
           </TabsList>
-          {/* The database the checks run against — a rule-set setting, so it
-              stays on this row where every tab can see it. */}
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
-            <Select
-              value={ruleSet.dataSourceId}
-              onValueChange={(value) => updateRuleSet(ruleSet.id, { dataSourceId: value })}
-            >
-              <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
-                <Database size={12} className="text-muted-foreground" />
-                <SelectValue placeholder={t('data_quality.select_database')} />
-              </SelectTrigger>
-              <SelectContent>
-                {dbSources.map((ds) => (
-                  <SelectItem key={ds.id} value={ds.id}>
-                    {localized(ds.name, i18n.language)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Balances the left spacer so the tabs stay centred. The database
+              picker moved into the Checks tab, beside the Test button it
+              governs. */}
+          <div className="min-w-0 flex-1" />
         </div>
 
         <TabsContent value="overview" className="m-0 min-h-0 flex-1 p-0">

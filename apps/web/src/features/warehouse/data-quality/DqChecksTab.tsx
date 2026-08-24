@@ -16,6 +16,7 @@ import {
   EyeOff,
   ListChecks,
   X,
+  Database,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -61,6 +62,7 @@ import { generateChecks } from '@/lib/duckdb/data-quality'
 import type { DqCheck, DqCategory, DqSeverity } from '@/lib/duckdb/data-quality'
 import { useDqStore } from '@/stores/dq-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { localized } from '@/lib/localized'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CATEGORIES, SEVERITIES, CATEGORY_COLORS } from './DqConstants'
 import type { DqCustomCheck } from '@/types'
@@ -91,7 +93,7 @@ function fuzzyMatch(target: string, query: string): boolean {
 }
 
 export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
   const {
     customChecks,
@@ -116,6 +118,8 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const activeSource = dataSources.find((ds) => ds.id === dataSourceId)
+  const updateRuleSet = useDqStore((s) => s.updateRuleSet)
+  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [sidebarFilter, setSidebarFilter] = useState<SidebarFilter>('all')
@@ -488,6 +492,29 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
               )}
             </>
           )}
+
+          {/* The database the checks run against. It lives here rather than on
+              the page's tab row because it is what Test runs against — beside
+              the button it governs. */}
+          <div className="ml-auto flex min-w-0 items-center gap-1">
+            <Select
+              value={dataSourceId}
+              onValueChange={(value) => updateRuleSet(ruleSetId, { dataSourceId: value })}
+              disabled={!canWrite}
+            >
+              <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
+                <Database size={12} className="text-muted-foreground" />
+                <SelectValue placeholder={t('data_quality.select_database')} />
+              </SelectTrigger>
+              <SelectContent>
+                {dbSources.map((ds) => (
+                  <SelectItem key={ds.id} value={ds.id}>
+                    {localized(ds.name, i18n.language)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* Content */}
