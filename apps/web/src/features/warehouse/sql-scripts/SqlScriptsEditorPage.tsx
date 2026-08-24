@@ -25,6 +25,10 @@ import {
   TableIcon,
   FolderPlus,
   ListChecks,
+  Download,
+  GitBranch,
+  MoreHorizontal,
+  Scale,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -47,6 +51,13 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
+import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
+import { useUrlTab } from '@/hooks/use-url-tab'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useOrganizationStore } from '@/stores/organization-store'
+import { useSqlCollectionActions } from './use-sql-collection-actions'
 import { cn } from '@/lib/utils'
 import type * as Monaco from 'monaco-editor'
 import { CodeEditor } from '@/components/editor/CodeEditor'
@@ -75,6 +86,26 @@ const SQL_EDITOR_SHORTCUT_ACTIONS: ShortcutActionId[] = [
   'run_file',
   'toggle_comment',
 ]
+
+const SQL_TAB_IDS = ['scripts', 'readme', 'license', 'versioning'] as const
+type SqlTabId = (typeof SQL_TAB_IDS)[number]
+
+/**
+ * Readme, licence, export and versioning fold behind one trigger, as on the ETL
+ * pipeline, the schema, the mapping project and the database.
+ *
+ * Scripts is the only primary tab: the editor is the page, and everything else
+ * is what you reach for occasionally.
+ *
+ * 'export' is not a tab of its own — a collection exports as a ZIP download, so
+ * selecting it runs the action and leaves the active tab alone.
+ */
+const SQL_SECONDARY_TABS = ['readme', 'license', 'versioning'] as const
+type SqlSecondaryTabId = (typeof SQL_SECONDARY_TABS)[number]
+
+function isSqlSecondaryTab(tab: SqlTabId): tab is SqlSecondaryTabId {
+  return (SQL_SECONDARY_TABS as readonly string[]).includes(tab)
+}
 
 interface Props {
   collectionId: string
@@ -112,6 +143,13 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     updateCollection,
   } = useSqlScriptsStore()
 
+  const sqlActions = useSqlCollectionActions()
+  const [activeTab, setActiveTab] = useUrlTab<SqlTabId>({
+    key: `sql-collection:${collectionId}`,
+    tabs: SQL_TAB_IDS,
+    defaultTab: 'scripts',
+  })
+
   const [explorerVisible, setExplorerVisible] = useState(true)
   const [editorVisible, setEditorVisible] = useState(true)
   const [createFileOpen, setCreateFileOpen] = useState(false)
@@ -145,6 +183,16 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   }, [collectionId, loadCollectionFiles])
 
   const collection = collections.find((c) => c.id === collectionId)
+
+  // The collection's own frozen provenance wins; otherwise the workspace's live
+  // organization — the rule every other licence tab follows.
+  const workspace = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === collection?.workspaceId))
+  const org = useOrganizationStore((s) =>
+    workspace?.organizationId ? s.getOrganization(workspace.organizationId) : undefined,
+  )
+  const holder = collection?.organization?.name ?? org?.name
+  const licenseHolder = holder ? localized(holder, i18n.language) : undefined
+
   const selectedFile = files.find((f) => f.id === selectedFileId)
   const hasOutput = outputTabs.length > 0 || executionResults.length > 0
 
@@ -365,9 +413,75 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full flex-col overflow-hidden">
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => setActiveTab(v as SqlTabId)}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <div className="flex shrink-0 items-center px-6 pt-2">
+            <div className="flex-1" />
+            <TabsList>
+              <TabsTrigger value="scripts">
+                <Code size={14} />
+                {t('sql_scripts.tab_scripts')}
+              </TabsTrigger>
+              <SqlSecondaryTabsTrigger
+                activeTab={activeTab}
+                onSelect={setActiveTab}
+                onExport={() => { if (collection) void sqlActions.onExport(collection) }}
+              />
+            </TabsList>
+            <div className="flex-1" />
+          </div>
 
-        {/* IDE */}
-        <div className="flex-1 overflow-hidden">
+          <TabsContent value="readme" className="m-0 min-h-0 flex-1 p-0">
+            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+              {collection && (
+                <EntityReadmePanel
+                  readme={collection.readme}
+                  onSave={(readme) => updateCollection(collection.id, { readme })}
+                  canEdit={canWrite}
+                  attachmentOwner={{ type: 'sql-collection', id: collection.id, workspaceId: collection.workspaceId }}
+                  // The tab already says "Readme".
+                  showTitle={false}
+                />
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="license" className="m-0 min-h-0 flex-1 p-0">
+            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+              {collection && (
+                <EntityLicensePanel
+                  license={collection.license ?? null}
+                  onSave={(license) => updateCollection(collection.id, { license: license ?? undefined })}
+                  canEdit={canWrite}
+                  copyrightHolder={licenseHolder}
+                  showTitle={false}
+                />
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="versioning" className="m-0 min-h-0 flex-1 p-0">
+            <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col px-6 py-6">
+              {/* Git link + push-only sync panel. Export is a menu action here, so
+                  no export UI in this tab. */}
+              {collection && (
+                <GitRepositoryTab
+                  gitRemote={collection.gitRemoteConfig ?? null}
+                  onSave={(cfg) => updateCollection(collection.id, { gitRemoteConfig: cfg ?? undefined })}
+                  syncScope="sql-script-collections"
+                  syncId={collection.id}
+                />
+              )}
+            </div>
+          </TabsContent>
+
+        {/* The editor keeps its own mount across tab switches: Monaco, the open
+            files and the output panes are expensive to rebuild, and coming back
+            to a re-initialised editor would lose the session. */}
+        <div className={cn('min-h-0 flex-1 overflow-hidden', activeTab === 'scripts' ? '' : 'hidden')}>
           <Allotment>
             {/* Explorer sidebar */}
             <Allotment.Pane preferredSize={240} minSize={140} maxSize={400} visible={explorerVisible}>
@@ -816,6 +930,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
             </Allotment.Pane>
           </Allotment>
         </div>
+        </Tabs>
       </div>
 
       {/* Create file/folder dialog — type + parent-folder picker, like the IDE. */}
@@ -861,6 +976,75 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
         actionIds={SQL_EDITOR_SHORTCUT_ACTIONS}
       />
     </TooltipProvider>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Secondary tabs ("...")
+// ---------------------------------------------------------------------------
+
+/**
+ * One trigger standing in for the occasional tabs.
+ *
+ * It is a real TabsTrigger for whichever of them is active, so the tab
+ * semantics are the ones Radix provides; when none is active it only opens the
+ * menu.
+ */
+function SqlSecondaryTabsTrigger({
+  activeTab,
+  onSelect,
+  onExport,
+}: {
+  activeTab: SqlTabId
+  onSelect: (tab: SqlTabId) => void
+  onExport: () => void
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const active = isSqlSecondaryTab(activeTab) ? activeTab : undefined
+
+  // Export downloads a ZIP rather than opening a view, so it has no tab id and
+  // never becomes the active one — it sits here because this is where the
+  // occasional actions live.
+  const items: { id: SqlSecondaryTabId | 'export'; label: string; icon: typeof FileText }[] = [
+    { id: 'readme', label: t('common.readme'), icon: FileText },
+    { id: 'license', label: t('license.title'), icon: Scale },
+    { id: 'export', label: t('common.export'), icon: Download },
+    { id: 'versioning', label: t('common.versioning'), icon: GitBranch },
+  ]
+  const current = items.find((i) => i.id === active)
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <TabsTrigger
+          value={active ?? '__secondary__'}
+          // TabsTrigger paints "active" from data-state, but DropdownMenuTrigger
+          // owns that attribute on a composed trigger and writes open/closed into
+          // it. aria-selected stays the tab's own, so drive the styles off that.
+          className="aria-selected:bg-background aria-selected:text-foreground aria-selected:shadow-sm"
+          // The menu is the point: let it open instead of switching tab.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => { e.preventDefault(); setOpen((v) => !v) }}
+        >
+          {current ? <current.icon size={14} /> : <MoreHorizontal size={14} />}
+          {current ? current.label : t('common.more')}
+          <ChevronDown size={12} className="opacity-60" />
+        </TabsTrigger>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40">
+        {items.map((item) => (
+          <DropdownMenuItem
+            key={item.id}
+            onSelect={() => { if (item.id === 'export') onExport(); else onSelect(item.id) }}
+            className={item.id === active ? 'bg-accent' : undefined}
+          >
+            <item.icon size={14} className="text-muted-foreground" />
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

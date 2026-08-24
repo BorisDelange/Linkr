@@ -3584,6 +3584,7 @@
     "readme_empty_hint": "No readme yet — write one to say what this pipeline transforms."
   },
   "sql_scripts": {
+    "tab_scripts": "Scripts",
     "title": "Script Collections",
     "description": "Organize and run SQL scripts against your workspace databases.",
     "new_collection": "New collection",

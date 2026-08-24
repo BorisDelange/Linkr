@@ -455,6 +455,9 @@ export function Header() {
       {...sqlActions}
       syncScope="sql-script-collections"
       align="start"
+      // Already on the collection's page: switch tab rather than open the dialog.
+      onOpenDocs={(_item, tab) => navigate(`${pathname}?tab=${tab}`, { replace: true })}
+      onVersioningOverride={() => navigate(`${pathname}?tab=versioning`, { replace: true })}
       onDeleted={handleEntityDeleted}
       open={sqlMenuOpen}
       onOpenChange={setSqlMenuOpen}
