@@ -57,6 +57,7 @@ export function PublicationTable<T extends PublicationRow>({
   wrap = false,
   emptyMessage,
   className,
+  center = false,
   tableRef,
 }: {
   rows: T[]
@@ -68,6 +69,8 @@ export function PublicationTable<T extends PublicationRow>({
   wrap?: boolean
   emptyMessage?: string
   className?: string
+  /** Centre the table in its container. Off by default (flush left). */
+  center?: boolean
   /** The table element, for export (PNG / clipboard / LaTeX). */
   tableRef?: React.Ref<HTMLTableElement>
 }) {
@@ -159,7 +162,14 @@ export function PublicationTable<T extends PublicationRow>({
       <table
         ref={tableRef}
         className="border-collapse bg-background text-xs"
-        style={{ tableLayout: 'fixed', width: columns.reduce((s, c) => s + widthOf(c), 0) }}
+        style={{
+          tableLayout: 'fixed',
+          width: columns.reduce((s, c) => s + widthOf(c), 0),
+          // The table has an explicit pixel width, so in a wider pane it sits
+          // flush left unless centred. Opt-in: most callers want it aligned
+          // with the text above it.
+          ...(center ? { marginLeft: 'auto', marginRight: 'auto' } : null),
+        }}
       >
         {/* Widths live here, not on the header cells.
             Under table-layout: fixed the browser takes column widths from the

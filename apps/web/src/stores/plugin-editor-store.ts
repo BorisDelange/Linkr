@@ -201,10 +201,16 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     const list: PluginListItem[] = []
     for (const up of userPlugins) {
       try {
-        const manifest = JSON.parse(up.files['plugin.json'] ?? '{}') as PluginManifest
-        const manifestId = manifest.id ?? up.id
+        const stored = JSON.parse(up.files['plugin.json'] ?? '{}') as PluginManifest
+        const manifestId = stored.id ?? up.id
         const isSystemPlugin = SYSTEM_PLUGIN_IDS.has(manifestId)
         const isBuiltIn = isBuiltinPluginId(manifestId)
+        // For a built-in, the stored copy is a snapshot from when the workspace
+        // was seeded and is never refreshed — so it would list the plugin under
+        // whatever name it had then. The bundle is the source of truth for a
+        // read-only built-in; the row is kept for its workspace metadata.
+        const registered = isBuiltIn ? getPlugin(manifestId) : undefined
+        const manifest = registered?.manifest ?? stored
         list.push({ id: up.id, manifestId, manifest, isBuiltIn, isSystemPlugin, readOnly: isBuiltIn || isSystemPlugin, entityId: up.entityId, gitRemoteConfig: up.gitRemoteConfig, createdById: up.createdById, createdBy: up.createdBy, createdByDetails: up.createdByDetails, organization: up.organization, createdAt: up.createdAt, updatedAt: up.updatedAt })
       } catch { /* skip invalid */ }
     }

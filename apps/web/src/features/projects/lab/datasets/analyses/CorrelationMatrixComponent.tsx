@@ -393,7 +393,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
   const gridY = labelReserve
 
   return (
-    <div className={cn('flex w-full flex-col', compact ? 'p-2' : 'p-4')}>
+    <div className={cn('flex h-full min-h-0 w-full flex-col', compact ? 'p-2' : 'p-4')}>
       {/* Method header */}
       <div className={cn('mb-1 shrink-0 text-muted-foreground', compact ? 'text-[9px]' : 'text-[11px]')}>
         <span className="font-semibold text-foreground">
@@ -403,13 +403,22 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
         {' '}(n = {totalN})
       </div>
 
-      {/* The matrix keeps its own aspect: `w-full` plus a viewBox, with no
-          pixel height, so it can never be measured down to nothing. */}
-      <div className="flex items-start justify-center">
+      {/* Fills the widget and scales with it.
+          The SVG is sized 100% x 100% of this flex child and keeps its aspect
+          via preserveAspectRatio, so the matrix grows into a larger pane and
+          shrinks into a smaller one WITHOUT measuring anything in JS — the
+          measurement is what previously collapsed to zero and drew nothing. */}
+      <div
+        className="flex min-h-0 flex-1 items-center justify-center overflow-auto"
+        // A floor, so a short pane scrolls rather than squeezing a 12-variable
+        // matrix into an unreadable band.
+        style={{ minHeight: Math.min(svgHeight, compact ? 160 : 240) }}
+      >
           <svg
             viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-            className="h-auto w-full text-foreground"
-            style={{ fontSize: labelFontSize, maxWidth: svgWidth }}
+            preserveAspectRatio="xMidYMid meet"
+            className="h-full w-full text-foreground"
+            style={{ fontSize: labelFontSize }}
           >
             {/* Column headers (rotated, above grid) */}
             {result.names.map((name, j) => {
@@ -457,8 +466,12 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
                 const cx = gridX + j * cellSize
                 const cy = gridY + i * cellSize
                 const isSig = !isDiag && cell.pValue < alpha
-                const bgColor = isDiag ? correlationColor(1) : correlationColor(cell.r)
-                const txtColor = isDiag ? 'rgba(255,255,255,0.35)' : cellTextColor(cell.r)
+                // The diagonal is a variable against itself: always exactly 1,
+                // so it carries no finding. Drawn as neutral chrome rather than
+                // a faded full-strength red, where white-on-pale-pink left the
+                // "1" unreadable against a cell that also looked like a result.
+                const bgColor = isDiag ? 'var(--color-muted)' : correlationColor(cell.r)
+                const txtColor = isDiag ? 'var(--color-muted-foreground)' : cellTextColor(cell.r)
 
                 return (
                   <g key={`${i}-${j}`}>
@@ -469,7 +482,6 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
                       height={cellSize - 1}
                       rx={2}
                       fill={bgColor}
-                      opacity={isDiag ? 0.35 : 1}
                     />
                     {showValues && (
                       <text

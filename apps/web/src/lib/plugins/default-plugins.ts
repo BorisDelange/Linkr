@@ -563,10 +563,21 @@ export async function registerUserPlugins() {
         // Don't overwrite built-in component plugins with IDB copies that lack componentId
         const existing = getPlugin(plugin.manifest.id)
         if (existing?.componentId && !plugin.componentId) continue
-        // System widgets (e.g. timeline) own functional fields like configSchema
-        // in code; persisted copies only carry editable metadata. Preserve the
-        // built-in's schema so customising metadata can't drop the settings form.
-        if (existing && SYSTEM_PLUGIN_IDS.has(plugin.manifest.id)) {
+        // A built-in's manifest belongs to the BUNDLE, not to the workspace copy.
+        //
+        // The copy is a snapshot taken when the workspace was seeded and never
+        // refreshed, so letting it win freezes the plugin at that version: a
+        // renamed plugin keeps its old name, and — the reason this matters — a
+        // config field added in a later release never appears, because the
+        // panel is built from this manifest. Only the editable metadata a user
+        // can legitimately change in their workspace is taken from the copy.
+        if (existing && isBuiltinPluginId(plugin.manifest.id)) {
+          plugin.manifest = existing.manifest
+          plugin.componentId = plugin.componentId ?? existing.componentId
+        } else if (existing && SYSTEM_PLUGIN_IDS.has(plugin.manifest.id)) {
+          // System widgets (e.g. timeline) own functional fields like configSchema
+          // in code; persisted copies only carry editable metadata. Preserve the
+          // built-in's schema so customising metadata can't drop the settings form.
           plugin.manifest.configSchema = existing.manifest.configSchema
           plugin.componentId = plugin.componentId ?? existing.componentId
         }

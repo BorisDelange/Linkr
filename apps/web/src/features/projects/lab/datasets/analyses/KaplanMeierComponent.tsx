@@ -1270,7 +1270,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
             </div>
           )}
 
-          <PublicationTable rows={coxRows} columns={coxColumns} wrap={wrap} />
+          <PublicationTable rows={coxRows} columns={coxColumns} wrap={wrap} center />
 
           {/* The proportional-hazards check. A hazard ratio is one number for
               the whole follow-up, which only means anything if the effect is
@@ -1282,7 +1282,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
                 {t('analyses.cox_ph_title')}
               </div>
               <div className="mb-2 text-muted-foreground">{t('analyses.cox_ph_hint')}</div>
-              <PublicationTable rows={coxPhRows} columns={coxPhColumns} wrap={wrap} />
+              <PublicationTable rows={coxPhRows} columns={coxPhColumns} wrap={wrap} center />
             </div>
           )}
         </>
@@ -1306,7 +1306,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
 
       {/* Tabs, when the two views share the panel by switching. */}
       {displayMode === 'both-tabs' && (
-        <div className="mb-2 flex shrink-0 items-center justify-center gap-1">
+        <div className="mb-3 flex shrink-0 items-center justify-center gap-1">
           {([
             ['plot', Activity, t('analyses.km_view_plot')],
             ['table', TableIcon, t('analyses.km_view_table')],
