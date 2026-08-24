@@ -850,6 +850,7 @@
     "rs_status_success": "Success",
     "rs_status_error": "Error",
     "tab_checks": "Checks",
+    "readme_empty_hint": "No readme yet — write one to say what these checks verify.",
     "tab_results": "Results",
     "tab_history": "History",
     "checks": "Checks",

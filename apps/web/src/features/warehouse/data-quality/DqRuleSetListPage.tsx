@@ -217,6 +217,10 @@ export function DqRuleSetListPage() {
       onExport={dqActions.onExport}
       getGitRemote={dqActions.getGitRemote}
       docs={dqActions.docs}
+      // The rule set page owns these as tabs, so open it there rather than
+      // stacking a dialog over the list.
+      onOpenDocs={(item, tab) => navigate(`${item.id}?tab=${tab}`)}
+      onVersioningOverride={(item) => navigate(`${item.id}?tab=versioning`)}
       onSaveGitRemote={dqActions.onSaveGitRemote}
       exportSupportsIncludeData={dqActions.exportSupportsIncludeData}
       syncScope="dq-rule-sets"

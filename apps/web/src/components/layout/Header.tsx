@@ -500,6 +500,9 @@ export function Header() {
       {...dqActions}
       syncScope="dq-rule-sets"
       align="start"
+      // Already on the rule set's page: switch tab rather than open the dialog.
+      onOpenDocs={(_item, tab) => navigate(`${pathname}?tab=${tab}`, { replace: true })}
+      onVersioningOverride={() => navigate(`${pathname}?tab=versioning`, { replace: true })}
       onDeleted={handleEntityDeleted}
       open={dqMenuOpen}
       onOpenChange={setDqMenuOpen}

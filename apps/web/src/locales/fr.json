@@ -850,6 +850,7 @@
     "rs_status_success": "Succès",
     "rs_status_error": "Erreur",
     "tab_checks": "Contrôles",
+    "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire ce que ces contrôles vérifient.",
     "tab_results": "Résultats",
     "tab_history": "Historique",
     "checks": "Contrôles",
