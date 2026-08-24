@@ -116,8 +116,8 @@
         "fr": "Test"
       },
       "description": {
-        "en": "Auto picks per variable from the data: a normality check on each group decides between the parametric test and its rank-based counterpart. Forcing one applies it everywhere, which is what you want when a protocol fixed the analysis in advance.",
-        "fr": "Auto choisit variable par variable d'après les données : un test de normalité sur chaque groupe départage le test paramétrique et son équivalent sur les rangs. Forcer un choix l'applique partout, ce qui convient quand un protocole a fixé l'analyse à l'avance."
+        "en": "Applies to every variable. Auto picks per variable from the data: a normality check on each group decides between the parametric test and its rank-based counterpart. Forcing one applies it everywhere, which is what you want when a protocol fixed the analysis in advance. To override a SINGLE variable, click its test name in the results table.",
+        "fr": "S'applique à toutes les variables. Auto choisit variable par variable d'après les données : un test de normalité sur chaque groupe départage le test paramétrique et son équivalent sur les rangs. Forcer un choix l'applique partout, ce qui convient quand un protocole a fixé l'analyse à l'avance. Pour changer le test d'UNE seule variable, cliquez sur son nom de test dans le tableau des résultats."
       },
       "options": [
         {

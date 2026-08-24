@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FlaskConical, AlertTriangle, Check } from 'lucide-react'
+import { FlaskConical, AlertTriangle, Check, ChevronDown } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
@@ -1365,7 +1366,9 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
           />
         ),
         align: 'left',
-        width: 140,
+        // Room for the longest label ("Kruskal-Wallis") plus the chevron that
+        // shows the cell is a control; at 140 the two crowded each other.
+        width: 170,
       })
     }
     if (showCol('statistic')) {
@@ -1576,36 +1579,56 @@ function TestCell({
     </span>
   )
 
-  const withRationale = result.rationale ? (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="cursor-help underline decoration-dotted underline-offset-2">{name}</span>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs">
-          <p className="text-xs">{result.rationale[lang]}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  ) : (
-    name
-  )
-
-  if (!onPick) return withRationale
+  // Read-only (a dashboard widget): the name, with WHY behind a hover.
+  if (!onPick) {
+    if (!result.rationale) return name
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-help underline decoration-dotted underline-offset-2">{name}</span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <p className="text-xs">{result.rationale[lang]}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
+  }
 
   const choices = applicableTests(result.variableType, groupCount)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
+        {/* The chevron is the affordance. A dotted underline and cursor-help —
+            which is all this cell used to carry — reads as "there is an
+            explanation here", not "you can change this", so the per-variable
+            choice went unnoticed. The rationale moves into the menu, where it
+            no longer competes with the click. */}
         <button
           type="button"
-          className="-mx-1 rounded px-1 text-left hover:bg-accent"
+          className="group -mx-1 flex w-full items-center gap-1 rounded px-1 text-left hover:bg-accent"
           title={t('datasets.stats_pick_test')}
         >
-          {withRationale}
+          <span className="min-w-0 truncate">{name}</span>
+          <ChevronDown
+            size={11}
+            className="shrink-0 text-muted-foreground opacity-40 transition-opacity group-hover:opacity-100"
+          />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="text-xs">
+      <DropdownMenuContent align="start" className="max-w-xs text-xs">
+        {/* WHY the current test was chosen. It used to be a hover on the cell,
+            which hid the fact that the cell was a control; here it explains the
+            choice at the moment the reader is about to change it. */}
+        {result.rationale && (
+          <>
+            <p className="px-2 py-1.5 text-[10px] leading-snug text-muted-foreground">
+              {result.rationale[lang]}
+            </p>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem onClick={() => onPick(null)}>
           {t('datasets.stats_test_auto')}
           {!pinned && <Check size={12} className="ml-auto" />}
