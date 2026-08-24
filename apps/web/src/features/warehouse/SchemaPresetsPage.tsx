@@ -21,7 +21,13 @@ import {
   FileSpreadsheet,
   Filter,
   Palette,
+  Info,
+  FileText,
+  ArrowUpRight,
+  Table,
+  Columns3,
 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -60,6 +66,12 @@ import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { useSchemaPresetActions, toSchemaPresetItem } from './use-schema-preset-actions'
+import { BadgeStrip } from '@/components/ui/badge-strip'
+import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
+import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useOrganizationStore } from '@/stores/organization-store'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { SchemaERD } from './SchemaERD'
 import { DdlERD } from './DdlERD'
@@ -75,8 +87,6 @@ import type {
 } from '@/types/schema-mapping'
 import type { AuthorDetails } from '@/types/author'
 import type { EntityLicense, ProjectBadge } from '@/types'
-import { EntityDocsDialog } from '@/components/ui/entity-docs-dialog'
-import type { SchemaPresetItem } from './use-schema-preset-actions'
 import type * as Monaco from 'monaco-editor'
 
 // ---------------------------------------------------------------------------
@@ -1055,7 +1065,7 @@ function SchemaCard({
 // Schema detail page (full page with 4 tabs)
 // ---------------------------------------------------------------------------
 
-const SCHEMA_TAB_IDS = ['erd-ddl', 'ddl', 'mapping', 'erd-mapping'] as const
+const SCHEMA_TAB_IDS = ['overview', 'erd-ddl', 'ddl', 'mapping', 'erd-mapping', 'readme', 'license'] as const
 type SchemaTabId = (typeof SCHEMA_TAB_IDS)[number]
 
 function SchemaDetailView({
@@ -1074,10 +1084,11 @@ function SchemaDetailView({
   const canWrite = can('schemas:write')
   // Every schema is a stored entity now — there is no compiled-in fallback to
   // resolve against, and nothing is "built-in".
-  const baseMapping = useMemo(
-    () => customPresets.find((p) => p.presetId === schemaId)?.mapping ?? null,
+  const preset = useMemo(
+    () => customPresets.find((p) => p.presetId === schemaId) ?? null,
     [schemaId, customPresets],
   )
+  const baseMapping = preset?.mapping ?? null
 
   const [isEditing, setIsEditing] = useState(false)
   const [editMapping, setEditMapping] = useState<SchemaMapping | null>(null)
@@ -1148,6 +1159,7 @@ function SchemaDetailView({
         <div className="flex items-center px-6 pt-2 shrink-0">
           <div className="flex-1" />
           <TabsList>
+            <TabsTrigger value="overview">{t('databases.detail_overview')}</TabsTrigger>
             <TabsTrigger value="erd-ddl">{t('schemas.tab_schema_ddl')}</TabsTrigger>
             <TabsTrigger value="ddl" className="gap-1.5">
               <Code size={12} />
@@ -1155,6 +1167,8 @@ function SchemaDetailView({
             </TabsTrigger>
             <TabsTrigger value="mapping">{t('schemas.tab_mapping')}</TabsTrigger>
             <TabsTrigger value="erd-mapping">{t('schemas.tab_schema_mapping')}</TabsTrigger>
+            <TabsTrigger value="readme">{t('common.readme')}</TabsTrigger>
+            <TabsTrigger value="license">{t('license.title')}</TabsTrigger>
           </TabsList>
           <div className="flex flex-1 items-center justify-end gap-1">
             {activeTab === 'erd-ddl' ? (
@@ -1191,8 +1205,10 @@ function SchemaDetailView({
                   </Button>
                 </>
               )
-            ) : activeTab === 'erd-mapping' ? (
-              // Schema (mapping) view: read-only, nothing to edit here.
+            ) : activeTab === 'erd-mapping' || activeTab === 'overview'
+                || activeTab === 'readme' || activeTab === 'license' ? (
+              // Read-only diagram, or a tab that carries its own edit affordance
+              // (the readme and licence panels have their own Edit button).
               null
             ) : isEditing ? (
               <>
@@ -1215,6 +1231,24 @@ function SchemaDetailView({
             )}
           </div>
         </div>
+
+        {/* No outer scroll area: the overview is a fixed-height layout whose
+            readme scrolls inside its own card. Letting the page scroll instead
+            would give that card unbounded height and nothing would ever scroll. */}
+        <TabsContent value="overview" className="m-0 min-h-0 flex-1 p-0">
+          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+            {preset && (
+              <SchemaOverviewTab
+                preset={preset}
+                mapping={displayMapping}
+                onSeeDdl={() => setActiveTab('erd-ddl')}
+                onSeeMapping={() => setActiveTab('mapping')}
+                onSeeReadme={() => setActiveTab('readme')}
+                onSeeLicense={() => setActiveTab('license')}
+              />
+            )}
+          </div>
+        </TabsContent>
 
         {/* Tab 1: ERD from DDL */}
         <TabsContent value="erd-ddl" className="flex-1 min-h-0 m-0 p-0">
@@ -1288,8 +1322,272 @@ function SchemaDetailView({
         <TabsContent value="erd-mapping" className="flex-1 min-h-0 m-0 p-0">
           <SchemaERD mapping={displayMapping} fullscreen />
         </TabsContent>
+
+        <TabsContent value="readme" className="m-0 min-h-0 flex-1 p-0">
+          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+            {preset && <SchemaReadmeTab preset={preset} />}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="license" className="m-0 min-h-0 flex-1 p-0">
+          <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+            {preset && <SchemaLicenseTab preset={preset} />}
+          </div>
+        </TabsContent>
       </Tabs>
 
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Detail view — overview, readme and licence tabs
+// ---------------------------------------------------------------------------
+
+function SchemaReadmeTab({ preset }: { preset: CustomSchemaPreset }) {
+  const canWrite = useMyWorkspaceRole().can('schemas:write')
+  const updatePreset = useSchemaPresetStore((s) => s.updatePreset)
+  return (
+    <EntityReadmePanel
+      readme={preset.readme}
+      onSave={(readme) => updatePreset(preset.presetId, { readme })}
+      canEdit={canWrite}
+      attachmentOwner={{ type: 'schema-preset', id: preset.presetId, workspaceId: preset.workspaceId }}
+      // The tab already says "Readme".
+      showTitle={false}
+    />
+  )
+}
+
+function SchemaLicenseTab({ preset }: { preset: CustomSchemaPreset }) {
+  const { i18n } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('schemas:write')
+  const updatePreset = useSchemaPresetStore((s) => s.updatePreset)
+  // The preset's own frozen provenance wins; otherwise the workspace's live
+  // organization — the rule the database and project licence tabs follow.
+  const workspace = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === preset.workspaceId))
+  const org = useOrganizationStore((s) =>
+    workspace?.organizationId ? s.getOrganization(workspace.organizationId) : undefined,
+  )
+  // Unlike a database, a preset carries no frozen organization snapshot of its
+  // own, so the workspace's live organization is the only holder available.
+  const holder = org?.name
+
+  return (
+    <EntityLicensePanel
+      license={preset.license ?? null}
+      onSave={(license) => updatePreset(preset.presetId, { license: license ?? undefined })}
+      canEdit={canWrite}
+      copyrightHolder={holder ? localized(holder, i18n.language) : undefined}
+      showTitle={false}
+    />
+  )
+}
+
+function SchemaOverviewTab({
+  preset,
+  mapping,
+  onSeeDdl,
+  onSeeMapping,
+  onSeeReadme,
+  onSeeLicense,
+}: {
+  preset: CustomSchemaPreset
+  mapping: SchemaMapping
+  onSeeDdl: () => void
+  onSeeMapping: () => void
+  onSeeReadme: () => void
+  onSeeLicense: () => void
+}) {
+  const { i18n } = useTranslation()
+  const { resolveAttachmentUrls } = useReadmeAttachments(
+    'schema-preset',
+    preset.presetId,
+    preset.workspaceId,
+  )
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
+      <SchemaStatCards mapping={mapping} onSeeDdl={onSeeDdl} onSeeMapping={onSeeMapping} />
+
+      {/* The README is what documents a shared schema — the thing whoever
+          installs it from the catalog reads first — so it gets the room, with
+          the identity card beside it. `self-start` on the second column: the
+          readme stretches to full height and scrolls inside itself, while
+          About keeps the height its content needs. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
+        <SchemaReadmePreview
+          readme={localized(preset.readme, i18n.language)}
+          resolveUrls={resolveAttachmentUrls}
+          onViewFull={onSeeReadme}
+        />
+        <div className="flex flex-col gap-4 self-start">
+          <SchemaIdentityCard preset={preset} onSeeLicense={onSeeLicense} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Headline figures, as the database overview shows its own: cards, not a table. */
+function SchemaStatCards({
+  mapping,
+  onSeeDdl,
+  onSeeMapping,
+}: {
+  mapping: SchemaMapping
+  onSeeDdl: () => void
+  onSeeMapping: () => void
+}) {
+  const { t } = useTranslation()
+  const toc = useMemo(() => parseDdlToc(mapping.ddl ?? ''), [mapping.ddl])
+  const count = (key: string) => toc.find((s) => s.key === key)?.entries.length ?? 0
+
+  // How much of the mapping is filled in — the figure that says whether this
+  // schema can actually drive the warehouse pages, which the DDL alone cannot.
+  // Distinct table names, as the list card counts them: several mapped roles can
+  // point at the same physical table, and counting roles would overstate it.
+  const mappedTables = new Set(
+    [
+      mapping.patientTable?.table,
+      mapping.visitTable?.table,
+      mapping.visitDetailTable?.table,
+      mapping.deathTable?.table,
+      mapping.noteTable?.table,
+      ...Object.values(mapping.eventTables ?? {}).map((e) => e.table),
+    ].filter((t): t is string => !!t),
+  ).size
+
+  const cards = [
+    { key: 'tables', icon: Table, value: count('tables'), label: t('schemas.overview_tables'), onClick: onSeeDdl },
+    { key: 'fks', icon: Columns3, value: count('fks'), label: t('schemas.overview_foreign_keys'), onClick: onSeeDdl },
+    { key: 'indexes', icon: Filter, value: count('indexes'), label: t('schemas.overview_indexes'), onClick: onSeeDdl },
+    { key: 'mapped', icon: FileSpreadsheet, value: mappedTables, label: t('schemas.overview_mapped_tables'), onClick: onSeeMapping },
+  ]
+
+  return (
+    <div className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
+      {cards.map((c) => (
+        <button
+          key={c.key}
+          type="button"
+          onClick={c.onClick}
+          className="rounded-xl border bg-card p-4 text-left shadow-sm transition-colors hover:bg-accent"
+        >
+          <div className="flex items-center gap-3">
+            <c.icon size={16} className="text-teal-600 dark:text-teal-400" />
+            <div className="min-w-0">
+              <div className="text-lg font-semibold tabular-nums">{c.value}</div>
+              <div className="truncate text-xs text-muted-foreground">{c.label}</div>
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** The README, as much of it as fits, with a way through to the whole thing. */
+function SchemaReadmePreview({
+  readme,
+  resolveUrls,
+  onViewFull,
+}: {
+  readme: string
+  resolveUrls: (md: string) => string
+  onViewFull: () => void
+}) {
+  const { t } = useTranslation()
+  // Rewrite attachments/<file> paths to blob URLs so images render, as the
+  // README tab does before handing the markdown to the renderer.
+  const resolved = resolveUrls(readme)
+
+  return (
+    <div className="flex min-h-0 flex-col rounded-xl border bg-card p-5 pr-2 shadow-sm">
+      <div className="flex shrink-0 items-center justify-between pr-3">
+        <div className="flex items-center gap-2">
+          <FileText size={14} className="text-muted-foreground" />
+          <h3 className="text-sm font-semibold">{t('common.readme')}</h3>
+        </div>
+        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onViewFull}>
+          {t('summary.view_full')}
+          <ArrowUpRight size={12} />
+        </Button>
+      </div>
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
+        {readme.trim() ? (
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            <ReactMarkdown
+              remarkPlugins={remarkPlugins}
+              rehypePlugins={rehypePlugins}
+              urlTransform={urlTransform}
+            >
+              {resolved}
+            </ReactMarkdown>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onViewFull}
+            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          >
+            {t('schemas.readme_empty_hint')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Who made this schema, when, under what licence, and how it is tagged. */
+function SchemaIdentityCard({
+  preset,
+  onSeeLicense,
+}: {
+  preset: CustomSchemaPreset
+  onSeeLicense: () => void
+}) {
+  const { t, i18n } = useTranslation()
+  const workspace = useWorkspaceStore((s) =>
+    s._workspacesRaw.find((w) => w.id === preset.workspaceId),
+  )
+  const description = localized(preset.mapping.description, i18n.language)
+
+  return (
+    <div className="flex shrink-0 flex-col gap-4 rounded-xl border bg-card p-5 pb-0 shadow-sm">
+      <div className="flex items-center gap-2">
+        <Info size={14} className="text-muted-foreground" />
+        <h3 className="text-sm font-semibold">{t('databases.detail_about')}</h3>
+      </div>
+
+      {description && <p className="text-xs text-muted-foreground">{description}</p>}
+
+      {!!preset.badges?.length && <BadgeStrip badges={preset.badges} />}
+
+      {preset.version && (
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">{t('common.version')}</span>
+          <span className="font-medium tabular-nums">{preset.version}</span>
+        </div>
+      )}
+
+      {/* Author, organization, dates and licence, resolved the same way every
+          card footer resolves them (live identity, frozen snapshot fallback).
+          The card drops its bottom padding (`pb-0`) because CardMetaFooter
+          carries its own pt-3/pb-2, and `-mt-1` trims the container's gap-4 —
+          this row is fine print, not a section. */}
+      <CardMetaFooter
+        className="-mt-1 flex-wrap"
+        createdById={preset.createdById}
+        createdBy={preset.createdBy}
+        createdByDetails={preset.createdByDetails}
+        organizationId={workspace?.organizationId}
+        createdAt={preset.createdAt}
+        updatedAt={preset.updatedAt}
+        license={preset.license}
+        showLicenseWhenEmpty
+        onOpenLicense={onSeeLicense}
+      />
     </div>
   )
 }
@@ -1311,8 +1609,6 @@ export function SchemaPresetsPage() {
   const storeDelete = useSchemaPresetStore((s) => s.deletePreset)
   const schemaActions = useSchemaPresetActions()
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
-  // A card's license chip opens the same docs dialog as its "..." menu.
-  const [docsTarget, setDocsTarget] = useState<SchemaPresetItem | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPresetName, setNewPresetName] = useState('')
   const [newPresetDescription, setNewPresetDescription] = useState('')
@@ -1487,6 +1783,11 @@ export function SchemaPresetsPage() {
     navigate(presetId)
   }
 
+  /** Open a schema straight on one of its tabs, as the database list does. */
+  const navigateToSchemaTab = (presetId: string, tab: string) => {
+    navigate(`${presetId}?tab=${tab}`)
+  }
+
   const navigateToList = () => {
     navigate(paths.warehouseSchemas(wsUid ?? ''))
   }
@@ -1570,12 +1871,13 @@ export function SchemaPresetsPage() {
                   createdByDetails={preset.createdByDetails}
                   createdById={preset.createdById}
                   license={preset.license}
-                  onOpenLicense={() => setDocsTarget(item)}
+                  onOpenLicense={() => navigateToSchemaTab(id, 'license')}
                   onNavigate={() => navigateToSchema(id)}
                   actionsMenu={
                     <EntityActionsMenu
                       item={item}
                       {...schemaActions}
+                      onOpenDocs={(_item, tab) => navigateToSchemaTab(id, tab)}
                       syncScope="schema-presets"
                       canEdit={canWrite}
                       canDelete={canDelete}
@@ -1689,21 +1991,6 @@ export function SchemaPresetsPage() {
             onOverwrite={() => { if (importConflict) doPresetImport(importConflict.mapping, false, importConflict.gitRemote, importConflict.parsed); setImportConflict(null) }}
           />
 
-          {/* Readme + licence, opened by a card's licence chip */}
-          {docsTarget && (
-            <EntityDocsDialog
-              open
-              onOpenChange={(open) => { if (!open) setDocsTarget(null) }}
-              initialTab="license"
-              entityName={localized(docsTarget.name, language)}
-              readme={schemaActions.docs.getReadme(docsTarget)}
-              onSaveReadme={(readme) => schemaActions.docs.onSaveReadme(docsTarget, readme)}
-              license={schemaActions.docs.getLicense(docsTarget)}
-              onSaveLicense={(license) => schemaActions.docs.onSaveLicense(docsTarget, license)}
-              canEdit={canWrite}
-              attachmentOwner={{ type: 'schema-preset', id: docsTarget.presetId, workspaceId: docsTarget.workspaceId }}
-            />
-          )}
         </div>
       </div>
     </div>

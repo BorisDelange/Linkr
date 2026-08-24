@@ -511,6 +511,8 @@ export function Header() {
       {...schemaActions}
       syncScope="schema-presets"
       align="start"
+      // Already on the schema's page: switch tab rather than open the dialog.
+      onOpenDocs={(_item, tab) => navigate(`${pathname}?tab=${tab}`, { replace: true })}
       onDeleted={handleEntityDeleted}
       open={schemaMenuOpen}
       onOpenChange={setSchemaMenuOpen}

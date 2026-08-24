@@ -2571,7 +2571,12 @@
     "erd_add_group": "Add group",
     "erd_reset_layout": "Reset layout",
     "erd_filter": "Filter",
-    "erd_ungrouped": "Ungrouped"
+    "erd_ungrouped": "Ungrouped",
+    "overview_tables": "Tables",
+    "overview_foreign_keys": "Foreign keys",
+    "overview_indexes": "Indexes",
+    "overview_mapped_tables": "Mapped tables",
+    "readme_empty_hint": "No readme yet — write one to say what this schema describes."
   },
   "organization": {
     "title": "Organization",

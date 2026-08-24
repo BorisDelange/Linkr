@@ -2571,7 +2571,12 @@
     "erd_add_group": "Ajouter un groupe",
     "erd_reset_layout": "Réinitialiser la disposition",
     "erd_filter": "Filtrer",
-    "erd_ungrouped": "Non groupées"
+    "erd_ungrouped": "Non groupées",
+    "overview_tables": "Tables",
+    "overview_foreign_keys": "Clés étrangères",
+    "overview_indexes": "Index",
+    "overview_mapped_tables": "Tables mappées",
+    "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire ce que ce schéma représente."
   },
   "organization": {
     "title": "Organisation",
