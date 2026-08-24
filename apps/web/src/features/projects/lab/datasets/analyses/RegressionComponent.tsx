@@ -1,11 +1,55 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { TrendingUp, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildRegressionSpec } from './regression-server'
+import { niceTicks } from '@/lib/chart-ticks'
+import { displayColumnName } from '@/lib/dataset-utils'
+import { orderSelection, type VariableOrder } from '@/lib/analysis-default-columns'
+import { PublicationTable, type PublicationColumn } from '@/components/ui/publication-table'
+import { usePublishAnalysisTable } from './analysis-table-context'
+import type { ExportTable, ExportTableCell } from '@/lib/table-export'
+import type { DatasetColumn } from '@/types'
+
+/**
+ * A model warning as DATA rather than as a sentence.
+ *
+ * The compute path runs far from i18n and is shared with the server result, so
+ * it records what happened and the render says it in the reader's language.
+ */
+export type RegressionWarning =
+  | { code: 'single_category'; name: string }
+  | { code: 'too_many_categories'; name: string; count: number }
+  | { code: 'outcome_not_binary'; count: number }
+  | { code: 'rows_excluded'; count: number }
+
+/** Placeholder for the intercept row, swapped for a localized name at render. */
+const INTERCEPT = '__intercept__'
+
+/**
+ * Is this coefficient the intercept?
+ *
+ * Two spellings, because the two compute paths name it differently: the client
+ * emits the sentinel above, while the server's pandas program emits the
+ * statsmodels literal. Both must be recognised or server mode prints the raw
+ * "(Intercept)" and the forest plot draws it as though it were a predictor.
+ */
+function isIntercept(name: string): boolean {
+  return name === INTERCEPT || name === '(Intercept)'
+}
+
+/**
+ * Forest-plot marker colours.
+ *
+ * Theme tokens rather than raw hex: the previous #16a34a / #6b7280 stayed put
+ * in dark mode while everything drawn with currentColor around them inverted.
+ */
+const SIG_COLOR = 'var(--color-primary)'
+const NON_SIG_COLOR = 'var(--color-muted-foreground)'
 
 // ===========================================================================
 // Types
@@ -293,7 +337,7 @@ interface PreparedData {
 
 function prepareData(
   rows: Record<string, unknown>[],
-  columns: { id: string; name: string; type: string }[],
+  columns: DatasetColumn[],
   outcomeId: string,
   predictorIds: string[],
   isLogistic: boolean,
@@ -305,11 +349,11 @@ function prepareData(
   const predictorCols = predictorIds
     .filter(id => id !== outcomeId)
     .map(id => colMap.get(id))
-    .filter((c): c is { id: string; name: string; type: string } => c != null)
+    .filter((c): c is DatasetColumn => c != null)
 
   if (predictorCols.length === 0) return null
 
-  const warnings: string[] = []
+  const warnings: RegressionWarning[] = []
 
   // Detect categorical predictors → dummy encoding
   // For each predictor: if type !== 'number', treat as categorical
@@ -323,7 +367,7 @@ function prepareData(
   const predictorSpecs: PredictorSpec[] = []
   for (const col of predictorCols) {
     if (col.type === 'number') {
-      predictorSpecs.push({ colId: col.id, colName: col.name, isNumeric: true })
+      predictorSpecs.push({ colId: col.id, colName: displayColumnName(col), isNumeric: true })
     } else {
       // Collect unique categories
       const cats = new Set<string>()
@@ -333,20 +377,20 @@ function prepareData(
       }
       const sorted = [...cats].sort()
       if (sorted.length < 2) {
-        warnings.push(`${col.name}: single category, skipped`)
+        warnings.push({ code: 'single_category', name: displayColumnName(col) })
         continue
       }
       if (sorted.length > 20) {
-        warnings.push(`${col.name}: ${sorted.length} categories (>20), skipped`)
+        warnings.push({ code: 'too_many_categories', name: displayColumnName(col), count: sorted.length })
         continue
       }
-      predictorSpecs.push({ colId: col.id, colName: col.name, isNumeric: false, categories: sorted })
+      predictorSpecs.push({ colId: col.id, colName: displayColumnName(col), isNumeric: false, categories: sorted })
     }
   }
 
   if (predictorSpecs.length === 0) return null
 
-  const predictorNames: string[] = ['(Intercept)']
+  const predictorNames: string[] = [INTERCEPT]
   for (const spec of predictorSpecs) {
     if (spec.isNumeric) {
       predictorNames.push(spec.colName)
@@ -368,7 +412,7 @@ function prepareData(
     }
     const sorted = [...unique].sort()
     if (sorted.length !== 2) {
-      warnings.push(`Outcome must be binary for logistic regression (found ${sorted.length} values)`)
+      warnings.push({ code: 'outcome_not_binary', count: sorted.length })
       return { X: [], y: [], nObs: rows.length, nComplete: 0, predictorNames, warnings }
     }
     binaryOutcomeMap = new Map()
@@ -429,7 +473,7 @@ function prepareData(
   }
 
   if (nMissing > 0) {
-    warnings.push(`${nMissing} row(s) excluded (missing values)`)
+    warnings.push({ code: 'rows_excluded', count: nMissing })
   }
 
   return {
@@ -639,7 +683,7 @@ function fitLogistic(
 
 function runRegression(
   rows: Record<string, unknown>[],
-  columns: { id: string; name: string; type: string }[],
+  columns: DatasetColumn[],
   outcomeId: string,
   predictorIds: string[],
   regressionType: 'auto' | 'linear' | 'logistic',
@@ -760,7 +804,8 @@ interface ForestPlotProps {
 
 function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProps) {
   // Exclude intercept from forest plot
-  const items = coefficients.filter(c => c.name !== '(Intercept)')
+  const { t } = useTranslation()
+  const items = coefficients.filter(c => !isIntercept(c.name))
   if (items.length === 0) return null
 
   const rowHeight = compact ? 22 : 28
@@ -769,7 +814,12 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
   const valueWidth = compact ? 100 : 120
   const totalWidth = labelWidth + plotWidth + valueWidth
   const marginTop = compact ? 20 : 28
-  const totalHeight = marginTop + items.length * rowHeight + 10
+  // Room below the rows for the axis rule, its tick labels and the caption —
+  // the old 10px held the caption alone.
+  const axisHeight = compact ? 16 : 20
+  const captionHeight = compact ? 10 : 12
+  const axisY = marginTop + items.length * rowHeight + 4
+  const totalHeight = axisY + axisHeight + captionHeight
 
   // Use OR for logistic, estimate for linear
   const values = items.map(c => isLogistic ? (c.or ?? Math.exp(c.estimate)) : c.estimate)
@@ -786,6 +836,16 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
   minVal -= range * 0.1
   maxVal += range * 0.1
 
+  // Round ticks over the padded range, from the same helper every other chart
+  // uses. A forest plot without an axis asks the reader to judge distance from
+  // a line with nothing to measure against.
+  const scale = niceTicks([minVal, maxVal])
+  if (scale) {
+    minVal = scale.domain[0]
+    maxVal = scale.domain[1]
+  }
+  const ticks = scale?.ticks ?? []
+
   const xScale = (v: number) => {
     const clamped = Math.max(minVal, Math.min(maxVal, v))
     return labelWidth + ((clamped - minVal) / (maxVal - minVal)) * plotWidth
@@ -797,7 +857,7 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
     <svg width={totalWidth} height={totalHeight} className="text-foreground" style={{ fontSize: compact ? 9 : 11 }}>
       {/* Header */}
       <text x={labelWidth + plotWidth / 2} y={compact ? 12 : 16} textAnchor="middle" fill="currentColor" fontWeight={600} fontSize={compact ? 10 : 12}>
-        {isLogistic ? 'Odds Ratio' : 'Estimate'}
+        {isLogistic ? t('analyses.reg_forest_or') : t('analyses.reg_forest_estimate')}
       </text>
 
       {/* Reference line */}
@@ -821,15 +881,16 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
             )}
             {/* Label */}
             <text x={labelWidth - 6} y={cy + 4} textAnchor="end" fill="currentColor" opacity={0.85} fontSize={compact ? 9 : 11}>
+              <title>{coef.name}</title>
               {coef.name.length > (compact ? 18 : 25) ? coef.name.slice(0, compact ? 16 : 23) + '…' : coef.name}
             </text>
             {/* CI line */}
-            <line x1={xLo} y1={cy} x2={xHi} y2={cy} stroke={isSig ? '#16a34a' : '#6b7280'} strokeWidth={1.5} />
+            <line x1={xLo} y1={cy} x2={xHi} y2={cy} stroke={isSig ? SIG_COLOR : NON_SIG_COLOR} strokeWidth={1.5} />
             {/* CI caps */}
-            <line x1={xLo} y1={cy - 3} x2={xLo} y2={cy + 3} stroke={isSig ? '#16a34a' : '#6b7280'} strokeWidth={1.5} />
-            <line x1={xHi} y1={cy - 3} x2={xHi} y2={cy + 3} stroke={isSig ? '#16a34a' : '#6b7280'} strokeWidth={1.5} />
+            <line x1={xLo} y1={cy - 3} x2={xLo} y2={cy + 3} stroke={isSig ? SIG_COLOR : NON_SIG_COLOR} strokeWidth={1.5} />
+            <line x1={xHi} y1={cy - 3} x2={xHi} y2={cy + 3} stroke={isSig ? SIG_COLOR : NON_SIG_COLOR} strokeWidth={1.5} />
             {/* Point estimate */}
-            <rect x={x - 3.5} y={cy - 3.5} width={7} height={7} fill={isSig ? '#16a34a' : '#6b7280'} transform={`rotate(45, ${x}, ${cy})`} />
+            <rect x={x - 3.5} y={cy - 3.5} width={7} height={7} fill={isSig ? SIG_COLOR : NON_SIG_COLOR} transform={`rotate(45, ${x}, ${cy})`} />
             {/* Value text */}
             <text x={labelWidth + plotWidth + 6} y={cy + 4} fill="currentColor" opacity={0.8} fontSize={compact ? 8 : 10}>
               {fmt(val, 2)} [{fmt(lo, 2)}, {fmt(hi, 2)}]
@@ -838,9 +899,36 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
         )
       })}
 
-      {/* X axis label */}
+      {/* X axis: a rule, round ticks and their values. */}
+      <g>
+        <line
+          x1={labelWidth}
+          y1={axisY}
+          x2={labelWidth + plotWidth}
+          y2={axisY}
+          stroke="currentColor"
+          opacity={0.25}
+        />
+        {ticks.map((tv) => (
+          <g key={tv}>
+            <line x1={xScale(tv)} y1={axisY} x2={xScale(tv)} y2={axisY + 3} stroke="currentColor" opacity={0.25} />
+            <text
+              x={xScale(tv)}
+              y={axisY + (compact ? 11 : 13)}
+              textAnchor="middle"
+              fill="currentColor"
+              opacity={0.6}
+              fontSize={compact ? 8 : 9}
+            >
+              {fmt(tv, 2)}
+            </text>
+          </g>
+        ))}
+      </g>
+
+      {/* What a position on that axis means. */}
       <text x={labelWidth + plotWidth / 2} y={totalHeight - 1} textAnchor="middle" fill="currentColor" opacity={0.5} fontSize={compact ? 8 : 9}>
-        {isLogistic ? `← protective | risk →    (ref = ${refValue})` : `← negative | positive →    (ref = ${refValue})`}
+        {isLogistic ? t('analyses.reg_forest_axis_or') : t('analyses.reg_forest_axis_linear')}
       </text>
     </svg>
   )
@@ -851,17 +939,25 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
 // ===========================================================================
 
 export function RegressionComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
-  const { i18n } = useTranslation()
-  const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
+  const { t } = useTranslation()
   const server = isServerMode()
 
   const outcomeId = (config.outcomeColumn as string) ?? ''
-  const predictorIds = (config.predictorColumns as string[]) ?? []
+  const variableOrder = (config.variableOrder as VariableOrder) ?? 'dataset'
+  const rawPredictorIds = useMemo(
+    () => (config.predictorColumns as string[]) ?? [],
+    [config.predictorColumns],
+  )
+  const predictorIds = useMemo(
+    () => orderSelection(rawPredictorIds, columns, variableOrder, displayColumnName),
+    [rawPredictorIds, columns, variableOrder],
+  )
   const regressionType = (config.regressionType as 'auto' | 'linear' | 'logistic') ?? 'auto'
   const confidenceLevel = (config.confidenceLevel as number) ?? 95
   const showForestPlot = (config.showForestPlot as boolean) ?? true
   const visibleColumns = (config.visibleColumns as string[]) ?? []
   const highlightSignificant = (config.highlightSignificant as boolean) ?? true
+  const wrap = config.wrap === true
   const alpha = 1 - confidenceLevel / 100
 
   // Default visible: all
@@ -902,6 +998,58 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const result = server ? serverResult : localResult
+  const isLogistic = result?.type === 'logistic'
+
+  /** One table row per coefficient, the intercept named in the reader's language. */
+  const coefRows = useMemo<CoefRow[]>(
+    () =>
+      (result?.coefficients ?? []).map((coef, i) => ({
+        id: `${coef.name}:${i}`,
+        coef,
+        label: isIntercept(coef.name) ? t('analyses.reg_intercept') : coef.name,
+      })),
+    [result, t],
+  )
+
+  const tableColumns = useMemo<PublicationColumn<CoefRow>[]>(() => {
+    const cols: PublicationColumn<CoefRow>[] = [
+      {
+        id: '__variable__',
+        header: t('datasets.table1_variable'),
+        cell: (r) => r.label,
+        align: 'left',
+        width: 220,
+        minWidth: 110,
+      },
+    ]
+    const headers: Record<string, string> = {
+      estimate: isLogistic ? t('analyses.reg_col_or') : t('analyses.reg_col_estimate'),
+      se: t('analyses.reg_col_se'),
+      ci: t('analyses.reg_col_ci', { level: confidenceLevel }),
+      statistic: isLogistic ? 'z' : 't',
+      p: t('analyses.reg_col_p'),
+    }
+    // Sized to the content, not to a uniform default: a t statistic is three
+    // characters where a confidence interval is a dozen.
+    const widths: Record<string, number> = { estimate: 96, se: 96, ci: 132, statistic: 72, p: 104 }
+    for (const col of visCols) {
+      cols.push({
+        id: col,
+        header: headers[col] ?? col,
+        cell: (r) => coefficientCell(col, r.coef, isLogistic, highlightSignificant, alpha),
+        align: 'right',
+        width: widths[col] ?? 100,
+      })
+    }
+    return cols
+  }, [t, visCols, isLogistic, confidenceLevel, highlightSignificant, alpha])
+
+  // Publish for the shell's Export menu (copy / LaTeX), like the other tables.
+  usePublishAnalysisTable(
+    coefRows.length > 0 ? () => toExportTable(coefRows, tableColumns, isLogistic) : null,
+    [coefRows, tableColumns, isLogistic],
+  )
+
 
   if (server && serverError) {
     return (
@@ -918,7 +1066,7 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <TrendingUp size={24} className="opacity-40" />
         <p className="text-xs">
-          {lang === 'fr' ? 'Aucune donnée disponible.' : 'No data available.'}
+          {t('analyses.no_data')}
         </p>
       </div>
     )
@@ -929,7 +1077,7 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <TrendingUp size={24} className="opacity-40" />
         <p className="text-xs">
-          {lang === 'fr' ? 'Sélectionnez une variable dépendante (Y).' : 'Select an outcome variable (Y).'}
+          {t('analyses.reg_select_outcome')}
         </p>
       </div>
     )
@@ -940,7 +1088,7 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <TrendingUp size={24} className="opacity-40" />
         <p className="text-xs">
-          {lang === 'fr' ? 'Sélectionnez au moins un prédicteur (X).' : 'Select at least one predictor (X).'}
+          {t('analyses.reg_select_predictors')}
         </p>
       </div>
     )
@@ -960,20 +1108,10 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <AlertTriangle size={24} className="opacity-40" />
         <p className="text-xs">
-          {lang === 'fr' ? 'Impossible de calculer la régression.' : 'Unable to compute regression.'}
+          {t('analyses.reg_failed')}
         </p>
       </div>
     )
-  }
-
-  const isLogistic = result.type === 'logistic'
-
-  const colHeaders: Record<string, { en: string; fr: string }> = {
-    estimate: isLogistic ? { en: 'OR', fr: 'OR' } : { en: 'Estimate', fr: 'Estimation' },
-    se: { en: 'Std. Error', fr: 'Erreur std.' },
-    ci: { en: `${confidenceLevel}% CI`, fr: `IC ${confidenceLevel}%` },
-    statistic: isLogistic ? { en: 'z', fr: 'z' } : { en: 't', fr: 't' },
-    p: { en: 'p-value', fr: 'p-value' },
   }
 
   return (
@@ -981,13 +1119,11 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
       {/* Model summary */}
       <div className={cn('mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground', compact ? 'text-[9px]' : 'text-[11px]')}>
         <span className="font-semibold text-foreground">
-          {isLogistic
-            ? (lang === 'fr' ? 'Régression logistique' : 'Logistic regression')
-            : (lang === 'fr' ? 'Régression linéaire' : 'Linear regression')}
+          {isLogistic ? t('analyses.reg_logistic') : t('analyses.reg_linear')}
         </span>
         <span>n = {result.nComplete}</span>
         {result.rSquared != null && <span>R² = {fmt(result.rSquared)}</span>}
-        {result.adjRSquared != null && <span>{lang === 'fr' ? 'R² aj.' : 'Adj. R²'} = {fmt(result.adjRSquared)}</span>}
+        {result.adjRSquared != null && <span>{t('analyses.reg_adj_r2')} = {fmt(result.adjRSquared)}</span>}
         {result.fStatistic != null && result.fPValue != null && (
           <span>F = {fmt(result.fStatistic)}, p = {fmtP(result.fPValue)}</span>
         )}
@@ -1001,83 +1137,22 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
           {result.warnings.map((w, i) => (
             <div key={i} className="flex items-start gap-1.5 text-yellow-700 dark:text-yellow-400">
               <AlertTriangle size={compact ? 10 : 12} className="mt-0.5 shrink-0" />
-              <span>{w}</span>
+              <span>{warningText(w, t)}</span>
             </div>
           ))}
         </div>
       )}
 
-      {/* Coefficients table */}
+      {/* Coefficients table — PublicationTable, so it matches the descriptive
+          table and statistical tests: resizable columns, no vertical rules, no
+          striping, and long names truncated with the full value on hover. */}
       {result.coefficients.length > 0 && (
-        <table className={cn('w-full border-collapse', compact ? 'text-[10px]' : 'text-xs')}>
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-muted">
-              <th className={cn('border-b border-r font-medium whitespace-nowrap text-left sticky left-0 z-20 bg-muted', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
-                {lang === 'fr' ? 'Variable' : 'Variable'}
-              </th>
-              {visCols.map(col => (
-                <th key={col} className={cn('border-b border-r font-medium whitespace-nowrap text-left', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
-                  {colHeaders[col]?.[lang] ?? col}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {result.coefficients.map((coef, idx) => {
-              const isSig = highlightSignificant && coef.pValue < alpha
-              return (
-                <tr
-                  key={idx}
-                  className={cn(
-                    'transition-colors hover:bg-accent/30',
-                    idx % 2 === 1 && 'bg-muted/30',
-                    isSig && 'bg-green-50/50 dark:bg-green-900/10',
-                  )}
-                >
-                  <td className={cn(
-                    'sticky left-0 z-[5] border-b border-r font-medium bg-background',
-                    compact ? 'px-2 py-0.5' : 'px-3 py-1.5',
-                    idx % 2 === 1 && !isSig && 'bg-muted/30',
-                    isSig && 'bg-green-50/50 dark:bg-green-900/10',
-                  )}>
-                    {coef.name}
-                  </td>
-                  {visCols.map(col => {
-                    let content: string
-                    switch (col) {
-                      case 'estimate':
-                        content = isLogistic ? fmt(coef.or ?? Math.exp(coef.estimate)) : fmt(coef.estimate)
-                        break
-                      case 'se':
-                        content = fmt(coef.se)
-                        break
-                      case 'ci':
-                        if (isLogistic) {
-                          content = `[${fmt(coef.orCiLow ?? Math.exp(coef.ciLow))}, ${fmt(coef.orCiHigh ?? Math.exp(coef.ciHigh))}]`
-                        } else {
-                          content = `[${fmt(coef.ciLow)}, ${fmt(coef.ciHigh)}]`
-                        }
-                        break
-                      case 'statistic':
-                        content = fmt(coef.statistic)
-                        break
-                      case 'p':
-                        content = `${fmtP(coef.pValue)} ${pStars(coef.pValue)}`
-                        break
-                      default:
-                        content = DASH
-                    }
-                    return (
-                      <td key={col} className={cn('border-b border-r whitespace-nowrap', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
-                        {content}
-                      </td>
-                    )
-                  })}
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        <PublicationTable
+          rows={coefRows}
+          columns={tableColumns}
+          wrap={wrap}
+          emptyMessage={t('common.no_results')}
+        />
       )}
 
       {/* Forest plot */}
@@ -1093,4 +1168,99 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
       )}
     </div>
   )
+}
+
+
+/** A coefficient plus the name the table prints for it. */
+interface CoefRow {
+  id: string
+  coef: CoefficientResult
+  label: string
+}
+
+/** One cell of the coefficients table. */
+function coefficientCell(
+  columnId: string,
+  coef: CoefficientResult,
+  isLogistic: boolean,
+  highlight: boolean,
+  alpha: number,
+) {
+  switch (columnId) {
+    case 'estimate':
+      return isLogistic ? fmt(coef.or ?? Math.exp(coef.estimate)) : fmt(coef.estimate)
+    case 'se':
+      return fmt(coef.se)
+    case 'ci':
+      return isLogistic
+        ? `[${fmt(coef.orCiLow ?? Math.exp(coef.ciLow))}, ${fmt(coef.orCiHigh ?? Math.exp(coef.ciHigh))}]`
+        : `[${fmt(coef.ciLow)}, ${fmt(coef.ciHigh)}]`
+    case 'statistic':
+      return fmt(coef.statistic)
+    case 'p': {
+      const significant = coef.pValue < alpha
+      return (
+        <span className={cn(highlight && significant && 'font-semibold')}>
+          {fmtP(coef.pValue)}
+          {significant && <span className="text-green-600 dark:text-green-400">{pStars(coef.pValue)}</span>}
+        </span>
+      )
+    }
+    default:
+      return DASH
+  }
+}
+
+/**
+ * The rendered table as plain text, for copy / LaTeX.
+ *
+ * Rebuilt from the coefficients rather than scraped from the DOM: the p cell
+ * renders as JSX so it can carry a marker, and a manuscript wants the value.
+ */
+function toExportTable(
+  rows: CoefRow[],
+  columns: PublicationColumn<CoefRow>[],
+  isLogistic: boolean,
+): ExportTable {
+  const head: ExportTableCell[][] = [columns.map((c) => ({ text: c.header, align: c.align }))]
+  const body = rows.map((r) =>
+    columns.map((c) => ({
+      text: c.id === '__variable__' ? r.label : exportCellText(c.id, r.coef, isLogistic),
+      align: c.align,
+    })),
+  )
+  return { head, body }
+}
+
+function exportCellText(columnId: string, coef: CoefficientResult, isLogistic: boolean): string {
+  switch (columnId) {
+    case 'estimate':
+      return isLogistic ? fmt(coef.or ?? Math.exp(coef.estimate)) : fmt(coef.estimate)
+    case 'se':
+      return fmt(coef.se)
+    case 'ci':
+      return isLogistic
+        ? `[${fmt(coef.orCiLow ?? Math.exp(coef.ciLow))}, ${fmt(coef.orCiHigh ?? Math.exp(coef.ciHigh))}]`
+        : `[${fmt(coef.ciLow)}, ${fmt(coef.ciHigh)}]`
+    case 'statistic':
+      return fmt(coef.statistic)
+    case 'p':
+      return `${fmtP(coef.pValue)}${pStars(coef.pValue)}`
+    default:
+      return DASH
+  }
+}
+
+/** A model warning, said in the reader's language. */
+function warningText(w: RegressionWarning, t: TFunction): string {
+  switch (w.code) {
+    case 'single_category':
+      return t('analyses.reg_skipped_single', { name: w.name })
+    case 'too_many_categories':
+      return t('analyses.reg_skipped_many', { name: w.name, count: w.count })
+    case 'outcome_not_binary':
+      return t('analyses.reg_outcome_not_binary', { count: w.count })
+    case 'rows_excluded':
+      return t('analyses.reg_rows_excluded', { count: w.count })
+  }
 }

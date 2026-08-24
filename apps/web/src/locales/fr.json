@@ -4848,6 +4848,8 @@
     "reg_forest_or": "Odds ratio",
     "reg_forest_estimate": "Estimation",
     "reg_forest_axis_or": "← protecteur · risque → (absence d'effet = 1)",
-    "reg_forest_axis_linear": "← négatif · positif → (absence d'effet = 0)"
+    "reg_forest_axis_linear": "← négatif · positif → (absence d'effet = 0)",
+    "reg_outcome_not_binary": "La régression logistique demande une variable dépendante à deux valeurs ; celle-ci en a {{count}}.",
+    "reg_rows_excluded": "{{count}} lignes exclues (valeurs manquantes ou invalides)."
   }
 }

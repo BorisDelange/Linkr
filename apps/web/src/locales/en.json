@@ -4848,6 +4848,8 @@
     "reg_forest_or": "Odds ratio",
     "reg_forest_estimate": "Estimate",
     "reg_forest_axis_or": "← protective · risk → (no effect = 1)",
-    "reg_forest_axis_linear": "← negative · positive → (no effect = 0)"
+    "reg_forest_axis_linear": "← negative · positive → (no effect = 0)",
+    "reg_outcome_not_binary": "Logistic regression needs a two-valued outcome; this one has {{count}}.",
+    "reg_rows_excluded": "{{count}} rows excluded (missing or invalid values)."
   }
 }
