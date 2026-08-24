@@ -1,18 +1,26 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import {
   ArrowRightLeft,
   ArrowUpRight,
   BarChart3,
+  ChevronDown,
   Download,
   FileText,
   GitBranch,
   Info,
   Library,
+  MoreHorizontal,
   Scale,
   Table2,
 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { BadgeStrip } from '@/components/ui/badge-strip'
@@ -24,6 +32,7 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { localized } from '@/lib/localized'
+import { getTotalSourceConcepts } from '@/lib/concept-mapping/mapping-status'
 import type { MappingProject } from '@/types'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useUrlTab } from '@/hooks/use-url-tab'
@@ -131,22 +140,11 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
               <Table2 size={14} />
               {t('concept_mapping.tab_mappings')}
             </TabsTrigger>
-            <TabsTrigger value="export">
-              <Download size={14} />
-              {t('concept_mapping.tab_export')}
-            </TabsTrigger>
-            <TabsTrigger value="readme">
-              <FileText size={14} />
-              {t('common.readme')}
-            </TabsTrigger>
-            <TabsTrigger value="license">
-              <Scale size={14} />
-              {t('license.title')}
-            </TabsTrigger>
-            <TabsTrigger value="versioning">
-              <GitBranch size={14} />
-              {t('common.versioning')}
-            </TabsTrigger>
+            {/* Export, versioning, readme and licence are the tabs you reach for
+                occasionally, not while mapping. Nine triggers made the row hard
+                to scan, so they fold into one — which still renders as the
+                active tab when you are on one of them. */}
+            <SecondaryTabsTrigger activeTab={activeTab} onSelect={setActiveTab} />
           </TabsList>
         </div>
         {/* Render only the active tab — except the editor, which is kept mounted
@@ -217,6 +215,83 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Secondary tabs ("...")
+// ---------------------------------------------------------------------------
+
+/** The tabs that fold into the "..." trigger, in the order they appear there. */
+const SECONDARY_TABS = ['export', 'versioning', 'readme', 'license'] as const
+type SecondaryTabId = (typeof SECONDARY_TABS)[number]
+
+function isSecondaryTab(tab: TabId): tab is SecondaryTabId {
+  return (SECONDARY_TABS as readonly string[]).includes(tab)
+}
+
+/**
+ * One trigger standing in for four occasional tabs.
+ *
+ * It is a real TabsTrigger for whichever of the four is active, so the active
+ * styling and the tab semantics are the ones Radix already provides; when none
+ * is active it is an inert trigger that only opens the menu.
+ */
+function SecondaryTabsTrigger({
+  activeTab,
+  onSelect,
+}: {
+  activeTab: TabId
+  onSelect: (tab: TabId) => void
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const active = isSecondaryTab(activeTab) ? activeTab : undefined
+
+  const items: { id: SecondaryTabId; label: string; icon: typeof Download }[] = [
+    { id: 'export', label: t('concept_mapping.tab_export'), icon: Download },
+    { id: 'versioning', label: t('common.versioning'), icon: GitBranch },
+    { id: 'readme', label: t('common.readme'), icon: FileText },
+    { id: 'license', label: t('license.title'), icon: Scale },
+  ]
+  const current = items.find((i) => i.id === active)
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        {/* `value` only when one of the four is active: giving it a value that
+            is never the active tab would leave a permanently inactive trigger,
+            and giving it the active tab's value when it isn't would steal the
+            selection from the real trigger. */}
+        <TabsTrigger
+          value={active ?? '__secondary__'}
+          // TabsTrigger paints "active" from data-state, but DropdownMenuTrigger
+          // owns that attribute here and writes open/closed into it. aria-selected
+          // is still the tab's own (Radix sets it from the value), so drive the
+          // same styles off it.
+          className="aria-selected:bg-background aria-selected:text-foreground aria-selected:shadow-sm"
+          // The menu is the point: let it open instead of switching tab.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => { e.preventDefault(); setOpen((v) => !v) }}
+        >
+          {current ? <current.icon size={14} /> : <MoreHorizontal size={14} />}
+          {current ? current.label : t('common.more')}
+          <ChevronDown size={12} className="opacity-60" />
+        </TabsTrigger>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40">
+        {items.map((item) => (
+          <DropdownMenuItem
+            key={item.id}
+            onSelect={() => onSelect(item.id)}
+            className={item.id === active ? 'bg-accent' : undefined}
+          >
+            <item.icon size={14} className="text-muted-foreground" />
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -419,11 +494,16 @@ function MappingProjectProgressCard({
 }) {
   const { t } = useTranslation()
   const stats = project.stats
-  if (!stats) return null
+  // `stats.totalSourceConcepts` is a cached figure that is 0 for a database
+  // project until something recomputes it — the Progress tab gets the real
+  // number by querying the source. getTotalSourceConcepts applies the same
+  // fallback the rest of the app uses; when even that yields nothing, show no
+  // percentage rather than a wrong one ("1552 of 0").
+  const total = getTotalSourceConcepts(project)
+  if (!stats || total <= 0) return null
 
-  const total = stats.totalSourceConcepts
   const mapped = stats.mappedCount
-  const pct = total > 0 ? Math.round((mapped / total) * 100) : 0
+  const pct = Math.min(100, Math.round((mapped / total) * 100))
 
   return (
     <button

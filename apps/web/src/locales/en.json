@@ -3152,7 +3152,8 @@
     "bump_minor": "Minor",
     "bump_patch": "Patch",
     "all_selected": "All selected",
-    "none_selected": "None selected"
+    "none_selected": "None selected",
+    "more": "More"
   },
   "user_menu": {
     "profile": "User settings",
