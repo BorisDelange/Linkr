@@ -183,6 +183,7 @@ export function App() {
             <Route path="/workspaces/:wsUid/plugins" element={<WorkspaceGuard><PluginsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse" element={<WorkspaceGuard><Navigate to="databases" replace /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/databases" element={<WorkspaceGuard><AppDatabasesPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/databases/:dbId" element={<WorkspaceGuard><AppDatabasesPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/schemas" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/schemas/:schemaId" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/schema-presets" element={<WorkspaceGuard><Navigate to="../schemas" replace /></WorkspaceGuard>} />
@@ -210,6 +211,7 @@ export function App() {
 
             {/* Project warehouse routes */}
             <Route path="/workspaces/:wsUid/projects/:uid/warehouse/databases" element={<WorkspaceGuard><ProjectGuard><DatabasesPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/databases/:dbId" element={<WorkspaceGuard><ProjectGuard><DatabasesPage /></ProjectGuard></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/projects/:uid/warehouse/concepts" element={<WorkspaceGuard><ProjectGuard><ConceptsPage /></ProjectGuard></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts" element={<WorkspaceGuard><ProjectGuard><CohortListPage /></ProjectGuard></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts/:cohortId" element={<WorkspaceGuard><ProjectGuard><CohortBuilderPage /></ProjectGuard></WorkspaceGuard>} />

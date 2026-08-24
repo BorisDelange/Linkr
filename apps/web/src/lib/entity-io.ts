@@ -2037,6 +2037,33 @@ function resolveWorkspaceName(ws: Workspace): string {
 }
 
 /**
+ * Lay out a database in a git-friendly tree under `prefix`: `_database.json`
+ * (metadata), `README.md`, `LICENSE.md`.
+ *
+ * Metadata only, and deliberately so. `connectionConfig` is reduced to what
+ * `sanitizeConnectionConfig` allows (no host, no credentials, no local file
+ * reference) and not a single row is written. A shared database repo — an open
+ * dataset such as the MIMIC-IV demo — gets its data added by hand, outside the
+ * app, so the app can never be the path by which patient data leaves.
+ */
+export async function buildDataSourceFolder(
+  zip: JSZip,
+  prefix: string,
+  source: DataSource,
+  storage: Storage,
+): Promise<void> {
+  const { connectionConfig, ...rest } = stripInstanceFields(source) as unknown as Record<string, unknown>
+  const meta = {
+    ...stripEntityDocs(rest as unknown as DataSource),
+    connectionConfig: connectionConfig
+      ? sanitizeConnectionConfig(connectionConfig as Record<string, unknown>)
+      : undefined,
+  }
+  zip.file(`${prefix}_database.json`, json(meta))
+  await writeEntityDocs(zip, prefix, source, storage, 'data-source', source.id)
+}
+
+/**
  * Lay out a SQL script collection in a git-friendly tree under `prefix`:
  * `_collection.json` (metadata), `_tree.json` (the hierarchy keyed by path,
  * without content), and each script written at its real path with its raw

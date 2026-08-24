@@ -14,12 +14,13 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useSchemaPresetStore } from '@/stores/schema-preset-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { localized } from '@/lib/localized'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, User, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet, Pencil, Download, GitBranch } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, User, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet, Pencil, Download, GitBranch, Database as DatabaseIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -34,6 +35,7 @@ import { usePluginActions } from '@/features/settings/use-plugin-actions'
 import { useCatalogActions } from '@/features/warehouse/catalog/use-catalog-actions'
 import { useDqRuleSetActions } from '@/features/warehouse/data-quality/use-dq-rule-set-actions'
 import { useSchemaPresetActions, toSchemaPresetItem } from '@/features/warehouse/use-schema-preset-actions'
+import { useDatabaseActions } from '@/features/projects/warehouse/databases/use-database-actions'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -159,11 +161,14 @@ export function Header() {
   const cmId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/concept-mapping\/(?!projects$|overview$)([^/]+)$/)?.[1]
   const dqId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/data-quality\/([^/]+)$/)?.[1]
   const schemaId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/schemas\/([^/]+)$/)?.[1]
+  // A database detail page exists at both levels — the workspace warehouse and a
+  // project's warehouse — and both show the same badge.
+  const dbId = pathname.match(/\/warehouse\/databases\/([^/]+)$/)?.[1]
 
   // Detail pages get a back arrow before the title that returns to their list view. Each list
   // path is the detail path with the trailing :id segment removed.
   const backToListPath = (() => {
-    const detailId = dashboardId ?? cohortId ?? patientBoardId ?? etlId ?? sqlId ?? catalogId ?? cmId ?? dqId ?? schemaId
+    const detailId = dashboardId ?? cohortId ?? patientBoardId ?? etlId ?? sqlId ?? catalogId ?? cmId ?? dqId ?? schemaId ?? dbId
     if (!detailId) return null
     const idx = pathname.lastIndexOf(`/${detailId}`)
     if (idx <= 0) return null
@@ -185,6 +190,7 @@ export function Header() {
   const cmProject = useConceptMappingStore((s) => cmId ? resolveByIdPrefix(s.mappingProjects, cmId, (p) => p.id) : undefined)
   const dqEntity = useDqStore((s) => dqId ? resolveByIdPrefix(s.dqRuleSets, dqId, (r) => r.id) : undefined)
   const schemaPreset = useSchemaPresetStore((s) => schemaId ? resolveByIdPrefix(s.presets, schemaId, (p) => p.presetId) : undefined)
+  const dbEntity = useDataSourceStore((s) => dbId ? resolveByIdPrefix(s.dataSources, dbId, (d) => d.id) : undefined)
 
   // Plugin editor is driven by store state (not a route). When a plugin is open,
   // surface its name as a header badge with the same actions as any entity.
@@ -221,6 +227,7 @@ export function Header() {
   const catalogActions = useCatalogActions()
   const dqActions = useDqRuleSetActions()
   const schemaActions = useSchemaPresetActions()
+  const dbActions = useDatabaseActions()
   const schemaItem = schemaPreset ? toSchemaPresetItem(schemaPreset) : undefined
   const pluginActions = usePluginActions()
   const [wsMenuOpen, setWsMenuOpen] = useState(false)
@@ -235,6 +242,7 @@ export function Header() {
   const [catalogMenuOpen, setCatalogMenuOpen] = useState(false)
   const [dqMenuOpen, setDqMenuOpen] = useState(false)
   const [schemaMenuOpen, setSchemaMenuOpen] = useState(false)
+  const [dbMenuOpen, setDbMenuOpen] = useState(false)
 
   // After deleting the entity from the header, leave its (now-orphaned) detail
   // page for the list — otherwise the stale id lingers in the URL and the next
@@ -269,6 +277,7 @@ export function Header() {
       if (dashboardId) return dashboardName ?? t('project_nav.dashboards')
       if (cohortId) return cohortName ?? t('project_nav.cohorts')
       if (patientBoardId) return patientBoardName ?? t('project_nav.patient_data')
+      if (dbId) return dbEntity ? localized(dbEntity.name, language) : t('project_nav.databases')
 
       const key = projectSegmentTitleKeys[segment]
       return key ? t(key) : segment
@@ -284,6 +293,7 @@ export function Header() {
       if (catalogId) return catalogName ? localized(catalogName, language) : t('app_warehouse.nav_catalog')
       if (cmId) return cmName ? localized(cmName, language) : t('app_warehouse.nav_concept_mapping')
       if (dqId) return dqName ? localized(dqName, language) : t('app_warehouse.nav_data_quality')
+      if (dbId) return dbEntity ? localized(dbEntity.name, language) : t('app_warehouse.nav_databases')
 
       // Schema detail: the label comes from the workspace's stored preset, like every
       // other entity above. It used to read the compiled built-in table, so any schema
@@ -512,6 +522,26 @@ export function Header() {
         >
           <FileSpreadsheet size={10} className="text-muted-foreground" />
           {localized(schemaItem.name, language)}
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </Badge>
+      }
+    />
+  ) : dbEntity ? (
+    <EntityActionsMenu
+      item={dbEntity}
+      {...dbActions}
+      align="start"
+      onDeleted={handleEntityDeleted}
+      open={dbMenuOpen}
+      onOpenChange={setDbMenuOpen}
+      trigger={
+        <Badge
+          variant="outline"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          aria-label={t('common.actions')}
+        >
+          <DatabaseIcon size={10} className="text-muted-foreground" />
+          {localized(dbEntity.name, language)}
           <MoreHorizontal size={12} className="text-muted-foreground" />
         </Badge>
       }

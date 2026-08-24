@@ -151,8 +151,6 @@ export function AddDatabaseDialog({
       setSelectedType(editingSource.sourceType)
       setStep(2)
       setDbTab('general')
-    setBadges([])
-    setVersion('0.1.0')
       if (editingSource.sourceType === 'database') {
         const config = editingSource.connectionConfig as DatabaseConnectionConfig
         setDbEngine(config.engine)
@@ -169,7 +167,7 @@ export function AddDatabaseDialog({
       }
       setSchemaPresetId(editingSource.schemaMapping?.presetId as SchemaPresetId ?? '__none__')
     }
-  }, [open, editingSource])
+  }, [open, editingSource, language])
 
   // Common fields
   const [name, setName] = useState('')

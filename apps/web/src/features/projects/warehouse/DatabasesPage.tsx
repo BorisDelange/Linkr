@@ -21,9 +21,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { DatabaseCard } from './databases/DatabaseCard'
-import { DatabaseDetailSheet } from './databases/DatabaseDetailSheet'
+import { DatabaseDetailPage } from './databases/DatabaseDetailPage'
 import { LinkDatabaseDialog } from './databases/LinkDatabaseDialog'
+import { useNavigate } from 'react-router-dom'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { resolveByIdPrefix } from '@/lib/short-id'
+import { paths } from '@/lib/paths'
 
 const EMPTY_IDS: string[] = []
 
@@ -38,7 +41,8 @@ const STATUS_DOT: Record<string, string> = {
 export function DatabasesPage() {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
-  const { projectUid: uid } = useResolvedParams()
+  const { wsUid, projectUid: uid, raw } = useResolvedParams()
+  const navigate = useNavigate()
   const canEdit = useMyProjectRole(uid).atLeast('editor')
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const setActiveDataSource = useDataSourceStore((s) => s.setActiveDataSource)
@@ -54,7 +58,6 @@ export function DatabasesPage() {
 
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [sourceToUnlink, setSourceToUnlink] = useState<DataSource | null>(null)
-  const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [sort, setSort] = useState<SortState | null>(null)
@@ -86,7 +89,7 @@ export function DatabasesPage() {
       createdAt: (ds) => ds.createdAt,
       updatedAt: (ds) => ds.updatedAt,
     })
-  }, [sources, searchQuery, statusFilter, sort])
+  }, [sources, searchQuery, statusFilter, sort, language])
 
   const filterGroups: FilterGroup[] = [
     {
@@ -125,19 +128,23 @@ export function DatabasesPage() {
     }
   }, [uid, activeSource, sources, setActiveDataSource])
 
-  // Keep selectedSource in sync with store data
-  const currentSelectedSource = selectedSource
-    ? sources.find((ds) => ds.id === selectedSource.id) ?? null
-    : null
-
   const handleUnlink = () => {
     if (sourceToUnlink && uid) {
       unlinkDataSource(uid, sourceToUnlink.id)
-      if (selectedSource?.id === sourceToUnlink.id) {
-        setSelectedSource(null)
-      }
       setSourceToUnlink(null)
     }
+  }
+
+  // Ids are shortened in the URL, so resolve the prefix against the project's
+  // own linked list — the same way every other detail route does.
+  const siblingIds = sources.map((ds) => ds.id)
+  if (raw.dbId) {
+    return (
+      <DatabaseDetailPage
+        source={resolveByIdPrefix(sources, raw.dbId, (ds) => ds.id)}
+        onBack={() => navigate(paths.databases(wsUid ?? '', uid ?? ''))}
+      />
+    )
   }
 
   return (
@@ -190,7 +197,7 @@ export function DatabasesPage() {
                 key={ds.id}
                 source={ds}
                 isActive={activeSource?.id === ds.id}
-                onClick={() => setSelectedSource(ds)}
+                onClick={() => navigate(paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds))}
                 onSetActive={() => uid && setActiveDataSource(uid, ds.id)}
                 onTestConnection={() => testConnection(ds.id)}
                 onDisconnect={() => disconnectDataSource(ds.id)}
@@ -210,13 +217,6 @@ export function DatabasesPage() {
           projectUid={uid}
         />
       )}
-
-      {/* Detail Sheet */}
-      <DatabaseDetailSheet
-        source={currentSelectedSource}
-        open={!!currentSelectedSource}
-        onOpenChange={(open) => { if (!open) setSelectedSource(null) }}
-      />
 
       {/* Unlink confirmation dialog */}
       <AlertDialog

@@ -7,23 +7,15 @@ import {
   Plug,
   Unplug,
   RefreshCw,
-  Pencil,
-  MoreHorizontal,
-  Trash2,
   Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { cardMenuTriggerClass, cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
+import { useDatabaseActions } from './use-database-actions'
 
 interface DatabaseCardProps {
   source: DataSource
@@ -33,8 +25,9 @@ interface DatabaseCardProps {
   onTestConnection: () => void
   onDisconnect?: () => void
   onReconnect?: () => void
-  onEdit?: () => void
   onRemove: () => void
+  /** Opens the licence in the docs dialog, from the footer chip. */
+  onOpenLicense?: () => void
   /** When false, edit/remove actions are disabled (viewer). Default true. */
   canEdit?: boolean
   /** Extra content rendered under the stats row (e.g. the linked-projects strip). */
@@ -69,12 +62,13 @@ export const DatabaseCard = memo(function DatabaseCard({
   onTestConnection,
   onDisconnect,
   onReconnect,
-  onEdit,
   onRemove,
+  onOpenLicense,
   canEdit = true,
   belowStats,
 }: DatabaseCardProps) {
   const { t, i18n } = useTranslation()
+  const actions = useDatabaseActions()
 
   const summary = getSourceSummary(source, i18n.language)
   const config = source.connectionConfig as DatabaseConnectionConfig
@@ -138,50 +132,39 @@ export const DatabaseCard = memo(function DatabaseCard({
           )}
         </div>
 
-        {/* Actions menu (top-right) */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" className={cn('-mr-1 -mt-1 shrink-0 self-start', cardMenuTriggerClass)} onClick={(e) => e.stopPropagation()}>
-              <MoreHorizontal size={14} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {onEdit && (
-              <DropdownMenuItem disabled={!canEdit} onClick={(e) => { e.stopPropagation(); onEdit() }}>
-                <Pencil size={14} />
-                {t('common.edit')}
-              </DropdownMenuItem>
-            )}
-            {source.status === 'connected' && onDisconnect && (
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDisconnect() }}>
-                <Unplug size={14} />
-                {t('databases.disconnect')}
-              </DropdownMenuItem>
-            )}
-            {source.status !== 'connected' && (
-              needsReconnect && onReconnect ? (
-                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onReconnect() }}>
-                  <RefreshCw size={14} />
-                  {t('databases.reconnect')}
+        {/* Same menu the header badge shows, so the two cannot drift: edit,
+            export, versioning, readme, licence, delete — plus the connection
+            actions, which are the only database-specific ones. */}
+        <EntityActionsMenu
+          item={source}
+          {...actions}
+          canEdit={canEdit}
+          canDelete={canEdit}
+          onDelete={async () => onRemove()}
+          extraItems={
+            <>
+              {source.status === 'connected' && onDisconnect && (
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDisconnect() }}>
+                  <Unplug size={14} />
+                  {t('databases.disconnect')}
                 </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onTestConnection() }}>
-                  <Plug size={14} />
-                  {t('databases.connect')}
-                </DropdownMenuItem>
-              )
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={!canEdit}
-              onClick={(e) => { e.stopPropagation(); onRemove() }}
-              className="text-destructive focus:text-destructive"
-            >
-              <Trash2 size={14} className="text-destructive" />
-              {t('databases.remove')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              )}
+              {source.status !== 'connected' && (
+                needsReconnect && onReconnect ? (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onReconnect() }}>
+                    <RefreshCw size={14} />
+                    {t('databases.reconnect')}
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onTestConnection() }}>
+                    <Plug size={14} />
+                    {t('databases.connect')}
+                  </DropdownMenuItem>
+                )
+              )}
+            </>
+          }
+        />
         </div>
         <CardMetaFooter
           className="mt-auto"
@@ -190,6 +173,8 @@ export const DatabaseCard = memo(function DatabaseCard({
           createdByDetails={source.createdByDetails}
           createdAt={source.createdAt}
           updatedAt={source.updatedAt}
+          license={source.license}
+          onOpenLicense={onOpenLicense}
         />
       </div>
     </Card>

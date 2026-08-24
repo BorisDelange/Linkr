@@ -48,6 +48,8 @@ export const paths = {
 
   // --- Project: warehouse ---
   databases: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/warehouse/databases`,
+  database: (wsUid: string, projectUid: string, dbId: string, siblings?: readonly string[]) =>
+    `${proj(wsUid, projectUid)}/warehouse/databases/${siblings ? shortenIdAmong(dbId, siblings) : shortenId(dbId)}`,
   cohorts: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/warehouse/cohorts`,
   cohort: (wsUid: string, projectUid: string, cohortId: string, siblings?: readonly string[]) =>
     `${proj(wsUid, projectUid)}/warehouse/cohorts/${siblings ? shortenIdAmong(cohortId, siblings) : shortenId(cohortId)}`,
@@ -75,6 +77,8 @@ export const paths = {
   warehouseSchema: (wsUid: string, presetId: string) =>
     `${ws(wsUid)}/warehouse/schemas/${presetId}`,
   warehouseDatabases: (wsUid: string) => `${ws(wsUid)}/warehouse/databases`,
+  warehouseDatabase: (wsUid: string, dbId: string, siblings?: readonly string[]) =>
+    `${ws(wsUid)}/warehouse/databases/${siblings ? shortenIdAmong(dbId, siblings) : shortenId(dbId)}`,
   warehouseConceptMapping: (wsUid: string) => `${ws(wsUid)}/warehouse/concept-mapping/projects`,
   warehouseConceptMappingProject: (wsUid: string, mappingProjectId: string) =>
     `${ws(wsUid)}/warehouse/concept-mapping/${shortenId(mappingProjectId)}`,

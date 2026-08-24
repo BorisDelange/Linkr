@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { resolveByIdPrefix } from '@/lib/short-id'
+import { paths } from '@/lib/paths'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -45,7 +48,7 @@ import { generateAlias } from '@/lib/duckdb/engine'
 import { getStorage } from '@/lib/storage'
 import { DatabaseCard } from '@/features/projects/warehouse/databases/DatabaseCard'
 import { AddDatabaseDialog } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
-import { DatabaseDetailSheet } from '@/features/projects/warehouse/databases/DatabaseDetailSheet'
+import { DatabaseDetailPage } from '@/features/projects/warehouse/databases/DatabaseDetailPage'
 
 const DATA_SOURCE_STATUSES = ['connected', 'disconnected', 'error', 'configuring'] as const
 const STATUS_DOT: Record<string, string> = {
@@ -230,7 +233,8 @@ function CreateFromPresetDialog({
 
 export function AppDatabasesPage() {
   const { t } = useTranslation()
-  const { wsUid } = useResolvedParams()
+  const { wsUid, raw } = useResolvedParams()
+  const navigate = useNavigate()
   const canWrite = useMyWorkspaceRole().can('databases:write')
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { testConnection, disconnectDataSource, removeDataSource, reconnectDataSource, retestDataSource } = useDataSourceStore()
@@ -244,8 +248,6 @@ export function AppDatabasesPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [presetDialogOpen, setPresetDialogOpen] = useState(false)
   const [sourceToRemove, setSourceToRemove] = useState<DataSource | null>(null)
-  const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
-  const [sourceToEdit, setSourceToEdit] = useState<DataSource | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [projectFilter, setProjectFilter] = useState<string[]>([])
@@ -284,7 +286,7 @@ export function AppDatabasesPage() {
       createdAt: (ds) => ds.createdAt,
       updatedAt: (ds) => ds.updatedAt,
     })
-  }, [visibleSources, searchQuery, statusFilter, projectFilter, getLinkedProjects, sort])
+  }, [visibleSources, searchQuery, statusFilter, projectFilter, getLinkedProjects, sort, language])
 
   const linkedProjectOptions = useMemo(() => {
     const seen = new Map<string, string>()
@@ -313,18 +315,23 @@ export function AppDatabasesPage() {
     },
   ]
 
-  const currentSelectedSource = selectedSource
-    ? dataSources.find((ds) => ds.id === selectedSource.id) ?? null
-    : null
-
   const handleRemove = () => {
     if (sourceToRemove) {
       removeDataSource(sourceToRemove.id)
-      if (selectedSource?.id === sourceToRemove.id) {
-        setSelectedSource(null)
-      }
       setSourceToRemove(null)
     }
+  }
+
+  // Ids are shortened in the URL, so resolve the prefix against this workspace's
+  // own list — the same way every other detail route does.
+  const siblingIds = visibleSources.map((ds: DataSource) => ds.id)
+  if (raw.dbId) {
+    return (
+      <DatabaseDetailPage
+        source={resolveByIdPrefix(visibleSources, raw.dbId, (ds) => ds.id)}
+        onBack={() => navigate(paths.warehouseDatabases(wsUid ?? ''))}
+      />
+    )
   }
 
   return (
@@ -394,11 +401,10 @@ export function AppDatabasesPage() {
             <DatabaseCard
               key={ds.id}
               source={ds}
-              onClick={() => setSelectedSource(ds)}
+              onClick={() => navigate(paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds))}
               onTestConnection={() => connectAction(ds.id)}
               onDisconnect={() => disconnectDataSource(ds.id)}
               onReconnect={() => reconnectAction(ds.id)}
-              onEdit={() => setSourceToEdit(ds)}
               onRemove={() => setSourceToRemove(ds)}
               belowStats={
                 ds.badges?.length ? <BadgeStrip className="mt-1" badges={ds.badges} /> : undefined
@@ -413,24 +419,9 @@ export function AppDatabasesPage() {
         onOpenChange={setPresetDialogOpen}
       />
 
-      <AddDatabaseDialog
-        open={dialogOpen || !!sourceToEdit}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDialogOpen(false)
-            setSourceToEdit(null)
-          } else {
-            setDialogOpen(true)
-          }
-        }}
-        editingSource={sourceToEdit}
-      />
-
-      <DatabaseDetailSheet
-        source={currentSelectedSource}
-        open={!!currentSelectedSource}
-        onOpenChange={(open) => { if (!open) setSelectedSource(null) }}
-      />
+      {/* Creation only — editing an existing database goes through the card's
+          actions menu, which renders this same dialog with the item. */}
+      <AddDatabaseDialog open={dialogOpen} onOpenChange={setDialogOpen} />
 
 
       <AlertDialog
