@@ -4301,7 +4301,9 @@
     "change_equivalence_hint": "Modifier l'équivalence",
     "comment": "Commentaire",
     "map_with_comment_desc": "Choisissez l'équivalence et ajoutez un commentaire expliquant cet alignement.",
-    "ignore_with_comment_desc": "Marquez ce concept source comme ne nécessitant aucun alignement, avec une raison facultative."
+    "ignore_with_comment_desc": "Marquez ce concept source comme ne nécessitant aucun alignement, avec une raison facultative.",
+    "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire ce que ce projet mappe.",
+    "overview_mapped_of": "{{mapped}} concepts source mappés sur {{total}}"
   },
   "data_catalog": {
     "title": "Catalogue de données",

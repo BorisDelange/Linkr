@@ -4,7 +4,7 @@ import { Plus, Upload, type LucideIcon } from 'lucide-react'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { EntityActionsMenu, type EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
-import { EntityDocsDialog } from '@/components/ui/entity-docs-dialog'
+import { EntityDocsDialog, type DocsTab } from '@/components/ui/entity-docs-dialog'
 import { localized } from '@/lib/localized'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { shortenIdAmong } from '@/lib/short-id'
@@ -74,6 +74,9 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
   syncScope?: GitScope
   /** When set, each card's menu gets Readme and License items. */
   docs?: EntityDocsAccessors<T>
+  /** When set, Readme/License open the entity's own tab instead of the dialog —
+   *  for entities whose detail page owns those as tabs. */
+  onOpenDocs?: (item: T, tab: DocsTab) => void
   /** Import from a file. When provided, the Import header button is enabled.
    *  `gitRemote` is set when the source was cloned from git, so the caller can
    *  pre-link the entity's Versioning page to that repo (url/branch/token). */
@@ -126,6 +129,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   exportSupportsIncludeData = true,
   syncScope,
   docs,
+  onOpenDocs,
   onImport,
   importAccept = '.zip',
   renderCardBody,
@@ -237,6 +241,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                         exportSupportsIncludeData={exportSupportsIncludeData}
                         syncScope={syncScope}
                         docs={docs}
+                        onOpenDocs={onOpenDocs}
                         renderEditDialog={renderEditDialog}
                         deleteConfirmTitleKey={deleteConfirmTitleKey}
                         deleteConfirmDescriptionKey={deleteConfirmDescriptionKey}
@@ -269,7 +274,11 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                     createdAt={item.createdAt}
                     updatedAt={item.updatedAt}
                     license={docs ? docs.getLicense(item) : undefined}
-                    onOpenLicense={docs ? () => setLicenseTarget(item) : undefined}
+                    onOpenLicense={
+                      onOpenDocs
+                        ? () => onOpenDocs(item, 'license')
+                        : docs ? () => setLicenseTarget(item) : undefined
+                    }
                   />
                 </div>
               </Card>

@@ -4301,7 +4301,9 @@
     "change_equivalence_hint": "Change the equivalence",
     "comment": "Comment",
     "map_with_comment_desc": "Choose the equivalence and add a comment explaining this mapping.",
-    "ignore_with_comment_desc": "Mark this source concept as needing no mapping, with an optional reason."
+    "ignore_with_comment_desc": "Mark this source concept as needing no mapping, with an optional reason.",
+    "readme_empty_hint": "No readme yet — write one to say what this project maps.",
+    "overview_mapped_of": "{{mapped}} of {{total}} source concepts mapped"
   },
   "data_catalog": {
     "title": "Data Catalog",

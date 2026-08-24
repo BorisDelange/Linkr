@@ -474,6 +474,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         onVersioningOverride={mappingActions.onVersioningOverride}
         getGitRemote={mappingActions.getGitRemote}
         docs={mappingActions.docs}
+        onOpenDocs={(item, tab) => navigate(`${cmBase}/${item.id}?tab=${tab}`)}
         onSaveGitRemote={mappingActions.onSaveGitRemote}
         syncScope="mapping-projects"
         exportSupportsIncludeData={mappingActions.exportSupportsIncludeData}

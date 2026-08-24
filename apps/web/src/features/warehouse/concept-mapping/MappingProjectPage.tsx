@@ -1,5 +1,30 @@
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import ReactMarkdown from 'react-markdown'
+import {
+  ArrowRightLeft,
+  ArrowUpRight,
+  BarChart3,
+  Download,
+  FileText,
+  GitBranch,
+  Info,
+  Library,
+  Scale,
+  Table2,
+} from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { BadgeStrip } from '@/components/ui/badge-strip'
+import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
+import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useOrganizationStore } from '@/stores/organization-store'
+import { localized } from '@/lib/localized'
+import type { MappingProject } from '@/types'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
@@ -17,7 +42,7 @@ interface MappingProjectPageProps {
   projectId: string
 }
 
-const TABS = ['progress', 'concept-sets', 'editor', 'mappings', 'export', 'versioning'] as const
+const TABS = ['overview', 'progress', 'concept-sets', 'editor', 'mappings', 'export', 'readme', 'license', 'versioning'] as const
 type TabId = (typeof TABS)[number]
 
 export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
@@ -25,7 +50,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   const [activeTab, setActiveTab] = useUrlTab<TabId>({
     key: `mapping-project:${projectId}`,
     tabs: TABS,
-    defaultTab: 'progress',
+    defaultTab: 'overview',
   })
   // Once the editor has been opened at least once, keep its component mounted so
   // its (expensive) source-concepts query and DuckDB cache survive tab switches.
@@ -86,12 +111,42 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)} className="flex flex-1 flex-col overflow-hidden">
         <div className="flex justify-center">
           <TabsList className="mt-2 mb-0 w-fit">
-            <TabsTrigger value="progress">{t('concept_mapping.tab_progress')}</TabsTrigger>
-            <TabsTrigger value="concept-sets">{t('concept_mapping.tab_concept_sets')}</TabsTrigger>
-            <TabsTrigger value="editor">{t('concept_mapping.tab_editor')}</TabsTrigger>
-            <TabsTrigger value="mappings">{t('concept_mapping.tab_mappings')}</TabsTrigger>
-            <TabsTrigger value="export">{t('concept_mapping.tab_export')}</TabsTrigger>
-            <TabsTrigger value="versioning">{t('common.versioning')}</TabsTrigger>
+            <TabsTrigger value="overview">
+              <Info size={14} />
+              {t('databases.detail_overview')}
+            </TabsTrigger>
+            <TabsTrigger value="progress">
+              <BarChart3 size={14} />
+              {t('concept_mapping.tab_progress')}
+            </TabsTrigger>
+            <TabsTrigger value="concept-sets">
+              <Library size={14} />
+              {t('concept_mapping.tab_concept_sets')}
+            </TabsTrigger>
+            <TabsTrigger value="editor">
+              <ArrowRightLeft size={14} />
+              {t('concept_mapping.tab_editor')}
+            </TabsTrigger>
+            <TabsTrigger value="mappings">
+              <Table2 size={14} />
+              {t('concept_mapping.tab_mappings')}
+            </TabsTrigger>
+            <TabsTrigger value="export">
+              <Download size={14} />
+              {t('concept_mapping.tab_export')}
+            </TabsTrigger>
+            <TabsTrigger value="readme">
+              <FileText size={14} />
+              {t('common.readme')}
+            </TabsTrigger>
+            <TabsTrigger value="license">
+              <Scale size={14} />
+              {t('license.title')}
+            </TabsTrigger>
+            <TabsTrigger value="versioning">
+              <GitBranch size={14} />
+              {t('common.versioning')}
+            </TabsTrigger>
           </TabsList>
         </div>
         {/* Render only the active tab — except the editor, which is kept mounted
@@ -99,6 +154,21 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
             query for large projects) doesn't reload on every tab switch. The
             other tabs stay lazy because their subscriptions to the mappings
             store would otherwise stall the UI on every vote. */}
+        {/* No stat cards here: the Progress tab already leads with the counts,
+            and repeating them would make the overview a worse copy of it. This
+            tab answers "what is this project and who made it" instead. */}
+        <TabsContent value="overview" className="min-h-0 flex-1 overflow-hidden">
+          {activeTab === 'overview' && (
+            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+              <MappingProjectOverviewTab
+                project={project}
+                onSeeProgress={() => setActiveTab('progress')}
+                onSeeReadme={() => setActiveTab('readme')}
+                onSeeLicense={() => setActiveTab('license')}
+              />
+            </div>
+          )}
+        </TabsContent>
         <TabsContent value="progress" className="flex-1 overflow-hidden">
           {activeTab === 'progress' && <ProgressTab project={project} dataSource={dataSource} />}
         </TabsContent>
@@ -117,6 +187,20 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         <TabsContent value="export" className="flex-1 overflow-hidden">
           {activeTab === 'export' && <ExportTab project={project} dataSource={dataSource} />}
         </TabsContent>
+        <TabsContent value="readme" className="min-h-0 flex-1 overflow-hidden">
+          {activeTab === 'readme' && (
+            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+              <MappingProjectReadmeTab project={project} />
+            </div>
+          )}
+        </TabsContent>
+        <TabsContent value="license" className="min-h-0 flex-1 overflow-hidden">
+          {activeTab === 'license' && (
+            <div className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-1.5">
+              <MappingProjectLicenseTab project={project} />
+            </div>
+          )}
+        </TabsContent>
         <TabsContent value="versioning" className="min-h-0 flex-1 overflow-hidden">
           {activeTab === 'versioning' && (
             <div className="mx-auto flex min-h-0 h-full w-full max-w-3xl flex-col px-6 py-6">
@@ -133,5 +217,236 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Overview, readme and licence tabs
+// ---------------------------------------------------------------------------
+
+function MappingProjectReadmeTab({ project }: { project: MappingProject }) {
+  const canWrite = useMyWorkspaceRole().can('concept_mapping:write')
+  const updateMappingProject = useConceptMappingStore((s) => s.updateMappingProject)
+  return (
+    <EntityReadmePanel
+      readme={project.readme}
+      onSave={(readme) => updateMappingProject(project.id, { readme })}
+      canEdit={canWrite}
+      attachmentOwner={{ type: 'mapping-project', id: project.id, workspaceId: project.workspaceId }}
+      // The tab already says "Readme".
+      showTitle={false}
+    />
+  )
+}
+
+function MappingProjectLicenseTab({ project }: { project: MappingProject }) {
+  const { i18n } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('concept_mapping:write')
+  const updateMappingProject = useConceptMappingStore((s) => s.updateMappingProject)
+  // The project's own frozen provenance wins; otherwise the workspace's live
+  // organization — the rule every other licence tab follows.
+  const workspace = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === project.workspaceId))
+  const org = useOrganizationStore((s) =>
+    workspace?.organizationId ? s.getOrganization(workspace.organizationId) : undefined,
+  )
+  const holder = project.organization?.name ?? org?.name
+
+  return (
+    <EntityLicensePanel
+      license={project.license ?? null}
+      onSave={(license) => updateMappingProject(project.id, { license: license ?? undefined })}
+      canEdit={canWrite}
+      copyrightHolder={holder ? localized(holder, i18n.language) : undefined}
+      showTitle={false}
+    />
+  )
+}
+
+function MappingProjectOverviewTab({
+  project,
+  onSeeProgress,
+  onSeeReadme,
+  onSeeLicense,
+}: {
+  project: MappingProject
+  onSeeProgress: () => void
+  onSeeReadme: () => void
+  onSeeLicense: () => void
+}) {
+  const { i18n } = useTranslation()
+  const { resolveAttachmentUrls } = useReadmeAttachments(
+    'mapping-project',
+    project.id,
+    project.workspaceId,
+  )
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
+      {/* The README gets the room — it is what whoever installs this from the
+          catalog reads first — with the identity card beside it. `self-start`
+          on the second column: the readme stretches to full height and scrolls
+          inside itself, while About keeps the height its content needs. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
+        <MappingProjectReadmePreview
+          readme={localized(project.readme, i18n.language)}
+          resolveUrls={resolveAttachmentUrls}
+          onViewFull={onSeeReadme}
+        />
+        <div className="flex flex-col gap-4 self-start">
+          <MappingProjectIdentityCard project={project} onSeeLicense={onSeeLicense} />
+          <MappingProjectProgressCard project={project} onSeeProgress={onSeeProgress} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** The README, as much of it as fits, with a way through to the whole thing. */
+function MappingProjectReadmePreview({
+  readme,
+  resolveUrls,
+  onViewFull,
+}: {
+  readme: string
+  resolveUrls: (md: string) => string
+  onViewFull: () => void
+}) {
+  const { t } = useTranslation()
+  // Rewrite attachments/<file> paths to blob URLs so images render, as the
+  // README tab does before handing the markdown to the renderer.
+  const resolved = resolveUrls(readme)
+
+  return (
+    <div className="flex min-h-0 flex-col rounded-xl border bg-card p-5 pr-2 shadow-sm">
+      <div className="flex shrink-0 items-center justify-between pr-3">
+        <div className="flex items-center gap-2">
+          <FileText size={14} className="text-muted-foreground" />
+          <h3 className="text-sm font-semibold">{t('common.readme')}</h3>
+        </div>
+        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onViewFull}>
+          {t('summary.view_full')}
+          <ArrowUpRight size={12} />
+        </Button>
+      </div>
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
+        {readme.trim() ? (
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            <ReactMarkdown
+              remarkPlugins={remarkPlugins}
+              rehypePlugins={rehypePlugins}
+              urlTransform={urlTransform}
+            >
+              {resolved}
+            </ReactMarkdown>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onViewFull}
+            className="text-sm text-muted-foreground underline-offset-2 hover:underline"
+          >
+            {t('concept_mapping.readme_empty_hint')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Who made this project, when, under what licence, and how it is tagged. */
+function MappingProjectIdentityCard({
+  project,
+  onSeeLicense,
+}: {
+  project: MappingProject
+  onSeeLicense: () => void
+}) {
+  const { t, i18n } = useTranslation()
+  const workspace = useWorkspaceStore((s) =>
+    s._workspacesRaw.find((w) => w.id === project.workspaceId),
+  )
+  const description = localized(project.description, i18n.language)
+
+  return (
+    <div className="flex shrink-0 flex-col gap-4 rounded-xl border bg-card p-5 pb-0 shadow-sm">
+      <div className="flex items-center gap-2">
+        <Info size={14} className="text-muted-foreground" />
+        <h3 className="text-sm font-semibold">{t('databases.detail_about')}</h3>
+      </div>
+
+      {description && <p className="text-xs text-muted-foreground">{description}</p>}
+
+      {!!project.badges?.length && <BadgeStrip badges={project.badges} />}
+
+      {project.version && (
+        <div className="flex">
+          <Badge variant="outline" className="font-mono">v{project.version}</Badge>
+        </div>
+      )}
+
+      {/* Author, organization, dates and licence, resolved the same way every
+          card footer resolves them (live identity, frozen snapshot fallback).
+          The card drops its bottom padding (`pb-0`) because CardMetaFooter
+          carries its own pt-3/pb-2, and `-mt-1` trims the container's gap-4 —
+          this row is fine print, not a section. */}
+      <CardMetaFooter
+        className="-mt-1 flex-wrap"
+        createdById={project.createdById}
+        createdBy={project.createdBy}
+        createdByDetails={project.createdByDetails}
+        organizationId={project.organization ? undefined : workspace?.organizationId}
+        organization={project.organization}
+        createdAt={project.createdAt}
+        updatedAt={project.updatedAt}
+        license={project.license}
+        showLicenseWhenEmpty
+        onOpenLicense={onSeeLicense}
+      />
+    </div>
+  )
+}
+
+/**
+ * How far the mapping has got, as one line rather than a row of stat cards:
+ * the Progress tab owns the figures, so this is a way in, not a second copy.
+ */
+function MappingProjectProgressCard({
+  project,
+  onSeeProgress,
+}: {
+  project: MappingProject
+  onSeeProgress: () => void
+}) {
+  const { t } = useTranslation()
+  const stats = project.stats
+  if (!stats) return null
+
+  const total = stats.totalSourceConcepts
+  const mapped = stats.mappedCount
+  const pct = total > 0 ? Math.round((mapped / total) * 100) : 0
+
+  return (
+    <button
+      type="button"
+      onClick={onSeeProgress}
+      className="flex shrink-0 flex-col gap-3 rounded-xl border bg-card p-5 text-left shadow-sm transition-colors hover:bg-accent"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <BarChart3 size={14} className="text-muted-foreground" />
+          <h3 className="text-sm font-semibold">{t('concept_mapping.tab_progress')}</h3>
+        </div>
+        <span className="text-sm font-semibold tabular-nums">{pct}%</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className="h-full rounded-full bg-teal-500" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t('concept_mapping.overview_mapped_of', {
+          mapped: mapped.toLocaleString(),
+          total: total.toLocaleString(),
+        })}
+      </p>
+    </button>
   )
 }

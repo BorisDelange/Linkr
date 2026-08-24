@@ -346,6 +346,8 @@ export function Header() {
       item={cmProject}
       {...mappingActions}
       align="start"
+      // Already on the project's page: switch tab rather than open the dialog.
+      onOpenDocs={(_item, tab) => navigate(`${pathname}?tab=${tab}`, { replace: true })}
       onDeleted={handleEntityDeleted}
       open={cmMenuOpen}
       onOpenChange={setCmMenuOpen}
