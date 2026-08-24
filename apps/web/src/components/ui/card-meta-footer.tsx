@@ -42,6 +42,15 @@ interface CardMetaFooterProps {
   leading?: React.ReactNode
   /** Extra content pinned to the right of the meta row (e.g. a card action button). */
   trailing?: React.ReactNode
+  /**
+   * One item per line instead of a single dot-separated row.
+   *
+   * For the About panel of a detail page, where the column is narrow and the
+   * three chips would truncate against each other — a stacked list reads as
+   * the entity's identity rather than as fine print. List cards keep the row:
+   * there the footer is one glanceable line under a title.
+   */
+  stacked?: boolean
   className?: string
 }
 
@@ -122,7 +131,7 @@ export function orcidHref(raw: string): string | null {
  * rendered plainly (no tooltip).
  */
 function AuthorChip({
-  label, details, organization, dates, lang, t,
+  label, details, organization, dates, lang, t, showAvatar = true,
 }: {
   label: string
   details?: AuthorDetails
@@ -131,14 +140,20 @@ function AuthorChip({
   dates?: { created: string; updated: string }
   lang: string
   t: (k: string) => string
+  /** The initials bubble earns its place on a list card, where it marks the
+   *  author at a glance among many. Beside an "Author" label it says nothing
+   *  the name doesn't. */
+  showAvatar?: boolean
 }) {
   const name = (
     <span className="flex min-w-0 items-center gap-1.5">
-      <Avatar className="size-4">
-        <AvatarFallback className="bg-primary text-[8px] font-medium text-primary-foreground">
-          {authorInitials(label)}
-        </AvatarFallback>
-      </Avatar>
+      {showAvatar && (
+        <Avatar className="size-4">
+          <AvatarFallback className="bg-primary text-[8px] font-medium text-primary-foreground">
+            {authorInitials(label)}
+          </AvatarFallback>
+        </Avatar>
+      )}
       <span className="truncate">{label}</span>
     </span>
   )
@@ -280,7 +295,7 @@ function LicenseChip({
  * which). Renders nothing when there's nothing to show. Sits below the card body
  * so every harmonized list widget reads the same.
  */
-export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, datesInAuthorTooltip, license, onOpenLicense, showLicenseWhenEmpty, leading, trailing, className }: CardMetaFooterProps) {
+export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, datesInAuthorTooltip, license, onOpenLicense, showLicenseWhenEmpty, leading, trailing, stacked, className }: CardMetaFooterProps) {
   const { t, i18n } = useTranslation()
   // Prefer the live directory name + details (reflects profile edits); fall back to
   // the snapshot taken at creation when the id can't be resolved (author gone /
@@ -327,27 +342,75 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
             grid) the author + date + licence chips set a floor the card cannot
             go below and it widens past its column. The chips already truncate
             individually; this lets them. */}
-        <div className="flex min-w-0 items-center gap-2 border-t pt-2 text-[11px] text-muted-foreground">
-          {leading && <span className="min-w-0 truncate">{leading}</span>}
-          {leading && (label || created || updated) && <Sep />}
-          {label && (
-            <AuthorChip
-              label={label}
-              details={details}
-              organization={org}
-              dates={datesInAuthorTooltip ? { created, updated } : undefined}
-              lang={i18n.language}
-              t={t}
-            />
-          )}
-          {label && showDatesOnRow && <Sep />}
-          {showDatesOnRow && <DateChip created={created} updated={updated} t={t} />}
-          {(label || showDatesOnRow) && showLicense && <Sep />}
-          {showLicense && <LicenseChip license={license} onOpen={onOpenLicense} t={t} />}
-          {/* ml-auto pins the action right; the meta chips above it truncate rather
-              than push it off the row. */}
-          {trailing && <span className="ml-auto shrink-0">{trailing}</span>}
-        </div>
+        {stacked ? (
+          // A labelled list, one field per line. `auto` on the label track sizes
+          // every label to the widest one, so the values line up in a column
+          // instead of starting at a different offset on each row.
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-t pt-2 text-[11px] text-muted-foreground">
+            {leading && <div className="col-span-2 min-w-0 truncate">{leading}</div>}
+            {label && (
+              <>
+                <span>{t('authoring.author')}</span>
+                <span className="min-w-0">
+                  <AuthorChip
+                    label={label}
+                    details={details}
+                    organization={org}
+                    dates={datesInAuthorTooltip ? { created, updated } : undefined}
+                    lang={i18n.language}
+                    t={t}
+                    showAvatar={false}
+                  />
+                </span>
+              </>
+            )}
+            {/* Created and Modified get a line each here, rather than the row's
+                single chip that shows one and hides the other in a tooltip. */}
+            {created && (
+              <>
+                <span>{t('common.created')}</span>
+                <span className="min-w-0 truncate">{created}</span>
+              </>
+            )}
+            {updated && (
+              <>
+                <span>{t('common.modified')}</span>
+                <span className="min-w-0 truncate">{updated}</span>
+              </>
+            )}
+            {showLicense && (
+              <>
+                <span>{t('license.title')}</span>
+                <span className="min-w-0">
+                  <LicenseChip license={license} onOpen={onOpenLicense} t={t} />
+                </span>
+              </>
+            )}
+            {trailing && <div className="col-span-2">{trailing}</div>}
+          </div>
+        ) : (
+          <div className="flex min-w-0 items-center gap-2 border-t pt-2 text-[11px] text-muted-foreground">
+            {leading && <span className="min-w-0 truncate">{leading}</span>}
+            {leading && (label || created || updated) && <Sep />}
+            {label && (
+              <AuthorChip
+                label={label}
+                details={details}
+                organization={org}
+                dates={datesInAuthorTooltip ? { created, updated } : undefined}
+                lang={i18n.language}
+                t={t}
+              />
+            )}
+            {label && showDatesOnRow && <Sep />}
+            {showDatesOnRow && <DateChip created={created} updated={updated} t={t} />}
+            {(label || showDatesOnRow) && showLicense && <Sep />}
+            {showLicense && <LicenseChip license={license} onOpen={onOpenLicense} t={t} />}
+            {/* ml-auto pins the action right; the meta chips above it truncate rather
+                than push it off the row. */}
+            {trailing && <span className="ml-auto shrink-0">{trailing}</span>}
+          </div>
+        )}
       </TooltipProvider>
     </div>
   )

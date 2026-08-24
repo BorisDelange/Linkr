@@ -1152,6 +1152,7 @@ function SqlIdentityCard({
           this row is fine print, not a section. */}
       <CardMetaFooter
         className="-mt-1"
+        stacked
         createdById={collection.createdById}
         createdBy={collection.createdBy}
         createdByDetails={collection.createdByDetails}

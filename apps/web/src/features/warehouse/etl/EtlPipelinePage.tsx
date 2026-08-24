@@ -187,7 +187,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header with pipeline tabs */}
-      <div className="flex items-center gap-2 border-b px-3 py-1.5 pt-2">
+      <div className="flex shrink-0 items-center px-6 pt-2">
         {/* Spacer: balances the source→target selects on the right so the tabs
             sit centred, matching the database and schema detail pages. */}
         <div className="min-w-0 flex-1" />
@@ -514,6 +514,7 @@ function EtlIdentityCard({
           this row is fine print, not a section. */}
       <CardMetaFooter
         className="-mt-1"
+        stacked
         createdById={pipeline.createdById}
         createdBy={pipeline.createdBy}
         createdByDetails={pipeline.createdByDetails}

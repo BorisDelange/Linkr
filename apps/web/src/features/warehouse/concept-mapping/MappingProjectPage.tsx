@@ -135,8 +135,8 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Tabs — centered */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)} className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex justify-center">
-          <TabsList className="mt-2 mb-0 w-fit">
+        <div className="flex shrink-0 items-center justify-center px-6 pt-2">
+          <TabsList>
             <TabsTrigger value="overview">
               <Info size={14} />
               {t('databases.detail_overview')}
@@ -317,7 +317,7 @@ function SecondaryTabsTrigger({
 // ---------------------------------------------------------------------------
 
 function MappingProjectReadmeTab({ project, editing }: { project: MappingProject; editing?: boolean }) {
-  const canWrite = useMyWorkspaceRole().can('concept_mapping:write')
+  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const updateMappingProject = useConceptMappingStore((s) => s.updateMappingProject)
   return (
     <EntityReadmePanel
@@ -337,7 +337,7 @@ function MappingProjectReadmeTab({ project, editing }: { project: MappingProject
 
 function MappingProjectLicenseTab({ project }: { project: MappingProject }) {
   const { i18n } = useTranslation()
-  const canWrite = useMyWorkspaceRole().can('concept_mapping:write')
+  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const updateMappingProject = useConceptMappingStore((s) => s.updateMappingProject)
   // The project's own frozen provenance wins; otherwise the workspace's live
   // organization — the rule every other licence tab follows.
@@ -487,6 +487,7 @@ function MappingProjectIdentityCard({
           this row is fine print, not a section. */}
       <CardMetaFooter
         className="-mt-1"
+        stacked
         createdById={project.createdById}
         createdBy={project.createdBy}
         createdByDetails={project.createdByDetails}

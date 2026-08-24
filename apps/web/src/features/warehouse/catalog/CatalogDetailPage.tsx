@@ -191,19 +191,21 @@ export function CatalogDetailPage({ catalogId }: Props) {
             like every other entity, and its status and source now sit in the
             overview's About card. */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)}>
-          <TabsList className="mx-auto w-fit">
-            {TABS.map((tab) => (
-              <TabsTrigger key={tab.id} value={tab.id}>
-                <tab.icon size={14} />
-                {t(tab.labelKey)}
-              </TabsTrigger>
-            ))}
-            <SecondaryTabsTrigger
-              activeTab={activeTab}
-              onSelect={setActiveTab}
-              onExport={() => void catalogActions.onExport(catalog)}
-            />
-          </TabsList>
+          <div className="flex shrink-0 items-center justify-center px-6 pt-2">
+            <TabsList>
+              {TABS.map((tab) => (
+                <TabsTrigger key={tab.id} value={tab.id}>
+                  <tab.icon size={14} />
+                  {t(tab.labelKey)}
+                </TabsTrigger>
+              ))}
+              <SecondaryTabsTrigger
+                activeTab={activeTab}
+                onSelect={setActiveTab}
+                onExport={() => void catalogActions.onExport(catalog)}
+              />
+            </TabsList>
+          </div>
 
           <TabsContent value="overview" className="mt-4">
             <CatalogOverviewTab
@@ -461,6 +463,7 @@ function CatalogIdentityCard({
           this row is fine print, not a section. */}
       <CardMetaFooter
         className="-mt-1"
+        stacked
         createdById={catalog.createdById}
         createdBy={catalog.createdBy}
         createdByDetails={catalog.createdByDetails}

@@ -422,6 +422,7 @@ function DqIdentityCard({
           this row is fine print, not a section. */}
       <CardMetaFooter
         className="-mt-1"
+        stacked
         createdById={ruleSet.createdById}
         createdBy={ruleSet.createdBy}
         createdByDetails={ruleSet.createdByDetails}

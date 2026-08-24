@@ -1213,7 +1213,7 @@ function SchemaDetailView({
       {/* Tabs — the Edit/Save controls sit on this row, top-right. The schema's
           name, export and delete now live in the global header badge menu. */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SchemaTabId)} className="flex-1 flex flex-col min-h-0">
-        <div className="flex items-center px-6 pt-2 shrink-0">
+        <div className="flex shrink-0 items-center px-6 pt-2">
           {/* The left spacer that balances the toolbar also carries the
               diagram/source switch, so the tabs stay centred. */}
           <div className="flex flex-1 items-center">
@@ -1785,6 +1785,7 @@ function SchemaIdentityCard({
           this row is fine print, not a section. */}
       <CardMetaFooter
         className="-mt-1"
+        stacked
         createdById={preset.createdById}
         createdBy={preset.createdBy}
         createdByDetails={preset.createdByDetails}

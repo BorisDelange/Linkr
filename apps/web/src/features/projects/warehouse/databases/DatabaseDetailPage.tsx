@@ -681,6 +681,7 @@ function IdentityCard({ source, onSeeLicense }: { source: DataSource; onSeeLicen
           trims the container's gap-4 — this row is fine print, not a section. */}
       <CardMetaFooter
         className="-mt-1"
+        stacked
         createdById={source.createdById}
         createdBy={source.createdBy}
         createdByDetails={source.createdByDetails}
