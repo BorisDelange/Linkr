@@ -2,6 +2,9 @@ import { useState, useCallback, useEffect, useMemo, useRef, Suspense } from 'rea
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
+// The resize grip's glyph, shared with the dashboard widgets. It ships with the
+// grid stylesheet, and the grid is not mounted on this page.
+import 'react-resizable/css/styles.css'
 import { Settings, Check, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -10,6 +13,7 @@ import type { ExportTable } from '@/lib/table-export'
 import { AnalysisTableContext } from './analysis-table-context'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { isServerMode } from '@/lib/api-client'
+import { RESIZE_HANDLE_OFFSET } from '@/features/projects/dashboard/dashboard-grid'
 import { clearRenderCache } from '@/lib/api/execution'
 import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
 import type { DatasetAnalysis } from '@/types'
@@ -341,21 +345,20 @@ function ResizableResult({
           {children}
         </div>
         {resizing && <div className="pointer-events-none absolute inset-0 rounded-lg bg-destructive/10" />}
-        {/* The grip is drawn here rather than borrowed from react-grid-layout's
-            stylesheet: that CSS is imported by the dashboard and patient-data
-            grids, neither of which is mounted on this page, so the handle would
-            be invisible. */}
+        {/* The dashboard's own resize handle, so all three surfaces show the
+            same glyph in the same place. Its stylesheet is imported at the top
+            of this file — it ships with the grid, which is not mounted here.
+            Offset outside the card corner exactly as on the dashboard, where
+            the handle hangs off the grid cell and the card is inset by half
+            the gutter. */}
         <div
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           title={t('datasets.analysis_resize_hint')}
-          className="absolute -bottom-0.5 -right-0.5 size-4 cursor-nwse-resize touch-none"
-        >
-          <svg viewBox="0 0 16 16" className="size-full text-muted-foreground/60">
-            <path d="M15 5 L5 15 M15 10 L10 15" stroke="currentColor" strokeWidth="1.5" fill="none" />
-          </svg>
-        </div>
+          className="react-resizable-handle react-resizable-handle-se touch-none"
+          style={{ cursor: 'nwse-resize', bottom: -RESIZE_HANDLE_OFFSET, right: -RESIZE_HANDLE_OFFSET }}
+        />
       </div>
     </div>
   )

@@ -14,6 +14,17 @@ export const DASHBOARD_GRID = {
   containerPadding: [12, 12] as [number, number],
 }
 
+/**
+ * How far the bottom-right resize grip sits OUTSIDE the card it resizes.
+ *
+ * On the dashboard this is not set anywhere: the handle is positioned on the
+ * grid CELL while the card is inset by half the inter-widget gap, so the glyph
+ * naturally lands in the gutter. Standalone previews (the widget editor, the
+ * analysis result) have no cell to hang it on, so they apply this offset —
+ * half the default gap — to reproduce the same look.
+ */
+export const RESIZE_HANDLE_OFFSET = DASHBOARD_GRID.margin[0] / 2
+
 /** Fixed number of rows in fit-to-height mode. The row COUNT is constant so widget heights (in
  *  rows) keep the same proportion of the viewport whatever its size: resizing the window only
  *  changes rowHeight in px (the rows always span the full height), never the layout. A variable row

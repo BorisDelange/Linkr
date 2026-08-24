@@ -5,7 +5,7 @@ import { getPlugin } from '@/lib/plugins/registry'
 import { getPatientComponent } from '@/lib/plugins/patient-component-registry'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
-import { widgetFootprint } from '@/features/projects/dashboard/dashboard-grid'
+import { widgetFootprint, RESIZE_HANDLE_OFFSET } from '@/features/projects/dashboard/dashboard-grid'
 import { measurePatientGridGeometry } from './patient-grid'
 
 interface PatientWidgetPreviewProps {
@@ -192,7 +192,8 @@ export function SizedPatientWidgetPreview({
             onPointerUp={onPointerUp}
             className="react-resizable-handle react-resizable-handle-se"
             title={t('dashboard.preview_resize_hint')}
-            style={{ cursor: 'nwse-resize' }}
+            // Offset outside the card corner, as on the dashboard grid.
+            style={{ cursor: 'nwse-resize', bottom: -RESIZE_HANDLE_OFFSET, right: -RESIZE_HANDLE_OFFSET }}
           />
         </div>
       </div>

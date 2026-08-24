@@ -33,7 +33,7 @@ import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider
 import { resolveServerFilters } from './resolve-server-filters'
 import { isServerMode } from '@/lib/api-client'
 import { executeOnServer } from '@/lib/api/execution'
-import { widgetPixelSize, DASHBOARD_GRID, colWidthFor } from './dashboard-grid'
+import { widgetPixelSize, DASHBOARD_GRID, colWidthFor, RESIZE_HANDLE_OFFSET } from './dashboard-grid'
 import type { DashboardWidget, DashboardWidgetSource, DatasetColumn } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/plugin'
@@ -662,14 +662,18 @@ function SizedPreview({ widget, gridWidth, widgetSpacing, children }: { widget: 
           <div className="h-full w-full overflow-hidden rounded-lg border bg-card shadow-sm">
             {children}
           </div>
-          {/* Resize grip (bottom-right) — same glyph as the dashboard widget resize handle. Affects only this preview. */}
+          {/* Resize grip (bottom-right) — the dashboard's own handle, offset so it
+              sits just OUTSIDE the card corner. On the dashboard the handle is
+              positioned on the grid CELL while the card is inset by half the
+              gutter, which is what puts the glyph in the gap; here there is no
+              cell, so the same offset is applied directly. */}
           <div
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             className="react-resizable-handle react-resizable-handle-se"
             title={t('dashboard.preview_resize_hint', 'Drag to resize the preview')}
-            style={{ cursor: 'nwse-resize' }}
+            style={{ cursor: 'nwse-resize', bottom: -RESIZE_HANDLE_OFFSET, right: -RESIZE_HANDLE_OFFSET }}
           />
         </div>
       </div>
