@@ -430,6 +430,10 @@ export function Header() {
       align="start"
       // Already on the pipeline's page: switch tab rather than open the dialog.
       onOpenDocs={(_item, tab) => navigate(`${pathname}?tab=${tab}`, { replace: true })}
+      // Versioning is a tab of this page, so the menu goes there instead of
+      // opening the dialog on top of it. Export stays a plain ZIP download —
+      // there is no view to navigate to.
+      onVersioningOverride={() => navigate(`${pathname}?tab=versioning`, { replace: true })}
       onDeleted={handleEntityDeleted}
       open={etlMenuOpen}
       onOpenChange={setEtlMenuOpen}
@@ -516,6 +520,10 @@ export function Header() {
       align="start"
       // Already on the schema's page: switch tab rather than open the dialog.
       onOpenDocs={(_item, tab) => navigate(`${pathname}?tab=${tab}`, { replace: true })}
+      // Versioning is a tab of this page, so the menu goes there instead of
+      // opening the dialog on top of it. Export stays a plain ZIP download —
+      // there is no view to navigate to.
+      onVersioningOverride={() => navigate(`${pathname}?tab=versioning`, { replace: true })}
       onDeleted={handleEntityDeleted}
       open={schemaMenuOpen}
       onOpenChange={setSchemaMenuOpen}
