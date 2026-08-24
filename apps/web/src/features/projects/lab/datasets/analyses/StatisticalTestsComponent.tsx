@@ -1452,7 +1452,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
   // same columns the table renders, so what you copy is what you see — including
   // which statistics are currently shown.
   usePublishAnalysisTable(
-    statRows.length > 0 ? () => toExportTable(statRows, tableColumns, lang, alpha, testOverrides) : null,
+    statRows.length > 0 ? () => toExportTable(statRows, tableColumns, lang, alpha) : null,
     [statRows, tableColumns, lang, alpha],
   )
 
@@ -1504,10 +1504,6 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
 
 
 
-  // A pinned test is only legible if the table says what the mark means, so the
-  // note is shown exactly when at least one row carries one.
-  const anyPinned = statRows.some((r) => r.columnId && testOverrides[r.columnId])
-
   return (
     <div className={cn('flex h-full flex-col', !compact && 'p-4')}>
       <div className="min-h-0 flex-1">
@@ -1523,12 +1519,11 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
           one printed * ** *** and left the reader to assume the thresholds. */}
       <div
         className={cn(
-          'shrink-0 space-y-0.5 pt-2 text-muted-foreground',
+          'shrink-0 pt-2 text-muted-foreground',
           compact ? 'text-[8px]' : 'text-[10px]',
         )}
       >
         <p>* p &lt; 0.05 &nbsp; ** p &lt; 0.01 &nbsp; *** p &lt; 0.001</p>
-        {anyPinned && <p>{t('datasets.stats_legend_pinned')}</p>}
       </div>
     </div>
   )
@@ -1585,15 +1580,10 @@ function TestCell({
   const { t } = useTranslation()
   const label = result.testLabel[lang]
 
-  // A pinned test is marked with a DAGGER, not an asterisk: this table uses
-  // * ** *** for significance thresholds two columns away, and one symbol
-  // cannot carry both meanings. The legend below the table explains it.
-  const name = (
-    <span className={cn(pinned && 'font-medium')}>
-      {label}
-      {pinned && <span className="ml-0.5 text-muted-foreground">†</span>}
-    </span>
-  )
+  // A pinned test carries no mark in the table. It reads in medium weight, and
+  // the hover says it was chosen rather than derived — enough for the person
+  // who set it, without a symbol competing with the significance stars.
+  const name = <span className={cn(pinned && 'font-medium')}>{label}</span>
 
   // Read-only (a dashboard widget): the name, with WHY behind a hover.
   if (!onPick) {
@@ -1716,7 +1706,6 @@ function toExportTable(
   columns: PublicationColumn<StatRow>[],
   lang: 'en' | 'fr',
   alpha: number,
-  overrides: Record<string, TestName>,
 ): ExportTable {
   const head: ExportTableCell[][] = []
   // A group header row, only when some column declares one.
@@ -1732,7 +1721,7 @@ function toExportTable(
   head.push(columns.map((c) => ({ text: c.header, align: c.align })))
 
   const body = rows.map((r) =>
-    columns.map((c) => ({ text: exportCellText(c.id, r, lang, alpha, overrides), align: c.align })),
+    columns.map((c) => ({ text: exportCellText(c.id, r, lang, alpha), align: c.align })),
   )
   return { head, body }
 }
@@ -1742,16 +1731,13 @@ function exportCellText(
   row: StatRow,
   lang: 'en' | 'fr',
   alpha: number,
-  overrides: Record<string, TestName>,
 ): string {
   const r = row.result
   if (columnId === '__variable__') return row.label
   if (columnId.startsWith('g:')) return descriptiveText(r, columnId.slice(2))
   switch (columnId) {
     case 'test':
-      // The dagger travels with the export: a copied table that hides which
-      // tests were chosen by hand would misrepresent the analysis.
-      return r.testLabel[lang] + (row.columnId && overrides[row.columnId] ? ' †' : '')
+      return r.testLabel[lang]
     case 'statistic':
       return r.statistic != null ? `${r.statisticLabel} = ${fmt(r.statistic)}` : DASH
     case 'df':

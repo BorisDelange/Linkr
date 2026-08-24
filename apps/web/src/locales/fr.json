@@ -1337,8 +1337,7 @@
     "stats_test_auto": "Auto (d'après les données)",
     "stats_select_group": "Sélectionnez une colonne de groupe pour commencer.",
     "stats_test_pinned": "Choisi pour cette variable, pas d'après les données. Cliquer pour changer.",
-    "stats_select_values": "Sélectionnez au moins une colonne de valeurs.",
-    "stats_legend_pinned": "† test choisi pour cette variable, pas d'après les données"
+    "stats_select_values": "Sélectionnez au moins une colonne de valeurs."
   },
   "survey": {
     "choice_order_hint": "Glissez les réponses dans l’ordre de lecture du graphique.",
