@@ -71,6 +71,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@default-plugins': path.resolve(__dirname, '../../packages/default-plugins'),
+      '@linkr/format': path.resolve(__dirname, '../../packages/linkr-format/src/index.ts'),
     },
   },
   optimizeDeps: {

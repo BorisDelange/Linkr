@@ -297,7 +297,7 @@ Each step is useful on its own — no step is only a means to the next.
 |---|---|---|---|
 | ✅ 1 | `packages/linkr-format` + schemas for **project + dashboard + dataset + scripts** (hand-written, no dependency — see §3) | M | — |
 | ✅ 2 | `validate/` levels 1–3 + 40 unit tests + parity against the app's `column-id.fixture.json` + a CLI | M | catches real import bugs |
-| 3 | Wire the validator into the **in-app import** path (warn, do not block) | S | clear errors instead of silent half-imports |
+| ✅ 3 | Validator wired into `parseProjectZip`, reported after a successful import (warn, never blocks) | S | clear errors instead of silent half-imports |
 | 4 | `make/` + `serialize/` for those 3 entities; `entity-io.ts` export path calls them | M | starts the split already on the backlog |
 | 5 | `packages/linkr-mcp`: `write_project`, `validate`, `describe_tree`, `describe_entity_schema` | S/M | **authoring outside Linkr works** |
 | 6 | `linkr-authoring` skill + `references/` for those 3 elements | S | usable by any MCP client |
@@ -339,6 +339,29 @@ Two findings that shaped the code:
 Repeated issues are folded in the report (`formatIssues`), grouped by code + file +
 pointer *shape*: a wholly legacy project emits 140 warnings, which is unreadable
 unfolded and hides the few that need a decision.
+
+### Step 3 as built (2026-08-25)
+
+Wired into `parseProjectZip`, so **both** entry points that parse a project ZIP get it —
+the import dialog and the git pull. Issues ride on `ParsedProjectZip.validation` and are
+reported *after* a successful import: the project is in, the dialog only says what is off
+about it. Never blocking, per §4 of the open questions — the reads stay tolerant and a
+legacy-but-working export must keep importing.
+
+- `lib/import-validation.ts` adapts a parsed JSZip to `EntityTree`. Only JSON and CSV are
+  decoded, and a CSV is **truncated to its header** — the only part the validator reads —
+  so a 50 MB dataset is not pulled into memory to check a column list.
+- The report reuses `ImportErrorDialog` with a new `variant="warning"` rather than a
+  near-identical second dialog (ui-patterns §6: extend, don't fork). Amber with an
+  explicit dark variant, matching `no-access-notice.tsx` — the theme has no `warning`
+  token, only `destructive`.
+- The detail pane shows the same `formatIssues` text the CLI prints, so a report pasted
+  from the app and one from CI are comparable.
+- A **duplicate** is exempt: its source was just exported by this app, so any issue is one
+  the user already saw on the original.
+
+The pull path computes the validation and currently ignores it; surfacing it there is a
+small follow-up, not a blocker.
 
 ---
 

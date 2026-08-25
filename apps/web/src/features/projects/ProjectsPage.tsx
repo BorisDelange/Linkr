@@ -46,6 +46,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
+import { formatValidationIssues } from '@/lib/import-validation'
 import { formatApiError, isServerMode, type FormattedError } from '@/lib/api-client'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -86,6 +87,8 @@ export function ProjectsPage() {
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip; gitRemote?: ImportGitRemote } | null>(null)
   const [importError, setImportError] = useState<FormattedError | null>(null)
+  /** Format issues on a project that DID import — reported, never blocking. */
+  const [importWarning, setImportWarning] = useState<FormattedError | null>(null)
 
   useEffect(() => {
     if (searchParams.get('create') === 'true') {
@@ -287,7 +290,14 @@ export function ProjectsPage() {
       }
       await refetchContentStatuses()
     }
-  }, [wsUid, activeWorkspaceId, loadProjects, refetchContentStatuses])
+
+    // The project is in; this only reports what is off about it. A duplicate is
+    // exempt: its source was just exported by this app, so any issue is one the
+    // user already saw on the original.
+    if (!duplicate && parsed.validation?.length) {
+      setImportWarning(formatValidationIssues(parsed.validation, t))
+    }
+  }, [wsUid, activeWorkspaceId, loadProjects, refetchContentStatuses, t])
 
   // --- Duplicate a project (export then re-import as copy) ---
   const handleDuplicateProject = useCallback(async (projectUid: string) => {
@@ -567,6 +577,12 @@ export function ProjectsPage() {
 
       {/* Import error dialog */}
       <ImportErrorDialog error={importError} onClose={() => setImportError(null)} />
+      <ImportErrorDialog
+        error={importWarning}
+        onClose={() => setImportWarning(null)}
+        title={t('projects.import_validation_title')}
+        variant="warning"
+      />
     </div>
   )
 }

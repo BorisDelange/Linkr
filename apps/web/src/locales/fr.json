@@ -300,6 +300,9 @@
     "delete_confirm_title": "Supprimer le projet",
     "delete_confirm_description": "Êtes-vous sûr de vouloir supprimer ce projet ? Cette action est irréversible.",
     "import_invalid_zip": "Ce ZIP ne contient pas de projet valide (project.json manquant).",
+    "import_validation_title": "Importé avec des anomalies de format",
+    "import_validation_warnings": "Le projet a été importé, mais {{warnings}} anomalie(s) de format y ont été détectées.",
+    "import_validation_errors": "Le projet a été importé, mais {{errors}} erreur(s) de format et {{warnings}} avertissement(s) y ont été détectés. Certains éléments peuvent ne pas fonctionner correctement.",
     "import_error": "Échec de l'import du projet : {{error}}"
   },
   "dashboard": {

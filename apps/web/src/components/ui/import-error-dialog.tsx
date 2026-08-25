@@ -10,6 +10,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { cn } from '@/lib/utils'
 import type { FormattedError } from '@/lib/api-client'
 
 interface ImportErrorDialogProps {
@@ -18,6 +19,16 @@ interface ImportErrorDialogProps {
   onClose: () => void
   /** Optional title override; defaults to the generic import-failed title. */
   title?: string
+  /**
+   * Report a problem that did NOT stop the operation.
+   *
+   * Format issues found on import are the case: the project imported, and the
+   * message says what is off about it. Colouring those in `destructive` next to
+   * a working project would read as a failure, so the callout softens to a
+   * warning while everything else — layout, detail toggle, width cap — stays
+   * shared rather than forked into a near-identical dialog.
+   */
+  variant?: 'error' | 'warning'
 }
 
 /**
@@ -26,9 +37,10 @@ interface ImportErrorDialogProps {
  * payload (e.g. a FastAPI validation blob) can never push the OK button
  * off-screen and trap the user.
  */
-export function ImportErrorDialog({ error, onClose, title }: ImportErrorDialogProps) {
+export function ImportErrorDialog({ error, onClose, title, variant = 'error' }: ImportErrorDialogProps) {
   const { t } = useTranslation()
   const [showDetail, setShowDetail] = useState(false)
+  const isWarning = variant === 'warning'
 
   return (
     <AlertDialog
@@ -40,7 +52,16 @@ export function ImportErrorDialog({ error, onClose, title }: ImportErrorDialogPr
           <AlertDialogTitle>{title ?? t('common.import_error_title')}</AlertDialogTitle>
         </AlertDialogHeader>
 
-        <div className="border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-2 rounded-md border p-3 text-sm break-words">
+        <div
+          className={cn(
+            'flex items-start gap-2 rounded-md border p-3 text-sm break-words',
+            // Amber with an explicit dark variant, matching no-access-notice.tsx —
+            // the theme has no `warning` token, only `destructive`.
+            isWarning
+              ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/40 dark:text-amber-200'
+              : 'border-destructive/30 bg-destructive/10 text-destructive',
+          )}
+        >
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
           <span>
             {error?.summaryKey

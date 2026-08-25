@@ -119,7 +119,7 @@ the "Split entity-io.ts" debt item below, not separately.
 | St | Item | Effort |
 |----|------|--------|
 | ✅ | 1–2. `packages/linkr-format`: schemas + validator (shape/referential/semantic) + 40 tests + column-id parity + CLI. No dependency (not zod — it would land in the WASM bundle). Verified on 3 real trees; found a missing `appVersion` in `icu-mortality-prediction` | M |
-| 🔜 | 3. Wire the validator into the in-app import path (warn, not block) | S |
+| ✅ | 3. Validator wired into `parseProjectZip` (import + git pull), reported after a successful import via `ImportErrorDialog variant="warning"`; never blocks | S |
 | 🔜 | 4. `make/` + `serialize/` for those 3 entities; `entity-io.ts` export calls them | M |
 | 🔜 | 5. `packages/linkr-mcp`: `write_project`, `validate`, `describe_tree`, `describe_entity_schema` | S/M |
 | 🔜 | 6–7. `linkr-authoring` skill + references; `create-project` → wrapper, **delete `build_zip.py`** | S |

@@ -2,9 +2,11 @@
  * Shared utilities for entity export/import (ZIP and JSON).
  */
 import JSZip from 'jszip'
+import type { Issue } from '@linkr/format'
 import type { Storage } from '@/lib/storage'
 import { APP_VERSION } from '@/lib/version'
 import { deterministicId } from '@/lib/deterministic-id'
+import { validateImportZip } from '@/lib/import-validation'
 import {
   type PathNode, type TreeNode,
   type TreeFkKey,
@@ -1234,6 +1236,10 @@ export type ParsedPatientDashboardWidget = PatientDashboardWidget & {
 
 export interface ParsedProjectZip {
   project: Project
+  /** Format issues found in the incoming tree. Reported to the user, never
+   *  blocking: the reads below are deliberately tolerant, so a legacy-but-working
+   *  export must keep importing. Absent when the caller hand-built this object. */
+  validation?: Issue[]
   /** Organization inherited from the parent workspace, bundled by UUID for cross-instance upsert. */
   organization?: Organization
   /** Path-keyed IDE tree nodes; local ids are derived from the target projectUid
@@ -1711,7 +1717,10 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   }
 
   const parsed = await parseNewLayout(zipData, projectMeta)
-  return { ...parsed, organization }
+  // Runs on the same stripped ZIP the parse above read, so what is validated is
+  // exactly what is imported. Never throws and never blocks — see ParsedProjectZip.
+  const validation = await validateImportZip(zipData).catch(() => null)
+  return { ...parsed, organization, ...(validation ? { validation: validation.issues } : {}) }
 }
 
 async function readJsonFile<T>(zip: JSZip, path: string): Promise<T | null> {

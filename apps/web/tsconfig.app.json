@@ -20,7 +20,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@default-plugins/*": ["../../packages/default-plugins/*"]
+      "@default-plugins/*": ["../../packages/default-plugins/*"],
+      "@linkr/format": ["../../packages/linkr-format/src/index.ts"]
     },
 
     /* Linting */
