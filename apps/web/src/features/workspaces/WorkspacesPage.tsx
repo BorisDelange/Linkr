@@ -19,6 +19,7 @@ import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, Git
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
+import { mintEntityId } from '@/components/ui/entity-id-field'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
@@ -427,10 +428,22 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const sp of parsed.schemas) {
-      const presetId = duplicate ? crypto.randomUUID() : sp.presetId
+      // mintEntityId, not randomUUID: a preset's id IS its user-facing
+      // Identifier — it fills that field and the URL carries it — so a raw uuid
+      // put a 36-character string in front of the user (same reason the catalog
+      // install mints one, see freshId in lib/catalog/install.ts).
+      const presetId = duplicate ? mintEntityId() : sp.presetId
       idMap.set(`schema-preset:${sp.presetId}`, presetId)
       if (!duplicate) await storage.schemaPresets.delete(sp.presetId).catch(() => {})
-      await storage.schemaPresets.save({ ...sp, presetId, workspaceId: targetWsId })
+      // `mapping.presetId` follows the entity id: a ZIP import reads it back as
+      // the entity id and deletes whatever holds it, so letting the two drift
+      // meant a later import deleted a different preset.
+      await storage.schemaPresets.save({
+        ...sp,
+        presetId,
+        mapping: { ...sp.mapping, presetId },
+        workspaceId: targetWsId,
+      })
     }
 
     // --- Import databases (metadata only, no credentials/files) ---

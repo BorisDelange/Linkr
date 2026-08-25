@@ -1,0 +1,113 @@
+# Schema presets: harmonise identity with every other entity
+
+**Status**: 🤔 planned, not started. Investigation done 2026-08-25 (full map below).
+
+Schema presets are the only entity whose identity does not follow the house pattern.
+Every other exportable entity carries three separate things:
+
+| Field | Role | Example |
+|---|---|---|
+| `id` | local primary key, uuid, regenerated on import for uniqueness | `9f3c…` |
+| `entityId` | human-readable slug, set once at creation, never changes | `omop-cdm-5-4` |
+| `lineageId` | cross-instance identity, preserved verbatim | `lin-…` |
+
+A preset has **only `presetId`**, which plays all three roles at once. That is the whole
+problem, and everything below follows from it.
+
+## Why it matters (not cosmetic)
+
+**1. A confirmed data-corruption path.** `applyClonedEntity`
+([entity-io.ts:2695](../../apps/web/src/lib/entity-io.ts#L2695)) sets `presetId: targetId`
+but rebuilds `mapping` as `{ ...preset.mapping, ddl }` — so `mapping.presetId` keeps the
+*repo's* id while the entity takes a fresh one. The two drift apart. Then a ZIP import
+reads `mapping.presetId` as the entity id
+([SchemaPresetsPage.tsx:1807](../../apps/web/src/features/warehouse/SchemaPresetsPage.tsx#L1807))
+**and deletes the preset holding that id** (`:1816`). So: install from the catalog as a
+duplicate, then import the same ZIP, and the delete lands on the wrong preset. Same drift
+on cross-workspace move ([WorkspacesPage.tsx:430](../../apps/web/src/features/workspaces/WorkspacesPage.tsx#L430)).
+
+**2. A uuid would show in the UI.** `freshId()` mints `custom-<8hex>` for presets rather
+than a uuid, and the code says why
+([install.ts:83-94](../../apps/web/src/lib/catalog/install.ts#L83)): *"A schema preset's
+id IS its user-facing Identifier… Minting a raw uuid there put a 36-character string in
+front of the user."* That constraint exists **only** because one field serves both the PK
+and the label. Splitting them dissolves it.
+
+**3. Special-casing spreads.** Each site that treats presets differently is a place to get
+wrong later:
+- [git.py:1024](../../apps/api/app/api/v1/routes/git.py#L1024) — `getattr(entity, "id", None) or entity.preset_id`
+- [installed.ts:38](../../apps/web/src/lib/catalog/installed.ts#L38) — `row.uid ?? row.id ?? row.presetId`
+- [use-schema-preset-actions.tsx:15](../../apps/web/src/features/warehouse/use-schema-preset-actions.tsx#L15) — an adapter shim faking `id`+`name` for `EntityActionsMenu`
+- [WsExportTab.tsx:187](../../apps/web/src/features/versioning/WsExportTab.tsx#L187) — "presetId for schemas, id otherwise"
+- `idOf` / `freshId` / `deleteExisting` / `createShell` in `install.ts`
+
+## What makes it tractable
+
+- **No foreign key points at `schema_presets`.** Checked the models and
+  `000000000001_initial_schema.py`: `preset_id` is the PK
+  ([schema_preset.py:11](../../apps/api/app/models/schema_preset.py#L11)) and nothing
+  references it. A database **copies** the mapping rather than referencing the preset, so
+  renaming the PK breaks no join.
+- **`lineage_id` already exists** on both the TS type and the server model — half the
+  target shape is in place.
+- **Databases already stopped depending on `presetId`**: they record provenance as
+  `SchemaProvenance { lineageId, label, version }` (done 2026-08-25), deliberately not the
+  preset's own id.
+
+## Scale (measured, not estimated)
+
+| Scope | Files | Occurrences |
+|---|---|---|
+| all `.ts/.tsx/.py/.json` | 48 | 215 |
+| non-test | 36 | 164 |
+| tests + fixtures | 12 | 51 |
+
+Split by meaning: **~140** the entity id, **12** `SchemaMapping.presetId`, **11** built-in
+id literals (`'omop-5.4'`, `'mimic-iv'` — the only two still live).
+
+## Target shape
+
+```ts
+export interface CustomSchemaPreset extends Authored, Lineaged {
+  id: string           // uuid, local PK          (was: presetId)
+  entityId?: string    // readable slug, set once (was: presetId, again)
+  mapping: SchemaMapping
+  …
+}
+```
+
+`SchemaMapping.presetId` stays — it is part of the mapping payload copied into every
+database, and renaming it would rewrite stored data for no gain. But it stops being read
+as an identity: the one place that does
+([SchemaPresetsPage.tsx:1807](../../apps/web/src/features/warehouse/SchemaPresetsPage.tsx#L1807))
+switches to `lineageId`, which is what fixes defect 1.
+
+## Steps
+
+| # | Step | Effort | Notes |
+|---|---|---|---|
+| 1 | **Fix the drift first, on its own** — clone/move rewrite `mapping.presetId`, and ZIP import matches on `lineageId` instead | S | Ships alone, fixes the corruption path before any rename |
+| 2 | Add `id` + `entityId` to the TS type and the server model; write both on save, keep `presetId` in sync | M | Additive: nothing reads the new fields yet |
+| 3 | Migration — IndexedDB store keyed on `id`, alembic revision on the table; existing rows get `id = presetId` (or a fresh uuid) and `entityId = presetId` | M | The only irreversible step; no FK to update |
+| 4 | Switch readers to `id`/`entityId`: routes + `paths.ts`, catalog `idOf`/`freshId`/`findExisting`, storage, git `_entity_id`, export/import, versioning | L | Mechanical once 2–3 land; `freshId` becomes `crypto.randomUUID()` |
+| 5 | Delete the special-cases (`installed.ts` three-way fallback, the actions shim, the git getattr, the WsExportTab note) | S | The payoff |
+| 6 | Regenerate the golden export fixtures; re-export the 4 published preset repos | S | `__fixtures__/export-golden/schema-preset/` |
+
+**Step 1 is worth doing now even if the rest waits** — it is a real defect with a data-loss
+outcome, and it does not depend on the rename.
+
+## Open questions
+
+- **URL shape.** Other entities shorten a uuid in the path; a preset shows its slug today
+  ([paths.ts:75](../../apps/web/src/lib/paths.ts#L75)). Keep the slug (`entityId`) in the
+  URL, or align on the shortened uuid? Slug is friendlier and already prefix-resolved
+  (`resolveByIdPrefix`); aligning is more consistent. **Not decided.**
+- **`String(36)` on the PK column** ([schema_preset.py:11](../../apps/api/app/models/schema_preset.py#L11))
+  is uuid-width but currently holds slugs. Fine for a uuid `id`; `entityId` needs its own
+  column with a length that fits a slug.
+- **`ConceptSetsTab.tsx:92`** hardcodes `presetId: 'omop-cdm-5.4'` in a synthetic mapping —
+  the *entity* slug, not the built-in table key (`omop-5.4`). Unclear whether it is meant
+  to resolve against a stored preset or is just a label. Settle before step 4.
+- Whether the **built-in `SCHEMA_PRESETS` table** disappears first (plan §10 of
+  `default-data-repos-plan.md`) or after. It only holds `omop-5.4` and `mimic-iv`, kept
+  alive for seeded databases; doing that first removes 11 literal sites from this effort.

@@ -1040,8 +1040,15 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     spZip.file('preset.json', JSON.stringify(PRESET()))
     spZip.file('schema.ddl', 'CREATE TABLE person ();')
     expect(await applyClonedEntity(spZip, 'schema-preset', 'preset-target', store)).toBe(true)
-    const saved = calls['preset.save']![0][0] as { presetId: string; mapping?: { ddl?: string } }
+    const saved = calls['preset.save']![0][0] as {
+      presetId: string
+      mapping?: { ddl?: string; presetId?: string }
+    }
     expect(saved.presetId).toBe('preset-target')
+    // The mapping's own id follows the entity's. Letting them drift meant a
+    // later ZIP import — which reads mapping.presetId as the entity id and
+    // deletes whatever holds it — deleted a different preset.
+    expect(saved.mapping?.presetId).toBe('preset-target')
     // The DDL is its own file in the repo; the import folds it back into the mapping.
     expect(saved.mapping?.ddl).toBe('CREATE TABLE person ();')
   })

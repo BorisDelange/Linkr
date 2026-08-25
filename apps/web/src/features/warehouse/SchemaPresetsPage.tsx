@@ -1755,7 +1755,7 @@ export function SchemaPresetsPage() {
   const [newPresetVersion, setNewPresetVersion] = useState('0.1.0')
   const [importOpen, setImportOpen] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
-  const [importConflict, setImportConflict] = useState<{ name: string; mapping: SchemaMapping; parsed?: Record<string, unknown>; gitRemote?: ImportGitRemote } | null>(null)
+  const [importConflict, setImportConflict] = useState<{ name: string; mapping: SchemaMapping; parsed?: Record<string, unknown>; gitRemote?: ImportGitRemote; existing: CustomSchemaPreset } | null>(null)
 
   const loadCustomPresets = useCallback(() => loadPresets(wsUid), [loadPresets, wsUid])
 
@@ -1802,9 +1802,18 @@ export function SchemaPresetsPage() {
     await storeSave(buildSchemaPreset(presetId, mapping, existing, wsUid))
   }
 
-  const doPresetImport = useCallback(async (mapping: SchemaMapping, duplicate: boolean, gitRemote?: ImportGitRemote, parsed?: Record<string, unknown>) => {
+  const doPresetImport = useCallback(async (
+    mapping: SchemaMapping,
+    duplicate: boolean,
+    gitRemote?: ImportGitRemote,
+    parsed?: Record<string, unknown>,
+    /** The local preset this one replaces, when the import matched an existing
+     *  row. Matched on lineage, so it is not necessarily the row whose id equals
+     *  `mapping.presetId` — an installed copy holds a fresh local id. */
+    replacing?: CustomSchemaPreset,
+  ) => {
     const sourceLineage = (parsed?.['preset.json'] as CustomSchemaPreset | undefined)
-    const presetId = duplicate ? mintEntityId() : mapping.presetId!
+    const presetId = duplicate ? mintEntityId() : (replacing?.presetId ?? mapping.presetId!)
     // Legacy export ZIPs may carry a plain-string label; coerce so it stays bilingual.
     const label = typeof mapping.presetLabel === 'string' ? { en: mapping.presetLabel, fr: mapping.presetLabel } : mapping.presetLabel
     const importedMapping: SchemaMapping = {
@@ -1812,8 +1821,12 @@ export function SchemaPresetsPage() {
       presetId,
       presetLabel: duplicate ? setLocalized(label, language, `${localized(label, language)} (copy)`) : label,
     }
+    // Delete the row we actually matched, never the one whose id the incoming
+    // mapping happens to carry: after an install that minted a fresh id those
+    // are two different presets, and deleting by the mapping's id destroyed an
+    // unrelated one.
     if (!duplicate) {
-      await storeDelete(mapping.presetId!).catch(() => {})
+      await storeDelete(replacing?.presetId ?? mapping.presetId!).catch(() => {})
     }
     const preset = buildSchemaPreset(presetId, importedMapping, undefined, wsUid)
     // Lineage: replacing the preset keeps the published identity verbatim, so the
@@ -1855,9 +1868,18 @@ export function SchemaPresetsPage() {
         setImportError(t('settings.schema_preset_import_invalid'))
         return
       }
-      const existing = customPresets.find((p) => p.presetId === mapping.presetId)
+      // Lineage first: it is the identity that survives an install minting a
+      // fresh local id, so it recognises "the same preset, already here" where
+      // the copied mapping id no longer would. The id stays as the fallback for
+      // repos exported before lineage existed.
+      const importedLineage = (parsed['preset.json'] as CustomSchemaPreset | undefined)?.lineageId
+      const existing =
+        (importedLineage != null
+          ? customPresets.find((p) => p.lineageId === importedLineage)
+          : undefined)
+        ?? customPresets.find((p) => p.presetId === mapping.presetId)
       if (existing) {
-        setImportConflict({ name: localized(existing.mapping.presetLabel, language), mapping, parsed, gitRemote })
+        setImportConflict({ name: localized(existing.mapping.presetLabel, language), mapping, parsed, gitRemote, existing })
       } else {
         await doPresetImport(mapping, false, gitRemote, parsed)
       }
@@ -2129,8 +2151,8 @@ export function SchemaPresetsPage() {
             open={!!importConflict}
             onOpenChange={(open) => { if (!open) setImportConflict(null) }}
             existingName={importConflict?.name ?? ''}
-            onDuplicate={() => { if (importConflict) doPresetImport(importConflict.mapping, true, importConflict.gitRemote, importConflict.parsed); setImportConflict(null) }}
-            onOverwrite={() => { if (importConflict) doPresetImport(importConflict.mapping, false, importConflict.gitRemote, importConflict.parsed); setImportConflict(null) }}
+            onDuplicate={() => { if (importConflict) doPresetImport(importConflict.mapping, true, importConflict.gitRemote, importConflict.parsed, importConflict.existing); setImportConflict(null) }}
+            onOverwrite={() => { if (importConflict) doPresetImport(importConflict.mapping, false, importConflict.gitRemote, importConflict.parsed, importConflict.existing); setImportConflict(null) }}
           />
 
         </div>

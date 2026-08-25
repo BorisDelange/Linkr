@@ -89,6 +89,22 @@ the notices travel with the data.
 | 🔜 | Import dialog third tab, on a shared catalog card/install component | M |
 | 🔜 | Server mode: gate the browser seed, `instance_settings`, setup-wizard step, install job | L |
 
+## Schema preset identity — [schema-preset-identity-plan.md](schema-preset-identity-plan.md)
+
+Schema presets are the only entity whose `presetId` plays all three roles at once (local
+PK, user-facing slug, cross-instance identity), where everything else splits them into
+`id` + `entityId` + `lineageId`. That conflation is why a uuid would show in the UI, why
+`installed.ts` needs a three-way id fallback, and why the git route special-cases
+`entity.preset_id`. Measured: 164 non-test occurrences across 36 files; **no foreign key
+points at the table**, which is what makes the rename tractable.
+
+| St | Item | Effort |
+|----|------|--------|
+| ✅ | Step 1: fix the id drift (clone/move rewrite `mapping.presetId`; ZIP import matches on `lineageId` and replaces the row it matched) | S |
+| 🤔 | Steps 2–3: add `id` + `entityId`, migrate IndexedDB store + alembic revision | M |
+| 🤔 | Step 4–5: switch readers, then delete the special-cases | L |
+| 🤔 | Open: slug or shortened uuid in the URL? Retire `SCHEMA_PRESETS` first? | — |
+
 ## AI agents — [ai-agents-plan.md](ai-agents-plan.md)
 
 Two tracks: CLI agents (OpenCode first) in the IDE, and a conversational copilot in

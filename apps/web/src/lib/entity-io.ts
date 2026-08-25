@@ -2693,7 +2693,11 @@ export async function applyClonedEntity(
         presetId: targetId,
         workspaceId,
         ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
-        mapping: { ...preset.mapping, ddl },
+        // `mapping.presetId` must follow the entity's id. Leaving the repo's
+        // value made the two drift whenever the install minted a fresh id, and
+        // a later ZIP import — which reads `mapping.presetId` as the entity id
+        // and deletes whatever holds it — then deleted a different preset.
+        mapping: { ...preset.mapping, presetId: targetId, ddl },
       }) as CustomSchemaPreset,
       'schema-preset',
     )
