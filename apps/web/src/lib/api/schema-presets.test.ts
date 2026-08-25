@@ -32,14 +32,14 @@ describe('apiSchemaPresetStorage', () => {
     expect(await apiSchemaPresetStorage.getById('nope')).toBeUndefined()
   })
 
-  it('deletes through the route key, given an id', async () => {
-    // The API addresses rows by preset_id: passing `id` straight through would
-    // 404, or hit another row once the two diverge.
+  it('deletes by id, without resolving first', async () => {
+    // The route keys on `id` like every other entity's and resolves `presetId`
+    // itself, so the identity goes straight through — no lookup round trip.
     await apiSchemaPresetStorage.delete('uuid-a')
-    expect(apiRequest).toHaveBeenCalledWith('/schema-presets/omop-cdm-5-4', { method: 'DELETE' })
+    expect(apiRequest).toHaveBeenCalledWith('/schema-presets/uuid-a', { method: 'DELETE' })
   })
 
-  it('deletes given a presetId too', async () => {
+  it('deletes given a retired presetId too', async () => {
     await apiSchemaPresetStorage.delete('mimic-iv')
     expect(apiRequest).toHaveBeenCalledWith('/schema-presets/mimic-iv', { method: 'DELETE' })
   })

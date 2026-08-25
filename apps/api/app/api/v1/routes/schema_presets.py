@@ -19,23 +19,26 @@ async def list_schema_presets(
     return await schema_preset_service.list_for_user(db, user)
 
 
-@router.put("/{preset_id}", response_model=SchemaPresetResponse)
+@router.put("/{key}", response_model=SchemaPresetResponse)
 async def save_schema_preset(
-    preset_id: str,
+    key: str,
     body: SchemaPresetSave,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if body.preset_id != preset_id:
+    # The URL names the entity by `id` like every other route. `preset_id` is
+    # still accepted (service.get resolves either) so a client or a bookmark
+    # predating the split keeps working.
+    if key not in (body.id, body.preset_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="presetId in body must match the URL",
+            detail="id in body must match the URL",
         )
-    # save() upserts by preset_id and can re-parent an existing preset. Authorize
+    # save() upserts and can re-parent an existing preset. Authorize
     # BOTH the current workspace (so a stranger can't overwrite/steal an existing
     # preset via a known id) and the target workspace (so it can't be planted
     # somewhere the caller lacks rights), mirroring the delete handler.
-    existing = await schema_preset_service.get(db, preset_id)
+    existing = await schema_preset_service.get(db, key)
     if existing is not None and existing.workspace_id is not None:
         await check_workspace_permission(db, existing.workspace_id, user, "schemas:write")
     if body.workspace_id is not None:
@@ -43,13 +46,13 @@ async def save_schema_preset(
     return await schema_preset_service.save(db, body)
 
 
-@router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{key}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_schema_preset(
-    preset_id: str,
+    key: str,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    preset = await schema_preset_service.get(db, preset_id)
+    preset = await schema_preset_service.get(db, key)
     if preset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     if preset.workspace_id is not None:

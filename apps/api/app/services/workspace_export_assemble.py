@@ -816,19 +816,16 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
         if dumped.get(key) is None:
             dumped.pop(key, None)
     stripped = strip_entity_docs(_strip_instance_fields(dumped))
-    # `entityId` is rebuilt in place rather than assigned: on a row predating the
-    # split it was popped above as None, and re-adding it would append it LAST
-    # while the client writes it third — a false git diff on every export. The
-    # client's order is presetId, id, entityId (SchemaPresetResponse declares the
-    # same), so it goes right after `id`, or after `presetId` when there is none.
+    # Neither `id` nor `presetId` is exported — see buildSchemaPresetFolder for
+    # both reasons: a preset is keyed on `entityId`, so an exported `id` never
+    # survives an import, and `presetId` is the retired identity. `entityId`
+    # leads the file, so it is placed at the front rather than assigned: a row
+    # predating the split had it popped above as None, and re-adding it would
+    # append it LAST — a false git diff on every export.
     entity_id = dumped.get("entityId") or preset.preset_id
-    reordered: dict = {}
-    for key, value in stripped.items():
-        reordered[key] = value
-        if key == "id" or (key == "presetId" and "id" not in stripped):
-            reordered["entityId"] = entity_id
-    reordered.setdefault("entityId", entity_id)
-    stripped = reordered
+    stripped.pop("id", None)
+    stripped.pop("presetId", None)
+    stripped = {"entityId": entity_id, **stripped}
     mapping = dict(stripped.get("mapping") or {})
     ddl = mapping.pop("ddl", None)
     stripped["mapping"] = _canonical_schema_mapping(mapping)

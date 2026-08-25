@@ -2267,11 +2267,22 @@ export async function buildSchemaPresetFolder(
 ): Promise<void> {
   const stripped = stripEntityDocs(stripInstanceFields(preset) as CustomSchemaPreset)
   const { ddl, ...mapping } = stripped.mapping
-  // `id` + `entityId` both travel, exactly as the other standalone entities do
-  // (_collection.json, _pipeline.json, rule-set.json, catalog.json all carry
-  // the pair). Only a project drops its `uid`, whose local PK is regenerated.
+  // Neither `id` nor `presetId` travels — the two exceptions to what the other
+  // standalone entities export, and both for the same reason.
+  //
+  // `id`: a catalog or pipeline repo carries one because `idOf` reads it and the
+  // install adopts it as the local key, so it round-trips unchanged. A preset is
+  // keyed on `entityId` instead, so `applyClonedEntity` mints a fresh uuid and
+  // an exported `id` would differ on the first import — a diff on a value no
+  // reader can use. (Measured; every later pull keeps the local one and is
+  // byte-stable.)
+  //
+  // `presetId`: the retired identity. Writing it kept three fields alive for two
+  // roles. Trees that carry one are still read — the importer falls back to it —
+  // but nothing new emits it.
+  const { id: _localKey, presetId: _retired, ...portable } = stripped
   zip.file(`${prefix}preset.json`, json({
-    ...stripped,
+    ...portable,
     entityId: preset.entityId ?? preset.presetId,
     mapping: canonicalSchemaMapping(mapping),
   }))

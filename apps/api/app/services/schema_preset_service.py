@@ -72,14 +72,19 @@ async def reconcile_repo_dirs(db: AsyncSession) -> int:
 
 
 async def save(db: AsyncSession, data: SchemaPresetSave) -> SchemaPreset:
-    """Upsert by preset_id.
+    """Upsert, keyed on `id` and falling back to `preset_id`.
+
+    `id` is looked up first because it is the primary key: two rows may share a
+    `preset_id` once it stops being an identity, and resolving by it would then
+    overwrite the wrong one. A client that predates the split sends no `id`, so
+    `preset_id` still resolves for it.
 
     The whole payload is applied on both branches so a git-link save (which comes
     through this PUT, not a PATCH) persists git_remote_config; git_secret strips
     and encrypts any authToken. The earlier update branch dropped git_remote_config.
     """
     payload = data.model_dump()
-    preset = await get(db, data.preset_id)
+    preset = await get(db, data.id or data.preset_id)
     if preset is None:
         # A None created_at (fresh create / legacy file) must not override the
         # DateTime column's server_default with NULL — drop it so it stamps now.

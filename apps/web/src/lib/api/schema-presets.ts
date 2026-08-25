@@ -11,27 +11,25 @@ export const apiSchemaPresetStorage: SchemaPresetStorage = {
     return all.filter((p) => p.workspaceId === workspaceId)
   },
 
-  // Resolves an `id` or a `presetId`: the store is keyed on `id` client-side
-  // since v41, while the API routes still address rows by `preset_id` (the
-  // server PK moves in a later step). Callers hold either while the rename
-  // works through — see docs/planning/schema-preset-identity-plan.md.
+  // Resolves an `id` or a `presetId`: the row is keyed on `id` on both sides
+  // now, but a URL, an export tree or a catalog entry may still hold the
+  // retired `presetId` — see docs/planning/schema-preset-identity-plan.md.
   getById: async (id) => {
     const all = await apiRequest<CustomSchemaPreset[]>('/schema-presets')
     return all.find((p) => p.id === id) ?? all.find((p) => p.presetId === id)
   },
 
   save: async (preset) => {
-    await apiRequest(`/schema-presets/${preset.presetId}`, {
+    // Addressed by `id`, like every other entity's route. A preset written
+    // before the split has none stored, so `presetId` still stands in.
+    await apiRequest(`/schema-presets/${preset.id ?? preset.presetId}`, {
       method: 'PUT',
       body: JSON.stringify(preset),
     })
   },
 
   delete: async (id) => {
-    // The route keys on preset_id, so resolve first: passing an `id` straight
-    // through would 404 (or, worse, hit a different row) once the two differ.
-    const all = await apiRequest<CustomSchemaPreset[]>('/schema-presets')
-    const row = all.find((p) => p.id === id) ?? all.find((p) => p.presetId === id)
-    if (row) await apiRequest(`/schema-presets/${row.presetId}`, { method: 'DELETE' })
+    // The route resolves either identity, so the id can go straight through.
+    await apiRequest(`/schema-presets/${id}`, { method: 'DELETE' })
   },
 }
