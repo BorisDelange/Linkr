@@ -37,6 +37,11 @@ import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { DatasetFileTree } from './datasets/DatasetFileTree'
+import {
+  SidebarSearchField,
+  SidebarSearchToggle,
+  useSidebarSearch,
+} from '@/components/SidebarSearch'
 import { DatasetTable } from './datasets/DatasetTable'
 import { ColumnStatsPanel } from './datasets/ColumnStatsPanel'
 import { AnalysesPanel } from './datasets/AnalysesPanel'
@@ -239,6 +244,7 @@ export function DatasetsPage() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [createAnalysisOpen, setCreateAnalysisOpen] = useState(false)
   const [explorerVisible, setExplorerVisible] = useState(true)
+  const fileSearch = useSidebarSearch()
   const [statsVisible, setStatsVisible] = useState(true)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null)
@@ -434,6 +440,11 @@ export function DatasetsPage() {
                   </Tooltip>
                 </div>
                 <div className="flex items-center gap-0.5">
+                  <SidebarSearchToggle
+                    open={fileSearch.open}
+                    onToggle={fileSearch.toggle}
+                    label={t('files.search_files')}
+                  />
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -473,7 +484,15 @@ export function DatasetsPage() {
                 <Allotment vertical>
                   <Allotment.Pane minSize={100}>
                     <div className="flex h-full flex-col overflow-hidden">
-                      <DatasetFileTree />
+                      {fileSearch.open && (
+                        <SidebarSearchField
+                          value={fileSearch.query}
+                          onChange={fileSearch.setQuery}
+                          onClose={fileSearch.toggle}
+                          placeholder={t('files.search_files')}
+                        />
+                      )}
+                      <DatasetFileTree search={fileSearch.query} />
                     </div>
                   </Allotment.Pane>
 

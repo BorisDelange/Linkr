@@ -53,14 +53,17 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
 import { compareTreeNodes, contentSize } from '@/lib/file-tree-sort'
 import { humanBytes } from '@/lib/format-helpers'
+import { treeSearchMatches } from '@/components/SidebarSearch'
 import type { SqlScriptFile } from '@/types'
 
 interface Props {
   /** Open the create dialog targeting a folder (null = root). */
   onNewChild: (parentId: string | null, folderMode: boolean) => void
+  /** Name filter from the explorer search box; empty shows the whole tree. */
+  search?: string
 }
 
-export function SqlScriptsFileTree({ onNewChild }: Props) {
+export function SqlScriptsFileTree({ onNewChild, search = '' }: Props) {
   const { t } = useTranslation()
   const { files, selectedFileId, selectFile, deleteFile, updateFile, moveFile, duplicateFile } =
     useSqlScriptsStore()
@@ -102,7 +105,16 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
 
   const deleteConfirmFile = deleteConfirmFileId ? files.find((f) => f.id === deleteConfirmFileId) : null
 
-  const rootFiles = files.filter((f) => f.parentId === null)
+  const searchMatches = useMemo(() => treeSearchMatches(files, search), [files, search])
+  const isVisible = (f: SqlScriptFile) => !searchMatches || searchMatches.has(f.id)
+  // While searching, folders on a match's path open regardless of their stored
+  // state, and close back to it when the search clears.
+  const effectiveExpanded = useMemo(
+    () => (searchMatches ? new Set([...expandedFolders, ...searchMatches]) : expandedFolders),
+    [searchMatches, expandedFolders],
+  )
+
+  const rootFiles = files.filter((f) => f.parentId === null && isVisible(f))
   // Alphabetical like every other explorer. `order` is still what the drag
   // handles write and what execution follows; it is simply not a display sort.
   const compare = (a: SqlScriptFile, b: SqlScriptFile) => compareTreeNodes(
@@ -111,7 +123,7 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
     sort,
   )
   const getChildren = (parentId: string) =>
-    files.filter((f) => f.parentId === parentId).sort(compare)
+    files.filter((f) => f.parentId === parentId && isVisible(f)).sort(compare)
 
   /** Ids in on-screen order, so a Shift-range cannot reach into a collapsed folder. */
   const visibleIds = useMemo(() => {
@@ -119,14 +131,14 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
     const walk = (list: SqlScriptFile[]) => {
       for (const n of list) {
         out.push(n.id)
-        if (n.type === 'folder' && expandedFolders.has(n.id)) walk(getChildren(n.id))
+        if (n.type === 'folder' && effectiveExpanded.has(n.id)) walk(getChildren(n.id))
       }
     }
     walk([...rootFiles].sort(compare))
     return out
   // rootFiles/getChildren/compare derive from files+sort, both listed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, sort, expandedFolders])
+  }, [files, sort, effectiveExpanded])
 
   // A deleted file must not stay selected: a bulk action would misreport its count.
   useEffect(() => {
@@ -174,11 +186,13 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
     moveFile(draggedId, null)
   }
 
-  if (files.length === 0) {
+  if (files.length === 0 || rootFiles.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
         <FileCode size={24} className="text-muted-foreground/50" />
-        <p className="mt-2 text-xs text-muted-foreground">{t('sql_scripts.no_files')}</p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          {searchMatches ? t('files.no_files_match') : t('sql_scripts.no_files')}
+        </p>
       </div>
     )
   }
@@ -200,7 +214,7 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
               depth={0}
               isActive={file.id === selectedFileId}
               isFolder={file.type === 'folder'}
-              isExpanded={expandedFolders.has(file.id)}
+              isExpanded={effectiveExpanded.has(file.id)}
               onToggleFolder={toggleFolder}
               onExpandFolder={expandFolder}
               onSelect={selectFile}
@@ -211,7 +225,7 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
               onNewChild={onNewChild}
               nameExists={nameExists}
               getChildren={getChildren}
-              expandedFolders={expandedFolders}
+              expandedFolders={effectiveExpanded}
               selectedFileId={selectedFileId}
               selection={selection}
               onClickFile={handleClickFile}

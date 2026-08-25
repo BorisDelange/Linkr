@@ -20,7 +20,6 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { SearchInput } from '@/components/ui/search-input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -53,8 +52,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { Badge } from '@/components/ui/badge'
 import { SectionLabel } from '@/components/ui/section-label'
+import { InlineRenameField } from '@/components/InlineRenameField'
+import {
+  SidebarSearchField,
+  SidebarSearchToggle,
+  useSidebarSearch,
+} from '@/components/SidebarSearch'
+import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { queryDataSource } from '@/lib/duckdb/engine'
@@ -123,7 +136,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
 
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [sidebarFilter, setSidebarFilter] = useState<SidebarFilter>('all')
-  const [searchQuery, setSearchQuery] = useState('')
+  const search = useSidebarSearch()
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [builtinChecks, setBuiltinChecks] = useState<DqCheck[]>([])
@@ -136,7 +149,6 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   // Inline rename of a custom check name (IDE-style).
   const [renamingId, setRenamingId] = useState<string | null>(null)
-  const [renameValue, setRenameValue] = useState('')
   // Delete confirmation: a single custom check id, or 'bulk' for the selection.
   const [deleteTarget, setDeleteTarget] = useState<string | 'bulk' | null>(null)
 
@@ -176,15 +188,15 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
   // Filtered + searched sidebar items
   const filteredCustomChecks = useMemo(() => {
     if (sidebarFilter === 'builtin') return []
-    if (!searchQuery) return customChecks
-    return customChecks.filter((c) => fuzzyMatch(c.name, searchQuery))
-  }, [sidebarFilter, searchQuery, customChecks])
+    if (!search.query) return customChecks
+    return customChecks.filter((c) => fuzzyMatch(c.name, search.query))
+  }, [sidebarFilter, search.query, customChecks])
 
   const filteredBuiltinChecks = useMemo(() => {
     if (sidebarFilter === 'custom') return []
-    if (!searchQuery) return builtinChecks
-    return builtinChecks.filter((c) => fuzzyMatch(c.description || c.name, searchQuery))
-  }, [sidebarFilter, searchQuery, builtinChecks])
+    if (!search.query) return builtinChecks
+    return builtinChecks.filter((c) => fuzzyMatch(c.description || c.name, search.query))
+  }, [sidebarFilter, search.query, builtinChecks])
 
   const handleNewCheck = useCallback(async () => {
     const id = crypto.randomUUID()
@@ -208,17 +220,16 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
   }, [ruleSetId, customChecks.length, createCustomCheck, selectCheck])
 
   // --- Inline rename (custom checks only) ---
-  const startRename = useCallback((id: string, name: string) => {
+  // The field owns its own draft, so this only records which row is editing.
+  const startRename = useCallback((id: string, _name: string) => {
     setRenamingId(id)
-    setRenameValue(name)
   }, [])
 
-  const commitRename = useCallback(() => {
-    if (!renamingId) return
-    const name = renameValue.trim()
-    if (name) void updateCustomCheck(renamingId, { name })
+  const commitRename = useCallback((name: string) => {
+    if (!renamingId || !name) return
+    void updateCustomCheck(renamingId, { name })
     setRenamingId(null)
-  }, [renamingId, renameValue, updateCustomCheck])
+  }, [renamingId, updateCustomCheck])
 
   // --- Enable/disable ---
   const toggleDisabled = useCallback((id: string) => {
@@ -343,109 +354,28 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     dirty: boolean
   }) => {
     const { id, category, name, isCustom, dirty } = opts
-    const disabled = isDisabled(id)
-    const renaming = renamingId === id
     return (
-      <div
+      <DqCheckRow
         key={id}
-        className={cn(
-          'group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors',
-          selectedCheckId === id && !editMode
-            ? 'bg-accent text-accent-foreground'
-            : 'text-foreground hover:bg-accent/50',
-          disabled && 'opacity-50',
-        )}
-      >
-        {editMode && (
-          <Checkbox
-            checked={selectedIds.has(id)}
-            onCheckedChange={() => toggleSelected(id)}
-            className="size-3.5 shrink-0"
-            aria-label={t('common.select')}
-          />
-        )}
-        <span className={cn(
-          'inline-block h-2 w-2 shrink-0 rounded-full',
-          CATEGORY_COLORS[category]?.split(' ')[0] ?? 'bg-gray-400',
-        )} />
-
-        {renaming ? (
-          <input
-            autoFocus
-            value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
-            onBlur={commitRename}
-            onKeyDown={(e) => {
-              e.stopPropagation()
-              if (e.key === 'Enter') commitRename()
-              else if (e.key === 'Escape') { e.preventDefault(); setRenamingId(null) }
-            }}
-            // No border/vertical padding: a ring keeps the input the same height as the
-            // static label so entering rename mode doesn't reflow the row or the list.
-            className="-mx-0.5 min-w-0 flex-1 rounded bg-background px-0.5 text-xs leading-[inherit] text-foreground outline-none ring-1 ring-primary"
-          />
-        ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => (editMode ? toggleSelected(id) : selectCheck(id))}
-                className={cn('min-w-0 flex-1 truncate text-left', disabled && 'line-through')}
-              >
-                {name}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{name}</TooltipContent>
-          </Tooltip>
-        )}
-
-        {dirty && <span className="size-1.5 shrink-0 rounded-full bg-orange-500" title={t('data_quality.unsaved')} />}
-
-        {canWrite && !editMode && !renaming && (
-          <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-            {isCustom && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); startRename(id, name) }}
-                    className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  >
-                    <Pencil size={11} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t('common.rename')}</TooltipContent>
-              </Tooltip>
-            )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); toggleDisabled(id) }}
-                  className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  {disabled ? <EyeOff size={11} /> : <Eye size={11} />}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{disabled ? t('data_quality.enable_check') : t('data_quality.disable_check')}</TooltipContent>
-            </Tooltip>
-            {isCustom && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(id) }}
-                    className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 size={11} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t('common.delete')}</TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-        )}
-      </div>
+        id={id}
+        name={name}
+        category={category}
+        isCustom={isCustom}
+        dirty={dirty}
+        disabled={isDisabled(id)}
+        selected={selectedCheckId === id && !editMode}
+        editMode={editMode}
+        checked={selectedIds.has(id)}
+        canWrite={canWrite}
+        renaming={renamingId === id}
+        onSelect={() => (editMode ? toggleSelected(id) : selectCheck(id))}
+        onToggleSelected={() => toggleSelected(id)}
+        onStartRename={() => startRename(id, name)}
+        onRename={(next) => commitRename(next)}
+        onCancelRename={() => setRenamingId(null)}
+        onToggleDisabled={() => toggleDisabled(id)}
+        onDelete={() => setDeleteTarget(id)}
+      />
     )
   }
 
@@ -569,11 +499,25 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                         <TooltipContent>{editMode ? t('common.done') : t('data_quality.select_multiple')}</TooltipContent>
                       </Tooltip>
                     )}
+                    <SidebarSearchToggle
+                      open={search.open}
+                      onToggle={search.toggle}
+                      label={t('data_quality.search_checks')}
+                    />
                     <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={handleNewCheck}>
                       <Plus size={14} />
                     </Button>
                   </div>
                 </div>
+
+                {search.open && (
+                  <SidebarSearchField
+                    value={search.query}
+                    onChange={search.setQuery}
+                    onClose={search.toggle}
+                    placeholder={t('data_quality.search_checks')}
+                  />
+                )}
 
                 {/* Bulk action bar (edit mode) */}
                 {editMode && (
@@ -623,17 +567,6 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                   </div>
                 )}
 
-                {/* Search input */}
-                <div className="border-b px-2 py-1.5">
-                  <SearchInput
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    placeholder={t('common.search')}
-                    size="dense"
-                    borderless
-                  />
-                </div>
-
                 {/* Radix wraps viewport children in a shrink-to-fit `display:table` div;
                     force it to a full-width block so rows can't grow past the sidebar
                     (and thus truncate + pin their action cluster to the visible edge). */}
@@ -643,7 +576,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                       <div className="py-8 text-center">
                         <ShieldCheck size={20} className="mx-auto text-muted-foreground/50" />
                         <p className="mt-2 text-[10px] text-muted-foreground">
-                          {searchQuery ? t('common.no_results') : t('data_quality.no_checks')}
+                          {search.query ? t('common.no_results') : t('data_quality.no_checks')}
                         </p>
                       </div>
                     ) : (
@@ -830,5 +763,141 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
         </AlertDialogContent>
       </AlertDialog>
     </TooltipProvider>
+  )
+}
+
+/**
+ * One check in the sidebar. Rename, enable/disable and delete live on the
+ * right-click menu rather than hover icons, matching the IDE and plugin file
+ * sidebars — hover clusters competed with the name for the row's width.
+ */
+function DqCheckRow({
+  id,
+  name,
+  category,
+  isCustom,
+  dirty,
+  disabled,
+  selected,
+  editMode,
+  checked,
+  canWrite,
+  renaming,
+  onSelect,
+  onToggleSelected,
+  onStartRename,
+  onRename,
+  onCancelRename,
+  onToggleDisabled,
+  onDelete,
+}: {
+  id: string
+  name: string
+  category: DqCategory
+  isCustom: boolean
+  dirty: boolean
+  disabled: boolean
+  selected: boolean
+  editMode: boolean
+  checked: boolean
+  canWrite: boolean
+  renaming: boolean
+  onSelect: () => void
+  onToggleSelected: () => void
+  onStartRename: () => void
+  onRename: (next: string) => void
+  onCancelRename: () => void
+  onToggleDisabled: () => void
+  onDelete: () => void
+}) {
+  const { t } = useTranslation()
+  const { ref: nameRef, overflows, triggerProps } = useOverflowTooltip()
+
+  const dot = (
+    <span className={cn(
+      'inline-block h-2 w-2 shrink-0 rounded-full',
+      CATEGORY_COLORS[category]?.split(' ')[0] ?? 'bg-gray-400',
+    )} />
+  )
+
+  const rowClass = cn(
+    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors',
+    selected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50',
+    disabled && 'opacity-50',
+  )
+
+  if (renaming) {
+    return (
+      <div className={rowClass}>
+        {dot}
+        <InlineRenameField
+          initialValue={name}
+          onSubmit={onRename}
+          onCancel={onCancelRename}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <Tooltip>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className={cn(rowClass, 'group')} data-check-id={id}>
+            {editMode && (
+              <Checkbox
+                checked={checked}
+                onCheckedChange={onToggleSelected}
+                className="size-3.5 shrink-0"
+                aria-label={t('common.select')}
+              />
+            )}
+            {dot}
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={onSelect}
+                {...triggerProps}
+                className={cn('min-w-0 flex-1 truncate text-left', disabled && 'line-through')}
+              >
+                <span ref={nameRef} className="block truncate">{name}</span>
+              </button>
+            </TooltipTrigger>
+            {dirty && (
+              <span
+                className="size-1.5 shrink-0 rounded-full bg-orange-500"
+                title={t('data_quality.unsaved')}
+              />
+            )}
+          </div>
+        </ContextMenuTrigger>
+        {canWrite && !editMode && (
+          <ContextMenuContent>
+            {/* Built-in checks ship with the app: they can be turned off for a
+                rule set, but never renamed or removed. */}
+            {isCustom && (
+              <ContextMenuItem onClick={onStartRename}>
+                <Pencil size={14} />
+                {t('common.rename')}
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem onClick={onToggleDisabled}>
+              {disabled ? <Eye size={14} /> : <EyeOff size={14} />}
+              {disabled ? t('data_quality.enable_check') : t('data_quality.disable_check')}
+            </ContextMenuItem>
+            {isCustom && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem variant="destructive" onClick={onDelete}>
+                  <Trash2 size={14} />
+                  {t('common.delete')}
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuContent>
+        )}
+      </ContextMenu>
+      {overflows && <TooltipContent side="right">{name}</TooltipContent>}
+    </Tooltip>
   )
 }

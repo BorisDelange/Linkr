@@ -7,15 +7,18 @@ import { FileTreeItem } from './FileTreeItem'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
+import { treeSearchMatches } from '@/components/SidebarSearch'
 import { compareTreeNodes, contentSize } from '@/lib/file-tree-sort'
 import { pruneSelection } from '@/lib/tree-selection'
 
 interface FileTreeProps {
   /** Open a create dialog targeting a folder (null = scripts root). */
   onNewChild: (parentId: string | null, folderMode: boolean) => void
+  /** Name filter from the explorer's search box; empty shows the whole tree. */
+  search?: string
 }
 
-export function FileTree({ onNewChild }: FileTreeProps) {
+export function FileTree({ onNewChild, search = '' }: FileTreeProps) {
   const { t } = useTranslation()
   const { expandedFolders, selectedFileId, moveNode } = useFileStore()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
@@ -23,9 +26,12 @@ export function FileTree({ onNewChild }: FileTreeProps) {
   const [rootDragOver, setRootDragOver] = useState(false)
   const [sort, setSort] = useState<FileTreeSort>({ key: 'name', desc: false })
 
+  const searchMatches = useMemo(() => treeSearchMatches(nodes, search), [nodes, search])
+
   // Virtual nodes (read-only views of other entities) are hidden from the IDE
   // tree, except those flagged showInIde (the datasets/ subtree), shown read-only.
   function isVisible(node: TreeNode): boolean {
+    if (searchMatches && !searchMatches.has(node.id)) return false
     return node.virtual !== true || (node as { showInIde?: true }).showInIde === true
   }
 
@@ -47,6 +53,14 @@ export function FileTree({ onNewChild }: FileTreeProps) {
     return nodes.filter((f) => f.parentId === parentId && isVisible(f)).sort(compare)
   }
 
+  // While searching, every folder on a match's path is forced open — a result
+  // buried in a collapsed folder is a result the user cannot see. The store's
+  // own expansion is left alone, so closing the search restores it.
+  const effectiveExpanded = useMemo(
+    () => (searchMatches ? [...new Set([...expandedFolders, ...searchMatches])] : expandedFolders),
+    [searchMatches, expandedFolders],
+  )
+
   /**
    * Ids in the order they appear ON SCREEN — what a Shift-range means. A collapsed
    * folder's children are not between two visible rows, so they are not swept in.
@@ -56,14 +70,14 @@ export function FileTree({ onNewChild }: FileTreeProps) {
     const walk = (list: TreeNode[]) => {
       for (const n of list) {
         out.push(n.id)
-        if (n.type === 'folder' && expandedFolders.includes(n.id)) walk(getChildren(n.id))
+        if (n.type === 'folder' && effectiveExpanded.includes(n.id)) walk(getChildren(n.id))
       }
     }
     walk(rootNodes)
     return out
   // rootNodes/getChildren derive from nodes+sort, both listed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, sort, expandedFolders])
+  }, [nodes, sort, effectiveExpanded])
 
   // A file deleted or renamed away must not stay selected: a bulk action would
   // then report a count it cannot deliver.
@@ -75,7 +89,9 @@ export function FileTree({ onNewChild }: FileTreeProps) {
   if (rootNodes.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
-        <p className="text-xs text-muted-foreground">{t('files.no_files')}</p>
+        <p className="text-xs text-muted-foreground">
+          {searchMatches ? t('files.no_files_match') : t('files.no_files')}
+        </p>
       </div>
     )
   }
@@ -119,7 +135,7 @@ export function FileTree({ onNewChild }: FileTreeProps) {
             node={node}
             depth={0}
             getChildren={getChildren}
-            expandedFolders={expandedFolders}
+            expandedFolders={effectiveExpanded}
             selectedFileId={selectedFileId}
             visibleIds={visibleIds}
             onNewChild={onNewChild}

@@ -88,6 +88,11 @@ import { useShortcutStore } from '@/stores/shortcut-store'
 import { comboToString } from '@/lib/format-shortcut'
 import type { KeyCombo, ShortcutActionId } from '@/types/shortcuts'
 import { EtlFileTree } from './EtlFileTree'
+import {
+  SidebarSearchField,
+  SidebarSearchToggle,
+  useSidebarSearch,
+} from '@/components/SidebarSearch'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import type { EtlFile } from '@/types'
 
@@ -170,6 +175,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
   } = useEtlStore()
 
   const [explorerVisible, setExplorerVisible] = useState(true)
+  const fileSearch = useSidebarSearch()
   const [editorVisible, setEditorVisible] = useState(true)
   const [createFileOpen, setCreateFileOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -562,16 +568,31 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                     <TooltipContent>{t('etl.upload_files')}</TooltipContent>
                   </Tooltip>
                 </div>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon-xs" onClick={() => setExplorerVisible(false)}>
-                      <PanelLeft size={14} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('files.collapse_explorer')}</TooltipContent>
-                </Tooltip>
+                <div className="flex items-center gap-0.5">
+                  <SidebarSearchToggle
+                    open={fileSearch.open}
+                    onToggle={fileSearch.toggle}
+                    label={t('files.search_files')}
+                  />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon-xs" onClick={() => setExplorerVisible(false)}>
+                        <PanelLeft size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('files.collapse_explorer')}</TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
-              <EtlFileTree />
+              {fileSearch.open && (
+                <SidebarSearchField
+                  value={fileSearch.query}
+                  onChange={fileSearch.setQuery}
+                  onClose={fileSearch.toggle}
+                  placeholder={t('files.search_files')}
+                />
+              )}
+              <EtlFileTree search={fileSearch.query} />
             </div>
           </Allotment.Pane>
 

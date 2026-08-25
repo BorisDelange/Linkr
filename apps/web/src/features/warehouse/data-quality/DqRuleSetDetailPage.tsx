@@ -7,11 +7,6 @@ import {
   BarChart3,
   Info,
   FileText,
-  Scale,
-  Download,
-  GitBranch,
-  MoreHorizontal,
-  ChevronDown,
   Pencil,
 } from 'lucide-react'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
@@ -20,12 +15,9 @@ import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { Button } from '@/components/ui/button'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { EntitySecondaryTabsTrigger } from '@/components/ui/entity-secondary-tabs'
 import { Badge } from '@/components/ui/badge'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
@@ -55,20 +47,6 @@ const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: nu
   { id: 'checks', labelKey: 'data_quality.tab_checks', icon: Code },
   { id: 'results', labelKey: 'data_quality.tab_results', icon: BarChart3 },
 ]
-
-/**
- * Readme, licence, export and versioning fold behind one trigger, as on the ETL
- * pipeline, the schema, the mapping project, the database and the SQL collection.
- *
- * 'export' is not a tab of its own — a rule set exports as a ZIP download, so
- * selecting it runs the action and leaves the active tab alone.
- */
-const SECONDARY_TABS = ['readme', 'license', 'versioning'] as const
-type SecondaryTabId = (typeof SECONDARY_TABS)[number]
-
-function isSecondaryTab(tab: TabId): tab is SecondaryTabId {
-  return (SECONDARY_TABS as readonly string[]).includes(tab)
-}
 
 interface Props {
   ruleSetId: string
@@ -206,7 +184,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
                 {t(tab.labelKey)}
               </TabsTrigger>
             ))}
-            <SecondaryTabsTrigger
+            <EntitySecondaryTabsTrigger
               activeTab={activeTab}
               onSelect={setActiveTab}
               onExport={() => void dqActions.onExport(ruleSet)}
@@ -464,68 +442,3 @@ function DqLicenseTab({ ruleSet }: { ruleSet: DqRuleSet }) {
 // ---------------------------------------------------------------------------
 // Secondary tabs ("...")
 // ---------------------------------------------------------------------------
-
-/**
- * One trigger standing in for the occasional tabs.
- *
- * It is a real TabsTrigger for whichever of them is active, so the tab
- * semantics are the ones Radix provides; when none is active it only opens the
- * menu.
- */
-function SecondaryTabsTrigger({
-  activeTab,
-  onSelect,
-  onExport,
-}: {
-  activeTab: TabId
-  onSelect: (tab: TabId) => void
-  onExport: () => void
-}) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const active = isSecondaryTab(activeTab) ? activeTab : undefined
-
-  // Export downloads a ZIP rather than opening a view, so it has no tab id and
-  // never becomes the active one — it sits here because this is where the
-  // occasional actions live.
-  const items: { id: SecondaryTabId | 'export'; label: string; icon: typeof FileText }[] = [
-    { id: 'readme', label: t('common.readme'), icon: FileText },
-    { id: 'license', label: t('license.title'), icon: Scale },
-    { id: 'export', label: t('common.export'), icon: Download },
-    { id: 'versioning', label: t('common.versioning'), icon: GitBranch },
-  ]
-  const current = items.find((i) => i.id === active)
-
-  return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <TabsTrigger
-          value={active ?? '__secondary__'}
-          // TabsTrigger paints "active" from data-state, but DropdownMenuTrigger
-          // owns that attribute on a composed trigger and writes open/closed into
-          // it. aria-selected stays the tab's own, so drive the styles off that.
-          className="aria-selected:bg-background aria-selected:text-foreground aria-selected:shadow-sm"
-          // The menu is the point: let it open instead of switching tab.
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => { e.preventDefault(); setOpen((v) => !v) }}
-        >
-          {current ? <current.icon size={14} /> : <MoreHorizontal size={14} />}
-          {current ? current.label : t('common.more')}
-          <ChevronDown size={12} className="opacity-60" />
-        </TabsTrigger>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-40">
-        {items.map((item) => (
-          <DropdownMenuItem
-            key={item.id}
-            onSelect={() => { if (item.id === 'export') onExport(); else onSelect(item.id) }}
-            className={item.id === active ? 'bg-accent' : undefined}
-          >
-            <item.icon size={14} className="text-muted-foreground" />
-            {item.label}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}

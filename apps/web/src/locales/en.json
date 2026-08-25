@@ -855,6 +855,7 @@
     "tab_history": "History",
     "checks": "Checks",
     "no_checks": "No checks",
+    "search_checks": "Search checks",
     "no_checks_description": "Create custom SQL checks to validate your data beyond the built-in rules.",
     "new_check": "New Check",
     "check_name_placeholder": "e.g. No future dates in admission_date",
@@ -1613,6 +1614,8 @@
     "new_folder": "New folder",
     "upload": "Upload",
     "no_files": "No files yet. Create a file or use the terminal.",
+    "search_files": "Search files",
+    "no_files_match": "No files matching your search",
     "select_file": "Select a file to edit",
     "unsaved_changes_title": "Unsaved changes",
     "unsaved_changes_description": "\"{{name}}\" has unsaved changes. Do you want to save before closing?",
@@ -2716,6 +2719,10 @@
     "file_type_json": "JSON",
     "filter_type": "Type",
     "upload_file": "Upload file",
+    "no_files_match": "No files matching your search",
+    "search_files": "Search files",
+    "readme_empty_hint": "No readme yet — write one to say what this plugin does.",
+    "tab_code": "Code",
     "tab_metadata": "Metadata"
   },
   "profile": {

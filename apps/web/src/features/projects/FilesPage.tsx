@@ -86,6 +86,11 @@ import { RunButton } from './files/RunButton'
 import { SessionDropdown } from '@/components/execution/SessionDropdown'
 import { PythonLogo, RLogo } from '@/components/ui/language-icon'
 import { SectionLabel } from '@/components/ui/section-label'
+import {
+  SidebarSearchField,
+  SidebarSearchToggle,
+  useSidebarSearch,
+} from '@/components/SidebarSearch'
 import { TerminalPanel } from '@/components/terminal/TerminalPanel'
 import { useSessionStore } from '@/stores/session-store'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
@@ -160,6 +165,7 @@ export function FilesPage() {
   const [editorSettingsOpen, setEditorSettingsOpen] = useState(false)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [explorerVisible, setExplorerVisible] = useState(true)
+  const fileSearch = useSidebarSearch()
   const [editorVisible, setEditorVisible] = useState(true)
   const [dragFileId, setDragFileId] = useState<string | null>(null)
   const [dropFileInsert, setDropFileInsert] = useState<{ id: string; side: 'left' | 'right' } | null>(null)
@@ -953,6 +959,11 @@ export function FilesPage() {
                   </Tooltip>
                 </div>
                 <div className="flex items-center gap-0.5">
+                  <SidebarSearchToggle
+                    open={fileSearch.open}
+                    onToggle={fileSearch.toggle}
+                    label={t('files.search_files')}
+                  />
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -984,8 +995,16 @@ export function FilesPage() {
                   </Tooltip>
                 </div>
               </div>
+              {fileSearch.open && (
+                <SidebarSearchField
+                  value={fileSearch.query}
+                  onChange={fileSearch.setQuery}
+                  onClose={fileSearch.toggle}
+                  placeholder={t('files.search_files')}
+                />
+              )}
               {resolvedDirs && <FolderPathBar path={resolvedDirs.ide} />}
-              <FileTree onNewChild={openCreate} />
+              <FileTree onNewChild={openCreate} search={fileSearch.query} />
             </div>
           </Allotment.Pane>
 

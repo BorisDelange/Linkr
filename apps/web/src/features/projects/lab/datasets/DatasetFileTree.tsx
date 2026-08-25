@@ -44,6 +44,7 @@ import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-hea
 import { compareTreeNodes } from '@/lib/file-tree-sort'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { treeSearchMatches } from '@/components/SidebarSearch'
 import {
   actionableTargets,
   isRowInBulkSelection,
@@ -109,11 +110,13 @@ interface DatasetTreeItemProps {
   onClickFile: (id: string, modifiers: ClickModifiers) => void
   onBulkVersioning: (ids: string[], versioned: boolean) => void
   onRequestBulkDelete: (ids: string[]) => void
+  /** Folders held open by an active search, on top of the store's own state. */
+  forceExpandedIds: Set<string> | null
 }
 
 function DatasetTreeItem({
   node, depth, getChildren, onRequestDelete, onRequestImportSettings,
-  selection, onClickFile, onBulkVersioning, onRequestBulkDelete,
+  selection, onClickFile, onBulkVersioning, onRequestBulkDelete, forceExpandedIds,
 }: DatasetTreeItemProps) {
   const { t } = useTranslation()
   const {
@@ -148,7 +151,7 @@ function DatasetTreeItem({
   const isMarkedVersioned = versioning?.marked.has(markKey) ?? false
 
   const isFolder = node.type === 'folder'
-  const isExpanded = expandedFolders.includes(node.id)
+  const isExpanded = expandedFolders.includes(node.id) || !!forceExpandedIds?.has(node.id)
   const isSelected = selectedFileId === node.id
   // Delete genuinely handles a folder here (it removes the subtree), so unlike the
   // other trees a folder IS an actionable target — the tint and `bulk` therefore
@@ -484,6 +487,7 @@ function DatasetTreeItem({
             onClickFile={onClickFile}
             onBulkVersioning={onBulkVersioning}
             onRequestBulkDelete={onRequestBulkDelete}
+            forceExpandedIds={forceExpandedIds}
           />
         ))}
     </>
@@ -494,7 +498,12 @@ function DatasetTreeItem({
 // DatasetFileTree
 // ---------------------------------------------------------------------------
 
-export function DatasetFileTree() {
+interface DatasetFileTreeProps {
+  /** Name filter from the explorer search box; empty shows the whole tree. */
+  search?: string
+}
+
+export function DatasetFileTree({ search = '' }: DatasetFileTreeProps) {
   const { t } = useTranslation()
   const { files, moveNode, deleteNode, expandedFolders } = useDatasetStore()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
@@ -524,10 +533,13 @@ export function DatasetFileTree() {
   const compare = (a: DatasetFile, b: DatasetFile) =>
     compareTreeNodes({ name: a.name, type: a.type }, { name: b.name, type: b.type }, sort)
 
-  const rootNodes = files.filter((f) => f.parentId === null).sort(compare)
+  const searchMatches = useMemo(() => treeSearchMatches(files, search), [files, search])
+  const isVisible = (f: DatasetFile) => !searchMatches || searchMatches.has(f.id)
+
+  const rootNodes = files.filter((f) => f.parentId === null && isVisible(f)).sort(compare)
 
   function getChildren(parentId: string): DatasetFile[] {
-    return files.filter((f) => f.parentId === parentId).sort(compare)
+    return files.filter((f) => f.parentId === parentId && isVisible(f)).sort(compare)
   }
 
   /**
@@ -540,8 +552,8 @@ export function DatasetFileTree() {
     const walk = (nodes: DatasetFile[]) => {
       for (const node of nodes) {
         out.push(node.id)
-        if (node.type === 'folder' && expandedFolders.includes(node.id)) {
-          walk(files.filter((f) => f.parentId === node.id).sort(compare))
+        if (node.type === 'folder' && (expandedFolders.includes(node.id) || searchMatches?.has(node.id))) {
+          walk(files.filter((f) => f.parentId === node.id && isVisible(f)).sort(compare))
         }
       }
     }
@@ -549,7 +561,7 @@ export function DatasetFileTree() {
     return out
   // compare is derived from `sort`, which is listed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, sort, expandedFolders])
+  }, [files, sort, expandedFolders, searchMatches])
 
   // A deleted or renamed-away file must not stay selected: a bulk action would
   // report a count it cannot deliver.
@@ -619,7 +631,9 @@ export function DatasetFileTree() {
       {resolved && <FolderPathBar path={resolved.datasets} />}
       {rootNodes.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
-          <p className="text-xs text-muted-foreground">{t('datasets.no_files')}</p>
+          <p className="text-xs text-muted-foreground">
+            {searchMatches ? t('files.no_files_match') : t('datasets.no_files')}
+          </p>
         </div>
       ) : (
       <>
@@ -637,6 +651,7 @@ export function DatasetFileTree() {
               node={node}
               depth={0}
               getChildren={getChildren}
+              forceExpandedIds={searchMatches}
               onRequestDelete={setDeleteTarget}
               onRequestImportSettings={setImportSettingsTarget}
               selection={selection}

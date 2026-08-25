@@ -25,10 +25,6 @@ import {
   TableIcon,
   FolderPlus,
   ListChecks,
-  Download,
-  GitBranch,
-  MoreHorizontal,
-  Scale,
   Info,
   Pencil,
 } from 'lucide-react'
@@ -54,6 +50,7 @@ import {
 } from '@/components/ui/context-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { EntitySecondaryTabsTrigger } from '@/components/ui/entity-secondary-tabs'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { Badge } from '@/components/ui/badge'
@@ -77,6 +74,11 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { SqlScriptsFileTree } from './SqlScriptsFileTree'
+import {
+  SidebarSearchField,
+  SidebarSearchToggle,
+  useSidebarSearch,
+} from '@/components/SidebarSearch'
 import { CreateSqlScriptFileDialog } from './CreateSqlScriptFileDialog'
 import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
@@ -98,20 +100,6 @@ const SQL_EDITOR_SHORTCUT_ACTIONS: ShortcutActionId[] = [
 
 const SQL_TAB_IDS = ['overview', 'scripts', 'readme', 'license', 'versioning'] as const
 type SqlTabId = (typeof SQL_TAB_IDS)[number]
-
-/**
- * Readme, licence, export and versioning fold behind one trigger, as on the ETL
- * pipeline, the schema, the mapping project and the database.
- *
- * 'export' is not a tab of its own — a collection exports as a ZIP download, so
- * selecting it runs the action and leaves the active tab alone.
- */
-const SQL_SECONDARY_TABS = ['readme', 'license', 'versioning'] as const
-type SqlSecondaryTabId = (typeof SQL_SECONDARY_TABS)[number]
-
-function isSqlSecondaryTab(tab: SqlTabId): tab is SqlSecondaryTabId {
-  return (SQL_SECONDARY_TABS as readonly string[]).includes(tab)
-}
 
 interface Props {
   collectionId: string
@@ -174,6 +162,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   }, [activeTab])
 
   const [explorerVisible, setExplorerVisible] = useState(true)
+  const fileSearch = useSidebarSearch()
   const [editorVisible, setEditorVisible] = useState(true)
   const [createFileOpen, setCreateFileOpen] = useState(false)
   const [createFolderMode, setCreateFolderMode] = useState(false)
@@ -452,7 +441,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                 <Code size={14} />
                 {t('sql_scripts.tab_scripts')}
               </TabsTrigger>
-              <SqlSecondaryTabsTrigger
+              <EntitySecondaryTabsTrigger
                 activeTab={activeTab}
                 onSelect={setActiveTab}
                 onExport={() => { if (collection) void sqlActions.onExport(collection) }}
@@ -548,16 +537,31 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                       <TooltipContent>{t('files.new_folder')}</TooltipContent>
                     </Tooltip>
                   </div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon-xs" onClick={() => setExplorerVisible(false)}>
-                        <PanelLeft size={14} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('files.collapse_explorer')}</TooltipContent>
-                  </Tooltip>
+                  <div className="flex items-center gap-0.5">
+                    <SidebarSearchToggle
+                      open={fileSearch.open}
+                      onToggle={fileSearch.toggle}
+                      label={t('files.search_files')}
+                    />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon-xs" onClick={() => setExplorerVisible(false)}>
+                          <PanelLeft size={14} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('files.collapse_explorer')}</TooltipContent>
+                    </Tooltip>
+                  </div>
                 </div>
-                <SqlScriptsFileTree onNewChild={openCreate} />
+                {fileSearch.open && (
+                  <SidebarSearchField
+                    value={fileSearch.query}
+                    onChange={fileSearch.setQuery}
+                    onClose={fileSearch.toggle}
+                    placeholder={t('files.search_files')}
+                  />
+                )}
+                <SqlScriptsFileTree onNewChild={openCreate} search={fileSearch.query} />
               </div>
             </Allotment.Pane>
 
@@ -1171,71 +1175,6 @@ function SqlIdentityCard({
 // ---------------------------------------------------------------------------
 // Secondary tabs ("...")
 // ---------------------------------------------------------------------------
-
-/**
- * One trigger standing in for the occasional tabs.
- *
- * It is a real TabsTrigger for whichever of them is active, so the tab
- * semantics are the ones Radix provides; when none is active it only opens the
- * menu.
- */
-function SqlSecondaryTabsTrigger({
-  activeTab,
-  onSelect,
-  onExport,
-}: {
-  activeTab: SqlTabId
-  onSelect: (tab: SqlTabId) => void
-  onExport: () => void
-}) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const active = isSqlSecondaryTab(activeTab) ? activeTab : undefined
-
-  // Export downloads a ZIP rather than opening a view, so it has no tab id and
-  // never becomes the active one — it sits here because this is where the
-  // occasional actions live.
-  const items: { id: SqlSecondaryTabId | 'export'; label: string; icon: typeof FileText }[] = [
-    { id: 'readme', label: t('common.readme'), icon: FileText },
-    { id: 'license', label: t('license.title'), icon: Scale },
-    { id: 'export', label: t('common.export'), icon: Download },
-    { id: 'versioning', label: t('common.versioning'), icon: GitBranch },
-  ]
-  const current = items.find((i) => i.id === active)
-
-  return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <TabsTrigger
-          value={active ?? '__secondary__'}
-          // TabsTrigger paints "active" from data-state, but DropdownMenuTrigger
-          // owns that attribute on a composed trigger and writes open/closed into
-          // it. aria-selected stays the tab's own, so drive the styles off that.
-          className="aria-selected:bg-background aria-selected:text-foreground aria-selected:shadow-sm"
-          // The menu is the point: let it open instead of switching tab.
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => { e.preventDefault(); setOpen((v) => !v) }}
-        >
-          {current ? <current.icon size={14} /> : <MoreHorizontal size={14} />}
-          {current ? current.label : t('common.more')}
-          <ChevronDown size={12} className="opacity-60" />
-        </TabsTrigger>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-40">
-        {items.map((item) => (
-          <DropdownMenuItem
-            key={item.id}
-            onSelect={() => { if (item.id === 'export') onExport(); else onSelect(item.id) }}
-            className={item.id === active ? 'bg-accent' : undefined}
-          >
-            <item.icon size={14} className="text-muted-foreground" />
-            {item.label}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // SqlOutputContent

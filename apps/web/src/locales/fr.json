@@ -855,6 +855,7 @@
     "tab_history": "Historique",
     "checks": "Contrôles",
     "no_checks": "Aucun contrôle",
+    "search_checks": "Rechercher un contrôle",
     "no_checks_description": "Créez des contrôles SQL personnalisés pour valider vos données au-delà des règles intégrées.",
     "new_check": "Nouveau contrôle",
     "check_name_placeholder": "ex. Pas de dates futures dans date_admission",
@@ -1613,6 +1614,8 @@
     "new_folder": "Nouveau dossier",
     "upload": "Importer",
     "no_files": "Aucun fichier. Créez un fichier ou utilisez le terminal.",
+    "search_files": "Rechercher un fichier",
+    "no_files_match": "Aucun fichier ne correspond",
     "select_file": "Sélectionnez un fichier à modifier",
     "unsaved_changes_title": "Modifications non enregistrées",
     "unsaved_changes_description": "\"{{name}}\" contient des modifications non enregistrées. Voulez-vous enregistrer avant de fermer ?",
@@ -2716,6 +2719,10 @@
     "file_type_json": "JSON",
     "filter_type": "Type",
     "upload_file": "Téléverser un fichier",
+    "no_files_match": "Aucun fichier ne correspond",
+    "search_files": "Rechercher un fichier",
+    "readme_empty_hint": "Pas encore de readme — écrivez-en un pour décrire ce que fait ce plugin.",
+    "tab_code": "Code",
     "tab_metadata": "Métadonnées"
   },
   "profile": {

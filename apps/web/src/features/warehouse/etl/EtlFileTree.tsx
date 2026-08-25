@@ -57,9 +57,15 @@ import {
   type ClickModifiers,
   type Selection,
 } from '@/lib/tree-selection'
+import { treeSearchMatches } from '@/components/SidebarSearch'
 import type { EtlFile } from '@/types'
 
-export function EtlFileTree() {
+interface EtlFileTreeProps {
+  /** Name filter from the explorer search box; empty shows the whole tree. */
+  search?: string
+}
+
+export function EtlFileTree({ search = '' }: EtlFileTreeProps) {
   const { t, i18n } = useTranslation()
   const { files, selectedFileId, selectFile, deleteFile, updateFile, etlPipelines, updatePipeline } = useEtlStore()
   const [sort, setSort] = useState<FileTreeSort>({ key: 'name', desc: false })
@@ -112,9 +118,18 @@ export function EtlFileTree() {
       return bytes == null ? undefined : humanBytes(bytes, i18n.language)
     }),
   )
-  const rootFiles = files.filter((f) => f.parentId === null)
+  const searchMatches = useMemo(() => treeSearchMatches(files, search), [files, search])
+  const isVisible = (f: EtlFile) => !searchMatches || searchMatches.has(f.id)
+  // While searching, folders on a match's path open regardless of their stored
+  // state, and close back to it when the search clears.
+  const effectiveExpanded = useMemo(
+    () => (searchMatches ? new Set([...expandedFolders, ...searchMatches]) : expandedFolders),
+    [searchMatches, expandedFolders],
+  )
+
+  const rootFiles = files.filter((f) => f.parentId === null && isVisible(f))
   const getChildren = (parentId: string) =>
-    files.filter((f) => f.parentId === parentId).sort(compare)
+    files.filter((f) => f.parentId === parentId && isVisible(f)).sort(compare)
 
   /**
    * Ids in the order they appear ON SCREEN, which is what a Shift-range means:
@@ -126,14 +141,14 @@ export function EtlFileTree() {
     const walk = (nodes: EtlFile[]) => {
       for (const node of nodes) {
         out.push(node.id)
-        if (node.type === 'folder' && expandedFolders.has(node.id)) walk(getChildren(node.id))
+        if (node.type === 'folder' && effectiveExpanded.has(node.id)) walk(getChildren(node.id))
       }
     }
     walk([...rootFiles].sort(compare))
     return out
   // getChildren/compare are derived from files+sort, which are both listed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, sort, expandedFolders])
+  }, [files, sort, effectiveExpanded])
 
   // A deleted or renamed-away file must not stay selected: a bulk action would
   // report a count it cannot deliver.
@@ -182,11 +197,13 @@ export function EtlFileTree() {
     downloadBlob(await zip.generateAsync({ type: 'blob' }), 'etl-scripts.zip')
   }
 
-  if (files.length === 0) {
+  if (files.length === 0 || rootFiles.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
         <FileCode size={24} className="text-muted-foreground/50" />
-        <p className="mt-2 text-xs text-muted-foreground">{t('etl.no_files')}</p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          {searchMatches ? t('files.no_files_match') : t('etl.no_files')}
+        </p>
       </div>
     )
   }
@@ -205,14 +222,14 @@ export function EtlFileTree() {
               depth={0}
               isActive={file.id === selectedFileId}
               isFolder={file.type === 'folder'}
-              isExpanded={expandedFolders.has(file.id)}
+              isExpanded={effectiveExpanded.has(file.id)}
               onToggleFolder={toggleFolder}
               onSelect={selectFile}
               onDelete={handleDeleteRequest}
               onRename={(id, name) => updateFile(id, { name })}
               nameExists={nameExists}
               getChildren={getChildren}
-              expandedFolders={expandedFolders}
+              expandedFolders={effectiveExpanded}
               selectedFileId={selectedFileId}
               sizeWidthCh={sizeWidthCh}
               selection={selection}

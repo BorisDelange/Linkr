@@ -2,8 +2,15 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Save, X, ChevronLeft, ChevronRight, PanelLeft, Eye, EyeOff, Keyboard, Play, Loader2 } from 'lucide-react'
+import { Save, X, ChevronLeft, ChevronRight, PanelLeft, Eye, EyeOff, Keyboard, Play, Loader2, Info, FileCode } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  EntitySecondaryTabsTrigger,
+  ENTITY_SECONDARY_TABS,
+} from '@/components/ui/entity-secondary-tabs'
+import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
+import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import {
   Tooltip,
   TooltipContent,
@@ -13,7 +20,15 @@ import {
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { cn } from '@/lib/utils'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useOrganizationStore } from '@/stores/organization-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { useUrlTab } from '@/hooks/use-url-tab'
+import { localized } from '@/lib/localized'
 import { PluginFileList } from './PluginFileList'
+import { PluginOverviewTab } from './PluginOverviewTab'
+import { PluginTestConfig } from './PluginTestConfig'
+import { usePluginActions } from './use-plugin-actions'
 import { PluginTestPanel } from './PluginTestPanel'
 import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
 import { useGlobalShortcuts, matchesCombo, type ShortcutHandlers } from '@/hooks/use-shortcuts'
@@ -39,11 +54,15 @@ const languageFromFilename = (filename: string): string => {
   return 'plaintext'
 }
 
+const PLUGIN_TAB_IDS = ['overview', 'code', ...ENTITY_SECONDARY_TABS] as const
+type PluginTabId = (typeof PLUGIN_TAB_IDS)[number]
+
 export function PluginEditor() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const {
     editingPluginId,
     isSystemPlugin,
+    pluginList,
     files,
     openFiles,
     activeFile,
@@ -62,6 +81,28 @@ export function PluginEditor() {
     testConfig,
     saveError,
   } = usePluginEditorStore()
+
+  const [activeTab, setActiveTab] = useUrlTab<PluginTabId>({
+    key: `plugin:${editingPluginId ?? ''}`,
+    tabs: PLUGIN_TAB_IDS,
+    // Code, not overview: the editor is what someone opening a plugin came for.
+    defaultTab: 'code',
+  })
+
+  // Set by the overview's Edit button so the Readme tab opens in edit mode.
+  const [readmeEditing, setReadmeEditing] = useState(false)
+  // Cleared only once the Readme tab has actually been left. Checking
+  // `activeTab !== 'readme'` during render would fire immediately instead:
+  // setActiveTab writes the URL, so activeTab is still the previous tab on the
+  // render right after the Edit click, and the flag died before it was read.
+  const wasOnReadme = useRef(false)
+  useEffect(() => {
+    if (activeTab === 'readme') wasOnReadme.current = true
+    else if (wasOnReadme.current) {
+      wasOnReadme.current = false
+      setReadmeEditing(false)
+    }
+  }, [activeTab])
 
   const [explorerVisible, setExplorerVisible] = useState(true)
   const [editorVisible, setEditorVisible] = useState(true)
@@ -130,6 +171,35 @@ export function PluginEditor() {
   const pluginScope = manifest.scope ?? 'lab'
   const canRunTest = pluginScope === 'warehouse' ? !!testDataSourceId : !!testDatasetFileId
   const pluginLanguages: ('python' | 'r')[] = manifest.languages ?? []
+
+  // --- Entity tabs (overview / readme / licence / versioning) ---
+  const canWritePlugins = useMyWorkspaceRole().can('plugins:write')
+  const pluginActions = usePluginActions()
+  const currentPlugin = pluginList.find((p) => p.id === editingPluginId)
+  // The actions hook takes the minimal item shape, built from what the open
+  // editor knows rather than from a list row that may not exist yet.
+  const pluginItem = useMemo(
+    () => ({
+      id: editingPluginId ?? '',
+      name: manifest.name ?? '',
+      gitRemoteConfig: currentPlugin?.gitRemoteConfig,
+    }),
+    [editingPluginId, manifest.name, currentPlugin?.gitRemoteConfig],
+  )
+  const pluginDocs = {
+    readme: pluginActions.docs.getReadme?.(pluginItem),
+    license: pluginActions.docs.getLicense?.(pluginItem) ?? null,
+  }
+  // The plugin's frozen provenance wins; otherwise the workspace's live
+  // organization — the rule every other licence tab follows.
+  const workspace = useWorkspaceStore((s) =>
+    s._workspacesRaw.find((w) => w.id === s.activeWorkspaceId),
+  )
+  const org = useOrganizationStore((s) =>
+    workspace?.organizationId ? s.getOrganization(workspace.organizationId) : undefined,
+  )
+  const holder = currentPlugin?.organization?.name ?? org?.name
+  const licenseHolder = holder ? localized(holder, i18n.language) : undefined
 
   // Parse configSchema for test execution
   const parsedSchema = useMemo(() => {
@@ -282,16 +352,93 @@ export function PluginEditor() {
   return (
     <TooltipProvider delayDuration={300}>
     <div className="flex h-full flex-col">
-      {/* Main area: file sidebar | (tab bar + editor/output) */}
-      <div className="min-h-0 flex-1">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as PluginTabId)}>
+        <div className="flex shrink-0 items-center justify-center px-6 py-3">
+          <TabsList>
+            <TabsTrigger value="overview">
+              <Info size={14} />
+              {t('databases.detail_overview')}
+            </TabsTrigger>
+            <TabsTrigger value="code">
+              <FileCode size={14} />
+              {t('plugins.tab_code')}
+            </TabsTrigger>
+            <EntitySecondaryTabsTrigger
+              activeTab={activeTab}
+              onSelect={setActiveTab}
+              onExport={() => void pluginActions.onExport(pluginItem)}
+            />
+          </TabsList>
+        </div>
+      </Tabs>
+
+      {activeTab === 'overview' && currentPlugin && (
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-1.5">
+          <PluginOverviewTab
+            plugin={currentPlugin}
+            readme={pluginDocs.readme}
+            license={pluginDocs.license}
+            onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
+            onSeeLicense={() => setActiveTab('license')}
+          />
+        </div>
+      )}
+
+      {activeTab === 'readme' && (
+        <div className="min-h-0 flex-1 overflow-auto px-6 pb-1.5">
+          <EntityReadmePanel
+            // Remounted when arriving from the overview's Edit button, so the
+            // editor picks up the requested mode — initialMode only applies on mount.
+            key={readmeEditing ? 'edit' : 'view'}
+            initialMode={readmeEditing ? 'edit' : 'view'}
+            readme={pluginDocs.readme}
+            onSave={(readme) => void pluginActions.docs.onSaveReadme?.(pluginItem, readme)}
+            canEdit={canWritePlugins && !isSystemPlugin}
+            attachmentOwner={{ type: 'user-plugin', id: editingPluginId ?? '' }}
+            // The tab already says "Readme".
+            showTitle={false}
+          />
+        </div>
+      )}
+
+      {activeTab === 'license' && (
+        <div className="min-h-0 flex-1 overflow-auto px-6 pb-1.5">
+          <EntityLicensePanel
+            license={pluginDocs.license}
+            onSave={(license) => void pluginActions.docs.onSaveLicense?.(pluginItem, license)}
+            canEdit={canWritePlugins && !isSystemPlugin}
+            copyrightHolder={licenseHolder}
+            showTitle={false}
+          />
+        </div>
+      )}
+
+      {activeTab === 'versioning' && (
+        <div className="min-h-0 flex-1 overflow-auto px-6 pb-1.5">
+          <div className="mx-auto w-full max-w-3xl">
+            <GitRepositoryTab
+              gitRemote={currentPlugin?.gitRemoteConfig ?? null}
+              onSave={(config) => pluginActions.onSaveGitRemote(pluginItem, config)}
+              syncScope="user-plugins"
+              syncId={editingPluginId ?? undefined}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Main area: file sidebar | (tab bar + editor/output). It keeps its own
+          mount across tab switches: Monaco, the open files and the test output
+          are expensive to rebuild, and coming back to a re-initialised editor
+          would lose the session. */}
+      <div className={cn('min-h-0 flex-1', activeTab === 'code' ? '' : 'hidden')}>
         <Allotment>
           {/* File list sidebar */}
-          <Allotment.Pane preferredSize={180} minSize={120} maxSize={300} visible={explorerVisible}>
+          {/* Same width band as the IDE file explorer, so file sidebars all
+              open at the same size. */}
+          <Allotment.Pane preferredSize={240} minSize={140} maxSize={400} visible={explorerVisible}>
             <PluginFileList
               onCollapse={() => setExplorerVisible(false)}
               readOnly={isSystemPlugin}
-              scope={pluginScope as 'lab' | 'warehouse'}
-              manifestLanguages={pluginLanguages.length > 0 ? pluginLanguages : undefined}
             />
           </Allotment.Pane>
 
@@ -324,6 +471,13 @@ export function PluginEditor() {
                 </Tooltip>
 
                 <div className="mx-1 h-4 w-px bg-border" />
+
+                {/* What the run executes against, next to the button it feeds. */}
+                <PluginTestConfig
+                  scope={pluginScope as 'lab' | 'warehouse'}
+                  manifestLanguages={pluginLanguages.length > 0 ? pluginLanguages : undefined}
+                  readOnly={isSystemPlugin}
+                />
 
                 {/* Run test — same button style as SQL script collections */}
                 <Button

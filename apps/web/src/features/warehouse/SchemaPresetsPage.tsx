@@ -27,10 +27,6 @@ import {
   Table2,
   Columns3,
   Network,
-  Scale,
-  Download,
-  GitBranch,
-  MoreHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import ReactMarkdown from 'react-markdown'
@@ -42,6 +38,7 @@ import { SearchInput } from '@/components/ui/search-input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { EntitySecondaryTabsTrigger } from '@/components/ui/entity-secondary-tabs'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   AlertDialog,
@@ -53,10 +50,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
@@ -1082,21 +1076,6 @@ const SCHEMA_TAB_IDS = ['overview', 'ddl', 'mapping', 'readme', 'license', 'vers
 type SchemaTabId = (typeof SCHEMA_TAB_IDS)[number]
 
 /**
- * Export, versioning, readme and licence fold behind one trigger, as on the ETL
- * pipeline and the mapping project: they are what you reach for occasionally,
- * not while reading the schema.
- *
- * 'export' is not a tab of its own — a schema exports as a ZIP download, so
- * selecting it runs the action and leaves the active tab alone.
- */
-const SCHEMA_SECONDARY_TABS = ['readme', 'license', 'versioning'] as const
-type SchemaSecondaryTabId = (typeof SCHEMA_SECONDARY_TABS)[number]
-
-function isSchemaSecondaryTab(tab: SchemaTabId): tab is SchemaSecondaryTabId {
-  return (SCHEMA_SECONDARY_TABS as readonly string[]).includes(tab)
-}
-
-/**
  * The DDL and Mapping tabs each show the same thing two ways — as a diagram or
  * as its source. That is a view switch within one subject, not two subjects, so
  * it rides inside the tab rather than doubling the tab count.
@@ -1237,7 +1216,7 @@ function SchemaDetailView({
               <Table2 size={14} />
               {t('schemas.tab_mapping')}
             </TabsTrigger>
-            <SchemaSecondaryTabsTrigger
+            <EntitySecondaryTabsTrigger
               activeTab={activeTab}
               onSelect={setActiveTab}
               onExport={() => { if (preset) void schemaActions.onExport(toSchemaPresetItem(preset)) }}
@@ -1430,71 +1409,6 @@ function SchemaDetailView({
 // ---------------------------------------------------------------------------
 // Secondary tabs ("...")
 // ---------------------------------------------------------------------------
-
-/**
- * One trigger standing in for the occasional tabs.
- *
- * It is a real TabsTrigger for whichever of them is active, so the tab
- * semantics are the ones Radix provides; when none is active it only opens the
- * menu.
- */
-function SchemaSecondaryTabsTrigger({
-  activeTab,
-  onSelect,
-  onExport,
-}: {
-  activeTab: SchemaTabId
-  onSelect: (tab: SchemaTabId) => void
-  onExport: () => void
-}) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const active = isSchemaSecondaryTab(activeTab) ? activeTab : undefined
-
-  // Export downloads a ZIP rather than opening a view, so it has no tab id and
-  // never becomes the active one — it sits here because this is where the
-  // occasional actions live.
-  const items: { id: SchemaSecondaryTabId | 'export'; label: string; icon: typeof FileText }[] = [
-    { id: 'readme', label: t('common.readme'), icon: FileText },
-    { id: 'license', label: t('license.title'), icon: Scale },
-    { id: 'export', label: t('common.export'), icon: Download },
-    { id: 'versioning', label: t('common.versioning'), icon: GitBranch },
-  ]
-  const current = items.find((i) => i.id === active)
-
-  return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <TabsTrigger
-          value={active ?? '__secondary__'}
-          // TabsTrigger paints "active" from data-state, but DropdownMenuTrigger
-          // owns that attribute on a composed trigger and writes open/closed into
-          // it. aria-selected stays the tab's own, so drive the styles off that.
-          className="aria-selected:bg-background aria-selected:text-foreground aria-selected:shadow-sm"
-          // The menu is the point: let it open instead of switching tab.
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => { e.preventDefault(); setOpen((v) => !v) }}
-        >
-          {current ? <current.icon size={14} /> : <MoreHorizontal size={14} />}
-          {current ? current.label : t('common.more')}
-          <ChevronDown size={12} className="opacity-60" />
-        </TabsTrigger>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-40">
-        {items.map((item) => (
-          <DropdownMenuItem
-            key={item.id}
-            onSelect={() => { if (item.id === 'export') onExport(); else onSelect(item.id) }}
-            className={item.id === active ? 'bg-accent' : undefined}
-          >
-            <item.icon size={14} className="text-muted-foreground" />
-            {item.label}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Detail view — overview, readme and licence tabs

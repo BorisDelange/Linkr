@@ -325,6 +325,9 @@ export function Header() {
       canEdit={!editingPluginIsSystem}
       canDelete={!editingPluginIsSystem}
       align="start"
+      // Already in the plugin's editor: switch tab rather than open the dialog.
+      onOpenDocs={(_item, tab) => navigate(`${pathname}?tab=${tab}`, { replace: true })}
+      onVersioningOverride={() => navigate(`${pathname}?tab=versioning`, { replace: true })}
       onDeleted={closePluginEditor}
       open={pluginMenuOpen}
       onOpenChange={setPluginMenuOpen}
