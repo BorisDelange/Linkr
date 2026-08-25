@@ -35,7 +35,6 @@ export interface InstalledInfo extends InstalledEntity {
 interface LocalRow {
   id?: string
   uid?: string
-  presetId?: string
   workspaceId?: string
   lineageId?: string
   version?: string
@@ -68,16 +67,9 @@ export function normalizeGitUrl(url: string | undefined): string {
   return url.trim().toLowerCase().replace(/\.git$/, '').replace(/\/+$/, '')
 }
 
-/**
- * The row's local key: `uid` for a project, `id` for everything else.
- *
- * `presetId` is the tail of that chain and is now only reached by a schema
- * preset stored before it gained an `id` — every write path fills one in. It
- * goes when `presetId` is retired (docs/planning/schema-preset-identity-plan.md,
- * step 5); until then dropping it would make those rows unidentifiable.
- */
+/** The row's local key: `uid` for a project, `id` for everything else. */
 function pkOf(row: LocalRow): string {
-  return row.uid ?? row.id ?? row.presetId ?? ''
+  return row.uid ?? row.id ?? ''
 }
 
 /**

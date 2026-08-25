@@ -10,9 +10,16 @@ import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 /** A CustomSchemaPreset adapted to EntityActionsMenu's `{ id, name }` contract. */
 export type SchemaPresetItem = CustomSchemaPreset & { id: string; name: LocalizedString }
 
-/** Wrap a preset with the id/name EntityActionsMenu expects (presetId / presetLabel). */
+/**
+ * Wrap a preset with the `name` EntityActionsMenu expects — a preset carries its
+ * label inside the mapping (`presetLabel`) rather than at the top level.
+ *
+ * `id` is the row's own key and is no longer overwritten with `presetId`: doing so
+ * fed the retired identity to every action below (delete, git link, attachments),
+ * which then resolved a different row once the two diverged.
+ */
 export function toSchemaPresetItem(preset: CustomSchemaPreset): SchemaPresetItem {
-  return { ...preset, id: preset.presetId, name: preset.mapping.presetLabel }
+  return { ...preset, id: preset.id ?? preset.presetId, name: preset.mapping.presetLabel }
 }
 
 export interface SchemaPresetActions {
@@ -38,16 +45,16 @@ export function useSchemaPresetActions(): SchemaPresetActions {
   const updatePreset = useSchemaPresetStore((s) => s.updatePreset)
 
   const onSaveGitRemote = useCallback(async (item: SchemaPresetItem, config: GitRemoteConfig | null) => {
-    await setGitRemote(item.presetId, config)
+    await setGitRemote(item.id, config)
   }, [setGitRemote])
 
   // Same builder the git sync uses. The export used to be a bare mapping JSON, which
   // dropped the DDL entirely — re-importing it created every table with no columns —
   // along with the README/LICENSE and the preset's own metadata (version, author).
   const onExport = useCallback(async (item: SchemaPresetItem) => {
-    const built = await buildSchemaPresetZip(item.presetId, getStorage())
+    const built = await buildSchemaPresetZip(item.id, getStorage())
     if (!built) return
-    downloadBlob(built.blob, `${slugify(localized(item.mapping.presetLabel, 'en') || item.presetId)}.zip`)
+    downloadBlob(built.blob, `${slugify(localized(item.mapping.presetLabel, 'en') || item.entityId || item.id)}.zip`)
   }, [])
 
   return {
@@ -63,11 +70,11 @@ export function useSchemaPresetActions(): SchemaPresetActions {
     deleteConfirmDescriptionKey: 'settings.schema_preset_delete_confirm',
     docs: {
       getReadme: (item) => item.readme,
-      onSaveReadme: (item, readme) => updatePreset(item.presetId, { readme }),
+      onSaveReadme: (item, readme) => updatePreset(item.id, { readme }),
       getLicense: (item) => item.license ?? null,
-      onSaveLicense: (item, license) => updatePreset(item.presetId, { license: license ?? undefined }),
+      onSaveLicense: (item, license) => updatePreset(item.id, { license: license ?? undefined }),
       attachmentOwnerType: 'schema-preset',
-      getOwnerId: (item) => item.presetId,
+      getOwnerId: (item) => item.id,
       getWorkspaceId: (item) => item.workspaceId,
     },
   }

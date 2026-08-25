@@ -71,7 +71,11 @@ const META_FILE: Record<CatalogEntry['type'], string> = {
 export function idOf(type: CatalogEntry['type'], meta: Record<string, unknown>): string | null {
   const keys = type === 'project'
     ? ['projectId', 'uid']
-    : type === 'schema-preset' ? ['presetId'] : ['id']
+    // A preset exported before the identity split has only `presetId`, which was
+    // at once its key and its slug. Newer trees carry `entityId`, so it is read
+    // first — never `id`, which is the writing instance's local primary key and
+    // must not become ours (every other type drops it on export for that reason).
+    : type === 'schema-preset' ? ['entityId', 'presetId'] : ['id']
   for (const key of keys) {
     const value = meta[key]
     if (typeof value === 'string' && value) return value
@@ -82,14 +86,10 @@ export function idOf(type: CatalogEntry['type'], meta: Record<string, unknown>):
 /**
  * A fresh local id for a duplicate install.
  *
- * A schema preset still gets `custom-<8 hex>` rather than a uuid: its `presetId`
- * remains the row key AND the Identifier the user sees in the field and in
- * exports, so a 36-character string would land in front of them. That ends when
- * `presetId` is retired in favour of `id` + `entityId` — the uuid goes in the
- * key, the readable slug in `entityId`, and this branch goes with it. See
- * docs/planning/schema-preset-identity-plan.md.
- *
- * The other types key on an opaque uuid the user never sees, so they keep one.
+ * A schema preset gets `custom-<8 hex>` because this id becomes its `entityId` —
+ * the readable Identifier shown in the field and written to exports — while the
+ * row's primary key is a uuid minted separately by the clone. Every other type
+ * keys on an opaque uuid the user never sees, so a raw one is right for them.
  */
 export function freshId(type: CatalogEntry['type']): string {
   return type === 'schema-preset' ? mintEntityId() : crypto.randomUUID()

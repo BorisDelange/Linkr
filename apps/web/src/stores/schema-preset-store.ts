@@ -11,17 +11,25 @@ interface SchemaPresetState {
   loadPresets: (workspaceId?: string) => Promise<void>
   getWorkspacePresets: (workspaceId: string) => CustomSchemaPreset[]
   savePreset: (preset: CustomSchemaPreset) => Promise<void>
-  deletePreset: (presetId: string) => Promise<void>
-  setGitRemote: (presetId: string, config: GitRemoteConfig | null) => Promise<void>
-  updatePreset: (presetId: string, changes: Partial<CustomSchemaPreset>) => Promise<void>
+  /** All three accept a preset's `id` or its retired `presetId`. */
+  deletePreset: (key: string) => Promise<void>
+  setGitRemote: (key: string, config: GitRemoteConfig | null) => Promise<void>
+  updatePreset: (key: string, changes: Partial<CustomSchemaPreset>) => Promise<void>
 }
 
 /**
- * Schema presets have no per-item id/name of their own: they key on `presetId`
- * and their label lives in `mapping.presetLabel`. This store holds the loaded
- * set so both the list page and the global header badge stay in sync when a
- * preset is renamed, git-linked, or deleted.
+ * A preset's label lives in `mapping.presetLabel` rather than at the top level,
+ * so it has no `name` of its own. This store holds the loaded set so both the
+ * list page and the global header badge stay in sync when a preset is renamed,
+ * git-linked, or deleted.
+ *
+ * Every lookup below matches `id` OR the retired `presetId`: callers hold either
+ * one while `presetId` is being retired — a bookmarked URL, an export tree, a
+ * catalog entry. `matches` is the single place that resolution lives.
  */
+const matches = (preset: CustomSchemaPreset, key: string): boolean =>
+  preset.id === key || preset.presetId === key
+
 export const useSchemaPresetStore = create<SchemaPresetState>((set, get) => ({
   presets: [],
   loaded: false,
@@ -49,26 +57,27 @@ export const useSchemaPresetStore = create<SchemaPresetState>((set, get) => ({
     const safe = { ...preset, mapping: sanitizeSchemaMapping(preset.mapping) }
     await getStorage().schemaPresets.save(safe)
     set((s) => {
-      const exists = s.presets.some((p) => p.presetId === safe.presetId)
+      const key = safe.id ?? safe.presetId
+      const exists = s.presets.some((p) => matches(p, key))
       return {
         presets: exists
-          ? s.presets.map((p) => (p.presetId === safe.presetId ? safe : p))
+          ? s.presets.map((p) => (matches(p, key) ? safe : p))
           : [...s.presets, safe],
       }
     })
   },
 
-  deletePreset: async (presetId) => {
-    await getStorage().schemaPresets.delete(presetId)
-    set((s) => ({ presets: s.presets.filter((p) => p.presetId !== presetId) }))
+  deletePreset: async (key) => {
+    await getStorage().schemaPresets.delete(key)
+    set((s) => ({ presets: s.presets.filter((p) => !matches(p, key)) }))
   },
 
-  setGitRemote: async (presetId, config) => {
-    await get().updatePreset(presetId, { gitRemoteConfig: config ?? undefined })
+  setGitRemote: async (key, config) => {
+    await get().updatePreset(key, { gitRemoteConfig: config ?? undefined })
   },
 
-  updatePreset: async (presetId, changes) => {
-    const existing = get().presets.find((p) => p.presetId === presetId)
+  updatePreset: async (key, changes) => {
+    const existing = get().presets.find((p) => matches(p, key))
     if (!existing) return
     await get().savePreset({ ...existing, ...changes, updatedAt: new Date().toISOString() })
   },
