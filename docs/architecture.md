@@ -220,11 +220,18 @@ an entity, not the entity — routing the export through the serializer would lo
 
 **Validated** (kind detected from the metadata file at the tree root): project,
 sql-collection, etl-pipeline, schema-preset, dq-rule-set, data-catalog, mapping-project,
-plus a project's cohorts. **Writable**: the project via `serializeProject`, the six
-standalone kinds via `serializeEntity`. Only **cohorts** are validate-only — a cohort
-belongs to a project and compiles to SQL, so a wrong criteria tree silently returns a
-different population instead of failing; it is built in the app, where the editor shows
-the attrition at each step.
+database, plus a project's cohorts. **Writable**: the project via `serializeProject`, the
+six standalone kinds via `serializeEntity`, a database via `serializeDatabase`. Only
+**cohorts** are validate-only — a cohort belongs to a project and compiles to SQL, so a
+wrong criteria tree silently returns a different population instead of failing; it is
+built in the app, where the editor shows the attrition at each step.
+
+A **database** is the one tree carrying data, so its serializer returns `{ files, copies }`
+rather than files alone: Parquet is binary and megabytes wide, and this package has no
+I/O — it declares where each file goes and the MCP tool performs the copy. The app can
+**import** such a tree (`applyClonedDatabase`) but never **writes** one: see the
+asymmetry recorded in `docs/planning/default-data-repos-plan.md` §11, and
+`INSTALL_ONLY_TYPES` in `lib/catalog/scope.ts`, which is what keeps a push button off it.
 
 A schema preset's canonical key order lives in `src/schema-mapping.ts` and is imported by
 `entity-io.ts` rather than duplicated — the writer must reproduce an exported preset byte

@@ -52,6 +52,7 @@ async function rowsOf(type: CatalogEntryType, storage: Storage): Promise<LocalRo
       case 'mapping-project': return storage.mappingProjects.getAll()
       case 'project': return storage.projects.getAll()
       case 'schema-preset': return storage.schemaPresets.getAll()
+      case 'database': return storage.dataSources.getAll()
     }
   }
   try {

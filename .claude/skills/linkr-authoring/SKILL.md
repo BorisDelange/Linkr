@@ -34,6 +34,7 @@ next validation will disagree with you.
 | `describe_entity_schema` | fields of a spec — **read before writing** |
 | `write_project` | create a whole project tree (`format: "zip"` for the import dialog) |
 | `write_entity` | create a standalone entity (SQL collection, ETL pipeline, DQ rule set, data catalog, mapping project, schema preset) |
+| `write_database` | create a database: metadata + `data/*.parquet` copied in + LFS — **public/synthetic data only** |
 | `describe_tree` | what an existing tree holds, with its real ids and keys |
 | `validate_entity` | check any tree; the kind is detected. Run after any change |
 | `add_dashboard_tab`, `add_widget`, `add_script` | incremental edits |
@@ -56,14 +57,15 @@ the mistakes worth avoiding, **not** its field list (that is `describe_entity_sc
 | Data catalog | `references/standalone-entities.md` | ✅ `write_entity` |
 | Concept-mapping project | `references/standalone-entities.md` | ✅ `write_entity` |
 | Schema preset (how to read a database) | `references/standalone-entities.md` | ✅ `write_entity` |
+| Database (Parquet + metadata) | `references/database.md` | ✅ `write_database` |
 | Plugin (widget code + manifest) | `references/plugin.md` | ⚠️ files by hand |
 | Cohort (inside a project) | `references/standalone-entities.md` | ⚠️ validate only |
 | Patient data view | — | ❌ computed live |
 
-Everything Linkr can export is covered above. The **six** ✅ `write_entity` kinds live in
-their **own** folder or repo (one repo per entity, as in `linkr-public-content`); a
-project holds its own datasets, dashboards and scripts and is written with
-`write_project`.
+Everything Linkr can export or install is listed above. The **six** ✅ `write_entity`
+kinds live in their **own** folder or repo (one repo per entity, as in
+`linkr-public-content`); a project holds its own datasets, dashboards and scripts and is
+written with `write_project`; a database has its own tool because it copies data files.
 
 ⚠️ A **plugin** ships as code in `packages/default-plugins/`, so the MCP does not write
 it — `references/plugin.md` has the procedure. A **cohort** belongs to a project and
@@ -72,10 +74,10 @@ it in the app. Say so rather than hand-rolling either one's JSON.
 
 ## Databases: public or synthetic data only
 
-A **database** repo may carry its data (`data/*.parquet`), unlike anything the app
-exports — the app deliberately never writes a single row, so that it can never be the
-path by which patient data leaves a hospital. Authoring one here is allowed **because
-this runs outside that context**, and that permission has one condition:
+A **database** repo carries its data (`data/*.parquet`), unlike anything the app
+exports — the app deliberately never writes a single row, so it can never be the path by
+which patient data leaves a hospital. `write_database` is allowed **because it runs
+outside that context**, and that permission has one condition:
 
 > Only ever build a database from **synthetic data or a public open dataset** (MIMIC-IV
 > demo, generated data). **Never** from a connected database, a hospital extract, or any
@@ -83,6 +85,7 @@ this runs outside that context**, and that permission has one condition:
 
 If asked to package data whose provenance is unclear, stop and ask. A repo, once pushed,
 cannot be unpublished — and a Parquet file carries no warning label saying whose it is.
+Details and the licence obligations: `references/database.md`.
 
 ## What is NOT authorable
 

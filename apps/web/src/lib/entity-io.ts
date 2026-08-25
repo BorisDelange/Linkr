@@ -29,11 +29,14 @@ import type {
   SourceConceptIdRange, SourceConceptIdEntry,
   DataCatalog, ServiceMapping, UserPlugin,
   DataSource, CustomSchemaPreset,
+  DatabaseConnectionConfig, StoredFile, SchemaMapping,
   GitRemoteConfig,
   LocalizedString, TodoItem,
   Organization, OrganizationInfo,
   AuthorDetails,
 } from '@/types'
+import * as engine from '@/lib/duckdb/engine'
+import { getSchemaPreset } from '@/lib/schema-presets'
 import { localized, toLocalized } from '@/lib/localized'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -1989,7 +1992,7 @@ export interface BuildWorkspaceZipOptions {
 
 /** A single git-linked entity recorded in the workspace's git-links.json manifest. */
 export interface GitLinkEntry {
-  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'schema-preset'
+  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'schema-preset' | 'database'
   /** Stable entity id (project.uid or entity id). */
   id: string
   /** Folder name used inside the workspace zip (projectId / entityId / slug). */
@@ -2382,6 +2385,147 @@ export function attachTreeIds<T extends object>(
   })
 }
 
+/** `_database.json` as a database repo publishes it (see @linkr/format serializeDatabase). */
+interface DatabaseRepoMeta {
+  id?: string
+  alias?: string
+  name?: LocalizedString | string
+  description?: LocalizedString | string
+  schema?: string | SchemaMapping
+  tables?: string[]
+  inMemory?: boolean
+  isVocabularyReference?: boolean
+  version?: string
+}
+
+/**
+ * Import a database repo — the one entity tree that carries **data**.
+ *
+ * This is the read side of an asymmetry that is deliberate and load-bearing:
+ * the app never *writes* a row (`buildDataSourceFolder` publishes metadata and
+ * nothing else, so it can never be the path by which patient data leaves a
+ * hospital), but it does *read* one, so an open dataset — MIMIC-IV demo,
+ * synthetic data — can be installed from the catalog. The direction is what
+ * makes it safe: nothing leaves. Do not "harmonise" the export to match.
+ *
+ * The Parquet arrives as real bytes because the server's clone resolves LFS
+ * pointers before the tree gets here (`clone_to_zip`); catalog install is
+ * server-mode-only, so that always holds.
+ */
+async function applyClonedDatabase(
+  zip: JSZip,
+  targetId: string,
+  storage: Storage,
+  workspaceId?: string,
+  gitRemoteConfig?: GitRemoteConfig,
+): Promise<boolean> {
+  const metaEntry = zip.files['_database.json']
+  if (!metaEntry) return false
+  const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
+
+  // A preset id must resolve on THIS instance; an inline mapping always does.
+  // Falling back to an empty mapping would import a database the app cannot
+  // read a single table from, with nothing saying why — so refuse instead.
+  const schemaMapping = typeof meta.schema === 'string'
+    ? getSchemaPreset(meta.schema)
+    : meta.schema
+  if (!schemaMapping) {
+    throw new Error(
+      `This database declares the schema "${meta.schema as string}", which is not installed. `
+      + 'Install that schema preset first, then retry.',
+    )
+  }
+
+  const now = new Date().toISOString()
+  const declared = meta.tables ?? []
+
+  // Replace any previous files for this source so a re-clone is idempotent
+  // rather than accumulating a second copy of every table.
+  const previous = await storage.files.getByDataSource(targetId).catch(() => [])
+  for (const file of previous) await storage.files.delete(file.id).catch(() => {})
+
+  const storedFiles: StoredFile[] = []
+  for (const table of declared) {
+    const entry = zip.files[`data/${table}.parquet`]
+    // Data files are gitignored in many trees, so a missing table is not fatal:
+    // the metadata still imports and the user sees a database with fewer tables.
+    if (!entry || entry.dir) continue
+    const data = await entry.async('arraybuffer')
+    const stored: StoredFile = {
+      id: crypto.randomUUID(),
+      dataSourceId: targetId,
+      fileName: `${table}.parquet`,
+      fileSize: data.byteLength,
+      data,
+      createdAt: now,
+    }
+    storedFiles.push(stored)
+    await storage.files.create(stored)
+  }
+
+  const connectionConfig: DatabaseConnectionConfig = {
+    engine: 'duckdb',
+    fileIds: storedFiles.map((f) => f.id),
+    fileNames: storedFiles.map((f) => f.fileName),
+    ...(meta.inMemory ? { inMemory: true } : {}),
+  }
+
+  const existing = await storage.dataSources.getById(targetId).catch(() => null)
+  const record = {
+    id: targetId,
+    alias: meta.alias ?? targetId,
+    name: toLocalized(meta.name ?? targetId),
+    description: toLocalized(meta.description ?? ''),
+    sourceType: 'database' as const,
+    connectionConfig,
+    schemaMapping,
+    status: 'configuring' as const,
+    ...(meta.isVocabularyReference ? { isVocabularyReference: true } : {}),
+    ...(meta.version ? { version: meta.version } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  }
+  // README.md / LICENSE.md live as files in the repo, not in the metadata. For a
+  // database the licence is not decoration: MIMIC-IV demo is ODbL, and the notice
+  // has to travel with the data for redistribution to be legitimate.
+  const docs = await readEntityDocs(zip, '', record as unknown as Record<string, unknown>)
+  await createEntityAttachments(
+    storage,
+    { meta: docs.attachmentsMeta, blobs: docs.attachmentBlobs },
+    'data-source',
+    targetId,
+    workspaceId,
+  )
+  const withDocs = dropForeignAuthorId({
+    ...record,
+    readme: docs.readme,
+    license: docs.license,
+  }) as unknown as DataSource
+  if (existing) await storage.dataSources.update(targetId, withDocs).catch(() => {})
+  else await storage.dataSources.create(withDocs as DataSource).catch(() => {})
+
+  // Server mode holds the files itself, so the browser neither mounts them in
+  // DuckDB-WASM nor computes stats from them — the same split seedDatabase makes.
+  //
+  // Best-effort: the row and its files are already stored, so a mount failure
+  // must not undo the import. The source stays 'configuring' and the Databases
+  // page can connect it — losing the whole install over a mount would be far
+  // worse than an unconnected database the user can retry.
+  if (!isServerMode() && storedFiles.length > 0) {
+    try {
+      const source = { ...withDocs, id: targetId } as DataSource
+      await engine.mountDataSource(source, storedFiles)
+      const stats = await engine.computeStats(targetId, schemaMapping)
+      await storage.dataSources.update(targetId, { status: 'connected', stats })
+    } catch (e) {
+      console.warn('[entity-io] database imported but not mounted:', e)
+    }
+  }
+  return true
+}
+
 /**
  * Apply the content of a cloned git repo (root = one entity's export layout) into storage,
  * filling in the content of an already-imported, git-linked entity.
@@ -2546,6 +2690,10 @@ export async function applyClonedEntity(
     )
     await storage.schemaPresets.save(withDocs).catch(() => {})
     return true
+  }
+
+  if (type === 'database') {
+    return applyClonedDatabase(zip, targetId, storage, workspaceId, gitRemoteConfig)
   }
 
   // project: parse the cloned repo as a project ZIP and write its sub-entities under targetId.
@@ -3078,7 +3226,7 @@ export interface ParsedWorkspaceZip {
 
 /** A git-linked entity discovered in a parsed workspace ZIP (metadata only — content lives in its repo). */
 export interface GitLinkedEntity {
-  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'schema-preset'
+  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'schema-preset' | 'database'
   /** Stable id (project.uid or entity id) of the created record, for a later clone. */
   id: string
   name: string

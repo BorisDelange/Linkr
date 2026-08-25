@@ -6,10 +6,10 @@
  * tree does read and rewrite dashboard JSON, but it only ever *places* records
  * whose shape and keys come from the format package.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import {
-  columnId, formatIssues, slugify, validateProject, type WriteFile,
+  columnId, formatIssues, slugify, validateProject, type CopyFile, type WriteFile,
 } from '@linkr/format'
 import { FsTree } from '@linkr/format/node/fs-tree'
 
@@ -49,6 +49,42 @@ export function writeTree(root: string, files: WriteFile[]): string[] {
  * "mark for versioning" action. A generated project ships the same rule so a
  * tree that lands in git does not carry its datasets by accident.
  */
+/**
+ * Copy the binary files a serializer declared, returning their total size.
+ *
+ * The destination is confined like every other write; the *source* is not, on
+ * purpose — it is the operator's own file being published, and refusing paths
+ * outside the target would make it impossible to package data that lives
+ * anywhere but next to the repo.
+ */
+export function copyFiles(root: string, copies: CopyFile[]): { paths: string[]; bytes: number } {
+  let bytes = 0
+  for (const copy of copies) {
+    const from = resolve(copy.source)
+    let size: number
+    try {
+      size = statSync(from).size
+    } catch {
+      throw new Error(`Cannot read "${copy.source}" (for ${copy.path}): no such file.`)
+    }
+    const to = resolveInside(root, copy.path)
+    mkdirSync(dirname(to), { recursive: true })
+    copyFileSync(from, to)
+    bytes += size
+  }
+  return { paths: copies.map((c) => c.path), bytes }
+}
+
+/** Human-readable byte size, for a result line the user actually reads. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB']
+  let value = bytes / 1024
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++ }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
+}
+
 export const DEFAULT_GITIGNORE = 'datasets/**/*.csv\ndatasets/**/*.parquet\n.cache/\n'
 
 /**
@@ -496,6 +532,34 @@ export function describeEntitySchema(kind: string): string | null {
       'a 50k blob on one JSON line makes every diff unreadable.',
       'Event tables and their fields are written in a canonical order, so two',
       'instances holding the same mapping produce identical bytes.',
+    ].join('\n'),
+
+    database: [
+      'database spec — a standalone tree, for write_database.',
+      '',
+      'ONLY for synthetic or public open data. Never package data from a',
+      'connected database or a hospital extract: the repo is public and a',
+      'Parquet file carries no label saying whose data it is.',
+      '',
+      '  id          string    required. Stable identity, e.g. "mimic-iv-demo".',
+      '  alias       string    required. DuckDB schema name, e.g. "mimic_iv_demo".',
+      '  name        localized required.',
+      '  description localized optional.',
+      '  schema      string|object required. A preset id ("omop-5.4") or an inline',
+      '                             mapping. An id must resolve on the importing',
+      '                             instance — ship the preset repo alongside.',
+      '  tables      array     required unless inMemory. One entry per table:',
+      '    name   string required — the SQL table name; becomes data/<name>.parquet.',
+      '    source string required — path of the Parquet file to COPY in.',
+      '  inMemory    boolean   optional. True for a database meant to start empty',
+      '                             (an ETL target). Then `tables` may be omitted.',
+      '  isVocabularyReference boolean optional.',
+      '  version     string    optional. Semver, default "0.1.0".',
+      '',
+      'Produces _database.json + data/*.parquet + a .gitattributes tracking',
+      'Parquet with LFS (multi-MB blobs in normal git history bloat every clone',
+      'forever). No connection config is ever written — the importing instance',
+      'supplies its own, and a host or token in a public repo is a leak.',
     ].join('\n'),
   }
   return docs[kind] ?? null

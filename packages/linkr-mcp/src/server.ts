@@ -19,9 +19,9 @@
 import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server'
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import {
-  MemoryTree, detectTreeKind, formatIssues, serializeEntity, serializeProject,
+  MemoryTree, detectTreeKind, formatIssues, serializeDatabase, serializeEntity, serializeProject,
   validateEntity, validateProject,
-  type ProjectSpec, type SerializableEntityKind,
+  type DatabaseSpec, type ProjectSpec, type SerializableEntityKind,
 } from '@linkr/format'
 import { FsTree } from '@linkr/format/node/fs-tree'
 import {
@@ -29,8 +29,10 @@ import {
   addDashboardTab,
   addScript,
   addWidget,
+  copyFiles,
   describeEntitySchema,
   describeTree,
+  formatBytes,
   writeTree,
   writeZip,
 } from './tools.js'
@@ -58,9 +60,9 @@ server.registerTool(
   {
     description:
       'Validate any Linkr entity tree on disk — project, SQL collection, ETL pipeline, '
-      + 'schema preset, DQ rule set, data catalog or concept-mapping project. The kind is '
-      + 'detected from the tree. Reports missing files, broken references, unknown columns '
-      + 'and legacy formats. Run this after any change.',
+      + 'schema preset, DQ rule set, data catalog, concept-mapping project or database. '
+      + 'The kind is detected from the tree. Reports missing files, broken references, '
+      + 'unknown columns and legacy formats. Run this after any change.',
     inputSchema: fromJsonSchema<{ path: string }>({
       type: 'object',
       properties: { path: { type: 'string', description: 'Path to the entity directory.' } },
@@ -75,7 +77,8 @@ server.registerTool(
     if (kind == null) {
       return failure(
         `Not a Linkr entity tree: ${path} has no project.json, _collection.json, `
-        + '_pipeline.json, preset.json, rule-set.json, catalog.json or mappings.json at its root.',
+        + '_pipeline.json, preset.json, rule-set.json, catalog.json, _database.json '
+        + 'or mappings.json at its root.',
       )
     }
 
@@ -190,6 +193,46 @@ server.registerTool(
 )
 
 server.registerTool(
+  'write_database',
+  {
+    description:
+      'Create a database tree: _database.json + data/<table>.parquet + LFS .gitattributes. '
+      + 'The Parquet files are COPIED from paths you give. '
+      + 'ONLY for synthetic or public open data (MIMIC-IV demo, generated data) — never '
+      + 'from a connected database or a hospital extract. The app itself never exports data; '
+      + 'this is allowed because it runs outside that context.',
+    inputSchema: fromJsonSchema<{ path: string; spec: DatabaseSpec }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Directory to write into. Created if absent.' },
+        spec: {
+          type: 'object',
+          description: 'The database spec. Call describe_entity_schema("database") for its fields.',
+        },
+      },
+      required: ['path', 'spec'],
+    }),
+  },
+  async ({ path, spec }) => {
+    try {
+      const { files, copies } = serializeDatabase(spec)
+      const written = writeTree(path, files)
+      const copied = copyFiles(path, copies)
+      const issues = validateEntity(new FsTree(path), 'database')
+      const errors = issues.filter((i) => i.severity === 'error').length
+      const summary = copied.paths.length > 0
+        ? `Wrote ${written.length} file(s) and copied ${copied.paths.length} table(s) `
+          + `(${formatBytes(copied.bytes)}) to ${path}.`
+        : `Wrote ${written.length} file(s) to ${path} (in-memory database, no data).`
+      if (issues.length === 0) return text(`${summary} Valid.`)
+      return text(`${summary}\n\n${errors} error(s):\n${formatIssues(issues)}`)
+    } catch (e) {
+      return failure(`Could not write the database: ${(e as Error).message}`)
+    }
+  },
+)
+
+server.registerTool(
   'describe_tree',
   {
     description:
@@ -226,7 +269,7 @@ server.registerTool(
           enum: [
             'project', 'dataset', 'dashboard', 'widget', 'tab', 'script',
             'sql-collection', 'etl-pipeline', 'dq-rule-set', 'data-catalog',
-            'mapping-project', 'schema-preset',
+            'mapping-project', 'schema-preset', 'database',
           ],
         },
       },

@@ -3226,6 +3226,7 @@
     "type_data_catalog": "Data catalog",
     "type_dq_rule_set": "Quality rules",
     "type_schema_preset": "Schema preset",
+    "type_database": "Database",
     "settings_title": "Community catalog",
     "settings_description": "The Git repository Linkr reads the catalog from. Change it to use an internal catalog.",
     "settings_url": "Catalog repository URL",

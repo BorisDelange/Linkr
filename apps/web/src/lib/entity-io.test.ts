@@ -1046,6 +1046,103 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(saved.mapping?.ddl).toBe('CREATE TABLE person ();')
   })
 
+  describe('applyClonedEntity: database', () => {
+    /** A store recording data-source and file writes, with everything else inert. */
+    function makeStore(): { store: Storage; calls: Record<string, unknown[][]> } {
+      const calls: Record<string, unknown[][]> = {}
+      const rec = (name: string) => (...args: unknown[]) => {
+        (calls[name] ??= []).push(args)
+        return Promise.resolve()
+      }
+      const store = new Proxy({}, {
+        get: (_t, prop) => {
+          switch (prop) {
+            case 'dataSources': return {
+              getById: async () => null,
+              create: rec('ds.create'),
+              update: rec('ds.update'),
+            }
+            case 'files': return {
+              getByDataSource: async () => [],
+              create: rec('file.create'),
+              delete: rec('file.delete'),
+            }
+            default: return new Proxy({}, { get: () => async () => {} })
+          }
+        },
+      }) as unknown as Storage
+      return { store, calls }
+    }
+
+    const META = (over: Record<string, unknown> = {}) => JSON.stringify({
+      id: 'mimic-iv-demo',
+      alias: 'mimic_iv_demo',
+      name: { en: 'MIMIC-IV Demo' },
+      sourceType: 'database',
+      schema: 'mimic-iv',
+      tables: ['patients', 'admissions'],
+      ...over,
+    })
+
+    it('stores each declared Parquet and points the source at them', async () => {
+      const { store, calls } = makeStore()
+      const zip = new JSZip()
+      zip.file('_database.json', META())
+      zip.file('data/patients.parquet', new Uint8Array([1, 2, 3]))
+      zip.file('data/admissions.parquet', new Uint8Array([4, 5]))
+
+      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+      expect(calls['file.create']).toHaveLength(2)
+      const created = calls['ds.create']![0][0] as {
+        id: string
+        connectionConfig: { fileNames: string[]; fileIds: string[] }
+      }
+      expect(created.id).toBe('db-target')
+      expect(created.connectionConfig.fileNames.sort())
+        .toEqual(['admissions.parquet', 'patients.parquet'])
+      expect(created.connectionConfig.fileIds).toHaveLength(2)
+    })
+
+    it('refuses a schema id this instance cannot resolve', async () => {
+      // Falling back to an empty mapping would import a database the app cannot
+      // read one table from, with nothing saying why.
+      const { store } = makeStore()
+      const zip = new JSZip()
+      zip.file('_database.json', META({ schema: 'not-installed-anywhere' }))
+      await expect(applyClonedEntity(zip, 'database', 'db-target', store))
+        .rejects.toThrow(/not installed/)
+    })
+
+    it('imports the metadata when a declared table has no file', async () => {
+      // Data files are gitignored in many trees; the database should still land
+      // rather than the whole install failing.
+      const { store, calls } = makeStore()
+      const zip = new JSZip()
+      zip.file('_database.json', META())
+      zip.file('data/patients.parquet', new Uint8Array([1]))
+
+      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+      expect(calls['file.create']).toHaveLength(1)
+    })
+
+    it('accepts an inline mapping with no installed preset', async () => {
+      const { store, calls } = makeStore()
+      const zip = new JSZip()
+      zip.file('_database.json', META({
+        schema: { presetId: 'inline', presetLabel: { en: 'Inline' }, eventTables: {} },
+        tables: [],
+      }))
+      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+      const created = calls['ds.create']![0][0] as { schemaMapping: { presetId: string } }
+      expect(created.schemaMapping.presetId).toBe('inline')
+    })
+
+    it('returns false when the repo carries no _database.json', async () => {
+      const { store } = makeStore()
+      expect(await applyClonedEntity(new JSZip(), 'database', 'db-target', store)).toBe(false)
+    })
+  })
+
   it('refuses a schema-preset repo with no schema.ddl', async () => {
     // The DDL is what creates the tables. Importing without it would produce a
     // preset that silently creates nothing, so an unreadable repo is the honest

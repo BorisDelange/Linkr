@@ -27,6 +27,7 @@ export const ENTRY_TYPES: CatalogEntryType[] = [
   'data-catalog',
   'dq-rule-set',
   'schema-preset',
+  'database',
 ]
 
 /** Maturity signal shown on the card. Absent = a normal, usable entry. */
@@ -76,6 +77,16 @@ export interface CatalogEntry {
    * see `installed.ts`).
    */
   version?: string
+  /**
+   * Download size in bytes, declared by the entry.
+   *
+   * Most entities are a few kilobytes of JSON and need no warning. A database
+   * ships its Parquet — MIMIC-IV demo is 18 MB — and installing that without
+   * saying so first is a surprise on a metered or slow connection, so the card
+   * shows it and the install dialog repeats it. Absent = not declared, show
+   * nothing rather than guess.
+   */
+  sizeBytes?: number
 }
 
 /** `catalog.json` — every entry in full. */

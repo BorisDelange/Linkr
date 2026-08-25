@@ -74,6 +74,12 @@ export const ENTRY_TYPE_META: Record<CatalogEntryType, EntryTypeMeta> = {
     bg: 'bg-teal-500/10',
     labelKey: 'catalog.type_schema_preset',
   },
+  'database': {
+    icon: Database,
+    color: 'text-teal-500',
+    bg: 'bg-teal-500/10',
+    labelKey: 'catalog.type_database',
+  },
 }
 
 // Re-exported for existing importers; the source of truth is types.ts (pure).

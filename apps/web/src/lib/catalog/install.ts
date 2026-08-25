@@ -56,6 +56,7 @@ const META_FILE: Record<CatalogEntry['type'], string> = {
   'data-catalog': 'catalog.json',
   'dq-rule-set': 'rule-set.json',
   'schema-preset': 'preset.json',
+  'database': '_database.json',
 }
 
 /**
@@ -115,6 +116,7 @@ async function findExisting(
       // Projects are keyed by uid, and getById IS that lookup (see ProjectStorage).
       case 'project': return storage.projects.getById(id)
       case 'schema-preset': return storage.schemaPresets.getById(id)
+      case 'database': return storage.dataSources.getById(id)
     }
   }
   try {
@@ -267,6 +269,7 @@ async function renameAsCopy(
     case 'dq-rule-set': await storage.dqRuleSets.update(id, { name: next }); break
     case 'mapping-project': await storage.mappingProjects.update(id, { name: next }); break
     case 'project': await storage.projects.update(id, { name: next }); break
+    case 'database': await storage.dataSources.update(id, { name: next }); break
     // A preset's label lives inside `mapping`, not a `name` field — left as-is.
     case 'schema-preset': break
   }
@@ -335,6 +338,11 @@ async function createShell(
       // The preset branch of applyClonedEntity uses storage.schemaPresets.save (an
       // upsert keyed by presetId), so no shell row is needed.
       void plainName
+      return true
+    case 'database':
+      // Same: the database branch creates or updates the row itself, because it
+      // must set connectionConfig from the Parquet files it just stored — a
+      // shell without those would be a source pointing at nothing.
       return true
     default:
       return false

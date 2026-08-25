@@ -3226,6 +3226,7 @@
     "type_data_catalog": "Catalogue de données",
     "type_dq_rule_set": "Règles de qualité",
     "type_schema_preset": "Préréglage de schéma",
+    "type_database": "Base de données",
     "settings_title": "Catalogue communautaire",
     "settings_description": "Le dépôt Git depuis lequel Linkr lit le catalogue. Modifiez-le pour utiliser un catalogue interne.",
     "settings_url": "URL du dépôt du catalogue",

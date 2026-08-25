@@ -25,6 +25,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
 import { localized } from '@/lib/localized'
+import { humanBytes } from '@/lib/format-helpers'
 import { ENTRY_TYPE_META } from '@/lib/catalog/entry-meta'
 import type { InstalledInfo } from '@/lib/catalog/installed'
 import type { CatalogEntry } from '@/lib/catalog/types'
@@ -66,7 +67,7 @@ export function CatalogEntryCard({
   busy,
   onOpen,
 }: CatalogEntryCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const name = localized(entry.name, language) || entry.id
   const description = localized(entry.description, language)
   const state = installed?.state ?? 'not-installed'
@@ -110,6 +111,14 @@ export function CatalogEntryCard({
                   full value on hover, never push the version and the menu out of the row. */}
               <TruncatedText text={name} readOnly className="min-w-0 flex-1 text-sm font-medium" />
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                {/* Shown before any click: a database ships its Parquet (MIMIC-IV demo
+                    is 18 MB), and starting that download unannounced is a surprise on a
+                    metered connection. Entries that declare no size show nothing. */}
+                {entry.sizeBytes != null && entry.sizeBytes > 0 && (
+                  <Badge variant="outline" className="font-mono">
+                    {humanBytes(entry.sizeBytes, i18n.language)}
+                  </Badge>
+                )}
                 {entry.version && (
                   <Badge variant="outline" className="font-mono">v{entry.version}</Badge>
                 )}

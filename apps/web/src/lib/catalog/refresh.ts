@@ -67,6 +67,11 @@ export async function refreshStoresAfterInstall(
       reloads.push(useSchemaPresetStore.getState().loadPresets(workspaceId))
       break
     }
+    case 'database': {
+      const { useDataSourceStore } = await import('@/stores/data-source-store')
+      reloads.push(useDataSourceStore.getState().loadDataSources())
+      break
+    }
   }
 
   await Promise.all(reloads)

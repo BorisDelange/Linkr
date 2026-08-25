@@ -15,6 +15,27 @@ export interface WriteFile {
   content: string
 }
 
+/**
+ * A binary file to place in the tree by copying it, not by generating it.
+ *
+ * Parquet is the case that forces this: a database's tables are megabytes of
+ * binary that this package must not read (it has no I/O and no dependencies) and
+ * must not hold in memory. So a serializer *declares* the copy and the caller —
+ * the MCP tool, which does own a filesystem — performs it.
+ */
+export interface CopyFile {
+  /** Destination path within the tree, e.g. `data/person.parquet`. */
+  path: string
+  /** Absolute or caller-relative path of the file to copy from. */
+  source: string
+}
+
+/** What a serializer emits: files it generates, plus binaries to copy in. */
+export interface SerializedTree {
+  files: WriteFile[]
+  copies: CopyFile[]
+}
+
 export interface LocalizedInput {
   en?: string
   fr?: string

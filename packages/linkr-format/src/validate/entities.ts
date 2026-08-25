@@ -19,6 +19,7 @@ export type EntityKind =
   | 'dq-rule-set'
   | 'data-catalog'
   | 'mapping-project'
+  | 'database'
 
 /**
  * Metadata file that identifies each kind.
@@ -34,6 +35,7 @@ const METADATA_FILE: Record<EntityKind, string> = {
   'schema-preset': 'preset.json',
   'dq-rule-set': 'rule-set.json',
   'data-catalog': 'catalog.json',
+  'database': '_database.json',
   'mapping-project': 'mappings.json',
 }
 
@@ -85,8 +87,99 @@ export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
     case 'mapping-project':
       validateMappingProject(tree, bag)
       break
+    case 'database':
+      validateDatabase(tree, bag)
+      break
   }
   return bag.all()
+}
+
+/**
+ * A database tree: metadata plus `data/<table>.parquet`.
+ *
+ * Two things this checks that nothing else can. First, every declared table has
+ * its file and every file is declared — a mismatch imports as a database whose
+ * tables silently do not exist. Second, **no connection config**: a database
+ * repo is public, and a host, a user or a token in it is a credential leak that
+ * no later validation would catch.
+ */
+function validateDatabase(tree: EntityTree, bag: IssueBag): void {
+  const path = '_database.json'
+  const parsed = readJson(tree, path)
+  if (!parsed.ok) {
+    bag.error(path, '', parsed.error === 'missing' ? 'missing-file' : 'invalid-json',
+      parsed.error === 'missing'
+        ? '_database.json is required at the root of a database.'
+        : `Cannot parse JSON: ${parsed.error}`)
+    return
+  }
+  const db = parsed.value
+  if (!isObject(db)) {
+    bag.error(path, '', 'wrong-type', '_database.json must be an object.')
+    return
+  }
+
+  checkString(bag, path, '/id', db.id, { required: true, label: 'id' })
+  checkString(bag, path, '/alias', db.alias, { required: true, label: 'alias' })
+  checkLocalized(bag, path, '/name', db.name, { required: true, label: 'name' })
+  checkInstanceFields(bag, path, db)
+
+  // A public repo carrying a host, a username or a token is a credential leak.
+  // The app's own export strips this down to `engine` for exactly this reason.
+  if (db.connectionConfig != null) {
+    bag.error(path, '/connectionConfig', 'wrong-type',
+      'A database repo must not carry a connection config — it would publish host and credentials.',
+      'remove `connectionConfig`; the importing instance supplies its own')
+  }
+
+  if (db.schema == null) {
+    bag.error(path, '/schema', 'missing-field',
+      'A database needs `schema`: a preset id (e.g. "omop-5.4") or an inline mapping.')
+  }
+
+  const declared = db.tables
+  const inMemory = db.inMemory === true
+  if (declared != null && !Array.isArray(declared)) {
+    bag.error(path, '/tables', 'wrong-type', '`tables` must be an array of table names.')
+    return
+  }
+
+  const names = Array.isArray(declared) ? declared.filter((t): t is string => typeof t === 'string') : []
+  const present = new Set(
+    tree.paths()
+      .filter((p) => p.startsWith('data/') && p.endsWith('.parquet'))
+      .map((p) => p.slice('data/'.length, -'.parquet'.length)),
+  )
+
+  if (!inMemory && names.length === 0) {
+    bag.error(path, '/tables', 'missing-field',
+      'A database declares no tables. Set `inMemory: true` if it is meant to start empty.')
+  }
+
+  for (const [i, name] of names.entries()) {
+    if (!present.has(name)) {
+      // Data files are gitignored in many trees, so this is a warning: the repo
+      // may legitimately ship metadata while the Parquet arrives via LFS or CI.
+      bag.warn(path, `/tables/${i}`, 'missing-file',
+        `Table "${name}" is declared but data/${name}.parquet is absent.`,
+        'add the Parquet file, or drop the table from `tables`')
+    }
+  }
+  for (const name of present) {
+    if (!names.includes(name)) {
+      bag.warn('data', '', 'legacy-format',
+        `data/${name}.parquet is present but "${name}" is not in \`tables\` — it will not be loaded.`,
+        'add it to `tables`')
+    }
+  }
+
+  // Parquet in normal git history bloats every clone forever; the app's export
+  // and the server's clone both assume the LFS filter is declared.
+  if (present.size > 0 && tree.read('.gitattributes') == null) {
+    bag.warn('.gitattributes', '', 'legacy-format',
+      'Parquet files are present but .gitattributes does not track them with LFS.',
+      'add: *.parquet filter=lfs diff=lfs merge=lfs -text')
+  }
 }
 
 /**
