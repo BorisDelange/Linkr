@@ -76,7 +76,10 @@ async def save(db: AsyncSession, data: SchemaPresetSave) -> SchemaPreset:
         # a client that sends none (an ordinary edit, or an older client) must not
         # clear the one already stored — that would make the entity unrecognisable to
         # every other instance holding a copy.
-        for key in ("lineage_id", "parent_lineage_id"):
+        # `id` and `entity_id` join them: both are minted once and then carried
+        # unchanged, and a client that predates them sends neither. Clearing a
+        # stored value here would undo the very migration that populates them.
+        for key in ("lineage_id", "parent_lineage_id", "id", "entity_id"):
             if payload.get(key) is None:
                 payload.pop(key, None)
         for key, value in payload.items():

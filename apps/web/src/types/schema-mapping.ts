@@ -291,7 +291,21 @@ export interface EventTable {
  * Wraps a SchemaMapping with metadata for persistence.
  */
 export interface CustomSchemaPreset extends Authored, Lineaged {
+  /**
+   * The row's key today, and historically its slug and its cross-instance
+   * identity too — three roles in one field, which is why presets need
+   * special-casing everywhere (`row.uid ?? row.id ?? row.presetId`, a catalog
+   * that mints `custom-<8hex>` rather than show a uuid, …).
+   *
+   * `id` and `entityId` below are taking those roles over, one step at a time —
+   * see docs/planning/schema-preset-identity-plan.md. Until the key moves, this
+   * stays required and stays what storage is keyed on.
+   */
   presetId: string
+  /** Local primary key, uuid. Optional until the migration switches the key. */
+  id?: string
+  /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
+  entityId?: string
   workspaceId?: string
   mapping: SchemaMapping
   readme?: LocalizedString

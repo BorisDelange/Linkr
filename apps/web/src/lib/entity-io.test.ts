@@ -1015,7 +1015,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
           case 'dataCatalogs': return { update: rec('catalog.update') }
           case 'dqRuleSets': return { update: rec('rs.update') }
           case 'dqCustomChecks': return { deleteByRuleSet: rec('chk.delete'), create: rec('chk.create') }
-          case 'schemaPresets': return { save: rec('preset.save') }
+          case 'schemaPresets': return { save: rec('preset.save'), getById: async () => undefined }
           default: return new Proxy({}, { get: () => async () => {} })
         }
       },
@@ -1042,9 +1042,15 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(await applyClonedEntity(spZip, 'schema-preset', 'preset-target', store)).toBe(true)
     const saved = calls['preset.save']![0][0] as {
       presetId: string
+      id?: string
+      entityId?: string
       mapping?: { ddl?: string; presetId?: string }
     }
     expect(saved.presetId).toBe('preset-target')
+    // A clone mints its OWN local key — the repo's belongs to whichever
+    // instance wrote it. The published identity travels in lineageId.
+    expect(saved.id).toEqual(expect.any(String))
+    expect(saved.entityId).toBe('preset-target')
     // The mapping's own id follows the entity's. Letting them drift meant a
     // later ZIP import — which reads mapping.presetId as the entity id and
     // deletes whatever holds it — deleted a different preset.
@@ -1177,7 +1183,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
           case 'dataCatalogs': return { update: rec('catalog.update') }
           case 'dqRuleSets': return { update: rec('rs.update') }
           case 'dqCustomChecks': return { deleteByRuleSet: rec('chk.delete'), create: rec('chk.create') }
-          case 'schemaPresets': return { save: rec('preset.save') }
+          case 'schemaPresets': return { save: rec('preset.save'), getById: async () => undefined }
           default: return new Proxy({}, { get: () => async () => {} })
         }
       },

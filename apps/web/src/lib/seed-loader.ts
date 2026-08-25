@@ -656,7 +656,15 @@ async function loadWorkspaceInternals(
   for (const path of index.schemas ?? []) {
     const sp = await fetchJson<CustomSchemaPreset>(`${base}/${path}`)
     if (!sp) continue
-    await storage.schemaPresets.save({ ...sp, workspaceId: wsId }).catch(() => {})
+    // A seed file predates id/entityId, so fill them in rather than storing a
+    // row the rest of the app expects to carry them (see
+    // docs/planning/schema-preset-identity-plan.md).
+    await storage.schemaPresets.save({
+      ...sp,
+      id: sp.id ?? crypto.randomUUID(),
+      entityId: sp.entityId ?? sp.presetId,
+      workspaceId: wsId,
+    }).catch(() => {})
   }
 
   // --- databases/ (metadata only, no credentials/files) ---

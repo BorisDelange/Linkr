@@ -806,8 +806,9 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
     dumped = _dump(SchemaPresetResponse, preset)
     # A preset that never got a lineage carries None on both keys; the client's
     # JSON.stringify omits them entirely, so emitting explicit nulls here would show
-    # as a false git diff. Same rule as _badged_dump.
-    for key in ("lineageId", "parentLineageId"):
+    # as a false git diff. Same rule as _badged_dump — and the same applies to
+    # id/entityId, which a row written before that migration does not carry.
+    for key in ("lineageId", "parentLineageId", "id", "entityId"):
         if dumped.get(key) is None:
             dumped.pop(key, None)
     stripped = strip_entity_docs(_strip_instance_fields(dumped))

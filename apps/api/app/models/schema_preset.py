@@ -8,7 +8,18 @@ class SchemaPreset(Base, TimestampMixin):
     __tablename__ = "schema_presets"
 
     # Frontend keys presets by preset_id (client-supplied).
+    #
+    # DEPRECATED as an identity — see docs/planning/schema-preset-identity-plan.md.
+    # It currently plays three roles at once (local PK, user-facing slug,
+    # cross-instance identity) where every other entity splits them into
+    # id + entity_id + lineage_id. The two columns below are being introduced to
+    # take over; this stays the PK until that migration lands.
     preset_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Local primary key, uuid — will replace preset_id as the PK. Written on every
+    # save from now on so the migration has a populated column to switch to.
+    id: Mapped[str | None] = mapped_column(String(36))
+    # Human-readable, URL-safe id set once at creation (folder name in exports).
+    entity_id: Mapped[str | None] = mapped_column(String(255))
     workspace_id: Mapped[str | None] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE")
     )

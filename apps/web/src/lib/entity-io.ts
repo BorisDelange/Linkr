@@ -2680,6 +2680,8 @@ export async function applyClonedEntity(
     // schema that silently does nothing.
     const ddl = await readText(SCHEMA_PRESET_DDL_FILE)
     if (!ddl) return false
+    // A re-clone of a preset already here keeps that row's local ids.
+    const existingPreset = await storage.schemaPresets.getById(targetId).catch(() => undefined)
     // `workspaceId` and `gitRemoteConfig` must be re-stamped from the caller: unlike
     // the other types here, a preset has no shell row to carry them (save() is an
     // upsert keyed by presetId, so createShell is a no-op for it), and the repo's own
@@ -2691,6 +2693,13 @@ export async function applyClonedEntity(
       dropForeignAuthorId({
         ...preset,
         presetId: targetId,
+        // A local key is local: the repo's belongs to whichever instance wrote
+        // it, so this row keeps its own — the one already stored when this is a
+        // re-clone of a preset that is here, a fresh uuid otherwise. Re-minting
+        // unconditionally would change the row's key on every pull. The
+        // published identity travels in `lineageId`, preserved by the spread.
+        id: existingPreset?.id ?? crypto.randomUUID(),
+        entityId: existingPreset?.entityId ?? preset.entityId ?? targetId,
         workspaceId,
         ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
         // `mapping.presetId` must follow the entity's id. Leaving the repo's

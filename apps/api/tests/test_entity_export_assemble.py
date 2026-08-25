@@ -244,7 +244,8 @@ async def test_schema_preset_matches_golden(db):
     await _seed_ws_org(db, data)
     p = data["preset"]
     preset = SchemaPreset(
-        preset_id=p["presetId"], workspace_id=p["workspaceId"], mapping=p["mapping"],
+        preset_id=p["presetId"], id=p.get("id"), entity_id=p.get("entityId"),
+        workspace_id=p["workspaceId"], mapping=p["mapping"],
         git_remote_config=p["gitRemoteConfig"], created_by_id=p["createdById"],
         created_by=p["createdBy"], created_by_details=p["createdByDetails"],
         version=p["version"], readme=p.get("readme"), license=p.get("license"),

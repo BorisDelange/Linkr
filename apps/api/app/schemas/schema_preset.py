@@ -7,6 +7,11 @@ class SchemaPresetSave(CamelModel):
     """Upsert payload — the frontend's SchemaPresetStorage.save()."""
 
     preset_id: str
+    # Local uuid PK and readable slug, taking over from preset_id — see
+    # docs/planning/schema-preset-identity-plan.md. Optional while both shapes
+    # coexist: an older client sends neither.
+    id: str | None = None
+    entity_id: str | None = None
     workspace_id: str | None = None
     # README + licence ({id, name?, text}); the licence text travels as LICENSE.md
     # in exports. Present on Update too — a field missing there is silently dropped
@@ -28,6 +33,8 @@ class SchemaPresetSave(CamelModel):
 
 class SchemaPresetResponse(CamelModel):
     preset_id: str
+    id: str | None = None
+    entity_id: str | None = None
     workspace_id: str | None = None
     readme: dict | str | None = None
     license: dict | None = None

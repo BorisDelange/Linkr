@@ -86,15 +86,37 @@ switches to `lineageId`, which is what fixes defect 1.
 
 | # | Step | Effort | Notes |
 |---|---|---|---|
-| 1 | **Fix the drift first, on its own** — clone/move rewrite `mapping.presetId`, and ZIP import matches on `lineageId` instead | S | Ships alone, fixes the corruption path before any rename |
-| 2 | Add `id` + `entityId` to the TS type and the server model; write both on save, keep `presetId` in sync | M | Additive: nothing reads the new fields yet |
-| 3 | Migration — IndexedDB store keyed on `id`, alembic revision on the table; existing rows get `id = presetId` (or a fresh uuid) and `entityId = presetId` | M | The only irreversible step; no FK to update |
+| 1 | ✅ **Fix the drift first, on its own** — clone/move rewrite `mapping.presetId`, and ZIP import matches on `lineageId` instead | S | Done: commit `5626004f` |
+| 2 | ✅ Add `id` + `entityId` to the TS type and the server model; write both on every save path | M | Done. Additive — nothing *reads* them yet, so the app behaves identically |
+| 3 | Switch the **key**: IndexedDB store keyed on `id`, alembic PK move, `presetId` retired | M | The irreversible step; no FK to update. The columns are populated by then |
 | 4 | Switch readers to `id`/`entityId`: routes + `paths.ts` (**shortened uuid, like the others**), catalog `idOf`/`freshId`/`findExisting`, storage, git `_entity_id`, export/import, versioning | L | Mechanical once 2–3 land; `freshId` becomes `crypto.randomUUID()` |
 | 5 | Delete the special-cases (`installed.ts` three-way fallback, the actions shim, the git getattr, the WsExportTab note) | S | The payoff |
 | 6 | Regenerate the golden export fixtures; re-export the 4 published preset repos | S | `__fixtures__/export-golden/schema-preset/` |
 
-**Step 1 is worth doing now even if the rest waits** — it is a real defect with a data-loss
-outcome, and it does not depend on the rename.
+**Step 1 was worth doing now even if the rest waits** — a real defect with a data-loss
+outcome, independent of the rename.
+
+### Where step 2 left things (2026-08-25)
+
+Both columns exist and are **written on every path** — `buildSchemaPreset` (the one UI
+writer), the catalog/git clone, the seed loader, and the cross-workspace move — plus an
+alembic revision (`d5e6f7a8b9c0`) that adds them and backfills `id = entity_id =
+preset_id` on existing rows. Backfilling `id` from `preset_id` rather than a fresh uuid is
+deliberate: git working trees, README attachment owners and `git_sync_state` all already
+point at that value, so a new one would orphan them.
+
+Both survive export/import for free — `id`/`entityId` are not in `INSTANCE_FIELDS`, which
+is exactly how every other entity carries them. The golden fixture now covers it, and the
+Python twin drops them when null so an old row does not export explicit `null`s where the
+client omits the keys (a false git diff).
+
+Nothing reads them yet, so behaviour is unchanged — that is what makes step 3 safe to do
+separately.
+
+⚠️ The Python-side changes (model, schemas, service, export twin, golden test) were
+verified by reading and by key-order comparison, **not** by running the suite: the API's
+dependencies are not installed in this environment. Run `pytest apps/api` before relying
+on them.
 
 ## Decisions (2026-08-25)
 

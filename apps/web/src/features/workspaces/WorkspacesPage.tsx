@@ -441,6 +441,10 @@ export function WorkspacesPage() {
       await storage.schemaPresets.save({
         ...sp,
         presetId,
+        // A duplicate is a new row, so it takes a new local key; a move keeps
+        // the one it had. `entityId` follows the readable id either way.
+        id: duplicate ? crypto.randomUUID() : (sp.id ?? crypto.randomUUID()),
+        entityId: duplicate ? presetId : (sp.entityId ?? presetId),
         mapping: { ...sp.mapping, presetId },
         workspaceId: targetWsId,
       })
