@@ -205,9 +205,14 @@ function validateCsv(
   const name = typeof entry.name === 'string' ? entry.name : datasetId
   const csvPath = findCsv(tree, datasetId, name, entry)
   if (!csvPath) {
+    // Not an error: data files are gitignored by default and re-included per
+    // file through "mark for versioning", so a git-tracked tree legitimately
+    // describes its columns without carrying the rows. The columns themselves
+    // are still checked above — only the header cross-check is skipped.
     const folder = stripExtension(name)
-    bag.error('datasets/', '', 'missing-file', `No data file found for dataset "${name}".`,
-      `expected datasets/${folder}/${withCsv(name)}`)
+    bag.warn('datasets/', '', 'missing-file',
+      `No data file for dataset "${name}"; its columns cannot be cross-checked.`,
+      `expected datasets/${folder}/${withCsv(name)} (normal if data is gitignored)`)
     return
   }
 

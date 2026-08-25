@@ -19,8 +19,9 @@
 import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server'
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import {
-  MemoryTree, detectEntityKind, formatIssues, serializeProject, validateEntity,
-  validateProject, type ProjectSpec,
+  MemoryTree, detectTreeKind, formatIssues, serializeEntity, serializeProject,
+  validateEntity, validateProject,
+  type ProjectSpec, type SerializableEntityKind,
 } from '@linkr/format'
 import { FsTree } from '@linkr/format/node/fs-tree'
 import {
@@ -56,9 +57,10 @@ server.registerTool(
   'validate_entity',
   {
     description:
-      'Validate a Linkr entity tree on disk — a project, SQL collection, ETL pipeline or '
-      + 'schema preset. The kind is detected from the tree. Reports missing files, broken '
-      + 'references, unknown columns and legacy formats. Run this after any change.',
+      'Validate any Linkr entity tree on disk — project, SQL collection, ETL pipeline, '
+      + 'schema preset, DQ rule set, data catalog or concept-mapping project. The kind is '
+      + 'detected from the tree. Reports missing files, broken references, unknown columns '
+      + 'and legacy formats. Run this after any change.',
     inputSchema: fromJsonSchema<{ path: string }>({
       type: 'object',
       properties: { path: { type: 'string', description: 'Path to the entity directory.' } },
@@ -69,11 +71,11 @@ server.registerTool(
     const tree = new FsTree(path)
     // A project is identified by project.json; the standalone entities each carry
     // their own metadata file, so the caller never has to say which is which.
-    const kind = tree.read('project.json') != null ? 'project' : detectEntityKind(tree)
+    const kind = detectTreeKind(tree)
     if (kind == null) {
       return failure(
         `Not a Linkr entity tree: ${path} has no project.json, _collection.json, `
-        + '_pipeline.json or preset.json at its root.',
+        + '_pipeline.json, preset.json, rule-set.json, catalog.json or mappings.json at its root.',
       )
     }
 
@@ -141,6 +143,49 @@ server.registerTool(
 )
 
 server.registerTool(
+  'write_entity',
+  {
+    description:
+      'Create a standalone Linkr entity tree — a SQL collection, ETL pipeline, DQ rule set, '
+      + 'data catalog or concept-mapping project. These live in their own repo/folder, not '
+      + 'inside a project. Validates what it wrote. Call describe_entity_schema(kind) first.',
+    inputSchema: fromJsonSchema<{
+      path: string
+      kind: SerializableEntityKind
+      spec: Record<string, unknown>
+    }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Directory to write into. Created if absent.' },
+        kind: {
+          type: 'string',
+          enum: ['sql-collection', 'etl-pipeline', 'dq-rule-set', 'data-catalog', 'mapping-project'],
+          description: 'Which entity to write.',
+        },
+        spec: {
+          type: 'object',
+          description: 'The entity spec. Call describe_entity_schema(kind) for its fields.',
+        },
+      },
+      required: ['path', 'kind', 'spec'],
+    }),
+  },
+  async ({ path, kind, spec }) => {
+    try {
+      const files = serializeEntity(kind, spec as never)
+      const written = writeTree(path, files)
+      const issues = validateEntity(new FsTree(path), kind)
+      const errors = issues.filter((i) => i.severity === 'error').length
+      const summary = `Wrote ${written.length} file(s) to ${path} (${kind}).`
+      if (issues.length === 0) return text(`${summary} Valid.`)
+      return text(`${summary}\n\n${errors} error(s):\n${formatIssues(issues)}`)
+    } catch (e) {
+      return failure(`Could not write the ${kind}: ${(e as Error).message}`)
+    }
+  },
+)
+
+server.registerTool(
   'describe_tree',
   {
     description:
@@ -174,7 +219,10 @@ server.registerTool(
         kind: {
           type: 'string',
           description: 'Entity kind.',
-          enum: ['project', 'dataset', 'dashboard', 'widget', 'tab', 'script'],
+          enum: [
+            'project', 'dataset', 'dashboard', 'widget', 'tab', 'script',
+            'sql-collection', 'etl-pipeline', 'dq-rule-set', 'data-catalog', 'mapping-project',
+          ],
         },
       },
       required: ['kind'],

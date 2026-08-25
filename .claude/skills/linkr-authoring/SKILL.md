@@ -32,7 +32,8 @@ next validation will disagree with you.
 | Tool | Use |
 |---|---|
 | `describe_entity_schema` | fields of a spec — **read before writing** |
-| `write_project` | create a whole tree (`format: "zip"` for the import dialog) |
+| `write_project` | create a whole project tree (`format: "zip"` for the import dialog) |
+| `write_entity` | create a standalone entity (SQL collection, ETL pipeline, DQ rule set, data catalog, mapping project) |
 | `describe_tree` | what an existing tree holds, with its real ids and keys |
 | `validate_entity` | check a tree; run after any change. Also validates a standalone SQL collection, ETL pipeline or schema preset |
 | `add_dashboard_tab`, `add_widget`, `add_script` | incremental edits |
@@ -50,15 +51,19 @@ the mistakes worth avoiding, **not** its field list (that is `describe_entity_sc
 | Dataset (CSV → table) | `references/dataset.md` | ✅ |
 | Dashboard (tabs, widgets, filters) | `references/dashboard.md` | ✅ |
 | IDE script (`.py`/`.r`/`.sql`/`.md`) | `references/script.md` | ✅ |
+| SQL collection / ETL pipeline (`.sql` trees) | `references/standalone-entities.md` | ✅ |
+| DQ rule set (quality checks) | `references/standalone-entities.md` | ✅ |
+| Data catalog | `references/standalone-entities.md` | ✅ |
+| Concept-mapping project | `references/standalone-entities.md` | ✅ |
+| Cohort (inside a project) | — | ⚠️ validate only |
 | Plugin (widget code + manifest) | `references/plugin.md` | ⚠️ files by hand |
-| SQL collection, ETL pipeline, schema preset | — | ⚠️ validate only |
-| Cohort, mapping project, DQ rule set, data catalog | — | ❌ not yet |
+| Schema preset | — | ⚠️ validate only |
 
-⚠️ A plugin lives in `packages/default-plugins/`, not in a project tree, so the MCP does
-not write it — `references/plugin.md` carries the full procedure. SQL collections, ETL
-pipelines and schema presets can be **validated** (`validate_entity` detects the kind)
-but not yet written. ❌ elements have no schema at all; say so rather than hand-rolling
-their JSON.
+The five ✅ standalone kinds are written with `write_entity` and live in their **own**
+folder or repo, not inside a project. ⚠️ A plugin lives in `packages/default-plugins/`,
+so the MCP does not write it — `references/plugin.md` has the procedure. Cohorts and
+schema presets are validated but not yet writable; say so rather than hand-rolling their
+JSON.
 
 ## What is NOT authorable
 

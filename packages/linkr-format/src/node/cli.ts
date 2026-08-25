@@ -5,7 +5,7 @@
  * point at a directory of mixed entities — which is what CI over a content repo
  * needs. Exits non-zero when any tree has an error; warnings alone do not fail.
  */
-import { detectEntityKind, formatIssues, hasErrors, validateEntity, validateProject } from '../index.js'
+import { detectTreeKind, formatIssues, hasErrors, validateEntity, validateProject } from '../index.js'
 import { FsTree } from './fs-tree.js'
 
 const targets = process.argv.slice(2)
@@ -19,12 +19,13 @@ let failed = false
 
 for (const target of targets) {
   const tree = new FsTree(target)
-  const kind = tree.read('project.json') != null ? 'project' : detectEntityKind(tree)
+  const kind = detectTreeKind(tree)
 
   if (kind == null) {
     console.log(`\n=== ${target}`)
     console.log('ERROR  not a Linkr entity tree — no project.json, _collection.json, '
-      + '_pipeline.json or preset.json at its root.')
+      + '_pipeline.json, preset.json, rule-set.json, catalog.json or mappings.json '
+      + 'at its root.')
     failed = true
     continue
   }

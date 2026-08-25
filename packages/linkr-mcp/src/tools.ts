@@ -402,6 +402,72 @@ export function describeEntitySchema(kind: string): string | null {
       '',
       'Language is derived from the extension (.py .r .sql .md).',
     ].join('\n'),
+
+    'sql-collection': [
+      'sql-collection spec — a standalone tree, for write_entity.',
+      '',
+      '  name        localized required.',
+      '  description localized optional.',
+      '  files       array     required. {path, content, order?}',
+      '',
+      'Parent folders are declared in _tree.json automatically; a file whose folder',
+      'is missing would be reparented to the root on import.',
+    ].join('\n'),
+
+    'etl-pipeline': [
+      'etl-pipeline spec — a standalone tree, for write_entity.',
+      '',
+      '  name        localized required.',
+      '  description localized optional.',
+      '  files       array     required. {path, content, order?} — usually .sql',
+      '  status      string    optional: draft (default) | ready | running | error',
+      '',
+      'Same file/tree handling as a sql-collection.',
+    ].join('\n'),
+
+    'dq-rule-set': [
+      'dq-rule-set spec — a standalone tree, for write_entity.',
+      '',
+      '  name        localized required.',
+      '  description localized optional.',
+      '  checks      array     required. One entry per check:',
+      '    name        string required.',
+      '    sql         string required — without it the check runs nothing.',
+      '    description string optional.',
+      '    category    string optional, default "completeness".',
+      '    severity    string optional: error (default) | warning | info',
+      '    threshold   number optional — its meaning is the check\'s own.',
+    ].join('\n'),
+
+    'data-catalog': [
+      'data-catalog spec — a standalone tree, for write_entity.',
+      '',
+      '  name              localized required.',
+      '  description       localized optional.',
+      '  dimensions        string[]  required — the columns it counts over.',
+      '                              An empty list computes nothing.',
+      '  categoryColumn    string    optional.',
+      '  subcategoryColumn string    optional.',
+    ].join('\n'),
+
+    'mapping-project': [
+      'mapping-project spec — a standalone tree, for write_entity.',
+      '',
+      '  name        localized required.',
+      '  description localized optional.',
+      '  sourceType  string    optional.',
+      '  mappings    array     required. One entry per source concept:',
+      '    sourceConceptCode string required — the row identity.',
+      '    targetConceptId   number required WHEN status is "approved";',
+      '                             an approved row without one maps nothing.',
+      '    status            string optional: pending (default) | approved | rejected | draft',
+      '    sourceConceptName, sourceVocabularyId, sourceDomainId, sourceCategoryId,',
+      '    targetConceptName, targetVocabularyId, targetDomainId, targetConceptCode,',
+      '    mappingType, equivalence — all optional passthrough.',
+      '',
+      'Rows are sorted by sourceConceptCode on write, so re-exporting the same',
+      'alignments is byte-stable.',
+    ].join('\n'),
   }
   return docs[kind] ?? null
 }

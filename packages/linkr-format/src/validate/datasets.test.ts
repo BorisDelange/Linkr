@@ -95,9 +95,13 @@ describe('validateDatasets', () => {
     expect(issues.some((i) => i.severity === 'error')).toBe(false)
   })
 
-  it('flags a missing data file', () => {
+  it('warns — does not error — when the data file is absent', () => {
+    // Data is gitignored by default, so a git-tracked tree legitimately carries
+    // its columns without the rows. Only the header cross-check is skipped.
     const { issues } = run({ 'datasets/_tree.json': tree([{ id: 'col_age', name: 'age' }]) })
-    expect(issues.some((i) => i.code === 'missing-file')).toBe(true)
+    const missing = issues.find((i) => i.code === 'missing-file')
+    expect(missing?.severity).toBe('warning')
+    expect(issues.some((i) => i.severity === 'error')).toBe(false)
   })
 
   it('flags duplicate column ids', () => {

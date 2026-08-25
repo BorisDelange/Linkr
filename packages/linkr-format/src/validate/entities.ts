@@ -9,14 +9,32 @@ import { checkLocalized, checkString, isObject } from '../check.js'
 import { IssueBag, type Issue } from '../issue.js'
 import { readJson, type EntityTree } from '../tree.js'
 import { validateFileTree } from './file-tree.js'
+import { validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
 
 /** Entity kinds that have their own tree, beyond `project`. */
-export type EntityKind = 'sql-collection' | 'etl-pipeline' | 'schema-preset'
+export type EntityKind =
+  | 'sql-collection'
+  | 'etl-pipeline'
+  | 'schema-preset'
+  | 'dq-rule-set'
+  | 'data-catalog'
+  | 'mapping-project'
 
+/**
+ * Metadata file that identifies each kind.
+ *
+ * Order matters: a mapping project's `project.json` is the same filename a
+ * regular project uses, so it is matched LAST and only once the more specific
+ * files have been ruled out. `detectEntityKind` is additionally never reached
+ * for a plain project — callers test `project.json` + `mappings.json` first.
+ */
 const METADATA_FILE: Record<EntityKind, string> = {
   'sql-collection': '_collection.json',
   'etl-pipeline': '_pipeline.json',
   'schema-preset': 'preset.json',
+  'dq-rule-set': 'rule-set.json',
+  'data-catalog': 'catalog.json',
+  'mapping-project': 'mappings.json',
 }
 
 /**
@@ -32,6 +50,20 @@ export function detectEntityKind(tree: EntityTree): EntityKind | null {
   return null
 }
 
+/**
+ * The kind of any entity tree, including a plain project.
+ *
+ * A mapping project and a regular project both carry `project.json`; what tells
+ * them apart is `mappings.json`. Getting this backwards would validate a mapping
+ * project against the project schema and report a pile of nonsense, so the
+ * discrimination lives here rather than in each caller.
+ */
+export function detectTreeKind(tree: EntityTree): EntityKind | 'project' | null {
+  if (tree.read('mappings.json') != null) return 'mapping-project'
+  if (tree.read('project.json') != null) return 'project'
+  return detectEntityKind(tree)
+}
+
 export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
   const bag = new IssueBag()
   switch (kind) {
@@ -43,6 +75,15 @@ export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
       break
     case 'schema-preset':
       validateSchemaPreset(tree, bag)
+      break
+    case 'dq-rule-set':
+      validateDqRuleSet(tree, bag)
+      break
+    case 'data-catalog':
+      validateDataCatalog(tree, bag)
+      break
+    case 'mapping-project':
+      validateMappingProject(tree, bag)
       break
   }
   return bag.all()

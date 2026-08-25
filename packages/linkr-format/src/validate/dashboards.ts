@@ -251,7 +251,16 @@ function validateSource(
     bag.error(path, pointer, 'wrong-type', 'source must be an object.')
     return
   }
-  const type = raw.type
+  // `type` is the field DashboardWidgetSource declares and every real export
+  // writes; `kind` appears in older hand-written trees. Read both, flag the
+  // latter — the app keys off `type`, so a `kind`-only widget renders nothing.
+  const type = raw.type ?? raw.kind
+  if (raw.type == null && raw.kind != null) {
+    bag.warn(path, `${pointer}/kind`, 'legacy-format',
+      'The widget source uses `kind`; the field is `type`.',
+      'rename `kind` to `type`')
+  }
+
   if (type === 'plugin') {
     checkString(bag, path, `${pointer}/pluginId`, raw.pluginId, {
       required: true,

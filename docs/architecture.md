@@ -218,10 +218,14 @@ authoring spec has no notion of (a dashboard's `version`, `widgetSpacing`, `fitT
 a filter's per-tab/per-widget `scope`). `ProjectSpec` is a *simplified authoring view* of
 an entity, not the entity — routing the export through the serializer would lose data.
 
-Validated kinds: **project**, **sql-collection**, **etl-pipeline**, **schema-preset**
-(detected from the metadata file at the tree root). Cohorts, mapping projects, DQ rule
-sets and data catalogs have no schema yet — a tree containing them validates everything
-else and stays silent about those.
+**Validated** (kind detected from the metadata file at the tree root): project,
+sql-collection, etl-pipeline, schema-preset, dq-rule-set, data-catalog, mapping-project,
+plus a project's cohorts. **Writable** (`serializeEntity`): everything above except
+schema presets and cohorts, which are validate-only.
+
+A mapping project and a plain project both carry `project.json`; `mappings.json` is what
+tells them apart (`detectTreeKind`). Getting that backwards would validate one against
+the other's schema and report a pile of nonsense.
 
 The validator also runs on **import** (`parseProjectZip` → `lib/import-validation.ts`),
 reported after a successful import and never blocking: reads stay tolerant by design.

@@ -25,8 +25,14 @@ export type {
   ProjectSpec, ScriptSpec, TabSpec, WidgetSpec, WriteFile,
 } from './serialize/project.js'
 
+export { serializeEntity } from './serialize/entities.js'
+export type {
+  ConceptMappingSpec, DataCatalogSpec, DqCheckSpec, DqRuleSetSpec, EntitySpecMap,
+  EtlPipelineSpec, MappingProjectSpec, ScriptFileSpec, SerializableEntityKind, SqlCollectionSpec,
+} from './serialize/entities.js'
+
 export { validateProject } from './validate/project.js'
-export { detectEntityKind, validateEntity } from './validate/entities.js'
+export { detectEntityKind, detectTreeKind, validateEntity } from './validate/entities.js'
 export type { EntityKind } from './validate/entities.js'
 export { validateDatasets } from './validate/datasets.js'
 export type { DatasetColumn, DatasetIndex, DatasetInfo } from './validate/datasets.js'
