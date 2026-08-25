@@ -26,6 +26,13 @@ import type { LocalizedInput, WriteFile } from './project.js'
  * they are keyed on `entityId`, so their `id` is minted locally and must not be
  * authored (see `SchemaPresetSpec`).
  */
+export interface BadgeSpec {
+  id: string
+  /** Localized, or a plain string for the legacy shape the app still reads. */
+  label: LocalizedInput | string
+  color?: string
+}
+
 export interface EntityIdentity {
   /** Local primary key, a uuid. Adopted verbatim on install. */
   id?: string
@@ -39,6 +46,8 @@ export interface EntityIdentity {
   createdAt?: string
   /** User-facing semver; defaults to `0.1.0` like every other entity. */
   version?: string
+  /** Free-form labels, exported by the app right after `description`. */
+  badges?: BadgeSpec[]
 }
 
 export interface ScriptFileSpec {
@@ -292,6 +301,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...identityHead(s),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
+            ...(s.badges ? { badges: s.badges } : {}),
             ...provenanceTail(s),
           }),
         },
@@ -308,6 +318,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...identityHead(s),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
+            ...(s.badges ? { badges: s.badges } : {}),
             status: s.status ?? 'draft',
             ...provenanceTail(s),
           }),
@@ -325,6 +336,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...identityHead(s),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
+            ...(s.badges ? { badges: s.badges } : {}),
             status: 'draft',
             ...provenanceTail(s),
           }),
@@ -353,6 +365,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...identityHead(s),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
+            ...(s.badges ? { badges: s.badges } : {}),
             dimensions: s.dimensions,
             ...(s.categoryColumn ? { categoryColumn: s.categoryColumn } : {}),
             ...(s.subcategoryColumn ? { subcategoryColumn: s.subcategoryColumn } : {}),
@@ -376,6 +389,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...identityHead(s),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
+            ...(s.badges ? { badges: s.badges } : {}),
             ...(s.sourceType ? { sourceType: s.sourceType } : {}),
             status: 'draft',
             ...(s.createdAt ? { createdAt: s.createdAt } : {}),
@@ -430,6 +444,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             presetId: s.presetId,
             entityId: s.presetId,
             mapping,
+            ...(s.badges ? { badges: s.badges } : {}),
             ...(s.lineageId ? { lineageId: s.lineageId } : {}),
             ...(s.parentLineageId ? { parentLineageId: s.parentLineageId } : {}),
             ...(s.createdAt ? { createdAt: s.createdAt } : {}),

@@ -80,6 +80,29 @@ describe('serializeEntity', () => {
     })
   }
 
+  it('writes badges where the app writes them, right after description', () => {
+    // The app has always exported badges; the authoring writer dropped them, so
+    // an authored tree lost them and the first sync after an install added them
+    // back — a diff nobody wrote.
+    const badges = [{ id: 'b1', label: { en: 'Reference' }, color: 'blue' }]
+    const catalog = JSON.parse(
+      treeOf('data-catalog', {
+        ...SPECS['data-catalog'], description: { en: 'D' }, badges,
+      } as never).read('catalog.json')!,
+    )
+    expect(catalog.badges).toEqual(badges)
+    const keys = Object.keys(catalog)
+    expect(keys.indexOf('badges')).toBe(keys.indexOf('description') + 1)
+
+    // A preset keeps them at entity level, NOT inside the mapping: the mapping is
+    // copied verbatim into every database that uses the schema.
+    const preset = JSON.parse(
+      treeOf('schema-preset', { ...SPECS['schema-preset'], badges } as never).read('preset.json')!,
+    )
+    expect(preset.badges).toEqual(badges)
+    expect(preset.mapping.badges).toBeUndefined()
+  })
+
   it('declares every parent folder in the tree', () => {
     const tree = treeOf('sql-collection', SPECS['sql-collection'])
     const entries = JSON.parse(tree.read('_tree.json')!) as { path: string; type: string }[]
