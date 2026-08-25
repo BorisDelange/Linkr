@@ -120,9 +120,7 @@ Three, all small, and each is a genuine improvement to the catalog itself:
    ([entity-io.ts:3079](../../apps/web/src/lib/entity-io.ts#L3079)) covers project,
    mapping-project, sql-collection, etl-pipeline, data-catalog, dq-rule-set,
    schema-preset — but **not a Parquet database**, which is the heavy part of the default
-   data. Adding it means: a repo layout for a database (a `_database.json` + Parquet
-   files), a `META_FILE` entry, a `createShell` branch, and an `applyClonedEntity` branch.
-   This is the one non-trivial piece of work.
+   data. This is the one non-trivial piece of work; **design settled below**.
 2. **No `workspace` type** either. Probably fine — seed a workspace by seeding its
    entities — but confirm we do not need a workspace-level repo.
 3. **No pinned ref.** `git: { url, branch, subdir? }` tracks a *branch*. A reproducible
@@ -131,6 +129,64 @@ Three, all small, and each is a genuine improvement to the catalog itself:
 
 Everything else — LFS (`git lfs pull` happens server-side in `clone_to_zip`, and in CI),
 size hints, license display — is additive metadata.
+
+### The `database` type — design (arbitrated 2026-08-25)
+
+**Decision: open ZIP / git / catalog to importing a database WITH its data; keep the
+export data-free.** The asymmetry is the whole point and must survive future tidying.
+
+**Why it is safe.** The export guard exists so the app can never be the path by which
+patient data leaves a hospital ([types/index.ts:376](../../apps/web/src/types/index.ts#L376),
+`buildDataSourceFolder` writes `_database.json` and not one row). Importing an open
+dataset runs the other way: nothing leaves. And because the export still writes no data,
+a user cannot accidentally produce a database repo holding real patient rows — the
+Parquet has to be put there by hand, outside the app. **That property is what keeps this
+safe; do not "harmonise" the export to match the import.**
+
+**Repo layout** — the same shape the other entities use, so the normal import path reads
+it with no special-casing:
+
+```
+_database.json      metadata + schemaMapping (preset id or inline), NO connection config
+data/*.parquet      one file per table, LFS-tracked
+.gitattributes      *.parquet filter=lfs diff=lfs merge=lfs -text
+README.md / LICENSE.md
+```
+
+`_database.json` is what `buildDataSourceFolder` already writes. The `data/` folder is
+new and is only ever *read* by the app. Table name = file basename, which is what
+`SeedDatabase.tables` already assumes.
+
+**LFS is already handled.** `clone_to_zip` detects `.gitattributes`, runs
+`git lfs install --local` then `git lfs pull`, precisely so a tracked file does not land
+in the ZIP as a 3-line pointer
+([git_service.py:1476](../../apps/api/app/services/git_service.py#L1476)). Catalog
+install is server-mode-only ([install.ts:196](../../apps/web/src/lib/catalog/install.ts#L196)),
+so that path always applies — there is no WASM clone to make LFS-aware. What remains is
+to *use* the bytes once they arrive.
+
+**Work items:**
+
+| # | Item | Where |
+|---|---|---|
+| 1 | Add `database` to `CatalogEntryType` / `ENTRY_TYPES` / `META_FILE` (`_database.json`) / `idOf` (`id`) / `findExisting` / `createShell` | `lib/catalog/` |
+| 2 | `applyClonedEntity` branch: read `data/*.parquet` from the ZIP → `storage.files.create` → `connectionConfig.fileIds`/`fileNames` → mount in DuckDB | `entity-io.ts` |
+| 3 | Same read path for the ZIP importer, so ZIP and git agree (they must stay the same tree) | `entity-io.ts` |
+| 4 | Show the download size on the catalog card and confirm before install — 18 MB is worth announcing | catalog UI |
+| 5 | `size` / `lfs` hints in the catalog entry schema | `linkr-catalog` |
+
+Item 2 is the only real logic, and it already exists in another form: `seedDatabase`
+([seed-loader.ts:905-950](../../apps/web/src/lib/seed-loader.ts#L905)) does fetch →
+`storage.files.create` → `connectionConfig` → mount. Reuse it rather than writing a
+second copy; the difference is only where the bytes come from (a cloned ZIP instead of
+`public/data/`).
+
+**Sizes, measured:** `mimic-iv-demo` 18 MB / 32 tables, `mimic-iv-demo-omop` 12 MB. Well
+under `MAX_CLONE_BYTES` (200 MB), so no streaming work is needed.
+
+**Authoring side.** The MCP may write a database WITH data (it runs outside the sensitive
+context — that is the entire reason it can do what the app refuses). The skill must say:
+**synthetic or public open data only, never from a connected database.**
 
 ### The three acquisition paths
 
@@ -739,3 +795,22 @@ one. Without it, everyone's first update produces the duplicate this decision re
 > stored `omop-5.3` id — simplest is to treat an unresolvable preset as "none" and let the
 > user re-pick an installed one. Left out of the built-in removal on purpose: it touches the
 > databases path, which is the next chunk anyway.
+
+### 11. Databases: import data, never export it — **decided 2026-08-25**
+
+ZIP, git and catalog **import** may carry a database's Parquet data; the **export** keeps
+writing metadata only. Design in § *The `database` type* above.
+
+This asymmetry is deliberate and load-bearing, so state the reasoning wherever someone
+might "fix" it:
+
+- The export guard protects data **leaving** a hospital. An import runs the other way.
+- Because the export writes no rows, a user cannot accidentally build a database repo
+  containing real patient data — the Parquet must be placed there by hand, outside the
+  app. Making the export symmetric would destroy exactly that guarantee.
+- The MCP may author a database with data: it runs outside the sensitive context, which
+  is the entire reason it can do what the app refuses. The skill must restrict this to
+  **synthetic or public open data**, never a connected database.
+
+Confirmed while designing: LFS already resolves server-side in `clone_to_zip`, and
+catalog install is server-mode-only, so there is no browser clone to teach about LFS.

@@ -70,6 +70,20 @@ it — `references/plugin.md` has the procedure. A **cohort** belongs to a proje
 compiles to SQL, so a wrong one returns a different population rather than failing; build
 it in the app. Say so rather than hand-rolling either one's JSON.
 
+## Databases: public or synthetic data only
+
+A **database** repo may carry its data (`data/*.parquet`), unlike anything the app
+exports — the app deliberately never writes a single row, so that it can never be the
+path by which patient data leaves a hospital. Authoring one here is allowed **because
+this runs outside that context**, and that permission has one condition:
+
+> Only ever build a database from **synthetic data or a public open dataset** (MIMIC-IV
+> demo, generated data). **Never** from a connected database, a hospital extract, or any
+> file you were handed without knowing its provenance.
+
+If asked to package data whose provenance is unclear, stop and ask. A repo, once pushed,
+cannot be unpublished — and a Parquet file carries no warning label saying whose it is.
+
 ## What is NOT authorable
 
 **Patient Data pages** cannot be seeded. They are computed live by SQL against a

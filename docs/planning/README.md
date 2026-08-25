@@ -83,6 +83,7 @@ the notices travel with the data.
 | 🔜 | Create the **database** repos (ODbL text, NOTICE, PROVENANCE, conversion script, LFS, tag `v1`) | M |
 | 🔜 | git-lfs in the API image + test that a cloned Parquet is data, not an LFS pointer | S |
 | 🔜 | Catalog schema: `database` type, `git.ref`, `bundled`, `defaultInstall`, `sizeBytes` | M |
+| 🔜 | **Import a database WITH its data** (ZIP/git/catalog read `data/*.parquet`; export stays data-free — plan §11) + size shown before install | M |
 | 🔜 | Extract `seed-manifest.mjs` from the portal `build.sh` + unit tests (kills the duplicate-logic drift risk) | M |
 | 🔜 | `fetch-default-data.mjs` + CI wiring + clone cache | M |
 | 🔜 | Import dialog third tab, on a shared catalog card/install component | M |
