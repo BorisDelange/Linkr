@@ -169,15 +169,18 @@ describe('serializeEntity', () => {
       expect(preset.mapping.ddl).toBeUndefined()
     })
 
-    it('writes entityId as the readable identity, in the app\'s key order', () => {
-      // The app writes `presetId, id, entityId`. An authored tree must match, so
-      // installing it and syncing lands on "nothing to commit" rather than a
-      // reordering diff. No `id` here: the author has no local key to declare —
-      // the app mints one on import and writes it from then on.
+    it('identifies the preset by entityId alone, leading the file', () => {
+      // The app exports neither `id` (minted locally, since a preset is keyed on
+      // entityId) nor `presetId` (the retired identity), so an authored tree that
+      // wrote either would diff on the first sync after an install.
       const preset = JSON.parse(treeOf('schema-preset', SPECS['schema-preset']).read('preset.json')!)
       expect(preset.entityId).toBe('omop-cdm-5-4')
-      expect(preset.presetId).toBe('omop-cdm-5-4')
-      expect(Object.keys(preset).slice(0, 2)).toEqual(['presetId', 'entityId'])
+      expect(preset.presetId).toBeUndefined()
+      expect(preset.id).toBeUndefined()
+      expect(Object.keys(preset)[0]).toBe('entityId')
+      // The mapping keeps its own presetId: it is a label inside the payload
+      // every database copies, not an identity.
+      expect(preset.mapping.presetId).toBe('omop-cdm-5-4')
     })
 
     it('accepts a tree identified only by entityId', () => {

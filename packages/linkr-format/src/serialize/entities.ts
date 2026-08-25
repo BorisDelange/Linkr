@@ -431,24 +431,24 @@ export function serializeEntity<K extends SerializableEntityKind>(
         {
           path: 'preset.json',
           content: json({
-            // Key order mirrors what the app exports (`presetId` then `entityId`)
-            // so an authored tree and a Linkr re-export are byte-identical — the
-            // first sync after an install must be "nothing to commit".
-            // `entityId` is the readable slug every other entity uses; `presetId`
-            // rides along for readers predating the split.
+            // Key order mirrors what the app exports, so an authored tree and a
+            // Linkr re-export are byte-identical — the first sync after an
+            // install must be "nothing to commit".
             //
-            // No `id`, unlike every other kind here: a preset is keyed on
-            // `entityId`, so `applyClonedEntity` mints a fresh uuid instead of
-            // adopting the repo's. An authored `id` could never survive, and
-            // writing one would guarantee a diff on the first re-export.
-            presetId: s.presetId,
+            // Neither `id` nor `presetId`, unlike every other kind here. A preset
+            // is keyed on `entityId`, so `applyClonedEntity` mints a fresh uuid
+            // and an authored `id` could never survive; `presetId` is the retired
+            // identity, read on import but no longer written. See
+            // docs/planning/schema-preset-identity-plan.md.
             entityId: s.presetId,
             mapping,
             ...(s.badges ? { badges: s.badges } : {}),
-            ...(s.lineageId ? { lineageId: s.lineageId } : {}),
-            ...(s.parentLineageId ? { parentLineageId: s.parentLineageId } : {}),
             ...(s.createdAt ? { createdAt: s.createdAt } : {}),
             version: s.version ?? '0.1.0',
+            // The lineage trails the rest: `buildSchemaPreset` spreads it last,
+            // so this is where a Linkr export puts it.
+            ...(s.lineageId ? { lineageId: s.lineageId } : {}),
+            ...(s.parentLineageId ? { parentLineageId: s.parentLineageId } : {}),
           }),
         },
         ...(ddl ? [{ path: 'schema.ddl', content: ddl }] : []),

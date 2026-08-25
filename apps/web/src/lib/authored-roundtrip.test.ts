@@ -12,7 +12,7 @@ import JSZip from 'jszip'
 import { serializeEntity, type EntitySpecMap, type SerializableEntityKind } from '../../../../packages/linkr-format/src/serialize/entities'
 import {
   applyClonedEntity, buildDataCatalogFolder, buildDqRuleSetFolder,
-  buildSqlCollectionFolder, buildEtlPipelineFolder,
+  buildSqlCollectionFolder, buildEtlPipelineFolder, buildSchemaPresetFolder,
 } from './entity-io'
 import type { Storage } from '@/lib/storage'
 
@@ -94,6 +94,38 @@ const CASES: Case[] = [
 ]
 
 describe('authored tree → install → re-export', () => {
+  it('schema-preset: the metadata file survives the round trip unchanged', async () => {
+    // A preset is the one kind keyed on `entityId`: the clone mints its own local
+    // `id` and lineage, so the round trip must survive without the repo naming
+    // either. What it does carry — entityId, mapping, badges, createdAt, version,
+    // lineageId — has to come back byte for byte.
+    const spec = {
+      presetId: 'omop-cdm-5-4',
+      presetLabel: { en: 'OMOP CDM 5.4' },
+      lineageId: LINEAGE,
+      createdAt: CREATED,
+      version: '0.1.0',
+      mapping: { patientTable: { table: 'person', idColumn: 'person_id' } },
+      ddl: 'CREATE TABLE person (person_id INTEGER);\n',
+    }
+    const authored = serializeEntity('schema-preset', spec as never)
+    const written = Object.fromEntries(authored.map((f) => [f.path, f.content as string]))
+
+    let saved: Record<string, unknown> | undefined
+    const store = new Proxy({}, {
+      get: (_t, prop) => prop === 'schemaPresets'
+        ? { save: async (p: Record<string, unknown>) => { saved = p }, getById: async () => undefined }
+        : new Proxy({}, { get: () => async () => [] }),
+    }) as unknown as Storage
+
+    // targetId is what the catalog install resolves for a preset: its entityId.
+    expect(await applyClonedEntity(zipOf(authored), 'schema-preset', 'omop-cdm-5-4', store)).toBe(true)
+
+    const out = new JSZip()
+    await buildSchemaPresetFolder(out, '', saved as never, store)
+    expect((await readZip(out))['preset.json']).toBe(written['preset.json'])
+  })
+
   for (const c of CASES) {
     it(`${c.kind}: the metadata file survives the round trip unchanged`, async () => {
       const authored = serializeEntity(c.kind, c.spec as never)
