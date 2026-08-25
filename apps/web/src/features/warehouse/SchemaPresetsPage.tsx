@@ -1101,7 +1101,9 @@ function SchemaDetailView({
   // Every schema is a stored entity now — there is no compiled-in fallback to
   // resolve against, and nothing is "built-in".
   const preset = useMemo(
-    () => customPresets.find((p) => p.presetId === schemaId) ?? null,
+    // Either identity resolves: the URL carries the shortened `id` now, but a
+    // bookmark or an export may still name the retired `presetId`.
+    () => customPresets.find((p) => p.id === schemaId || p.presetId === schemaId) ?? null,
     [schemaId, customPresets],
   )
   const baseMapping = preset?.mapping ?? null
@@ -1410,9 +1412,9 @@ function SchemaDetailView({
             {preset && (
               <GitRepositoryTab
                 gitRemote={preset.gitRemoteConfig ?? null}
-                onSave={(cfg) => setGitRemote(preset.presetId, cfg)}
+                onSave={(cfg) => setGitRemote(preset.id, cfg)}
                 syncScope="schema-presets"
-                syncId={preset.presetId}
+                syncId={preset.id}
               />
             )}
           </div>
@@ -1476,9 +1478,9 @@ function SchemaReadmeTab({ preset, editing }: { preset: CustomSchemaPreset; edit
       // picks up the requested mode — initialMode only applies on mount.
       key={editing ? 'edit' : 'view'}
       readme={preset.readme}
-      onSave={(readme) => updatePreset(preset.presetId, { readme })}
+      onSave={(readme) => updatePreset(preset.id, { readme })}
       canEdit={canWrite}
-      attachmentOwner={{ type: 'schema-preset', id: preset.presetId, workspaceId: preset.workspaceId }}
+      attachmentOwner={{ type: 'schema-preset', id: preset.id, workspaceId: preset.workspaceId }}
       // The tab already says "Readme".
       showTitle={false}
       initialMode={editing ? 'edit' : 'view'}
@@ -1503,7 +1505,7 @@ function SchemaLicenseTab({ preset }: { preset: CustomSchemaPreset }) {
   return (
     <EntityLicensePanel
       license={preset.license ?? null}
-      onSave={(license) => updatePreset(preset.presetId, { license: license ?? undefined })}
+      onSave={(license) => updatePreset(preset.id, { license: license ?? undefined })}
       canEdit={canWrite}
       copyrightHolder={holder ? localized(holder, i18n.language) : undefined}
       showTitle={false}
@@ -1529,7 +1531,7 @@ function SchemaOverviewTab({
   const { i18n } = useTranslation()
   const { resolveAttachmentUrls } = useReadmeAttachments(
     'schema-preset',
-    preset.presetId,
+    preset.id,
     preset.workspaceId,
   )
 
@@ -1764,8 +1766,12 @@ export function SchemaPresetsPage() {
   }, [loadCustomPresets])
 
   // Only show schemas that exist in storage (user-added or added from templates).
+  // The row's id is the entity key. It used to be `presetId`, which broke every
+  // action on a preset installed from the catalog: those carry a uuid `id` and a
+  // slug `presetId`, so delete, navigate and the actions menu addressed a value
+  // that is no longer the key. See docs/planning/schema-preset-identity-plan.md.
   const allSchemas = useMemo(() => {
-    return customPresets.map(cp => ({ id: cp.presetId, mapping: cp.mapping, preset: cp }))
+    return customPresets.map(cp => ({ id: cp.id ?? cp.presetId, mapping: cp.mapping, preset: cp }))
   }, [customPresets])
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -1797,9 +1803,12 @@ export function SchemaPresetsPage() {
     await storeSave(buildSchemaPreset(presetId, newMapping, undefined, wsUid))
   }
 
-  const savePreset = async (presetId: string, mapping: SchemaMapping) => {
-    const existing = customPresets.find((p) => p.presetId === presetId)
-    await storeSave(buildSchemaPreset(presetId, mapping, existing, wsUid))
+  const savePreset = async (key: string, mapping: SchemaMapping) => {
+    // `key` is the entity id the page now works on; a caller predating that
+    // still passes a presetId. Resolving only the latter meant an edit to a
+    // catalog-installed preset found nothing and saved a duplicate row.
+    const existing = customPresets.find((p) => p.id === key || p.presetId === key)
+    await storeSave(buildSchemaPreset(existing?.entityId ?? key, mapping, existing, wsUid))
   }
 
   const doPresetImport = useCallback(async (
@@ -1913,7 +1922,9 @@ export function SchemaPresetsPage() {
   // would stop the user creating a second schema from the same template.
   // Only ids that a schema actually occupies. A built-in id with no schema
   // behind it is free — reusing it is how a deleted default gets restored.
-  const takenIds = customPresets.map((p) => p.presetId)
+  // Taken *readable* ids: `entityId` is the slug a new schema competes with, and
+  // the retired `presetId` still occupies one on rows written before the split.
+  const takenIds = customPresets.flatMap((p) => [p.entityId, p.presetId].filter((v): v is string => !!v))
   // Optional: left empty, creation derives one. Typed, it must be valid and free.
   const typedId = newPresetId.trim()
   const presetIdOk = typedId === '' || isEntityIdValid(typedId, takenIds)
@@ -1941,9 +1952,9 @@ export function SchemaPresetsPage() {
   }
 
   /** URL segment for a preset: its shortened `id`, like every other entity. */
-  const schemaSegment = (presetId: string) => {
-    const preset = customPresets.find((p) => p.presetId === presetId)
-    return shortenId(preset?.id ?? presetId)
+  const schemaSegment = (key: string) => {
+    const preset = customPresets.find((p) => p.id === key || p.presetId === key)
+    return shortenId(preset?.id ?? key)
   }
 
   const navigateToSchema = (presetId: string) => {
@@ -1961,11 +1972,13 @@ export function SchemaPresetsPage() {
 
   // ── If schemaId is in URL, show detail page ──
   // The URL carries a shortened `id` now, but links and bookmarks made before
-  // that change carry a presetId — so both resolve, and the page keeps working
-  // on either. Everything downstream still addresses the preset by presetId.
+  // that change carry a presetId — so both resolve. What comes out is the `id`:
+  // resolving the row and then handing its retired identity downstream is what
+  // broke every action on a preset installed from the catalog, whose two
+  // identities differ.
   const schemaId =
     (resolveByIdPrefix(customPresets, raw.schemaId, (p) => p.id ?? p.presetId)
-      ?? resolveByIdPrefix(customPresets, raw.schemaId, (p) => p.presetId))?.presetId
+      ?? resolveByIdPrefix(customPresets, raw.schemaId, (p) => p.presetId))?.id
     ?? raw.schemaId
   if (schemaId) {
     return (
