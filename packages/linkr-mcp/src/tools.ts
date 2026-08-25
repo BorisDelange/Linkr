@@ -375,6 +375,26 @@ export function addScript(root: string, file: string, content: string): string {
  * `linkr-authoring` skill defers to instead of restating.
  */
 export function describeEntitySchema(kind: string): string | null {
+  // Shared by every standalone kind rather than repeated five times: these are
+  // what make an authored tree survive install → re-export with no diff.
+  const IDENTITY_DOC = [
+    '',
+    'Identity — write these so the tree round-trips cleanly. Without them Linkr',
+    'fills them in on import and writes them back, so the first sync after an',
+    'install carries a diff nobody authored:',
+    '',
+    '  id            uuid   the local primary key, adopted verbatim on install.',
+    '                       Generate one per entity and keep it in the repo.',
+    '                       NOT for schema-preset: it is keyed on entityId, so',
+    '                       the app mints its own and an authored one is lost.',
+    '  entityId      string readable, URL-safe identifier. Set once, never changes.',
+    '  lineageId     uuid   cross-instance identity, preserved by every import.',
+    '                       Generate one; it is what makes two installs of this',
+    '                       repo recognisable as the same published entity.',
+    '  createdAt     string ISO 8601, the real creation date, kept as provenance.',
+    '  version       string semver, default "0.1.0".',
+  ].join('\n')
+
   const docs: Record<string, string> = {
     project: [
       'project spec — the argument to write_project.',
@@ -450,7 +470,7 @@ export function describeEntitySchema(kind: string): string | null {
       '',
       'Parent folders are declared in _tree.json automatically; a file whose folder',
       'is missing would be reparented to the root on import.',
-    ].join('\n'),
+    ].join('\n') + IDENTITY_DOC,
 
     'etl-pipeline': [
       'etl-pipeline spec — a standalone tree, for write_entity.',
@@ -461,7 +481,7 @@ export function describeEntitySchema(kind: string): string | null {
       '  status      string    optional: draft (default) | ready | running | error',
       '',
       'Same file/tree handling as a sql-collection.',
-    ].join('\n'),
+    ].join('\n') + IDENTITY_DOC,
 
     'dq-rule-set': [
       'dq-rule-set spec — a standalone tree, for write_entity.',
@@ -475,7 +495,7 @@ export function describeEntitySchema(kind: string): string | null {
       '    category    string optional, default "completeness".',
       '    severity    string optional: error (default) | warning | info',
       '    threshold   number optional — its meaning is the check\'s own.',
-    ].join('\n'),
+    ].join('\n') + IDENTITY_DOC,
 
     'data-catalog': [
       'data-catalog spec — a standalone tree, for write_entity.',
@@ -486,7 +506,7 @@ export function describeEntitySchema(kind: string): string | null {
       '                              An empty list computes nothing.',
       '  categoryColumn    string    optional.',
       '  subcategoryColumn string    optional.',
-    ].join('\n'),
+    ].join('\n') + IDENTITY_DOC,
 
     'mapping-project': [
       'mapping-project spec — a standalone tree, for write_entity.',
@@ -505,7 +525,7 @@ export function describeEntitySchema(kind: string): string | null {
       '',
       'Rows are sorted by sourceConceptCode on write, so re-exporting the same',
       'alignments is byte-stable.',
-    ].join('\n'),
+    ].join('\n') + IDENTITY_DOC,
 
     'schema-preset': [
       'schema-preset spec — a standalone tree, for write_entity.',
@@ -534,7 +554,7 @@ export function describeEntitySchema(kind: string): string | null {
       'a 50k blob on one JSON line makes every diff unreadable.',
       'Event tables and their fields are written in a canonical order, so two',
       'instances holding the same mapping produce identical bytes.',
-    ].join('\n'),
+    ].join('\n') + IDENTITY_DOC,
 
     database: [
       'database spec — a standalone tree, for write_database.',

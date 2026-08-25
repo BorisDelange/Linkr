@@ -12,6 +12,35 @@
 import { MAPPING_FIELD_ORDER, canonicalSchemaMapping, orderKeys } from '../schema-mapping.js'
 import type { LocalizedInput, WriteFile } from './project.js'
 
+/**
+ * Identity and provenance every authored entity may declare.
+ *
+ * These exist so an authored tree survives a round trip untouched: install it,
+ * and the first re-export must produce the same bytes — "nothing to commit".
+ * Leaving them out is what made the app fill them in on import and then write
+ * them back, so the very first sync carried a diff nobody authored.
+ *
+ * `id` is the local primary key. Writing it IS correct for these kinds: the
+ * catalog install reads it from the repo (`idOf`) and adopts it as the local
+ * key, so the value round-trips unchanged. Schema presets are the exception —
+ * they are keyed on `entityId`, so their `id` is minted locally and must not be
+ * authored (see `SchemaPresetSpec`).
+ */
+export interface EntityIdentity {
+  /** Local primary key, a uuid. Adopted verbatim on install. */
+  id?: string
+  /** Readable, URL-safe identifier. Set once, never changes. */
+  entityId?: string
+  /** Cross-instance identity, preserved verbatim by every import. */
+  lineageId?: string
+  /** The entity this was derived from, when it is a fork. */
+  parentLineageId?: string
+  /** ISO 8601. The entity's real creation date, kept as provenance. */
+  createdAt?: string
+  /** User-facing semver; defaults to `0.1.0` like every other entity. */
+  version?: string
+}
+
 export interface ScriptFileSpec {
   /** Path within the entity, e.g. `etl/01_person.sql`. Folders are derived. */
   path: string
@@ -20,13 +49,13 @@ export interface ScriptFileSpec {
   order?: number
 }
 
-export interface SqlCollectionSpec {
+export interface SqlCollectionSpec extends EntityIdentity {
   name: LocalizedInput
   description?: LocalizedInput
   files: ScriptFileSpec[]
 }
 
-export interface EtlPipelineSpec {
+export interface EtlPipelineSpec extends EntityIdentity {
   name: LocalizedInput
   description?: LocalizedInput
   files: ScriptFileSpec[]
@@ -44,13 +73,13 @@ export interface DqCheckSpec {
   threshold?: number
 }
 
-export interface DqRuleSetSpec {
+export interface DqRuleSetSpec extends EntityIdentity {
   name: LocalizedInput
   description?: LocalizedInput
   checks: DqCheckSpec[]
 }
 
-export interface DataCatalogSpec {
+export interface DataCatalogSpec extends EntityIdentity {
   name: LocalizedInput
   description?: LocalizedInput
   /** Columns the catalog counts over. Empty means it computes nothing. */
@@ -75,7 +104,7 @@ export interface ConceptMappingSpec {
   status?: 'approved' | 'pending' | 'rejected' | 'draft'
 }
 
-export interface MappingProjectSpec {
+export interface MappingProjectSpec extends EntityIdentity {
   name: LocalizedInput
   description?: LocalizedInput
   sourceType?: string
@@ -119,7 +148,7 @@ export interface EventTableSpec {
  * event-table ordering, the DDL split out to its own file, and the required
  * identity fields.
  */
-export interface SchemaPresetSpec {
+export interface SchemaPresetSpec extends Omit<EntityIdentity, 'id' | 'entityId'> {
   /**
    * Stable identity of the preset, e.g. `omop-cdm-5-4`. Travels across instances.
    *
@@ -142,8 +171,6 @@ export interface SchemaPresetSpec {
   ddl?: string
   /** Built-in preset this was derived from, e.g. `omop-5.4`. */
   templateId?: string
-  /** User-facing semver; defaults to `0.1.0` like every other entity. */
-  version?: string
 }
 
 export interface EntitySpecMap {
@@ -182,6 +209,37 @@ function localized(value: LocalizedInput): Record<string, string> {
   return Object.fromEntries(
     Object.entries(value).filter(([, v]) => typeof v === 'string' && v.length > 0),
   ) as Record<string, string>
+}
+
+/**
+ * The identity keys the app writes first, in its order (`id`, `entityId`).
+ *
+ * Key order is part of byte-parity: the same fields in a different order still
+ * produce a git diff on the first re-export.
+ */
+function identityHead(s: EntityIdentity): Record<string, unknown> {
+  return {
+    ...(s.id ? { id: s.id } : {}),
+    ...(s.entityId ? { entityId: s.entityId } : {}),
+  }
+}
+
+/**
+ * The provenance keys the app writes last, in its order.
+ *
+ * `version` defaults to `0.1.0` because the app stamps that on every entity it
+ * creates — omitting it here would show up as an added line on the first sync.
+ * The rest are written only when the author supplies them: an absent
+ * `lineageId` is minted on import, and inventing one here would fork the
+ * entity's identity from whatever it was published as.
+ */
+function provenanceTail(s: EntityIdentity): Record<string, unknown> {
+  return {
+    ...(s.lineageId ? { lineageId: s.lineageId } : {}),
+    ...(s.parentLineageId ? { parentLineageId: s.parentLineageId } : {}),
+    ...(s.createdAt ? { createdAt: s.createdAt } : {}),
+    version: s.version ?? '0.1.0',
+  }
 }
 
 function sortByPath<T extends { path: string }>(files: T[]): T[] {
@@ -231,8 +289,10 @@ export function serializeEntity<K extends SerializableEntityKind>(
         {
           path: '_collection.json',
           content: json({
+            ...identityHead(s),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
+            ...provenanceTail(s),
           }),
         },
         ...serializeScriptFiles(s.files),
@@ -245,9 +305,11 @@ export function serializeEntity<K extends SerializableEntityKind>(
         {
           path: '_pipeline.json',
           content: json({
+            ...identityHead(s),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             status: s.status ?? 'draft',
+            ...provenanceTail(s),
           }),
         },
         ...serializeScriptFiles(s.files),
@@ -260,9 +322,11 @@ export function serializeEntity<K extends SerializableEntityKind>(
         {
           path: 'rule-set.json',
           content: json({
+            ...identityHead(s),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             status: 'draft',
+            ...provenanceTail(s),
           }),
         },
         {
@@ -286,12 +350,14 @@ export function serializeEntity<K extends SerializableEntityKind>(
         {
           path: 'catalog.json',
           content: json({
+            ...identityHead(s),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             dimensions: s.dimensions,
             ...(s.categoryColumn ? { categoryColumn: s.categoryColumn } : {}),
             ...(s.subcategoryColumn ? { subcategoryColumn: s.subcategoryColumn } : {}),
             status: 'draft',
+            ...provenanceTail(s),
           }),
         },
       ]
@@ -302,11 +368,20 @@ export function serializeEntity<K extends SerializableEntityKind>(
       return [
         {
           path: 'project.json',
+          // A mapping project orders its own keys: `createdAt` sits right after
+          // `status`, not with the trailing provenance — so `provenanceTail` is
+          // not reused here. Matches what the app writes (see the published
+          // mimic-iv-demo repo).
           content: json({
+            ...identityHead(s),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...(s.sourceType ? { sourceType: s.sourceType } : {}),
             status: 'draft',
+            ...(s.createdAt ? { createdAt: s.createdAt } : {}),
+            ...(s.lineageId ? { lineageId: s.lineageId } : {}),
+            ...(s.parentLineageId ? { parentLineageId: s.parentLineageId } : {}),
+            version: s.version ?? '0.1.0',
           }),
         },
         {
@@ -346,11 +421,18 @@ export function serializeEntity<K extends SerializableEntityKind>(
             // so an authored tree and a Linkr re-export are byte-identical — the
             // first sync after an install must be "nothing to commit".
             // `entityId` is the readable slug every other entity uses; `presetId`
-            // rides along for readers predating the split. No `id`: that is a
-            // local primary key, regenerated on import, and would churn the diff.
+            // rides along for readers predating the split.
+            //
+            // No `id`, unlike every other kind here: a preset is keyed on
+            // `entityId`, so `applyClonedEntity` mints a fresh uuid instead of
+            // adopting the repo's. An authored `id` could never survive, and
+            // writing one would guarantee a diff on the first re-export.
             presetId: s.presetId,
             entityId: s.presetId,
             mapping,
+            ...(s.lineageId ? { lineageId: s.lineageId } : {}),
+            ...(s.parentLineageId ? { parentLineageId: s.parentLineageId } : {}),
+            ...(s.createdAt ? { createdAt: s.createdAt } : {}),
             version: s.version ?? '0.1.0',
           }),
         },
