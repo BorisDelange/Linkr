@@ -41,5 +41,27 @@
   "version": "0.1.0",
   "license": {
     "id": "MIT"
+  },
+  "organization": {
+    "id": "org1",
+    "name": {
+      "en": "University Hospital of Rennes",
+      "fr": ""
+    },
+    "type": "hospital",
+    "location": {
+      "en": "Rennes",
+      "fr": ""
+    },
+    "country": {
+      "en": "France",
+      "fr": ""
+    },
+    "website": "",
+    "email": "",
+    "customType": null,
+    "referenceId": "",
+    "customFields": null,
+    "createdAt": "2026-01-01T00:00:00.000Z"
   }
 }

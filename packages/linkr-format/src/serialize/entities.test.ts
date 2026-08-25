@@ -146,6 +146,40 @@ describe('serializeEntity', () => {
       expect(preset.mapping.ddl).toBeUndefined()
     })
 
+    it('writes entityId as the readable identity, in the app\'s key order', () => {
+      // The app writes `presetId, id, entityId`. An authored tree must match, so
+      // installing it and syncing lands on "nothing to commit" rather than a
+      // reordering diff. No `id` here: the author has no local key to declare —
+      // the app mints one on import and writes it from then on.
+      const preset = JSON.parse(treeOf('schema-preset', SPECS['schema-preset']).read('preset.json')!)
+      expect(preset.entityId).toBe('omop-cdm-5-4')
+      expect(preset.presetId).toBe('omop-cdm-5-4')
+      expect(Object.keys(preset).slice(0, 2)).toEqual(['presetId', 'entityId'])
+    })
+
+    it('accepts a tree identified only by entityId', () => {
+      // What the export writes once `presetId` is dropped: the validator must
+      // not demand the retired field.
+      const tree = new MemoryTree({
+        'preset.json': JSON.stringify({ entityId: 'omop-cdm-5-4', mapping: { presetId: 'omop-cdm-5-4' } }),
+      })
+      expect(validateEntity(tree, 'schema-preset')).toEqual([])
+    })
+
+    it('accepts the id + entityId pair the app exports', () => {
+      // Every standalone entity's export carries both (_collection.json,
+      // _pipeline.json, rule-set.json, catalog.json). A preset is not special.
+      const tree = new MemoryTree({
+        'preset.json': JSON.stringify({
+          presetId: 'omop-cdm-5-4',
+          id: '9f3c2a11-0000-4000-8000-000000000001',
+          entityId: 'omop-cdm-5-4',
+          mapping: { presetId: 'omop-cdm-5-4' },
+        }),
+      })
+      expect(validateEntity(tree, 'schema-preset')).toEqual([])
+    })
+
     it('moves a DDL supplied inside the mapping out to schema.ddl', () => {
       const tree = treeOf('schema-preset', {
         presetId: 'p',

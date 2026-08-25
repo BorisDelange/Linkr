@@ -120,7 +120,13 @@ export interface EventTableSpec {
  * identity fields.
  */
 export interface SchemaPresetSpec {
-  /** Stable identity of the preset, e.g. `omop-cdm-5-4`. Travels across instances. */
+  /**
+   * Stable identity of the preset, e.g. `omop-cdm-5-4`. Travels across instances.
+   *
+   * Written to both `entityId` (the field every other entity uses for its
+   * readable slug) and `mapping.presetId`, which is a label inside the mapping
+   * payload rather than an identity — see the app's `SchemaMapping`.
+   */
   presetId: string
   /** Human-readable label, shown wherever the schema is picked. */
   presetLabel: LocalizedInput
@@ -336,7 +342,14 @@ export function serializeEntity<K extends SerializableEntityKind>(
         {
           path: 'preset.json',
           content: json({
+            // Key order mirrors what the app exports (`presetId` then `entityId`)
+            // so an authored tree and a Linkr re-export are byte-identical — the
+            // first sync after an install must be "nothing to commit".
+            // `entityId` is the readable slug every other entity uses; `presetId`
+            // rides along for readers predating the split. No `id`: that is a
+            // local primary key, regenerated on import, and would churn the diff.
             presetId: s.presetId,
+            entityId: s.presetId,
             mapping,
             version: s.version ?? '0.1.0',
           }),

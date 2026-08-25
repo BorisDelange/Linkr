@@ -252,22 +252,27 @@ def _build_schemas_section(
     tree: dict[str, bytes], schemas: list[dict], git_links: _GitLinks
 ) -> None:
     """Port of the schemas/ section (entity-io.ts:1958-1985). ``git`` per entry.
-    Git-linked → a MINIMAL pointer (presetId + optional mapping.presetLabel + git
-    pointer; the linked repo's preset.json is the source of truth)."""
+    Git-linked → a MINIMAL pointer (identity + optional mapping.presetLabel + git
+    pointer; the linked repo's preset.json is the source of truth).
+
+    The folder is named after the readable slug, not the row's uuid: a human
+    browses this tree. The git-links id is the entity key (`id`), matching the
+    client — both ends must emit the same bytes or git shows a false diff."""
     for entry in schemas:
         sp = entry["meta"]
         git = entry.get("git")
+        slug = sp.get("entityId") or sp["presetId"]
         if git:
-            folder = _slugify(sp["presetId"])
+            folder = _slugify(slug)
             mapping = sp.get("mapping") or {}
-            pointer: dict = {"presetId": sp["presetId"]}
+            pointer: dict = {"entityId": slug, "presetId": sp["presetId"]}
             if mapping.get("presetLabel"):
                 pointer["mapping"] = {"presetLabel": mapping["presetLabel"]}
             pointer["gitRemoteConfig"] = git
             tree[f"schemas/{folder}/_schema.json"] = _json(pointer)
-            git_links.add("schema-preset", sp["presetId"], folder, git)
+            git_links.add("schema-preset", sp.get("id") or sp["presetId"], folder, git)
             continue
-        tree[f"schemas/{_slugify(sp['presetId'])}.json"] = _json(sp)
+        tree[f"schemas/{_slugify(slug)}.json"] = _json(sp)
 
 
 def _build_databases_section(

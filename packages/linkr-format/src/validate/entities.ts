@@ -272,7 +272,17 @@ function validateSchemaPreset(tree: EntityTree, bag: IssueBag): void {
     return
   }
 
-  checkString(bag, path, '/presetId', preset.presetId, { required: true, label: 'presetId' })
+  // Either identity satisfies the requirement: `entityId` is what the export
+  // writes now (harmonised with every other entity), `presetId` is what trees
+  // published before the split carry. Requiring both would flag one or the other.
+  if (preset.entityId == null && preset.presetId == null) {
+    bag.error(path, '/entityId', 'missing-field',
+      'A schema preset needs an `entityId` (its readable identifier).')
+  } else if (preset.entityId != null) {
+    checkString(bag, path, '/entityId', preset.entityId, { required: true, label: 'entityId' })
+  } else {
+    checkString(bag, path, '/presetId', preset.presetId, { required: true, label: 'presetId' })
+  }
   checkInstanceFields(bag, path, preset)
 
   const mapping = preset.mapping

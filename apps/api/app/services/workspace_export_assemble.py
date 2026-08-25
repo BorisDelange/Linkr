@@ -522,7 +522,12 @@ async def build_workspace_tree_from_db(
     if options.on("schemas"):
         schemas = []
         for sp in await schema_preset_service.list_for_workspace(db, workspace.id):
-            if options.exclude_entities.get(sp.preset_id):
+            # Keyed on `id` like every other section, matching what the client
+            # sends (WsExportTab lists `id`). `preset_id` is still honoured so an
+            # exclusion set by a client predating the split keeps working.
+            if options.exclude_entities.get(sp.id) or options.exclude_entities.get(
+                sp.preset_id
+            ):
                 continue
             schemas.append(
                 {
@@ -797,9 +802,6 @@ def _canonical_schema_mapping(mapping: dict) -> dict:
 
 
 async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]:
-    # Distinctive: the schema preset standalone builder does NOT inline an org
-    # (entity-io.ts:1607 has no attachEntityOrganization), so no _attach_org here.
-    #
     # The DDL is written as its own schema.ddl rather than inlined in preset.json:
     # see buildSchemaPresetFolder (entity-io.ts) for why. Both ends must emit the
     # same tree or git shows a false diff, so keep them in step.
@@ -812,12 +814,29 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
         if dumped.get(key) is None:
             dumped.pop(key, None)
     stripped = strip_entity_docs(_strip_instance_fields(dumped))
+    # `entityId` is rebuilt in place rather than assigned: on a row predating the
+    # split it was popped above as None, and re-adding it would append it LAST
+    # while the client writes it third — a false git diff on every export. The
+    # client's order is presetId, id, entityId (SchemaPresetResponse declares the
+    # same), so it goes right after `id`, or after `presetId` when there is none.
+    entity_id = dumped.get("entityId") or preset.preset_id
+    reordered: dict = {}
+    for key, value in stripped.items():
+        reordered[key] = value
+        if key == "id" or (key == "presetId" and "id" not in stripped):
+            reordered["entityId"] = entity_id
+    reordered.setdefault("entityId", entity_id)
+    stripped = reordered
     mapping = dict(stripped.get("mapping") or {})
     ddl = mapping.pop("ddl", None)
     stripped["mapping"] = _canonical_schema_mapping(mapping)
     tree: dict[str, bytes] = {"preset.json": _json(stripped)}
     if ddl:
         tree[SCHEMA_PRESET_DDL_FILE] = ddl.encode()
+    # `organization` is stripped as an instance field, and every other entity puts
+    # its provenance snapshot back. A preset did not, so each re-export silently
+    # dropped the publishing organization from the repo.
+    await _attach_org(db, tree, "preset.json", preset)
     tree.update(await _entity_docs(db, "", dumped, "schema-preset", preset.preset_id))
     return tree
 

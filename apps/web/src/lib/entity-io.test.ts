@@ -1059,6 +1059,42 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(saved.mapping?.ddl).toBe('CREATE TABLE person ();')
   })
 
+  it('gives a cloned preset a lineage, minting one when the repo has none', async () => {
+    // The four published schema repos were exported before lineage existed. The
+    // spread that copies the repo left those clones with no lineageId at all —
+    // unrecognisable to any other instance, and to findInstalled except by git URL.
+    const cloneOf = async (repoPreset: CustomSchemaPreset, existing?: CustomSchemaPreset) => {
+      const saves: unknown[] = []
+      const store = new Proxy({}, {
+        get: (_t, prop) => prop === 'schemaPresets'
+          ? { save: (p: unknown) => { saves.push(p); return Promise.resolve() }, getById: async () => existing }
+          : new Proxy({}, { get: () => async () => {} }),
+      }) as unknown as Storage
+      const zip = new JSZip()
+      zip.file('preset.json', JSON.stringify(repoPreset))
+      zip.file('schema.ddl', 'CREATE TABLE person ();')
+      await applyClonedEntity(zip, 'schema-preset', 'preset-target', store)
+      return saves[0] as CustomSchemaPreset
+    }
+
+    // A repo with no lineage still yields a row that has one.
+    const minted = await cloneOf(PRESET())
+    expect(minted.lineageId).toEqual(expect.any(String))
+    expect(minted.lineageId).not.toBe('')
+
+    // A repo that publishes a lineage keeps that value verbatim — it IS the
+    // cross-instance identity, so re-minting would fork the entity.
+    const published = await cloneOf(PRESET({ lineageId: 'lin-published' } as Partial<CustomSchemaPreset>))
+    expect(published.lineageId).toBe('lin-published')
+
+    // A re-clone (pull) keeps the row's stored lineage rather than minting anew.
+    const reclone = await cloneOf(
+      PRESET(),
+      PRESET({ lineageId: 'lin-local' } as Partial<CustomSchemaPreset>),
+    )
+    expect(reclone.lineageId).toBe('lin-local')
+  })
+
   describe('applyClonedEntity: database', () => {
     /** A store recording data-source and file writes, with everything else inert. */
     function makeStore(): { store: Storage; calls: Record<string, unknown[][]> } {

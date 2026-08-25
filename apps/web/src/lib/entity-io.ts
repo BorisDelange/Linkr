@@ -2267,8 +2267,19 @@ export async function buildSchemaPresetFolder(
 ): Promise<void> {
   const stripped = stripEntityDocs(stripInstanceFields(preset) as CustomSchemaPreset)
   const { ddl, ...mapping } = stripped.mapping
-  zip.file(`${prefix}preset.json`, json({ ...stripped, mapping: canonicalSchemaMapping(mapping) }))
+  // `id` + `entityId` both travel, exactly as the other standalone entities do
+  // (_collection.json, _pipeline.json, rule-set.json, catalog.json all carry
+  // the pair). Only a project drops its `uid`, whose local PK is regenerated.
+  zip.file(`${prefix}preset.json`, json({
+    ...stripped,
+    entityId: preset.entityId ?? preset.presetId,
+    mapping: canonicalSchemaMapping(mapping),
+  }))
   if (ddl) zip.file(`${prefix}${SCHEMA_PRESET_DDL_FILE}`, ddl)
+  // `organization` is an INSTANCE_FIELD, stripped above; every other entity puts
+  // its provenance snapshot back here. A preset did not, so each re-export
+  // silently dropped the publishing organization from the repo.
+  await attachEntityOrganization(zip, `${prefix}preset.json`, preset, storage)
   await writeEntityDocs(zip, prefix, preset, storage, 'schema-preset', preset.presetId)
 }
 
@@ -2700,6 +2711,12 @@ export async function applyClonedEntity(
         // published identity travels in `lineageId`, preserved by the spread.
         id: existingPreset?.id ?? crypto.randomUUID(),
         entityId: existingPreset?.entityId ?? preset.entityId ?? targetId,
+        // A repo published before lineage existed carries none, and the spread
+        // above would leave this row without one — unrecognisable to every other
+        // instance, and to `findInstalled` except by git URL. Mint it here so the
+        // identity exists from the first clone; a re-clone keeps what is stored,
+        // and a repo that does carry one keeps the published value.
+        lineageId: existingPreset?.lineageId ?? preset.lineageId ?? crypto.randomUUID(),
         workspaceId,
         ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
         // `mapping.presetId` must follow the entity's id. Leaving the repo's
@@ -3003,19 +3020,23 @@ export async function buildWorkspaceZip(
   if (on('schemas')) {
     const schemas = await storage.schemaPresets.getByWorkspace(workspaceId)
     for (const sp of schemas) {
-      if (excluded[sp.presetId]) continue
+      // Keyed on `id` like every other section — WsExportTab must list the same.
+      if (excluded[sp.id ?? sp.presetId]) continue
       const git = resolveGitRemote(sp)
+      // The folder name is read by a human browsing the repo, so it stays the
+      // readable slug rather than the row's uuid.
+      const slug = sp.entityId ?? sp.presetId
       if (git) {
         // Pointer only — the linked repo's preset.json is the source of truth. Keep
-        // just presetId (create key + git detection), presetLabel (display), and the
-        // git pointer; the clone (applyClonedEntity) re-applies the full preset.
-        const folder = slugify(sp.presetId)
-        const pointer = { presetId: sp.presetId, mapping: sp.mapping?.presetLabel ? { presetLabel: sp.mapping.presetLabel } : undefined, gitRemoteConfig: git }
+        // just the identity (create key + git detection), presetLabel (display), and
+        // the git pointer; the clone (applyClonedEntity) re-applies the full preset.
+        const folder = slugify(slug)
+        const pointer = { entityId: slug, presetId: sp.presetId, mapping: sp.mapping?.presetLabel ? { presetLabel: sp.mapping.presetLabel } : undefined, gitRemoteConfig: git }
         zip.file(`schemas/${folder}/_schema.json`, json(pointer))
-        gitLinks.push({ type: 'schema-preset', id: sp.presetId, folder, url: git.url, branch: git.branch })
+        gitLinks.push({ type: 'schema-preset', id: sp.id ?? sp.presetId, folder, url: git.url, branch: git.branch })
         continue
       }
-      zip.file(`schemas/${slugify(sp.presetId)}.json`, json(sp))
+      zip.file(`schemas/${slugify(slug)}.json`, json(sp))
     }
   }
 
@@ -3274,7 +3295,7 @@ export function collectGitLinkedEntities(parsed: ParsedWorkspaceZip): GitLinkedE
   for (const { project } of parsed.mappingProjects) push('mapping-project', project.id, localized(project.name, 'en'), resolveGitRemote(project) ?? undefined)
   for (const cat of parsed.catalogs) push('data-catalog', cat.id, localized(cat.name, 'en'), resolveGitRemote(cat) ?? undefined)
   for (const { ruleSet } of parsed.dqRuleSets) push('dq-rule-set', ruleSet.id, localized(ruleSet.name, 'en'), resolveGitRemote(ruleSet) ?? undefined)
-  for (const sp of parsed.schemas) push('schema-preset', sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.presetId, resolveGitRemote(sp) ?? undefined)
+  for (const sp of parsed.schemas) push('schema-preset', sp.id ?? sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.entityId || sp.presetId, resolveGitRemote(sp) ?? undefined)
   return out
 }
 
