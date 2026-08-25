@@ -1309,9 +1309,22 @@ function SchemaDetailView({
 
         {/* DDL — the diagram and the SQL that produces it, same subject. */}
         <TabsContent value="ddl" className="flex-1 min-h-0 m-0 p-0">
-          {!displayMapping.ddl ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              {t('settings.schema_preset_no_ddl')}
+          {/* An empty DDL blanks the DIAGRAM only: there is nothing to draw. The
+              source view still opens its editor, because a schema created from
+              scratch starts with no DDL and writing one has to be possible —
+              blanking both left the only way in behind a file it did not have. */}
+          {!displayMapping.ddl && ddlView === 'diagram' ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3">
+              <p className="text-sm text-muted-foreground">{t('settings.schema_preset_no_ddl')}</p>
+              <Button
+                variant="outline"
+                size="sm-tight"
+                disabled={!canWrite}
+                onClick={() => { setDdlView('source'); if (!isEditing) startEdit() }}
+              >
+                <Pencil size={12} />
+                {t('schemas.write_ddl')}
+              </Button>
             </div>
           ) : ddlView === 'diagram' ? (
             <DdlERD
@@ -1347,6 +1360,10 @@ function SchemaDetailView({
                         editorRef={ddlEditorRef}
                         readOnly={!(isEditing && editMapping)}
                         onChange={isEditing && editMapping ? (v) => setEditMapping({ ...editMapping, ddl: v ?? '' }) : undefined}
+                        // Cmd/Ctrl+S saves from inside the editor: writing a DDL
+                        // means long stretches in here, and reaching for the
+                        // toolbar to commit them is the reflex nobody has.
+                        onSave={isEditing && editMapping ? () => void handleSave() : undefined}
                       />
                     </Suspense>
                   </div>

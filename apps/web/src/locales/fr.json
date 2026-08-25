@@ -2565,6 +2565,7 @@
     "description": "Les schémas définissent comment les tables et colonnes sont mappées dans vos bases de données.",
     "search_placeholder": "Rechercher un schéma...",
     "new_schema": "Nouveau schéma",
+    "write_ddl": "Écrire le DDL",
     "create_title": "Créer un schéma",
     "edit_title": "Modifier le schéma",
     "empty_title": "Aucun schéma",

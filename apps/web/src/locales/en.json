@@ -2565,6 +2565,7 @@
     "description": "Schemas define how tables and columns are mapped in your databases.",
     "search_placeholder": "Search schemas...",
     "new_schema": "New schema",
+    "write_ddl": "Write the DDL",
     "create_title": "Create a schema",
     "edit_title": "Edit schema",
     "empty_title": "No schemas",

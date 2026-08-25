@@ -221,6 +221,15 @@ body {
   font-size: 0.75rem;
 }
 
+/* Monaco's own overlay message ("Cannot edit in read-only editor") ships at the
+   editor's font size, which reads as a shout next to our UI text. Monaco offers
+   no option for it, so it is styled here — same size as the rest of the chrome. */
+.monaco-editor .monaco-editor-overlaymessage .message {
+  font-size: 0.75rem;
+  line-height: 1.1rem;
+  padding: 0.25rem 0.5rem;
+}
+
 /* React Flow theme overrides */
 .react-flow__minimap {
   border-radius: 0.5rem;
