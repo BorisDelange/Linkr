@@ -351,7 +351,10 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
             {label && (
               <>
                 <span>{t('authoring.author')}</span>
-                <span className="min-w-0">
+                {/* Values in foreground, labels muted: on a detail card these
+                    are facts worth reading, not the fine print they are in a
+                    list card's single footer row. */}
+                <span className="min-w-0 text-foreground">
                   <AuthorChip
                     label={label}
                     details={details}
@@ -369,19 +372,19 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
             {created && (
               <>
                 <span>{t('common.created')}</span>
-                <span className="min-w-0 truncate">{created}</span>
+                <span className="min-w-0 truncate text-foreground">{created}</span>
               </>
             )}
             {updated && (
               <>
                 <span>{t('common.modified')}</span>
-                <span className="min-w-0 truncate">{updated}</span>
+                <span className="min-w-0 truncate text-foreground">{updated}</span>
               </>
             )}
             {showLicense && (
               <>
                 <span>{t('license.title')}</span>
-                <span className="min-w-0">
+                <span className="min-w-0 text-foreground">
                   <LicenseChip license={license} onOpen={onOpenLicense} t={t} />
                 </span>
               </>

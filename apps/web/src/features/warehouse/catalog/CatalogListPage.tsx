@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { BookOpen, Database } from 'lucide-react'
+import { BookOpen } from 'lucide-react'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { BadgeStrip } from '@/components/ui/badge-strip'
@@ -11,7 +11,6 @@ import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
 import { buildDataCatalogFolder, parseImportZip } from '@/lib/entity-io'
@@ -32,7 +31,6 @@ export function CatalogListPage() {
   const { activeWorkspaceId } = useWorkspaceStore()
   const { atLeast } = useMyWorkspaceRole()
   const { catalogsLoaded, loadCatalogs, catalogs: allCatalogs } = useCatalogStore()
-  const dataSources = useDataSourceStore((s) => s.dataSources)
   const catalogActions = useCatalogActions()
 
   useEffect(() => {
@@ -83,9 +81,6 @@ export function CatalogListPage() {
     onChange: setBadgeFilter,
     options: badgeFilterOptions(allBadges, badgeCategories, i18n.language, t('badge_categories.no_category')),
   }] : []
-
-  const getSourceName = (sourceId: string) =>
-    localized(dataSources.find((ds) => ds.id === sourceId)?.name, language) || '—'
 
   // --- Import ---
   const [conflict, setConflict] = useState<{ name: string; pending: DataCatalog } | null>(null)
@@ -214,10 +209,6 @@ export function CatalogListPage() {
               {localized(catalog.description, language) && (
                 <TruncatedText text={localized(catalog.description, language)} readOnly className="text-xs text-muted-foreground" />
               )}
-            </div>
-            <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Database size={12} className="shrink-0" />
-              <span className="truncate">{getSourceName(catalog.dataSourceId)}</span>
             </div>
             <BadgeStrip badges={catalog.badges ?? []} className="mt-1.5 h-5" />
           </div>

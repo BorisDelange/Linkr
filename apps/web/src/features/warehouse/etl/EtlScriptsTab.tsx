@@ -62,6 +62,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
 import type * as Monaco from 'monaco-editor'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { OutputTable } from '@/features/projects/files/OutputTable'
@@ -196,6 +197,8 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
   const runAllKey = comboToString(RUN_ALL_COMBO)
 
   // Tab scroll refs
+  // How the file and output tab groups share the bar's width.
+  const tabSplit = useTabGroupSplit('etl')
   const fileTabScrollRef = useRef<HTMLDivElement>(null)
   const outputTabScrollRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -811,7 +814,8 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                       <ChevronLeft size={12} />
                     </button>
                   )}
-                  <div ref={fileTabScrollRef} className="flex items-center overflow-x-auto scrollbar-none">
+                  <div ref={fileTabScrollRef} className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
+                    style={{ flex: tabSplit.flexFor('left', openFileIds.length > 0 && outputTabOrder.length > 0) }}>
                     {openFileIds.map((fid) => {
                       const file = files.find((f) => f.id === fid)
                       if (!file) return null
@@ -908,7 +912,10 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
 
                   {/* Separator */}
                   {openFileIds.length > 0 && outputTabOrder.length > 0 && (
-                    <div className="mx-0.5 h-4 w-px shrink-0 bg-border" />
+                    <TabGroupSplitter
+                      onShareChange={tabSplit.setShare}
+                      onReset={tabSplit.reset}
+                    />
                   )}
 
                   {/* Output tabs */}
@@ -920,7 +927,8 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                       <ChevronLeft size={12} />
                     </button>
                   )}
-                  <div ref={outputTabScrollRef} className="flex items-center overflow-x-auto scrollbar-none">
+                  <div ref={outputTabScrollRef} className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
+                    style={{ flex: tabSplit.flexFor('right', openFileIds.length > 0 && outputTabOrder.length > 0) }}>
                     {outputTabOrder.map((tabId) => {
                       const isConsole = tabId === '__exec_console__'
                       const isActive = activeOutputTab === tabId

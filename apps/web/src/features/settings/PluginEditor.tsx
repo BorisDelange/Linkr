@@ -430,7 +430,9 @@ export function PluginEditor() {
           mount across tab switches: Monaco, the open files and the test output
           are expensive to rebuild, and coming back to a re-initialised editor
           would lose the session. */}
-      <div className={cn('min-h-0 flex-1', activeTab === 'code' ? '' : 'hidden')}>
+      {/* `border-t` closes the block off from the tab bar, which otherwise runs
+          straight into the sidebar and toolbar with no edge between them. */}
+      <div className={cn('min-h-0 flex-1 border-t', activeTab === 'code' ? '' : 'hidden')}>
         <Allotment>
           {/* File list sidebar */}
           {/* Same width band as the IDE file explorer, so file sidebars all

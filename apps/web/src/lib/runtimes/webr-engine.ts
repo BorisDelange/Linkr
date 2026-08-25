@@ -382,8 +382,11 @@ export async function executeR(
         }
         await webR.evalRVoid(`rm(.__linkr_last_result__)`)
       }
-    } catch {
-      // Not a data.frame — ignore
+    } catch (err) {
+      // Not a data.frame, or jsonlite could not serialise it. Either way the
+      // run itself succeeded, so this only costs the table view — but log it,
+      // or a frame that silently renders as console text has no trail at all.
+      console.warn('[webr] data.frame capture failed', err)
     }
 
     // Clean up shelter

@@ -1615,6 +1615,7 @@
     "upload": "Importer",
     "no_files": "Aucun fichier. Créez un fichier ou utilisez le terminal.",
     "search_files": "Rechercher un fichier",
+    "resize_tab_groups": "Redimensionner les groupes d’onglets (double-clic pour réinitialiser)",
     "no_files_match": "Aucun fichier ne correspond",
     "select_file": "Sélectionnez un fichier à modifier",
     "unsaved_changes_title": "Modifications non enregistrées",
@@ -2722,7 +2723,6 @@
     "no_files_match": "Aucun fichier ne correspond",
     "search_files": "Rechercher un fichier",
     "readme_empty_hint": "Pas encore de readme — écrivez-en un pour décrire ce que fait ce plugin.",
-    "tab_code": "Code",
     "tab_metadata": "Métadonnées"
   },
   "profile": {
@@ -4349,6 +4349,8 @@
     "detail_coming_soon": "Détail du catalogue bientôt disponible",
     "detail_coming_soon_description": "Configuration, aperçu des données, anonymisation, métadonnées DCAT-AP et export seront disponibles ici.",
     "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire ce que ce catalogue référence.",
+    "source_database": "Base de données source",
+    "source_change_hint": "Changer de base invalide les résultats calculés — relancez le calcul depuis l’onglet Données.",
     "tab_config": "Configuration",
     "tab_data": "Données",
     "tab_anonymization": "Anonymisation",

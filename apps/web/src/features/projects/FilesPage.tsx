@@ -57,6 +57,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { useFileStore } from '@/stores/file-store'
 import { useAppStore } from '@/stores/app-store'
@@ -174,6 +175,8 @@ export function FilesPage() {
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
 
   // --- Tab scroll with arrows (file tabs) ---
+  // How the file and output tab groups share the bar's width.
+  const tabSplit = useTabGroupSplit('ide')
   const fileTabScrollRef = useRef<HTMLDivElement>(null)
   const [fileTabCanScrollLeft, setFileTabCanScrollLeft] = useState(false)
   const [fileTabCanScrollRight, setFileTabCanScrollRight] = useState(false)
@@ -588,7 +591,12 @@ export function FilesPage() {
           setActiveOutputTab(fig.id)
         }
         if (result.table) {
-          addOutputTab({ id: `table-${Date.now()}`, label: `Result — ${fileName}`, type: 'table', content: result.table })
+          // Focused like a figure or a widget: the console has already printed
+          // the frame as text, so leaving the panel there hides the very table
+          // that was just built.
+          const id = `table-${Date.now()}`
+          addOutputTab({ id, label: `Result — ${fileName}`, type: 'table', content: result.table })
+          setActiveOutputTab(id)
         }
         // A rich HTML widget (plotly / leaflet / DT…) → its own tab (iframe).
         if (result.html) {
@@ -1394,7 +1402,8 @@ export function FilesPage() {
                   )}
                   <div
                     ref={fileTabScrollRef}
-                    className="flex items-center overflow-x-auto scrollbar-none"
+                    className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
+                    style={{ flex: tabSplit.flexFor('left', openFileIds.length > 0 && outputTabOrder.length > 0) }}
                   >
                     {openFileIds.map((fid) => {
                       const node = nodes.find((n) => n.id === fid)
@@ -1527,7 +1536,10 @@ export function FilesPage() {
 
                   {/* Vertical separator between file tabs and output tabs */}
                   {openFileIds.length > 0 && outputTabOrder.length > 0 && (
-                    <div className="mx-0.5 h-4 w-px shrink-0 bg-border" />
+                    <TabGroupSplitter
+                      onShareChange={tabSplit.setShare}
+                      onReset={tabSplit.reset}
+                    />
                   )}
 
                   {/* Output tabs */}
@@ -1547,7 +1559,8 @@ export function FilesPage() {
                   )}
                   <div
                     ref={outputTabScrollRef}
-                    className="flex items-center overflow-x-auto scrollbar-none"
+                    className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
+                    style={{ flex: tabSplit.flexFor('right', openFileIds.length > 0 && outputTabOrder.length > 0) }}
                   >
                     {outputTabOrder.map((tabId) => {
                       const isConsole = tabId === '__exec_console__'

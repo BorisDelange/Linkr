@@ -20,10 +20,15 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { EntitySecondaryTabsTrigger } from '@/components/ui/entity-secondary-tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-} from '@/components/ui/dropdown-menu'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import ReactMarkdown from 'react-markdown'
@@ -32,7 +37,6 @@ import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { localized } from '@/lib/localized'
-import { useAppStore } from '@/stores/app-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -99,10 +103,8 @@ export function CatalogDetailPage({ catalogId }: Props) {
       setReadmeEditing(false)
     }
   }, [activeTab])
-  const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { catalogs, catalogsLoaded, loadCatalogs, activeResultCache, loadResultCache, updateCatalog } = useCatalogStore()
-  const dataSources = useDataSourceStore((s) => s.dataSources)
   const catalogActions = useCatalogActions()
   const canWrite = useMyWorkspaceRole().can('catalog:write')
   const { activeWorkspaceId } = useWorkspaceStore()
@@ -139,7 +141,6 @@ export function CatalogDetailPage({ catalogId }: Props) {
   }
 
   const statusInfo = STATUS_BADGE[catalog.status]
-  const sourceName = localized(dataSources.find((ds) => ds.id === catalog.dataSourceId)?.name, language) || '—'
 
   // A failed compute explains itself on hover; every other status is the badge
   // alone. Built here so the About card renders the same thing the page header
@@ -196,7 +197,6 @@ export function CatalogDetailPage({ catalogId }: Props) {
             <CatalogOverviewTab
               catalog={catalog}
               statusBadge={statusBadge}
-              sourceName={sourceName}
               onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
               onSeeLicense={() => setActiveTab('license')}
             />
@@ -302,13 +302,11 @@ export function CatalogDetailPage({ catalogId }: Props) {
 function CatalogOverviewTab({
   catalog,
   statusBadge,
-  sourceName,
   onEditReadme,
   onSeeLicense,
 }: {
   catalog: DataCatalog
   statusBadge: React.ReactNode
-  sourceName: string
   onEditReadme: () => void
   onSeeLicense: () => void
 }) {
@@ -332,10 +330,10 @@ function CatalogOverviewTab({
           onEdit={onEditReadme}
         />
         <div className="flex flex-col gap-4 self-start">
+          <CatalogSourceCard catalog={catalog} />
           <CatalogIdentityCard
             catalog={catalog}
             statusBadge={statusBadge}
-            sourceName={sourceName}
             onSeeLicense={onSeeLicense}
           />
         </div>
@@ -396,16 +394,66 @@ function CatalogReadmePreview({
   )
 }
 
+/**
+ * The database the catalog is computed from, changeable in place.
+ *
+ * Switching it invalidates whatever was computed against the old one, so the
+ * card says as much rather than silently leaving stale counts on screen.
+ */
+function CatalogSourceCard({ catalog }: { catalog: DataCatalog }) {
+  const { t, i18n } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('catalog:write')
+  const updateCatalog = useCatalogStore((s) => s.updateCatalog)
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const dbSources = dataSources.filter(
+    (ds) => ds.sourceType === 'database' && !ds.isVocabularyReference,
+  )
+  const hasResults = catalog.status === 'success' || catalog.status === 'error'
+
+  return (
+    <div className="flex min-w-0 shrink-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm">
+      <div className="flex items-center gap-2">
+        <Database size={14} className="text-muted-foreground" />
+        <h3 className="text-sm font-semibold">{t('data_catalog.source_database')}</h3>
+      </div>
+
+      <Select
+        value={catalog.dataSourceId}
+        disabled={!canWrite}
+        onValueChange={(id) => {
+          if (id === catalog.dataSourceId) return
+          void updateCatalog(catalog.id, { dataSourceId: id })
+        }}
+      >
+        <SelectTrigger className="h-8 w-full text-xs">
+          <SelectValue placeholder={t('data_catalog.select_database')} />
+        </SelectTrigger>
+        <SelectContent>
+          {dbSources.map((ds) => (
+            <SelectItem key={ds.id} value={ds.id}>
+              {localized(ds.name, i18n.language) || ds.id}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {canWrite && hasResults && (
+        <p className="text-[10px] text-muted-foreground">
+          {t('data_catalog.source_change_hint')}
+        </p>
+      )}
+    </div>
+  )
+}
+
 /** Who made this catalog, when, under what licence, and how it is tagged. */
 function CatalogIdentityCard({
   catalog,
   statusBadge,
-  sourceName,
   onSeeLicense,
 }: {
   catalog: DataCatalog
   statusBadge: React.ReactNode
-  sourceName: string
   onSeeLicense: () => void
 }) {
   const { t, i18n } = useTranslation()
@@ -423,15 +471,9 @@ function CatalogIdentityCard({
 
       {description && <p className="text-xs break-words text-muted-foreground">{description}</p>}
 
-      {/* Status and source database — the two facts the removed page header
-          carried, kept where the rest of the identity lives. */}
-      <div className="flex flex-wrap items-center gap-2">
-        {statusBadge}
-        <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <Database size={12} className="shrink-0" />
-          <span className="truncate">{sourceName}</span>
-        </span>
-      </div>
+      {/* Status only: the source database is a setting you change, so it has
+          its own card in the overview rather than a read-only line here. */}
+      <div className="flex flex-wrap items-center gap-2">{statusBadge}</div>
 
       {!!catalog.badges?.length && <BadgeStrip badges={catalog.badges} />}
 

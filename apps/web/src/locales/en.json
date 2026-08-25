@@ -1615,6 +1615,7 @@
     "upload": "Upload",
     "no_files": "No files yet. Create a file or use the terminal.",
     "search_files": "Search files",
+    "resize_tab_groups": "Resize tab groups (double-click to reset)",
     "no_files_match": "No files matching your search",
     "select_file": "Select a file to edit",
     "unsaved_changes_title": "Unsaved changes",
@@ -2722,7 +2723,6 @@
     "no_files_match": "No files matching your search",
     "search_files": "Search files",
     "readme_empty_hint": "No readme yet — write one to say what this plugin does.",
-    "tab_code": "Code",
     "tab_metadata": "Metadata"
   },
   "profile": {
@@ -4349,6 +4349,8 @@
     "detail_coming_soon": "Catalog detail coming soon",
     "detail_coming_soon_description": "Configuration, data preview, anonymization, DCAT-AP metadata, and export will be available here.",
     "readme_empty_hint": "No readme yet — write one to say what this catalog describes.",
+    "source_database": "Source database",
+    "source_change_hint": "Changing the database invalidates the computed results — recompute from the Data tab.",
     "tab_config": "Configuration",
     "tab_data": "Data",
     "tab_anonymization": "Anonymization",
