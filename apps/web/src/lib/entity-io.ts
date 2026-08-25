@@ -2,7 +2,9 @@
  * Shared utilities for entity export/import (ZIP and JSON).
  */
 import JSZip from 'jszip'
-import type { Issue } from '@linkr/format'
+import {
+  buildTabKeyMap, buildWidgetKeyMap, dashboardKey as sharedDashboardKey, type Issue,
+} from '@linkr/format'
 import type { Storage } from '@/lib/storage'
 import { APP_VERSION } from '@/lib/version'
 import { deterministicId } from '@/lib/deterministic-id'
@@ -681,53 +683,19 @@ export const SCHEMA_PRESET_DDL_FILE = 'schema.ddl'
  *  dashboard keeps a stable, non-colliding key on both sides (parity: Python
  *  _dashboard_key). */
 function dashboardKey(d: Dashboard): string {
-  return slugify(localized(d.name, 'en') || d.id)
+  return sharedDashboardKey(d.name, d.id)
 }
 
-/**
- * tabKeyMap — every tab id → its parent-qualified content key. Sub-tabs (one level
- * of nesting) are qualified by their parent tab's key; root tabs by their dashboard.
- * Siblings colliding on the same base slug get `#<displayOrder>` appended.
- */
-function buildTabKeyMap(dashKey: string, tabs: DashboardTab[]): Map<string, string> {
-  const keyOf = new Map<string, string>()
-  const seen = new Set<string>()
-  // Parents before children so a sub-tab's parent key is already resolved.
-  const ordered = [...tabs].sort((a, b) => (a.parentTabId ? 1 : 0) - (b.parentTabId ? 1 : 0))
-  for (const tab of ordered) {
-    const base = slugify(localized(tab.name, 'en') || '')
-    const parent = tab.parentTabId ? keyOf.get(tab.parentTabId) : null
-    let key = `${parent ?? dashKey}/${base}`
-    if (seen.has(key)) key = `${key}#${tab.displayOrder}`
-    seen.add(key)
-    keyOf.set(tab.id, key)
-  }
-  return keyOf
-}
+// Dashboard tab/widget content keys now live in `@linkr/format` (src/keys.ts):
+// the authoring serializer derives the same keys, and a key computed two
+// different ways is not a cosmetic bug — a widget whose key drifts re-imports as
+// a *different* widget, orphaning whatever pointed at it. The patient-dashboard
+// helpers below stay local for now; they differ (flat tabs, own ordering rule)
+// and have a byte-parity Python twin to keep in step.
 
-/**
- * widgetKeyMap — every widget id → its content key, qualified by its tab key and
- * disambiguated by grid position (widgets have no order field), then `#i` on a tie.
- */
-/** Code-point order on the id, matching Python's `sorted(key=str)`. The `#i`
- *  collision counter below is handed out in iteration order, so an unordered
- *  read would give two same-named widgets each other's keys. */
+/** Code-point order on the id, matching Python's `sorted(key=str)`. */
 function byId<T extends { id: string }>(items: T[]): T[] {
   return [...items].sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0))
-}
-
-function buildWidgetKeyMap(tabKeyMap: Map<string, string>, widgets: DashboardWidget[]): Map<string, string> {
-  const keyOf = new Map<string, string>()
-  const seen = new Set<string>()
-  for (const w of byId(widgets)) {
-    const tabKey = tabKeyMap.get(w.tabId) ?? ''
-    const base = `${tabKey}/${slugify(localized(w.name, 'en') || '')}@${w.layout.y},${w.layout.x}`
-    let key = base
-    for (let i = 1; seen.has(key); i++) key = `${base}#${i}`
-    seen.add(key)
-    keyOf.set(w.id, key)
-  }
-  return keyOf
 }
 
 // Patient-dashboard content keys — same scheme as the dashboard ones above, minus

@@ -458,9 +458,39 @@ What makes the loop work, and is worth keeping if this is ever rewritten:
 - **Every mutating tool re-validates** and says whether the tree still holds, so a widget
   placed off-grid is reported the moment it lands rather than at import time.
 
-Remaining half of step 4: `entity-io.ts` still has its own copy of the layout. Wiring its
-export path through `serialize/` is what actually removes the duplication — the
-serializer existing does not, on its own.
+### Step 4 as built (2026-08-25) — and what it turned out to be
+
+The plan assumed `entity-io.ts`'s export path would be rewritten to call `serialize/`.
+Reading both against the golden fixture showed that would have been **wrong**, and the
+finding is worth recording because it reshapes step 8:
+
+- **Tabs and widgets** come out byte-identical from both writers.
+- **Dashboards do not.** The app writes eight fields the authoring spec has no notion of
+  — `version`, `createdBy`, `createdByDetails`, `widgetSpacing`, `fitToHeight`,
+  `reloadWidgetsOnTabSwitch`, `defaultDatasetFileId`, `showWidgetTitles` — and filters
+  carry a `scope` (per tab / per widget) the spec cannot express.
+
+Those are real entity properties, not noise. `ProjectSpec` is a **simplified authoring
+view** of an entity, not the entity itself: an author supplies a name and a plugin, the
+app additionally holds everything a user has since configured. Routing the export
+through `serialize/` would therefore have *lost* data — a worse outcome than the
+duplication it was meant to remove.
+
+So the shared piece is narrower and sharper than "the serializer": **content-key
+derivation**, now `packages/linkr-format/src/keys.ts`, imported by both. That was the
+part genuinely written twice, character for character, and the part where a divergence
+is destructive rather than cosmetic — a widget whose key drifts re-imports as a
+*different* widget, orphaning whatever pointed at it. The golden test confirms the
+export is byte-identical after the swap.
+
+What remains duplicated in `entity-io.ts` is the *entity → file* mapping, which is
+legitimately richer than the spec's. Converging it needs the spec to grow toward the
+entity (optional passthrough fields), not the export to shrink toward the spec — a
+larger, separate decision, and the right moment to take it is step 8, entity by entity.
+
+The patient-dashboard key helpers stay local: flat tabs, their own ordering rule, and a
+byte-parity Python twin to keep in step. Folding them in is only worth it alongside that
+twin.
 
 ---
 

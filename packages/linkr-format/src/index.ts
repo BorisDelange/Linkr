@@ -13,6 +13,9 @@ export { MemoryTree, filesIn, readJson } from './tree.js'
 
 export { buildColumnIds, columnId, isLegacyColumnId, slugify } from './ids.js'
 
+export { buildTabKeyMap, buildWidgetKeyMap, dashboardKey, tabKey, widgetKey } from './keys.js'
+export type { TabKeyInput, WidgetKeyInput } from './keys.js'
+
 export type { LocalizedString } from './check.js'
 export { readLocalized } from './check.js'
 
