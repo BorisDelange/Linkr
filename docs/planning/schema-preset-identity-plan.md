@@ -89,7 +89,7 @@ switches to `lineageId`, which is what fixes defect 1.
 | 1 | ✅ **Fix the drift first, on its own** — clone/move rewrite `mapping.presetId`, and ZIP import matches on `lineageId` instead | S | Done: commit `5626004f` |
 | 2 | ✅ Add `id` + `entityId` to the TS type and the server model; write both on every save path | M | Done. Additive — nothing *reads* them yet, so the app behaves identically |
 | 3 | ✅ **Client key + URL**: IndexedDB store keyed on `id` (v41), storage resolves either identity, URL takes the shortened uuid | M | Done. The server PK has NOT moved — see below |
-| 4 | Move the **server** PK to `id`, retire `presetId` from the routes and the API storage | M | The remaining irreversible step |
+| 4 | Move the **server** PK to `id`, retire `presetId` from the routes and the API storage | **L**, not M | Drags on-disk state with it — see below. Re-scoped 2026-08-25 |
 | 5 | Delete the special-cases (`installed.ts` three-way fallback, the actions shim, the git `getattr`, `freshId`'s `custom-<8hex>`, the WsExportTab note) | S | The payoff; all still in place |
 | 6 | Regenerate the golden export fixtures; re-export the 4 published preset repos | S | Fixture done in step 2; the repos still need a re-export for their `lineageId` |
 
@@ -143,6 +143,41 @@ upgrades here); it follows the v6 `omop_stats_cache` precedent, whose ordering c
 matters — `deleteObjectStore`/`createObjectStore` must run synchronously inside the
 upgrade transaction, with only the row copy in the `.then()`. Worth exercising by hand on
 a database that predates v41 before shipping.
+
+### Step 4 re-scoped: the server PK drags state that is not in the database
+
+Mapping it out before writing the migration turned up the reason this is **L, not M**, and
+why it should not be bundled with the rest. `preset_id` is not only a primary key — it is
+the **name of things outside the table**:
+
+| What | Keyed by | Where |
+|---|---|---|
+| on-disk git working tree | `data_path/schema-presets/<preset_id>/versioning` | [git_service.py:140](../../apps/api/app/services/git_service.py#L140), `:1537` |
+| `git_sync_state` rows | `scope='schema-presets'`, `entity_id=<preset_id>` | unique constraint `uq_git_sync_state_key` |
+| README attachments | owner `("schema-preset", <preset_id>)` | [schema_preset_service.py:99](../../apps/api/app/services/schema_preset_service.py#L99) |
+| workspace export exclusions | `exclude_entities[<preset_id>]` | [workspace_export_assemble.py:525](../../apps/api/app/services/workspace_export_assemble.py#L525) |
+
+So moving the PK means **renaming directories on disk** and rewriting rows in two other
+tables, in step with an alembic revision — and a half-applied move leaves a preset whose
+repo is on disk under a name nothing points at any more. That is a different class of
+change from the three steps already shipped, all of which were reversible or additive.
+
+**Recommendation: do not move the server PK yet.** The user-visible payoff of steps 1–3 is
+already banked (the drift defect is fixed, the client is keyed on `id`, the URL matches the
+other entities). What remains — `freshId`'s `custom-<8hex>`, the `installed.ts` fallback,
+the actions shim, the git `getattr` — is internal tidiness, not friction anyone feels.
+
+If it is done, do it as its own effort, in this order:
+1. Backfill: nothing new; `id` is already populated and equals `preset_id` on old rows.
+2. A revision that moves the PK **and**, in the same transaction, rewrites
+   `git_sync_state.entity_id` for `scope='schema-presets'` and the attachment owner ids.
+3. A startup task that renames `data_path/schema-presets/<old>/` → `<new>/`, idempotent,
+   tolerating a directory that is already renamed or absent.
+4. Only then: the routes, the API storage, and deleting the special-cases (step 5).
+
+Note step 3's backfill made `id == preset_id` for every existing row, so on a deployment
+that has never created a preset since, the rename is a no-op — the risk is concentrated on
+rows created *after* step 2, whose `id` is a fresh uuid.
 
 ## Decisions (2026-08-25)
 

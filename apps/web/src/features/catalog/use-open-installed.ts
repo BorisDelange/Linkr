@@ -29,6 +29,7 @@ export function useOpenInstalled(workspaceId: string, onNavigate?: () => void): 
         : entry.type === 'etl-pipeline' ? paths.warehouseEtlPipeline(workspaceId, info.id)
         : entry.type === 'dq-rule-set' ? paths.warehouseDqRuleSet(workspaceId, info.id)
         : entry.type === 'schema-preset' ? paths.warehouseSchema(workspaceId, info.id)
+        : entry.type === 'database' ? paths.warehouseDatabase(workspaceId, info.id)
         : null
       if (!to) return undefined
       return () => {
