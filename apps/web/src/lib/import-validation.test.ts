@@ -71,6 +71,29 @@ describe('validateImportZip', () => {
 })
 
 describe('treeFromZip', () => {
+  it('registers a script so it is not reported missing', async () => {
+    // Regression: only .json/.csv were loaded, so a .py listed in scripts/_tree.json
+    // looked absent and a valid project failed validation on import.
+    const result = await validateImportZip(projectZip({
+      'project.json': PROJECT,
+      'scripts/_tree.json': JSON.stringify([
+        { path: '01_extract.py', type: 'file', language: 'python', createdAt: '' },
+      ]),
+      'scripts/01_extract.py': 'print(1)\n',
+    }))
+    expect(result.issues).toEqual([])
+  })
+
+  it('still reports a script that really is absent', async () => {
+    const result = await validateImportZip(projectZip({
+      'project.json': PROJECT,
+      'scripts/_tree.json': JSON.stringify([
+        { path: 'ghost.py', type: 'file', language: 'python', createdAt: '' },
+      ]),
+    }))
+    expect(result.issues[0].code).toBe('missing-file')
+  })
+
   it('truncates a CSV to its header', async () => {
     const tree = await treeFromZip(projectZip({
       'datasets/patients/patients.csv': 'age,sex\n60,M\n61,F\n62,M\n',
@@ -80,14 +103,17 @@ describe('treeFromZip', () => {
     expect(tree.read('datasets/patients/patients.csv')).toBe('age,sex\n')
   })
 
-  it('skips binary and irrelevant files', async () => {
+  it('registers files it does not read, without their content', async () => {
     const tree = await treeFromZip(projectZip({
       'project.json': PROJECT,
       'datasets/patients/_data.parquet': 'binary-ish',
       'README.md': '# hello',
     }))
     expect(tree.read('project.json')).not.toBeNull()
-    expect(tree.read('datasets/patients/_data.parquet')).toBeNull()
-    expect(tree.read('README.md')).toBeNull()
+    // Present (so presence checks pass) but not decoded — the validator never
+    // reads their bytes, and a Parquet can be very large.
+    expect(tree.read('datasets/patients/_data.parquet')).toBe('')
+    expect(tree.read('README.md')).toBe('')
+    expect(tree.paths()).toContain('README.md')
   })
 })

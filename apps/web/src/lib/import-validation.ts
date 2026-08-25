@@ -13,31 +13,40 @@ import type JSZip from 'jszip'
 import { MemoryTree, formatIssues, validateProject, type Issue } from '@linkr/format'
 import type { FormattedError } from '@/lib/api-client'
 
-/** Files the validator reads. Anything else in the ZIP is irrelevant to it. */
-function isValidationInput(path: string): boolean {
-  if (path.endsWith('/')) return false
-  return (
-    path === 'project.json'
-    || path.endsWith('.json')
-    || path.endsWith('.csv')
-  )
+/**
+ * Files whose CONTENT the validator inspects. Everything else in the ZIP still
+ * has to appear in the tree — the validator checks that a script listed in
+ * `_tree.json` exists — it just does not need the bytes.
+ */
+function needsContent(path: string): boolean {
+  return path.endsWith('.json') || path.endsWith('.csv')
 }
 
 /**
  * `EntityTree` over a parsed ZIP.
  *
- * JSZip reads asynchronously while the validator is synchronous, so the relevant
- * files are decoded up front. Only JSON and CSV are read, and a CSV is truncated
- * to its header — the only part the validator looks at — so a 50 MB dataset does
- * not get decoded into memory to check a column list.
+ * JSZip reads asynchronously while the validator is synchronous, so content is
+ * decoded up front — but only where it is actually read. Every other file is
+ * registered with an empty string, so it still *exists* for the presence checks
+ * without being pulled into memory.
+ *
+ * Loading nothing for those files was a real bug: a `.py` script was absent from
+ * the tree entirely, so a perfectly good project reported "listed in the tree but
+ * the file is absent" on import. Presence and content are separate questions.
  */
 export async function treeFromZip(zip: JSZip): Promise<MemoryTree> {
   const files: Record<string, string> = {}
   await Promise.all(
     Object.entries(zip.files)
-      .filter(([path, entry]) => !entry.dir && isValidationInput(path))
+      .filter(([, entry]) => !entry.dir)
       .map(async ([path, entry]) => {
+        if (!needsContent(path)) {
+          files[path] = ''
+          return
+        }
         const text = await entry.async('string')
+        // A CSV is truncated to its header — the only part the validator reads —
+        // so a 50 MB dataset is not decoded to check a column list.
         files[path] = path.endsWith('.csv') ? text.slice(0, text.indexOf('\n') + 1 || undefined) : text
       }),
   )
