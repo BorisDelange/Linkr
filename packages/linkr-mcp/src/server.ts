@@ -147,8 +147,9 @@ server.registerTool(
   {
     description:
       'Create a standalone Linkr entity tree — a SQL collection, ETL pipeline, DQ rule set, '
-      + 'data catalog or concept-mapping project. These live in their own repo/folder, not '
-      + 'inside a project. Validates what it wrote. Call describe_entity_schema(kind) first.',
+      + 'data catalog, concept-mapping project or database schema preset. These live in their '
+      + 'own repo/folder, not inside a project. Validates what it wrote. Call '
+      + 'describe_entity_schema(kind) first.',
     inputSchema: fromJsonSchema<{
       path: string
       kind: SerializableEntityKind
@@ -159,7 +160,10 @@ server.registerTool(
         path: { type: 'string', description: 'Directory to write into. Created if absent.' },
         kind: {
           type: 'string',
-          enum: ['sql-collection', 'etl-pipeline', 'dq-rule-set', 'data-catalog', 'mapping-project'],
+          enum: [
+            'sql-collection', 'etl-pipeline', 'dq-rule-set', 'data-catalog',
+            'mapping-project', 'schema-preset',
+          ],
           description: 'Which entity to write.',
         },
         spec: {
@@ -221,7 +225,8 @@ server.registerTool(
           description: 'Entity kind.',
           enum: [
             'project', 'dataset', 'dashboard', 'widget', 'tab', 'script',
-            'sql-collection', 'etl-pipeline', 'dq-rule-set', 'data-catalog', 'mapping-project',
+            'sql-collection', 'etl-pipeline', 'dq-rule-set', 'data-catalog',
+            'mapping-project', 'schema-preset',
           ],
         },
       },

@@ -1,6 +1,6 @@
 # Standalone entities
 
-Five kinds live in their **own** folder or repo rather than inside a project, and are
+Six kinds live in their **own** folder or repo rather than inside a project, and are
 written with `write_entity(path, kind, spec)`. This is the shape the
 `linkr-public-content` repos use — one repo per entity.
 
@@ -13,6 +13,11 @@ Field lists: `describe_entity_schema(kind)`. This page covers what those cannot 
 | `dq-rule-set` | data-quality checks run against a database | `rule-set.json` + `checks.json` |
 | `data-catalog` | counts over chosen dimensions | `catalog.json` |
 | `mapping-project` | local codes aligned to OMOP concepts | `project.json` + `mappings.json` |
+| `schema-preset` | how to read one database's tables | `preset.json` + `schema.ddl` |
+
+What is **not** here: cohorts, dashboards and patient-data views belong to a project and
+have no standalone export. Dashboards are written as part of `write_project`; cohorts are
+covered at the end of this page.
 
 ## SQL collections and ETL pipelines
 
@@ -63,7 +68,36 @@ actually verified — the same code can map to different concepts depending on h
 source system uses it, and a wrong alignment propagates silently into every analysis
 built on it.
 
-## Not writable yet
+## Schema presets
 
-**Cohorts** (inside a project) and **schema presets** are validated but not written.
-Say so rather than hand-rolling their JSON — the next validation would disagree with you.
+A preset says how to read one database: which table holds patients, which holds visits,
+and where each kind of clinical event lives. Get it wrong and every page built on that
+database reads the wrong column — silently, since a plausible column name still returns
+rows.
+
+Three fields make an event table queryable at all, so all three are required: `table`,
+`conceptIdColumn` (what the row is about) and `dateColumn` (when it happened). The rest
+differ by event — a measurement has a value and a unit, a condition has neither.
+
+The **DDL goes to `schema.ddl`**, never inline in `mapping.ddl`: it is a large text blob,
+and on one JSON line it makes every diff unreadable. Pass it as `ddl` and the writer
+places it; a preset that still carries it inline gets a legacy warning.
+
+Mapping keys and event tables are written in a canonical order, so a preset you author
+and the same preset exported from the app are the same bytes. Do not reorder them by
+hand to "tidy" the file — that is the churn the ordering exists to prevent.
+
+Anything beyond the event tables (`patientTable`, `visitTable`, `conceptTables`,
+`genderValues`, `erdGroups`…) goes in `mapping`, merged as supplied. The four presets in
+`linkr-public-content/database-schemas/` are the reference to copy from.
+
+## Cohorts are not standalone
+
+A **cohort belongs to a project** (it carries a `projectUid` and lives in `cohorts/`),
+so there is no cohort repo to write. It is validated inside a project tree but the MCP
+does not author one, and that is deliberate: a cohort is a `criteriaTree` — nested
+groups, operators, negations — compiled to SQL. A wrong tree does not fail; it returns
+a different population, and nothing downstream says so.
+
+Build cohorts in the app, where the criteria editor shows the attrition at each step.
+If asked to write one, say this rather than hand-rolling the JSON.

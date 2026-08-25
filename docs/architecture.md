@@ -220,8 +220,16 @@ an entity, not the entity — routing the export through the serializer would lo
 
 **Validated** (kind detected from the metadata file at the tree root): project,
 sql-collection, etl-pipeline, schema-preset, dq-rule-set, data-catalog, mapping-project,
-plus a project's cohorts. **Writable** (`serializeEntity`): everything above except
-schema presets and cohorts, which are validate-only.
+plus a project's cohorts. **Writable**: the project via `serializeProject`, the six
+standalone kinds via `serializeEntity`. Only **cohorts** are validate-only — a cohort
+belongs to a project and compiles to SQL, so a wrong criteria tree silently returns a
+different population instead of failing; it is built in the app, where the editor shows
+the attrition at each step.
+
+A schema preset's canonical key order lives in `src/schema-mapping.ts` and is imported by
+`entity-io.ts` rather than duplicated — the writer must reproduce an exported preset byte
+for byte. The Python twin (`_canonical_schema_mapping` in `workspace_export_assemble.py`)
+still has to be kept in step by hand; the export golden tests guard it.
 
 A mapping project and a plain project both carry `project.json`; `mappings.json` is what
 tells them apart (`detectTreeKind`). Getting that backwards would validate one against

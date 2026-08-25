@@ -35,6 +35,22 @@ const SPECS: { [K in SerializableEntityKind]: EntitySpecMap[K] } = {
       { sourceConceptCode: '220045', sourceConceptName: 'Heart Rate', targetConceptId: 3027018, status: 'approved' },
     ],
   },
+  'schema-preset': {
+    presetId: 'omop-cdm-5-4',
+    presetLabel: { en: 'OMOP CDM 5.4', fr: 'OMOP CDM 5.4' },
+    eventTables: {
+      Measurement: {
+        table: 'measurement',
+        conceptIdColumn: 'measurement_concept_id',
+        dateColumn: 'measurement_datetime',
+        valueColumn: 'value_as_number',
+      },
+    },
+    mapping: {
+      patientTable: { table: 'person', idColumn: 'person_id' },
+    },
+    ddl: 'CREATE TABLE person (person_id INTEGER);\n',
+  },
 }
 
 describe('serializeEntity', () => {
@@ -103,7 +119,102 @@ describe('serializeEntity', () => {
   })
 
   it('refuses a kind it cannot serialize', () => {
-    expect(() => serializeEntity('schema-preset' as SerializableEntityKind, SPECS['data-catalog'] as never))
+    expect(() => serializeEntity('cohort' as SerializableEntityKind, SPECS['data-catalog'] as never))
       .toThrow(/Cannot serialize/)
+  })
+
+  describe('schema-preset', () => {
+    it('writes the DDL to its own file, never inline in the mapping', () => {
+      // A 50k blob on one JSON line makes every preset diff unreadable, so the
+      // validator warns about an inline `mapping.ddl` — writing one would be
+      // producing a tree our own checks flag.
+      const tree = treeOf('schema-preset', SPECS['schema-preset'])
+      expect(tree.read('schema.ddl')).toBe('CREATE TABLE person (person_id INTEGER);\n')
+      const preset = JSON.parse(tree.read('preset.json')!) as { mapping: Record<string, unknown> }
+      expect(preset.mapping.ddl).toBeUndefined()
+    })
+
+    it('moves a DDL supplied inside the mapping out to schema.ddl', () => {
+      const tree = treeOf('schema-preset', {
+        presetId: 'p',
+        presetLabel: { en: 'P' },
+        mapping: { ddl: 'CREATE TABLE t (a INT);\n' },
+      })
+      expect(tree.read('schema.ddl')).toBe('CREATE TABLE t (a INT);\n')
+      expect(validateEntity(tree, 'schema-preset')).toEqual([])
+    })
+
+    it('omits schema.ddl entirely when there is no DDL', () => {
+      const tree = treeOf('schema-preset', { presetId: 'p', presetLabel: { en: 'P' } })
+      expect(tree.read('schema.ddl')).toBeNull()
+    })
+
+    it('orders event tables canonically, whatever order the author used', () => {
+      // Two instances holding the same mapping must emit identical bytes, or
+      // git shows a diff where nothing changed.
+      const messy = serializeEntity('schema-preset', {
+        presetId: 'p',
+        presetLabel: { en: 'P' },
+        eventTables: {
+          Zeta: { dateColumn: 'd', conceptIdColumn: 'c', table: 't' },
+          Alpha: { table: 't', dateColumn: 'd', conceptIdColumn: 'c' },
+        },
+      })
+      const tidy = serializeEntity('schema-preset', {
+        presetId: 'p',
+        presetLabel: { en: 'P' },
+        eventTables: {
+          Alpha: { table: 't', conceptIdColumn: 'c', dateColumn: 'd' },
+          Zeta: { table: 't', conceptIdColumn: 'c', dateColumn: 'd' },
+        },
+      })
+      expect(messy).toEqual(tidy)
+
+      const preset = JSON.parse(messy[0].content) as {
+        mapping: { eventTables: Record<string, Record<string, string>> }
+      }
+      expect(Object.keys(preset.mapping.eventTables)).toEqual(['Alpha', 'Zeta'])
+      expect(Object.keys(preset.mapping.eventTables.Zeta))
+        .toEqual(['table', 'conceptIdColumn', 'dateColumn'])
+    })
+
+    it('keeps the rest of the mapping as supplied', () => {
+      const tree = treeOf('schema-preset', SPECS['schema-preset'])
+      const preset = JSON.parse(tree.read('preset.json')!) as {
+        mapping: { patientTable: { table: string } }
+      }
+      expect(preset.mapping.patientTable.table).toBe('person')
+    })
+
+    it('emits the mapping keys in the order the app exports them', () => {
+      // Checked against the four presets in linkr-public-content: the writer
+      // reproduces byte for byte what the app's export produces today. Drifting
+      // here would make an authored preset and an exported one differ as files
+      // while describing the same schema — a diff nobody can act on.
+      const tree = treeOf('schema-preset', {
+        presetId: 'p',
+        presetLabel: { en: 'P' },
+        description: { en: 'D' },
+        templateId: 'omop-5.4',
+        eventTables: { M: { table: 'm', conceptIdColumn: 'c', dateColumn: 'd' } },
+        mapping: {
+          erdGroups: [],
+          knownTables: ['person'],
+          genderValues: { male: '8507' },
+          conceptTables: [],
+          visitDetailTable: { table: 'vd', idColumn: 'vd_id' },
+          noteTable: { table: 'n', idColumn: 'n_id' },
+          visitTable: { table: 'v', idColumn: 'v_id' },
+          deathTable: { table: 'de', patientIdColumn: 'p' },
+          patientTable: { table: 'person', idColumn: 'person_id' },
+        },
+      })
+      const preset = JSON.parse(tree.read('preset.json')!) as { mapping: Record<string, unknown> }
+      expect(Object.keys(preset.mapping)).toEqual([
+        'presetId', 'presetLabel', 'patientTable', 'deathTable', 'visitTable',
+        'noteTable', 'visitDetailTable', 'conceptTables', 'eventTables',
+        'genderValues', 'knownTables', 'erdGroups', 'templateId', 'description',
+      ])
+    })
   })
 })

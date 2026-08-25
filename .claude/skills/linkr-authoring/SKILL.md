@@ -33,9 +33,9 @@ next validation will disagree with you.
 |---|---|
 | `describe_entity_schema` | fields of a spec — **read before writing** |
 | `write_project` | create a whole project tree (`format: "zip"` for the import dialog) |
-| `write_entity` | create a standalone entity (SQL collection, ETL pipeline, DQ rule set, data catalog, mapping project) |
+| `write_entity` | create a standalone entity (SQL collection, ETL pipeline, DQ rule set, data catalog, mapping project, schema preset) |
 | `describe_tree` | what an existing tree holds, with its real ids and keys |
-| `validate_entity` | check a tree; run after any change. Also validates a standalone SQL collection, ETL pipeline or schema preset |
+| `validate_entity` | check any tree; the kind is detected. Run after any change |
 | `add_dashboard_tab`, `add_widget`, `add_script` | incremental edits |
 
 Not registered? `claude mcp add linkr -- npx tsx <repo>/packages/linkr-mcp/src/server.ts`
@@ -47,23 +47,28 @@ the mistakes worth avoiding, **not** its field list (that is `describe_entity_sc
 
 | Element | Reference | Buildable today |
 |---|---|---|
-| Project (metadata, README, tasks) | `references/project.md` | ✅ |
-| Dataset (CSV → table) | `references/dataset.md` | ✅ |
-| Dashboard (tabs, widgets, filters) | `references/dashboard.md` | ✅ |
-| IDE script (`.py`/`.r`/`.sql`/`.md`) | `references/script.md` | ✅ |
-| SQL collection / ETL pipeline (`.sql` trees) | `references/standalone-entities.md` | ✅ |
-| DQ rule set (quality checks) | `references/standalone-entities.md` | ✅ |
-| Data catalog | `references/standalone-entities.md` | ✅ |
-| Concept-mapping project | `references/standalone-entities.md` | ✅ |
-| Cohort (inside a project) | — | ⚠️ validate only |
+| Project (metadata, README, tasks) | `references/project.md` | ✅ `write_project` |
+| Dataset (CSV → table) | `references/dataset.md` | ✅ in a project |
+| Dashboard (tabs, widgets, filters) | `references/dashboard.md` | ✅ in a project |
+| IDE script (`.py`/`.r`/`.sql`/`.md`) | `references/script.md` | ✅ in a project |
+| SQL collection / ETL pipeline (`.sql` trees) | `references/standalone-entities.md` | ✅ `write_entity` |
+| DQ rule set (quality checks) | `references/standalone-entities.md` | ✅ `write_entity` |
+| Data catalog | `references/standalone-entities.md` | ✅ `write_entity` |
+| Concept-mapping project | `references/standalone-entities.md` | ✅ `write_entity` |
+| Schema preset (how to read a database) | `references/standalone-entities.md` | ✅ `write_entity` |
 | Plugin (widget code + manifest) | `references/plugin.md` | ⚠️ files by hand |
-| Schema preset | — | ⚠️ validate only |
+| Cohort (inside a project) | `references/standalone-entities.md` | ⚠️ validate only |
+| Patient data view | — | ❌ computed live |
 
-The five ✅ standalone kinds are written with `write_entity` and live in their **own**
-folder or repo, not inside a project. ⚠️ A plugin lives in `packages/default-plugins/`,
-so the MCP does not write it — `references/plugin.md` has the procedure. Cohorts and
-schema presets are validated but not yet writable; say so rather than hand-rolling their
-JSON.
+Everything Linkr can export is covered above. The **six** ✅ `write_entity` kinds live in
+their **own** folder or repo (one repo per entity, as in `linkr-public-content`); a
+project holds its own datasets, dashboards and scripts and is written with
+`write_project`.
+
+⚠️ A **plugin** ships as code in `packages/default-plugins/`, so the MCP does not write
+it — `references/plugin.md` has the procedure. A **cohort** belongs to a project and
+compiles to SQL, so a wrong one returns a different population rather than failing; build
+it in the app. Say so rather than hand-rolling either one's JSON.
 
 ## What is NOT authorable
 

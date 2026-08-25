@@ -3,7 +3,8 @@
  */
 import JSZip from 'jszip'
 import {
-  buildTabKeyMap, buildWidgetKeyMap, dashboardKey as sharedDashboardKey, type Issue,
+  buildTabKeyMap, buildWidgetKeyMap, canonicalSchemaMapping,
+  dashboardKey as sharedDashboardKey, type Issue,
 } from '@linkr/format'
 import type { Storage } from '@/lib/storage'
 import { APP_VERSION } from '@/lib/version'
@@ -2248,62 +2249,12 @@ export async function buildDqRuleSetZip(
  * config, which is structured JSON and already diffs line by line.
  */
 /**
- * Field order for an event table in an exported preset.
- *
- * Insertion order is the history of who edited what and when, so two instances
- * holding the same mapping emit different files and git shows a diff where
- * nothing changed. Sorting alphabetically would fix that but scatter the pairs —
- * `dateColumn` far from `endDateColumn`, a unit far from its value — so the
- * order is declared, grouped by what the fields mean. Anything not listed is
- * appended alphabetically, so a new field is stable before it is placed here.
- *
- * Mirrored by `_EVENT_TABLE_FIELD_ORDER` in workspace_export_assemble.py: both
- * ends must emit identical bytes or the export golden tests fail.
+ * Canonical mapping order lives in `@linkr/format` so the authoring writer emits
+ * the same bytes this export does — re-exported here because it is part of this
+ * module's public surface and its tests live alongside the other export tests.
+ * The Python twin (`_canonical_schema_mapping`) still has to match.
  */
-const EVENT_TABLE_FIELD_ORDER = [
-  'table',
-  'conceptIdColumn',
-  'sourceConceptIdColumn',
-  'conceptVocabularyColumn',
-  'conceptCodeColumn',
-  'conceptDictionaryKey',
-  'patientIdColumn',
-  'dateColumn',
-  'endDateColumn',
-  'valueColumn',
-  'valueStringColumn',
-  'valueUnitColumn',
-  'valueUnitConceptIdColumn',
-  'routeColumn',
-  'routeConceptIdColumn',
-]
-
-/** One object's keys in a declared order, with unlisted keys appended sorted. */
-function orderKeys(obj: Record<string, unknown>, order: string[]): Record<string, unknown> {
-  const rest = Object.keys(obj).filter((k) => !order.includes(k)).sort()
-  const out: Record<string, unknown> = {}
-  for (const k of [...order, ...rest]) if (k in obj) out[k] = obj[k]
-  return out
-}
-
-/** A mapping with its event tables (and their keys) in a deterministic order. */
-export function canonicalSchemaMapping(mapping: Record<string, unknown>): Record<string, unknown> {
-  const tables = mapping.eventTables
-  if (!tables || typeof tables !== 'object') return mapping
-  const src = tables as Record<string, Record<string, unknown>>
-  const ordered: Record<string, unknown> = {}
-  // Table labels sorted too: they are a user-keyed map, so their insertion order
-  // is just as arbitrary as the fields'.
-  for (const label of Object.keys(src).sort()) {
-    const et = src[label]
-    // A null or non-object entry is passed through rather than ordered, which
-    // is what the server twin (_canonical_schema_mapping) does. Throwing here
-    // instead meant a hand-edited or partially-written preset exported fine
-    // from the server and not at all from the browser.
-    ordered[label] = et && typeof et === 'object' ? orderKeys(et, EVENT_TABLE_FIELD_ORDER) : et
-  }
-  return { ...mapping, eventTables: ordered }
-}
+export { canonicalSchemaMapping }
 
 export async function buildSchemaPresetFolder(
   zip: JSZip,

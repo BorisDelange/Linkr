@@ -28,8 +28,11 @@ export type {
 export { serializeEntity } from './serialize/entities.js'
 export type {
   ConceptMappingSpec, DataCatalogSpec, DqCheckSpec, DqRuleSetSpec, EntitySpecMap,
-  EtlPipelineSpec, MappingProjectSpec, ScriptFileSpec, SerializableEntityKind, SqlCollectionSpec,
+  EtlPipelineSpec, EventTableSpec, MappingProjectSpec, SchemaPresetSpec, ScriptFileSpec,
+  SerializableEntityKind, SqlCollectionSpec,
 } from './serialize/entities.js'
+
+export { EVENT_TABLE_FIELD_ORDER, canonicalSchemaMapping, orderKeys } from './schema-mapping.js'
 
 export { validateProject } from './validate/project.js'
 export { detectEntityKind, detectTreeKind, validateEntity } from './validate/entities.js'

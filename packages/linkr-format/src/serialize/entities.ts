@@ -1,6 +1,6 @@
 /**
  * Serialize the standalone entities: SQL collection, ETL pipeline, DQ rule set,
- * data catalog, mapping project.
+ * data catalog, mapping project, schema preset.
  *
  * Same contract as `serialize/project.ts` — a spec in, `{ path, content }` pairs
  * out, no I/O — so one caller can write any kind to disk, a ZIP, or anywhere
@@ -9,6 +9,7 @@
  * lineage, organisation snapshots). The validator accepts both, so a tree
  * written here imports and then fills in the rest.
  */
+import { MAPPING_FIELD_ORDER, canonicalSchemaMapping, orderKeys } from '../schema-mapping.js'
 import type { LocalizedInput, WriteFile } from './project.js'
 
 export interface ScriptFileSpec {
@@ -81,12 +82,71 @@ export interface MappingProjectSpec {
   mappings: ConceptMappingSpec[]
 }
 
+/**
+ * An event table: where a clinical event lives and how to read it.
+ *
+ * The three required fields are what the app needs to query it at all — which
+ * table, which concept column, which date column. The rest are optional
+ * because event tables genuinely differ: a measurement has a value and a unit,
+ * a condition has neither.
+ */
+export interface EventTableSpec {
+  table: string
+  conceptIdColumn: string
+  dateColumn: string
+  sourceConceptIdColumn?: string
+  patientIdColumn?: string
+  endDateColumn?: string
+  valueColumn?: string
+  valueStringColumn?: string
+  valueUnitColumn?: string
+  valueUnitConceptIdColumn?: string
+  routeColumn?: string
+  routeConceptIdColumn?: string
+  conceptVocabularyColumn?: string
+  conceptCodeColumn?: string
+  conceptDictionaryKey?: string
+}
+
+/**
+ * A schema preset: how to read one database's tables.
+ *
+ * `mapping` is passed through rather than re-typed field by field — it is a
+ * large, evolving structure (patient/visit/note/death/visit-detail tables,
+ * concept tables, gender values, ERD groups) and re-declaring it here would
+ * mean a second definition to keep in step with the app's `SchemaMapping`.
+ * What this spec does guarantee is the part that must not drift: the canonical
+ * event-table ordering, the DDL split out to its own file, and the required
+ * identity fields.
+ */
+export interface SchemaPresetSpec {
+  /** Stable identity of the preset, e.g. `omop-cdm-5-4`. Travels across instances. */
+  presetId: string
+  /** Human-readable label, shown wherever the schema is picked. */
+  presetLabel: LocalizedInput
+  description?: LocalizedInput
+  /** Event tables keyed by label, e.g. `Measurement`, `Condition`. */
+  eventTables?: Record<string, EventTableSpec>
+  /**
+   * The rest of the mapping (patientTable, visitTable, conceptTables, …),
+   * merged as-is. See the app's `SchemaMapping` type for the full shape.
+   */
+  mapping?: Record<string, unknown>
+  /** The CREATE TABLE statements. Written to `schema.ddl`, never inline. */
+  ddl?: string
+  /** Built-in preset this was derived from, e.g. `omop-5.4`. */
+  templateId?: string
+  /** User-facing semver; defaults to `0.1.0` like every other entity. */
+  version?: string
+}
+
 export interface EntitySpecMap {
   'sql-collection': SqlCollectionSpec
   'etl-pipeline': EtlPipelineSpec
   'dq-rule-set': DqRuleSetSpec
   'data-catalog': DataCatalogSpec
   'mapping-project': MappingProjectSpec
+  'schema-preset': SchemaPresetSpec
 }
 
 export type SerializableEntityKind = keyof EntitySpecMap
@@ -242,6 +302,36 @@ export function serializeEntity<K extends SerializableEntityKind>(
               : a.sourceConceptCode > b.sourceConceptCode ? 1 : 0))
             .map((m) => ({ ...m, status: m.status ?? 'pending' }))),
         },
+      ]
+    }
+
+    case 'schema-preset': {
+      const s = spec as SchemaPresetSpec
+      // The DDL is split out to schema.ddl: it is a large text blob, and inline
+      // it makes preset.json unreadable in a diff. The validator warns about a
+      // mapping that still carries it.
+      const { ddl: _inlineDdl, ...rest } = s.mapping ?? {}
+      // Ordered on the way out, so re-serializing a preset the app exported
+      // reproduces its bytes rather than rearranging the file.
+      const mapping = canonicalSchemaMapping(orderKeys({
+        presetId: s.presetId,
+        presetLabel: localized(s.presetLabel),
+        ...rest,
+        ...(s.eventTables ? { eventTables: s.eventTables } : {}),
+        ...(s.templateId ? { templateId: s.templateId } : {}),
+        ...(s.description ? { description: localized(s.description) } : {}),
+      }, MAPPING_FIELD_ORDER))
+      const ddl = s.ddl ?? (typeof _inlineDdl === 'string' ? _inlineDdl : undefined)
+      return [
+        {
+          path: 'preset.json',
+          content: json({
+            presetId: s.presetId,
+            mapping,
+            version: s.version ?? '0.1.0',
+          }),
+        },
+        ...(ddl ? [{ path: 'schema.ddl', content: ddl }] : []),
       ]
     }
 
