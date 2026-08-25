@@ -6,6 +6,7 @@
  * entity), so validating them is what keeps those repos importable.
  */
 import { checkLocalized, checkString, isObject } from '../check.js'
+import { canonicalSchemaMapping } from '../schema-mapping.js'
 import { IssueBag, type Issue } from '../issue.js'
 import { readJson, type EntityTree } from '../tree.js'
 import { validateFileTree } from './file-tree.js'
@@ -283,12 +284,25 @@ function validateSchemaPreset(tree: EntityTree, bag: IssueBag): void {
   } else {
     checkString(bag, path, '/presetId', preset.presetId, { required: true, label: 'presetId' })
   }
+  // No check on `lineageId`: an author has none to declare — the app mints it on
+  // import, and a hand-written one would reference nothing. A database needing a
+  // schema's lineage is told so on the database side (`schemaSource.lineageId`),
+  // where the value must already exist.
   checkInstanceFields(bag, path, preset)
 
   const mapping = preset.mapping
   if (!isObject(mapping)) {
     bag.error(path, '/mapping', 'missing-field', 'A schema preset needs a `mapping` object.')
     return
+  }
+  // The exporters canonicalise the mapping before writing it. A tree that is not
+  // in that order still imports, but the first re-export rewrites the file — a
+  // diff that changes no data. Comparing the serialization is what catches both
+  // the key order and the event-table field order in one check.
+  if (JSON.stringify(mapping) !== JSON.stringify(canonicalSchemaMapping(mapping))) {
+    bag.warn(path, '/mapping', 'legacy-format',
+      'The mapping is not in canonical order; the next export will rewrite it.',
+      'reorder it as `canonicalSchemaMapping` does, or re-export from Linkr')
   }
   // The export moves the DDL out of the mapping and into schema.ddl; a preset
   // still carrying it inline came from an older writer and round-trips badly.

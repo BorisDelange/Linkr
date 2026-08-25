@@ -108,6 +108,26 @@ describe('schema preset', () => {
     expect(validateEntity(preset(), 'schema-preset')).toEqual([])
   })
 
+  it('warns when the mapping is not in canonical order', () => {
+    // The four published schema repos predate the canonical sort, so the first
+    // re-export rewrites their mapping — a diff that changes no data. Silence
+    // here is what let that go unnoticed until someone diffed a repo by hand.
+    const issues = validateEntity(
+      preset({
+        mapping: {
+          presetLabel: { en: 'P' },
+          presetId: 'p',
+          eventTables: {
+            Measurement: { table: 'measurement', conceptIdColumn: 'c', dateColumn: 'd' },
+            Condition: { table: 'condition', conceptIdColumn: 'c', dateColumn: 'd' },
+          },
+        },
+      }),
+      'schema-preset',
+    )
+    expect(issues.map((i) => i.pointer)).toContain('/mapping')
+  })
+
   it('requires presetId and a mapping', () => {
     const issues = validateEntity(new MemoryTree({ 'preset.json': '{}' }), 'schema-preset')
     expect(issues.filter((i) => i.severity === 'error')).toHaveLength(2)
