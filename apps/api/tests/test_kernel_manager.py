@@ -386,3 +386,90 @@ async def test_stop_immediately_after_run_does_not_kill_a_cold_kernel():
         finally:
             await k.shutdown()
     assert out is not None
+
+
+@pytest.mark.asyncio
+async def test_r_kernel_returns_a_table_for_a_trailing_data_frame():
+    """A trailing data.frame must reach the client as a result table, not only as
+    printed console text — the R kernel used to hardcode `table = NULL`, so `iris`
+    in the IDE produced a Console tab and nothing else. Runs a REAL Rscript: the
+    capture lives in the R source, so a fake kernel would prove nothing.
+
+    Skipped where R (or svglite/jsonlite) isn't installed; CI images that run the
+    execution suite have them."""
+    import asyncio
+    import shutil
+
+    from app.services.execution.kernel import _R_KERNEL_LOOP, Kernel
+
+    if not shutil.which("Rscript"):
+        pytest.skip("Rscript not installed")
+
+    k = Kernel(cmd=["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP])
+    try:
+        out = await asyncio.wait_for(
+            k.execute_stream("iris", lambda kind, data: None), timeout=120
+        )
+        assert out.table is not None, "a trailing data.frame produced no table"
+        assert out.table["headers"][:2] == ["Sepal.Length", "Sepal.Width"]
+        # Capped at 1000; iris is 150 rows, so all of them.
+        assert len(out.table["rows"]) == 150
+        # Factors format as their label, not their integer code.
+        assert out.table["rows"][0][4] == "setosa"
+
+        # An explicit `result` wins over the last value, matching the Python kernel.
+        out = await asyncio.wait_for(
+            k.execute_stream("result <- head(iris, 2)\n99", lambda kind, data: None),
+            timeout=120,
+        )
+        assert out.table is not None and len(out.table["rows"]) == 2
+
+        # A non-frame trailing value yields no table at all.
+        out = await asyncio.wait_for(
+            k.execute_stream("rm(result)\n1:5", lambda kind, data: None), timeout=120
+        )
+        assert out.table is None
+    finally:
+        await k.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_r_kernel_stops_the_run_at_the_first_error():
+    """`library(nope); iris` used to print the error and then ALL of iris, which
+    reads as a run that worked. R scripts stop at the first error (Rscript does),
+    so the eval loop breaks and no table/widget is emitted for a result the script
+    never reached."""
+    import asyncio
+    import shutil
+
+    from app.services.execution.kernel import _R_KERNEL_LOOP, Kernel
+
+    if not shutil.which("Rscript"):
+        pytest.skip("Rscript not installed")
+
+    chunks: list[tuple[str, str]] = []
+    k = Kernel(cmd=["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP])
+    try:
+        out = await asyncio.wait_for(
+            k.execute_stream(
+                "library(definitely.not.a.real.package)\niris",
+                lambda kind, data: chunks.append((kind, data)),
+            ),
+            timeout=120,
+        )
+        text = "".join(d for _, d in chunks)
+        assert "definitely.not.a.real.package" in text, "the error never reached the client"
+        assert "setosa" not in text, "evaluation continued past the failing expression"
+        # Nothing ran to completion, so there is no result to tabulate.
+        assert out.table is None
+        # The error arrived on stderr, which is what paints the run red.
+        assert any(kind == "stderr" for kind, _ in chunks)
+
+        # The kernel survives, and a later good run still works.
+        out = await asyncio.wait_for(
+            k.execute_stream("head(iris, 3)", lambda kind, data: None), timeout=120
+        )
+        assert k.alive
+        assert out.table is not None and len(out.table["rows"]) == 3
+    finally:
+        await k.shutdown()

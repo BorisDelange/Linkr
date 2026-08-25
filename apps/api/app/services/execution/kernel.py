@@ -333,9 +333,21 @@ while True:
 #   - the outer tryCatch(interrupt=) around the eval loop catches an interrupt landing
 #     BETWEEN expressions (in .stream_lines/parse/…, outside .eval_one's handler),
 #     which would otherwise be uncaught and kill the interpreter.
+#   - an error STOPS the run (.failed), like `Rscript` and unlike the REPL: the loop
+#     used to carry on, so `library(nope); iris` printed the error and then all of
+#     iris, which reads as a run that worked. A failed run emits no table and no
+#     htmlwidget either — those describe a result the script never reached.
 #   - htmlwidget save uses ONLY selfcontained=TRUE: the client shows it in a
 #     sandboxed, network-less iframe, so a non-self-contained widget (JS/CSS in a
 #     sibling *_files/ dir) renders blank. Surface the save error instead.
+#   - a trailing data.frame becomes the result table, by the same rule the Python
+#     kernel applies to a pandas DataFrame: an explicit `result` wins, else the
+#     last visible value, capped at 1000 rows. Cells go through format() so
+#     factors and dates read as they do in the console instead of as integer
+#     codes, and every NA becomes "" — format(NA) is "NA" for most types but ""
+#     for dates, and a literal "NA" cell is indistinguishable from a string that
+#     happens to say NA. An htmlwidget is not a data.frame, so a DT::datatable
+#     takes the html branch above and never produces both.
 _R_KERNEL_LOOP = r'''
 tryCatch({
 local({
@@ -394,6 +406,7 @@ repeat {
   # The value of the last evaluated expression — captured so a trailing htmlwidget
   # (plotly/leaflet/DT) can be rendered to HTML like a REPL auto-print.
   .last_value <- NULL
+  .failed <- FALSE
   .eval_one <- function(.e) tryCatch(
     withCallingHandlers(
       utils::capture.output({
@@ -405,7 +418,7 @@ repeat {
       message = function(m) { .err <<- c(.err, conditionMessage(m)); invokeRestart("muffleMessage") }
     ),
     interrupt = function(i) { .err <<- c(.err, "interrupt"); .interrupted <<- TRUE; character(0) },
-    error = function(e) { .err <<- c(.err, conditionMessage(e)); character(0) }
+    error = function(e) { .err <<- c(.err, conditionMessage(e)); .failed <<- TRUE; character(0) }
   )
   .out <- character(0)
   tryCatch({
@@ -421,7 +434,7 @@ repeat {
       }
       # Stop (Ctrl+C) interrupts the whole run, not just the current expression —
       # otherwise a `print` after an interrupted `Sys.sleep` would still fire.
-      if (.interrupted) break
+      if (.interrupted || .failed) break
     }
   }, interrupt = function(i) { .interrupted <<- TRUE })
   # A parse error (or any error left over when there were no expressions to run)
@@ -438,7 +451,7 @@ repeat {
   # A trailing htmlwidget (plotly/leaflet/DT/…) → standalone HTML, shown in an
   # iframe on the client. saveWidget needs pandoc-free self-contained output.
   .html <- NULL
-  if (!.interrupted && inherits(.last_value, "htmlwidget") &&
+  if (!.interrupted && !.failed && inherits(.last_value, "htmlwidget") &&
       requireNamespace("htmlwidgets", quietly = TRUE)) {
     .tmp <- tempfile(fileext = ".html")
     .ok <- tryCatch({ htmlwidgets::saveWidget(.last_value, .tmp, selfcontained = TRUE); TRUE },
@@ -448,9 +461,27 @@ repeat {
       file.remove(.tmp)
     }
   }
+  .table <- NULL
+  if (!.interrupted && !.failed) {
+    .cand <- if (exists("result", envir = globalenv(), inherits = FALSE))
+      get("result", envir = globalenv()) else .last_value
+    if (is.data.frame(.cand) && ncol(.cand) > 0) {
+      .table <- tryCatch({
+        .head <- utils::head(.cand, 1000)
+        list(headers = as.character(names(.head)),
+             rows = unname(lapply(seq_len(nrow(.head)), function(.i)
+               as.character(vapply(.head, function(.col) {
+                 .cell <- .col[[.i]]
+                 if (length(.cell) != 1L || is.na(.cell)) return("")
+                 .v <- format(.cell)
+                 if (length(.v) == 1L) .v else ""
+               }, character(1))))))
+      }, error = function(e) NULL)
+    }
+  }
   .emit(list(stdout = if (.stream) "" else paste(.out, collapse = "\n"),
              stderr = if (.stream) "" else paste(.err, collapse = "\n"),
-             figures = .figs, table = NULL, html = .html,
+             figures = .figs, table = .table, html = .html,
              "__linkr_run__" = .run_n, "__linkr_done__" = TRUE))
 }
 '''

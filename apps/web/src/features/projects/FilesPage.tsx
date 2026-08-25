@@ -623,11 +623,16 @@ export function FilesPage() {
           const offerPkgs = isInstall ? extractInstallPackages(language, code) : []
           const installOffer = offerPkgs.length ? { language, packages: offerPkgs } : undefined
           let streamed = ''
+          // Stream mode delivers the text through onChunk and leaves the done
+          // payload's stdout/stderr empty, so `!result.stderr` would call every
+          // run a success. Track whether anything arrived on stderr instead.
+          let sawStderr = false
           const result = await streamOnServer(language, code, {
             projectUid: activeProjectUid ?? undefined,
             connectionId: activeConnectionId ?? undefined,
             signal: controller.signal,
-            onChunk: (text) => {
+            onChunk: (text, kind) => {
+              if (kind === 'stderr') sawStderr = true
               streamed += text
               updateExecutionResult(execId, { output: warning + streamed })
             },
@@ -635,7 +640,7 @@ export function FilesPage() {
           const duration = Date.now() - start
           updateExecutionResult(execId, {
             duration,
-            success: !result.stderr,
+            success: !sawStderr && !result.stderr,
             output: warning + (streamed || `Executed in ${duration}ms`),
             installOffer,
           })

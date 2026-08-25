@@ -28,7 +28,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EntitySecondaryTabsTrigger } from '@/components/ui/entity-secondary-tabs'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import ReactMarkdown from 'react-markdown'
@@ -47,15 +46,7 @@ import { CatalogDataTab } from './CatalogDataTab'
 import { CatalogAnonymizationTab } from './CatalogAnonymizationTab'
 import { CatalogDcatTab } from './CatalogDcatTab'
 import { CatalogExportTab } from './CatalogExportTab'
-import type { CatalogStatus, DataCatalog } from '@/types'
-
-const STATUS_BADGE: Record<CatalogStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
-  draft: { variant: 'secondary', label: 'data_catalog.status_draft' },
-  ready: { variant: 'outline', label: 'data_catalog.status_ready' },
-  computing: { variant: 'default', label: 'data_catalog.status_computing' },
-  success: { variant: 'default', label: 'data_catalog.status_success' },
-  error: { variant: 'destructive', label: 'data_catalog.status_error' },
-}
+import type { DataCatalog } from '@/types'
 
 const TAB_IDS = [
   'overview', 'config', 'data', 'anonymization', 'dcat', 'export',
@@ -140,37 +131,15 @@ export function CatalogDetailPage({ catalogId }: Props) {
     )
   }
 
-  const statusInfo = STATUS_BADGE[catalog.status]
-
-  // A failed compute explains itself on hover; every other status is the badge
-  // alone. Built here so the About card renders the same thing the page header
-  // used to.
-  const statusBadge =
-    catalog.status === 'error' && catalog.lastError ? (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge variant={statusInfo.variant} className="cursor-help">
-              {t(statusInfo.label)}
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="max-w-sm">
-            <p className="text-xs">{catalog.lastError}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    ) : (
-      <Badge variant={statusInfo.variant}>{t(statusInfo.label)}</Badge>
-    )
-
   return (
     /* Fills the height and lets each tab scroll inside itself, like the other
        entity pages — the page used to scroll as a whole, which put the tab row
        under a `py-6` wrapper on top of its own padding. */
     <div className="flex h-full flex-col overflow-hidden">
       {/* No page header: the catalog's name lives in the global header badge
-          like every other entity, and its status and source now sit in the
-          overview's About card. */}
+          like every other entity, and its source database has its own card in
+          the overview. Run status belongs to the Data tab, which is where a
+          failure can actually be acted on. */}
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as TabId)}
@@ -196,7 +165,6 @@ export function CatalogDetailPage({ catalogId }: Props) {
           <div className="flex h-full flex-col px-6 pb-1.5">
             <CatalogOverviewTab
               catalog={catalog}
-              statusBadge={statusBadge}
               onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
               onSeeLicense={() => setActiveTab('license')}
             />
@@ -301,12 +269,10 @@ export function CatalogDetailPage({ catalogId }: Props) {
 
 function CatalogOverviewTab({
   catalog,
-  statusBadge,
   onEditReadme,
   onSeeLicense,
 }: {
   catalog: DataCatalog
-  statusBadge: React.ReactNode
   onEditReadme: () => void
   onSeeLicense: () => void
 }) {
@@ -331,11 +297,7 @@ function CatalogOverviewTab({
         />
         <div className="flex flex-col gap-4 self-start">
           <CatalogSourceCard catalog={catalog} />
-          <CatalogIdentityCard
-            catalog={catalog}
-            statusBadge={statusBadge}
-            onSeeLicense={onSeeLicense}
-          />
+          <CatalogIdentityCard catalog={catalog} onSeeLicense={onSeeLicense} />
         </div>
       </div>
     </div>
@@ -449,11 +411,9 @@ function CatalogSourceCard({ catalog }: { catalog: DataCatalog }) {
 /** Who made this catalog, when, under what licence, and how it is tagged. */
 function CatalogIdentityCard({
   catalog,
-  statusBadge,
   onSeeLicense,
 }: {
   catalog: DataCatalog
-  statusBadge: React.ReactNode
   onSeeLicense: () => void
 }) {
   const { t, i18n } = useTranslation()
@@ -470,10 +430,6 @@ function CatalogIdentityCard({
       </div>
 
       {description && <p className="text-xs break-words text-muted-foreground">{description}</p>}
-
-      {/* Status only: the source database is a setting you change, so it has
-          its own card in the overview rather than a read-only line here. */}
-      <div className="flex flex-wrap items-center gap-2">{statusBadge}</div>
 
       {!!catalog.badges?.length && <BadgeStrip badges={catalog.badges} />}
 
