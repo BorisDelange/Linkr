@@ -117,7 +117,9 @@ function readJson<T>(root: string, path: string): T {
 function writeJson(root: string, path: string, value: unknown): void {
   const full = resolveInside(root, path)
   mkdirSync(dirname(full), { recursive: true })
-  writeFileSync(full, `${JSON.stringify(value, null, 2)}\n`, 'utf-8')
+  // No trailing newline: the app's exporters write none, so adding one here
+  // makes the first sync after an install commit a diff that only removes it.
+  writeFileSync(full, JSON.stringify(value, null, 2), 'utf-8')
 }
 
 /** Re-validate after an edit, so a tool result always says whether the tree still holds. */

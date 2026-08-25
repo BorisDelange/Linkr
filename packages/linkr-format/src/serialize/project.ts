@@ -134,8 +134,18 @@ const SCRIPT_LANGUAGES: Record<string, string> = {
   md: 'markdown',
 }
 
+/**
+ * JSON exactly as the app's exporters write it: 2-space indent, insertion-order
+ * keys, and **no trailing newline**.
+ *
+ * The newline matters. An authored tree that ends with one differs from what
+ * Linkr writes, so the very first sync after an install produces a diff that
+ * deletes it — a commit for nothing. Byte-parity with `entity-io.ts`'s `json`
+ * and the server's `export_json` is what makes an import land on
+ * "nothing to commit".
+ */
 function json(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`
+  return JSON.stringify(value, null, 2)
 }
 
 /** Header fields of a CSV, honouring quotes. */

@@ -66,6 +66,18 @@ describe('serializeEntity', () => {
     it(`${kind}: is deterministic`, () => {
       expect(serializeEntity(kind, SPECS[kind])).toEqual(serializeEntity(kind, SPECS[kind]))
     })
+
+    it(`${kind}: writes JSON with no trailing newline, like the app`, () => {
+      // Byte-parity with `entity-io.ts`'s `json` (JSON.stringify(x, null, 2), no
+      // trailing newline) and the server's `export_json`. A newline here means the
+      // first sync after installing an authored tree commits a diff that only
+      // removes it — a commit for nothing, on every entity.
+      for (const file of serializeEntity(kind, SPECS[kind])) {
+        if (!file.path.endsWith('.json') || typeof file.content !== 'string') continue
+        expect(file.content.endsWith('\n'), `${file.path} ends with a newline`).toBe(false)
+        expect(file.content).toBe(JSON.stringify(JSON.parse(file.content), null, 2))
+      }
+    })
   }
 
   it('declares every parent folder in the tree', () => {
