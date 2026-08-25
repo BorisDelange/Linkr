@@ -157,6 +157,39 @@ def remove_repo(kind: str, entity_id: str) -> None:
     shutil.rmtree(target, ignore_errors=True)
 
 
+def rename_repo(kind: str, old_id: str, new_id: str) -> bool:
+    """Rename an entity's on-disk versioning tree when its key changes.
+
+    Used by the schema-preset key move (preset_id → id): the repo path embeds
+    the key, so a preset whose key changed would otherwise keep a working tree
+    under a name nothing points at any more.
+
+    Idempotent and defensive on purpose — it runs at startup, possibly against a
+    tree that a previous run already moved:
+      - same name → nothing to do
+      - source absent → nothing to do (never versioned, or already renamed)
+      - destination already there → leave both alone and report it, rather than
+        clobber a tree that may hold unpushed commits
+
+    Returns True when a directory was actually moved.
+    """
+    if old_id == new_id:
+        return False
+    base = settings.data_path / kind
+    src = _safe_join(base, old_id)
+    dst = _safe_join(base, new_id)
+    if not src.is_dir():
+        return False
+    if dst.exists():
+        logger.warning(
+            "not renaming %s/%s → %s: destination already exists", kind, old_id, new_id
+        )
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    src.rename(dst)
+    return True
+
+
 _GH_NAV_SEGMENTS = ("tree", "blob", "commit", "commits", "pull", "pulls", "releases", "tags", "branches", "find", "raw")
 
 

@@ -1021,8 +1021,9 @@ def _register_entity_git_routes(
 
 
 def _entity_id(entity):
-    """The repo key. Most entities key on `id`; schema presets key on `preset_id`."""
-    return getattr(entity, "id", None) or entity.preset_id
+    """The repo key — `id` on every entity, schema presets included since their
+    key moved there (revision e6f7a8b9c0d1)."""
+    return entity.id
 
 
 def _register_all_entity_git_routes() -> None:

@@ -89,6 +89,15 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(run_migrations)
     async with async_session() as db:
         await seed_default_roles(db)
+        # The schema-preset key moved from preset_id to id (revision
+        # e6f7a8b9c0d1). The repo path embeds that key, so any tree still under
+        # the old name is renamed here — the one part of the move that cannot
+        # happen inside a SQL migration. Idempotent, and a no-op on a database
+        # whose ids equal their preset_ids (which the backfill guarantees for
+        # every row that predates the split).
+        from app.services.schema_preset_service import reconcile_repo_dirs
+
+        await reconcile_repo_dirs(db)
     # A job left running when the process last died has no live task anymore →
     # reconcile it to error so the panel doesn't show a phantom 'running'.
     from app.services.execution.jobs import reconcile_on_startup

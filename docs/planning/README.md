@@ -91,19 +91,19 @@ the notices travel with the data.
 
 ## Schema preset identity — [schema-preset-identity-plan.md](schema-preset-identity-plan.md)
 
-Schema presets are the only entity whose `presetId` plays all three roles at once (local
+Schema presets were the only entity whose `presetId` played all three roles at once (local
 PK, user-facing slug, cross-instance identity), where everything else splits them into
-`id` + `entityId` + `lineageId`. That conflation is why a uuid would show in the UI, why
-`installed.ts` needs a three-way id fallback, and why the git route special-cases
-`entity.preset_id`. Measured: 164 non-test occurrences across 36 files; **no foreign key
-points at the table**, which is what makes the rename tractable.
+`id` + `entityId` + `lineageId`. Steps 1–4 moved both keys (IndexedDB v41, server revision
+`e6f7a8b9c0d1`) with **no data movement** — step 2's backfill made `id == preset_id` on
+every existing row, so the on-disk repo rename and the `git_sync_state` rewrite are no-ops
+there. `presetId` still names the HTTP routes and the export format; retiring it is step 5.
 
 | St | Item | Effort |
 |----|------|--------|
-| ✅ | Step 1: fix the id drift (clone/move rewrite `mapping.presetId`; ZIP import matches on `lineageId` and replaces the row it matched) | S |
-| 🤔 | Steps 2–3: add `id` + `entityId`, migrate IndexedDB store + alembic revision | M |
-| 🤔 | Step 4–5: switch readers, then delete the special-cases | L |
-| 🤔 | Open: slug or shortened uuid in the URL? Retire `SCHEMA_PRESETS` first? | — |
+| ✅ | Steps 1–4: id drift fixed, `id` + `entityId` added, IndexedDB v41 + server PK both keyed on `id`, URL shortened like the others | L |
+| 🔜 | Step 5: retire `presetId` (routes, export format), then drop the last special-cases | M |
+| 🔜 | Step 6: re-export the 4 published preset repos so they carry a `lineageId` | S |
+| 🤔 | Open: retire the built-in `SCHEMA_PRESETS` table first? (removes 11 literal sites) | — |
 
 ## AI agents — [ai-agents-plan.md](ai-agents-plan.md)
 

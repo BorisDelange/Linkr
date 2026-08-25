@@ -1,6 +1,6 @@
 # Schema presets: harmonise identity with every other entity
 
-**Status**: 🤔 planned, not started. Investigation done 2026-08-25 (full map below).
+**Status**: 🔜 steps 1–4 shipped 2026-08-25; step 5 (retiring `presetId`) and step 6 remain.
 
 Schema presets are the only entity whose identity does not follow the house pattern.
 Every other exportable entity carries three separate things:
@@ -35,7 +35,7 @@ and the label. Splitting them dissolves it.
 
 **3. Special-casing spreads.** Each site that treats presets differently is a place to get
 wrong later:
-- [git.py:1024](../../apps/api/app/api/v1/routes/git.py#L1024) — `getattr(entity, "id", None) or entity.preset_id`
+- ~~[git.py](../../apps/api/app/api/v1/routes/git.py) — `getattr(entity, "id", None) or entity.preset_id`~~ (removed in step 4)
 - [installed.ts:38](../../apps/web/src/lib/catalog/installed.ts#L38) — `row.uid ?? row.id ?? row.presetId`
 - [use-schema-preset-actions.tsx:15](../../apps/web/src/features/warehouse/use-schema-preset-actions.tsx#L15) — an adapter shim faking `id`+`name` for `EntityActionsMenu`
 - [WsExportTab.tsx:187](../../apps/web/src/features/versioning/WsExportTab.tsx#L187) — "presetId for schemas, id otherwise"
@@ -89,8 +89,8 @@ switches to `lineageId`, which is what fixes defect 1.
 | 1 | ✅ **Fix the drift first, on its own** — clone/move rewrite `mapping.presetId`, and ZIP import matches on `lineageId` instead | S | Done: commit `5626004f` |
 | 2 | ✅ Add `id` + `entityId` to the TS type and the server model; write both on every save path | M | Done. Additive — nothing *reads* them yet, so the app behaves identically |
 | 3 | ✅ **Client key + URL**: IndexedDB store keyed on `id` (v41), storage resolves either identity, URL takes the shortened uuid | M | Done. The server PK has NOT moved — see below |
-| 4 | Move the **server** PK to `id`, retire `presetId` from the routes and the API storage | **L**, not M | Drags on-disk state with it — see below. Re-scoped 2026-08-25 |
-| 5 | Delete the special-cases (`installed.ts` three-way fallback, the actions shim, the git `getattr`, `freshId`'s `custom-<8hex>`, the WsExportTab note) | S | The payoff; all still in place |
+| 4 | ✅ Move the **server** PK to `id`; git routes key on `id`; repo dirs reconciled at startup | L | Done: revision `e6f7a8b9c0d1`, applied to the dev DB with no data movement |
+| 5 | Retire `presetId` itself, then delete what remains (`installed.ts` fallback, the actions shim, `freshId`'s `custom-<8hex>`, the WsExportTab note) | M | The git `getattr` is already gone. The rest waits on `presetId` leaving the routes and the export format |
 | 6 | Regenerate the golden export fixtures; re-export the 4 published preset repos | S | Fixture done in step 2; the repos still need a re-export for their `lineageId` |
 
 **Step 1 was worth doing now even if the rest waits** — a real defect with a data-loss
@@ -144,40 +144,43 @@ matters — `deleteObjectStore`/`createObjectStore` must run synchronously insid
 upgrade transaction, with only the row copy in the `.then()`. Worth exercising by hand on
 a database that predates v41 before shipping.
 
-### Step 4 re-scoped: the server PK drags state that is not in the database
+### Where step 4 left things (2026-08-25)
 
-Mapping it out before writing the migration turned up the reason this is **L, not M**, and
-why it should not be bundled with the rest. `preset_id` is not only a primary key — it is
-the **name of things outside the table**:
+**The server PK is now `id`** (revision `e6f7a8b9c0d1`). The move is more than a DDL
+change because `preset_id` also names things *outside* the table:
 
 | What | Keyed by | Where |
 |---|---|---|
-| on-disk git working tree | `data_path/schema-presets/<preset_id>/versioning` | [git_service.py:140](../../apps/api/app/services/git_service.py#L140), `:1537` |
-| `git_sync_state` rows | `scope='schema-presets'`, `entity_id=<preset_id>` | unique constraint `uq_git_sync_state_key` |
-| README attachments | owner `("schema-preset", <preset_id>)` | [schema_preset_service.py:99](../../apps/api/app/services/schema_preset_service.py#L99) |
-| workspace export exclusions | `exclude_entities[<preset_id>]` | [workspace_export_assemble.py:525](../../apps/api/app/services/workspace_export_assemble.py#L525) |
+| on-disk git working tree | `data_path/schema-presets/<key>/versioning` | [git_service.py:140](../../apps/api/app/services/git_service.py#L140) |
+| `git_sync_state` rows | `scope='schema-presets'`, `entity_id=<key>` | `uq_git_sync_state_key` |
+| README attachments | owner `("schema-preset", <key>)` | `schema_preset_service.delete` |
+| workspace export exclusions | `exclude_entities[<key>]` | `workspace_export_assemble.py:525` |
 
-So moving the PK means **renaming directories on disk** and rewriting rows in two other
-tables, in step with an alembic revision — and a half-applied move leaves a preset whose
-repo is on disk under a name nothing points at any more. That is a different class of
-change from the three steps already shipped, all of which were reversible or additive.
+So the revision rewrites `git_sync_state` and the attachment owners in the same
+transaction, and `reconcile_repo_dirs` (called at startup, after the migrations) renames
+the directories — the one part a SQL migration cannot do. `rename_repo` is idempotent and
+refuses to clobber an existing destination, which may hold unpushed commits.
 
-**Recommendation: do not move the server PK yet.** The user-visible payoff of steps 1–3 is
-already banked (the drift defect is fixed, the client is keyed on `id`, the URL matches the
-other entities). What remains — `freshId`'s `custom-<8hex>`, the `installed.ts` fallback,
-the actions shim, the git `getattr` — is internal tidiness, not friction anyone feels.
+**Because step 2 backfilled `id = preset_id`, none of that actually moves on an existing
+database** — the rename is a no-op and the UPDATEs rewrite values to themselves. Only rows
+created *after* step 2 carry a real uuid, and those are the ones the reconciliation exists
+for.
 
-If it is done, do it as its own effort, in this order:
-1. Backfill: nothing new; `id` is already populated and equals `preset_id` on old rows.
-2. A revision that moves the PK **and**, in the same transaction, rewrites
-   `git_sync_state.entity_id` for `scope='schema-presets'` and the attachment owner ids.
-3. A startup task that renames `data_path/schema-presets/<old>/` → `<new>/`, idempotent,
-   tolerating a directory that is already renamed or absent.
-4. Only then: the routes, the API storage, and deleting the special-cases (step 5).
+Verified on a **copy** of the dev database (10 presets, all git-linked, one repo dir):
+the migration applies, integrity check passes, every preset keeps its mapping, workspace
+and git link. It has since been applied to that database for real, by a server restart.
 
-Note step 3's backfill made `id == preset_id` for every existing row, so on a deployment
-that has never created a preset since, the rename is a no-op — the risk is concentrated on
-rows created *after* step 2, whose `id` is a fresh uuid.
+`git.py`'s `_entity_id` special case is **gone** — every entity registered through that
+path (etl-pipelines, data-catalogs, dq-rule-sets, user-plugins, schema-presets) now has an
+`id`. Projects and workspaces have their own routes and were never affected.
+
+Still keyed on `preset_id`, deliberately: the HTTP routes (`PUT/DELETE
+/schema-presets/{preset_id}`) and the export format. `schema_preset_service.get` resolves
+either identity, so both work; retiring `preset_id` is step 5.
+
+⚠️ Same caveat as step 2: the Python changes were verified by reading, by SQL dry-run on a
+copy, and by the applied migration — **not** by `pytest apps/api`, whose dependencies are
+missing here.
 
 ## Decisions (2026-08-25)
 
