@@ -44,7 +44,7 @@ function validateProjectFile(tree: EntityTree, bag: IssueBag): void {
 
   checkLocalized(bag, path, '/name', project.name, { required: true })
   if (project.description != null) {
-    checkLocalized(bag, path, '/description', project.description)
+    checkLocalized(bag, path, '/description', project.description, { label: 'description' })
   }
   checkString(bag, path, '/projectId', project.projectId, { label: 'projectId' })
 

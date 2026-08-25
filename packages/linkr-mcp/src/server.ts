@@ -19,7 +19,8 @@
 import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server'
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import {
-  MemoryTree, formatIssues, serializeProject, validateProject, type ProjectSpec,
+  MemoryTree, detectEntityKind, formatIssues, serializeProject, validateEntity,
+  validateProject, type ProjectSpec,
 } from '@linkr/format'
 import { FsTree } from '@linkr/format/node/fs-tree'
 import {
@@ -52,23 +53,35 @@ const LOCALIZED = {
 }
 
 server.registerTool(
-  'validate_project',
+  'validate_entity',
   {
     description:
-      'Validate a Linkr project tree on disk. Reports missing files, broken references, '
-      + 'unknown columns and legacy formats. Run this after any change.',
+      'Validate a Linkr entity tree on disk — a project, SQL collection, ETL pipeline or '
+      + 'schema preset. The kind is detected from the tree. Reports missing files, broken '
+      + 'references, unknown columns and legacy formats. Run this after any change.',
     inputSchema: fromJsonSchema<{ path: string }>({
       type: 'object',
-      properties: { path: { type: 'string', description: 'Path to the project directory.' } },
+      properties: { path: { type: 'string', description: 'Path to the entity directory.' } },
       required: ['path'],
     }),
   },
   async ({ path }) => {
-    const issues = validateProject(new FsTree(path))
+    const tree = new FsTree(path)
+    // A project is identified by project.json; the standalone entities each carry
+    // their own metadata file, so the caller never has to say which is which.
+    const kind = tree.read('project.json') != null ? 'project' : detectEntityKind(tree)
+    if (kind == null) {
+      return failure(
+        `Not a Linkr entity tree: ${path} has no project.json, _collection.json, `
+        + '_pipeline.json or preset.json at its root.',
+      )
+    }
+
+    const issues = kind === 'project' ? validateProject(tree) : validateEntity(tree, kind)
     const errors = issues.filter((i) => i.severity === 'error').length
     const warnings = issues.length - errors
-    if (issues.length === 0) return text('Valid: no issues found.')
-    return text(`${errors} error(s), ${warnings} warning(s).\n\n${formatIssues(issues)}`)
+    if (issues.length === 0) return text(`Valid ${kind}: no issues found.`)
+    return text(`${kind}: ${errors} error(s), ${warnings} warning(s).\n\n${formatIssues(issues)}`)
   },
 )
 

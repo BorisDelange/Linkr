@@ -189,3 +189,24 @@ Then open http://localhost:3000 — first launch shows the admin setup wizard (s
 - **Database**: PostgreSQL or SQLite (same models on both) for app data; DuckDB for analytics
 - **In-browser runtimes**: DuckDB-WASM, Pyodide, webR
 - **Monorepo**: Turborepo
+
+## Authoring content outside the app
+
+Projects, dashboards, datasets and scripts can be written as an entity tree without
+opening Linkr, and validated against the real format — useful for seeding a portal,
+building a demo, or keeping the public content repos importable.
+
+```bash
+# Validate any entity tree (project, SQL collection, ETL pipeline, schema preset)
+npx tsx packages/linkr-format/src/node/cli.ts path/to/entity
+```
+
+Agents get the same thing as an MCP server, which writes the tree and validates every
+change:
+
+```bash
+claude mcp add linkr -- npx tsx "$PWD/packages/linkr-mcp/src/server.ts"
+```
+
+`packages/linkr-mcp/README.md` lists the tools; `packages/linkr-format/README.md`
+documents what is checked.

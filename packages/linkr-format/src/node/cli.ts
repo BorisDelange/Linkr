@@ -1,27 +1,39 @@
 /**
- * `linkr-validate <path…>` — validate project trees on disk.
+ * `linkr-validate <path…>` — validate entity trees on disk.
  *
- * Exits non-zero when any tree has an error (warnings alone do not fail), so it
- * drops straight into CI for the linkr-public-content repos.
+ * The kind is detected from the metadata file each tree carries, so a caller can
+ * point at a directory of mixed entities — which is what CI over a content repo
+ * needs. Exits non-zero when any tree has an error; warnings alone do not fail.
  */
-import { formatIssues, hasErrors, validateProject } from '../index.js'
+import { detectEntityKind, formatIssues, hasErrors, validateEntity, validateProject } from '../index.js'
 import { FsTree } from './fs-tree.js'
 
 const targets = process.argv.slice(2)
 
 if (targets.length === 0) {
-  console.error('usage: linkr-validate <project-dir> [<project-dir>…]')
+  console.error('usage: linkr-validate <entity-dir> [<entity-dir>…]')
   process.exit(2)
 }
 
 let failed = false
 
 for (const target of targets) {
-  const issues = validateProject(new FsTree(target))
+  const tree = new FsTree(target)
+  const kind = tree.read('project.json') != null ? 'project' : detectEntityKind(tree)
+
+  if (kind == null) {
+    console.log(`\n=== ${target}`)
+    console.log('ERROR  not a Linkr entity tree — no project.json, _collection.json, '
+      + '_pipeline.json or preset.json at its root.')
+    failed = true
+    continue
+  }
+
+  const issues = kind === 'project' ? validateProject(tree) : validateEntity(tree, kind)
   const errors = issues.filter((i) => i.severity === 'error').length
   const warnings = issues.length - errors
 
-  console.log(`\n=== ${target}`)
+  console.log(`\n=== ${target} (${kind})`)
   console.log(formatIssues(issues))
   console.log(`--- ${errors} error(s), ${warnings} warning(s)`)
 

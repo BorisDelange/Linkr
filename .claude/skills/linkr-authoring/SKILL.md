@@ -34,7 +34,7 @@ next validation will disagree with you.
 | `describe_entity_schema` | fields of a spec — **read before writing** |
 | `write_project` | create a whole tree (`format: "zip"` for the import dialog) |
 | `describe_tree` | what an existing tree holds, with its real ids and keys |
-| `validate_project` | check a tree; run after any change |
+| `validate_entity` | check a tree; run after any change. Also validates a standalone SQL collection, ETL pipeline or schema preset |
 | `add_dashboard_tab`, `add_widget`, `add_script` | incremental edits |
 
 Not registered? `claude mcp add linkr -- npx tsx <repo>/packages/linkr-mcp/src/server.ts`
@@ -51,11 +51,14 @@ the mistakes worth avoiding, **not** its field list (that is `describe_entity_sc
 | Dashboard (tabs, widgets, filters) | `references/dashboard.md` | ✅ |
 | IDE script (`.py`/`.r`/`.sql`/`.md`) | `references/script.md` | ✅ |
 | Plugin (widget code + manifest) | `references/plugin.md` | ⚠️ files by hand |
-| Cohort, ETL pipeline, mapping project, SQL collection, schema preset, DQ rule set | — | ❌ not yet |
+| SQL collection, ETL pipeline, schema preset | — | ⚠️ validate only |
+| Cohort, mapping project, DQ rule set, data catalog | — | ❌ not yet |
 
 ⚠️ A plugin lives in `packages/default-plugins/`, not in a project tree, so the MCP does
-not write it — `references/plugin.md` carries the full procedure. ❌ elements have no
-serializer yet; say so rather than hand-rolling their JSON.
+not write it — `references/plugin.md` carries the full procedure. SQL collections, ETL
+pipelines and schema presets can be **validated** (`validate_entity` detects the kind)
+but not yet written. ❌ elements have no schema at all; say so rather than hand-rolling
+their JSON.
 
 ## What is NOT authorable
 

@@ -1,0 +1,178 @@
+/**
+ * Standalone entities: SQL collection, ETL pipeline, schema preset.
+ *
+ * Each is its own export tree — a metadata JSON at the root, plus whatever that
+ * kind carries. They are what the `linkr-public-content` repos hold (one repo per
+ * entity), so validating them is what keeps those repos importable.
+ */
+import { checkLocalized, checkString, isObject } from '../check.js'
+import { IssueBag, type Issue } from '../issue.js'
+import { readJson, type EntityTree } from '../tree.js'
+import { validateFileTree } from './file-tree.js'
+
+/** Entity kinds that have their own tree, beyond `project`. */
+export type EntityKind = 'sql-collection' | 'etl-pipeline' | 'schema-preset'
+
+const METADATA_FILE: Record<EntityKind, string> = {
+  'sql-collection': '_collection.json',
+  'etl-pipeline': '_pipeline.json',
+  'schema-preset': 'preset.json',
+}
+
+/**
+ * Identify an entity tree from the metadata file it carries.
+ *
+ * Lets a caller validate a directory without being told what is in it — which is
+ * what CI over a repo of mixed entities needs.
+ */
+export function detectEntityKind(tree: EntityTree): EntityKind | null {
+  for (const [kind, file] of Object.entries(METADATA_FILE) as [EntityKind, string][]) {
+    if (tree.read(file) != null) return kind
+  }
+  return null
+}
+
+export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
+  const bag = new IssueBag()
+  switch (kind) {
+    case 'sql-collection':
+      validateScriptCollection(tree, bag, '_collection.json', 'SQL collection')
+      break
+    case 'etl-pipeline':
+      validateScriptCollection(tree, bag, '_pipeline.json', 'ETL pipeline')
+      break
+    case 'schema-preset':
+      validateSchemaPreset(tree, bag)
+      break
+  }
+  return bag.all()
+}
+
+/**
+ * SQL collections and ETL pipelines are the same shape: metadata + a path-keyed
+ * tree of script files at the root.
+ */
+function validateScriptCollection(
+  tree: EntityTree,
+  bag: IssueBag,
+  metadataPath: string,
+  label: string,
+): void {
+  const parsed = readJson(tree, metadataPath)
+  if (!parsed.ok) {
+    bag.error(metadataPath, '', parsed.error === 'missing' ? 'missing-file' : 'invalid-json',
+      parsed.error === 'missing'
+        ? `${metadataPath} is required at the root of a ${label}.`
+        : `Cannot parse JSON: ${parsed.error}`)
+    return
+  }
+  if (!isObject(parsed.value)) {
+    bag.error(metadataPath, '', 'wrong-type', `${metadataPath} must be an object.`)
+    return
+  }
+
+  checkLocalized(bag, metadataPath, '/name', parsed.value.name, { required: true })
+  if (parsed.value.description != null) {
+    checkLocalized(bag, metadataPath, '/description', parsed.value.description, { label: 'description' })
+  }
+  checkInstanceFields(bag, metadataPath, parsed.value)
+
+  validateFileTree(tree, bag, { treePath: '_tree.json', filePrefix: '' })
+}
+
+/**
+ * A schema preset is `preset.json` (a mapping) plus an optional `schema.ddl`.
+ *
+ * The DDL is deliberately a separate file rather than a JSON string: it is what
+ * the export splits out of `mapping.ddl`, and keeping it as a file is what makes
+ * it readable and diffable in git.
+ */
+function validateSchemaPreset(tree: EntityTree, bag: IssueBag): void {
+  const path = 'preset.json'
+  const parsed = readJson(tree, path)
+  if (!parsed.ok) {
+    bag.error(path, '', parsed.error === 'missing' ? 'missing-file' : 'invalid-json',
+      parsed.error === 'missing'
+        ? 'preset.json is required at the root of a schema preset.'
+        : `Cannot parse JSON: ${parsed.error}`)
+    return
+  }
+  const preset = parsed.value
+  if (!isObject(preset)) {
+    bag.error(path, '', 'wrong-type', 'preset.json must be an object.')
+    return
+  }
+
+  checkString(bag, path, '/presetId', preset.presetId, { required: true, label: 'presetId' })
+  checkInstanceFields(bag, path, preset)
+
+  const mapping = preset.mapping
+  if (!isObject(mapping)) {
+    bag.error(path, '/mapping', 'missing-field', 'A schema preset needs a `mapping` object.')
+    return
+  }
+  // The export moves the DDL out of the mapping and into schema.ddl; a preset
+  // still carrying it inline came from an older writer and round-trips badly.
+  if (mapping.ddl != null) {
+    bag.warn(path, '/mapping/ddl', 'legacy-format',
+      'The DDL is inline in the mapping; exports write it to schema.ddl.',
+      'move the value to a schema.ddl file and drop this field')
+  }
+
+  const tables = mapping.tables
+  if (tables != null && !isObject(tables)) {
+    bag.error(path, '/mapping/tables', 'wrong-type', '`tables` must be an object.')
+  } else if (isObject(tables)) {
+    for (const [name, table] of Object.entries(tables)) {
+      if (!isObject(table)) {
+        bag.error(path, `/mapping/tables/${name}`, 'wrong-type', 'Each table must be an object.')
+        continue
+      }
+      if (table.columns != null && !isObject(table.columns)) {
+        bag.error(path, `/mapping/tables/${name}/columns`, 'wrong-type',
+          '`columns` must be an object mapping OMOP column → source column.')
+      }
+    }
+  }
+
+  const eventTables = mapping.eventTables
+  if (eventTables != null && !isObject(eventTables)) {
+    bag.error(path, '/mapping/eventTables', 'wrong-type', '`eventTables` must be an object.')
+  } else if (isObject(eventTables)) {
+    for (const [name, event] of Object.entries(eventTables)) {
+      if (!isObject(event)) {
+        bag.error(path, `/mapping/eventTables/${name}`, 'wrong-type',
+          'Each event table must be an object.')
+        continue
+      }
+      // Without these an event table cannot be queried at all: the app needs to
+      // know which table, which concept column and which date column to read.
+      for (const field of ['table', 'conceptIdColumn', 'dateColumn']) {
+        checkString(bag, path, `/mapping/eventTables/${name}/${field}`, event[field], {
+          required: true,
+          label: field,
+        })
+      }
+    }
+  }
+}
+
+/**
+ * Local primary keys and instance-specific fields.
+ *
+ * The export strips them precisely so a re-import stays stable; a tree carrying
+ * them was hand-written or came from an older writer, and they churn the git diff
+ * for no gain.
+ */
+function checkInstanceFields(bag: IssueBag, path: string, record: Record<string, unknown>): void {
+  // `id` is NOT in this list: for a standalone entity it is the portable identity
+  // the export deliberately keeps (the golden fixtures carry it), unlike a
+  // project's `uid`, which is a local primary key regenerated on import.
+  for (const field of ['uid', 'ownerId', 'workspaceId', 'projectUid', 'updatedAt']) {
+    if (record[field] != null) {
+      bag.warn(path, `/${field}`, 'legacy-format',
+        `\`${field}\` is specific to the exporting instance; exports omit it.`,
+        `remove the \`${field}\` field`)
+    }
+  }
+}

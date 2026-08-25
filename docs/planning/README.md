@@ -123,8 +123,9 @@ the "Split entity-io.ts" debt item below, not separately.
 | ✅ | 4. `serialize/` (spec → files, no I/O) **+ `keys.ts` extracted and imported by `entity-io.ts`** — content-key derivation was the part genuinely written twice; golden test byte-identical after the swap. Routing the whole export through `serialize/` was rejected: the app writes 8 dashboard fields and a filter `scope` the authoring spec cannot express, so it would have lost data (plan §4-as-built) | M |
 | ✅ | 5. `packages/linkr-mcp`: 7 tools over stdio (`write_project`, `validate_project`, `describe_tree`, `describe_entity_schema`, `add_dashboard_tab`, `add_widget`, `add_script`), 15 tests, verified end to end over real JSON-RPC. No zod — the SDK's `fromJsonSchema` takes plain JSON Schema | S/M |
 | ✅ | 6–7. `linkr-authoring` skill + 6 references (`create-plugin` folded in as `plugin.md`); `create-project` → thin wrapper; `build_zip.py` and its Python format copy deleted | S |
-| 🔜 | 8. Remaining entities (cohort, sql, etl, schema-preset, dq, mapping project), one at a time — and the moment to decide whether `ProjectSpec` grows optional passthrough fields so entity and spec converge | L |
-| 💤 | 9–10. `validate` in the `linkr-public-content` CI; granular edit tools | S |
+| ◐ | 8. **sql-collection / etl-pipeline / schema-preset validate** (kind detected from the tree; shared `_tree.json` checker; golden fixtures + the 6 real content-repo entities all pass). Remaining: cohort, mapping project, DQ rule set, data catalog — and whether to *write* these kinds, not only validate them | L |
+| 🔜 | 9. `validate` in the `linkr-public-content` CI — now unblocked: the CLI detects the kind, so one command covers a mixed repo | S |
+| 💤 | 10. Granular edit tools for the non-project kinds | S |
 | 🤔 | Open: folder vs ZIP output, how `linkr-format` ships to the MCP, import severity | S (decision) |
 
 ## Fullstack backlog — [fullstack-storage-plan.md](fullstack-storage-plan.md)

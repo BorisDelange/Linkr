@@ -35,7 +35,13 @@ linkr/
 │       ├── models/               # user, project, dataset, plugin
 │       ├── api/v1/routes/        # health, projects
 │       └── services/             # execution, omop, data
-├── packages/default-plugins/     # Built-in analysis plugins (table1, plot-builder)
+├── packages/
+│   ├── default-plugins/          # Built-in analysis plugins (table1, plot-builder)
+│   ├── linkr-format/             # What a valid entity IS: schemas, id/key derivation,
+│   │                             #   validator, authoring serializer. No I/O, no deps —
+│   │                             #   usable from the browser, Node and CI alike.
+│   └── linkr-mcp/                # MCP server exposing the above to any agent, so Linkr
+│                                 #   content can be authored outside the app
 ├── docker/                       # Docker configs
 ├── docs/                         # Documentation
 └── v1/                           # Legacy R/Shiny codebase (reference only)
@@ -178,6 +184,50 @@ my-project/
 ```
 
 System folders (pipeline, databases, cohorts, dashboards, datasets, attachments) are read-only in the IDE, hidden by default (toggle to show).
+
+---
+
+## Format package & MCP authoring (as-built)
+
+The export format is now described in **two** places, and they must be kept in step:
+
+| | Where | Role |
+|---|---|---|
+| Writer | `apps/web/src/lib/entity-io.ts` | the app's export/import — the reference implementation |
+| Format | `packages/linkr-format/` | schemas, id/key derivation, **validator**, authoring serializer |
+| Tools | `packages/linkr-mcp/` | MCP server exposing the format to any agent (a thin facade; holds no format knowledge) |
+
+> ⚠️ **Change the shape of an exported entity → update the format package in the same
+> change.** A field added to `project.json`, `dashboards/*.json`, `_tree.json` or any
+> entity metadata file is invisible to the validator until its schema learns about it —
+> and the failure is silent: trees keep validating while the new field goes unchecked, or
+> a legitimate tree starts reporting a spurious issue. Run
+> `npx tsx packages/linkr-format/src/node/cli.ts <a real entity tree>` after such a
+> change; the golden fixtures under `apps/web/src/lib/__fixtures__/export-golden/` are
+> the cheapest thing to point it at.
+
+**Already shared, not duplicated** — `packages/linkr-format/src/keys.ts` owns content-key
+derivation (dashboard / tab / widget), imported by `entity-io.ts`. A key computed two
+ways is destructive, not cosmetic: a widget whose key drifts re-imports as a *different*
+widget, orphaning whatever pointed at it. `column-id.ts` is still duplicated (app +
+package + a Python twin in `apps/api`), guarded by the shared
+`column-id.fixture.json` parity tests.
+
+**Deliberately NOT shared**: the entity → file mapping. `entity-io.ts` writes fields the
+authoring spec has no notion of (a dashboard's `version`, `widgetSpacing`, `fitToHeight`…;
+a filter's per-tab/per-widget `scope`). `ProjectSpec` is a *simplified authoring view* of
+an entity, not the entity — routing the export through the serializer would lose data.
+
+Validated kinds: **project**, **sql-collection**, **etl-pipeline**, **schema-preset**
+(detected from the metadata file at the tree root). Cohorts, mapping projects, DQ rule
+sets and data catalogs have no schema yet — a tree containing them validates everything
+else and stays silent about those.
+
+The validator also runs on **import** (`parseProjectZip` → `lib/import-validation.ts`),
+reported after a successful import and never blocking: reads stay tolerant by design.
+
+Details and roadmap → `docs/planning/mcp-authoring-plan.md`. Authoring guidance for
+agents → `.claude/skills/linkr-authoring/`.
 
 ---
 

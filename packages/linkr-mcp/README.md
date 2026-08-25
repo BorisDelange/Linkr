@@ -36,7 +36,7 @@ Or in `.claude/mcp.json`:
 | Tool | Purpose |
 |---|---|
 | `write_project` | Create a whole tree from a spec: metadata, datasets (from CSV text), dashboards with tabs and widgets, IDE scripts. Validates what it wrote. |
-| `validate_project` | Report missing files, broken references, unknown columns, legacy formats. |
+| `validate_entity` | Report missing files, broken references, unknown columns, legacy formats. Detects the kind (project / SQL collection / ETL pipeline / schema preset) from the tree. |
 | `describe_tree` | What a tree contains, **with the real ids and keys** — call before editing. |
 | `describe_entity_schema` | Fields of a spec, from the code rather than from memory. |
 | `add_dashboard_tab` | Add a tab to an existing dashboard. |

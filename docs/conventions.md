@@ -231,6 +231,15 @@ recurring defect class in this repo's review history.
 - A fixture that doesn't carry the awkward shape proves nothing. Put the empty
   collection, the second attachment, the duplicate name in the fixture.
 
+**A third reader now exists**: `packages/linkr-format/` describes the same shapes as
+schemas, and validates trees written by hand or by an agent. It is not a byte twin — it
+*reads* the format rather than writing the app's version of it — but the same rule
+applies: **change what an export writes, teach the format package about it in the same
+change.** The failure is quiet: the validator keeps passing while the new field goes
+unchecked, or a legitimate tree starts reporting an issue that is really a stale schema.
+Point the CLI at the golden fixtures to check
+(`npx tsx packages/linkr-format/src/node/cli.ts apps/web/src/lib/__fixtures__/export-golden/<kind>/expected`).
+
 ## Sort before you serialize or paginate
 
 DB iteration order, an IDB index and a `Set` are all arbitrary. Anything that

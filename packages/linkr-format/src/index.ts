@@ -26,5 +26,7 @@ export type {
 } from './serialize/project.js'
 
 export { validateProject } from './validate/project.js'
+export { detectEntityKind, validateEntity } from './validate/entities.js'
+export type { EntityKind } from './validate/entities.js'
 export { validateDatasets } from './validate/datasets.js'
 export type { DatasetColumn, DatasetIndex, DatasetInfo } from './validate/datasets.js'

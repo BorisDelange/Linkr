@@ -6,11 +6,29 @@ WASM build), the MCP authoring server (Node) and CI.
 
 Design and roadmap: [`docs/planning/mcp-authoring-plan.md`](../../docs/planning/mcp-authoring-plan.md).
 
-## Validate a project tree
+> ⚠️ **This package is a second description of the export format.** Change what
+> `apps/web/src/lib/entity-io.ts` writes and you must teach the schemas here about it in
+> the same change — see `docs/conventions.md` § Export twins. The failure is quiet: the
+> validator keeps passing while the new field goes unchecked.
+
+## Validate an entity tree
 
 ```bash
-npx tsx src/node/cli.ts <project-dir> [<project-dir>…]
+npx tsx src/node/cli.ts <entity-dir> [<entity-dir>…]
 ```
+
+The kind is detected from the metadata file at the tree root, so a caller can point at a
+directory of mixed entities:
+
+| Kind | Detected by |
+|---|---|
+| project | `project.json` |
+| sql-collection | `_collection.json` |
+| etl-pipeline | `_pipeline.json` |
+| schema-preset | `preset.json` |
+
+Cohorts, mapping projects, DQ rule sets and data catalogs have no schema yet — a project
+containing them validates everything else and stays silent about those.
 
 Exits `1` when any tree has an **error**; warnings alone exit `0`, so it drops
 straight into CI for the `linkr-public-content` repos.

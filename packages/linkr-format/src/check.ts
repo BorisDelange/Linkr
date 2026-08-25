@@ -30,22 +30,22 @@ export function checkLocalized(
   path: string,
   pointer: string,
   value: unknown,
-  { required = false }: { required?: boolean } = {},
+  { required = false, label = 'name' }: { required?: boolean; label?: string } = {},
 ): void {
   if (value == null) {
-    if (required) bag.error(path, pointer, 'missing-field', 'A name is required.')
+    if (required) bag.error(path, pointer, 'missing-field', `A ${label} is required.`)
     return
   }
   if (typeof value === 'string') {
     if (required && !value.trim()) {
-      bag.error(path, pointer, 'empty-value', 'The name is empty.')
+      bag.error(path, pointer, 'empty-value', `The ${label} is empty.`)
       return
     }
     bag.warn(
       path,
       pointer,
       'legacy-format',
-      'Name is a bare string; the current format uses a localized object.',
+      `The ${label} is a bare string; the current format uses a localized object.`,
       'Write {"en": "…", "fr": "…"}.',
     )
     return
@@ -61,7 +61,7 @@ export function checkLocalized(
     return
   }
   if (required && !entries.some(([, v]) => (v as string).trim())) {
-    bag.error(path, pointer, 'empty-value', 'The name has no non-empty translation.')
+    bag.error(path, pointer, 'empty-value', `The ${label} has no non-empty translation.`)
   }
 }
 
