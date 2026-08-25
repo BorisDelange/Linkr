@@ -1,10 +1,10 @@
 import { renameCategoryInBadges } from '@/lib/badge-categories'
-import { localized } from '@/lib/localized'
 import type { Storage } from '@/lib/storage'
-import type { ProjectBadge } from '@/types'
+import type { BadgeCategory, ProjectBadge } from '@/types'
 
 /**
- * Rewrite `Old::value` to `New::value` on every badge in a workspace.
+ * Rewrite `Old::value` to `New::value` on every badge in a workspace, in every
+ * language the category is named in.
  *
  * The category name lives inside each badge's label (see `badge-categories.ts`),
  * so renaming the category alone would leave every badge carrying the old prefix
@@ -20,17 +20,14 @@ import type { ProjectBadge } from '@/types'
 export async function renameBadgeCategory(
   storage: Storage,
   workspaceId: string,
-  from: string,
-  to: string,
-  lang: string,
+  previous: BadgeCategory,
+  next: BadgeCategory,
 ): Promise<number> {
-  if (!from.trim() || !to.trim() || from === to) return 0
-
   /** Rewrites one entity's badges, returning the new array only when it changed. */
   const rewrite = (badges: ProjectBadge[] | undefined): ProjectBadge[] | null => {
     if (!badges?.length) return null
-    const next = renameCategoryInBadges(badges, from, to, lang)
-    return next.some((b, i) => b !== badges[i]) ? next : null
+    const updated = renameCategoryInBadges(badges, previous, next)
+    return updated.some((b, i) => b !== badges[i]) ? updated : null
   }
 
   let changed = 0
@@ -80,6 +77,47 @@ export async function renameBadgeCategory(
   return changed
 }
 
+/**
+ * Reload the seven stores a rename wrote through, so pages already open show the
+ * new prefix.
+ *
+ * The cascade above writes straight to storage; without this the Projects page
+ * (and its siblings) keep the badges they loaded on mount, which renders as the
+ * OLD category name on the chip and the new one inside the value half. Same
+ * shape as `refreshStoresAfterInstall`, which fixes the same staleness after a
+ * catalog clone.
+ */
+export async function refreshStoresAfterBadgeRename(workspaceId: string): Promise<void> {
+  const [
+    { useAppStore },
+    { useWorkspaceStore },
+    { useDataSourceStore },
+    { useEtlStore },
+    { useSqlScriptsStore },
+    { useDqStore },
+    { useSchemaPresetStore },
+  ] = await Promise.all([
+    import('@/stores/app-store'),
+    import('@/stores/workspace-store'),
+    import('@/stores/data-source-store'),
+    import('@/stores/etl-store'),
+    import('@/stores/sql-scripts-store'),
+    import('@/stores/dq-store'),
+    import('@/stores/schema-preset-store'),
+  ])
+
+  await Promise.all([
+    useAppStore.getState().loadProjects(),
+    useWorkspaceStore.getState().loadWorkspaces(),
+    useDataSourceStore.getState().loadDataSources(),
+    useEtlStore.getState().loadEtlPipelines(),
+    useSqlScriptsStore.getState().loadCollections(),
+    useDqStore.getState().loadDqRuleSets(),
+    // Scoped: an unscoped reload would list every workspace's presets.
+    useSchemaPresetStore.getState().loadPresets(workspaceId),
+  ])
+}
+
 /** Every badge in a workspace, for the category screen's usage counts. */
 export async function collectWorkspaceBadges(
   storage: Storage,
@@ -106,8 +144,20 @@ export async function collectWorkspaceBadges(
   ]
 }
 
-/** How many badges in `badges` belong to the category named `name`. */
-export function countForCategory(badges: ProjectBadge[], name: string, lang: string): number {
-  const prefix = `${name.trim().toLowerCase()}::`
-  return badges.filter((b) => localized(b.label, lang).toLowerCase().startsWith(prefix)).length
+/**
+ * How many badges belong to `category`, counting a prefix written in ANY of its
+ * languages: a badge created before the prefix was localized carries one
+ * spelling only, and still belongs to the category.
+ */
+export function countForCategory(badges: ProjectBadge[], category: BadgeCategory): number {
+  const prefixes = Object.values(category.name)
+    .filter((n) => n?.trim())
+    .map((n) => `${n.trim().toLowerCase()}::`)
+  if (!prefixes.length) return 0
+
+  return badges.filter((b) => {
+    const label = b.label
+    const values = typeof label === 'string' ? [label] : Object.values(label)
+    return values.some((v) => prefixes.some((p) => v?.trim().toLowerCase().startsWith(p)))
+  }).length
 }

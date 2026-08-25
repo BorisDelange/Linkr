@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getBadgeClasses, getBadgeStyle } from '@/lib/badge-colors'
-import { categoryOf, splitLabel } from '@/lib/badge-categories'
+import { categoryOf, valueOf } from '@/lib/badge-categories'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { CategoryBadge } from '@/components/ui/category-badge'
 import { localized } from '@/lib/localized'
@@ -34,11 +34,13 @@ const badgeClass =
 function VisibleBadge({
   badge,
   label,
+  value,
   category,
   categoryName,
 }: {
   badge: ProjectBadge
   label: string
+  value: string
   category: BadgeCategory | undefined
   categoryName: string
 }) {
@@ -48,7 +50,7 @@ function VisibleBadge({
     <CategoryBadge
       ref={ref}
       category={categoryName}
-      value={splitLabel(label).value}
+      value={value}
       color={category.color}
       className="max-w-40"
       {...triggerProps}
@@ -161,7 +163,7 @@ export function BadgeStrip({ badges, prefix, className }: BadgeStripProps) {
               key={badge.id}
               data-measure-badge
               category={localized(category.name, i18n.language)}
-              value={splitLabel(label(badge)).value}
+              value={valueOf(badge, categories, i18n.language)}
               color={category.color}
               className="max-w-40"
             />
@@ -186,6 +188,7 @@ export function BadgeStrip({ badges, prefix, className }: BadgeStripProps) {
             key={badge.id}
             badge={badge}
             label={label(badge)}
+            value={valueOf(badge, categories, i18n.language)}
             category={category}
             categoryName={category ? localized(category.name, i18n.language) : ''}
           />

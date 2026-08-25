@@ -1,10 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { collectWorkspaceBadges, countForCategory, renameBadgeCategory } from './badge-category-rename'
 import type { Storage } from '@/lib/storage'
-import type { ProjectBadge } from '@/types'
+import type { BadgeCategory, ProjectBadge } from '@/types'
 
 const WS = 'ws1'
 const badge = (id: string, label: string): ProjectBadge => ({ id, label: { en: label }, color: 'blue' })
+
+const cat = (name: BadgeCategory['name']): BadgeCategory =>
+  ({ id: 'c1', name, color: 'cyan', exclusive: false })
+const SOURCE = cat({ en: 'Source' })
+const DATASET = cat({ en: 'Dataset' })
 
 /**
  * Minimal in-memory stand-in for the collections the cascade touches. Only the
@@ -69,7 +74,7 @@ const labels = (badges: ProjectBadge[] | undefined) =>
 describe('renameBadgeCategory', () => {
   it('rewrites the prefix across every collection in the workspace', async () => {
     const { storage, db } = fakeStorage()
-    const changed = await renameBadgeCategory(storage, WS, 'Source', 'Dataset', 'en')
+    const changed = await renameBadgeCategory(storage, WS, SOURCE, DATASET)
 
     expect(labels(db.workspace.badges)).toEqual(['Dataset::MIMIC'])
     expect(labels(db.projects[0].badges)).toEqual(['Dataset::MIMIC', 'urgent'])
@@ -82,13 +87,13 @@ describe('renameBadgeCategory', () => {
 
   it('leaves another workspace untouched', async () => {
     const { storage, db } = fakeStorage()
-    await renameBadgeCategory(storage, WS, 'Source', 'Dataset', 'en')
+    await renameBadgeCategory(storage, WS, SOURCE, DATASET)
     expect(labels(db.projects[1].badges)).toEqual(['Source::MIMIC'])
   })
 
   it('leaves other categories and loose badges untouched', async () => {
     const { storage, db } = fakeStorage()
-    await renameBadgeCategory(storage, WS, 'Source', 'Dataset', 'en')
+    await renameBadgeCategory(storage, WS, SOURCE, DATASET)
     expect(labels(db.projects[2].badges)).toEqual(['Domain::ICU'])
     expect(labels(db.projects[0].badges)).toContain('urgent')
   })
@@ -97,18 +102,25 @@ describe('renameBadgeCategory', () => {
     // The two stubs that throw on update are the assertion: an entity with no
     // matching badge must never be written.
     const { storage } = fakeStorage()
-    await expect(renameBadgeCategory(storage, WS, 'Source', 'Dataset', 'en')).resolves.toBeGreaterThan(0)
+    await expect(renameBadgeCategory(storage, WS, SOURCE, DATASET)).resolves.toBeGreaterThan(0)
   })
 
-  it('is a no-op when the name is unchanged', async () => {
+  it('is a no-op when nothing carries the category', async () => {
     const { storage, db } = fakeStorage()
-    expect(await renameBadgeCategory(storage, WS, 'Source', 'Source', 'en')).toBe(0)
+    const ghost = cat({ en: 'Ghost' })
+    expect(await renameBadgeCategory(storage, WS, ghost, cat({ en: 'Spectre' }))).toBe(0)
     expect(labels(db.workspace.badges)).toEqual(['Source::MIMIC'])
   })
 
-  it('is a no-op for a blank name', async () => {
-    const { storage } = fakeStorage()
-    expect(await renameBadgeCategory(storage, WS, 'Source', '  ', 'en')).toBe(0)
+  it('gives the badge a prefix in a language it did not have', async () => {
+    // The rename is where a badge written in one language only picks up the
+    // other one's prefix — that is what makes it render scoped in both.
+    const { storage, db } = fakeStorage()
+    await renameBadgeCategory(storage, WS, SOURCE, cat({ en: 'Dataset', fr: 'Jeu de données' }))
+    expect(db.workspace.badges[0].label).toEqual({
+      en: 'Dataset::MIMIC',
+      fr: 'Jeu de données::MIMIC',
+    })
   })
 })
 
@@ -131,14 +143,28 @@ describe('collectWorkspaceBadges', () => {
 describe('countForCategory', () => {
   it('counts badges carrying the category prefix', () => {
     const badges = [badge('a', 'Source::MIMIC'), badge('b', 'Source::eICU'), badge('c', 'Domain::ICU')]
-    expect(countForCategory(badges, 'Source', 'en')).toBe(2)
+    expect(countForCategory(badges, SOURCE)).toBe(2)
   })
 
   it('matches case-insensitively', () => {
-    expect(countForCategory([badge('a', 'SOURCE::MIMIC')], 'source', 'en')).toBe(1)
+    expect(countForCategory([badge('a', 'SOURCE::MIMIC')], cat({ en: 'source' }))).toBe(1)
   })
 
   it('does not count a name that merely starts the same', () => {
-    expect(countForCategory([badge('a', 'Sourcery::x')], 'Source', 'en')).toBe(0)
+    expect(countForCategory([badge('a', 'Sourcery::x')], SOURCE)).toBe(0)
+  })
+
+  it('counts a badge whose prefix is written in another language of the category', () => {
+    const fr: ProjectBadge = { id: 'a', label: { fr: 'Origine::MIMIC' }, color: 'blue' }
+    expect(countForCategory([fr], cat({ en: 'Source', fr: 'Origine' }))).toBe(1)
+  })
+
+  it('counts a bilingual badge once', () => {
+    const both: ProjectBadge = {
+      id: 'a',
+      label: { en: 'Source::MIMIC', fr: 'Origine::MIMIC' },
+      color: 'blue',
+    }
+    expect(countForCategory([both], cat({ en: 'Source', fr: 'Origine' }))).toBe(1)
   })
 })

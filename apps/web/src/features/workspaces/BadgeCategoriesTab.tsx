@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Tag, Trash2 } from 'lucide-react'
+import { Check, Plus, Tag, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -19,7 +19,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { collectWorkspaceBadges, countForCategory, renameBadgeCategory } from '@/lib/badge-category-rename'
+import {
+  collectWorkspaceBadges,
+  countForCategory,
+  refreshStoresAfterBadgeRename,
+  renameBadgeCategory,
+} from '@/lib/badge-category-rename'
 import { getStorage } from '@/lib/storage'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
@@ -50,6 +55,7 @@ export function BadgeCategoriesTab({ workspace, canWrite }: BadgeCategoriesTabPr
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState<BadgeColor>('blue')
   const [toDelete, setToDelete] = useState<BadgeCategory | null>(null)
+  const [toRename, setToRename] = useState<{ category: BadgeCategory, renamed: BadgeCategory } | null>(null)
   const [busy, setBusy] = useState(false)
 
   // Every badge in the workspace, for the "used by N badges" counts. Read from
@@ -65,7 +71,14 @@ export function BadgeCategoriesTab({ workspace, canWrite }: BadgeCategoriesTabPr
 
   const invalidName = (name: string) => name.includes(':')
 
-  const canAdd = !!newName.trim() && !nameTaken(newName) && !invalidName(newName)
+  /** Why a name can't be committed, or null when it can. */
+  const nameError = (name: string, exceptId?: string): string | null => {
+    if (invalidName(name)) return t('badge_categories.name_no_colon')
+    if (name.trim() && nameTaken(name, exceptId)) return t('badge_categories.name_exists')
+    return null
+  }
+
+  const canAdd = !!newName.trim() && !nameError(newName)
 
   const add = async () => {
     if (!canAdd) return
@@ -85,18 +98,35 @@ export function BadgeCategoriesTab({ workspace, canWrite }: BadgeCategoriesTabPr
     updateBadgeCategories(workspace.id, categories.map((c) => (c.id === id ? { ...c, ...changes } : c)))
 
   /** Renaming rewrites the badges first, so none is left on the old prefix. */
-  const rename = async (category: BadgeCategory, next: string) => {
-    const from = localized(category.name, language)
-    const to = next.trim()
-    if (!to || to === from || nameTaken(to, category.id) || invalidName(to)) return
+  const applyRename = async (category: BadgeCategory, renamed: BadgeCategory) => {
     setBusy(true)
     try {
-      await renameBadgeCategory(getStorage(), workspace.id, from, to, language)
-      await patch(category.id, { name: setLocalized(category.name, language, to) })
+      await renameBadgeCategory(getStorage(), workspace.id, category, renamed)
+      await patch(category.id, { name: renamed.name })
+      // The cascade wrote straight to storage: without this the open pages keep
+      // rendering the badges they loaded on mount, under the old category name.
+      await refreshStoresAfterBadgeRename(workspace.id)
       reloadBadges()
     } finally {
       setBusy(false)
     }
+  }
+
+  /**
+   * A rename rewrites every badge carrying the category, across the workspace.
+   * That is not optional — a badge left on the old prefix would stop matching
+   * its category entirely — so the dialog confirms the cascade rather than
+   * offering to skip it, and only appears when something is actually affected.
+   */
+  const rename = async (category: BadgeCategory, next: string) => {
+    const to = next.trim()
+    if (!to || to === localized(category.name, language) || nameError(to, category.id)) return
+    const renamed = { ...category, name: setLocalized(category.name, language, to) }
+    if (countForCategory(allBadges, category) > 0) {
+      setToRename({ category, renamed })
+      return
+    }
+    await applyRename(category, renamed)
   }
 
   const remove = async () => {
@@ -118,7 +148,7 @@ export function BadgeCategoriesTab({ workspace, canWrite }: BadgeCategoriesTabPr
         <div className="space-y-2">
           {categories.map((category) => {
             const name = localized(category.name, language)
-            const count = countForCategory(allBadges, name, language)
+            const count = countForCategory(allBadges, category)
             return (
               <Card key={category.id} className="flex flex-row items-center gap-3 px-3 py-2.5">
                 <BadgeColorButton
@@ -129,6 +159,7 @@ export function BadgeCategoriesTab({ workspace, canWrite }: BadgeCategoriesTabPr
                 <NameInput
                   value={name}
                   disabled={!canWrite || busy}
+                  error={(draft) => nameError(draft, category.id)}
                   onCommit={(next) => { void rename(category, next) }}
                 />
                 <CategoryBadge
@@ -137,26 +168,28 @@ export function BadgeCategoriesTab({ workspace, canWrite }: BadgeCategoriesTabPr
                   color={category.color}
                   size="md"
                 />
-                <span className="w-28 shrink-0 text-right text-xs text-muted-foreground">
-                  {t('badge_categories.used_by', { count })}
-                </span>
-                <label className="flex shrink-0 items-center gap-1.5">
-                  <Switch
-                    checked={category.exclusive}
-                    onCheckedChange={(exclusive) => { void patch(category.id, { exclusive }) }}
+                <div className="ml-auto flex shrink-0 items-center gap-3">
+                  <span className="text-xs text-muted-foreground">
+                    {t('badge_categories.used_by', { count })}
+                  </span>
+                  <label className="flex shrink-0 items-center gap-1.5">
+                    <Switch
+                      checked={category.exclusive}
+                      onCheckedChange={(exclusive) => { void patch(category.id, { exclusive }) }}
+                      disabled={!canWrite}
+                    />
+                    <span className="text-xs text-muted-foreground">{t('badge_categories.exclusive')}</span>
+                  </label>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     disabled={!canWrite}
-                  />
-                  <span className="text-xs text-muted-foreground">{t('badge_categories.exclusive')}</span>
-                </label>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={!canWrite}
-                  onClick={() => setToDelete(category)}
-                  className="shrink-0 text-destructive hover:text-destructive"
-                >
-                  <Trash2 size={14} />
-                </Button>
+                    onClick={() => setToDelete(category)}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                </div>
               </Card>
             )
           })}
@@ -180,14 +213,38 @@ export function BadgeCategoriesTab({ workspace, canWrite }: BadgeCategoriesTabPr
               {t('common.add')}
             </Button>
           </div>
-          {invalidName(newName) && (
-            <p className="text-xs text-destructive">{t('badge_categories.name_no_colon')}</p>
-          )}
-          {!!newName.trim() && nameTaken(newName) && (
-            <p className="text-xs text-destructive">{t('badge_categories.name_exists')}</p>
+          {nameError(newName) && (
+            <p className="text-xs text-destructive">{nameError(newName)}</p>
           )}
         </Card>
       )}
+
+      <AlertDialog open={!!toRename} onOpenChange={(open) => { if (!open) setToRename(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('badge_categories.rename_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('badge_categories.rename_description', {
+                from: toRename ? localized(toRename.category.name, language) : '',
+                to: toRename ? localized(toRename.renamed.name, language) : '',
+                count: toRename ? countForCategory(allBadges, toRename.category) : 0,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const pending = toRename
+                setToRename(null)
+                if (pending) void applyRename(pending.category, pending.renamed)
+              }}
+            >
+              {t('badge_categories.rename_confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!toDelete} onOpenChange={(open) => { if (!open) setToDelete(null) }}>
         <AlertDialogContent>
@@ -196,7 +253,7 @@ export function BadgeCategoriesTab({ workspace, canWrite }: BadgeCategoriesTabPr
             <AlertDialogDescription>
               {t('badge_categories.delete_description', {
                 name: toDelete ? localized(toDelete.name, language) : '',
-                count: toDelete ? countForCategory(allBadges, localized(toDelete.name, language), language) : 0,
+                count: toDelete ? countForCategory(allBadges, toDelete) : 0,
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -216,41 +273,76 @@ export function BadgeCategoriesTab({ workspace, canWrite }: BadgeCategoriesTabPr
 }
 
 /**
- * Name field that commits on blur or Enter rather than per keystroke — a rename
- * rewrites every badge in the workspace, which is not something to do per letter.
+ * Name field with explicit save/cancel rather than a commit on blur — a rename
+ * rewrites every badge in the workspace, so it should never fire from clicking
+ * away, and a name that is already taken has to say so instead of silently
+ * reverting.
  */
 function NameInput({
   value,
   disabled,
+  error,
   onCommit,
 }: {
   value: string
   disabled?: boolean
+  /** Why `draft` can't be saved, or null when it can. */
+  error: (draft: string) => string | null
   onCommit: (next: string) => void
 }) {
+  const { t } = useTranslation()
   const [draft, setDraft] = useState(value)
   useEffect(() => { setDraft(value) }, [value])
 
-  const commit = () => {
-    if (draft.trim() && draft !== value) onCommit(draft)
-    else setDraft(value)
-  }
+  const dirty = draft !== value
+  const message = dirty ? error(draft) : null
+  const canSave = dirty && !!draft.trim() && !message
+
+  const commit = () => { if (canSave) onCommit(draft) }
+  const cancel = () => setDraft(value)
 
   return (
-    <>
-      <Label htmlFor={`cat-${value}`} className="sr-only">{value}</Label>
-      <Input
-        id={`cat-${value}`}
-        value={draft}
-        disabled={disabled}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() }
-          else if (e.key === 'Escape') { setDraft(value); e.currentTarget.blur() }
-        }}
-        className="h-8 w-44 shrink-0"
-      />
-    </>
+    <div className="shrink-0">
+      <div className="relative w-56">
+        <Label htmlFor={`cat-${value}`} className="sr-only">{value}</Label>
+        <Input
+          id={`cat-${value}`}
+          value={draft}
+          disabled={disabled}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commit() }
+            else if (e.key === 'Escape') { e.preventDefault(); cancel() }
+          }}
+          className={`h-8 w-full ${dirty ? 'pr-14' : ''} ${message ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+        />
+        {dirty && (
+          <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6 text-muted-foreground"
+              onClick={cancel}
+              title={t('common.cancel')}
+            >
+              <X size={13} />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6 text-primary disabled:opacity-40"
+              disabled={disabled || !canSave}
+              onClick={commit}
+              title={t('common.save')}
+            >
+              <Check size={13} />
+            </Button>
+          </div>
+        )}
+      </div>
+      {message && <p className="mt-1 text-xs text-destructive">{message}</p>}
+    </div>
   )
 }

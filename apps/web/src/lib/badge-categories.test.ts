@@ -3,8 +3,10 @@ import {
   addBadge,
   categoryOf,
   joinLabel,
+  joinLocalizedLabel,
   renameCategoryInBadges,
   splitLabel,
+  valueOf,
 } from './badge-categories'
 import type { BadgeCategory, ProjectBadge } from '@/types'
 
@@ -107,34 +109,106 @@ describe('addBadge', () => {
 })
 
 describe('renameCategoryInBadges', () => {
+  const dataset: BadgeCategory = { ...source, name: { en: 'Dataset' } }
+
   it('rewrites the prefix of the matching badges', () => {
     const badges = [badge('a', 'Source::MIMIC'), badge('b', 'Domain::ICU')]
-    const out = renameCategoryInBadges(badges, 'Source', 'Dataset', EN)
+    const out = renameCategoryInBadges(badges, source, dataset)
     expect(out[0].label).toEqual({ en: 'Dataset::MIMIC' })
     expect(out[1].label).toEqual({ en: 'Domain::ICU' })
   })
 
   it('matches the old name case-insensitively', () => {
-    const out = renameCategoryInBadges([badge('a', 'SOURCE::MIMIC')], 'source', 'Dataset', EN)
+    const out = renameCategoryInBadges([badge('a', 'SOURCE::MIMIC')], source, dataset)
     expect(out[0].label).toEqual({ en: 'Dataset::MIMIC' })
   })
 
   it('keeps a value that contains a separator', () => {
-    const out = renameCategoryInBadges([badge('a', 'Source::a::b')], 'Source', 'Dataset', EN)
+    const out = renameCategoryInBadges([badge('a', 'Source::a::b')], source, dataset)
     expect(out[0].label).toEqual({ en: 'Dataset::a::b' })
   })
 
-  it('leaves other languages untouched', () => {
+  it('rewrites every language of the category, keeping each value', () => {
+    const bilingual: BadgeCategory = { ...source, name: { en: 'Source', fr: 'Origine' } }
+    const renamed: BadgeCategory = { ...source, name: { en: 'Dataset', fr: 'Jeu' } }
     const badges: ProjectBadge[] = [
-      { id: 'a', label: { en: 'Source::MIMIC', fr: 'Origine::MIMIC' }, color: 'blue' },
+      { id: 'a', label: { en: 'Source::MIMIC', fr: 'Origine::MIMIC-fr' }, color: 'blue' },
     ]
-    const out = renameCategoryInBadges(badges, 'Source', 'Dataset', EN)
-    expect(out[0].label).toEqual({ en: 'Dataset::MIMIC', fr: 'Origine::MIMIC' })
+    expect(renameCategoryInBadges(badges, bilingual, renamed)[0].label).toEqual({
+      en: 'Dataset::MIMIC',
+      fr: 'Jeu::MIMIC-fr',
+    })
   })
 
-  it('rewrites a legacy plain-string label', () => {
+  it('adds a prefix in a language the badge did not carry', () => {
+    const renamed: BadgeCategory = { ...source, name: { en: 'Dataset', fr: 'Jeu' } }
+    expect(renameCategoryInBadges([badge('a', 'Source::MIMIC')], source, renamed)[0].label).toEqual({
+      en: 'Dataset::MIMIC',
+      fr: 'Jeu::MIMIC',
+    })
+  })
+
+  it('leaves an unrelated language of the badge untouched', () => {
+    const badges: ProjectBadge[] = [
+      { id: 'a', label: { en: 'Source::MIMIC', fr: 'urgent' }, color: 'blue' },
+    ]
+    expect(renameCategoryInBadges(badges, source, dataset)[0].label).toEqual({
+      en: 'Dataset::MIMIC',
+      fr: 'urgent',
+    })
+  })
+
+  it('rewrites a legacy plain-string label into a localized one', () => {
     const badges: ProjectBadge[] = [{ id: 'a', label: 'Source::MIMIC', color: 'blue' }]
-    expect(renameCategoryInBadges(badges, 'Source', 'Dataset', EN)[0].label).toBe('Dataset::MIMIC')
+    expect(renameCategoryInBadges(badges, source, dataset)[0].label).toEqual({ en: 'Dataset::MIMIC' })
+  })
+})
+
+describe('joinLocalizedLabel', () => {
+  const bilingual: BadgeCategory = { ...source, name: { en: 'Source', fr: 'Origine' } }
+
+  it('prefixes the value in every language the category is named in', () => {
+    expect(joinLocalizedLabel(bilingual, 'MIMIC')).toEqual({
+      en: 'Source::MIMIC',
+      fr: 'Origine::MIMIC',
+    })
+  })
+
+  it('skips a language the category leaves blank', () => {
+    const partial: BadgeCategory = { ...source, name: { en: 'Source', fr: '  ' } }
+    expect(joinLocalizedLabel(partial, 'MIMIC')).toEqual({ en: 'Source::MIMIC' })
+  })
+
+  it('keeps a per-language value the badge already carries', () => {
+    const existing = { en: 'Source::MIMIC', fr: 'Origine::MIMIC-fr' }
+    expect(joinLocalizedLabel(bilingual, 'MIMIC', existing)).toEqual(existing)
+  })
+})
+
+describe('categoryOf across languages', () => {
+  const bilingual: BadgeCategory = { ...source, name: { en: 'Source EN', fr: 'Source FR' } }
+
+  it('resolves a badge whose prefix is only in the other language', () => {
+    // The reported bug: a badge added in FR read `Source FR::MIMIC` in EN too,
+    // matched nothing, and rendered as raw text with a visible separator.
+    const b: ProjectBadge = { id: 'a', label: { fr: 'Source FR::MIMIC' }, color: 'blue' }
+    expect(categoryOf(b, [bilingual], 'en')?.id).toBe(bilingual.id)
+    expect(valueOf(b, [bilingual], 'en')).toBe('MIMIC')
+  })
+
+  it('prefers the active language when both carry a prefix', () => {
+    const b: ProjectBadge = {
+      id: 'a',
+      label: { en: 'Source EN::MIMIC', fr: 'Source FR::MIMIC-fr' },
+      color: 'blue',
+    }
+    expect(valueOf(b, [bilingual], 'fr')).toBe('MIMIC-fr')
+  })
+
+  it('leaves an undeclared prefix uncategorized, label intact', () => {
+    const b: ProjectBadge = { id: 'a', label: { en: 'Ghost::x' }, color: 'blue' }
+    expect(categoryOf(b, [bilingual], 'en')).toBeUndefined()
+    expect(valueOf(b, [bilingual], 'en')).toBe('Ghost::x')
   })
 })
 

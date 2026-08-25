@@ -1,4 +1,4 @@
-import { findCategory, splitLabel } from '@/lib/badge-categories'
+import { findCategoryAnyLang, splitLabel } from '@/lib/badge-categories'
 import { getBadgeClasses, getBadgeStyle } from '@/lib/badge-colors'
 import { localized } from '@/lib/localized'
 import type { FilterOption } from '@/components/ui/list-page-toolbar'
@@ -34,7 +34,9 @@ export function badgeFilterOptions(
 
   for (const badge of badges) {
     const { category: prefix, value } = splitLabel(badge.label)
-    const category = prefix ? findCategory(categories, prefix, lang) : undefined
+    // Any language: a badge written before the prefix was localized carries one
+    // spelling, and must still group under its category in the other language.
+    const category = prefix ? findCategoryAnyLang(categories, prefix) : undefined
 
     if (!category) {
       loose.push({

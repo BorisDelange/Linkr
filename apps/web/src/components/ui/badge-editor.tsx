@@ -16,13 +16,25 @@ import {
 import { EditableBadge } from '@/components/ui/editable-badge'
 import { SectionLabel } from '@/components/ui/section-label'
 import { getBadgeClasses, getBadgeStyle } from '@/lib/badge-colors'
-import { addBadge, categoryOf, joinLabel, splitLabel } from '@/lib/badge-categories'
+import { addBadge, categoryOf, joinLabel, joinLocalizedLabel, valueOf } from '@/lib/badge-categories'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
-import type { BadgeCategory, BadgeColor, ProjectBadge } from '@/types'
+import type { BadgeCategory, BadgeColor, LocalizedString, ProjectBadge } from '@/types'
 
 /** Sentinel for "no category": Radix Select forbids an empty-string value. */
 const NO_CATEGORY = '__none__'
+
+/**
+ * The label minus `lang`, so a rename applies there while the other languages
+ * keep the value they were given. A legacy plain string carries no per-language
+ * value to keep, so it is dropped whole.
+ */
+function dropLabel(label: LocalizedString | string, lang: string): LocalizedString {
+  if (typeof label === 'string') return {}
+  const next = { ...label }
+  delete next[lang]
+  return next
+}
 
 interface BadgeEditorProps {
   value: ProjectBadge[]
@@ -121,6 +133,21 @@ export function BadgeEditor({ value, onChange, categories = [], suggestions = []
     setNewLabel('')
   }
 
+  /**
+   * Add the typed text under the picked category, prefixed in every language the
+   * category is named in — the prefix is translated, so writing only the active
+   * language's spelling would leave the badge unmatchable in the other one.
+   */
+  const addTyped = () => {
+    const text = newLabel.trim()
+    if (!text || conflict) return
+    if (!newCategory) {
+      add({ id: '', label: text, color: newColor })
+      return
+    }
+    add({ id: '', label: joinLocalizedLabel(newCategory, text), color: newCategory.color })
+  }
+
   /** The label the current input would produce, category prefix included. */
   const composed = (raw: string) => {
     const text = raw.trim()
@@ -152,15 +179,22 @@ export function BadgeEditor({ value, onChange, categories = [], suggestions = []
             // the category is picked, and typing over it would silently move the
             // badge to another one (or out of all of them).
             if (category) {
+              // Renaming the value re-prefixes every language of the category, so
+              // the badge keeps matching whichever one the UI is showing.
+              const renameValue = (next: string) => onChange(value.map((b) => (
+                b.id === badge.id
+                  ? { ...b, label: joinLocalizedLabel(category, next, dropLabel(b.label, language)) }
+                  : b
+              )))
               return (
                 <CategoryBadge
                   key={badge.id}
                   category={localized(category.name, language)}
-                  value={splitLabel(localized(badge.label, language)).value}
+                  value={valueOf(badge, categories, language)}
                   color={category.color}
                   size="md"
                   onRemove={remove}
-                  onRename={(next) => relabel(joinLabel(localized(category.name, language), next))}
+                  onRename={renameValue}
                 />
               )
             }
@@ -228,7 +262,7 @@ export function BadgeEditor({ value, onChange, categories = [], suggestions = []
             onKeyDown={(e) => {
               if (e.key === 'Enter' && trimmed && !conflict) {
                 e.preventDefault()
-                add({ id: '', label: trimmed, color: newCategory?.color ?? newColor })
+                addTyped()
               }
             }}
           />
@@ -241,7 +275,7 @@ export function BadgeEditor({ value, onChange, categories = [], suggestions = []
             size="sm"
             className="h-8 px-2"
             disabled={!trimmed || !!conflict}
-            onClick={() => add({ id: '', label: trimmed, color: newCategory?.color ?? newColor })}
+            onClick={addTyped}
           >
             <Plus size={12} />
           </Button>
