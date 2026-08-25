@@ -89,25 +89,48 @@ switches to `lineageId`, which is what fixes defect 1.
 | 1 | **Fix the drift first, on its own** — clone/move rewrite `mapping.presetId`, and ZIP import matches on `lineageId` instead | S | Ships alone, fixes the corruption path before any rename |
 | 2 | Add `id` + `entityId` to the TS type and the server model; write both on save, keep `presetId` in sync | M | Additive: nothing reads the new fields yet |
 | 3 | Migration — IndexedDB store keyed on `id`, alembic revision on the table; existing rows get `id = presetId` (or a fresh uuid) and `entityId = presetId` | M | The only irreversible step; no FK to update |
-| 4 | Switch readers to `id`/`entityId`: routes + `paths.ts`, catalog `idOf`/`freshId`/`findExisting`, storage, git `_entity_id`, export/import, versioning | L | Mechanical once 2–3 land; `freshId` becomes `crypto.randomUUID()` |
+| 4 | Switch readers to `id`/`entityId`: routes + `paths.ts` (**shortened uuid, like the others**), catalog `idOf`/`freshId`/`findExisting`, storage, git `_entity_id`, export/import, versioning | L | Mechanical once 2–3 land; `freshId` becomes `crypto.randomUUID()` |
 | 5 | Delete the special-cases (`installed.ts` three-way fallback, the actions shim, the git getattr, the WsExportTab note) | S | The payoff |
 | 6 | Regenerate the golden export fixtures; re-export the 4 published preset repos | S | `__fixtures__/export-golden/schema-preset/` |
 
 **Step 1 is worth doing now even if the rest waits** — it is a real defect with a data-loss
 outcome, and it does not depend on the rename.
 
+## Decisions (2026-08-25)
+
+**The governing rule: harmonise with the other entities wherever there is a choice.** A
+preset is not special; every deviation below had a local reason that no longer holds.
+
+1. **The URL carries the shortened uuid**, like every other entity — not the slug. So
+   `paths.warehouseSchema` stops being the exception documented at
+   [paths.ts:75](../../apps/web/src/lib/paths.ts#L75), and `freshId` becomes a plain
+   `crypto.randomUUID()` (the reason it minted `custom-<8hex>` — "the id IS the
+   user-facing Identifier" — disappears once `entityId` holds the slug).
+
+2. **`ATHENA_SCHEMA_MAPPING` is independent of the installed schemas** — done, see below.
+
+### `ATHENA_SCHEMA_MAPPING` — settled
+
+Not a preset reference at all: a `SchemaMapping` written out in
+[ConceptSetsTab.tsx](../../apps/web/src/features/warehouse/concept-mapping/ConceptSetsTab.tsx)
+to read OHDSI ATHENA vocabulary files, used to build the vocabulary reference database and
+to generate the concept search query. It resolved nothing — `presetId: 'omop-cdm-5.4'` was
+an inert label satisfying a required field, next to a `presetLabel` of "ATHENA
+Vocabulary". It named a slug that is not even the built-in table's key (`omop-5.4`).
+
+Now `presetId: 'athena-vocabulary'`. An ATHENA download always has the same shape and the
+concept search must work with no OMOP schema installed, so this stays hardcoded **on
+purpose** — the fix was removing the false dependency, not adding a real one.
+
+This is also the case that shows why the target shape is right: a mapping can legitimately
+come from no preset at all. After harmonisation `mapping.presetId` is a label, and identity
+lives in `schemaSource.lineageId` — already true for databases.
+
 ## Open questions
 
-- **URL shape.** Other entities shorten a uuid in the path; a preset shows its slug today
-  ([paths.ts:75](../../apps/web/src/lib/paths.ts#L75)). Keep the slug (`entityId`) in the
-  URL, or align on the shortened uuid? Slug is friendlier and already prefix-resolved
-  (`resolveByIdPrefix`); aligning is more consistent. **Not decided.**
 - **`String(36)` on the PK column** ([schema_preset.py:11](../../apps/api/app/models/schema_preset.py#L11))
   is uuid-width but currently holds slugs. Fine for a uuid `id`; `entityId` needs its own
   column with a length that fits a slug.
-- **`ConceptSetsTab.tsx:92`** hardcodes `presetId: 'omop-cdm-5.4'` in a synthetic mapping —
-  the *entity* slug, not the built-in table key (`omop-5.4`). Unclear whether it is meant
-  to resolve against a stored preset or is just a label. Settle before step 4.
 - Whether the **built-in `SCHEMA_PRESETS` table** disappears first (plan §10 of
   `default-data-repos-plan.md`) or after. It only holds `omop-5.4` and `mimic-iv`, kept
   alive for seeded databases; doing that first removes 11 literal sites from this effort.
