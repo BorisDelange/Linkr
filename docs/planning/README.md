@@ -105,6 +105,28 @@ entity + LLM provider config, local models by default.
 | 🤔 | Track B: right-sidebar copilot (agent loop, dashboard tools, per-turn undo) | L |
 | 💤 | Track B on Cohorts / Patient data; Track A2 structured ACP panel | L |
 
+## Authoring outside Linkr — [mcp-authoring-plan.md](mcp-authoring-plan.md)
+
+Create/edit Linkr content **without the app** (a project, a tab, a script, a plugin) and
+guarantee it is valid. Three blocks: `packages/linkr-format` (schemas + pure constructors
++ **validator** — shared by app, MCP and CI), writers (shared layout, pluggable sink:
+`fs` / JSZip / store), and a thin MCP server. Distinct from the in-app copilot, which
+drives the live Zustand store and cannot be replaced by MCP. The validator does not exist
+today and is the load-bearing piece; steps 1–3 pay off even if the MCP is never built.
+**Ends the `build_zip.py` ↔ `entity-io.ts` duplication** and should be scheduled *with*
+the "Split entity-io.ts" debt item below, not separately.
+
+| St | Item | Effort |
+|----|------|--------|
+| ✅ | 1–2. `packages/linkr-format`: schemas + validator (shape/referential/semantic) + 40 tests + column-id parity + CLI. No dependency (not zod — it would land in the WASM bundle). Verified on 3 real trees; found a missing `appVersion` in `icu-mortality-prediction` | M |
+| 🔜 | 3. Wire the validator into the in-app import path (warn, not block) | S |
+| 🔜 | 4. `make/` + `serialize/` for those 3 entities; `entity-io.ts` export calls them | M |
+| 🔜 | 5. `packages/linkr-mcp`: `write_project`, `validate`, `describe_tree`, `describe_entity_schema` | S/M |
+| 🔜 | 6–7. `linkr-authoring` skill + references; `create-project` → wrapper, **delete `build_zip.py`** | S |
+| 🔜 | 8. Remaining entities (plugin, cohort, sql, etl, schema-preset, dq), one at a time | L |
+| 💤 | 9–10. `validate` in the `linkr-public-content` CI; granular edit tools | S |
+| 🤔 | Open: folder vs ZIP output, how `linkr-format` ships to the MCP, import severity | S (decision) |
+
 ## Fullstack backlog — [fullstack-storage-plan.md](fullstack-storage-plan.md)
 
 | St | Item | Effort |
