@@ -44,6 +44,32 @@ export function writeTree(root: string, files: WriteFile[]): string[] {
   return files.map((f) => f.path)
 }
 
+/**
+ * Data files are gitignored by default, and re-included per file by the app's
+ * "mark for versioning" action. A generated project ships the same rule so a
+ * tree that lands in git does not carry its datasets by accident.
+ */
+export const DEFAULT_GITIGNORE = 'datasets/**/*.csv\ndatasets/**/*.parquet\n.cache/\n'
+
+/**
+ * Bundle a tree as a ZIP, for the app's "Import a project" dialog.
+ *
+ * A folder is the better default — it is what the portal and the
+ * linkr-public-content repos consume, and it diffs in git. A ZIP is what the
+ * import dialog takes, so both are offered rather than forcing the author to
+ * zip by hand and risk a wrapping directory the parser then has to strip.
+ */
+export async function writeZip(target: string, files: WriteFile[]): Promise<number> {
+  const { default: JSZip } = await import('jszip')
+  const zip = new JSZip()
+  for (const file of files) zip.file(file.path, file.content)
+  zip.file('.gitignore', DEFAULT_GITIGNORE)
+  const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
+  mkdirSync(dirname(resolve(target)), { recursive: true })
+  writeFileSync(resolve(target), buffer)
+  return files.length + 1
+}
+
 function readJson<T>(root: string, path: string): T {
   try {
     return JSON.parse(readFileSync(resolveInside(root, path), 'utf-8')) as T

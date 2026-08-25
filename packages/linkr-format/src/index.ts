@@ -18,7 +18,7 @@ export { readLocalized } from './check.js'
 
 export { serializeProject } from './serialize/project.js'
 export type {
-  ColumnType, DashboardSpec, DatasetSpec, LocalizedInput,
+  ColumnType, DashboardSpec, DatasetSpec, FilterInputType, FilterSpec, LocalizedInput,
   ProjectSpec, ScriptSpec, TabSpec, WidgetSpec, WriteFile,
 } from './serialize/project.js'
 

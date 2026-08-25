@@ -262,10 +262,13 @@ the loop to follow. A field list copied into Markdown is stale the day the schem
   is deleted. This is the moment the Python/TS duplication ends. Keep the skill: "make me
   a demo project" is a distinct, valuable entry point, and its clinical-coherence guidance
   (synthetic data that makes sense) is real knowledge the MCP has no opinion about.
-- **`create-plugin`** → **stays separate**, per your framing. It answers "what is a
-  plugin, what does Linkr expect of it, how does it integrate" — architecture, not
-  format. It gains a section on using the MCP + validator to emit the files, and drops
-  whatever file-layout detail the reference now owns.
+- **`create-plugin`** → **folded into `linkr-authoring`** as `references/plugin.md`
+  (arbitrated 2026-08-25). Writing a plugin is the same act as writing a project — an
+  author produces files in an entity tree — so a separate skill would force an arbitrary
+  choice of entry point. What is specific to plugins is *depth*, not a different
+  workflow: `plugin.md` carries the render contract, how the plugin is loaded by the app,
+  and the R/Python sides, where `dataset.md` needs a few lines. Field lists still come
+  from `describe_entity_schema`, not from the Markdown.
 
 ---
 
@@ -367,8 +370,8 @@ Each step is useful on its own — no step is only a means to the next.
 | ✅ 3 | Validator wired into `parseProjectZip`, reported after a successful import (warn, never blocks) | S | clear errors instead of silent half-imports |
 | ◐ 4 | `serialize/` for project + dataset + dashboard + scripts **done**; wiring `entity-io.ts` to call it is the remaining half | M | starts the split already on the backlog |
 | ✅ 5 | `packages/linkr-mcp`: 7 tools over stdio, 15 tests | S/M | **authoring outside Linkr works** |
-| 6 | `linkr-authoring` skill + `references/` for those 3 elements | S | usable by any MCP client |
-| 7 | `create-project` → wrapper on the MCP; **delete `build_zip.py`** | S | kills the TS/Python duplication |
+| ✅ 6 | `linkr-authoring` skill + 6 references | S | usable by any MCP client |
+| ✅ 7 | `create-project` → thin wrapper; `build_zip.py` deleted | S | kills the TS/Python duplication |
 | 8 | Remaining entities (plugin, cohort, sql-collection, etl, schema-preset, dq) — schema + make + serialize + reference, one at a time | L | each one lands independently |
 | 9 | `validate` in the `linkr-public-content` CI | S | default-data repos stay importable |
 | 10 | Granular edit tools (`add_dashboard_tab`, `add_widget`, `add_ide_script`) | S | incremental editing of an existing tree |

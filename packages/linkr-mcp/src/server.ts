@@ -18,15 +18,19 @@
  */
 import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server'
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
-import { formatIssues, serializeProject, validateProject, type ProjectSpec } from '@linkr/format'
+import {
+  MemoryTree, formatIssues, serializeProject, validateProject, type ProjectSpec,
+} from '@linkr/format'
 import { FsTree } from '@linkr/format/node/fs-tree'
 import {
+  DEFAULT_GITIGNORE,
   addDashboardTab,
   addScript,
   addWidget,
   describeEntitySchema,
   describeTree,
   writeTree,
+  writeZip,
 } from './tools.js'
 
 const server = new McpServer({ name: 'linkr', version: '0.1.0' })
@@ -75,7 +79,7 @@ server.registerTool(
       'Create a complete Linkr project tree from a spec: metadata, datasets (from CSV text), '
       + 'dashboards with tabs and widgets, and IDE scripts. Validates what it wrote and reports '
       + 'any issue. Use describe_entity_schema first if unsure about a field.',
-    inputSchema: fromJsonSchema<{ path: string; spec: ProjectSpec }>({
+    inputSchema: fromJsonSchema<{ path: string; spec: ProjectSpec; format?: 'folder' | 'zip' }>({
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Directory to write the tree into. Created if absent.' },
@@ -83,13 +87,34 @@ server.registerTool(
           type: 'object',
           description: 'The project spec. Call describe_entity_schema("project") for the fields.',
         },
+        format: {
+          type: 'string',
+          enum: ['folder', 'zip'],
+          description:
+            'folder (default) — git-friendly, what the portal and content repos consume. '
+            + 'zip — what the app\'s "Import a project" dialog takes; `path` is then the .zip file.',
+        },
       },
       required: ['path', 'spec'],
     }),
   },
-  async ({ path, spec }) => {
+  async ({ path, spec, format }) => {
     try {
-      const written = writeTree(path, serializeProject(spec))
+      const files = serializeProject(spec)
+      if (format === 'zip') {
+        // Validate the tree before bundling: once zipped there is nothing on
+        // disk to point issues at, and a ZIP is usually handed straight to a user.
+        const issues = validateProject(new MemoryTree(
+          Object.fromEntries(files.map((f) => [f.path, f.content])),
+        ))
+        if (issues.some((i) => i.severity === 'error')) {
+          return failure(`Not written — the spec produces an invalid project:\n${formatIssues(issues)}`)
+        }
+        const count = await writeZip(path, files)
+        return text(`Wrote ${count} file(s) into ${path}. Valid.`)
+      }
+
+      const written = writeTree(path, [...files, { path: '.gitignore', content: DEFAULT_GITIGNORE }])
       const issues = validateProject(new FsTree(path))
       const errors = issues.filter((i) => i.severity === 'error').length
       const summary = `Wrote ${written.length} file(s) to ${path}.`

@@ -47,7 +47,7 @@ survive a machine change would be building on sand.
 the repo, which is what makes it a bug rather than a design choice:
 
 - `docs/conventions.md` mandates the path `packages/default-plugins/<scope>/<name>/`.
-- `.claude/skills/create-plugin/SKILL.md` states "Warehouse plugins go in
+- `.claude/skills/linkr-authoring/references/plugin.md` states "Warehouse plugins go in
   `packages/default-plugins/warehouse/`", with id `linkr-warehouse-<name>` and
   `needsConceptPicker`.
 - `docs/vision-roadmap.md` §6 makes the file-based `plugin.json` model the right
@@ -241,7 +241,7 @@ possible. **Scope: storage and declaration only** — the props contract stays s
 
 1. Create `packages/default-plugins/patient-data/`, sibling of `analyses/`. Fix the
    two documents that currently say `warehouse/` (`docs/conventions.md`,
-   `.claude/skills/create-plugin/SKILL.md`) so the written convention matches.
+   `.claude/skills/linkr-authoring/references/plugin.md`) so the written convention matches.
 2. Move the three inline manifests there as `plugin.json` (keeping ids and
    `configSchema` verbatim — the timeline's schema is non-trivial and already drives
    the shared config panel), `runtime: ["component"]`, each with a `componentId`.
@@ -263,7 +263,7 @@ possible. **Scope: storage and declaration only** — the props contract stays s
    work: it lists `ui.tsx` / `server.py` / `translations.json`, which no shipped plugin
    uses, and describes neither the component model nor the patient-data one.
 7. Make patient-data plugins seedable via project ZIP, retiring the caveat in
-   `create-plugin/SKILL.md`.
+   `linkr-authoring/references/plugin.md`.
 
 ---
 

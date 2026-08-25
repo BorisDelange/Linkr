@@ -38,10 +38,34 @@ export interface WidgetSpec {
   tab: string
   /** Dataset name, as given in `datasets`. */
   dataset?: string
-  pluginId: string
+  /** Plugin id. Omit only for an `inline` widget, which carries `code` instead. */
+  pluginId?: string
   /** Plugin config. Column values may be given as NAMES; they are resolved to ids. */
   config?: Record<string, unknown>
-  layout: { x: number; y: number; w: number; h: number }
+  /** Inline code widget: the source runs in the dashboard instead of a plugin. */
+  code?: string
+  language?: 'python' | 'r'
+  /**
+   * Grid placement. Omit to let widgets flow left-to-right and wrap, which is
+   * what a spec author usually wants: hand-placing every widget on a 48-column
+   * grid is tedious and easy to get wrong (overlaps render as stacked cards).
+   */
+  layout?: { x: number; y: number; w: number; h: number }
+  /** Width/height when the layout is auto-flowed. */
+  w?: number
+  h?: number
+}
+
+export type FilterInputType = 'multi-select' | 'select' | 'range'
+
+export interface FilterSpec {
+  /** Dataset name, as given in `datasets`. */
+  dataset: string
+  /** Column NAME; resolved to its id. */
+  column: string
+  label?: string
+  /** Derived from the column type when omitted. */
+  inputType?: FilterInputType
 }
 
 export interface TabSpec {
@@ -54,6 +78,9 @@ export interface DashboardSpec {
   name: LocalizedInput
   tabs: TabSpec[]
   widgets?: WidgetSpec[]
+  /** Dashboard-level filters, shown in the sidebar. */
+  filters?: FilterSpec[]
+  showWidgetTitles?: boolean
   /** 48-column grid (`gridV: 2`) unless explicitly set to 1. */
   gridV?: 1 | 2
 }
@@ -177,7 +204,7 @@ export function serializeProject(spec: ProjectSpec): WriteFile[] {
     }
   }
 
-  const columnsByDataset = new Map<string, Map<string, string>>()
+  const columnsByDataset = new Map<string, DatasetColumns>()
   if (spec.datasets?.length) {
     files.push(...serializeDatasets(spec.datasets, columnsByDataset))
   }
@@ -191,20 +218,33 @@ export function serializeProject(spec: ProjectSpec): WriteFile[] {
   return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 }
 
+/** Column ids and types of one dataset, keyed by column name. */
+interface DatasetColumns {
+  idByName: Map<string, string>
+  typeById: Map<string, ColumnType>
+}
+
 function serializeDatasets(
   datasets: DatasetSpec[],
-  columnsByDataset: Map<string, Map<string, string>>,
+  columnsByDataset: Map<string, DatasetColumns>,
 ): WriteFile[] {
   const files: WriteFile[] = []
   const entries = datasets.map((dataset) => {
     const header = csvHeader(dataset.csv)
     const ids = buildColumnIds(header)
-    const byName = new Map<string, string>()
-    header.forEach((name, i) => byName.set(name, ids[i]))
+    const idByName = new Map<string, string>()
+    const typeById = new Map<string, ColumnType>()
+    const columns = header.map((name, i) => {
+      const type = dataset.types?.[name] ?? inferType(dataset.csv, i)
+      idByName.set(name, ids[i])
+      typeById.set(ids[i], type)
+      return { id: ids[i], name, type, order: i }
+    })
     // Widgets address a dataset by its file id, which is `<name>.csv`.
     const id = `${dataset.name}.csv`
-    columnsByDataset.set(dataset.name, byName)
-    columnsByDataset.set(id, byName)
+    const resolved: DatasetColumns = { idByName, typeById }
+    columnsByDataset.set(dataset.name, resolved)
+    columnsByDataset.set(id, resolved)
 
     files.push({ path: `datasets/${dataset.name}/${id}`, content: dataset.csv })
 
@@ -214,12 +254,7 @@ function serializeDatasets(
       type: 'file' as const,
       parentId: null,
       path: `${dataset.name}/${id}`,
-      columns: header.map((name, i) => ({
-        id: ids[i],
-        name,
-        type: dataset.types?.[name] ?? inferType(dataset.csv, i),
-        order: i,
-      })),
+      columns,
       rowCount: csvRowCount(dataset.csv),
     }
   })
@@ -228,9 +263,37 @@ function serializeDatasets(
   return files
 }
 
+const GRID_COLUMNS = 48
+const DEFAULT_WIDGET = { w: 24, h: 16 }
+
+/**
+ * Left-to-right cursor that wraps at the grid edge, one per tab.
+ *
+ * Hand-placing every widget on a 48-column grid is tedious and easy to get
+ * wrong — overlapping widgets render as stacked cards with no error — so a
+ * layout is optional in the spec and flows by default.
+ */
+function createFlow() {
+  let x = 0
+  let y = 0
+  let rowHeight = 0
+  return (w: number, h: number) => {
+    const width = Math.min(Math.max(w, 1), GRID_COLUMNS)
+    if (x + width > GRID_COLUMNS) {
+      x = 0
+      y += rowHeight
+      rowHeight = 0
+    }
+    const layout = { x, y, w: width, h: Math.max(h, 1) }
+    x += width
+    rowHeight = Math.max(rowHeight, layout.h)
+    return layout
+  }
+}
+
 function serializeDashboards(
   dashboards: DashboardSpec[],
-  columnsByDataset: Map<string, Map<string, string>>,
+  columnsByDataset: Map<string, DatasetColumns>,
 ): WriteFile[] {
   return dashboards.map((dashboard) => {
     const dashKey = slugify(dashboard.name.en || Object.values(dashboard.name)[0] || 'dashboard')
@@ -257,21 +320,37 @@ function serializeDashboards(
       }
     })
 
+    // One cursor per tab: widgets flow within their own tab, not across tabs.
+    const flows = new Map<string, ReturnType<typeof createFlow>>()
     const widgets = (dashboard.widgets ?? []).map((widget) => {
       const label = widget.name.en || Object.values(widget.name)[0] || ''
       const tabKey = tabKeys.get(widget.tab) ?? ''
       const columns = widget.dataset ? columnsByDataset.get(widget.dataset) : undefined
+
+      if (!flows.has(tabKey)) flows.set(tabKey, createFlow())
+      const layout = widget.layout
+        ?? flows.get(tabKey)!(widget.w ?? DEFAULT_WIDGET.w, widget.h ?? DEFAULT_WIDGET.h)
+
+      const source = widget.code != null
+        ? {
+          type: 'inline',
+          language: widget.language ?? 'python',
+          code: widget.code,
+          config: resolveColumns(widget.config ?? {}, columns),
+        }
+        : {
+          type: 'plugin',
+          pluginId: widget.pluginId,
+          config: resolveColumns(widget.config ?? {}, columns),
+        }
+
       return {
         name: localized(widget.name),
         description: null,
         ...(widget.dataset ? { datasetFileId: `${widget.dataset}.csv` } : {}),
-        layout: widget.layout,
-        source: {
-          type: 'plugin',
-          pluginId: widget.pluginId,
-          config: resolveColumns(widget.config ?? {}, columns),
-        },
-        key: `${tabKey}/${slugify(label)}@${widget.layout.y},${widget.layout.x}`,
+        layout,
+        source,
+        key: `${tabKey}/${slugify(label)}@${layout.y},${layout.x}`,
         tabKey,
       }
     })
@@ -282,7 +361,10 @@ function serializeDashboards(
         dashboard: {
           name: localized(dashboard.name),
           description: null,
-          filterConfig: [],
+          filterConfig: serializeFilters(dashboard.filters ?? [], columnsByDataset),
+          ...(dashboard.showWidgetTitles != null
+            ? { showWidgetTitles: dashboard.showWidgetTitles }
+            : {}),
           gridV: dashboard.gridV ?? 2,
         },
         tabs: tabs.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)),
@@ -303,17 +385,53 @@ function serializeDashboards(
  */
 function resolveColumns(
   config: Record<string, unknown>,
-  columns: Map<string, string> | undefined,
+  columns: DatasetColumns | undefined,
 ): Record<string, unknown> {
-  if (!columns?.size) return config
+  const byName = columns?.idByName
+  if (!byName?.size) return config
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(config)) {
-    if (typeof value === 'string' && columns.has(value)) out[key] = columns.get(value)
+    if (typeof value === 'string' && byName.has(value)) out[key] = byName.get(value)
     else if (Array.isArray(value)) {
-      out[key] = value.map((v) => (typeof v === 'string' && columns.has(v) ? columns.get(v) : v))
+      out[key] = value.map((v) => (typeof v === 'string' && byName.has(v) ? byName.get(v) : v))
     } else out[key] = value
   }
   return out
+}
+
+/**
+ * Filter type from the column type, unless the spec says otherwise.
+ *
+ * A numeric or date column gets a range; anything else a multi-select. Getting
+ * this wrong is not cosmetic — a range control over a categorical column offers
+ * no usable values.
+ */
+function filterTypeOf(type: ColumnType | undefined): {
+  type: string
+  inputType: FilterInputType
+} {
+  if (type === 'number') return { type: 'numeric', inputType: 'range' }
+  if (type === 'date') return { type: 'date', inputType: 'range' }
+  return { type: 'categorical', inputType: 'multi-select' }
+}
+
+function serializeFilters(
+  filters: FilterSpec[],
+  columnsByDataset: Map<string, DatasetColumns>,
+): Record<string, unknown>[] {
+  return filters.map((filter) => {
+    const columns = columnsByDataset.get(filter.dataset)
+    const columnId = columns?.idByName.get(filter.column) ?? filter.column
+    const derived = filterTypeOf(columns?.typeById.get(columnId))
+    return {
+      datasetFileId: `${filter.dataset}.csv`,
+      columnId,
+      columnName: filter.column,
+      type: derived.type,
+      inputType: filter.inputType ?? derived.inputType,
+      ...(filter.label ? { label: filter.label } : {}),
+    }
+  })
 }
 
 function serializeScripts(scripts: ScriptSpec[]): WriteFile[] {

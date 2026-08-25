@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { serializeProject, type ProjectSpec } from '@linkr/format'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  addDashboardTab, addScript, addWidget, describeEntitySchema, describeTree, writeTree,
+  addDashboardTab, addScript, addWidget, describeEntitySchema, describeTree, writeTree, writeZip,
 } from './tools.js'
 
 const CSV = 'patient_id,age,sex,ventilated\n1,60,M,1\n2,71,F,0\n'
@@ -180,6 +180,30 @@ describe('path confinement', () => {
     // on the prefix would let this through.
     expect(() => writeTree(root, [{ path: '../evil/x.txt', content: 'x' }]))
       .toThrow(/escapes the project/)
+  })
+})
+
+describe('writeZip', () => {
+  it('bundles the tree with no wrapping directory', async () => {
+    const target = join(root, 'out.zip')
+    const files = serializeProject(SPEC)
+    await writeZip(target, files)
+
+    const { default: JSZip } = await import('jszip')
+    const zip = await JSZip.loadAsync(readFileSync(target))
+    const paths = Object.keys(zip.files).filter((p) => !zip.files[p].dir)
+    // project.json must sit at the root: a wrapping folder is something the
+    // app's parser then has to strip, and getting it wrong breaks the import.
+    expect(paths).toContain('project.json')
+    expect(paths.some((p) => p.split('/')[0].endsWith('.json') && p.includes('/'))).toBe(false)
+  })
+
+  it('ships a .gitignore that excludes data files', async () => {
+    const target = join(root, 'out.zip')
+    await writeZip(target, serializeProject(SPEC))
+    const { default: JSZip } = await import('jszip')
+    const zip = await JSZip.loadAsync(readFileSync(target))
+    expect(await zip.file('.gitignore')!.async('string')).toContain('datasets/**/*.csv')
   })
 })
 

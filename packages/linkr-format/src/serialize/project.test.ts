@@ -112,6 +112,142 @@ describe('serializeProject', () => {
     expect(validateProject(treeOf(spec))).toEqual([])
   })
 
+  it('flows widgets left to right and wraps at the grid edge', () => {
+    const spec: ProjectSpec = {
+      ...SPEC,
+      dashboards: [
+        {
+          name: { en: 'Overview' },
+          tabs: [{ name: { en: 'Main' } }],
+          widgets: [1, 2, 3].map((n) => ({
+            name: { en: `KPI ${n}` },
+            tab: 'Main',
+            dataset: 'stays',
+            pluginId: 'linkr-analysis-key-indicator',
+            w: 24,
+            h: 8,
+          })),
+        },
+      ],
+    }
+    const dashboard = JSON.parse(treeOf(spec).read('dashboards/overview.json')!)
+    const layouts = dashboard.widgets
+      .map((w: { layout: { x: number; y: number } }) => w.layout)
+      .sort((a: { y: number; x: number }, b: { y: number; x: number }) => a.y - b.y || a.x - b.x)
+    // Two fit on the first row (24 + 24 = 48); the third wraps below.
+    expect(layouts).toEqual([
+      { x: 0, y: 0, w: 24, h: 8 },
+      { x: 24, y: 0, w: 24, h: 8 },
+      { x: 0, y: 8, w: 24, h: 8 },
+    ])
+    expect(validateProject(treeOf(spec))).toEqual([])
+  })
+
+  it('gives each tab its own layout cursor', () => {
+    const spec: ProjectSpec = {
+      ...SPEC,
+      dashboards: [
+        {
+          name: { en: 'Overview' },
+          tabs: [{ name: { en: 'A' } }, { name: { en: 'B' } }],
+          widgets: ['A', 'B'].map((tab) => ({
+            name: { en: `W${tab}` },
+            tab,
+            dataset: 'stays',
+            pluginId: 'p',
+            w: 24,
+            h: 8,
+          })),
+        },
+      ],
+    }
+    const dashboard = JSON.parse(treeOf(spec).read('dashboards/overview.json')!)
+    // Both start at x=0: a second tab does not continue the first tab's row.
+    for (const w of dashboard.widgets) expect(w.layout).toEqual({ x: 0, y: 0, w: 24, h: 8 })
+  })
+
+  it('keeps an explicit layout over the flow', () => {
+    const spec: ProjectSpec = {
+      ...SPEC,
+      dashboards: [
+        {
+          name: { en: 'Overview' },
+          tabs: [{ name: { en: 'Main' } }],
+          widgets: [
+            {
+              name: { en: 'Fixed' },
+              tab: 'Main',
+              dataset: 'stays',
+              pluginId: 'p',
+              layout: { x: 12, y: 4, w: 12, h: 6 },
+            },
+          ],
+        },
+      ],
+    }
+    const dashboard = JSON.parse(treeOf(spec).read('dashboards/overview.json')!)
+    expect(dashboard.widgets[0].layout).toEqual({ x: 12, y: 4, w: 12, h: 6 })
+  })
+
+  it('derives a filter type from its column type', () => {
+    const spec: ProjectSpec = {
+      ...SPEC,
+      dashboards: [
+        {
+          name: { en: 'Overview' },
+          tabs: [{ name: { en: 'Main' } }],
+          filters: [
+            { dataset: 'stays', column: 'sex' },
+            { dataset: 'stays', column: 'age' },
+            { dataset: 'stays', column: 'admitted_at', label: 'Period' },
+          ],
+        },
+      ],
+    }
+    const dashboard = JSON.parse(treeOf(spec).read('dashboards/overview.json')!)
+    expect(dashboard.dashboard.filterConfig).toEqual([
+      {
+        datasetFileId: 'stays.csv', columnId: 'col_sex', columnName: 'sex',
+        type: 'categorical', inputType: 'multi-select',
+      },
+      {
+        datasetFileId: 'stays.csv', columnId: 'col_age', columnName: 'age',
+        type: 'numeric', inputType: 'range',
+      },
+      {
+        datasetFileId: 'stays.csv', columnId: 'col_admitted_at', columnName: 'admitted_at',
+        type: 'date', inputType: 'range', label: 'Period',
+      },
+    ])
+    expect(validateProject(treeOf(spec))).toEqual([])
+  })
+
+  it('serializes an inline code widget', () => {
+    const spec: ProjectSpec = {
+      ...SPEC,
+      dashboards: [
+        {
+          name: { en: 'Overview' },
+          tabs: [{ name: { en: 'Main' } }],
+          widgets: [
+            {
+              name: { en: 'Custom' },
+              tab: 'Main',
+              dataset: 'stays',
+              code: 'print(df.shape)',
+              language: 'python',
+            },
+          ],
+        },
+      ],
+    }
+    const dashboard = JSON.parse(treeOf(spec).read('dashboards/overview.json')!)
+    expect(dashboard.widgets[0].source).toEqual({
+      type: 'inline', language: 'python', code: 'print(df.shape)', config: {},
+    })
+    expect(validateProject(treeOf(spec))).toEqual([])
+  })
+
   it('writes README files per language', () => {
     const tree = treeOf({ ...SPEC, readme: { en: '# Hello', fr: '# Bonjour' } })
     expect(tree.read('README.md')).toBe('# Hello')

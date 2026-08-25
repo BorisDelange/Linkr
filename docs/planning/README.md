@@ -122,7 +122,7 @@ the "Split entity-io.ts" debt item below, not separately.
 | ✅ | 3. Validator wired into `parseProjectZip` (import + git pull), reported after a successful import via `ImportErrorDialog variant="warning"`; never blocks | S |
 | ◐ | 4. `serialize/` done (project/dataset/dashboard/scripts, spec → files, no I/O; what it writes passes the validator). **Remaining: wire `entity-io.ts` export through it** — that is what removes the duplication | M |
 | ✅ | 5. `packages/linkr-mcp`: 7 tools over stdio (`write_project`, `validate_project`, `describe_tree`, `describe_entity_schema`, `add_dashboard_tab`, `add_widget`, `add_script`), 15 tests, verified end to end over real JSON-RPC. No zod — the SDK's `fromJsonSchema` takes plain JSON Schema | S/M |
-| 🔜 | 6–7. `linkr-authoring` skill + references; `create-project` → wrapper, **delete `build_zip.py`** | S |
+| ✅ | 6–7. `linkr-authoring` skill + 6 references (`create-plugin` folded in as `plugin.md`); `create-project` → thin wrapper; `build_zip.py` and its Python format copy deleted | S |
 | 🔜 | 8. Remaining entities (plugin, cohort, sql, etl, schema-preset, dq), one at a time | L |
 | 💤 | 9–10. `validate` in the `linkr-public-content` CI; granular edit tools | S |
 | 🤔 | Open: folder vs ZIP output, how `linkr-format` ships to the MCP, import severity | S (decision) |
