@@ -189,7 +189,12 @@ export function Header() {
   const catalogEntity = useCatalogStore((s) => catalogId ? resolveByIdPrefix(s.catalogs, catalogId, (c) => c.id) : undefined)
   const cmProject = useConceptMappingStore((s) => cmId ? resolveByIdPrefix(s.mappingProjects, cmId, (p) => p.id) : undefined)
   const dqEntity = useDqStore((s) => dqId ? resolveByIdPrefix(s.dqRuleSets, dqId, (r) => r.id) : undefined)
-  const schemaPreset = useSchemaPresetStore((s) => schemaId ? resolveByIdPrefix(s.presets, schemaId, (p) => p.presetId) : undefined)
+  // `id` first, `presetId` second: the URL carries a shortened id now, but one
+  // bookmarked before the switch still carries the slug.
+  const schemaPreset = useSchemaPresetStore((s) => schemaId
+    ? (resolveByIdPrefix(s.presets, schemaId, (p) => p.id ?? p.presetId)
+      ?? resolveByIdPrefix(s.presets, schemaId, (p) => p.presetId))
+    : undefined)
   const dbEntity = useDataSourceStore((s) => dbId ? resolveByIdPrefix(s.dataSources, dbId, (d) => d.id) : undefined)
 
   // Plugin editor is driven by store state (not a route). When a plugin is open,

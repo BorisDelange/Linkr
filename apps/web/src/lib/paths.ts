@@ -72,10 +72,12 @@ export const paths = {
   warehouseDqRuleSet: (wsUid: string, ruleSetId: string) =>
     `${ws(wsUid)}/warehouse/data-quality/${shortenId(ruleSetId)}`,
   warehouseSchemas: (wsUid: string) => `${ws(wsUid)}/warehouse/schemas`,
-  // A preset's id is its presetId, which is already a readable slug — not shortened,
-  // unlike the uuid-keyed entities above.
-  warehouseSchema: (wsUid: string, presetId: string) =>
-    `${ws(wsUid)}/warehouse/schemas/${presetId}`,
+  // Shortened like every other uuid-keyed entity. It used to carry the raw
+  // presetId because that field was at once the key and the readable slug; the
+  // slug now lives in `entityId` and the key is a uuid, so the exception went
+  // with it (docs/planning/schema-preset-identity-plan.md).
+  warehouseSchema: (wsUid: string, id: string) =>
+    `${ws(wsUid)}/warehouse/schemas/${shortenId(id)}`,
   warehouseDatabases: (wsUid: string) => `${ws(wsUid)}/warehouse/databases`,
   warehouseDatabase: (wsUid: string, dbId: string, siblings?: readonly string[]) =>
     `${ws(wsUid)}/warehouse/databases/${siblings ? shortenIdAmong(dbId, siblings) : shortenId(dbId)}`,

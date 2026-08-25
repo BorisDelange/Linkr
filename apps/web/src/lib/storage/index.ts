@@ -116,9 +116,11 @@ export interface FileHandleStorage {
 export interface SchemaPresetStorage {
   getAll(): Promise<CustomSchemaPreset[]>
   getByWorkspace(workspaceId: string): Promise<CustomSchemaPreset[]>
-  getById(presetId: string): Promise<CustomSchemaPreset | undefined>
+  /** Accepts an `id` (the key) or a `presetId`, while both identities coexist. */
+  getById(id: string): Promise<CustomSchemaPreset | undefined>
   save(preset: CustomSchemaPreset): Promise<void>
-  delete(presetId: string): Promise<void>
+  /** Accepts an `id` or a `presetId`, like `getById`. */
+  delete(id: string): Promise<void>
 }
 
 /** Storage interface for pipeline persistence. */

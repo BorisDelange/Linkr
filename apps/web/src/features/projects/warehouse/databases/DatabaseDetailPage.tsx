@@ -544,7 +544,7 @@ function SchemaCard({ source }: { source: DataSource }) {
 
   return (
     <Link
-      to={paths.warehouseSchema(wsUid ?? '', installed.presetId)}
+      to={paths.warehouseSchema(wsUid ?? '', installed.id ?? installed.presetId)}
       className={cn(shell, 'transition-colors hover:bg-accent')}
     >
       {body}

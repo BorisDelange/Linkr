@@ -82,10 +82,12 @@ export function idOf(type: CatalogEntry['type'], meta: Record<string, unknown>):
 /**
  * A fresh local id for a duplicate install.
  *
- * A schema preset's id IS its user-facing Identifier: it fills that field, it is what
- * the URL carries, and it is how two schemas are told apart. Minting a raw uuid there
- * put a 36-character string in front of the user. The Schemas page's own ZIP importer
- * already mints `custom-<8 hex>` when duplicating — same situation, same answer.
+ * A schema preset still gets `custom-<8 hex>` rather than a uuid: its `presetId`
+ * remains the row key AND the Identifier the user sees in the field and in
+ * exports, so a 36-character string would land in front of them. That ends when
+ * `presetId` is retired in favour of `id` + `entityId` — the uuid goes in the
+ * key, the readable slug in `entityId`, and this branch goes with it. See
+ * docs/planning/schema-preset-identity-plan.md.
  *
  * The other types key on an opaque uuid the user never sees, so they keep one.
  */

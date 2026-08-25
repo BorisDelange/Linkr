@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useUrlTab } from '@/hooks/use-url-tab'
-import { resolveByIdPrefix } from '@/lib/short-id'
+import { resolveByIdPrefix, shortenId } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import {
   Database,
@@ -1940,13 +1940,19 @@ export function SchemaPresetsPage() {
     navigate(presetId)
   }
 
+  /** URL segment for a preset: its shortened `id`, like every other entity. */
+  const schemaSegment = (presetId: string) => {
+    const preset = customPresets.find((p) => p.presetId === presetId)
+    return shortenId(preset?.id ?? presetId)
+  }
+
   const navigateToSchema = (presetId: string) => {
-    navigate(presetId)
+    navigate(schemaSegment(presetId))
   }
 
   /** Open a schema straight on one of its tabs, as the database list does. */
   const navigateToSchemaTab = (presetId: string, tab: string) => {
-    navigate(`${presetId}?tab=${tab}`)
+    navigate(`${schemaSegment(presetId)}?tab=${tab}`)
   }
 
   const navigateToList = () => {
@@ -1954,7 +1960,13 @@ export function SchemaPresetsPage() {
   }
 
   // ── If schemaId is in URL, show detail page ──
-  const schemaId = resolveByIdPrefix(customPresets, raw.schemaId, (p) => p.presetId)?.presetId ?? raw.schemaId
+  // The URL carries a shortened `id` now, but links and bookmarks made before
+  // that change carry a presetId — so both resolve, and the page keeps working
+  // on either. Everything downstream still addresses the preset by presetId.
+  const schemaId =
+    (resolveByIdPrefix(customPresets, raw.schemaId, (p) => p.id ?? p.presetId)
+      ?? resolveByIdPrefix(customPresets, raw.schemaId, (p) => p.presetId))?.presetId
+    ?? raw.schemaId
   if (schemaId) {
     return (
       <SchemaDetailView

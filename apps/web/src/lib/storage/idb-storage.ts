@@ -327,7 +327,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 40
+const DB_VERSION = 41
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -915,6 +915,41 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
           widgetStore.createIndex('by-tab', 'tabId')
         }
       }
+      // Version 41: schema presets keyed on `id`, like every other entity.
+      //
+      // `presetId` used to be the key, the user-facing slug AND the
+      // cross-instance identity all at once — see
+      // docs/planning/schema-preset-identity-plan.md. A keyPath cannot be
+      // altered in place, so the store is recreated and its rows copied over,
+      // the way v6 moved omop_stats_cache → database_stats_cache.
+      //
+      // Rows written before v40 carry no `id`: they take `presetId` as theirs,
+      // matching what the server-side backfill does. Minting a fresh uuid here
+      // instead would break every subsystem already pointing at that value (git
+      // working trees, README attachment owners, git_sync_state).
+      if (oldVersion < 41) {
+        if (db.objectStoreNames.contains('schema_presets')) {
+          // Read BEFORE dropping, but drop and recreate synchronously: store
+          // creation is only legal while the upgrade transaction is live, and
+          // it would already have finished inside the .then(). Only the copy —
+          // a plain write — happens in the callback. This is the order v6 used
+          // for omop_stats_cache; getting it wrong loses every preset.
+          const rows = transaction.objectStore('schema_presets').getAll() as
+            Promise<CustomSchemaPreset[]>
+          db.deleteObjectStore('schema_presets')
+          const store = db.createObjectStore('schema_presets', { keyPath: 'id' })
+          store.createIndex('by-workspace', 'workspaceId')
+          rows.then((presets) => {
+            for (const preset of presets) {
+              ;(store as unknown as { put: (v: CustomSchemaPreset) => void }).put({
+                ...preset,
+                id: preset.id ?? preset.presetId,
+                entityId: preset.entityId ?? preset.presetId,
+              })
+            }
+          })
+        }
+      }
     },
   })
   // Auto-close when another tab requests a deleteDatabase or version upgrade
@@ -1271,19 +1306,40 @@ class IDBSchemaPresetStorage implements SchemaPresetStorage {
     return db.getAllFromIndex('schema_presets', 'by-workspace', workspaceId)
   }
 
-  async getById(presetId: string): Promise<CustomSchemaPreset | undefined> {
+  /**
+   * Look a preset up by `id`, falling back to `presetId`.
+   *
+   * The store is keyed on `id` since v41, but callers still hold a `presetId` in
+   * plenty of places (URLs, exports, the catalog) while the rename works its way
+   * through — so both resolve. The fallback scans, which is fine for a handful
+   * of presets and disappears once nothing passes a presetId.
+   */
+  async getById(id: string): Promise<CustomSchemaPreset | undefined> {
     const db = await getDB()
-    return db.get('schema_presets', presetId)
+    const byId = await db.get('schema_presets', id)
+    if (byId) return byId
+    const all = await db.getAll('schema_presets')
+    return all.find((p) => p.presetId === id)
   }
 
   async save(preset: CustomSchemaPreset): Promise<void> {
     const db = await getDB()
-    await db.put('schema_presets', preset)
+    // The keyPath is `id`; a row without one cannot be stored at all. Callers
+    // that build a preset by hand (an old import, a hand-written fixture) get
+    // one here rather than a silent DataError.
+    await db.put('schema_presets', {
+      ...preset,
+      id: preset.id ?? preset.presetId,
+      entityId: preset.entityId ?? preset.presetId,
+    })
   }
 
-  async delete(presetId: string): Promise<void> {
+  async delete(id: string): Promise<void> {
     const db = await getDB()
-    await db.delete('schema_presets', presetId)
+    const row = await this.getById(id)
+    // Delete the row we actually resolved: passing a presetId to db.delete()
+    // would silently remove nothing now that the key is `id`.
+    if (row?.id) await db.delete('schema_presets', row.id)
   }
 }
 

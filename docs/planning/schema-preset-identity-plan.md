@@ -88,10 +88,10 @@ switches to `lineageId`, which is what fixes defect 1.
 |---|---|---|---|
 | 1 | ✅ **Fix the drift first, on its own** — clone/move rewrite `mapping.presetId`, and ZIP import matches on `lineageId` instead | S | Done: commit `5626004f` |
 | 2 | ✅ Add `id` + `entityId` to the TS type and the server model; write both on every save path | M | Done. Additive — nothing *reads* them yet, so the app behaves identically |
-| 3 | Switch the **key**: IndexedDB store keyed on `id`, alembic PK move, `presetId` retired | M | The irreversible step; no FK to update. The columns are populated by then |
-| 4 | Switch readers to `id`/`entityId`: routes + `paths.ts` (**shortened uuid, like the others**), catalog `idOf`/`freshId`/`findExisting`, storage, git `_entity_id`, export/import, versioning | L | Mechanical once 2–3 land; `freshId` becomes `crypto.randomUUID()` |
-| 5 | Delete the special-cases (`installed.ts` three-way fallback, the actions shim, the git getattr, the WsExportTab note) | S | The payoff |
-| 6 | Regenerate the golden export fixtures; re-export the 4 published preset repos | S | `__fixtures__/export-golden/schema-preset/` |
+| 3 | ✅ **Client key + URL**: IndexedDB store keyed on `id` (v41), storage resolves either identity, URL takes the shortened uuid | M | Done. The server PK has NOT moved — see below |
+| 4 | Move the **server** PK to `id`, retire `presetId` from the routes and the API storage | M | The remaining irreversible step |
+| 5 | Delete the special-cases (`installed.ts` three-way fallback, the actions shim, the git `getattr`, `freshId`'s `custom-<8hex>`, the WsExportTab note) | S | The payoff; all still in place |
+| 6 | Regenerate the golden export fixtures; re-export the 4 published preset repos | S | Fixture done in step 2; the repos still need a re-export for their `lineageId` |
 
 **Step 1 was worth doing now even if the rest waits** — a real defect with a data-loss
 outcome, independent of the rename.
@@ -117,6 +117,32 @@ separately.
 verified by reading and by key-order comparison, **not** by running the suite: the API's
 dependencies are not installed in this environment. Run `pytest apps/api` before relying
 on them.
+
+### Where step 3 left things (2026-08-25)
+
+**The client key moved; the server key did not.** IndexedDB store v41 is keyed on `id`,
+recreated and copied over (a keyPath cannot be altered in place). Rows written before
+step 2 take `presetId` as their `id`, matching the alembic backfill.
+
+`getById` / `delete` accept **either** identity — an `id` or a `presetId` — because URLs,
+exports and the catalog still hand over the latter. In server mode `delete` resolves the
+row first, since the route keys on `preset_id` and passing an `id` through would 404 or,
+once the two diverge, hit a different row. Six tests cover that resolution.
+
+The **URL now carries the shortened uuid** like every other entity; the page and the
+breadcrumb resolve `id` first and fall back to `presetId`, so a link bookmarked before
+the switch still opens.
+
+What is deliberately NOT done: the server PK is still `preset_id`, so
+`freshId`'s `custom-<8hex>`, the `installed.ts` fallback, the actions shim and the git
+`getattr` all stay — they are step 4/5, and removing them before the PK moves would break
+the routes.
+
+⚠️ The IndexedDB v41 migration is **not covered by a test** (no fixture harness for IDB
+upgrades here); it follows the v6 `omop_stats_cache` precedent, whose ordering constraint
+matters — `deleteObjectStore`/`createObjectStore` must run synchronously inside the
+upgrade transaction, with only the row copy in the `.then()`. Worth exercising by hand on
+a database that predates v41 before shipping.
 
 ## Decisions (2026-08-25)
 
