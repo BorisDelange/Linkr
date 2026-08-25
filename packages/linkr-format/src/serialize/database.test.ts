@@ -3,12 +3,22 @@ import { MemoryTree } from '../tree.js'
 import { detectTreeKind, validateEntity } from '../validate/entities.js'
 import { serializeDatabase, type DatabaseSpec } from './database.js'
 
+const MAPPING = {
+  presetId: 'mimic-iv',
+  presetLabel: { en: 'MIMIC-IV', fr: 'MIMIC-IV' },
+  patientTable: { table: 'patients', idColumn: 'subject_id' },
+}
+
 const SPEC: DatabaseSpec = {
   id: 'mimic-iv-demo',
   alias: 'mimic_iv_demo',
   name: { en: 'MIMIC-IV Demo', fr: 'MIMIC-IV démo' },
   description: { en: 'Public demo subset, ODbL 1.0.' },
-  schema: 'mimic-iv',
+  schema: MAPPING,
+  schemaSource: {
+    lineageId: 'lin-mimic-iv',
+    label: { en: 'MIMIC-IV', fr: 'MIMIC-IV' },
+  },
   tables: [
     { name: 'patients', source: '/data/patients.parquet' },
     { name: 'admissions', source: '/data/admissions.parquet' },
@@ -87,7 +97,7 @@ describe('serializeDatabase', () => {
     // impossible to publish one.
     const { files, copies } = serializeDatabase({
       id: 'etl-target', alias: 'target', name: { en: 'Target' },
-      schema: 'omop-5.4', inMemory: true,
+      schema: MAPPING, schemaSource: SPEC.schemaSource, inMemory: true,
     })
     expect(copies).toEqual([])
     expect(files.map((f) => f.path)).toEqual(['_database.json'])
@@ -99,7 +109,7 @@ describe('serializeDatabase', () => {
     // Silently writing an empty database imports as one with no data and no
     // explanation, so this fails at authoring time instead.
     expect(() => serializeDatabase({
-      id: 'empty', alias: 'empty', name: { en: 'Empty' }, schema: 'omop-5.4',
+      id: 'empty', alias: 'empty', name: { en: 'Empty' }, schema: MAPPING,
     })).toThrow(/no tables/)
   })
 
@@ -120,7 +130,7 @@ describe('validateEntity(database)', () => {
   it('flags a connection config as an error', () => {
     const tree = new MemoryTree({
       '_database.json': JSON.stringify({
-        id: 'x', alias: 'x', name: { en: 'X' }, schema: 'omop-5.4', tables: [],
+        id: 'x', alias: 'x', name: { en: 'X' }, schema: MAPPING, schemaSource: SPEC.schemaSource, tables: [],
         connectionConfig: { engine: 'postgres', host: 'db.chu.fr', password: 's3cret' },
       }),
     })
@@ -131,7 +141,7 @@ describe('validateEntity(database)', () => {
   it('warns when a declared table has no file', () => {
     const tree = new MemoryTree({
       '_database.json': JSON.stringify({
-        id: 'x', alias: 'x', name: { en: 'X' }, schema: 'omop-5.4', tables: ['person'],
+        id: 'x', alias: 'x', name: { en: 'X' }, schema: MAPPING, schemaSource: SPEC.schemaSource, tables: ['person'],
       }),
     })
     const issues = validateEntity(tree, 'database')
@@ -142,7 +152,7 @@ describe('validateEntity(database)', () => {
     // It would ship in the repo and never load — the silent half of a mismatch.
     const tree = new MemoryTree({
       '_database.json': JSON.stringify({
-        id: 'x', alias: 'x', name: { en: 'X' }, schema: 'omop-5.4', tables: ['person'],
+        id: 'x', alias: 'x', name: { en: 'X' }, schema: MAPPING, schemaSource: SPEC.schemaSource, tables: ['person'],
       }),
       'data/person.parquet': 'PARQUET',
       'data/orphan.parquet': 'PARQUET',
@@ -155,12 +165,37 @@ describe('validateEntity(database)', () => {
   it('warns when Parquet is present without LFS tracking', () => {
     const tree = new MemoryTree({
       '_database.json': JSON.stringify({
-        id: 'x', alias: 'x', name: { en: 'X' }, schema: 'omop-5.4', tables: ['person'],
+        id: 'x', alias: 'x', name: { en: 'X' }, schema: MAPPING, schemaSource: SPEC.schemaSource, tables: ['person'],
       }),
       'data/person.parquet': 'PARQUET',
     })
     const issues = validateEntity(tree, 'database')
     expect(issues.some((i) => i.path === '.gitattributes')).toBe(true)
+  })
+
+  it('rejects a schema given as a bare name', () => {
+    // A name only resolves against presets installed on the importing instance,
+    // and the built-in table that used to answer those lookups is being retired.
+    // A repo naming its schema is not self-contained.
+    const tree = new MemoryTree({
+      '_database.json': JSON.stringify({
+        id: 'x', alias: 'x', name: { en: 'X' }, schema: 'omop-5.4', tables: [],
+      }),
+    })
+    const issues = validateEntity(tree, 'database')
+    expect(issues.some((i) => i.severity === 'error' && i.pointer === '/schema')).toBe(true)
+  })
+
+  it('warns when nothing records where the schema came from', () => {
+    // Without provenance the app cannot name the schema once its preset is gone,
+    // nor recognize two copies of the same one across instances.
+    const tree = new MemoryTree({
+      '_database.json': JSON.stringify({
+        id: 'x', alias: 'x', name: { en: 'X' }, schema: MAPPING, tables: [],
+      }),
+    })
+    const issues = validateEntity(tree, 'database')
+    expect(issues.some((i) => i.pointer === '/schemaSource')).toBe(true)
   })
 
   it('requires a schema', () => {

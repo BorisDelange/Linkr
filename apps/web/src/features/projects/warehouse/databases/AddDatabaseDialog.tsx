@@ -17,6 +17,7 @@ import type {
   SchemaPresetId,
   CustomSchemaPreset,
   ProjectBadge,
+  SchemaSource,
 } from '@/types'
 import {
   Database,
@@ -268,6 +269,7 @@ export function AddDatabaseDialog({
       if (isEditMode && editingSource) {
         // Edit mode — update metadata + optionally re-import files
         const mapping = resolveMapping()
+        const schemaSource = resolveSchemaSource()
         const hasNewFiles = uploadedFiles.length > 0 || fsHandles.length > 0
 
         if (hasNewFiles) {
@@ -294,6 +296,7 @@ export function AddDatabaseDialog({
               sourceType: 'database',
               connectionConfig,
               schemaMapping: mapping,
+              schemaSource,
               files: fsHandles.length > 0 ? undefined : (uploadedFiles.length > 0 ? uploadedFiles : undefined),
               fileHandles: fsHandles.length > 0 ? fsHandles : undefined,
               alias: alias.trim() || undefined,
@@ -308,6 +311,7 @@ export function AddDatabaseDialog({
             alias: alias.trim() || editingSource.alias,
             description: setLocalized(editingSource.description, language, description.trim()),
             schemaMapping: mapping,
+            schemaSource,
             badges,
             version: version.trim() || '0.1.0',
           }
@@ -358,6 +362,7 @@ export function AddDatabaseDialog({
         }
 
         const mapping = resolveMapping()
+        const schemaSource = resolveSchemaSource()
 
         const newId = await addDataSource({
           name: setLocalized({}, language, name.trim()),
@@ -365,6 +370,7 @@ export function AddDatabaseDialog({
           sourceType: 'database',
           connectionConfig,
           schemaMapping: mapping,
+          schemaSource,
           files: fsHandles.length > 0 ? undefined : (uploadedFiles.length > 0 ? uploadedFiles : undefined),
           fileHandles: fsHandles.length > 0 ? fsHandles : undefined,
           alias: alias.trim() || undefined,
@@ -480,6 +486,28 @@ export function AddDatabaseDialog({
     if (builtin) return builtin
     const custom = customPresets.find((p) => p.presetId === schemaPresetId)
     return custom?.mapping
+  }
+
+  /**
+   * Record which preset the mapping was copied from.
+   *
+   * The mapping itself is copied into the source, so once saved nothing else
+   * says where it came from — the preset can be edited, deleted, or live only on
+   * another instance. `lineageId` identifies it across instances and `label`
+   * keeps it nameable when it is not installed here.
+   */
+  const resolveSchemaSource = (): SchemaSource | undefined => {
+    if (schemaPresetId === '__none__') return undefined
+    const custom = customPresets.find((p) => p.presetId === schemaPresetId)
+    // No lineage, no provenance: a preset's own id is a local primary key,
+    // regenerated on import, so recording it would name the schema on this
+    // instance and nothing anywhere else.
+    if (!custom?.lineageId) return undefined
+    return {
+      lineageId: custom.lineageId,
+      label: custom.mapping.presetLabel,
+      ...(custom.version ? { version: custom.version } : {}),
+    }
   }
 
   // Group uploaded parquet files by table for preview

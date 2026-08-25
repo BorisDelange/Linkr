@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "linkr": {
+      "command": "npx",
+      "args": ["-y", "tsx", "packages/linkr-mcp/src/server.ts"]
+    }
+  }
+}

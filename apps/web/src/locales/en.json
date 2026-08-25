@@ -753,6 +753,7 @@
     "create_from_preset_description": "Create an empty database with the table structure defined by a schema preset (DDL).",
     "create_from_schema_description": "Create an empty database with the table structure defined by a schema's DDL.",
     "schema_preset": "Schema",
+    "schema_not_installed": "Schema (not installed)",
     "select_preset": "Select a schema...",
     "no_presets_with_ddl": "No schemas with DDL available. Add a DDL to a schema in the Schemas page.",
     "no_schema": "No schema (raw SQL access)",

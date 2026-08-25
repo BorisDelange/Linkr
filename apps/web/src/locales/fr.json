@@ -753,6 +753,7 @@
     "create_from_preset_description": "Créer une base de données vide avec la structure de tables définie par un preset de schéma (DDL).",
     "create_from_schema_description": "Créer une base de données vide avec la structure de tables définie par le DDL d'un schéma.",
     "schema_preset": "Schéma",
+    "schema_not_installed": "Schéma (non installé)",
     "select_preset": "Sélectionner un schéma...",
     "no_presets_with_ddl": "Aucun schéma avec DDL disponible. Ajoutez un DDL à un schéma dans la page Schémas.",
     "no_schema": "Aucun schéma (accès SQL brut)",

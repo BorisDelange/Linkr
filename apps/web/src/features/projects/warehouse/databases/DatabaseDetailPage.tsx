@@ -18,8 +18,10 @@ import {
   Table2,
   Users,
 } from 'lucide-react'
-import type { DataSource, DatabaseConnectionConfig, SchemaMapping } from '@/types'
+import type { CustomSchemaPreset, DataSource, DatabaseConnectionConfig, SchemaMapping } from '@/types'
 import { localized } from '@/lib/localized'
+import { getStorage } from '@/lib/storage'
+import { cn } from '@/lib/utils'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
@@ -485,29 +487,67 @@ function DatabaseStatCards({
 /**
  * The data model this database was built on, linking to the schema itself.
  *
- * `presetId` names a workspace schema, so the label is a way in rather than a
- * dead string: it is how you go and read what the tables are supposed to be.
+ * A database **copies** its mapping rather than referencing a preset, so the
+ * schema it came from may not exist here at all — an imported database whose
+ * schema repo nobody installed is the normal case, not an edge one. The card
+ * therefore always names the schema (from `schemaSource.label`, or the copied
+ * mapping's own label) and only becomes a link when that schema is actually
+ * present: linking regardless produced a dead end on a page that looked
+ * clickable.
  */
 function SchemaCard({ source }: { source: DataSource }) {
   const { t, i18n } = useTranslation()
   const { wsUid } = useResolvedParams()
+  const [presets, setPresets] = useState<CustomSchemaPreset[]>([])
   const mapping = source.schemaMapping
+  const provenance = source.schemaSource
+
+  useEffect(() => {
+    const storage = getStorage()
+    const loader = wsUid ? storage.schemaPresets.getByWorkspace(wsUid) : storage.schemaPresets.getAll()
+    loader.then(setPresets).catch(() => setPresets([]))
+  }, [wsUid])
+
   if (!mapping?.presetId || mapping.presetId === 'none') return null
 
-  const label = localized(mapping.presetLabel, i18n.language) || mapping.presetId
+  const label =
+    localized(provenance?.label, i18n.language)
+    || localized(mapping.presetLabel, i18n.language)
+    || mapping.presetId
 
-  return (
-    <Link
-      to={paths.warehouseSchema(wsUid ?? '', mapping.presetId)}
-      className="flex shrink-0 items-center gap-3 rounded-xl border bg-card p-4 shadow-sm transition-colors hover:bg-accent"
-    >
+  // Lineage is the identity that survives crossing instances, so it is tried
+  // first. The copied mapping's `presetId` is only a LOCAL primary key — useless
+  // for an imported database, but exactly right for one built here, which is
+  // every database created before provenance was recorded.
+  const installed =
+    (provenance?.lineageId != null
+      ? presets.find((p) => p.lineageId === provenance.lineageId)
+      : undefined)
+    ?? presets.find((p) => p.presetId === mapping.presetId)
+
+  const body = (
+    <>
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-100 dark:bg-teal-950">
         <FileSpreadsheet size={16} className="text-teal-600 dark:text-teal-400" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{label}</div>
-        <div className="text-xs text-muted-foreground">{t('databases.schema_preset')}</div>
+        <div className="text-xs text-muted-foreground">
+          {installed ? t('databases.schema_preset') : t('databases.schema_not_installed')}
+        </div>
       </div>
+    </>
+  )
+
+  const shell = 'flex shrink-0 items-center gap-3 rounded-xl border bg-card p-4 shadow-sm'
+  if (!installed) return <div className={shell}>{body}</div>
+
+  return (
+    <Link
+      to={paths.warehouseSchema(wsUid ?? '', installed.presetId)}
+      className={cn(shell, 'transition-colors hover:bg-accent')}
+    >
+      {body}
       <ArrowUpRight size={14} className="shrink-0 text-muted-foreground" />
     </Link>
   )

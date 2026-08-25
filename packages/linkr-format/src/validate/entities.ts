@@ -134,7 +134,42 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
 
   if (db.schema == null) {
     bag.error(path, '/schema', 'missing-field',
-      'A database needs `schema`: a preset id (e.g. "omop-5.4") or an inline mapping.')
+      'A database needs `schema`: the full mapping saying how to read its tables.')
+  } else if (typeof db.schema === 'string') {
+    // A name only resolves against presets installed on the importing instance,
+    // and the built-in preset table that used to answer these lookups is being
+    // retired — schemas are installed from the catalog now. A repo naming its
+    // schema is therefore not self-contained.
+    bag.error(path, '/schema', 'wrong-type',
+      `\`schema\` is the name "${db.schema}", not a mapping. A name only resolves if that `
+      + 'preset happens to be installed.',
+      'inline the full mapping from the schema preset repo, and record its identity in `schemaSource`')
+  } else if (!isObject(db.schema)) {
+    bag.error(path, '/schema', 'wrong-type', '`schema` must be a mapping object.')
+  }
+
+  // Provenance is what lets the app name the schema when the preset is not
+  // installed locally, and recognize two copies of the same one across
+  // instances. Absent, the database still works — hence a warning.
+  const source = db.schemaSource
+  if (source == null) {
+    bag.warn(path, '/schemaSource', 'missing-field',
+      'No `schemaSource`: nothing records which published schema this mapping came from.',
+      'add { lineageId, label } from the schema preset repo')
+  } else if (!isObject(source)) {
+    bag.error(path, '/schemaSource', 'wrong-type', '`schemaSource` must be an object.')
+  } else {
+    // A preset's own `presetId` is a local primary key, regenerated on import —
+    // it identifies nothing on another instance. `lineageId` is the identity.
+    checkString(bag, path, '/schemaSource/lineageId', source.lineageId, {
+      required: true,
+      label: 'lineageId',
+    })
+    if (source.label == null) {
+      bag.warn(path, '/schemaSource/label', 'missing-field',
+        'No `label`: the schema has no name wherever it is not installed.',
+        'copy `presetLabel` from the schema preset')
+    }
   }
 
   const declared = db.tables

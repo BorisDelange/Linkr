@@ -27,6 +27,38 @@ export interface DatabaseTableSpec {
   source: string
 }
 
+/**
+ * Where a database's schema came from — kept alongside the mapping itself.
+ *
+ * A database **copies** its mapping rather than referencing one (`DataSource
+ * .schemaMapping` is the whole mapping, not a foreign key), which is what makes
+ * a repo self-contained. But a copy loses provenance: nothing then says which
+ * published schema this was, and a UI can only print whatever `presetId` the
+ * copied mapping happens to carry.
+ *
+ * So the provenance travels separately, and it carries **both** halves for the
+ * same reason `createdByDetails` sits next to `createdBy`: the id resolves the
+ * schema when it is installed, and the snapshot stays readable when it is not.
+ * Without the labels a database whose schema was never installed here shows an
+ * opaque slug; without the id, two copies of the same schema cannot be told
+ * apart across instances.
+ */
+export interface SchemaProvenance {
+  /**
+   * Cross-instance identity of the source preset, verbatim from its `lineageId`.
+   *
+   * Not the preset's `presetId`: that is a local primary key, regenerated on
+   * import to keep local uniqueness, so it identifies nothing on another
+   * instance. `lineageId` is preserved verbatim precisely so the same schema
+   * stays recognizable — see the `Lineaged` mixin.
+   */
+  lineageId: string
+  /** Human-readable name, so the schema stays nameable when it is not installed. */
+  label?: LocalizedInput
+  /** Author-declared version of the preset this was taken from. */
+  version?: string
+}
+
 export interface DatabaseSpec {
   /** Stable identity, e.g. `mimic-iv-demo`. Travels across instances. */
   id: string
@@ -35,11 +67,17 @@ export interface DatabaseSpec {
   name: LocalizedInput
   description?: LocalizedInput
   /**
-   * How to read the tables: a schema preset id (`omop-5.4`) or an inline
-   * mapping. An id must resolve on the importing instance — ship the preset
-   * repo alongside, or inline the mapping if unsure.
+   * How to read the tables — **the mapping itself**, written inline.
+   *
+   * A bare string is accepted for convenience while authoring, but it is
+   * resolved to a full mapping before writing: the built-in preset table it
+   * would otherwise be looked up in is being retired (schemas are installed
+   * from the catalog now, not compiled in), so a file holding only a name would
+   * stop resolving. Inline also makes the repo installable in any order.
    */
   schema: string | Record<string, unknown>
+  /** Which published schema this mapping came from. See `SchemaProvenance`. */
+  schemaSource?: SchemaProvenance
   /** The tables. Empty is allowed: an in-memory target database has none. */
   tables?: DatabaseTableSpec[]
   /** True for a database with no data files (e.g. an ETL target). */
@@ -92,15 +130,37 @@ export function serializeDatabase(spec: DatabaseSpec): SerializedTree {
   // git diff shows only real changes.
   const ordered = [...tables].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 
+  if (typeof spec.schema === 'string') {
+    // Writing a bare name would produce a file that only resolves against the
+    // built-in preset table — which is being retired, since schemas are
+    // installed from the catalog now rather than compiled into the app. The
+    // repo has to carry the mapping to stay readable.
+    throw new Error(
+      `Database "${spec.id}" declares its schema as the name "${spec.schema}". `
+      + 'Pass the full mapping instead: a name only resolves against presets installed '
+      + 'on the importing instance, so the repo would not be self-contained. '
+      + 'Read the mapping from the schema preset repo and inline it, recording where it '
+      + 'came from in `schemaSource`.',
+    )
+  }
+
+  const source = spec.schemaSource
   const meta = {
     id: spec.id,
     alias: spec.alias,
     name: localized(spec.name),
     ...(spec.description ? { description: localized(spec.description) } : {}),
     sourceType: 'database',
-    schema: typeof spec.schema === 'string'
-      ? spec.schema
-      : canonicalSchemaMapping(spec.schema),
+    schema: canonicalSchemaMapping(spec.schema),
+    ...(source
+      ? {
+        schemaSource: {
+          lineageId: source.lineageId,
+          ...(source.label ? { label: localized(source.label) } : {}),
+          ...(source.version ? { version: source.version } : {}),
+        },
+      }
+      : {}),
     tables: ordered.map((t) => t.name),
     ...(spec.inMemory ? { inMemory: true } : {}),
     ...(spec.isVocabularyReference ? { isVocabularyReference: true } : {}),

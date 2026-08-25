@@ -29,7 +29,7 @@ import type {
   SourceConceptIdRange, SourceConceptIdEntry,
   DataCatalog, ServiceMapping, UserPlugin,
   DataSource, CustomSchemaPreset,
-  DatabaseConnectionConfig, StoredFile, SchemaMapping,
+  DatabaseConnectionConfig, StoredFile, SchemaMapping, SchemaSource,
   GitRemoteConfig,
   LocalizedString, TodoItem,
   Organization, OrganizationInfo,
@@ -2392,6 +2392,7 @@ interface DatabaseRepoMeta {
   name?: LocalizedString | string
   description?: LocalizedString | string
   schema?: string | SchemaMapping
+  schemaSource?: SchemaSource
   tables?: string[]
   inMemory?: boolean
   isVocabularyReference?: boolean
@@ -2423,16 +2424,20 @@ async function applyClonedDatabase(
   if (!metaEntry) return false
   const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
 
-  // A preset id must resolve on THIS instance; an inline mapping always does.
-  // Falling back to an empty mapping would import a database the app cannot
-  // read a single table from, with nothing saying why — so refuse instead.
+  // A repo carries its mapping inline, so it imports whatever is installed here.
+  // A bare name is the legacy form: it only resolves against the built-in preset
+  // table, which is being retired now that schemas are installed from the catalog
+  // rather than compiled in. Falling back to an empty mapping would import a
+  // database the app cannot read one table from, with nothing saying why — so a
+  // name that no longer resolves refuses instead.
   const schemaMapping = typeof meta.schema === 'string'
     ? getSchemaPreset(meta.schema)
     : meta.schema
   if (!schemaMapping) {
     throw new Error(
       `This database declares the schema "${meta.schema as string}", which is not installed. `
-      + 'Install that schema preset first, then retry.',
+      + 'Databases should carry their mapping inline; re-export this repo, or install that '
+      + 'schema preset first and retry.',
     )
   }
 
@@ -2479,6 +2484,10 @@ async function applyClonedDatabase(
     sourceType: 'database' as const,
     connectionConfig,
     schemaMapping,
+    // Which published schema the inline mapping came from: the id recognizes it
+    // across instances, the label names it here even when that preset is not
+    // installed. Both travel with the repo.
+    ...(meta.schemaSource ? { schemaSource: meta.schemaSource } : {}),
     status: 'configuring' as const,
     ...(meta.isVocabularyReference ? { isVocabularyReference: true } : {}),
     ...(meta.version ? { version: meta.version } : {}),

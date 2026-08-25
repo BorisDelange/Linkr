@@ -348,6 +348,30 @@ export interface DatabaseStatsCache {
   tableCounts: TableRowCount[]
 }
 
+/**
+ * Provenance of a database's schema mapping: which published preset it came from.
+ *
+ * Carries an identity AND a snapshot on purpose. The identity (`lineageId`, or
+ * `presetId` for presets published before lineage existed) is what recognizes
+ * the same schema across instances; the snapshot (`label`) is what the UI can
+ * still show when that preset is not installed here — without it a database
+ * whose schema lives in a repo nobody installed reads as a bare slug.
+ */
+export interface SchemaSource {
+  /**
+   * Cross-instance identity of the source preset, verbatim from its `lineageId`.
+   *
+   * Deliberately NOT the preset's `presetId`: that is a local primary key,
+   * regenerated on import to keep local uniqueness, so it identifies nothing on
+   * another instance. See the `Lineaged` mixin.
+   */
+  lineageId: string
+  /** Human-readable name, so the schema stays nameable when it is not installed. */
+  label?: LocalizedString
+  /** Author-declared version of the preset this was taken from. */
+  version?: string
+}
+
 export interface DataSource extends Seedable, Authored, Lineaged {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
@@ -360,6 +384,21 @@ export interface DataSource extends Seedable, Authored, Lineaged {
   sourceType: DataSourceType
   connectionConfig: ConnectionConfig
   schemaMapping?: import('./schema-mapping').SchemaMapping
+  /**
+   * Which published schema `schemaMapping` was taken from.
+   *
+   * A database **copies** its mapping rather than referencing a preset (picking
+   * one in the dialog copies `preset.mapping` into the row), which is what keeps
+   * a source working when the preset is edited, deleted, or was never installed
+   * here. The copy loses provenance though, so it is recorded separately — the
+   * same split as `createdBy` / `createdByDetails`: `lineageId` is the identity
+   * that survives across instances, `label` the snapshot that stays readable
+   * when the preset is not installed locally.
+   *
+   * Absent on every source created before this existed, and on any source whose
+   * mapping was hand-built rather than taken from a preset.
+   */
+  schemaSource?: SchemaSource
   status: DataSourceStatus
   stats?: DataSourceStats
   /** Human-readable error message when status is 'error'. */

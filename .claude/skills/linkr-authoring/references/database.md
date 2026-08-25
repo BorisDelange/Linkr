@@ -41,18 +41,44 @@ what the schema mapping expects. A mapping pointing at `person` while the file i
 
 Tables are sorted on write, so re-running the same spec is byte-stable.
 
-## Schema
+## Schema: inline the mapping, and say where it came from
 
-`schema` is either a **preset id** (`"omop-5.4"`, `"mimic-iv"`) or an **inline mapping**.
+`schema` is **the mapping itself**, written inline. A bare name (`"omop-5.4"`) is
+refused, and that is not a style preference:
 
-A preset id must resolve **on the importing instance** — if it is not installed there,
-the import refuses rather than creating a database nothing can read. So either ship the
-preset repo alongside and say it is a prerequisite, or inline the mapping when in doubt.
-Inline always works and costs a larger `_database.json`.
+- A database **copies** its mapping; it never references a preset. Picking one in the
+  app copies `preset.mapping` into the source, so there is no link to follow afterwards.
+- A name would only resolve against presets *installed on the importing instance*, and
+  the built-in preset table that used to answer those lookups is being retired — schemas
+  are installed from the catalog now, not compiled into the app.
+
+So read the mapping out of the schema preset repo (`preset.json` → `mapping`) and inline
+it. The repo is then installable in any order, with no prerequisite.
+
+Because the copy loses provenance, record it in **`schemaSource`**:
+
+```json
+"schemaSource": {
+  "lineageId": "…",
+  "label": { "en": "OMOP CDM 5.4", "fr": "OMOP CDM 5.4" },
+  "version": "0.1.0"
+}
+```
+
+`lineageId` is copied **verbatim from the preset's own `lineageId`** — required. Not its
+`presetId`: that is a local primary key, regenerated on import to keep local uniqueness,
+so it names the schema on one instance and nothing anywhere else.
+
+`label` is the snapshot, and it is what the app shows when the schema is **not installed
+there** — without it, a database whose schema repo nobody installed has no name at all.
+Same split as `createdBy` / `createdByDetails`: an identity to resolve, a copy to read.
+
+If the preset you are copying from has no `lineageId`, it was exported before lineage
+existed — re-export it from the app rather than inventing one.
 
 An **in-memory** database (`inMemory: true`) has no tables at all: an ETL target that
 starts empty and is filled by a pipeline. That is the only case where omitting `tables`
-is correct.
+is correct — it still needs a mapping.
 
 ## LFS is not optional
 

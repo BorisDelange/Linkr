@@ -26,7 +26,7 @@ export type {
 } from './serialize/project.js'
 
 export { serializeDatabase } from './serialize/database.js'
-export type { DatabaseSpec, DatabaseTableSpec } from './serialize/database.js'
+export type { DatabaseSpec, DatabaseTableSpec, SchemaProvenance } from './serialize/database.js'
 
 export { serializeEntity } from './serialize/entities.js'
 export type {
