@@ -28,6 +28,10 @@ class SchemaPreset(Base, TimestampMixin):
     # Entity licence: {id, name?, text} — the text is snapshotted at pick time
     # so it travels with the export (LICENSE.md) independently of the picker.
     license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Free-form labels, like every other badged entity. Missing here until now, so
+    # a badge set in the UI was dropped on save in server mode — the client type
+    # and the export both carried it, only the column was absent.
+    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # User-facing semver, portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")

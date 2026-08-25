@@ -805,7 +805,9 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
     # The DDL is written as its own schema.ddl rather than inlined in preset.json:
     # see buildSchemaPresetFolder (entity-io.ts) for why. Both ends must emit the
     # same tree or git shows a false diff, so keep them in step.
-    dumped = _dump(SchemaPresetResponse, preset)
+    # _badged_dump, not _dump: the client omits an unset `badges` entirely while
+    # Pydantic emits an explicit null, which would diff on every export.
+    dumped = _badged_dump(SchemaPresetResponse, preset)
     # A preset that never got a lineage carries None on both keys; the client's
     # JSON.stringify omits them entirely, so emitting explicit nulls here would show
     # as a false git diff. Same rule as _badged_dump — and the same applies to

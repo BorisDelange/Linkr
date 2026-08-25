@@ -18,6 +18,7 @@ class SchemaPresetSave(CamelModel):
     # on git/import round-trips.
     readme: dict | str | None = None
     license: dict | None = None
+    badges: list | None = None
     mapping: dict = {}
     git_remote_config: dict | None = None
     created_by_id: int | None = None
@@ -38,6 +39,7 @@ class SchemaPresetResponse(CamelModel):
     workspace_id: str | None = None
     readme: dict | str | None = None
     license: dict | None = None
+    badges: list | None = None
     mapping: dict
     git_remote_config: dict | None = None
     created_by_id: int | None = None
