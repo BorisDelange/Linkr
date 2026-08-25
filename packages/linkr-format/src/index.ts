@@ -16,6 +16,12 @@ export { buildColumnIds, columnId, isLegacyColumnId, slugify } from './ids.js'
 export type { LocalizedString } from './check.js'
 export { readLocalized } from './check.js'
 
+export { serializeProject } from './serialize/project.js'
+export type {
+  ColumnType, DashboardSpec, DatasetSpec, LocalizedInput,
+  ProjectSpec, ScriptSpec, TabSpec, WidgetSpec, WriteFile,
+} from './serialize/project.js'
+
 export { validateProject } from './validate/project.js'
 export { validateDatasets } from './validate/datasets.js'
 export type { DatasetColumn, DatasetIndex, DatasetInfo } from './validate/datasets.js'

@@ -120,8 +120,8 @@ the "Split entity-io.ts" debt item below, not separately.
 |----|------|--------|
 | ✅ | 1–2. `packages/linkr-format`: schemas + validator (shape/referential/semantic) + 40 tests + column-id parity + CLI. No dependency (not zod — it would land in the WASM bundle). Verified on 3 real trees; found a missing `appVersion` in `icu-mortality-prediction` | M |
 | ✅ | 3. Validator wired into `parseProjectZip` (import + git pull), reported after a successful import via `ImportErrorDialog variant="warning"`; never blocks | S |
-| 🔜 | 4. `make/` + `serialize/` for those 3 entities; `entity-io.ts` export calls them | M |
-| 🔜 | 5. `packages/linkr-mcp`: `write_project`, `validate`, `describe_tree`, `describe_entity_schema` | S/M |
+| ◐ | 4. `serialize/` done (project/dataset/dashboard/scripts, spec → files, no I/O; what it writes passes the validator). **Remaining: wire `entity-io.ts` export through it** — that is what removes the duplication | M |
+| ✅ | 5. `packages/linkr-mcp`: 7 tools over stdio (`write_project`, `validate_project`, `describe_tree`, `describe_entity_schema`, `add_dashboard_tab`, `add_widget`, `add_script`), 15 tests, verified end to end over real JSON-RPC. No zod — the SDK's `fromJsonSchema` takes plain JSON Schema | S/M |
 | 🔜 | 6–7. `linkr-authoring` skill + references; `create-project` → wrapper, **delete `build_zip.py`** | S |
 | 🔜 | 8. Remaining entities (plugin, cohort, sql, etl, schema-preset, dq), one at a time | L |
 | 💤 | 9–10. `validate` in the `linkr-public-content` CI; granular edit tools | S |

@@ -175,11 +175,11 @@ and `@modelcontextprotocol/client`; the current server API is `McpServer` +
 with `isError: true` to hand the model a correctable failure. Two consequences worth
 recording now:
 
-- **zod is a required peer dependency** — raw JSON Schema is not accepted for
-  `inputSchema`. That is fine *here* (this package is Node-only, never bundled into the
-  browser) but it is the reason `@linkr/format` stays dependency-free: pulling zod into
-  the app through a shared package would put it in the WASM bundle for users who never
-  import anything. Confirm the version at build time rather than trusting this note.
+- **zod is NOT required in our code.** It ships as a transitive dependency of the SDK,
+  but the SDK also exports `fromJsonSchema`, which takes plain JSON Schema and returns
+  what `inputSchema` wants — verified against the installed package, not documentation.
+  So `@linkr/mcp` declares one dependency and `@linkr/format` stays dependency-free,
+  which is what keeps it out of the browser bundle.
 - **stdio servers must never `console.log`** — stdout is the JSON-RPC channel. Logging
   goes to stderr.
 
@@ -269,6 +269,73 @@ the loop to follow. A field list copied into Markdown is stale the day the schem
 
 ---
 
+## 5b. Security — why the MCP is not a way around Linkr's permissions
+
+Raised 2026-08-25, in the context of hospital deployments holding patient data behind
+per-account authorisations. The short answer: **the MCP server cannot reach a Linkr
+instance at all**, so it cannot bypass anything. What follows is the reasoning, and the
+one real hole that had to be closed.
+
+### It is not connected to Linkr
+
+| | |
+|---|---|
+| Network access | **none** — no `fetch`, no HTTP client, no socket, in either package |
+| Process execution | **none** — no `child_process`, no `exec`, no `spawn` |
+| Node builtins used | `fs`, `path`, `os`, `url` — nothing else |
+| Talks to a Linkr API? | **no**, by design (§4): it writes files |
+| Reads a database? | no |
+| Holds credentials? | no |
+
+It is a **file generator**. It turns a spec into JSON and CSV on the author's own
+machine. The output then enters an instance through the *normal* import path — which is
+authenticated, permission-checked, and unchanged by any of this. Someone who can import a
+project could already do so with a hand-written ZIP; the MCP only makes the ZIP easier to
+write correctly. It grants no capability its operator did not already have.
+
+Compare with what *would* be a bypass, and is explicitly out of scope: a tool that calls
+`/api/v1/...` with a service token, or reads the server's database directly. §4 rules
+that out — "**Not in scope**: talking to a running Linkr instance's API" — and that line
+is now a security boundary, not only a design preference. If a future tool needs to reach
+an instance, it must authenticate **as the user**, carry their permissions, and be
+designed as its own decision.
+
+### The trust boundary that does exist
+
+The caller is a language model acting on text it was given — which may include text the
+operator did not write (a README, an issue, a CSV). So caller-supplied **paths** are
+untrusted input, exactly like tool names are in the in-app copilot.
+
+Probing the server over real JSON-RPC found a genuine directory-traversal hole:
+`add_script(file: "../../../ESCAPED.txt")` wrote outside the project. Now closed —
+every write resolves through `resolveInside()`, which rejects anything landing outside
+the project root, and six tests hold the line (including the `<root>-evil` sibling case
+that a naive `startsWith` prefix check would let through). A dashboard *name* carrying a
+directory is refused outright rather than merely contained, because a name is never meant
+to be a path.
+
+Worth noting the defence in depth worked: the traversal attempt also showed up as a
+`missing-file` error from the validator, because the tree referenced a script that was
+not there.
+
+### For a hospital deployment
+
+- The MCP runs on the **author's** workstation, not the hospital server. It is a
+  development tool, like the `create-project` skill it replaces.
+- It never sees patient data: it writes the CSVs an author gives it (synthetic or
+  extracted under their own rights) and reads only the tree it wrote.
+- Nothing about it needs to be installed on a server. If an institution wants to forbid
+  it entirely, not installing it is sufficient — there is no server-side component to
+  disable.
+- The `LINKR_ALLOW_REMOTE_LLM` guardrail from `ai-agents-plan.md` §2 is unaffected and
+  unrelated: that governs an LLM *inside* Linkr seeing clinical data. Here the model runs
+  in the author's own agent, on files the author already has.
+
+Residual risk worth naming: a model can be prompted into writing **wrong** content — a
+misleading dashboard, a bad script. That is a content-review problem, the same as with
+any authored artefact, and is why the output is a git tree that a human reviews and
+merges rather than something written straight into a live instance.
+
 ## 6. Risks
 
 - **The refactor is the cost, not the MCP.** `entity-io.ts` is 3484 lines and is not
@@ -298,8 +365,8 @@ Each step is useful on its own — no step is only a means to the next.
 | ✅ 1 | `packages/linkr-format` + schemas for **project + dashboard + dataset + scripts** (hand-written, no dependency — see §3) | M | — |
 | ✅ 2 | `validate/` levels 1–3 + 40 unit tests + parity against the app's `column-id.fixture.json` + a CLI | M | catches real import bugs |
 | ✅ 3 | Validator wired into `parseProjectZip`, reported after a successful import (warn, never blocks) | S | clear errors instead of silent half-imports |
-| 4 | `make/` + `serialize/` for those 3 entities; `entity-io.ts` export path calls them | M | starts the split already on the backlog |
-| 5 | `packages/linkr-mcp`: `write_project`, `validate`, `describe_tree`, `describe_entity_schema` | S/M | **authoring outside Linkr works** |
+| ◐ 4 | `serialize/` for project + dataset + dashboard + scripts **done**; wiring `entity-io.ts` to call it is the remaining half | M | starts the split already on the backlog |
+| ✅ 5 | `packages/linkr-mcp`: 7 tools over stdio, 15 tests | S/M | **authoring outside Linkr works** |
 | 6 | `linkr-authoring` skill + `references/` for those 3 elements | S | usable by any MCP client |
 | 7 | `create-project` → wrapper on the MCP; **delete `build_zip.py`** | S | kills the TS/Python duplication |
 | 8 | Remaining entities (plugin, cohort, sql-collection, etl, schema-preset, dq) — schema + make + serialize + reference, one at a time | L | each one lands independently |
@@ -362,6 +429,35 @@ legacy-but-working export must keep importing.
 
 The pull path computes the validation and currently ignores it; surfacing it there is a
 small follow-up, not a blocker.
+
+### Steps 4 (half) and 5 as built (2026-08-25)
+
+`serialize/project.ts` in the format package turns a spec into `{ path, content }` pairs
+and performs **no I/O** — the sink is the caller's business, which is what lets the MCP
+(disk) and a future in-app export (JSZip) share one definition of the layout. The test
+that matters is the loop: *what the serializer writes passes the validator*, so the MCP
+cannot emit a tree the app would choke on.
+
+`packages/linkr-mcp` is the thin part — 7 tools, one dependency, no format knowledge.
+Verified end to end over real stdio JSON-RPC (initialize → tools/list → tools/call), not
+just unit tests: a project written from a spec validates clean, and its tree is
+structurally identical to `icu-activity-dashboard`, which the app itself produced.
+
+What makes the loop work, and is worth keeping if this is ever rewritten:
+
+- **Column NAMES are accepted wherever an id belongs** and resolved on write (`age` →
+  `col_age`). A spec author writes what the data shows; unresolved, the widget renders
+  blank with an empty column picker and no error — the same failure the in-app copilot
+  hits, handled the same way.
+- **Every rejection enumerates the valid alternatives** (`Unknown tab "overview/ghost".
+  Known: overview/demographics, overview/outcomes.`), returned as `isError` — a
+  correctable failure the model reads, not a server fault.
+- **Every mutating tool re-validates** and says whether the tree still holds, so a widget
+  placed off-grid is reported the moment it lands rather than at import time.
+
+Remaining half of step 4: `entity-io.ts` still has its own copy of the layout. Wiring its
+export path through `serialize/` is what actually removes the duplication — the
+serializer existing does not, on its own.
 
 ---
 
