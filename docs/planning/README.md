@@ -21,7 +21,7 @@ decision") so a **partial** pull can unblock the push.
 |----|------|--------|
 | ✅ | Pull 1–8: `reviewed_oid`, pull plan, inline pull mode, Details list, 4 cards, per-item decisions + Finalize, `source-concept-ids/` merge, Config dialog | L |
 | 🔜 | **[TO TEST]** Manual end-to-end: partial pull → push unblocked, conflicts, LFS path | S |
-| 🔜 | Pull 9. Scope generalisation: converge Project/Etl dialogs onto the shell, then the 6 push-only scopes | M |
+| 🔜 | Pull 9. Scope generalisation — the convergence itself is **done** (project, ETL, mapping project and schema preset all pull through `PullPanel`); what remains is the tail of push-only scopes | S/M |
 | 🔜 | `attachments/` pull — a pulled README can reference images that never arrive | S/M |
 | 🔜 | Server-side guard: refuse `paths=None` (git add -A) on the commit-push HTTP route | S |
 | 💤 | Server-side import (`POST /projects/import`, `/workspaces/import`) — last big client-offload | L |
@@ -101,7 +101,7 @@ there. `presetId` still names the HTTP routes and the export format; retiring it
 | St | Item | Effort |
 |----|------|--------|
 | ✅ | Steps 1–4: id drift fixed, `id` + `entityId` added, IndexedDB v41 + server PK both keyed on `id`, URL shortened like the others | L |
-| 🔜 | Step 5: retire `presetId` (routes, export format), then drop the last special-cases | M |
+| 🔜 | Step 5: retire `presetId` — **started**: the URLs no longer carry it and the root export file drops it. Left: `mapping.presetId`, the route bodies, the Pydantic schemas (where `preset_id` is still *required* while `id`/`entity_id` are optional) and the server export path | M |
 | 🔜 | Step 6: re-export the 4 published preset repos so they carry a `lineageId` | S |
 | 🤔 | Open: retire the built-in `SCHEMA_PRESETS` table first? (removes 11 literal sites) | — |
 
@@ -185,17 +185,47 @@ The survey also turned up **5 live bugs** (plan §2.2), all in workspace section
 golden fixtures leave completely uncovered — including a database repo that cannot be
 re-imported and workspace concept sets silently dropped on export. Hence step 0.
 
+**Steps 0–4b and 6 shipped 2026-08-26.** Every entity writes `entity.json`, declares its
+`type`, and opens with the same five identity keys; every reader still accepts the name it
+used before. What remains is the part that touches **published content**.
+
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | **0. Close the golden blind spot (6 of 12 workspace sections untested), then fix the 5 divergences** — prerequisite, else step 3 bakes them in | M |
-| 🔜 | 1. Centralise every literal filename into `linkr-format/layout.ts` (no behaviour change) | S |
-| 🔜 | 2. Readers accept `entity.json` + `type` + both field orders | M |
-| 🔜 | 3. Flip the writers (front + back **same commit**, 89 golden fixtures regenerated; **rewrite stored `versionedDataFiles` marks** — they are keyed by export path) | M |
-| 🔜 | 3b. Universal identity+provenance blocks (plan §3.4): `lineageId` for preset + plugin (**unblocks catalog update detection**), `license`/`id`/`appVersion` where missing, `organizationId`→`organization`. **No model change** | S/M |
-| 🔜 | 4. Plugins: `_plugin.json` → `entity.json`, functional `plugin.json` keeps its name | S |
-| 🔜 | 5. Sibling repos: portal build/sync + its skill, catalog `MARKERS` + CI, re-export public content | M |
-| 🔜 | 6. MCP tools + `linkr-authoring` skill references | S/M |
-| 🔜 | 7. `docs/architecture.md` + user docs in `../linkr-website` | S |
+| ✅ | 0. Golden blind spot closed (6 of 12 workspace sections were untested) + the 5 divergences fixed | M |
+| ✅ | 1–2. Filenames centralised in `linkr-format/layout.ts`; readers accept `entity.json` + `type` + both field orders | M |
+| ✅ | 3–3b. Writers flipped (front + back, golden fixtures regenerated, stored `versionedDataFiles` marks rewritten); universal identity+provenance blocks — `lineageId` for preset + plugin **unblocks catalog update detection** | M |
+| ✅ | 4. Plugins: `_plugin.json` → `entity.json`; the functional `plugin.json` keeps its name | S |
+| ✅ | 6. MCP tools + `linkr-authoring` skill references | S/M |
+| 🔜 | **5. Sibling repos** — portal build/sync + its skill, catalog `MARKERS` + CI, re-export public content. The only step that touches already-published repos, so it moves in lockstep with them | M |
+| 🔜 | 7. User docs in `../linkr-website` (`docs/architecture.md` § Export format is written) | S |
+
+## Descriptive table & Statistical tests — [descriptive-table-plan.md](descriptive-table-plan.md)
+
+The rework **shipped**: renamed *Descriptive table*, bespoke `PublicationTable` (shared
+by statistical tests / regression / Kaplan-Meier), `auto` now data-driven via Shapiro-Wilk
+with a per-variable override, booktabs/PNG/clipboard export, server parity for both plugins.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | p-value column when a group-by is active (`render/table1.py` emits none today — client + server + parity test) | M |
+| 🔜 | The tooltip behind it: test, why it was chosen, statistic, warning marker (SAMPL: never a p without its test) | S |
+| 🤔 | Stratified mode (a second grouping nested under the first) — deferred until asked for | M |
+
+## eCRF / survey plugin — [survey-plugin-plan.md](survey-plugin-plan.md)
+
+Import layer built and tested (166 tests): one XLSForm-based model, three parsers
+(Goupile, REDCap, XLSForm/ODK), normalisation + inference, parser dropdown in the upload
+dialog. The `survey-question` plugin ships with server parity, split into a pure Block
+(so Reports can map over the questions) and the dashboard Component. The format survey and
+the **licensing review** are finished research, moved to [../ecrf-formats-licensing.md](../ecrf-formats-licensing.md).
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Wire `redcap` / `xlsform` to the upload path — both parsers are tested but never called from a `.tsx`; only Goupile actually parses | S |
+| 🔜 | Persist the schema to the dataset sidecar (`SURVEY_SIDECAR_KEY`, keyed by column NAME); declared but referenced nowhere, everything rides on inference | M |
+| 🔜 | Dataset import from the IDE; i18n sweep | S/M |
+| 🤔 | (b) user-overridable `measure` · (d) in-place chart switching (priority-based, as SurveyJS) | S / M |
+| 💤 | LimeSurvey / Qualtrics / Castor / OpenClinica — **CDISC ODM is the highest-value target** (buys Castor + OpenClinica, MIT schemas) | L |
 
 ## Fullstack backlog — [fullstack-storage-plan.md](fullstack-storage-plan.md)
 
@@ -226,16 +256,14 @@ arbitrated 2026-08-05; `xl-*` exporters are GPL-3.0 (compatible, no commercial l
 ## Patient data — [patient-data-plan.md](patient-data-plan.md)
 
 **Several patient-data dashboards per project**, as the Lab has several dashboards.
-Tabs, a 48-col grid, `editMode` and the shared `GenericConfigPanel` already exist — but
-there is no container *above* the tabs (one surface per project), and **everything
-persists to a single global `localStorage` key**, so tabs/widgets are browser-local:
-absent from the project export, from the server, and from git. Patient-data plugins are
-inline TS manifests bound by a hard-coded `SYSTEM_WIDGET_TYPE_MAP`, and
-`packages/default-plugins/` has no `patient-data/` sibling to `analyses/`.
-Arbitrated: harmonise plugin **storage/declaration**, keep the props contracts separate
-(patient widgets take OMOP context, lab ones take dataset columns/rows).
-
-**Steps 1–5 shipped 2026-08-17** (needs manual testing — see the plan's §10).
+**Steps 1–5 shipped 2026-08-17** (needs manual testing — see the plan's §10): the
+`PatientDashboard` container now sits above the tabs, state persists to the server
+(`patient_dashboards`, migration `d8e9f0a1b2c3`) instead of one global `localStorage` key —
+the old key is read once for migration and never written — so boards travel in the project
+export and in git. Patient-data plugins became file-based under
+`packages/default-plugins/patient-data/` and the hard-coded `SYSTEM_WIDGET_TYPE_MAP` is
+gone. The props contracts stay separate by design (patient widgets take OMOP context, lab
+ones take dataset columns/rows).
 
 | St | Item | Effort |
 |----|------|--------|
@@ -323,6 +351,11 @@ Pillars 2 (Monitoring) and 3 (Deployment) not started.
 *Shipped & retired (as-built in `docs/architecture.md` / the code): IDE managed environments
 + jobs, dashboard widget parallel execution, dataset column-metadata sidecar, Goupile eCRF
 import, README + licence per versionable entity (the two follow-ups above are all that
-is left of it; user-facing docs still to write in `../linkr-website`).*
+is left of it; user-facing docs still to write in `../linkr-website`), **AI assistant
+server state** (providers + per-surface approval, bench reports, per-user conversations —
+`ai-agents-server-state.md` deleted 2026-08-26, its security invariants folded into
+`docs/architecture.md` § AI assistant).*
 
-*[../health-dcat-ap.md](../health-dcat-ap.md) is a reference document, not an effort.*
+*Reference documents, not efforts: [../health-dcat-ap.md](../health-dcat-ap.md),
+[../ecrf-formats-licensing.md](../ecrf-formats-licensing.md) (eCRF format survey + the
+legal review behind the importers — clean-room rule, trademark rule, synthetic fixtures).*
