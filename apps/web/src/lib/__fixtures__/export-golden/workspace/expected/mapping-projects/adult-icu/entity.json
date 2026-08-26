@@ -1,9 +1,9 @@
 {
-  "id": "proj1",
+  "id": "mp1",
   "entityId": "adult-icu",
+  "type": "mapping-project",
   "name": {
-    "en": "Adult ICU",
-    "fr": "Réanimation adulte"
+    "en": "Adult ICU"
   },
   "description": {
     "en": "ICU mapping"
@@ -26,27 +26,11 @@
   "scoresFileName": null,
   "stats": null,
   "createdBy": "Boris Delange",
-  "createdByDetails": {
-    "firstName": "Boris",
-    "lastName": "Delange",
-    "email": "boris@chu-rennes.fr",
-    "affiliation": {
-      "en": "Rennes University Hospital",
-      "fr": "CHU de Rennes"
-    },
-    "profession": {
-      "en": "Intensivist",
-      "fr": "Réanimateur"
-    },
-    "orcid": "0000-0002-1825-0097"
-  },
+  "createdByDetails": null,
   "lineageId": null,
   "parentLineageId": null,
   "createdAt": "2026-01-01T00:00:00.000Z",
   "version": "0.1.0",
-  "license": {
-    "id": "CC-BY-4.0"
-  },
   "fileSourceData": {
     "fileName": "source-concepts.csv",
     "columns": [
@@ -61,19 +45,5 @@
     },
     "rows": [],
     "totalRowCount": 2
-  },
-  "organization": {
-    "id": "org1",
-    "name": {
-      "en": "CHU Rennes"
-    },
-    "type": "hospital",
-    "location": {
-      "en": "Rennes"
-    },
-    "country": {
-      "en": "France"
-    },
-    "website": "https://chu-rennes.fr"
   }
 }

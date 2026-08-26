@@ -4,6 +4,7 @@ emitting `"createdAt": null` here would spuriously diverge on a mixed-mode remot
 
 import json
 
+from app.services.export_layout import ENTITY_MANIFEST
 from app.services.workspace_export import build_workspace_tree
 
 _GIT = {"url": "https://example.test/repo.git", "branch": "main"}
@@ -29,7 +30,7 @@ def _pointer_json(project_meta: dict) -> dict:
         service_mappings=None,
         plugins=None,
     )
-    return json.loads(tree["projects/p/project.json"].decode("utf-8"))
+    return json.loads(tree[f"projects/p/{ENTITY_MANIFEST}"].decode("utf-8"))
 
 
 def test_pointer_omits_createdat_when_absent():

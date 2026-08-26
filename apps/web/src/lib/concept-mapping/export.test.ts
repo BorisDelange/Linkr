@@ -79,7 +79,7 @@ describe('exportToJson — author details round-trip', () => {
   })
 })
 
-describe('buildMappingProjectFolder — portable project.json', () => {
+describe('buildMappingProjectFolder — portable entity.json', () => {
   it('strips instance-specific fields (gitRemoteConfig, ownerId, updatedAt) but keeps createdAt', async () => {
     const linked = {
       ...project,
@@ -97,7 +97,7 @@ describe('buildMappingProjectFolder — portable project.json', () => {
 
     const zip = new JSZip()
     await buildMappingProjectFolder(zip, '', linked, storage)
-    const parsed = JSON.parse(await zip.file('project.json')!.async('string'))
+    const parsed = JSON.parse(await zip.file('entity.json')!.async('string'))
 
     // Portable metadata only — instance fields are the caller's to re-add (workspace export).
     expect(parsed.gitRemoteConfig).toBeUndefined()

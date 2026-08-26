@@ -88,7 +88,7 @@ describe('serializeEntity', () => {
     const catalog = JSON.parse(
       treeOf('data-catalog', {
         ...SPECS['data-catalog'], description: { en: 'D' }, badges,
-      } as never).read('catalog.json')!,
+      } as never).read('entity.json')!,
     )
     expect(catalog.badges).toEqual(badges)
     const keys = Object.keys(catalog)
@@ -97,7 +97,7 @@ describe('serializeEntity', () => {
     // A preset keeps them at entity level, NOT inside the mapping: the mapping is
     // copied verbatim into every database that uses the schema.
     const preset = JSON.parse(
-      treeOf('schema-preset', { ...SPECS['schema-preset'], badges } as never).read('preset.json')!,
+      treeOf('schema-preset', { ...SPECS['schema-preset'], badges } as never).read('entity.json')!,
     )
     expect(preset.badges).toEqual(badges)
     expect(preset.mapping.badges).toBeUndefined()
@@ -105,7 +105,7 @@ describe('serializeEntity', () => {
 
   it('declares every parent folder in the tree', () => {
     const tree = treeOf('sql-collection', SPECS['sql-collection'])
-    const entries = JSON.parse(tree.read('_tree.json')!) as { path: string; type: string }[]
+    const entries = JSON.parse(tree.read('scripts/_tree.json')!) as { path: string; type: string }[]
     // Without the folder entry the import reparents the file to the root.
     expect(entries).toContainEqual(expect.objectContaining({ path: 'queries', type: 'folder' }))
     expect(entries.map((e) => e.path)).toContain('queries/cohort.sql')
@@ -113,7 +113,7 @@ describe('serializeEntity', () => {
 
   it('derives a script language from its extension', () => {
     const tree = treeOf('etl-pipeline', SPECS['etl-pipeline'])
-    const entries = JSON.parse(tree.read('_tree.json')!) as { path: string; language?: string }[]
+    const entries = JSON.parse(tree.read('scripts/_tree.json')!) as { path: string; language?: string }[]
     expect(entries.find((e) => e.path.endsWith('.sql'))?.language).toBe('sql')
   })
 
@@ -165,7 +165,7 @@ describe('serializeEntity', () => {
       // producing a tree our own checks flag.
       const tree = treeOf('schema-preset', SPECS['schema-preset'])
       expect(tree.read('schema.ddl')).toBe('CREATE TABLE person (person_id INTEGER);\n')
-      const preset = JSON.parse(tree.read('preset.json')!) as { mapping: Record<string, unknown> }
+      const preset = JSON.parse(tree.read('entity.json')!) as { mapping: Record<string, unknown> }
       expect(preset.mapping.ddl).toBeUndefined()
     })
 
@@ -173,7 +173,7 @@ describe('serializeEntity', () => {
       // The app exports neither `id` (minted locally, since a preset is keyed on
       // entityId) nor `presetId` (the retired identity), so an authored tree that
       // wrote either would diff on the first sync after an install.
-      const preset = JSON.parse(treeOf('schema-preset', SPECS['schema-preset']).read('preset.json')!)
+      const preset = JSON.parse(treeOf('schema-preset', SPECS['schema-preset']).read('entity.json')!)
       expect(preset.entityId).toBe('omop-cdm-5-4')
       expect(preset.presetId).toBeUndefined()
       expect(preset.id).toBeUndefined()
@@ -252,7 +252,7 @@ describe('serializeEntity', () => {
 
     it('keeps the rest of the mapping as supplied', () => {
       const tree = treeOf('schema-preset', SPECS['schema-preset'])
-      const preset = JSON.parse(tree.read('preset.json')!) as {
+      const preset = JSON.parse(tree.read('entity.json')!) as {
         mapping: { patientTable: { table: string } }
       }
       expect(preset.mapping.patientTable.table).toBe('person')
@@ -281,7 +281,7 @@ describe('serializeEntity', () => {
           patientTable: { table: 'person', idColumn: 'person_id' },
         },
       })
-      const preset = JSON.parse(tree.read('preset.json')!) as { mapping: Record<string, unknown> }
+      const preset = JSON.parse(tree.read('entity.json')!) as { mapping: Record<string, unknown> }
       expect(Object.keys(preset.mapping)).toEqual([
         'presetId', 'presetLabel', 'patientTable', 'deathTable', 'visitTable',
         'noteTable', 'visitDetailTable', 'conceptTables', 'eventTables',

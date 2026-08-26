@@ -1,6 +1,7 @@
 {
   "id": "plug-1",
   "entityId": "icu-histogram",
+  "type": "user-plugin",
   "createdBy": "Boris Delange",
   "createdByDetails": {
     "firstName": "Boris",

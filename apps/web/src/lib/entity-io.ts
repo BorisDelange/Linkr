@@ -3,12 +3,13 @@
  */
 import JSZip from 'jszip'
 import {
-  CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SIDECAR, type LayoutKind,
+  CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, type LayoutKind,
   buildTabKeyMap, buildWidgetKeyMap, canonicalSchemaMapping,
   dashboardKey as sharedDashboardKey, type Issue,
 } from '@linkr/format'
 import type { Storage } from '@/lib/storage'
 import { APP_VERSION } from '@/lib/version'
+import { MAPPING_DIR } from '@/lib/duckdb/mapping-source'
 import { deterministicId } from '@/lib/deterministic-id'
 import { validateImportZip } from '@/lib/import-validation'
 import {
@@ -919,8 +920,9 @@ export async function buildProjectZip(
   // the spread: the server builder emits them in this order and the shared
   // golden fixture compares bytes.
   const projectSlug = project.entityId ?? project.projectId
-  zip.file(MANIFEST.project, json({
+  zip.file(ENTITY_MANIFEST, json({
     ...(projectSlug ? { entityId: projectSlug } : {}),
+    type: 'project' as const,
     ...stripInstanceFields(projectMeta),
     ...(licenseMeta(projectLicense) ? { license: licenseMeta(projectLicense) } : {}),
     appVersion: APP_VERSION,
@@ -1213,7 +1215,7 @@ export async function buildProjectZip(
   // The project has no org link of its own; it belongs to whatever org its
   // workspace is attached to. workspaceId is stripped from project.json (instance
   // field) but still present on the in-memory record, so we resolve it here.
-  await attachEntityOrganization(zip, MANIFEST.project, project, storage)
+  await attachEntityOrganization(zip, ENTITY_MANIFEST, project, storage)
 
   const blob = await zip.generateAsync({ type: 'blob' })
   return { blob, projectName: resolveProjectName(project) }
@@ -1666,7 +1668,7 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   const zipData = stripRootFolder(await JSZip.loadAsync(file))
 
   // --- Read project.json ---
-  const projectFile = zipData.files[MANIFEST.project]
+  const projectFile = zipData.files[ENTITY_MANIFEST] ?? zipData.files[MANIFEST.project]
   if (!projectFile) return null
   const projectRaw = JSON.parse(await projectFile.async('string'))
   // Clean git-versioned exports strip `uid` (the local PK) and identify the project
@@ -1748,6 +1750,49 @@ async function readEntityManifest<T>(
     if (found) return found
   }
   return null
+}
+
+/**
+ * An entity's file tree, from `scripts/` or from the entity root.
+ *
+ * Exports write the tree under `scripts/`; repos published before that keep it at
+ * the root with the files scattered beside it. Returning the prefix the tree was
+ * found under is what lets the caller resolve each file's real path either way.
+ */
+async function readScriptTree(
+  zip: JSZip,
+  prefix: string,
+): Promise<{ nodes: TreeImportNode[]; filePrefix: string }> {
+  const scripts = `${prefix}${SCRIPTS_DIR}/`
+  const inScripts = await readJsonFile(zip, `${scripts}${SIDECAR.tree}`)
+  if (inScripts) return { nodes: readPathTree(inScripts), filePrefix: scripts }
+  return {
+    nodes: readPathTree(await readJsonFile(zip, `${prefix}${SIDECAR.tree}`)),
+    filePrefix: prefix,
+  }
+}
+
+/**
+ * Stamp an entity's `type` into its exported metadata, right after the identity
+ * keys and before the rest.
+ *
+ * Kind used to be inferred from the manifest's filename, which cannot survive
+ * one shared `entity.json`. Declaring it makes detection a field read — and
+ * retires the `mappings.json` heuristic that told a mapping project from a plain
+ * one. Position matters: the golden tests compare bytes, so it goes where the
+ * Python twin puts it.
+ */
+function withEntityType<T extends Record<string, unknown>>(
+  meta: T,
+  type: LayoutKind,
+): Record<string, unknown> {
+  const { id, entityId, ...rest } = meta
+  return {
+    ...(id !== undefined ? { id } : {}),
+    ...(entityId !== undefined ? { entityId } : {}),
+    type,
+    ...rest,
+  }
 }
 
 /** Parse CSV text and remap column names → column IDs based on DatasetFile.columns. */
@@ -2095,7 +2140,7 @@ export async function buildDataSourceFolder(
       ? sanitizeConnectionConfig(connectionConfig as Record<string, unknown>)
       : undefined,
   }
-  zip.file(`${prefix}_database.json`, json(meta))
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(meta, 'database')))
   await writeEntityDocs(zip, prefix, source, storage, 'data-source', source.id)
 }
 
@@ -2113,14 +2158,18 @@ export async function buildSqlCollectionFolder(
 ): Promise<void> {
   // Strip instance-specific fields (workspaceId, gitRemoteConfig, …) so the
   // versioned tree round-trips idempotently — import reassigns them anyway.
-  zip.file(`${prefix}_collection.json`, json(stripEntityDocs(stripInstanceFields(collection) as SqlScriptCollection)))
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(stripInstanceFields(collection) as SqlScriptCollection), 'sql-collection')))
   await writeEntityDocs(zip, prefix, collection, storage, 'sql-collection', collection.id)
   const files = await storage.sqlScriptFiles.getByCollection(collection.id)
   const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))
-  zip.file(`${prefix}_tree.json`, json(toPathTree(files, 'collectionId')))
+  // The user's tree lives under scripts/, so its sidecar sits beside the files it
+  // describes instead of at the entity root (where it had to be when the files
+  // were scattered across it).
+  const scripts = `${prefix}${SCRIPTS_DIR}/`
+  zip.file(`${scripts}${SIDECAR.tree}`, json(toPathTree(files, 'collectionId')))
   for (const f of files) {
     if (f.type === 'file' && f.content != null) {
-      zip.file(`${prefix}${treeNodePath(f, byId)}`, f.content)
+      zip.file(`${scripts}${treeNodePath(f, byId)}`, f.content)
     }
   }
 }
@@ -2194,8 +2243,13 @@ export async function attachEntityOrganization(
   // organization. Only fall back to resolving from the parent workspace when the
   // entity has no snapshot of its own — the first export inherits it that way.
   const org = entity.organization ?? await resolveEntityOrganization(entity, storage)
+  if (!org) return
   const entry = zip.files[metaPath]
-  if (!org || !entry) return
+  // A missing entry means the caller named a file this zip does not contain —
+  // always a bug, and one that used to pass silently: two call sites kept asking
+  // for `project.json` after the manifest rename, so every export they produced
+  // quietly lost its publishing organization.
+  if (!entry) throw new Error(`attachEntityOrganization: no ${metaPath} in the export`)
   const meta = JSON.parse(await entry.async('string'))
   meta.organization = orgSnapshot(org)
   zip.file(metaPath, json(meta))
@@ -2222,7 +2276,7 @@ export async function buildSqlCollectionZip(
   if (!collection) return null
   const zip = new JSZip()
   await buildSqlCollectionFolder(zip, '', collection, storage)
-  await attachEntityOrganization(zip, MANIFEST['sql-collection'], collection, storage)
+  await attachEntityOrganization(zip, ENTITY_MANIFEST, collection, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(collection.name, 'en') || collection.id }
 }
@@ -2236,7 +2290,7 @@ export async function buildEtlPipelineZip(
   if (!pipeline) return null
   const zip = new JSZip()
   await buildEtlPipelineFolder(zip, '', pipeline, storage)
-  await attachEntityOrganization(zip, MANIFEST['etl-pipeline'], pipeline, storage)
+  await attachEntityOrganization(zip, ENTITY_MANIFEST, pipeline, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(pipeline.name, 'en') || pipeline.id }
 }
@@ -2250,7 +2304,7 @@ export async function buildDataCatalogFolder(
   catalog: DataCatalog,
   storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}catalog.json`, json(stripEntityDocs(stripInstanceFields(catalog) as DataCatalog)))
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(stripInstanceFields(catalog) as DataCatalog), 'data-catalog')))
   await writeEntityDocs(zip, prefix, catalog, storage, 'data-catalog', catalog.id)
 }
 
@@ -2263,7 +2317,7 @@ export async function buildDataCatalogZip(
   if (!catalog) return null
   const zip = new JSZip()
   await buildDataCatalogFolder(zip, '', catalog, storage)
-  await attachEntityOrganization(zip, MANIFEST['data-catalog'], catalog, storage)
+  await attachEntityOrganization(zip, ENTITY_MANIFEST, catalog, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(catalog.name, 'en') || catalog.id }
 }
@@ -2276,10 +2330,10 @@ export async function buildDqRuleSetFolder(
   ruleSet: DqRuleSet,
   storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}rule-set.json`, json(stripEntityDocs(stripInstanceFields(ruleSet) as DqRuleSet)))
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(stripInstanceFields(ruleSet) as DqRuleSet), 'dq-rule-set')))
   await writeEntityDocs(zip, prefix, ruleSet, storage, 'dq-rule-set', ruleSet.id)
   const checks = await storage.dqCustomChecks.getByRuleSet(ruleSet.id)
-  if (checks.length > 0) zip.file(`${prefix}checks.json`, json(checks))
+  if (checks.length > 0) zip.file(`${prefix}${CONTENT_FILE.dqChecks}`, json(checks))
 }
 
 export async function buildDqRuleSetZip(
@@ -2291,7 +2345,7 @@ export async function buildDqRuleSetZip(
   if (!ruleSet) return null
   const zip = new JSZip()
   await buildDqRuleSetFolder(zip, '', ruleSet, storage)
-  await attachEntityOrganization(zip, MANIFEST['dq-rule-set'], ruleSet, storage)
+  await attachEntityOrganization(zip, ENTITY_MANIFEST, ruleSet, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(ruleSet.name, 'en') || ruleSet.id }
 }
@@ -2336,16 +2390,21 @@ export async function buildSchemaPresetFolder(
   // roles. Trees that carry one are still read — the importer falls back to it —
   // but nothing new emits it.
   const { id: _localKey, presetId: _retired, ...portable } = stripped
-  zip.file(`${prefix}preset.json`, json({
-    ...portable,
+  // `entityId` and `type` lead the file. Spreading `portable` first would keep
+  // whatever position `entityId` already held in the record and push `type` to
+  // the end — the identity block must read the same on every kind.
+  const { entityId: _slug, ...presetRest } = portable as Record<string, unknown>
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json({
     entityId: preset.entityId ?? preset.presetId,
+    type: 'schema-preset' as const,
+    ...presetRest,
     mapping: canonicalSchemaMapping(mapping),
   }))
   if (ddl) zip.file(`${prefix}${SCHEMA_PRESET_DDL_FILE}`, ddl)
   // `organization` is an INSTANCE_FIELD, stripped above; every other entity puts
   // its provenance snapshot back here. A preset did not, so each re-export
   // silently dropped the publishing organization from the repo.
-  await attachEntityOrganization(zip, `${prefix}preset.json`, preset, storage)
+  await attachEntityOrganization(zip, `${prefix}${ENTITY_MANIFEST}`, preset, storage)
   await writeEntityDocs(zip, prefix, preset, storage, 'schema-preset', preset.presetId)
 }
 
@@ -2373,9 +2432,10 @@ export async function buildUserPluginFolder(
   // Author provenance rides along like every other entity: createdBy + full
   // createdByDetails travel, createdById does not (a local id is meaningless
   // cross-instance — see stripInstanceFields / INSTANCE_FIELDS for projects).
-  zip.file(`${prefix}_plugin.json`, json({
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json({
     id: plugin.id,
     entityId: plugin.entityId,
+    type: 'user-plugin' as const,
     createdBy: plugin.createdBy,
     createdByDetails: plugin.createdByDetails,
     // Provenance, like every other exportable entity: without the lineage a
@@ -2406,7 +2466,7 @@ export async function buildUserPluginZip(
   await buildUserPluginFolder(zip, '', plugin, storage)
   // Inline the origin organization (full snapshot) so a single-plugin ZIP is
   // self-sufficient, matching single-project export.
-  await attachEntityOrganization(zip, MANIFEST['user-plugin'], plugin, storage)
+  await attachEntityOrganization(zip, ENTITY_MANIFEST, plugin, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: plugin.entityId || plugin.id }
 }
@@ -2673,10 +2733,17 @@ export async function applyClonedEntity(
     // Ids are derived from (targetId, path), so they're stable across re-clones
     // into this collection and distinct from a sibling clone of the same repo —
     // no collision to recover from, and _tree.json carries no id to churn.
-    const tree = readPathTree(await readJson(SIDECAR.tree))
+    // The tree lives under scripts/ in a current export; a repo published before
+    // that keeps it at the root with its files beside it.
+    const inScripts = await readJson(`${SCRIPTS_DIR}/${SIDECAR.tree}`)
+    const filePrefix = inScripts ? `${SCRIPTS_DIR}/` : ''
+    const tree = readPathTree(inScripts ?? (await readJson(SIDECAR.tree)))
     for (const rec of fromPathTree<Record<string, unknown>>(tree, targetId, fkKey)) {
       if (rec.type === 'file') {
-        const content = await zip.files[String(rec.path)]?.async('string')
+        const path = String(rec.path)
+        // `mapping/` is machine-managed and stays at the entity root.
+        const isMapping = path === MAPPING_DIR || path.startsWith(`${MAPPING_DIR}/`)
+        const content = await zip.files[`${isMapping ? '' : filePrefix}${path}`]?.async('string')
         if (content !== undefined) rec.content = content
       }
       const node = dropForeignAuthorId(storablePathNode(rec))
@@ -2850,7 +2917,7 @@ export async function buildEtlPipelineFolder(
   pipeline: EtlPipeline,
   storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}_pipeline.json`, json(stripEntityDocs(stripInstanceFields(pipeline) as EtlPipeline)))
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(stripInstanceFields(pipeline) as EtlPipeline), 'etl-pipeline')))
   await writeEntityDocs(zip, prefix, pipeline, storage, 'etl-pipeline', pipeline.id)
   const files = await storage.etlFiles.getByPipeline(pipeline.id)
   const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))
@@ -2872,12 +2939,23 @@ export async function buildEtlPipelineFolder(
   const kept = files.filter(
     (f) => f.type !== 'file' || isVersionedPath(treeNodePath(f, byId)),
   )
-  zip.file(`${prefix}_tree.json`, json(toPathTree(kept, 'pipelineId')))
+  // The user's tree moves under scripts/ so `_tree.json` sits beside the files it
+  // describes. `mapping/` does NOT: it is machine-managed (MAPPING_DIR), the
+  // generated vocabulary script reads `mapping/<name>.csv` by that exact path, and
+  // the readiness check looks for the folder at the pipeline root.
+  const exportPath = (path: string) =>
+    path === MAPPING_DIR || path.startsWith(`${MAPPING_DIR}/`)
+      ? path
+      : `${SCRIPTS_DIR}/${path}`
+  // Every kept node stays IN the tree — it is what drives the import; only the
+  // files' physical location changes. Dropping the mapping/ nodes here made the
+  // marked vocabulary CSV vanish from the export entirely.
+  zip.file(`${prefix}${SCRIPTS_DIR}/${SIDECAR.tree}`, json(toPathTree(kept, 'pipelineId')))
 
   const includedDataPaths: string[] = []
   for (const f of kept) {
     if (f.type !== 'file' || f.content == null) continue
-    const path = treeNodePath(f, byId)
+    const path = exportPath(treeNodePath(f, byId))
     // Marked data files are re-included in the standalone .gitignore below.
     if (isDataExtension(path)) includedDataPaths.push(path)
     zip.file(`${prefix}${path}`, f.content)
@@ -2980,8 +3058,8 @@ export async function buildWorkspaceZip(
   // `readmeLang` when the primary README is not English, which the server's
   // twin has always written. Doing it by hand here dropped that marker, so a
   // French-only workspace exported different bytes front vs back.
-  zip.file(MANIFEST.workspace, json({
-    ...stripInstanceFields(stripEntityDocs(workspace)),
+  zip.file(ENTITY_MANIFEST, json({
+    ...withEntityType(stripInstanceFields(stripEntityDocs(workspace)) as Record<string, unknown>, 'workspace'),
     ...(workspace.organizationId ? { organizationId: workspace.organizationId } : {}),
     appVersion: APP_VERSION,
   }))
@@ -3036,7 +3114,7 @@ export async function buildWorkspaceZip(
           ...(project.createdAt ? { createdAt: project.createdAt } : {}),
           gitRemoteConfig: git,
         }
-        zip.file(`projects/${folder}/project.json`, json(pointer))
+        zip.file(`projects/${folder}/${ENTITY_MANIFEST}`, json(pointer))
         gitLinks.push({ type: 'project', id: project.uid, folder, url: git.url, branch: git.branch })
       } else {
         // Full project content nested under projects/<folder>/ (reuses buildProjectZip layout).
@@ -3110,7 +3188,7 @@ export async function buildWorkspaceZip(
         // the git pointer; the clone (applyClonedEntity) re-applies the full preset.
         const folder = slugify(slug)
         const pointer = { entityId: slug, presetId: sp.presetId, mapping: sp.mapping?.presetLabel ? { presetLabel: sp.mapping.presetLabel } : undefined, gitRemoteConfig: git }
-        zip.file(`schemas/${folder}/_schema.json`, json(pointer))
+        zip.file(`schemas/${folder}/${ENTITY_MANIFEST}`, json(pointer))
         gitLinks.push({ type: 'schema-preset', id: sp.id ?? sp.presetId, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3160,7 +3238,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`sql-scripts/${folder}/_collection.json`, json({ id: collection.id, name: collection.name, ...(collection.createdAt ? { createdAt: collection.createdAt } : {}), gitRemoteConfig: git }))
+        zip.file(`sql-scripts/${folder}/${ENTITY_MANIFEST}`, json({ id: collection.id, name: collection.name, ...(collection.createdAt ? { createdAt: collection.createdAt } : {}), gitRemoteConfig: git }))
         gitLinks.push({ type: 'sql-collection', id: collection.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3183,7 +3261,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`etl/${folder}/_pipeline.json`, json({ id: pipeline.id, name: pipeline.name, ...(pipeline.createdAt ? { createdAt: pipeline.createdAt } : {}), gitRemoteConfig: git }))
+        zip.file(`etl/${folder}/${ENTITY_MANIFEST}`, json({ id: pipeline.id, name: pipeline.name, ...(pipeline.createdAt ? { createdAt: pipeline.createdAt } : {}), gitRemoteConfig: git }))
         gitLinks.push({ type: 'etl-pipeline', id: pipeline.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3205,7 +3283,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`data-quality/${folder}/_ruleset.json`, json({ ruleSet: { id: rs.id, name: rs.name, ...(rs.createdAt ? { createdAt: rs.createdAt } : {}), gitRemoteConfig: git }, checks: [] }))
+        zip.file(`data-quality/${folder}/${ENTITY_MANIFEST}`, json({ ruleSet: { id: rs.id, name: rs.name, ...(rs.createdAt ? { createdAt: rs.createdAt } : {}), gitRemoteConfig: git }, checks: [] }))
         gitLinks.push({ type: 'dq-rule-set', id: rs.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3243,7 +3321,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`mapping-projects/${folder}/project.json`, json({ id: mp.id, entityId: mp.entityId, name: mp.name, ...(mp.createdAt ? { createdAt: mp.createdAt } : {}), gitRemoteConfig: git }))
+        zip.file(`mapping-projects/${folder}/${ENTITY_MANIFEST}`, json({ id: mp.id, entityId: mp.entityId, name: mp.name, ...(mp.createdAt ? { createdAt: mp.createdAt } : {}), gitRemoteConfig: git }))
         gitLinks.push({ type: 'mapping-project', id: mp.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3279,7 +3357,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`catalogs/${folder}/_catalog.json`, json({ id: cat.id, name: cat.name, ...(cat.createdAt ? { createdAt: cat.createdAt } : {}), gitRemoteConfig: git }))
+        zip.file(`catalogs/${folder}/${ENTITY_MANIFEST}`, json({ id: cat.id, name: cat.name, ...(cat.createdAt ? { createdAt: cat.createdAt } : {}), gitRemoteConfig: git }))
         gitLinks.push({ type: 'data-catalog', id: cat.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3305,7 +3383,7 @@ export async function buildWorkspaceZip(
       .filter(p => !builtinIds.has(pluginManifestId(p) ?? p.id))
     for (const plugin of plugins) {
       const folder = plugin.entityId || slugify(plugin.id)
-      zip.file(`plugins/${folder}/_plugin.json`, json({ id: plugin.id, entityId: plugin.entityId, workspaceId: plugin.workspaceId, createdBy: plugin.createdBy, createdByDetails: plugin.createdByDetails, createdAt: plugin.createdAt }))
+      zip.file(`plugins/${folder}/${ENTITY_MANIFEST}`, json({ id: plugin.id, entityId: plugin.entityId, workspaceId: plugin.workspaceId, createdBy: plugin.createdBy, createdByDetails: plugin.createdByDetails, createdAt: plugin.createdAt }))
       for (const [filename, content] of Object.entries(plugin.files)) {
         zip.file(`plugins/${folder}/${filename}`, content)
       }
@@ -3401,7 +3479,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   const zipData = stripRootFolder(await JSZip.loadAsync(file))
 
   // --- workspace.json ---
-  const wsFile = zipData.files[MANIFEST.workspace]
+  const wsFile = zipData.files[ENTITY_MANIFEST] ?? zipData.files[MANIFEST.workspace]
   if (!wsFile) return null
   const workspace = JSON.parse(await wsFile.async('string')) as Workspace & { appVersion?: string }
   if (!workspace?.id) return null
@@ -3443,7 +3521,8 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   // A lightweight entry (catalog-only) and a git-linked pointer carry only
   // project.json + README*.md; anything else under the folder means full nested
   // content in the buildProjectZip layout.
-  const lightweightFile = (name: string) => name === MANIFEST.project || README_FILE_RE.test(name)
+  const lightweightFile = (name: string) =>
+    name === ENTITY_MANIFEST || name === MANIFEST.project || README_FILE_RE.test(name)
   for (const folder of projectFolders) {
     const prefix = `projects/${folder}/`
     const hasFullContent = Object.entries(zipData.files).some(([p, entry]) =>
@@ -3534,14 +3613,15 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const prefix = `sql-scripts/${folder}/`
     const collection = await readEntityManifest<SqlScriptCollection>(zipData, prefix, 'sql-collection')
     if (!collection) continue
+    const tree = await readScriptTree(zipData, prefix)
     const files = fromPathTree<SqlScriptFile & { path: string }>(
-      readPathTree(await readJsonFile(zipData, `${prefix}_tree.json`)),
+      tree.nodes,
       collection.id,
       'collectionId',
     )
     for (const f of files) {
       if (f.type !== 'file') continue
-      const entry = zipData.files[`${prefix}${f.path}`]
+      const entry = zipData.files[`${tree.filePrefix}${f.path}`]
       if (entry) f.content = await entry.async('string')
     }
     sqlCollections.push({ collection, files: files as SqlScriptFile[] })
@@ -3559,14 +3639,18 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const prefix = `etl/${folder}/`
     const pipeline = await readEntityManifest<EtlPipeline>(zipData, prefix, 'etl-pipeline')
     if (!pipeline) continue
+    const tree = await readScriptTree(zipData, prefix)
     const files = fromPathTree<EtlFile & { path: string }>(
-      readPathTree(await readJsonFile(zipData, `${prefix}_tree.json`)),
+      tree.nodes,
       pipeline.id,
       'pipelineId',
     )
     for (const f of files) {
       if (f.type !== 'file') continue
-      const entry = zipData.files[`${prefix}${f.path}`]
+      // `mapping/` stays at the entity root even when the scripts moved under
+      // scripts/, so resolve it there rather than under the tree's prefix.
+      const isMapping = f.path === MAPPING_DIR || f.path.startsWith(`${MAPPING_DIR}/`)
+      const entry = zipData.files[`${isMapping ? prefix : tree.filePrefix}${f.path}`]
       if (entry) f.content = await entry.async('string')
     }
     const docs = await readEntityDocs(zipData, prefix, pipeline)

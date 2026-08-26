@@ -1,5 +1,6 @@
 {
   "id": "ws1",
+  "type": "workspace",
   "name": {
     "en": "Rennes Workspace",
     "fr": "Espace Rennes"

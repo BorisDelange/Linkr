@@ -44,6 +44,19 @@ from app.schemas.source_concept_id import SourceConceptIdRangeResponse
 from app.schemas.sql_script import SqlScriptCollectionResponse, SqlScriptFileResponse
 from app.schemas.user_plugin import UserPluginResponse
 from app.schemas.attachment import WikiAttachmentResponse
+from app.services.export_layout import (
+    ENTITY_MANIFEST,
+    SCRIPTS_DIR,
+    SIDECAR_TREE,
+    TYPE_DATA_CATALOG,
+    TYPE_DQ_RULE_SET,
+    TYPE_ETL_PIPELINE,
+    TYPE_SCHEMA_PRESET,
+    TYPE_SQL_COLLECTION,
+    TYPE_USER_PLUGIN,
+    script_export_path,
+    with_entity_type,
+)
 from app.services.project_export import _gitignore_escape, _is_data_ext
 from app.schemas.wiki_page import WikiPageResponse
 from app.schemas.workspace import WorkspaceResponse
@@ -244,7 +257,7 @@ async def _projects_section(
 def _clean_mapping_meta(project: MappingProject) -> dict:
     """cleanMappingProjectMeta WITHOUT the inlined organization (the workspace
     factors the org into its root organization.json). The standalone mapping
-    builder's project.json IS that clean form when given ``organization=None``, so
+    builder's entity.json IS that clean form when given ``organization=None``, so
     reuse it and lift the file out rather than re-implementing the strip logic."""
     tree = build_mapping_project_tree(
         project=_project_dict(project),
@@ -254,7 +267,7 @@ def _clean_mapping_meta(project: MappingProject) -> dict:
         organization=None,
         source_csv=None,
     )
-    return json.loads(tree["project.json"].decode("utf-8"))
+    return json.loads(tree[ENTITY_MANIFEST].decode("utf-8"))
 
 
 async def _mapping_project_sub_tree(db: AsyncSession, project: MappingProject) -> dict[str, bytes]:
@@ -377,27 +390,34 @@ async def _entity_docs(
 
 async def _sql_collection_sub_tree(db: AsyncSession, collection) -> dict[str, bytes]:
     """Server equivalent of ``buildSqlCollectionFolder`` (entity-io.ts:1404):
-    _collection.json (stripped) + _tree.json (files without content) + each file at
-    its real path."""
+    entity.json (stripped) + scripts/_tree.json (files without content) + each file
+    under scripts/."""
     tree: dict[str, bytes] = {}
     dumped = _badged_dump(SqlScriptCollectionResponse, collection)
-    tree["_collection.json"] = _json(strip_entity_docs(_strip_instance_fields(dumped)))
+    tree[ENTITY_MANIFEST] = _json(
+        with_entity_type(
+            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_SQL_COLLECTION
+        )
+    )
     tree.update(await _entity_docs(db, "", dumped, "sql-collection", collection.id))
     files = [
         _dump(SqlScriptFileResponse, f)
         for f in await sql_script_service.list_files(db, collection.id)
     ]
     by_id = {f["id"]: f for f in files}
-    tree["_tree.json"] = _json(_to_path_tree(files, "collectionId"))
+    tree[f"{SCRIPTS_DIR}/{SIDECAR_TREE}"] = _json(_to_path_tree(files, "collectionId"))
     for f in files:
         if f["type"] == "file" and f.get("content") is not None:
-            tree[_tree_path(f, by_id)] = str(f["content"]).encode("utf-8")
+            tree[f"{SCRIPTS_DIR}/{_tree_path(f, by_id)}"] = str(f["content"]).encode(
+                "utf-8"
+            )
     return tree
 
 
 async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]:
     """Server equivalent of ``buildEtlPipelineFolder`` (entity-io.ts:1775):
-    _pipeline.json (stripped) + _tree.json + each file at its real path."""
+    entity.json (stripped) + scripts/_tree.json + each file under scripts/, except
+    the machine-managed mapping/ folder which stays at the root."""
     tree: dict[str, bytes] = {}
     dumped = _badged_dump(EtlPipelineResponse, pipeline)
     # Same byte-parity rule as `badges`: the client omits an unset `config`
@@ -405,8 +425,10 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
     # null. A pipeline with no versioning marks must export identically either way.
     if dumped.get("config") is None:
         dumped.pop("config", None)
-    tree["_pipeline.json"] = _json(
-        strip_entity_docs(_strip_instance_fields(dumped))
+    tree[ENTITY_MANIFEST] = _json(
+        with_entity_type(
+            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_ETL_PIPELINE
+        )
     )
     tree.update(await _entity_docs(db, "", dumped, "etl-pipeline", pipeline.id))
     files = [
@@ -434,10 +456,14 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
         for f in files
         if f["type"] != "file" or _is_versioned(_tree_path(f, by_id))
     ]
-    tree["_tree.json"] = _json(_to_path_tree(kept, "pipelineId"))
+    # Every kept node stays IN the tree — it is what drives the import; only the
+    # files' physical location changes. Dropping the mapping/ nodes here made the
+    # marked vocabulary CSV vanish from the export entirely.
+    tree[f"{SCRIPTS_DIR}/{SIDECAR_TREE}"] = _json(_to_path_tree(kept, "pipelineId"))
     for f in kept:
         if f["type"] == "file" and f.get("content") is not None:
-            tree[_tree_path(f, by_id)] = str(f["content"]).encode("utf-8")
+            path = script_export_path(_tree_path(f, by_id))
+            tree[path] = str(f["content"]).encode("utf-8")
     return tree
 
 
@@ -716,7 +742,7 @@ async def _attach_org(db: AsyncSession, tree: dict[str, bytes], meta_path: str, 
 
 async def build_sql_collection_tree(db: AsyncSession, collection) -> dict[str, bytes]:
     tree = await _sql_collection_sub_tree(db, collection)
-    await _attach_org(db, tree, "_collection.json", collection)
+    await _attach_org(db, tree, ENTITY_MANIFEST, collection)
     return tree
 
 
@@ -747,31 +773,39 @@ async def build_etl_pipeline_tree(db: AsyncSession, pipeline) -> dict[str, bytes
     lines = _DATA_FILE_GITIGNORE.decode("utf-8").rstrip("\n").split("\n")
     lines.extend(f"!{_gitignore_escape(p)}" for p in marked)
     tree[".gitignore"] = ("\n".join(lines) + "\n").encode("utf-8")
-    await _attach_org(db, tree, "_pipeline.json", pipeline)
+    await _attach_org(db, tree, ENTITY_MANIFEST, pipeline)
     return tree
 
 
 async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]:
-    # Standalone layout (buildDqRuleSetFolder, entity-io.ts:1572): rule-set.json
+    # Standalone layout (buildDqRuleSetFolder, entity-io.ts:1572): entity.json
     # (stripped) + checks.json (verbatim, only when non-empty). Note this differs
     # from the workspace layout, which bundles {ruleSet, checks} in _ruleset.json.
     tree: dict[str, bytes] = {}
     dumped = _badged_dump(DqRuleSetResponse, rule_set)
-    tree["rule-set.json"] = _json(strip_entity_docs(_strip_instance_fields(dumped)))
+    tree[ENTITY_MANIFEST] = _json(
+        with_entity_type(
+            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_DQ_RULE_SET
+        )
+    )
     tree.update(await _entity_docs(db, "", dumped, "dq-rule-set", rule_set.id))
     checks = [_dump(DqCustomCheckResponse, c) for c in await dq_rule_set_service.list_checks(db, rule_set.id)]
     if checks:
         tree["checks.json"] = _json(checks)
-    await _attach_org(db, tree, "rule-set.json", rule_set)
+    await _attach_org(db, tree, ENTITY_MANIFEST, rule_set)
     return tree
 
 
 async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]:
     tree: dict[str, bytes] = {}
     dumped = _badged_dump(DataCatalogResponse, catalog)
-    tree["catalog.json"] = _json(strip_entity_docs(_strip_instance_fields(dumped)))
+    tree[ENTITY_MANIFEST] = _json(
+        with_entity_type(
+            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_DATA_CATALOG
+        )
+    )
     tree.update(await _entity_docs(db, "", dumped, "data-catalog", catalog.id))
-    await _attach_org(db, tree, "catalog.json", catalog)
+    await _attach_org(db, tree, ENTITY_MANIFEST, catalog)
     return tree
 
 
@@ -847,19 +881,21 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
     mapping = dict(stripped.get("mapping") or {})
     ddl = mapping.pop("ddl", None)
     stripped["mapping"] = _canonical_schema_mapping(mapping)
-    tree: dict[str, bytes] = {"preset.json": _json(stripped)}
+    tree: dict[str, bytes] = {
+        ENTITY_MANIFEST: _json(with_entity_type(stripped, TYPE_SCHEMA_PRESET))
+    }
     if ddl:
         tree[SCHEMA_PRESET_DDL_FILE] = ddl.encode()
     # `organization` is stripped as an instance field, and every other entity puts
     # its provenance snapshot back. A preset did not, so each re-export silently
     # dropped the publishing organization from the repo.
-    await _attach_org(db, tree, "preset.json", preset)
+    await _attach_org(db, tree, ENTITY_MANIFEST, preset)
     tree.update(await _entity_docs(db, "", dumped, "schema-preset", preset.preset_id))
     return tree
 
 
 async def build_user_plugin_tree(db: AsyncSession, plugin) -> dict[str, bytes]:
-    # _plugin.json is hand-built in the same key order as buildUserPluginFolder
+    # entity.json is hand-built in the same key order as buildUserPluginFolder
     # (entity-io.ts) — identity, author, then provenance — with the org appended
     # last; each source file is written at its raw filename. None-valued keys are
     # dropped to match JSON.stringify omitting undefined. `version` is not: the
@@ -879,7 +915,9 @@ async def build_user_plugin_tree(db: AsyncSession, plugin) -> dict[str, bytes]:
         if p.get(k) is not None
     }
     meta["version"] = p.get("version") or "0.1.0"
-    tree: dict[str, bytes] = {"_plugin.json": _json(meta)}
+    tree: dict[str, bytes] = {
+        ENTITY_MANIFEST: _json(with_entity_type(meta, TYPE_USER_PLUGIN))
+    }
     tree.update(await _entity_docs(db, "", p, "user-plugin", plugin.id))
     for filename, content in (plugin.files or {}).items():
         # README.md / LICENSE.md are the entity's own fields (written above); a
@@ -887,7 +925,7 @@ async def build_user_plugin_tree(db: AsyncSession, plugin) -> dict[str, bytes]:
         if _is_entity_docs_file(filename):
             continue
         tree[filename] = str(content).encode("utf-8")
-    await _attach_org(db, tree, "_plugin.json", plugin)
+    await _attach_org(db, tree, ENTITY_MANIFEST, plugin)
     return tree
 
 

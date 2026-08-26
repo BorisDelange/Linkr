@@ -1,6 +1,7 @@
 {
   "id": "col1",
   "entityId": "cohort-queries",
+  "type": "sql-collection",
   "name": {
     "en": "Cohort queries",
     "fr": "Requêtes cohorte"

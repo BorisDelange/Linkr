@@ -9,7 +9,7 @@
  * `build_zip.py` and `entity-io.ts` did.
  */
 import { buildColumnIds, slugify } from '../ids.js'
-import { MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES, SIDECAR } from '../layout.js'
+import { ENTITY_MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES, SIDECAR } from '../layout.js'
 
 export interface WriteFile {
   path: string
@@ -209,9 +209,10 @@ export function serializeProject(spec: ProjectSpec): WriteFile[] {
   const files: WriteFile[] = []
 
   files.push({
-    path: MANIFEST.project,
+    path: ENTITY_MANIFEST,
     content: json({
       projectId: spec.projectId,
+      type: 'project' as const,
       name: localized(spec.name),
       ...(spec.description ? { description: localized(spec.description) } : {}),
       config: {},

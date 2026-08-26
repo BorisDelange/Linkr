@@ -1,5 +1,6 @@
 {
   "entityId": "demo-project",
+  "type": "project",
   "projectId": "demo-project",
   "name": {
     "en": "Demo Project",

@@ -27,6 +27,11 @@ import unicodedata
 from typing import Any
 
 from app.core.json_export import export_json as _json
+from app.services.export_layout import (
+    ENTITY_MANIFEST,
+    TYPE_WORKSPACE,
+    with_entity_type,
+)
 
 # The export-format version stamped into workspace.json / project pointers
 # (``appVersion``) — see app/export_version.py. It equals the frontend's
@@ -205,13 +210,13 @@ def _build_projects_section(
             if project.get("createdAt"):
                 pointer["createdAt"] = project["createdAt"]
             pointer["gitRemoteConfig"] = git
-            tree[f"projects/{folder}/project.json"] = _json(pointer)
+            tree[f"projects/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("project", project["uid"], folder, git)
         elif entry.get("sub_tree") is not None:
             for path, content in entry["sub_tree"].items():
                 tree[f"projects/{folder}/{path}"] = content
         else:
-            tree[f"projects/{folder}/project.json"] = _json(project_meta_out)
+            tree[f"projects/{folder}/{ENTITY_MANIFEST}"] = _json(project_meta_out)
             tree.update(_readme_files(f"projects/{folder}/", entry.get("readme")))
 
 
@@ -272,7 +277,7 @@ def _build_schemas_section(
             if mapping.get("presetLabel"):
                 pointer["mapping"] = {"presetLabel": mapping["presetLabel"]}
             pointer["gitRemoteConfig"] = git
-            tree[f"schemas/{folder}/_schema.json"] = _json(pointer)
+            tree[f"schemas/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("schema-preset", sp.get("id") or sp["presetId"], folder, git)
             continue
         tree[f"schemas/{_slugify(slug)}.json"] = _json(sp)
@@ -320,11 +325,11 @@ def _build_sql_scripts_section(
             if collection.get("createdAt"):
                 pointer["createdAt"] = collection["createdAt"]
             pointer["gitRemoteConfig"] = git
-            tree[f"sql-scripts/{folder}/_collection.json"] = _json(pointer)
+            tree[f"sql-scripts/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("sql-collection", collection["id"], folder, git)
             continue
         if entry.get("sub_tree") is None:
-            tree[f"sql-scripts/{folder}/_collection.json"] = _json(collection)
+            tree[f"sql-scripts/{folder}/{ENTITY_MANIFEST}"] = _json(collection)
             continue
         for path, content in entry["sub_tree"].items():
             tree[f"sql-scripts/{folder}/{path}"] = content
@@ -346,11 +351,11 @@ def _build_etl_section(
             if pipeline.get("createdAt"):
                 pointer["createdAt"] = pipeline["createdAt"]
             pointer["gitRemoteConfig"] = git
-            tree[f"etl/{folder}/_pipeline.json"] = _json(pointer)
+            tree[f"etl/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("etl-pipeline", pipeline["id"], folder, git)
             continue
         if entry.get("sub_tree") is None:
-            tree[f"etl/{folder}/_pipeline.json"] = _json(pipeline)
+            tree[f"etl/{folder}/{ENTITY_MANIFEST}"] = _json(pipeline)
             continue
         for path, content in entry["sub_tree"].items():
             tree[f"etl/{folder}/{path}"] = content
@@ -377,7 +382,7 @@ def _build_data_quality_section(
             if rs.get("createdAt"):
                 rule_set_ptr["createdAt"] = rs["createdAt"]
             rule_set_ptr["gitRemoteConfig"] = git
-            tree[f"data-quality/{folder}/_ruleset.json"] = _json(
+            tree[f"data-quality/{folder}/{ENTITY_MANIFEST}"] = _json(
                 {"ruleSet": rule_set_ptr, "checks": []}
             )
             git_links.add("dq-rule-set", rs["id"], folder, git)
@@ -425,11 +430,11 @@ def _build_mapping_projects_section(
             if clean_meta.get("createdAt"):
                 pointer["createdAt"] = clean_meta["createdAt"]
             pointer["gitRemoteConfig"] = git
-            tree[f"mapping-projects/{folder}/project.json"] = _json(pointer)
+            tree[f"mapping-projects/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("mapping-project", entry["id"], folder, git)
             continue
         if entry.get("sub_tree") is None:
-            tree[f"mapping-projects/{folder}/project.json"] = _json(clean_meta)
+            tree[f"mapping-projects/{folder}/{ENTITY_MANIFEST}"] = _json(clean_meta)
             continue
         for path, content in entry["sub_tree"].items():
             tree[f"mapping-projects/{folder}/{path}"] = content
@@ -457,7 +462,7 @@ def _build_catalogs_section(
             if cat.get("createdAt"):
                 pointer["createdAt"] = cat["createdAt"]
             pointer["gitRemoteConfig"] = git
-            tree[f"catalogs/{folder}/_catalog.json"] = _json(pointer)
+            tree[f"catalogs/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("data-catalog", cat["id"], folder, git)
             continue
         tree[f"catalogs/{_eid(cat)}.json"] = _json(cat)
@@ -472,7 +477,7 @@ def _build_plugins_section(tree: dict[str, bytes], plugins: list[dict]) -> None:
     import). Each entry is a userPlugin dict with a ``files`` dict."""
     for plugin in plugins:
         folder = plugin.get("entityId") or _slugify(plugin["id"])
-        tree[f"plugins/{folder}/_plugin.json"] = _json(
+        tree[f"plugins/{folder}/{ENTITY_MANIFEST}"] = _json(
             {
                 "id": plugin["id"],
                 "entityId": plugin.get("entityId"),
@@ -523,11 +528,13 @@ def build_workspace_tree(
     tree: dict[str, bytes] = {}
     git_links = _GitLinks()
 
-    ws_out = _strip_instance_fields(strip_entity_docs(workspace))
+    ws_out = with_entity_type(
+        _strip_instance_fields(strip_entity_docs(workspace)), TYPE_WORKSPACE
+    )
     if workspace.get("organizationId"):
         ws_out["organizationId"] = workspace["organizationId"]
     ws_out["appVersion"] = APP_VERSION
-    tree["workspace.json"] = _json(ws_out)
+    tree[ENTITY_MANIFEST] = _json(ws_out)
 
     if workspace.get("organizationId") and organization:
         # org_snapshot drops updatedAt and normalizes createdAt to ms+Z — the same

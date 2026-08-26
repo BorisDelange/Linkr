@@ -45,7 +45,7 @@ describe('serializeDatabase', () => {
     // The serializer has no I/O and must never hold megabytes of binary: it
     // says where each file goes and the caller moves the bytes.
     const { files, copies } = serializeDatabase(SPEC)
-    expect(files.map((f) => f.path).sort()).toEqual(['.gitattributes', '_database.json'])
+    expect(files.map((f) => f.path).sort()).toEqual(['.gitattributes', 'entity.json'])
     expect(copies).toEqual([
       { path: 'data/admissions.parquet', source: '/data/admissions.parquet' },
       { path: 'data/patients.parquet', source: '/data/patients.parquet' },
@@ -62,14 +62,14 @@ describe('serializeDatabase', () => {
   it('is deterministic and sorts tables', () => {
     const reversed: DatabaseSpec = { ...SPEC, tables: [...SPEC.tables!].reverse() }
     expect(serializeDatabase(SPEC)).toEqual(serializeDatabase(reversed))
-    const meta = JSON.parse(treeOf(SPEC).read('_database.json')!) as { tables: string[] }
+    const meta = JSON.parse(treeOf(SPEC).read('entity.json')!) as { tables: string[] }
     expect(meta.tables).toEqual(['admissions', 'patients'])
   })
 
   it('never writes a connection config', () => {
     // The repo is public; a host or a token in it is a credential leak, which
     // is why the app's own export strips this to `engine`.
-    const meta = JSON.parse(treeOf(SPEC).read('_database.json')!) as Record<string, unknown>
+    const meta = JSON.parse(treeOf(SPEC).read('entity.json')!) as Record<string, unknown>
     expect(meta.connectionConfig).toBeUndefined()
   })
 
@@ -85,7 +85,7 @@ describe('serializeDatabase', () => {
         },
       },
     })
-    const meta = JSON.parse(tree.read('_database.json')!) as {
+    const meta = JSON.parse(tree.read('entity.json')!) as {
       schema: { eventTables: Record<string, Record<string, string>> }
     }
     expect(Object.keys(meta.schema.eventTables)).toEqual(['Alpha', 'Zeta'])
@@ -100,7 +100,7 @@ describe('serializeDatabase', () => {
       schema: MAPPING, schemaSource: SPEC.schemaSource, inMemory: true,
     })
     expect(copies).toEqual([])
-    expect(files.map((f) => f.path)).toEqual(['_database.json'])
+    expect(files.map((f) => f.path)).toEqual(['entity.json'])
     const tree = new MemoryTree(Object.fromEntries(files.map((f) => [f.path, f.content])))
     expect(validateEntity(tree, 'database')).toEqual([])
   })

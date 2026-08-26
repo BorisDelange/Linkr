@@ -16,6 +16,15 @@ import base64
 import json
 from pathlib import Path
 
+from app.services.export_layout import (
+    ENTITY_MANIFEST,
+    SCRIPTS_DIR,
+    SIDECAR_TREE,
+    TYPE_ETL_PIPELINE,
+    TYPE_SQL_COLLECTION,
+    script_export_path,
+    with_entity_type,
+)
 from app.services.mapping_project_export import build_mapping_project_tree
 from app.services.project_export import build_project_tree
 from app.services.entity_docs import entity_doc_files, strip_entity_docs
@@ -45,16 +54,20 @@ def _stripped(meta: dict) -> dict:
     return strip_entity_docs(_strip_instance_fields(meta))
 
 
-def _file_sub_tree(meta_name: str, meta: dict, files: list[dict], fk: str) -> dict:
-    """Full sql-collection / etl-pipeline folder, as _sql_collection_sub_tree does."""
-    tree: dict[str, bytes] = {meta_name: None}
-    tree[meta_name] = _json_bytes(_stripped(meta))
+def _file_sub_tree(entity_type: str, meta: dict, files: list[dict], fk: str) -> dict:
+    """Full sql-collection / etl-pipeline folder, as _sql_collection_sub_tree does:
+    the manifest at the root, the user's files (and their tree) under scripts/."""
+    tree: dict[str, bytes] = {
+        ENTITY_MANIFEST: _json_bytes(with_entity_type(_stripped(meta), entity_type))
+    }
     tree.update(entity_doc_files("", meta))
     by_id = {f["id"]: f for f in files}
-    tree["_tree.json"] = _json_bytes(_to_path_tree(files, fk))
+    tree[f"{SCRIPTS_DIR}/{SIDECAR_TREE}"] = _json_bytes(_to_path_tree(files, fk))
     for f in files:
         if f["type"] == "file" and f.get("content") is not None:
-            tree[_tree_path(f, by_id)] = str(f["content"]).encode("utf-8")
+            tree[script_export_path(_tree_path(f, by_id))] = str(
+                f["content"]
+            ).encode("utf-8")
     return tree
 
 
@@ -108,7 +121,7 @@ def _clean_mapping_meta(mp: dict) -> dict:
     tree = build_mapping_project_tree(
         project=mp, mappings=[], ranges=[], entries=[], organization=None, source_csv=None
     )
-    return json.loads(tree["project.json"].decode("utf-8"))
+    return json.loads(tree[ENTITY_MANIFEST].decode("utf-8"))
 
 
 def _mapping_sub_tree(data: dict, mp: dict) -> dict[str, bytes]:
@@ -189,7 +202,7 @@ def _build_tree() -> dict[str, bytes]:
                 if c.get("gitRemoteConfig")
                 else {
                     "sub_tree": _file_sub_tree(
-                        "_collection.json",
+                        TYPE_SQL_COLLECTION,
                         c,
                         data["sqlScriptFiles"].get(c["id"], []),
                         "collectionId",
@@ -212,7 +225,7 @@ def _build_tree() -> dict[str, bytes]:
                 if p.get("gitRemoteConfig")
                 else {
                     "sub_tree": _file_sub_tree(
-                        "_pipeline.json",
+                        TYPE_ETL_PIPELINE,
                         p,
                         data["etlFiles"].get(p["id"], []),
                         "pipelineId",

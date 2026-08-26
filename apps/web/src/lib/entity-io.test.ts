@@ -168,7 +168,7 @@ describe('buildWorkspaceZip — git-link pointer createdAt', () => {
     const ONLY = { projects: true } as unknown as NonNullable<Parameters<typeof buildWorkspaceZip>[2]>['sections']
     const built = await buildWorkspaceZip('w1', storeWith(project), { sections: ONLY })
     const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
-    return JSON.parse(await zip.files['projects/p/project.json'].async('string')) as Record<string, unknown>
+    return JSON.parse(await zip.files['projects/p/entity.json'].async('string')) as Record<string, unknown>
   }
 
   it('omits createdAt when absent, preserving key order', async () => {
@@ -285,7 +285,7 @@ describe('buildWorkspaceZip — front/back parity', () => {
     const zip = await build({
       workspaces: { getById: async () => ({ id: 'w1', name: { en: 'W' }, description: {}, readme: { fr: '# Bonjour\n' } }) },
     }, { projects: true })
-    const ws = JSON.parse(await zip.files['workspace.json'].async('string')) as Record<string, unknown>
+    const ws = JSON.parse(await zip.files['entity.json'].async('string')) as Record<string, unknown>
     expect(ws.readmeLang).toBe('fr')
     expect('readme' in ws).toBe(false)
   })
@@ -294,7 +294,7 @@ describe('buildWorkspaceZip — front/back parity', () => {
     const zip = await build({
       workspaces: { getById: async () => ({ id: 'w1', name: { en: 'W' }, description: {}, readme: { en: '# Hello\n', fr: '# Bonjour\n' } }) },
     }, { projects: true })
-    const ws = JSON.parse(await zip.files['workspace.json'].async('string')) as Record<string, unknown>
+    const ws = JSON.parse(await zip.files['entity.json'].async('string')) as Record<string, unknown>
     expect('readmeLang' in ws).toBe(false)
   })
 
@@ -663,7 +663,7 @@ describe('buildUserPluginZip — author + org provenance', () => {
 
   const readMeta = async (blob: Blob) => {
     const zip = await JSZip.loadAsync(await blob.arrayBuffer())
-    return JSON.parse(await zip.files['_plugin.json'].async('string'))
+    return JSON.parse(await zip.files['entity.json'].async('string'))
   }
 
   it('writes createdBy + full createdByDetails but never the local createdById', async () => {
@@ -1093,7 +1093,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
 
   it('writes a folder marker + git-links entry for a linked data-catalog', async () => {
     const zip = await exportZip({ catalogs: [CATALOG({ gitRemoteConfig: GIT })] })
-    const marker = zip.files['catalogs/my-catalog/_catalog.json']
+    const marker = zip.files['catalogs/my-catalog/entity.json']
     expect(marker).toBeDefined()
     expect(JSON.parse(await marker.async('string')).id).toBe('cat-1')
     // No flat form when linked.
@@ -1104,7 +1104,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
 
   it('writes a minimal-pointer marker + git-links entry for a linked dq-rule-set (checks live in the repo)', async () => {
     const zip = await exportZip({ ruleSets: [RULESET({ gitRemoteConfig: GIT })], checks: [CHECK()] })
-    const marker = zip.files['data-quality/my-ruleset/_ruleset.json']
+    const marker = zip.files['data-quality/my-ruleset/entity.json']
     expect(marker).toBeDefined()
     const bundle = JSON.parse(await marker.async('string'))
     expect(bundle.ruleSet.id).toBe('rs-1')
@@ -1119,7 +1119,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
 
   it('writes a folder marker + git-links entry for a linked schema-preset', async () => {
     const zip = await exportZip({ presets: [PRESET({ gitRemoteConfig: GIT })] })
-    const marker = zip.files['schemas/my-preset/_schema.json']
+    const marker = zip.files['schemas/my-preset/entity.json']
     expect(marker).toBeDefined()
     expect(JSON.parse(await marker.async('string')).presetId).toBe('my-preset')
     expect(zip.files['schemas/my-preset.json']).toBeUndefined()
@@ -1132,7 +1132,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
       catalogs: [CATALOG()], ruleSets: [RULESET()], checks: [CHECK()], presets: [PRESET()],
     })
     expect(zip.files['catalogs/my-catalog.json']).toBeDefined()
-    expect(zip.files['catalogs/my-catalog/_catalog.json']).toBeUndefined()
+    expect(zip.files['catalogs/my-catalog/entity.json']).toBeUndefined()
     expect(zip.files['data-quality/my-ruleset.json']).toBeDefined()
     expect(zip.files['schemas/my-preset.json']).toBeDefined()
     expect(zip.files['git-links.json']).toBeUndefined()
@@ -1352,7 +1352,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         get: () => new Proxy({}, { get: () => async () => [] }),
       }) as unknown as Storage)
 
-      const meta = JSON.parse(await out.files['_database.json'].async('string')) as Record<string, unknown>
+      const meta = JSON.parse(await out.files['entity.json'].async('string')) as Record<string, unknown>
       expect(meta.schema).toEqual(mapping)
       expect('schemaMapping' in meta).toBe(false)
       // The metadata-only rule still holds: no credentials travel.
@@ -1740,7 +1740,7 @@ describe('ETL pipeline docs — readme, license and attachments round-trip', () 
     expect(await zip.files['LICENSE.md'].async('string')).toContain('MIT License')
     expect(zip.files['attachments/att-1-diagram.png']).toBeDefined()
 
-    const meta = JSON.parse(await zip.files['_pipeline.json'].async('string'))
+    const meta = JSON.parse(await zip.files['entity.json'].async('string'))
     expect(meta.readme).toBeUndefined()
     // The license id stays in the JSON so it round-trips without parsing legalese;
     // the text is only in LICENSE.md.
@@ -1813,7 +1813,7 @@ describe('ETL pipeline docs — readme, license and attachments round-trip', () 
       { id: 'f2', pipelineId: 'etl-1', name: '00_vocabulary.sql', type: 'file' as const, parentId: null, content: 'SELECT 1;', order: -1, createdAt: 'T0' },
     ]
     const treeOf = async (zip: JSZip) =>
-      (JSON.parse(await zip.files['_tree.json'].async('string')) as { path: string }[]).map((n) => n.path)
+      (JSON.parse(await zip.files['scripts/_tree.json'].async('string')) as { path: string }[]).map((n) => n.path)
 
     it('omits an UNMARKED data file — the phantom pull item', async () => {
       const zip = new JSZip()

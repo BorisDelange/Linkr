@@ -15,7 +15,7 @@
  */
 import { canonicalSchemaMapping } from '../schema-mapping.js'
 import type { CopyFile, LocalizedInput, SerializedTree, WriteFile } from './project.js'
-import { MANIFEST, ROOT_FILE } from '../layout.js'
+import { ENTITY_MANIFEST, ROOT_FILE } from '../layout.js'
 
 /** One table of the database: a Parquet file to copy into `data/`. */
 export interface DatabaseTableSpec {
@@ -158,6 +158,7 @@ export function serializeDatabase(spec: DatabaseSpec): SerializedTree {
   const source = spec.schemaSource
   const meta = {
     id: spec.id,
+    type: 'database' as const,
     alias: spec.alias,
     name: localized(spec.name),
     ...(spec.description ? { description: localized(spec.description) } : {}),
@@ -178,7 +179,7 @@ export function serializeDatabase(spec: DatabaseSpec): SerializedTree {
     version: spec.version ?? '0.1.0',
   }
 
-  const files: WriteFile[] = [{ path: MANIFEST.database, content: json(meta) }]
+  const files: WriteFile[] = [{ path: ENTITY_MANIFEST, content: json(meta) }]
   const copies: CopyFile[] = ordered.map((t) => ({
     path: `data/${t.name}.parquet`,
     source: t.source,

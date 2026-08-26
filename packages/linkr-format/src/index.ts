@@ -14,7 +14,7 @@ export { MemoryTree, filesIn, readJson } from './tree.js'
 export { buildColumnIds, columnId, isLegacyColumnId, slugify } from './ids.js'
 
 export {
-  CONTENT_FILE, ENTITY_MANIFEST, ENTITY_TYPES, MANIFEST, ROOT_FILE, SCRIPT_LANGUAGE, SIDECAR,
+  CONTENT_FILE, ENTITY_MANIFEST, ENTITY_TYPES, MANIFEST, ROOT_FILE, SCRIPT_LANGUAGE, SCRIPTS_DIR, SIDECAR,
   isEntityType, manifestCandidates, manifestList, scriptLanguage,
 } from './layout.js'
 export type { LayoutKind } from './layout.js'

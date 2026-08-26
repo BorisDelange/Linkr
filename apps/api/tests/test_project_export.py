@@ -10,6 +10,7 @@ import base64
 import json
 from pathlib import Path
 
+from app.services.export_layout import ENTITY_MANIFEST
 from app.services.project_export import (
     _canonical_parse_options,
     _slugify,
@@ -110,7 +111,7 @@ def test_machine_local_bindings_stripped_from_project_json():
         attachment_blobs={},
         versioned_data_files=set(),
     )
-    project_json = json.loads(tree["project.json"].decode())
+    project_json = json.loads(tree[ENTITY_MANIFEST].decode())
     assert "idePath" not in project_json
     assert "scriptsPath" not in project_json
     assert "datasetsPath" not in project_json
@@ -326,7 +327,7 @@ def test_stale_marked_and_excluded_paths_pruned_from_project_json():
         attachments=[], attachment_blobs={},
         versioned_data_files={"datasets/here.csv"},
     )
-    cfg = json.loads(tree["project.json"].decode())["config"]
+    cfg = json.loads(tree[ENTITY_MANIFEST].decode())["config"]
     # Existing files survive; dead entries are dropped; unrelated keys untouched.
     assert cfg["versionedDataFiles"] == ["datasets/here.csv"]
     assert cfg["excludedFiles"] == ["scripts/keep.py"]

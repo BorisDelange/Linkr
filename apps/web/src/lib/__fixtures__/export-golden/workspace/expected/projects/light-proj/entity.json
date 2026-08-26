@@ -1,11 +1,12 @@
 {
-  "entityId": "full-proj",
-  "projectId": "full-proj",
+  "entityId": "light-proj",
+  "type": "project",
+  "projectId": "light-proj",
   "name": {
-    "en": "Full Project"
+    "en": "Lightweight Project"
   },
   "description": {
-    "en": "Full nested export"
+    "en": "Metadata only"
   },
   "shortDescription": {},
   "config": {},

@@ -31,6 +31,11 @@ from typing import Any
 from app.core.json_export import export_json as _json
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.entity_docs import license_file, license_meta
+from app.services.export_layout import (
+    ENTITY_MANIFEST,
+    TYPE_PROJECT,
+    with_entity_type,
+)
 from app.services.org_snapshot import org_snapshot
 
 # Fields specific to the exporting instance/deployment, dropped from every
@@ -400,7 +405,7 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
     out["appVersion"] = APP_VERSION
     if organization:
         out["organization"] = org_snapshot(organization)
-    return _json(out)
+    return _json(with_entity_type(out, TYPE_PROJECT))
 
 
 def _readme_files(readme: Any) -> dict[str, bytes]:
@@ -539,7 +544,7 @@ def build_project_tree(
     }
     project = _prune_marked_paths(project, live_mark_keys)
 
-    tree["project.json"] = _build_project_json(project, organization)
+    tree[ENTITY_MANIFEST] = _build_project_json(project, organization)
 
     tree.update(_readme_files(project.get("readme")))
     tree.update(license_file("", project.get("license")))

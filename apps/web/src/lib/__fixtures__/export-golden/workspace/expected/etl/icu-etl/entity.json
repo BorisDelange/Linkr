@@ -1,6 +1,7 @@
 {
   "id": "pipe1",
   "entityId": "icu-etl",
+  "type": "etl-pipeline",
   "name": {
     "en": "ICU ETL",
     "fr": "ETL réa"

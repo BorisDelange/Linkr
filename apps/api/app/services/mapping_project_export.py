@@ -24,6 +24,11 @@ from typing import Any
 from app.core.json_export import export_json as _json
 from app.services.entity_docs import entity_doc_files
 from app.services.entity_docs import license_meta as _license_meta
+from app.services.export_layout import (
+    ENTITY_MANIFEST,
+    TYPE_MAPPING_PROJECT,
+    with_entity_type,
+)
 from app.services.org_snapshot import org_snapshot
 
 # Fields dropped from project.json so the exported metadata is portable — mirrors
@@ -152,7 +157,7 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
     if organization:
         out["organization"] = org_snapshot(organization)
 
-    return _json(out)
+    return _json(with_entity_type(out, TYPE_MAPPING_PROJECT))
 
 
 _PARQUET_MAGIC = b"PAR1"
@@ -229,7 +234,7 @@ def build_mapping_project_tree(
     """
     tree: dict[str, bytes] = {}
 
-    tree["project.json"] = _build_project_json(project, organization)
+    tree[ENTITY_MANIFEST] = _build_project_json(project, organization)
     tree.update(entity_doc_files("", project))
     tree["mappings.json"] = _serialize_mappings(mappings)
 

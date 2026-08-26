@@ -175,7 +175,9 @@ async def test_etl_unmarked_data_file_leaves_no_tree_entry(db):
     await db.commit()
 
     tree = await build_etl_pipeline_tree(db, pipeline)
-    paths = [n["path"] for n in json.loads(tree["_tree.json"])]
+    paths = [n["path"] for n in json.loads(tree["scripts/_tree.json"])]
+    # Tree paths stay pipeline-relative; only the files move. A marked mapping/
+    # file keeps its root location because the generated script reads it by path.
     assert "mapping/kept.csv" in paths
     assert "mapping/source_to_concept_map.csv" not in paths
     assert "mapping/source_to_concept_map.csv" not in tree

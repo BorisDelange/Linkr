@@ -8,7 +8,9 @@
 import { checkLocalized, checkString, isObject } from '../check.js'
 import { canonicalSchemaMapping } from '../schema-mapping.js'
 import { IssueBag, type Issue } from '../issue.js'
-import { ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SIDECAR, isEntityType, type LayoutKind } from '../layout.js'
+import {
+  ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, isEntityType, type LayoutKind,
+} from '../layout.js'
 import { readJson, type EntityTree } from '../tree.js'
 import { validateFileTree } from './file-tree.js'
 import { validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
@@ -285,7 +287,13 @@ function validateScriptCollection(
   }
   checkInstanceFields(bag, metadataPath, parsed.value)
 
-  validateFileTree(tree, bag, { treePath: SIDECAR.tree, filePrefix: '' })
+  // The file tree lives under scripts/; a repo published before that keeps it at
+  // the root with its files scattered beside it. Validate whichever this tree has.
+  const inScripts = tree.read(`${SCRIPTS_DIR}/${SIDECAR.tree}`) != null
+  validateFileTree(tree, bag, {
+    treePath: inScripts ? `${SCRIPTS_DIR}/${SIDECAR.tree}` : SIDECAR.tree,
+    filePrefix: inScripts ? `${SCRIPTS_DIR}/` : '',
+  })
 }
 
 /**

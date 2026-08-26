@@ -108,7 +108,7 @@ describe('serializeProject', () => {
   it('serializes a minimal project', () => {
     const spec: ProjectSpec = { projectId: 'p', name: { en: 'P' }, appVersion: '2.3.3' }
     const files = serializeProject(spec).map((f) => f.path)
-    expect(files).toEqual(['project.json'])
+    expect(files).toEqual(['entity.json'])
     expect(validateProject(treeOf(spec))).toEqual([])
   })
 

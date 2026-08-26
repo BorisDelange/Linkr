@@ -865,7 +865,7 @@ async def test_export_zip_builds_server_side(client):
     zf = zipfile.ZipFile(io.BytesIO(r.content))
     names = set(zf.namelist())
     assert {
-        "project.json",
+        "entity.json",
         "mappings.json",
         "source-concepts.csv",
         ".gitignore",

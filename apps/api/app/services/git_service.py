@@ -36,6 +36,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import structlog
 
 from app.config import settings
+from app.services.export_layout import ENTITY_MANIFEST
 
 logger = structlog.get_logger()
 
@@ -714,6 +715,9 @@ def _materialize_at(
 # pull like a CRDT counter.
 _PULL_TEXT_FILES = (
     "mappings.json",
+    ENTITY_MANIFEST,
+    # A repo published before the manifest rename still carries project.json; the
+    # tolerant readers accept either, so the pull must fetch either.
     "project.json",
     "source-concept-ids/entries.json",
     "source-concept-ids/ranges.json",

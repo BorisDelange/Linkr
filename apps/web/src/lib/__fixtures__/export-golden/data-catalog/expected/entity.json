@@ -1,6 +1,7 @@
 {
   "id": "cat-1",
   "entityId": "icu-catalog",
+  "type": "data-catalog",
   "name": {
     "en": "ICU catalog",
     "fr": "Catalogue réa"

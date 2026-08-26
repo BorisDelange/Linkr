@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Download, FileText, FileCode, Loader2, Archive, AlertTriangle } from 'lucide-react'
 import JSZip from 'jszip'
+import { ENTITY_MANIFEST } from '@linkr/format'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -365,7 +366,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         dataSources,
         includeScores: withScores,
       })
-      await attachEntityOrganization(zip, 'project.json', project, getStorage())
+      await attachEntityOrganization(zip, ENTITY_MANIFEST, project, getStorage())
       const blob = await zip.generateAsync({ type: 'blob' })
       downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
     } catch {
@@ -380,7 +381,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
           includeScores: withScores,
           skipSourceConcepts: true,
         })
-        await attachEntityOrganization(zip, 'project.json', project, getStorage())
+        await attachEntityOrganization(zip, ENTITY_MANIFEST, project, getStorage())
         const blob = await zip.generateAsync({ type: 'blob' })
         downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
 

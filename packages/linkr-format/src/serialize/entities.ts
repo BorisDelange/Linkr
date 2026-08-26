@@ -11,7 +11,10 @@
  */
 import { MAPPING_FIELD_ORDER, canonicalSchemaMapping, orderKeys } from '../schema-mapping.js'
 import type { LocalizedInput, WriteFile } from './project.js'
-import { CONTENT_FILE, MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES, SIDECAR } from '../layout.js'
+import {
+  CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES, SCRIPTS_DIR, SIDECAR,
+  type LayoutKind,
+} from '../layout.js'
 
 /**
  * Identity and provenance every authored entity may declare.
@@ -221,10 +224,13 @@ function localized(value: LocalizedInput): Record<string, string> {
  * Key order is part of byte-parity: the same fields in a different order still
  * produce a git diff on the first re-export.
  */
-function identityHead(s: EntityIdentity): Record<string, unknown> {
+function identityHead(s: EntityIdentity, type: LayoutKind): Record<string, unknown> {
   return {
     ...(s.id ? { id: s.id } : {}),
     ...(s.entityId ? { entityId: s.entityId } : {}),
+    // What this entity is, declared rather than inferred from the filename —
+    // which is what lets every kind share one manifest name.
+    type,
   }
 }
 
@@ -258,7 +264,12 @@ function sortByPath<T extends { path: string }>(files: T[]): T[] {
  * derived here rather than left to the caller to remember.
  */
 function serializeScriptFiles(files: ScriptFileSpec[]): WriteFile[] {
-  const out: WriteFile[] = files.map((f) => ({ path: f.path, content: f.content }))
+  // Files live under scripts/ alongside their sidecar; `path` in the tree stays
+  // relative to that folder, so the author's layout is unchanged.
+  const out: WriteFile[] = files.map((f) => ({
+    path: `${SCRIPTS_DIR}/${f.path}`,
+    content: f.content,
+  }))
 
   const folders = new Set<string>()
   for (const file of files) {
@@ -277,7 +288,7 @@ function serializeScriptFiles(files: ScriptFileSpec[]): WriteFile[] {
     })),
   ]
 
-  out.push({ path: SIDECAR.tree, content: json(sortByPath(entries)) })
+  out.push({ path: `${SCRIPTS_DIR}/${SIDECAR.tree}`, content: json(sortByPath(entries)) })
   return sortByPath(out)
 }
 
@@ -291,9 +302,9 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const s = spec as SqlCollectionSpec
       return [
         {
-          path: MANIFEST['sql-collection'],
+          path: ENTITY_MANIFEST,
           content: json({
-            ...identityHead(s),
+            ...identityHead(s, 'sql-collection'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...(s.badges ? { badges: s.badges } : {}),
@@ -308,9 +319,9 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const s = spec as EtlPipelineSpec
       return [
         {
-          path: MANIFEST['etl-pipeline'],
+          path: ENTITY_MANIFEST,
           content: json({
-            ...identityHead(s),
+            ...identityHead(s, 'etl-pipeline'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...(s.badges ? { badges: s.badges } : {}),
@@ -326,9 +337,9 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const s = spec as DqRuleSetSpec
       return [
         {
-          path: MANIFEST['dq-rule-set'],
+          path: ENTITY_MANIFEST,
           content: json({
-            ...identityHead(s),
+            ...identityHead(s, 'dq-rule-set'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...(s.badges ? { badges: s.badges } : {}),
@@ -355,9 +366,9 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const s = spec as DataCatalogSpec
       return [
         {
-          path: MANIFEST['data-catalog'],
+          path: ENTITY_MANIFEST,
           content: json({
-            ...identityHead(s),
+            ...identityHead(s, 'data-catalog'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...(s.badges ? { badges: s.badges } : {}),
@@ -375,13 +386,13 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const s = spec as MappingProjectSpec
       return [
         {
-          path: MANIFEST.project,
+          path: ENTITY_MANIFEST,
           // A mapping project orders its own keys: `createdAt` sits right after
           // `status`, not with the trailing provenance — so `provenanceTail` is
           // not reused here. Matches what the app writes (see the published
           // mimic-iv-demo repo).
           content: json({
-            ...identityHead(s),
+            ...identityHead(s, 'mapping-project'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...(s.badges ? { badges: s.badges } : {}),
@@ -424,7 +435,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const ddl = s.ddl ?? (typeof _inlineDdl === 'string' ? _inlineDdl : undefined)
       return [
         {
-          path: MANIFEST['schema-preset'],
+          path: ENTITY_MANIFEST,
           content: json({
             // Key order mirrors what the app exports, so an authored tree and a
             // Linkr re-export are byte-identical — the first sync after an
@@ -436,6 +447,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             // identity, read on import but no longer written. See
             // docs/planning/schema-preset-identity-plan.md.
             entityId: s.presetId,
+            type: 'schema-preset' as const,
             mapping,
             ...(s.badges ? { badges: s.badges } : {}),
             ...(s.createdAt ? { createdAt: s.createdAt } : {}),

@@ -9,7 +9,7 @@
 import { copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import {
-  SCRIPT_LANGUAGE as SCRIPT_LANGUAGES,
+  ENTITY_MANIFEST, MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES,
   columnId, formatIssues, slugify, validateProject, type CopyFile, type WriteFile,
 } from '@linkr/format'
 import { FsTree } from '@linkr/format/node/fs-tree'
@@ -174,8 +174,9 @@ export function describeTree(root: string): string {
   const tree = new FsTree(root)
   const lines: string[] = []
 
-  const projectRaw = tree.read('project.json')
-  if (!projectRaw) throw new Error(`No project.json in ${root}.`)
+  // Either name: a tree written before the manifest rename still says project.json.
+  const projectRaw = tree.read(ENTITY_MANIFEST) ?? tree.read(MANIFEST.project)
+  if (!projectRaw) throw new Error(`No ${ENTITY_MANIFEST} in ${root}.`)
   const project = JSON.parse(projectRaw) as { name?: unknown; projectId?: string }
   lines.push(`Project: ${JSON.stringify(project.name)} (${project.projectId ?? 'no projectId'})`)
 

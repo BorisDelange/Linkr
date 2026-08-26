@@ -1,15 +1,20 @@
 {
-  "id": "col-1",
-  "entityId": "icu-scripts",
+  "id": "rs-1",
+  "entityId": "icu-dq",
+  "type": "dq-rule-set",
   "name": {
-    "en": "ICU scripts",
-    "fr": "Scripts réa"
+    "en": "ICU data quality",
+    "fr": "Qualité données réa"
   },
   "description": {
-    "en": "Reusable SQL",
-    "fr": "SQL réutilisable"
+    "en": "Core checks",
+    "fr": "Contrôles de base"
   },
-  "defaultDataSourceId": null,
+  "dataSourceId": "",
+  "status": "draft",
+  "lastRunAt": null,
+  "lastRunDurationMs": null,
+  "lastScore": 100,
   "createdBy": "Boris Delange",
   "createdByDetails": {
     "firstName": "Boris",

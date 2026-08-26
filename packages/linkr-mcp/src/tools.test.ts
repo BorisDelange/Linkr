@@ -44,7 +44,7 @@ describe('describeTree', () => {
   })
 
   it('fails clearly when the directory holds no project', () => {
-    expect(() => describeTree(join(root, 'nope'))).toThrow(/No project.json/)
+    expect(() => describeTree(join(root, 'nope'))).toThrow(/No entity.json/)
   })
 })
 
@@ -192,9 +192,9 @@ describe('writeZip', () => {
     const { default: JSZip } = await import('jszip')
     const zip = await JSZip.loadAsync(readFileSync(target))
     const paths = Object.keys(zip.files).filter((p) => !zip.files[p].dir)
-    // project.json must sit at the root: a wrapping folder is something the
+    // entity.json must sit at the root: a wrapping folder is something the
     // app's parser then has to strip, and getting it wrong breaks the import.
-    expect(paths).toContain('project.json')
+    expect(paths).toContain('entity.json')
     expect(paths.some((p) => p.split('/')[0].endsWith('.json') && p.includes('/'))).toBe(false)
   })
 

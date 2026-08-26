@@ -1,4 +1,5 @@
 import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
+import { ENTITY_MANIFEST } from '@linkr/format'
 import { localized } from '@/lib/localized'
 import { stripInstanceFields, attachEntityOrganization, licenseMeta, writeReadmeFiles, writeLicenseFile, writeAttachmentFiles } from '@/lib/entity-io'
 import { mappingKey } from '@/lib/concept-mapping/merge'
@@ -722,8 +723,14 @@ function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
  */
 export function cleanMappingProjectMeta(project: MappingProject): Record<string, unknown> {
   const { conceptSetIds: _, importBatches: _ib, fileSourceData, vocabularyDataSourceId: _vds, readme: _readme, license, ...projectRest } = project
+  const { id, entityId, ...rest } = stripInstanceFields(projectRest) as Record<string, unknown>
   return {
-    ...stripInstanceFields(projectRest),
+    ...(id !== undefined ? { id } : {}),
+    ...(entityId !== undefined ? { entityId } : {}),
+    // Declared rather than inferred: `mappings.json` used to be what told this
+    // apart from a plain project, which one shared manifest name cannot support.
+    type: 'mapping-project' as const,
+    ...rest,
     // The readme and the licence text travel as README.md / LICENSE.md; only the
     // licence's identity stays here.
     ...(licenseMeta(license) ? { license: licenseMeta(license) } : {}),
@@ -753,7 +760,7 @@ export async function buildMappingProjectFolder(
   const mappings = await storage.conceptMappings.getByProject(project.id)
 
   const projectJson = cleanMappingProjectMeta(project)
-  zip.file(`${prefix}project.json`, JSON.stringify(projectJson, null, 2))
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, JSON.stringify(projectJson, null, 2))
   writeReadmeFiles(zip, prefix, project.readme)
   writeLicenseFile(zip, prefix, project.license)
   await writeAttachmentFiles(zip, prefix, storage, 'mapping-project', project.id)
@@ -883,7 +890,7 @@ export async function buildMappingProjectZip(
   const JSZip = (await import('jszip')).default
   const zip = new JSZip()
   await buildMappingProjectFolder(zip, '', project, storage, { includeScores: false })
-  await attachEntityOrganization(zip, 'project.json', project, storage)
+  await attachEntityOrganization(zip, ENTITY_MANIFEST, project, storage)
 
   zip.file('.gitignore', '*.parquet\nreview/\nstate.json\n')
 

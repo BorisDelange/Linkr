@@ -1,5 +1,6 @@
 {
   "entityId": "omop-cdm-5-4",
+  "type": "schema-preset",
   "mapping": {
     "tables": {
       "person": {

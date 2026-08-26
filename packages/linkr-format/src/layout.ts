@@ -87,6 +87,21 @@ export function manifestCandidates(kind: LayoutKind): string[] {
 }
 
 /**
+ * The folder an entity's user-authored file tree lives in.
+ *
+ * ETL pipelines and SQL collections used to scatter their files across the repo
+ * root, which is why their `_tree.json` had to sit at the root too — there was no
+ * single folder for it to describe. Giving them the same container a project's
+ * scripts already use puts the sidecar back beside the files it describes, and
+ * makes "where does code live in a Linkr entity?" answerable once.
+ *
+ * A pipeline's `mapping/` is NOT part of this: it is machine-managed (see
+ * MAPPING_DIR in the app), holds generated vocabulary CSVs the ETL scripts read
+ * by path, and stays a sibling at the root.
+ */
+export const SCRIPTS_DIR = 'scripts'
+
+/**
  * Sidecars: machine-written files describing the files beside them. Never a
  * manifest — that distinction is what the leading `_` is for.
  */
