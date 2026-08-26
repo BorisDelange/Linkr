@@ -16,6 +16,7 @@ import base64
 import json
 from pathlib import Path
 
+from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.export_layout import (
     ENTITY_MANIFEST,
     SCRIPTS_DIR,
@@ -58,7 +59,9 @@ def _file_sub_tree(entity_type: str, meta: dict, files: list[dict], fk: str) -> 
     """Full sql-collection / etl-pipeline folder, as _sql_collection_sub_tree does:
     the manifest at the root, the user's files (and their tree) under scripts/."""
     tree: dict[str, bytes] = {
-        ENTITY_MANIFEST: _json_bytes(with_entity_type(_stripped(meta), entity_type))
+        ENTITY_MANIFEST: _json_bytes(
+            with_entity_type(_stripped(meta), entity_type, APP_VERSION)
+        )
     }
     tree.update(entity_doc_files("", meta))
     by_id = {f["id"]: f for f in files}

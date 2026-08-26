@@ -22,8 +22,10 @@ import {
   dropForeignAuthorId,
   parseImportZip,
   readImportedManifest,
+  reassemblePresetMapping,
   stripInstanceFields,
   SCHEMA_PRESET_DDL_FILE,
+  SCHEMA_PRESET_MAPPING_FILE,
 } from '@/lib/entity-io'
 import {
   presentReadme,
@@ -221,12 +223,17 @@ export async function prepareSchemaPresetPull(
   // DDL is plain SQL, so it comes back as a string.
   const raw = parsed[SCHEMA_PRESET_DDL_FILE]
   const remoteDdl = typeof raw === 'string' && raw ? raw : null
-  const remoteMapping = rawRemote.mapping
-    ? stripInstancePresetMapping(rawRemote.mapping)
+  // The mapping is its own file since the split, and its label/description live
+  // at the manifest root; an older repo has all three inline. Reassembling first
+  // means everything below compares like with like, whichever layout the repo has.
+  const mappingFile = parsed[SCHEMA_PRESET_MAPPING_FILE] as Partial<SchemaMapping> | undefined
+  const remoteFull = (mappingFile || rawRemote.mapping)
+    ? reassemblePresetMapping(rawRemote, mappingFile)
     : null
+  const remoteMapping = remoteFull ? stripInstancePresetMapping(remoteFull) : null
   // Read off the RAW remote, not the stripped one: stripping removes exactly
   // these fields, so the stripped copy would always report "no change".
-  const remoteInfo = presetInfoOf(rawRemote.mapping)
+  const remoteInfo = presetInfoOf(remoteFull ?? undefined)
   const remoteDocs = readEntityDocsFrom(parsed, rawRemote)
 
   const ddlChanged = remoteDdl != null && remoteDdl !== preset?.mapping?.ddl

@@ -1,5 +1,6 @@
 import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
 import { ENTITY_MANIFEST } from '@linkr/format'
+import { APP_VERSION } from '@/lib/version'
 import { localized } from '@/lib/localized'
 import { stripInstanceFields, attachEntityOrganization, licenseMeta, writeReadmeFiles, writeLicenseFile, writeAttachmentFiles } from '@/lib/entity-io'
 import { mappingKey } from '@/lib/concept-mapping/merge'
@@ -742,6 +743,10 @@ export function cleanMappingProjectMeta(project: MappingProject): Record<string,
         rows: [],
       },
     } : {}),
+    // The export-format version stamp, as every other kind carries it.
+    // `organization` is appended after this by attachEntityOrganization, which
+    // re-opens the file — so appVersion is last only until that runs.
+    appVersion: APP_VERSION,
   }
 }
 

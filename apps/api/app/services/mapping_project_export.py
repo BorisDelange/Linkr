@@ -22,6 +22,7 @@ the caller.
 from typing import Any
 
 from app.core.json_export import export_json as _json
+from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.entity_docs import entity_doc_files
 from app.services.entity_docs import license_meta as _license_meta
 from app.services.export_layout import (
@@ -153,6 +154,11 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
             **{k: v for k, v in fsd.items() if k != "rawFileBuffer"},
             "rows": [],
         }
+
+    # The export-format version stamp, as every other kind carries it. The org is
+    # appended after it (attachEntityOrganization re-opens the file on the client),
+    # so this is last only until that runs.
+    out["appVersion"] = APP_VERSION
 
     if organization:
         out["organization"] = org_snapshot(organization)

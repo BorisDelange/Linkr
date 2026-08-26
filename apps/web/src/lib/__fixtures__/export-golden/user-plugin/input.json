@@ -4,6 +4,7 @@
     "entityId": "icu-histogram",
     "workspaceId": "ws1",
     "files": {
+      "plugin.json": "{\n  \"id\": \"icu-histogram\",\n  \"name\": {\n    \"en\": \"ICU histogram\",\n    \"fr\": \"Histogramme réa\"\n  },\n  \"description\": {\n    \"en\": \"Length-of-stay distribution\",\n    \"fr\": \"Distribution des durées de séjour\"\n  }\n}",
       "ui.R": "library(shiny)\nfluidPage(\"hello\")\n",
       "server.py": "def render(ctx):\n    return {\"ok\": True}\n"
     },

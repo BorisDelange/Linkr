@@ -5,6 +5,15 @@
     "entityId": "omop-cdm-5-4",
     "workspaceId": "ws1",
     "mapping": {
+      "presetId": "omop-cdm-5-4",
+      "presetLabel": {
+        "en": "OMOP CDM 5.4",
+        "fr": "OMOP CDM 5.4"
+      },
+      "description": {
+        "en": "OMOP Common Data Model 5.4",
+        "fr": "Modèle de données commun OMOP 5.4"
+      },
       "ddl": "-- Demo DDL\n\nCREATE TABLE person (\n  person_id integer NOT NULL PRIMARY KEY,\n  year_of_birth integer NOT NULL\n);\n\nCREATE TABLE visit_occurrence (\n  visit_occurrence_id integer NOT NULL PRIMARY KEY,\n  person_id integer NOT NULL\n);\n",
       "tables": {
         "person": {

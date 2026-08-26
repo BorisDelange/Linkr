@@ -116,6 +116,14 @@ export const SIDECAR = {
 export const CONTENT_FILE = {
   /** A schema preset's DDL, split out so a type change is a readable diff. */
   schemaDdl: 'schema.ddl',
+  /**
+   * A schema preset's table/column mapping.
+   *
+   * Split out for the same reason as the DDL: it was 83% of the manifest, which
+   * buried the identity a human (and the catalog scanner) opens the file for.
+   * `entity.json` carries identity + provenance; substantial payload lives beside it.
+   */
+  schemaMapping: 'mapping.json',
   /** A DQ rule set's checks. */
   dqChecks: 'checks.json',
   /** A plugin's own functional manifest — NOT Linkr entity metadata. */

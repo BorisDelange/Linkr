@@ -9,7 +9,8 @@ import { checkLocalized, checkString, isObject } from '../check.js'
 import { canonicalSchemaMapping } from '../schema-mapping.js'
 import { IssueBag, type Issue } from '../issue.js'
 import {
-  ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, isEntityType, type LayoutKind,
+  CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, isEntityType,
+  type LayoutKind,
 } from '../layout.js'
 import { readJson, type EntityTree } from '../tree.js'
 import { validateFileTree } from './file-tree.js'
@@ -336,9 +337,16 @@ function validateSchemaPreset(tree: EntityTree, bag: IssueBag): void {
   // where the value must already exist.
   checkInstanceFields(bag, path, preset)
 
-  const mapping = preset.mapping
+  // The mapping is its own file since the split — `entity.json` carries identity
+  // and provenance, the payload lives beside it. A tree published before that has
+  // it inline, and still validates.
+  const inFile = readJson(tree, CONTENT_FILE.schemaMapping)
+  const mappingPath = inFile.ok ? CONTENT_FILE.schemaMapping : path
+  const at = (pointer: string) => (inFile.ok ? pointer.replace(/^\/mapping/, '') || '' : pointer)
+  const mapping = inFile.ok ? inFile.value : preset.mapping
   if (!isObject(mapping)) {
-    bag.error(path, '/mapping', 'missing-field', 'A schema preset needs a `mapping` object.')
+    bag.error(path, '/mapping', 'missing-field',
+      `A schema preset needs a mapping — as ${CONTENT_FILE.schemaMapping} beside the manifest.`)
     return
   }
   // The exporters canonicalise the mapping before writing it. A tree that is not
@@ -346,29 +354,29 @@ function validateSchemaPreset(tree: EntityTree, bag: IssueBag): void {
   // diff that changes no data. Comparing the serialization is what catches both
   // the key order and the event-table field order in one check.
   if (JSON.stringify(mapping) !== JSON.stringify(canonicalSchemaMapping(mapping))) {
-    bag.warn(path, '/mapping', 'legacy-format',
+    bag.warn(mappingPath, at('/mapping'), 'legacy-format',
       'The mapping is not in canonical order; the next export will rewrite it.',
       'reorder it as `canonicalSchemaMapping` does, or re-export from Linkr')
   }
   // The export moves the DDL out of the mapping and into schema.ddl; a preset
   // still carrying it inline came from an older writer and round-trips badly.
   if (mapping.ddl != null) {
-    bag.warn(path, '/mapping/ddl', 'legacy-format',
+    bag.warn(mappingPath, at('/mapping/ddl'), 'legacy-format',
       'The DDL is inline in the mapping; exports write it to schema.ddl.',
       'move the value to a schema.ddl file and drop this field')
   }
 
   const tables = mapping.tables
   if (tables != null && !isObject(tables)) {
-    bag.error(path, '/mapping/tables', 'wrong-type', '`tables` must be an object.')
+    bag.error(mappingPath, at('/mapping/tables'), 'wrong-type', '`tables` must be an object.')
   } else if (isObject(tables)) {
     for (const [name, table] of Object.entries(tables)) {
       if (!isObject(table)) {
-        bag.error(path, `/mapping/tables/${name}`, 'wrong-type', 'Each table must be an object.')
+        bag.error(mappingPath, at(`/mapping/tables/${name}`), 'wrong-type', 'Each table must be an object.')
         continue
       }
       if (table.columns != null && !isObject(table.columns)) {
-        bag.error(path, `/mapping/tables/${name}/columns`, 'wrong-type',
+        bag.error(mappingPath, at(`/mapping/tables/${name}/columns`), 'wrong-type',
           '`columns` must be an object mapping OMOP column → source column.')
       }
     }
@@ -376,11 +384,11 @@ function validateSchemaPreset(tree: EntityTree, bag: IssueBag): void {
 
   const eventTables = mapping.eventTables
   if (eventTables != null && !isObject(eventTables)) {
-    bag.error(path, '/mapping/eventTables', 'wrong-type', '`eventTables` must be an object.')
+    bag.error(mappingPath, at('/mapping/eventTables'), 'wrong-type', '`eventTables` must be an object.')
   } else if (isObject(eventTables)) {
     for (const [name, event] of Object.entries(eventTables)) {
       if (!isObject(event)) {
-        bag.error(path, `/mapping/eventTables/${name}`, 'wrong-type',
+        bag.error(mappingPath, at(`/mapping/eventTables/${name}`), 'wrong-type',
           'Each event table must be an object.')
         continue
       }

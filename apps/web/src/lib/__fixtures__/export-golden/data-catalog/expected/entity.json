@@ -57,6 +57,7 @@
   "license": {
     "id": "MIT"
   },
+  "appVersion": "2.3.3",
   "organization": {
     "id": "org1",
     "name": {

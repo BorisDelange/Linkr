@@ -55,7 +55,7 @@ import {
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
-import { parseImportZip, SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
+import { parseImportZip, readImportedManifest, reassemblePresetMapping, SCHEMA_PRESET_DDL_FILE, SCHEMA_PRESET_MAPPING_FILE } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { EntityIdField, isEntityIdValid, mintEntityId } from '@/components/ui/entity-id-field'
 import { slugifyId, uniqueEntityId } from '@/lib/slugify-id'
@@ -93,7 +93,7 @@ import type {
   CustomSchemaPreset,
 } from '@/types/schema-mapping'
 import type { AuthorDetails } from '@/types/author'
-import type { EntityLicense, ProjectBadge } from '@/types'
+import type { EntityLicense, LocalizedString, ProjectBadge } from '@/types'
 import type * as Monaco from 'monaco-editor'
 
 // ---------------------------------------------------------------------------
@@ -1821,7 +1821,7 @@ export function SchemaPresetsPage() {
      *  `mapping.presetId` — an installed copy holds a fresh local id. */
     replacing?: CustomSchemaPreset,
   ) => {
-    const sourceLineage = (parsed?.['preset.json'] as CustomSchemaPreset | undefined)
+    const sourceLineage = (parsed ? readImportedManifest<CustomSchemaPreset>(parsed, 'schema-preset') : undefined)
     const presetId = duplicate ? mintEntityId() : (replacing?.presetId ?? mapping.presetId!)
     // Legacy export ZIPs may carry a plain-string label; coerce so it stays bilingual.
     const label = typeof mapping.presetLabel === 'string' ? { en: mapping.presetLabel, fr: mapping.presetLabel } : mapping.presetLabel
@@ -1857,14 +1857,20 @@ export function SchemaPresetsPage() {
     await storeSave(preset)
   }, [wsUid, language, storeDelete, storeSave])
 
-  // One layout, whether the ZIP came from an export or a clone: preset.json holds
-  // the mapping and schema.ddl holds the DDL beside it (buildSchemaPresetFolder).
-  // The DDL has to be folded back in, since preset.json no longer carries it. The
-  // docs are applied separately, from the same parsed ZIP (see doPresetImport).
+  // One layout, whether the ZIP came from an export or a clone: the manifest holds
+  // identity, mapping.json the mapping and schema.ddl the DDL beside them
+  // (buildSchemaPresetFolder). Both have to be folded back in, since the manifest
+  // carries neither. `presetLabel` comes from the root `name` since the split —
+  // `reassemblePresetMapping` handles both layouts. The docs are applied
+  // separately, from the same parsed ZIP (see doPresetImport).
   const extractMapping = (parsed: Record<string, unknown>): SchemaMapping | null => {
-    const presetFile = parsed['preset.json'] as { mapping?: SchemaMapping } | undefined
-    const mapping = presetFile?.mapping
-    if (!mapping?.presetId || !mapping?.presetLabel) return null
+    const meta = readImportedManifest<{
+      name?: LocalizedString; description?: LocalizedString; mapping?: SchemaMapping
+    }>(parsed, 'schema-preset')
+    if (!meta) return null
+    const mappingFile = parsed[SCHEMA_PRESET_MAPPING_FILE] as Partial<SchemaMapping> | undefined
+    const mapping = reassemblePresetMapping(meta, mappingFile)
+    if (!mapping.presetId || !mapping.presetLabel) return null
     const ddl = parsed[SCHEMA_PRESET_DDL_FILE]
     return typeof ddl === 'string' && ddl ? { ...mapping, ddl } : mapping
   }
@@ -1881,7 +1887,7 @@ export function SchemaPresetsPage() {
       // fresh local id, so it recognises "the same preset, already here" where
       // the copied mapping id no longer would. The id stays as the fallback for
       // repos exported before lineage existed.
-      const importedLineage = (parsed['preset.json'] as CustomSchemaPreset | undefined)?.lineageId
+      const importedLineage = readImportedManifest<CustomSchemaPreset>(parsed, 'schema-preset')?.lineageId
       const existing =
         (importedLineage != null
           ? customPresets.find((p) => p.lineageId === importedLineage)

@@ -31,9 +31,16 @@ def script_export_path(path: str) -> str:
     return f"{SCRIPTS_DIR}/{path}"
 
 
-def with_entity_type(meta: dict, entity_type: str) -> dict:
-    """Insert ``type`` right after the identity keys, mirroring ``withEntityType``
-    in entity-io.ts. Position is load-bearing: the golden tests compare bytes."""
+def with_entity_type(
+    meta: dict, entity_type: str, app_version: str | None = None
+) -> dict:
+    """Insert ``type`` right after the identity keys and stamp ``appVersion`` at the
+    end, mirroring ``withEntityType`` in entity-io.ts. Position is load-bearing:
+    the golden tests compare bytes.
+
+    ``app_version`` is None for a caller that writes the stamp itself — re-assigning
+    an existing key keeps its ORIGINAL position, which would strand it mid-block.
+    """
     out: dict = {}
     if "id" in meta:
         out["id"] = meta["id"]
@@ -43,6 +50,8 @@ def with_entity_type(meta: dict, entity_type: str) -> dict:
     for key, value in meta.items():
         if key not in ("id", "entityId"):
             out[key] = value
+    if app_version is not None:
+        out["appVersion"] = app_version
     return out
 
 # Sidecars: machine-written files describing the files beside them. Never a
@@ -52,6 +61,7 @@ SIDECAR_ATTACHMENT_META = "_meta.json"
 
 # Files that are content, not metadata, and are read by name.
 CONTENT_SCHEMA_DDL = "schema.ddl"
+CONTENT_SCHEMA_MAPPING = "mapping.json"
 CONTENT_DQ_CHECKS = "checks.json"
 CONTENT_PLUGIN_MANIFEST = "plugin.json"
 CONTENT_SOURCE_CONCEPTS = "source-concepts.csv"

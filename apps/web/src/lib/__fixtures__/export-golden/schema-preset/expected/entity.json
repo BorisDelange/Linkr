@@ -1,34 +1,14 @@
 {
+  "id": "9f3c2a11-0000-4000-8000-000000000001",
   "entityId": "omop-cdm-5-4",
   "type": "schema-preset",
-  "mapping": {
-    "tables": {
-      "person": {
-        "columns": {
-          "person_id": "id",
-          "year_of_birth": "birth_year"
-        }
-      },
-      "visit_occurrence": {
-        "columns": {
-          "visit_occurrence_id": "visit_id"
-        }
-      }
-    },
-    "eventTables": {
-      "Alpha drugs": {
-        "table": "drug_exposure",
-        "conceptIdColumn": "drug_concept_id",
-        "dateColumn": "drug_exposure_start_date",
-        "endDateColumn": "drug_exposure_end_date"
-      },
-      "Zeta labs": {
-        "table": "measurement",
-        "conceptIdColumn": "measurement_concept_id",
-        "dateColumn": "measurement_date",
-        "valueColumn": "value_as_number"
-      }
-    }
+  "name": {
+    "en": "OMOP CDM 5.4",
+    "fr": "OMOP CDM 5.4"
+  },
+  "description": {
+    "en": "OMOP Common Data Model 5.4",
+    "fr": "Modèle de données commun OMOP 5.4"
   },
   "createdBy": "Boris Delange",
   "createdByDetails": {
@@ -41,6 +21,7 @@
   "license": {
     "id": "MIT"
   },
+  "appVersion": "2.3.3",
   "organization": {
     "id": "org1",
     "name": {

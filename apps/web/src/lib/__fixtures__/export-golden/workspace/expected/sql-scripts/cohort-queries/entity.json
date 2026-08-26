@@ -23,5 +23,6 @@
   "version": "0.1.0",
   "license": {
     "id": "MIT"
-  }
+  },
+  "appVersion": "2.3.3"
 }

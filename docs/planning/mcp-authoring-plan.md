@@ -494,6 +494,149 @@ twin.
 
 ---
 
+## 7b. Closing the edit surface — so an agent never touches the files
+
+Raised 2026-08-26. Today the MCP is **write-mostly**: it creates trees well and appends to
+them, but anything else — change a widget's config, move it, delete a tab, rename a
+dataset column, reorder scripts — has no tool. An agent asked to *modify* an existing
+project therefore falls back to `Read`/`Edit` on the JSON, which is exactly what
+`linkr-authoring` forbids and what breaks trees: ids are **derived**
+(`deterministicId(ownerId, path)`, `col_<slug>`, content keys), so a hand-edited id
+diverges from what the app re-derives and the entity re-imports as a *different* one,
+orphaning whatever pointed at it.
+
+The goal of this section: **every mutation an author needs has a tool**, so "do not edit
+the files" becomes a rule an agent can actually follow rather than advice it must break.
+
+### 7b.1 What exists today
+
+9 tools. Only three mutate an existing tree, and all three are `add_*`:
+
+| Kind | Create | Read back | Update | Move | Remove |
+|---|---|---|---|---|---|
+| project (metadata) | `write_project` | `describe_tree` (name only) | — | n/a | — |
+| dataset | in `write_project` | `describe_tree` (cols) | — | n/a | — |
+| dashboard | in `write_project` | `describe_tree` | — | n/a | — |
+| tab | `add_dashboard_tab` | `describe_tree` | — | — | — |
+| widget | `add_widget` | `describe_tree` (no config) | — | — | — |
+| script | `add_script` | ✗ **content unreadable** | — | — | — |
+| 6 standalone kinds | `write_entity` | `validate_entity` only | — | n/a | — |
+| database | `write_database` | — | — | n/a | — |
+
+Three structural gaps, in order of how often they bite:
+
+1. **No update/move/remove anywhere.** The whole right-hand side of that table is empty.
+2. **`describe_tree` is a summary, not a read.** It lists a widget's plugin id but not its
+   `config`; it lists script *paths* but no tool returns a script's content. So an agent
+   cannot do read-modify-write through the MCP at all — the read half is missing, which
+   forces `Read` on the file and from there `Edit` is one step away.
+3. **The standalone kinds have no granular tools at all** (the existing 💤 step 10). For
+   them the only edit is re-emitting the entire spec through `write_entity`, which means
+   the agent must first reconstruct that spec from files it can only read directly.
+
+### 7b.2 The design decision: re-emit vs mutate
+
+Two ways to close this, and they are not equivalent.
+
+- **(a) Full read-back** — add `read_entity(path) → spec`, so the agent reads the spec,
+  edits it in memory, and re-writes with `write_entity`. One new tool per kind, and every
+  mutation is expressible.
+- **(b) A tool per mutation** — `update_widget`, `move_widget`, `remove_tab`, … Precise,
+  self-documenting, each one validating, but a large surface (~5 verbs × ~8 kinds) and
+  every tool definition costs prompt tokens on *every* call (§4: definitions were ~700 of
+  ~900 tokens in the in-app measurement).
+
+**Decision: (a) as the floor, (b) only where re-emitting genuinely loses information.**
+
+The reason (a) cannot be the whole answer is recorded in step 4 as-built: `ProjectSpec` is
+a **simplified authoring view**, not the entity. The app writes eight dashboard fields the
+spec cannot express (`version`, `createdBy`, `createdByDetails`, `widgetSpacing`,
+`fitToHeight`, `reloadWidgetsOnTabSwitch`, `defaultDatasetFileId`, `showWidgetTitles`) and
+a filter `scope`. A read-modify-write round trip through the spec would **silently drop
+them** — the same data loss that made routing the export through `serialize/` the wrong
+call. So:
+
+- For a tree the MCP itself wrote, (a) round-trips losslessly and is enough.
+- For a tree **the app** exported — which is the interesting case, since that is what an
+  author pulls from a portal or a content repo — (a) is destructive until the spec grows
+  passthrough fields.
+
+Hence the ordering below: **passthrough first**, then read-back, then targeted mutators
+for the operations that stay awkward as a whole-spec rewrite (moving a widget, deleting
+one record out of many).
+
+### 7b.3 Inventory of what to add
+
+**Fix the spec's lossiness** (prerequisite — without it every read-modify-write leaks):
+
+| # | Item | Effort |
+|---|---|---|
+| A1 | `ProjectSpec` grows **optional passthrough** for the 8 dashboard fields + filter `scope`; serializer emits them when present, omits them when absent (so today's specs stay byte-identical) | M |
+| A2 | Round-trip test as the acceptance gate: parse a real app-exported tree → spec → re-serialize → **byte-identical**. Run over the golden fixtures + the `linkr-public-content` trees | M |
+
+**Read back** (the missing half of read-modify-write):
+
+| # | Item | Effort |
+|---|---|---|
+| B1 | `read_entity(path)` → the spec for any kind, kind auto-detected as `validate_entity` already does | M |
+| B2 | `read_file(path, file)` → raw content of a script / `.sql` / DDL, so the agent stops needing `Read` | S |
+| B3 | `describe_tree` gains widget `config`, filters, and layout — it stops being a summary that forces a file read | S |
+
+**Mutate** (the right-hand side of the table):
+
+| # | Item | Effort |
+|---|---|---|
+| C1 | `update_project` — metadata, README, license, version fields | S |
+| C2 | `update_widget(key, {name?, config?, dataset?, pluginId?})` — config resolved by column name as `add_widget` does | S |
+| C3 | `move_widget(key, layout)` + `move_tab(key, {parent?, order?})` — **key-rewriting**, see 7b.4 | M |
+| C4 | `remove_widget` / `remove_tab` / `remove_script` / `remove_dataset` — each reporting what it orphaned before doing it | M |
+| C5 | `update_tab(key, {name?})` — same key-rewrite problem as C3 | S |
+| C6 | `update_dataset(name, {csv?, types?})` — recomputes column ids and **reports the ones that changed**, since a rename orphans every widget config pointing at the old id | M |
+| C7 | `update_script(path, content)` — trivially, `add_script` already overwrites; make it explicit rather than a side effect | S |
+| C8 | Granular tools for the 6 standalone kinds (the existing step 10): `add`/`update`/`remove` over a sql-collection or ETL **file**, a DQ **check**, a catalog **dimension**, a mapping **row**, a preset **event table** | L |
+
+**Guardrails** (what makes "never touch the files" enforceable rather than hoped-for):
+
+| # | Item | Effort |
+|---|---|---|
+| D1 | Every mutator re-validates and reports, as the `add_*` already do — no exceptions | — |
+| D2 | Every destructive tool (C4, C6) names its **collateral damage first**: "removing tab `overview/outcomes` also removes 3 widgets" | S |
+| D3 | `linkr-authoring` SKILL.md: replace "say so if a tool cannot express it" with the real matrix, so the fallback to `Edit` is no longer implicitly sanctioned | S |
+
+### 7b.4 The hard part: keys are derived from what you are editing
+
+Not a detail — it is why C3/C5/C6 are M rather than S.
+
+A tab key is `<dashboard-or-parent>/<slug(name)>`; a widget key is
+`<tabKey>/<slug(name)>@<y>,<x>`. So **renaming a tab or moving a widget changes its key**,
+and the key is the identity every other record references. A naive `update_tab` that
+rewrites `name` leaves a stale key, and its widgets — keyed on `tabKey` — are silently
+orphaned. Same shape as the `sql-collection-id-churn` bug already fixed elsewhere.
+
+Every key-affecting mutator must therefore **recompute and cascade** in one call: rewrite
+the record, rewrite every key derived from it, rewrite every reference. That is a format
+concern, so it belongs in `packages/linkr-format` (a `rekey.ts` next to `keys.ts`), not in
+the MCP — the MCP stays a facade, per §4.
+
+Worth stating plainly: this cascade is *exactly* the invariant a hand-edit breaks, and it
+is the strongest argument for closing this surface rather than documenting it.
+
+### 7b.5 Order
+
+A1–A2 first, always: read-back on a lossy spec is worse than no read-back, because it
+loses data *silently* where the absence of a tool merely blocks. Then B (an agent that can
+read through the MCP stops reaching for `Read`), then C in the order the table lists —
+C1/C2/C7 are cheap and cover the common edits; C3/C5/C6 wait on `rekey.ts`; C4 wants D2
+shipped with it; C8 is the long tail and stays 💤 until the six kinds are actually being
+edited in anger.
+
+Not in scope, and worth naming so it is not rediscovered as a gap: **plugins** (code in
+`packages/default-plugins/`, not an authored tree) and **cohorts** (compile to SQL — a
+wrong one returns a different population rather than failing, so it is built in the app).
+Both stay ⚠️ in the skill's table. Closing the edit surface does not change that.
+
+---
+
 ## 8. Open questions
 
 1. **Does the MCP ever write a ZIP**, or only a folder? A folder is git-friendly and is

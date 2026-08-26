@@ -14,6 +14,25 @@
   "lineageId": null,
   "parentLineageId": null,
   "createdAt": "2026-01-01T00:00:00.000Z",
-  "organizationId": "org1",
+  "version": null,
+  "organization": {
+    "id": "org1",
+    "name": {
+      "en": "CHU Rennes"
+    },
+    "type": "hospital",
+    "location": {
+      "en": "Rennes"
+    },
+    "country": {
+      "en": "France"
+    },
+    "website": "https://chu-rennes.fr",
+    "email": null,
+    "customType": null,
+    "referenceId": null,
+    "customFields": null,
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  },
   "appVersion": "2.3.3"
 }

@@ -2,6 +2,14 @@
   "id": "plug-1",
   "entityId": "icu-histogram",
   "type": "user-plugin",
+  "name": {
+    "en": "ICU histogram",
+    "fr": "Histogramme réa"
+  },
+  "description": {
+    "en": "Length-of-stay distribution",
+    "fr": "Distribution des durées de séjour"
+  },
   "createdBy": "Boris Delange",
   "createdByDetails": {
     "firstName": "Boris",
@@ -10,6 +18,10 @@
   },
   "createdAt": "2026-01-02T03:04:05.000Z",
   "version": "0.1.0",
+  "license": {
+    "id": "MIT"
+  },
+  "appVersion": "2.3.3",
   "organization": {
     "id": "org1",
     "name": {

@@ -424,13 +424,15 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const { ddl: _inlineDdl, ...rest } = s.mapping ?? {}
       // Ordered on the way out, so re-serializing a preset the app exported
       // reproduces its bytes rather than rearranging the file.
+      // `presetLabel`/`description` are deliberately NOT in here: they are the
+      // entity's name and description, so they live at the manifest root. A
+      // database's copied mapping still carries them (it is that database's only
+      // record of its schema) — the omission is the preset's own export only.
       const mapping = canonicalSchemaMapping(orderKeys({
         presetId: s.presetId,
-        presetLabel: localized(s.presetLabel),
         ...rest,
         ...(s.eventTables ? { eventTables: s.eventTables } : {}),
         ...(s.templateId ? { templateId: s.templateId } : {}),
-        ...(s.description ? { description: localized(s.description) } : {}),
       }, MAPPING_FIELD_ORDER))
       const ddl = s.ddl ?? (typeof _inlineDdl === 'string' ? _inlineDdl : undefined)
       return [
@@ -441,14 +443,15 @@ export function serializeEntity<K extends SerializableEntityKind>(
             // Linkr re-export are byte-identical — the first sync after an
             // install must be "nothing to commit".
             //
-            // Neither `id` nor `presetId`, unlike every other kind here. A preset
-            // is keyed on `entityId`, so `applyClonedEntity` mints a fresh uuid
-            // and an authored `id` could never survive; `presetId` is the retired
-            // identity, read on import but no longer written. See
-            // docs/planning/schema-preset-identity-plan.md.
+            // `id` is null, not omitted: an authored tree has no local key to
+            // give, but the identity block carries the same five keys on every
+            // kind. `presetId` is the retired identity — read on import, never
+            // written. See docs/planning/schema-preset-identity-plan.md.
+            id: null,
             entityId: s.presetId,
             type: 'schema-preset' as const,
-            mapping,
+            name: localized(s.presetLabel),
+            description: s.description ? localized(s.description) : null,
             ...(s.badges ? { badges: s.badges } : {}),
             ...(s.createdAt ? { createdAt: s.createdAt } : {}),
             version: s.version ?? '0.1.0',
@@ -458,6 +461,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...(s.parentLineageId ? { parentLineageId: s.parentLineageId } : {}),
           }),
         },
+        { path: CONTENT_FILE.schemaMapping, content: json(mapping) },
         ...(ddl ? [{ path: CONTENT_FILE.schemaDdl, content: ddl }] : []),
       ]
     }

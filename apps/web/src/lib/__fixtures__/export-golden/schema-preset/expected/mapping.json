@@ -1,0 +1,30 @@
+{
+  "presetId": "omop-cdm-5-4",
+  "tables": {
+    "person": {
+      "columns": {
+        "person_id": "id",
+        "year_of_birth": "birth_year"
+      }
+    },
+    "visit_occurrence": {
+      "columns": {
+        "visit_occurrence_id": "visit_id"
+      }
+    }
+  },
+  "eventTables": {
+    "Alpha drugs": {
+      "table": "drug_exposure",
+      "conceptIdColumn": "drug_concept_id",
+      "dateColumn": "drug_exposure_start_date",
+      "endDateColumn": "drug_exposure_end_date"
+    },
+    "Zeta labs": {
+      "table": "measurement",
+      "conceptIdColumn": "measurement_concept_id",
+      "dateColumn": "measurement_date",
+      "valueColumn": "value_as_number"
+    }
+  }
+}

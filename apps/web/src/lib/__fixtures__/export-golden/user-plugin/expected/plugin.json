@@ -1,0 +1,11 @@
+{
+  "id": "icu-histogram",
+  "name": {
+    "en": "ICU histogram",
+    "fr": "Histogramme réa"
+  },
+  "description": {
+    "en": "Length-of-stay distribution",
+    "fr": "Distribution des durées de séjour"
+  }
+}

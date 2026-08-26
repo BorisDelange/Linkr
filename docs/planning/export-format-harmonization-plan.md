@@ -1,9 +1,9 @@
 # Export format harmonization
 
-**Status**: 🚧 in progress — steps 0–3a shipped 2026-08-26; next is step 3b
-(field order + universal identity/provenance blocks), then 4–7 (plugins, sibling repos,
-MCP, docs). Every entity now writes `entity.json` and declares its `type`, and every
-reader accepts both that and the name it used before.
+**Status**: 🚧 in progress — steps 0–3b shipped 2026-08-26; next is step 4 (plugins),
+then 5–7 (sibling repos, MCP, docs). Every entity writes `entity.json`, declares its `type`,
+and opens with the same five identity keys; every reader accepts both the new name and the
+one it used before. Step 5 is the one that touches published content.
 **Decided**: `entity.json` for every entity, at every depth (containers and git-link stubs
 included); the manifest declares **`type`**, sharing the catalog's field name and vocabulary;
 git URL authored in the linked stub's `entity.json`, `git-links.json` regenerated as an index
@@ -727,11 +727,29 @@ Two writer bugs surfaced here, both the same shape: `attachEntityOrganization` n
 handed a path the zip did not contain, so two call sites still asking for `project.json`
 silently dropped the publishing organization. It throws now.
 
-**Step 3b — Make the identity + provenance blocks universal (S/M).**
-Separable from the rename, and independently valuable. The full delta is §3.4. Highlights:
-`lineageId`/`parentLineageId` for `schema-preset` and `user-plugin` (**unblocks catalog update
-detection for both** — §2.1b), `license` for `user-plugin` and `mapping-project`, `license`
-for `workspace`, `id` for `project`, `appVersion` everywhere, `organizationId` → `organization`.
+**Step 3b — Make the identity + provenance blocks universal (S/M). DONE 2026-08-26.**
+Eight of the nine kinds now open with the same five keys (`id, entityId, type, name,
+description`) and carry `appVersion`; `workspace` keeps its documented `entityId` exception.
+Delivered: `name`/`description` for `schema-preset` (promoted out of `mapping`) and
+`user-plugin` (derived from its `plugin.json`), `license` for `user-plugin` (which wrote
+`LICENSE.md` with no `license` block, losing the identity on every round trip) and for
+`workspace`, `id` for `project` and `schema-preset`, `appVersion` everywhere,
+`organizationId` → inline `organization` on the workspace, and the preset's `mapping` split
+out to its own `mapping.json` (§3.4c) — measured at **88%** of the published
+`omop-cdm-5.4/preset.json`, so that file goes from 9 KB to ~1 KB of identity.
+
+**One decision was revisited.** The plan justified `id` for the preset by saying other kinds
+round-trip theirs. They do not: `applyClonedEntity` mints or keeps a local `id` for a preset,
+and the sql-collection branch destructures the repo's away outright. So an exported `id` is
+informational on every kind, not just this one. **Decided 2026-08-26 (user): write the real
+local `id` anyway** — the identity block stays literally uniform and the value may find a use.
+Consequence to expect: re-exporting the same entity from a *different* instance shows an `id`
+diff. Normal pulls are unaffected, since the clone keeps the row it already has.
+
+`presetLabel`/`description` are removed from the preset's own `mapping.json` but **kept** in a
+database's copied `schemaMapping` — `SchemaMapping.presetLabel` is required, and it is that
+database's only record of which schema it uses. `reassemblePresetMapping` restores them on
+import from the root `name`, so the asymmetry never leaves the export layer.
 
 **Entirely export-layer — no model change** (§3.4 settles the three edge cases): plugin
 `name`/`description` are derived from its `plugin.json`, the preset's are promoted out of

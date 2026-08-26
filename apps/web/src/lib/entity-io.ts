@@ -671,8 +671,34 @@ function buildDatasetPath(file: DatasetFile, byId: Map<string, DatasetFile>): st
 
 const json = (data: unknown) => JSON.stringify(data, null, 2)
 
-/** Where a schema preset's DDL lives in its git repo, beside preset.json. */
-export const SCHEMA_PRESET_DDL_FILE = 'schema.ddl'
+/** Where a schema preset's DDL and mapping live, beside its entity.json. */
+export const SCHEMA_PRESET_DDL_FILE = CONTENT_FILE.schemaDdl
+export const SCHEMA_PRESET_MAPPING_FILE = CONTENT_FILE.schemaMapping
+
+/**
+ * Rebuild a preset's `SchemaMapping` from a split export.
+ *
+ * `mapping` moved out to its own file and lost `presetLabel`/`description` to the
+ * manifest root — but `SchemaMapping.presetLabel` is REQUIRED, and every database
+ * that copies a mapping relies on it to name its own schema. So the reader puts
+ * them back from the root, and the asymmetry stays confined to the export layer.
+ *
+ * `mappingFile` is undefined for a repo published before the split, where the
+ * manifest still carries an inline `mapping` with both keys inside it.
+ */
+export function reassemblePresetMapping(
+  meta: { name?: LocalizedString; description?: LocalizedString; mapping?: SchemaMapping },
+  mappingFile: Partial<SchemaMapping> | undefined,
+): SchemaMapping {
+  const base = (mappingFile ?? meta.mapping ?? {}) as SchemaMapping
+  return {
+    ...base,
+    presetLabel: base.presetLabel ?? meta.name ?? { en: '', fr: '' },
+    ...(base.description ?? meta.description
+      ? { description: base.description ?? meta.description }
+      : {}),
+  }
+}
 
 // Dashboard content keys — uid-independent stable ids for the git round-trip.
 //
@@ -921,6 +947,10 @@ export async function buildProjectZip(
   // golden fixture compares bytes.
   const projectSlug = project.entityId ?? project.projectId
   zip.file(ENTITY_MANIFEST, json({
+    // A project's primary key is `uid`; it is written here under the name the
+    // identity block uses on every kind. Like the other local keys in this
+    // position it is informational — the import mints or keeps its own.
+    id: project.uid ?? null,
     ...(projectSlug ? { entityId: projectSlug } : {}),
     type: 'project' as const,
     ...stripInstanceFields(projectMeta),
@@ -1785,6 +1815,14 @@ async function readScriptTree(
 function withEntityType<T extends Record<string, unknown>>(
   meta: T,
   type: LayoutKind,
+  /**
+   * Stamp `appVersion` at the end. True for the kinds whose `organization` is
+   * appended afterwards by `attachEntityOrganization` (so the stamp still ends
+   * up just before it); false for a caller that writes both itself, since
+   * re-assigning an existing key keeps its ORIGINAL position and would strand
+   * the stamp mid-block.
+   */
+  stampVersion = true,
 ): Record<string, unknown> {
   const { id, entityId, ...rest } = meta
   return {
@@ -1792,6 +1830,10 @@ function withEntityType<T extends Record<string, unknown>>(
     ...(entityId !== undefined ? { entityId } : {}),
     type,
     ...rest,
+    // The export-format version belongs on every entity, not just the three that
+    // happened to write it — a reader needs to know which format version produced
+    // a tree whatever kind it is.
+    ...(stampVersion ? { appVersion: APP_VERSION } : {}),
   }
 }
 
@@ -2376,30 +2418,37 @@ export async function buildSchemaPresetFolder(
 ): Promise<void> {
   const stripped = stripEntityDocs(stripInstanceFields(preset) as CustomSchemaPreset)
   const { ddl, ...mapping } = stripped.mapping
-  // Neither `id` nor `presetId` travels — the two exceptions to what the other
-  // standalone entities export, and both for the same reason.
-  //
-  // `id`: a catalog or pipeline repo carries one because `idOf` reads it and the
-  // install adopts it as the local key, so it round-trips unchanged. A preset is
-  // keyed on `entityId` instead, so `applyClonedEntity` mints a fresh uuid and
-  // an exported `id` would differ on the first import — a diff on a value no
-  // reader can use. (Measured; every later pull keeps the local one and is
-  // byte-stable.)
-  //
-  // `presetId`: the retired identity. Writing it kept three fields alive for two
-  // roles. Trees that carry one are still read — the importer falls back to it —
-  // but nothing new emits it.
-  const { id: _localKey, presetId: _retired, ...portable } = stripped
-  // `entityId` and `type` lead the file. Spreading `portable` first would keep
-  // whatever position `entityId` already held in the record and push `type` to
-  // the end — the identity block must read the same on every kind.
+  // `presetId` is the retired identity. Writing it kept three fields alive for
+  // two roles. Trees that carry one are still read — the importer falls back to
+  // it — but nothing new emits it.
+  const { id: _localKey, presetId: _retired, mapping: _payload, ...portable } = stripped
+  // The identity block leads, in the order every kind uses. Spreading `portable`
+  // first would keep whatever position `entityId` already held in the record and
+  // push the rest to the end.
   const { entityId: _slug, ...presetRest } = portable as Record<string, unknown>
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json({
+    id: preset.id ?? null,
     entityId: preset.entityId ?? preset.presetId,
     type: 'schema-preset' as const,
+    // A preset used to carry its label and blurb INSIDE `mapping`, where no
+    // generic reader looks — the catalog scanner, the validator and the portal
+    // all read `name`/`description` from the root for the other eight kinds and
+    // had to special-case this one. They are the entity's, so they rise here.
+    name: mapping.presetLabel ?? null,
+    description: mapping.description ?? null,
     ...presetRest,
-    mapping: canonicalSchemaMapping(mapping),
+    appVersion: APP_VERSION,
   }))
+  // `mapping` is 83% of what this file used to be — identity buried under
+  // payload, in the file a human opens first on the forge. The preset already
+  // externalised its DDL for exactly this reason and simply stopped halfway.
+  //
+  // `presetLabel`/`description` are dropped HERE only: `SchemaMapping` requires
+  // presetLabel and a database COPIES the mapping into its own row, where it is
+  // that database's only record of which schema it uses. So the preset's own
+  // export omits them (the root carries them) while a database's keeps them.
+  const { presetLabel: _label, description: _blurb, ...mappingPayload } = mapping
+  zip.file(`${prefix}${SCHEMA_PRESET_MAPPING_FILE}`, json(canonicalSchemaMapping(mappingPayload)))
   if (ddl) zip.file(`${prefix}${SCHEMA_PRESET_DDL_FILE}`, ddl)
   // `organization` is an INSTANCE_FIELD, stripped above; every other entity puts
   // its provenance snapshot back here. A preset did not, so each re-export
@@ -2432,10 +2481,17 @@ export async function buildUserPluginFolder(
   // Author provenance rides along like every other entity: createdBy + full
   // createdByDetails travel, createdById does not (a local id is meaningless
   // cross-instance — see stripInstanceFields / INSTANCE_FIELDS for projects).
+  // `name`/`description` are DERIVED from the bundled plugin.json rather than
+  // stored on the row: a plugin names itself in its own functional manifest, and
+  // duplicating that onto the entity would give two sources of truth to keep in
+  // step. Every other kind carries them, so a generic reader finds them here too.
+  const manifest = pluginManifest(plugin)
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json({
     id: plugin.id,
-    entityId: plugin.entityId,
+    entityId: plugin.entityId ?? null,
     type: 'user-plugin' as const,
+    name: manifest.name ?? null,
+    description: manifest.description ?? null,
     createdBy: plugin.createdBy,
     createdByDetails: plugin.createdByDetails,
     // Provenance, like every other exportable entity: without the lineage a
@@ -2445,6 +2501,11 @@ export async function buildUserPluginFolder(
     ...(plugin.parentLineageId ? { parentLineageId: plugin.parentLineageId } : {}),
     ...(plugin.createdAt ? { createdAt: plugin.createdAt } : {}),
     version: plugin.version ?? '0.1.0',
+    // The licence's identity, as every other entity writes it — its text travels
+    // as LICENSE.md. Writing the file without this block lost which licence it
+    // was on every round trip.
+    ...(licenseMeta(plugin.license) ? { license: licenseMeta(plugin.license) } : {}),
+    appVersion: APP_VERSION,
   }))
   await writeEntityDocs(zip, prefix, plugin, storage, 'user-plugin', plugin.id)
   for (const [filename, content] of Object.entries(plugin.files)) {
@@ -2869,14 +2930,17 @@ export async function applyClonedEntity(
   }
 
   if (type === 'schema-preset') {
-    const preset = await readManifest<CustomSchemaPreset>('schema-preset')
+    const preset = await readManifest<CustomSchemaPreset & { name?: LocalizedString; description?: LocalizedString }>('schema-preset')
     if (!preset) return false
-    // The DDL is its own file in the repo; preset.json carries only the mapping
-    // config. A preset whose schema.ddl is missing would create every OMOP table
-    // with no columns, so treat it as an unreadable repo rather than import a
-    // schema that silently does nothing.
+    // The DDL is its own file in the repo; the manifest carries identity only. A
+    // preset whose schema.ddl is missing would create every OMOP table with no
+    // columns, so treat it as an unreadable repo rather than import a schema that
+    // silently does nothing.
     const ddl = await readText(SCHEMA_PRESET_DDL_FILE)
     if (!ddl) return false
+    // The mapping is its own file since the split; an older repo has it inline.
+    const mappingFile = await readJson<Partial<SchemaMapping>>(SCHEMA_PRESET_MAPPING_FILE)
+    const presetMapping = reassemblePresetMapping(preset, mappingFile ?? undefined)
     // A re-clone of a preset already here keeps that row's local ids.
     const existingPreset = await storage.schemaPresets.getById(targetId).catch(() => undefined)
     // `workspaceId` and `gitRemoteConfig` must be re-stamped from the caller: unlike
@@ -2909,7 +2973,7 @@ export async function applyClonedEntity(
         // value made the two drift whenever the install minted a fresh id, and
         // a later ZIP import — which reads `mapping.presetId` as the entity id
         // and deletes whatever holds it — then deleted a different preset.
-        mapping: { ...preset.mapping, presetId: targetId, ddl },
+        mapping: { ...presetMapping, presetId: targetId, ddl },
       }) as CustomSchemaPreset,
       'schema-preset',
     )
@@ -3053,13 +3117,28 @@ export function sanitizeConnectionConfig(config: Record<string, unknown>): Recor
   return safe
 }
 
+/**
+ * A user plugin's bundled `plugin.json` — its own FUNCTIONAL manifest, which is
+ * not renamed and is where a plugin names itself for its ecosystem.
+ *
+ * The entity's `name`/`description` are derived from here rather than copied
+ * onto the row: one source of truth, and no migration.
+ */
+function pluginManifest(plugin: UserPlugin): {
+  id?: string
+  name?: LocalizedString
+  description?: LocalizedString
+} {
+  try {
+    return JSON.parse(plugin.files[CONTENT_FILE.pluginManifest] ?? '{}')
+  } catch {
+    return {}
+  }
+}
+
 /** Resolve a user plugin's manifest id from its bundled plugin.json (falls back to undefined). */
 function pluginManifestId(plugin: UserPlugin): string | undefined {
-  try {
-    return (JSON.parse(plugin.files['plugin.json'] ?? '{}') as { id?: string }).id
-  } catch {
-    return undefined
-  }
+  return pluginManifest(plugin).id
 }
 
 /** Count of workspace plugins that are NOT copies of a built-in (i.e. genuinely exported). */
@@ -3102,9 +3181,20 @@ export async function buildWorkspaceZip(
   // `readmeLang` when the primary README is not English, which the server's
   // twin has always written. Doing it by hand here dropped that marker, so a
   // French-only workspace exported different bytes front vs back.
+  // Resolved once and used twice: inline in the manifest, like the other eight
+  // kinds, and in full as organization.json below.
+  const workspaceOrg = workspace.organizationId
+    ? ((await storage.organizations.getById(workspace.organizationId)) as unknown as OrganizationInfo | undefined)
+    : undefined
   zip.file(ENTITY_MANIFEST, json({
-    ...withEntityType(stripInstanceFields(stripEntityDocs(workspace)) as Record<string, unknown>, 'workspace'),
-    ...(workspace.organizationId ? { organizationId: workspace.organizationId } : {}),
+    ...withEntityType(stripInstanceFields(stripEntityDocs(workspace)) as Record<string, unknown>, 'workspace', false),
+    // A workspace is the container, not a published, versioned unit — `version`
+    // is deliberately null rather than added to the type. `license` and the org
+    // snapshot bring it in line with the other eight kinds; the root
+    // organization.json stays, carrying the full record the import upserts.
+    version: null,
+    ...(licenseMeta(workspace.license) ? { license: licenseMeta(workspace.license) } : {}),
+    organization: workspaceOrg ? orgSnapshot(workspaceOrg) : null,
     appVersion: APP_VERSION,
   }))
 
@@ -3113,10 +3203,7 @@ export async function buildWorkspaceZip(
   // reconstitute it (upsert by UUID) without a shared org registry. orgSnapshot
   // drops updatedAt (re-stamped on import) and normalizes createdAt to ms+Z, so
   // this root org matches the inline snapshots and doesn't churn the diff.
-  if (workspace.organizationId) {
-    const org = await storage.organizations.getById(workspace.organizationId)
-    if (org) zip.file(ROOT_FILE.organization, json(orgSnapshot(org as unknown as OrganizationInfo)))
-  }
+  if (workspaceOrg) zip.file(ROOT_FILE.organization, json(orgSnapshot(workspaceOrg)))
 
   // --- README.md (+ README.<lang>.md per extra language) ---
   writeReadmeFiles(zip, '', workspace.readme)

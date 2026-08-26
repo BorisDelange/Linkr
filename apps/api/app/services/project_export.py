@@ -396,9 +396,15 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
     # Linkr predating the rename still reads the tree. Placed at the front rather
     # than assigned, since a dict re-adds a popped key last — which would diff.
     slug = project.get("entityId") or project.get("projectId")
-    if slug:
-        out.pop("entityId", None)
-        out = {"entityId": slug, **out}
+    # A project's primary key is `uid`, dropped above as instance-local; it is
+    # written back here under the name the identity block uses on every kind.
+    out.pop("id", None)
+    out.pop("entityId", None)
+    out = {
+        "id": project.get("uid"),
+        **({"entityId": slug} if slug else {}),
+        **out,
+    }
     licence = license_meta(project.get("license"))
     if licence is not None:
         out["license"] = licence

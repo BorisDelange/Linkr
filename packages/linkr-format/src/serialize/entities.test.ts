@@ -100,7 +100,10 @@ describe('serializeEntity', () => {
       treeOf('schema-preset', { ...SPECS['schema-preset'], badges } as never).read('entity.json')!,
     )
     expect(preset.badges).toEqual(badges)
-    expect(preset.mapping.badges).toBeUndefined()
+    // and NOT inside the mapping, which every database copies verbatim.
+    expect(JSON.parse(
+      treeOf('schema-preset', { ...SPECS['schema-preset'], badges } as never).read('mapping.json')!,
+    ).badges).toBeUndefined()
   })
 
   it('declares every parent folder in the tree', () => {
@@ -165,22 +168,26 @@ describe('serializeEntity', () => {
       // producing a tree our own checks flag.
       const tree = treeOf('schema-preset', SPECS['schema-preset'])
       expect(tree.read('schema.ddl')).toBe('CREATE TABLE person (person_id INTEGER);\n')
-      const preset = JSON.parse(tree.read('entity.json')!) as { mapping: Record<string, unknown> }
-      expect(preset.mapping.ddl).toBeUndefined()
+      const mapping = JSON.parse(tree.read('mapping.json')!) as Record<string, unknown>
+      expect(mapping.ddl).toBeUndefined()
     })
 
-    it('identifies the preset by entityId alone, leading the file', () => {
-      // The app exports neither `id` (minted locally, since a preset is keyed on
-      // entityId) nor `presetId` (the retired identity), so an authored tree that
-      // wrote either would diff on the first sync after an install.
-      const preset = JSON.parse(treeOf('schema-preset', SPECS['schema-preset']).read('entity.json')!)
+    it('leads with the identity block every kind shares', () => {
+      // `id` is null rather than absent: an authored tree has no local key to
+      // give, but the block carries the same five keys on every kind. `presetId`
+      // is the retired identity and is never written.
+      const tree = treeOf('schema-preset', SPECS['schema-preset'])
+      const preset = JSON.parse(tree.read('entity.json')!)
+      expect(Object.keys(preset).slice(0, 5))
+        .toEqual(['id', 'entityId', 'type', 'name', 'description'])
+      expect(preset.id).toBeNull()
       expect(preset.entityId).toBe('omop-cdm-5-4')
       expect(preset.presetId).toBeUndefined()
-      expect(preset.id).toBeUndefined()
-      expect(Object.keys(preset)[0]).toBe('entityId')
-      // The mapping keeps its own presetId: it is a label inside the payload
-      // every database copies, not an identity.
-      expect(preset.mapping.presetId).toBe('omop-cdm-5-4')
+      // The label rises to the root as the entity's name; the payload keeps its
+      // own presetId, which is a label inside what every database copies.
+      expect(preset.name.en).toBe('OMOP CDM 5.4')
+      expect(preset.mapping).toBeUndefined()
+      expect(JSON.parse(tree.read('mapping.json')!).presetId).toBe('omop-cdm-5-4')
     })
 
     it('accepts a tree identified only by entityId', () => {
@@ -242,20 +249,21 @@ describe('serializeEntity', () => {
       })
       expect(messy).toEqual(tidy)
 
-      const preset = JSON.parse(messy[0].content) as {
-        mapping: { eventTables: Record<string, Record<string, string>> }
+      const mappingFile = messy.find((f) => f.path === 'mapping.json')!
+      const preset = JSON.parse(mappingFile.content) as {
+        eventTables: Record<string, Record<string, string>>
       }
-      expect(Object.keys(preset.mapping.eventTables)).toEqual(['Alpha', 'Zeta'])
-      expect(Object.keys(preset.mapping.eventTables.Zeta))
+      expect(Object.keys(preset.eventTables)).toEqual(['Alpha', 'Zeta'])
+      expect(Object.keys(preset.eventTables.Zeta))
         .toEqual(['table', 'conceptIdColumn', 'dateColumn'])
     })
 
     it('keeps the rest of the mapping as supplied', () => {
       const tree = treeOf('schema-preset', SPECS['schema-preset'])
-      const preset = JSON.parse(tree.read('entity.json')!) as {
-        mapping: { patientTable: { table: string } }
+      const preset = JSON.parse(tree.read('mapping.json')!) as {
+        patientTable: { table: string }
       }
-      expect(preset.mapping.patientTable.table).toBe('person')
+      expect(preset.patientTable.table).toBe('person')
     })
 
     it('emits the mapping keys in the order the app exports them', () => {
@@ -281,11 +289,13 @@ describe('serializeEntity', () => {
           patientTable: { table: 'person', idColumn: 'person_id' },
         },
       })
-      const preset = JSON.parse(tree.read('entity.json')!) as { mapping: Record<string, unknown> }
-      expect(Object.keys(preset.mapping)).toEqual([
-        'presetId', 'presetLabel', 'patientTable', 'deathTable', 'visitTable',
+      const preset = JSON.parse(tree.read('mapping.json')!) as Record<string, unknown>
+      // `presetLabel` and `description` are absent: they are the entity's name and
+      // description, and live at the manifest root since the split.
+      expect(Object.keys(preset)).toEqual([
+        'presetId', 'patientTable', 'deathTable', 'visitTable',
         'noteTable', 'visitDetailTable', 'conceptTables', 'eventTables',
-        'genderValues', 'knownTables', 'erdGroups', 'templateId', 'description',
+        'genderValues', 'knownTables', 'erdGroups', 'templateId',
       ])
     })
   })

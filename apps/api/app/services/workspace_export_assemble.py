@@ -44,7 +44,11 @@ from app.schemas.source_concept_id import SourceConceptIdRangeResponse
 from app.schemas.sql_script import SqlScriptCollectionResponse, SqlScriptFileResponse
 from app.schemas.user_plugin import UserPluginResponse
 from app.schemas.attachment import WikiAttachmentResponse
+from app.export_version import EXPORT_APP_VERSION as APP_VERSION
+from app.services.entity_docs import license_meta
 from app.services.export_layout import (
+    CONTENT_PLUGIN_MANIFEST,
+    CONTENT_SCHEMA_MAPPING as SCHEMA_PRESET_MAPPING_FILE,
     ENTITY_MANIFEST,
     SCRIPTS_DIR,
     SIDECAR_TREE,
@@ -396,7 +400,7 @@ async def _sql_collection_sub_tree(db: AsyncSession, collection) -> dict[str, by
     dumped = _badged_dump(SqlScriptCollectionResponse, collection)
     tree[ENTITY_MANIFEST] = _json(
         with_entity_type(
-            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_SQL_COLLECTION
+            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_SQL_COLLECTION, APP_VERSION
         )
     )
     tree.update(await _entity_docs(db, "", dumped, "sql-collection", collection.id))
@@ -427,7 +431,7 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
         dumped.pop("config", None)
     tree[ENTITY_MANIFEST] = _json(
         with_entity_type(
-            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_ETL_PIPELINE
+            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_ETL_PIPELINE, APP_VERSION
         )
     )
     tree.update(await _entity_docs(db, "", dumped, "etl-pipeline", pipeline.id))
@@ -470,13 +474,22 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
 # --- plugins ----------------------------------------------------------------
 
 
+def _plugin_manifest(plugin_dict: dict) -> dict:
+    """Port of ``pluginManifest`` (entity-io.ts): the plugin's own FUNCTIONAL
+    manifest, which is not renamed. The entity's name/description are derived
+    from it rather than stored on the row."""
+    try:
+        return json.loads(
+            plugin_dict.get("files", {}).get(CONTENT_PLUGIN_MANIFEST, "{}")
+        )
+    except (ValueError, AttributeError):
+        return {}
+
+
 def _plugin_manifest_id(plugin_dict: dict) -> str | None:
     """Port of ``pluginManifestId`` (entity-io.ts:1808): the ``id`` from the bundled
     plugin.json manifest, else None."""
-    try:
-        return json.loads(plugin_dict.get("files", {}).get("plugin.json", "{}")).get("id")
-    except (ValueError, AttributeError):
-        return None
+    return _plugin_manifest(plugin_dict).get("id")
 
 
 async def _exportable_plugins(db: AsyncSession, workspace_id: str) -> list[dict]:
@@ -785,7 +798,7 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
     dumped = _badged_dump(DqRuleSetResponse, rule_set)
     tree[ENTITY_MANIFEST] = _json(
         with_entity_type(
-            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_DQ_RULE_SET
+            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_DQ_RULE_SET, APP_VERSION
         )
     )
     tree.update(await _entity_docs(db, "", dumped, "dq-rule-set", rule_set.id))
@@ -801,7 +814,7 @@ async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]
     dumped = _badged_dump(DataCatalogResponse, catalog)
     tree[ENTITY_MANIFEST] = _json(
         with_entity_type(
-            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_DATA_CATALOG
+            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_DATA_CATALOG, APP_VERSION
         )
     )
     tree.update(await _entity_docs(db, "", dumped, "data-catalog", catalog.id))
@@ -862,27 +875,32 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
     dumped = _badged_dump(SchemaPresetResponse, preset)
     # A preset that never got a lineage carries None on both keys; the client's
     # JSON.stringify omits them entirely, so emitting explicit nulls here would show
-    # as a false git diff. Same rule as _badged_dump — and the same applies to
-    # id/entityId, which a row written before that migration does not carry.
-    for key in ("lineageId", "parentLineageId", "id", "entityId"):
+    # as a false git diff. Same rule as _badged_dump.
+    for key in ("lineageId", "parentLineageId"):
         if dumped.get(key) is None:
             dumped.pop(key, None)
     stripped = strip_entity_docs(_strip_instance_fields(dumped))
-    # Neither `id` nor `presetId` is exported — see buildSchemaPresetFolder for
-    # both reasons: a preset is keyed on `entityId`, so an exported `id` never
-    # survives an import, and `presetId` is the retired identity. `entityId`
-    # leads the file, so it is placed at the front rather than assigned: a row
-    # predating the split had it popped above as None, and re-adding it would
-    # append it LAST — a false git diff on every export.
-    entity_id = dumped.get("entityId") or preset.preset_id
-    stripped.pop("id", None)
-    stripped.pop("presetId", None)
-    stripped = {"entityId": entity_id, **stripped}
-    mapping = dict(stripped.get("mapping") or {})
+    mapping = dict(stripped.pop("mapping", None) or {})
     ddl = mapping.pop("ddl", None)
-    stripped["mapping"] = _canonical_schema_mapping(mapping)
+    # `presetId` is the retired identity, read on import but no longer written.
+    # The identity block is placed at the front rather than assigned key by key:
+    # re-adding a popped key appends it LAST, which would be a false git diff.
+    stripped.pop("id", None)
+    stripped.pop("entityId", None)
+    stripped.pop("presetId", None)
+    # `presetLabel`/`description` rise out of the mapping to become the entity's
+    # own name/description — see buildSchemaPresetFolder for why, and why a
+    # database's copied mapping keeps them.
+    stripped = {
+        "id": preset.id,
+        "entityId": dumped.get("entityId") or preset.preset_id,
+        "name": mapping.pop("presetLabel", None),
+        "description": mapping.pop("description", None),
+        **stripped,
+    }
     tree: dict[str, bytes] = {
-        ENTITY_MANIFEST: _json(with_entity_type(stripped, TYPE_SCHEMA_PRESET))
+        ENTITY_MANIFEST: _json(with_entity_type(stripped, TYPE_SCHEMA_PRESET, APP_VERSION)),
+        SCHEMA_PRESET_MAPPING_FILE: _json(_canonical_schema_mapping(mapping)),
     }
     if ddl:
         tree[SCHEMA_PRESET_DDL_FILE] = ddl.encode()
@@ -903,20 +921,26 @@ async def build_user_plugin_tree(db: AsyncSession, plugin) -> dict[str, bytes]:
     p = _dump(UserPluginResponse, plugin)
     meta = {
         k: p[k]
-        for k in (
-            "id",
-            "entityId",
-            "createdBy",
-            "createdByDetails",
-            "lineageId",
-            "parentLineageId",
-            "createdAt",
-        )
+        for k in ("id", "createdBy", "createdByDetails", "lineageId", "parentLineageId", "createdAt")
         if p.get(k) is not None
     }
+    # `entityId`, `name` and `description` are part of the identity block, so they
+    # are written even when empty. name/description are DERIVED from the plugin's
+    # own functional plugin.json — one source of truth, no migration.
+    manifest = _plugin_manifest(p)
+    meta = {
+        "id": meta.pop("id", None),
+        "entityId": p.get("entityId"),
+        "name": manifest.get("name"),
+        "description": manifest.get("description"),
+        **meta,
+    }
     meta["version"] = p.get("version") or "0.1.0"
+    licence = license_meta(p.get("license"))
+    if licence is not None:
+        meta["license"] = licence
     tree: dict[str, bytes] = {
-        ENTITY_MANIFEST: _json(with_entity_type(meta, TYPE_USER_PLUGIN))
+        ENTITY_MANIFEST: _json(with_entity_type(meta, TYPE_USER_PLUGIN, APP_VERSION))
     }
     tree.update(await _entity_docs(db, "", p, "user-plugin", plugin.id))
     for filename, content in (plugin.files or {}).items():

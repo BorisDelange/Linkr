@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, reassemblePresetMapping, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/features/warehouse/etl/etl-versioning'
@@ -1914,6 +1914,41 @@ describe('project / workspace license — LICENSE.md round-trip', () => {
 // A tree entry with no blob behind it is normal: data files are gitignored unless
 // marked for versioning. Importing them anyway created empty files the repo never
 // held, and the user then ran a pipeline against a phantom mapping table.
+describe('reassemblePresetMapping', () => {
+  // `SchemaMapping.presetLabel` is REQUIRED and a database copies the mapping into
+  // its own row, where it is that database's only record of which schema it uses.
+  // So the preset's export drops it (the root carries `name`) and the reader must
+  // put it back — otherwise every imported preset loses its label.
+  it('restores presetLabel from the root name, on the split layout', () => {
+    const meta = { name: { en: 'OMOP CDM 5.4' }, description: { en: 'A model' } }
+    const mapping = reassemblePresetMapping(meta, { presetId: 'omop', tables: {} } as never)
+    expect(mapping.presetLabel).toEqual({ en: 'OMOP CDM 5.4' })
+    expect(mapping.description).toEqual({ en: 'A model' })
+    expect(mapping.presetId).toBe('omop')
+  })
+
+  it('still reads a preset published before the split, with mapping inline', () => {
+    const meta = {
+      mapping: { presetId: 'omop', presetLabel: { en: 'Old label' }, tables: {} },
+    }
+    const mapping = reassemblePresetMapping(meta as never, undefined)
+    expect(mapping.presetLabel).toEqual({ en: 'Old label' })
+    expect(mapping.presetId).toBe('omop')
+  })
+
+  it('prefers what the mapping file carries over the root', () => {
+    // A hand-authored tree may legitimately still carry the label inside; taking
+    // the root unconditionally would silently overwrite it.
+    const meta = { name: { en: 'Root' } }
+    const mapping = reassemblePresetMapping(meta, { presetLabel: { en: 'Inner' } } as never)
+    expect(mapping.presetLabel).toEqual({ en: 'Inner' })
+  })
+
+  it('never leaves presetLabel undefined, since the type requires it', () => {
+    expect(reassemblePresetMapping({}, undefined).presetLabel).toEqual({ en: '', fr: '' })
+  })
+})
+
 describe('reconstructTreeFiles', () => {
   const tree = [
     { path: '00_vocabulary.sql', type: 'file' },

@@ -42,6 +42,7 @@ from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 # entity shares them, so they are not workspace-specific.
 from app.services.entity_docs import (  # noqa: F401  (re-exported for the assemblers)
     entity_doc_files,
+    license_meta,
     strip_entity_docs,
     to_localized as _to_localized,
 )
@@ -531,8 +532,19 @@ def build_workspace_tree(
     ws_out = with_entity_type(
         _strip_instance_fields(strip_entity_docs(workspace)), TYPE_WORKSPACE
     )
-    if workspace.get("organizationId"):
-        ws_out["organizationId"] = workspace["organizationId"]
+    # A workspace is the container, not a published, versioned unit — `version` is
+    # deliberately null rather than added to the model. `license` and the inline org
+    # snapshot bring it in line with the other eight kinds; organization.json stays
+    # below, carrying the full record the import upserts.
+    ws_out["version"] = None
+    licence = license_meta(workspace.get("license"))
+    if licence is not None:
+        ws_out["license"] = licence
+    # Same guard as organization.json below (and as the client, which resolves the
+    # org only when the workspace points at one): a stray `organization` without an
+    # `organizationId` would diff between the two builders.
+    has_org = bool(workspace.get("organizationId")) and organization is not None
+    ws_out["organization"] = org_snapshot(organization) if has_org else None
     ws_out["appVersion"] = APP_VERSION
     tree[ENTITY_MANIFEST] = _json(ws_out)
 
