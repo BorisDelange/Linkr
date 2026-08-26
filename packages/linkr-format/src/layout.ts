@@ -8,11 +8,13 @@
  * their database repo was "not a Linkr entity tree" while the MCP server accepted
  * it, because one prose list had been updated and the other had not.
  *
- * Import from here instead of retyping. Two consumers cannot:
+ * Import from here instead of retyping. Three consumers cannot:
  *   - the Python export twin (`apps/api/app/services/workspace_export*.py`), kept
  *     in step by hand and guarded by the export golden tests;
- *   - `linkr-catalog`'s `scan.mjs`, which lives in another repo entirely.
- * Both are noted in docs/planning/export-format-harmonization-plan.md.
+ *   - `linkr-catalog`'s `scan.mjs` and `linkr-portal`'s `build.sh`, which live in
+ *     other repos entirely — and whose CI runs on a bare node/bash with no install,
+ *     so they restate ENTITY_MANIFEST and the legacy names with a pointer back here.
+ * All three are noted in docs/planning/export-format-harmonization-plan.md.
  */
 
 /** Every entity kind that has a standalone export tree. */

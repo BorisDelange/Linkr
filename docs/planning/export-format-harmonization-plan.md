@@ -1,9 +1,9 @@
 # Export format harmonization
 
-**Status**: 🚧 in progress — steps 0–4b and 6 shipped 2026-08-26; what remains is
-5 (sibling repos) and 7 (docs). Every entity writes `entity.json`, declares its `type`,
-and opens with the same five identity keys; every reader accepts both the new name and the
-one it used before. Step 5 is the one that touches published content.
+**Status**: 🚧 in progress — steps 0–6 shipped 2026-08-26; what remains is 7 (user-facing
+docs in `../linkr-website`). Every entity writes `entity.json`, declares its `type`, and opens
+with the same five identity keys; every reader — ours and both sibling repos' — accepts the
+new name and the one it used before.
 **Decided**: `entity.json` for every entity, at every depth (containers and git-link stubs
 included); the manifest declares **`type`**, sharing the catalog's field name and vocabulary;
 git URL authored in the linked stub's `entity.json`, `git-links.json` regenerated as an index
@@ -838,25 +838,45 @@ written even when null — omitting it is what made a pointer re-import as a dup
 The DQ reader accepts both shapes, since the `{ ruleSet, checks }` bundle is still the right
 form for an *unlinked* rule set, where the checks are its content.
 
-**Step 5 — Sibling repos (M).**
-In lockstep, since they read our trees. The survey found more attachment points than expected:
-- `linkr-portal` — `scripts/build.sh` has ~25 `[ -f "$dir/<marker>.json" ]` tests (l. 94-342);
-  its `tree_files_json` helper (l. 38-50) is already parameterised by the marker, so that is
-  the clean hook. `sync-git-links.sh:54` + `dir_for_type:40-51`. Plus
-  **`.claude/skills/add-element-to-workspace/SKILL.md`** — executable, writes stubs, silently
-  breaks otherwise. `linkr-portal-ricdc`'s scripts are byte-identical to the template, so fix
-  once, re-sync twice.
-- `linkr-catalog` — `MARKERS` (`scan.mjs:36-44`), the root-only lookup (`:341`), the
-  `mappings.json` heuristic (`:350-355`), and `entry.schema.json`'s `type` enum.
-  **CI risk:** `--verify` compares committed entries against `DERIVED_FIELDS` re-read from
-  each repo (`scan.mjs:405-412`), so a manifest rename without a scanner update **turns the
-  catalog CI red on all 9 entries**. Note `git.path` already exists in the entry schema for
-  non-root entities but `scan.mjs` never emits it.
-- `linkr-public-content` — ~10 independent git repos, each re-exported by hand once step 3
-  lands. Beware: the public folder names (`etl-pipelines/`, `database-schemas/`) differ from
-  the portal's (`etl/`, `schemas/`) — independent namespaces, not a bug to "fix".
+**Step 5 — Sibling repos (M). DONE 2026-08-26** (`linkr-portal` 01bfc03, `linkr-catalog` ae17a59).
+
+Both now detect an entity by its `entity.json` and read the `type` the manifest declares,
+falling back to the retired per-type names so an unmigrated content repo keeps working.
+Neither repo can import `packages/linkr-format/src/layout.ts` (separate repos; the catalog's
+CI runs on a bare `node` with no install), so both restate the values with a pointer back —
+noted in `layout.ts`'s own header.
+
+Each turned out to be broken in a way the survey under-stated, and each hid further bugs:
+
+- `linkr-portal` — not ~25 conditionals to update but a **total build failure**: the workspace
+  scan itself keyed on `workspace.json`, so a current-format export was skipped and the portal
+  built with `"workspaces": []` — an empty site, no error. Verified against the app's golden
+  workspace export and a copy renamed back to the old names; both now yield the same 9
+  entities. Three further bugs surfaced: `schemas/<id>/` looked for `_schema.json`, a name **no
+  exporter ever wrote** (a preset's manifest was `preset.json`), so git-linked presets were
+  never indexed; the plugin loop had to keep `plugin.json` (the plugin's own functional
+  manifest) while dropping only the Linkr metadata; and project matching still read the
+  retired `projectId`. `sync-git-links.sh` needed no change — it keys off `git-links.json`
+  structure, not filenames.
+- `linkr-catalog` — the CI risk was real and already live: 8 of 9 published repos had been
+  re-synced, so `--verify` would have gone red on all of them. Fixing detection exposed three
+  more: a `database` repo could not be catalogued at all (a type the app installs but the entry
+  schema's enum never listed); a slug collision **silently dropped** an entity (a database and
+  the mapping project targeting it are both `mimic-iv-demo` — now qualified by type, with the
+  bare slug pinned to whichever entry is already committed so a rescan cannot rename what is
+  published); and a seeded project exports its internal uid as `entityId`, which would have
+  written `entries/00000000-0000-0000-0000-000000000001.json`.
+- `linkr-public-content` — done by hand as the repos were re-synced from the app (8 of 9 on
+  `entity.json`; `etl-pipelines/mimic-iv-demo-to-omop` still legacy, and still detected).
+  The public folder names (`etl-pipelines/`, `database-schemas/`) differ from the portal's
+  (`etl/`, `schemas/`) — independent namespaces, not a bug to "fix".
 - Our side: `seed-loader.ts` (~20 hardcoded paths) cannot list directories over `fetch`
   (`:813`), so every path is explicit and must be updated by hand.
+
+Still open: `icu-mortality-prediction`'s `entityId` is the demo-project uid
+`00000000-…-0001` (`DEMO_PROJECT_UID`, `file-store.ts:185`) — a repo data problem, worked
+around in the scanner but best fixed at the source. `git.path` exists in the entry schema for
+non-root entities; `scan.mjs` still never emits it.
 
 **Step 6 — MCP + authoring surface (S/M). DONE 2026-08-26.**
 `describe_entity_schema` / `describe_tree` / `validate_entity` / `write_entity` describe the
