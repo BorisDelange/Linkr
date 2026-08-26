@@ -2575,7 +2575,7 @@ export async function buildSchemaPresetFolder(
   // its provenance snapshot back here. A preset did not, so each re-export
   // silently dropped the publishing organization from the repo.
   await attachEntityOrganization(zip, `${prefix}${ENTITY_MANIFEST}`, preset, storage)
-  await writeEntityDocs(zip, prefix, preset, storage, 'schema-preset', preset.presetId)
+  await writeEntityDocs(zip, prefix, preset, storage, 'schema-preset', preset.entityId ?? preset.id)
 }
 
 export async function buildSchemaPresetZip(
@@ -2588,7 +2588,7 @@ export async function buildSchemaPresetZip(
   const zip = new JSZip()
   await buildSchemaPresetFolder(zip, '', preset, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
-  return { blob, name: preset.presetId }
+  return { blob, name: preset.entityId ?? preset.id }
 }
 
 /** Folder layout for one user plugin's git repo: a metadata pointer plus each
@@ -3742,7 +3742,7 @@ export function collectGitLinkedEntities(parsed: ParsedWorkspaceZip): GitLinkedE
   for (const { project } of parsed.mappingProjects) push('mapping-project', project.id, localized(project.name, 'en'), resolveGitRemote(project) ?? undefined)
   for (const cat of parsed.catalogs) push('data-catalog', cat.id, localized(cat.name, 'en'), resolveGitRemote(cat) ?? undefined)
   for (const { ruleSet } of parsed.dqRuleSets) push('dq-rule-set', ruleSet.id, localized(ruleSet.name, 'en'), resolveGitRemote(ruleSet) ?? undefined)
-  for (const sp of parsed.schemas) push('schema-preset', sp.id ?? sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.entityId || sp.presetId, resolveGitRemote(sp) ?? undefined)
+  for (const sp of parsed.schemas) push('schema-preset', sp.id ?? sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.entityId || sp.presetId || sp.id, resolveGitRemote(sp) ?? undefined)
   return out
 }
 
