@@ -3207,6 +3207,8 @@
     "install_workspace": "Installer dans le workspace",
     "install_workspace_placeholder": "Sélectionner un workspace",
     "install_requires_server_short": "Indisponible en mode client : l'installation clone un dépôt Git, ce qui nécessite le serveur Linkr.",
+    "install_needs_server": "L'installation depuis le catalogue nécessite le mode serveur : le dépôt est cloné côté serveur.",
+    "install_unsupported_type": "Ce type d'entité ne peut pas encore être installé depuis le catalogue.",
     "install_failed": "Échec de l'installation",
     "installed": "Installé",
     "installed_hint": "Déjà installé dans ce workspace. Réinstaller le remplacera ou le dupliquera.",

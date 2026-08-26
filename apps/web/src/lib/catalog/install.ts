@@ -16,7 +16,7 @@
  */
 
 import type JSZip from 'jszip'
-import { ENTITY_MANIFEST, MANIFEST } from '@linkr/format'
+import { CONTENT_FILE, ENTITY_MANIFEST, MANIFEST } from '@linkr/format'
 import { applyClonedEntity } from '@/lib/entity-io'
 import { gitCloneToZip, gitSetSyncState, scopeForLinkedType } from '@/lib/api/git'
 import { normalizeGitUrl } from '@/lib/git-clone'
@@ -66,6 +66,36 @@ export const META_FILE: Record<CatalogEntry['type'], string[]> = {
   'dq-rule-set': [MANIFEST['dq-rule-set']],
   'schema-preset': [MANIFEST['schema-preset']],
   'database': [MANIFEST.database],
+}
+
+/**
+ * Why a cloned tree could not be read, in one sentence the user can act on.
+ *
+ * `applyClonedEntity` returns a bare `false` for every unreadable tree, so this
+ * re-inspects the archive to say WHICH file is missing. The common cause is a
+ * repo whose layout predates — or, after a half-finished migration, no longer
+ * matches — what its type expects: the manifest was renamed away and its
+ * replacement never written, leaving a repo with content but no identity.
+ */
+function describeUnreadableTree(zip: JSZip, type: CatalogEntry['type']): string {
+  const has = (name: string) => zip.files[name] != null && !zip.files[name].dir
+  const names = [ENTITY_MANIFEST, ...(META_FILE[type] ?? [])]
+  if (!names.some(has)) {
+    const present = Object.keys(zip.files).filter((n) => !zip.files[n].dir)
+    return `This repository has no ${ENTITY_MANIFEST}: nothing declares what it is `
+      + `or what it is called.${present.length ? ` It contains: ${present.slice(0, 8).join(', ')}.` : ''}`
+  }
+  // A preset carries its payload in sibling files. The DDL is required: without
+  // it the install would create every table with no columns, which is why the
+  // reader refuses the tree rather than importing a schema that does nothing.
+  // `mapping.json` is NOT checked — a pre-split repo keeps the mapping inline in
+  // the manifest and reads fine.
+  if (type === 'schema-preset' && !has(CONTENT_FILE.schemaDdl)) {
+    return `This schema preset has no ${CONTENT_FILE.schemaDdl}, so it would install `
+      + 'tables with no columns.'
+  }
+  return 'This repository could not be read as a ' + type + '. Its layout does not match '
+    + 'what this entity type expects.'
 }
 
 /**
@@ -422,7 +452,16 @@ export async function commitCatalogInstall(
     // createShell inserted a parent row above; a failed apply must not leave it
     // orphaned. (schema-preset has no shell row — deleteExisting is a no-op there.)
     await deleteExisting(entry.type, id, storage).catch(() => {})
-    return { ok: false, failure: 'apply-failed', id, error: applyError }
+    return {
+      ok: false,
+      failure: 'apply-failed',
+      id,
+      // applyClonedEntity signals a tree it cannot read with a bare `false`, so
+      // without this the dialog had nothing to show but its own title — the same
+      // six words three times over. Name what is missing instead: it is almost
+      // always a repo whose layout does not match what this type expects.
+      error: applyError ?? describeUnreadableTree(zip, entry.type),
+    }
   }
 
   // Mark the copy AFTER applyClonedEntity: it rewrites `name` from the repo, so a

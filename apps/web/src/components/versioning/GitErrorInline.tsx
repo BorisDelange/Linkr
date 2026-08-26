@@ -16,10 +16,14 @@ interface GitErrorInlineProps {
  */
 export function GitErrorInline({ message, detail }: GitErrorInlineProps) {
   const { t } = useTranslation()
+  const line = message ?? t('versioning.git_error_generic')
+  // An info bubble that repeats the line it sits next to is noise: only offer it
+  // when the raw error actually says more than the friendly summary.
+  const showDetail = detail !== '' && detail !== line
   return (
     <div className="flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
-      <p className="min-w-0 flex-1 text-xs text-destructive">{message ?? t('versioning.git_error_generic')}</p>
-      {detail && (
+      <p className="min-w-0 flex-1 text-xs text-destructive">{line}</p>
+      {showDetail && (
         <TooltipProvider delayDuration={150}>
           <Tooltip>
             <TooltipTrigger asChild>

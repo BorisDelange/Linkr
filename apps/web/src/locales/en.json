@@ -3207,6 +3207,8 @@
     "install_workspace": "Install into workspace",
     "install_workspace_placeholder": "Select a workspace",
     "install_requires_server_short": "Not available in client-only mode: installing clones a Git repository, which needs the Linkr server.",
+    "install_needs_server": "Installing from the catalog needs the server mode: the repository is cloned server-side.",
+    "install_unsupported_type": "This entity type cannot be installed from the catalog yet.",
     "install_failed": "Installation failed",
     "installed": "Installed",
     "installed_hint": "Already installed in this workspace. Installing again replaces or duplicates it.",

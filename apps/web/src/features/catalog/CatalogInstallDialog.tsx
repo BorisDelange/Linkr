@@ -2,7 +2,6 @@ import { useTranslation } from 'react-i18next'
 import { ArrowRight } from 'lucide-react'
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -12,6 +11,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { GitErrorInline } from '@/components/versioning/GitErrorInline'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { localized } from '@/lib/localized'
@@ -105,22 +105,25 @@ export function CatalogInstallOutcome({
         onOverwrite={() => void resolveConflict(false)}
       />
 
-      <AlertDialog open={!!failure} onOpenChange={(open) => { if (!open) dismissFailure() }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('catalog.install_failed')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {failure ? localized(failure.entry.name, language) : ''}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {failure && (
-            <GitErrorInline message={t('catalog.install_failed')} detail={failure.detail} />
-          )}
-          <AlertDialogFooter>
-            <AlertDialogAction>{t('common.close')}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* A DialogShell, not an AlertDialog: this reports something that already
+          happened rather than asking for a decision, so it dismisses on an outside
+          click like every other notice. AlertDialog deliberately traps that click,
+          which is right for a destructive confirm and wrong here. Omitting
+          onConfirm leaves the single Close button. */}
+      <DialogShell
+        open={!!failure}
+        onOpenChange={(open) => { if (!open) dismissFailure() }}
+        title={t('catalog.install_failed')}
+        description={failure ? localized(failure.entry.name, language) : ''}
+        cancelLabel={t('common.close')}
+      >
+        {failure && (
+          // The reason goes on the line itself, not behind the info bubble: the
+          // title already says an install failed, so repeating it here and again
+          // in the tooltip told the user the same six words three times.
+          <GitErrorInline message={failure.detail} detail={failure.detail} />
+        )}
+      </DialogShell>
     </>
   )
 }

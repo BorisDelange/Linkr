@@ -13,7 +13,7 @@
  */
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { commitCatalogInstall, prepareCatalogInstall, type PreparedInstall } from '@/lib/catalog/install'
+import { commitCatalogInstall, prepareCatalogInstall, type InstallFailure, type PreparedInstall } from '@/lib/catalog/install'
 import { refreshStoresAfterInstall } from '@/lib/catalog/refresh'
 import { useAppStore } from '@/stores/app-store'
 import type { InstalledInfo } from '@/lib/catalog/installed'
@@ -53,6 +53,21 @@ export interface CatalogInstallState {
   dismissFailure: () => void
 }
 
+/**
+ * A sentence for the failure modes that carry no raw error of their own.
+ *
+ * `clone-failed` and `apply-failed` always set one (the git output, or the
+ * layout diagnosis from install.ts), so they are not listed here — falling back
+ * to the dialog's own title left the user reading the same words three times.
+ */
+function failureText(t: (k: string) => string, failure?: InstallFailure): string {
+  switch (failure) {
+    case 'server-mode-required': return t('catalog.install_needs_server')
+    case 'unsupported-type': return t('catalog.install_unsupported_type')
+    default: return t('catalog.install_failed')
+  }
+}
+
 export function useCatalogInstall(
   workspaceId: string,
   onInstalled: () => void,
@@ -71,7 +86,7 @@ export function useCatalogInstall(
       try {
         const result = await commitCatalogInstall(prepared, workspaceId, language, duplicate)
         if (!result.ok) {
-          setFailure({ entry: prepared.entry, detail: result.error ?? t('catalog.install_failed') })
+          setFailure({ entry: prepared.entry, detail: result.error ?? failureText(t, result.failure) })
           return
         }
         // Cloned rows land straight in storage, so any store already holding a list of
@@ -97,7 +112,7 @@ export function useCatalogInstall(
         // by the repo, so it is not knowable before the clone.
         const prep = await prepareCatalogInstall(entry, workspaceId)
         if (!prep.ok) {
-          setFailure({ entry, detail: prep.error ?? t('catalog.install_failed') })
+          setFailure({ entry, detail: prep.error ?? failureText(t, prep.failure) })
           return
         }
         // The re-install dialog already asked overwrite-or-duplicate for an entry the
