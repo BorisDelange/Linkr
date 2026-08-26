@@ -6,14 +6,20 @@ written with `write_entity(path, kind, spec)`. This is the shape the
 
 Field lists: `describe_entity_schema(kind)`. This page covers what those cannot say.
 
+Every kind writes the same manifest name, **`entity.json`**, which declares what it is in
+its `type` field. Substantial payload lives in its own file beside the manifest, so the
+identity a human opens the file for is not buried under it.
+
 | Kind | What it is | Files it produces |
 |---|---|---|
-| `sql-collection` | reusable SQL queries | `_collection.json` + `_tree.json` + `.sql` |
-| `etl-pipeline` | ordered SQL that builds a target database | `_pipeline.json` + `_tree.json` + `.sql` |
-| `dq-rule-set` | data-quality checks run against a database | `rule-set.json` + `checks.json` |
-| `data-catalog` | counts over chosen dimensions | `catalog.json` |
-| `mapping-project` | local codes aligned to OMOP concepts | `project.json` + `mappings.json` |
-| `schema-preset` | how to read one database's tables | `preset.json` + `schema.ddl` |
+| `sql-collection` | reusable SQL queries | `entity.json` + `scripts/_tree.json` + `scripts/*.sql` |
+| `etl-pipeline` | ordered SQL that builds a target database | `entity.json` + `scripts/_tree.json` + `scripts/*.sql` |
+| `dq-rule-set` | data-quality checks run against a database | `entity.json` + `checks.json` |
+| `data-catalog` | counts over chosen dimensions | `entity.json` |
+| `mapping-project` | local codes aligned to OMOP concepts | `entity.json` + `mappings.json` |
+| `schema-preset` | how to read one database's tables | `entity.json` + `mapping.json` + `schema.ddl` |
+
+All of them also take `README.md` / `LICENSE.md` at the root.
 
 What is **not** here: cohorts, dashboards and patient-data views belong to a project and
 have no standalone export. Dashboards are written as part of `write_project`; cohorts are
@@ -25,9 +31,9 @@ Same shape; the difference is intent. A collection is a drawer of queries someon
 one at a time; a pipeline is an **ordered** sequence that builds something, so the `order`
 field and the file naming carry meaning — number them (`01_person.sql`, `02_visit.sql`).
 
-Folders are declared in `_tree.json` automatically. Do not write that file yourself: a
-file whose parent folder is missing gets reparented to the root on import, silently
-flattening the layout.
+Folders are declared in `scripts/_tree.json` automatically. Do not write that file
+yourself: a file whose parent folder is missing gets reparented to the root on import,
+silently flattening the layout.
 
 ## DQ rule sets
 

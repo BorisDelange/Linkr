@@ -71,8 +71,10 @@ server.registerTool(
   },
   async ({ path }) => {
     const tree = new FsTree(path)
-    // A project is identified by project.json; the standalone entities each carry
-    // their own metadata file, so the caller never has to say which is which.
+    // Every kind shares one manifest name, so the kind comes from the manifest's
+    // own `type` rather than from which file is present — the caller never has to
+    // say which is which. Trees predating the rename are still detected by their
+    // old per-kind filename.
     const kind = detectTreeKind(tree)
     if (kind == null) {
       return failure(

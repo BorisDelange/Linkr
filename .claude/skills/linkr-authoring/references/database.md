@@ -52,7 +52,7 @@ refused, and that is not a style preference:
   the built-in preset table that used to answer those lookups is being retired — schemas
   are installed from the catalog now, not compiled into the app.
 
-So read the mapping out of the schema preset repo (`preset.json` → `mapping`) and inline
+So read the mapping out of the schema preset repo (its `mapping.json`) and inline
 it. The repo is then installable in any order, with no prerequisite.
 
 Because the copy loses provenance, record it in **`schemaSource`**:
