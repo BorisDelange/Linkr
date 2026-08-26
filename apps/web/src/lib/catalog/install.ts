@@ -70,7 +70,9 @@ const META_FILE: Record<CatalogEntry['type'], string> = {
  */
 export function idOf(type: CatalogEntry['type'], meta: Record<string, unknown>): string | null {
   const keys = type === 'project'
-    ? ['projectId', 'uid']
+    // `entityId` is the slug's name now; `projectId` is the same value under its
+    // former one, still read so repos published before the rename install.
+    ? ['entityId', 'projectId', 'uid']
     // A preset exported before the identity split has only `presetId`, which was
     // at once its key and its slug. Newer trees carry `entityId`, so it is read
     // first — never `id`, which is the writing instance's local primary key and

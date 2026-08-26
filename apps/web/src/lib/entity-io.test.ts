@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, canonicalSchemaMapping } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/features/warehouse/etl/etl-versioning'
@@ -174,13 +174,13 @@ describe('buildWorkspaceZip — git-link pointer createdAt', () => {
   it('omits createdAt when absent, preserving key order', async () => {
     const ptr = await pointer({ uid: 'u1', projectId: 'p', name: { en: 'P' }, workspaceId: 'w1', gitRemoteConfig: GIT })
     expect('createdAt' in ptr).toBe(false)
-    expect(Object.keys(ptr)).toEqual(['uid', 'projectId', 'name', 'gitRemoteConfig'])
+    expect(Object.keys(ptr)).toEqual(['uid', 'entityId', 'projectId', 'name', 'gitRemoteConfig'])
   })
 
   it('keeps createdAt when present', async () => {
     const ptr = await pointer({ uid: 'u1', projectId: 'p', name: { en: 'P' }, workspaceId: 'w1', createdAt: '2026-01-01T00:00:00.000Z', gitRemoteConfig: GIT })
     expect(ptr.createdAt).toBe('2026-01-01T00:00:00.000Z')
-    expect(Object.keys(ptr)).toEqual(['uid', 'projectId', 'name', 'createdAt', 'gitRemoteConfig'])
+    expect(Object.keys(ptr)).toEqual(['uid', 'entityId', 'projectId', 'name', 'createdAt', 'gitRemoteConfig'])
   })
 })
 
@@ -1877,5 +1877,29 @@ describe('canonicalSchemaMapping orders event tables deterministically', () => {
   it('leaves a mapping with no event tables alone', () => {
     const m = { presetId: 'x' }
     expect(canonicalSchemaMapping(m)).toBe(m)
+  })
+})
+
+describe('projectSlug / sameProjectSlug', () => {
+  // A project's readable slug is `entityId` now and was `projectId` before. Both
+  // names hold the same value, and a published repo may carry either — so import
+  // matching has to see across them or an overwrite mints a duplicate instead.
+  it('reads either name, preferring the current one', () => {
+    expect(projectSlug({ entityId: 'icu-demo' })).toBe('icu-demo')
+    expect(projectSlug({ projectId: 'icu-demo' })).toBe('icu-demo')
+    expect(projectSlug({ entityId: 'new', projectId: 'old' })).toBe('new')
+    expect(projectSlug({})).toBeUndefined()
+  })
+
+  it('matches a repo published under the old name against a row stored under the new', () => {
+    expect(sameProjectSlug({ entityId: 'icu-demo' }, { projectId: 'icu-demo' })).toBe(true)
+    expect(sameProjectSlug({ projectId: 'icu-demo' }, { entityId: 'icu-demo' })).toBe(true)
+    expect(sameProjectSlug({ entityId: 'a' }, { entityId: 'b' })).toBe(false)
+  })
+
+  it('never matches two projects that both lack a slug', () => {
+    // Otherwise every slugless project would collide with every other one, and an
+    // import would silently overwrite an unrelated row.
+    expect(sameProjectSlug({}, {})).toBe(false)
   })
 })

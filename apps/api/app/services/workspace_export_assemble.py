@@ -194,8 +194,17 @@ async def _list_workspace_projects(db: AsyncSession, workspace_id: str) -> list[
 
 
 def _project_folder(project: Project) -> str:
-    """Port of ``folder = project.projectId || slugify(resolveProjectName)``."""
-    return project.project_id or _slugify(_localized_en(project.name) or "project")
+    """Port of ``folder = project.entityId || project.projectId || slugify(name)``.
+
+    Both slug names are read: `entity_id` is what a project written after the
+    rename carries, `project_id` what an older one has. The folder name is in
+    every published repo's path, so it must not change under an existing tree.
+    """
+    return (
+        project.entity_id
+        or project.project_id
+        or _slugify(_localized_en(project.name) or "project")
+    )
 
 
 async def _projects_section(

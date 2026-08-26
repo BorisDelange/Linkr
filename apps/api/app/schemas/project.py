@@ -5,6 +5,7 @@ from app.schemas.base import CamelModel
 
 class ProjectCreate(CamelModel):
     uid: str | None = None  # client supplies crypto.randomUUID()
+    entity_id: str | None = None
     project_id: str | None = None
     workspace_id: str | None = None
     name: dict[str, str]
@@ -40,6 +41,7 @@ class ProjectCreate(CamelModel):
 
 
 class ProjectUpdate(CamelModel):
+    entity_id: str | None = None
     project_id: str | None = None
     workspace_id: str | None = None
     name: dict[str, str] | None = None
@@ -77,6 +79,7 @@ class ProjectUpdate(CamelModel):
 
 class ProjectResponse(CamelModel):
     uid: str
+    entity_id: str | None = None
     project_id: str | None = None
     workspace_id: str | None = None
     name: dict[str, str]

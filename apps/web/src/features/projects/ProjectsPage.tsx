@@ -13,7 +13,7 @@ import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { getStorage } from '@/lib/storage'
 import { paths, type SummaryTab } from '@/lib/paths'
-import { buildProjectZip, parseProjectZip, deleteProjectData, importProjectContent } from '@/lib/entity-io'
+import { buildProjectZip, parseProjectZip, deleteProjectData, importProjectContent, sameProjectSlug } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -202,7 +202,7 @@ export function ProjectsPage() {
       const match = useAppStore.getState()._projectsRaw.find((p) =>
         p.workspaceId === currentWs
         && ((project.lineageId && p.lineageId === project.lineageId)
-          || (project.projectId && p.projectId === project.projectId)))
+          || sameProjectSlug(p, project)))
       uid = match?.uid ?? crypto.randomUUID()
     } else {
       const currentWs = wsUid ?? activeWorkspaceId
@@ -235,7 +235,13 @@ export function ProjectsPage() {
       // the backend re-resolves createdById by ORCID/email; here we just make
       // sure a stray foreign id never lands verbatim.
       createdById: undefined,
-      projectId: duplicate ? (project.projectId ? `${project.projectId}-copy` : undefined) : project.projectId,
+      ...(() => {
+        // Both slug names carry the same value; a duplicate suffixes it so the two
+        // rows stay tellable apart in exports and URLs.
+        const slug = project.entityId ?? project.projectId
+        const next = duplicate ? (slug ? `${slug}-copy` : undefined) : slug
+        return { entityId: next, projectId: next }
+      })(),
       workspaceId,
       name: duplicate
         ? (typeof project.name === 'string'
@@ -327,7 +333,7 @@ export function ProjectsPage() {
       const existing = all.find((p) =>
         p.workspaceId === currentWs
         && ((parsed.project.lineageId && p.lineageId === parsed.project.lineageId)
-          || (parsed.project.projectId && p.projectId === parsed.project.projectId)
+          || sameProjectSlug(p, parsed.project)
           || p.uid === parsed.project.uid))
       if (existing) {
         const existingName = typeof existing.name === 'string' ? existing.name : (existing.name.en || Object.values(existing.name)[0] || '')

@@ -1,5 +1,6 @@
 {
   "uid": "proj-linked",
+  "entityId": "linked-proj",
   "projectId": "linked-proj",
   "name": {
     "en": "Linked Project"

@@ -14,6 +14,10 @@ class Project(Base, TimestampMixin):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     # Human-readable, URL-safe id set once at creation (folder name in exports).
+    # Named `entity_id` like every other entity's slug; `project_id` is the same
+    # value under its former name, kept so rows and export trees written before
+    # the rename stay readable.
+    entity_id: Mapped[str | None] = mapped_column(String(255))
     project_id: Mapped[str | None] = mapped_column(String(255))
     workspace_id: Mapped[str | None] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE")

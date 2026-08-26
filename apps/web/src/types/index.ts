@@ -203,7 +203,16 @@ export interface Workspace extends Seedable, Authored, Lineaged {
 
 export interface Project extends Seedable, Authored, Lineaged {
   uid: string
-  /** Human-readable, URL-safe identifier (e.g. "mimic-iv-sepsis"). Set once at creation, never changes. Used as folder name in exports/git. */
+  /**
+   * Human-readable, URL-safe identifier (e.g. "mimic-iv-sepsis"). Set once at
+   * creation, never changes. The folder name in exports and git.
+   *
+   * Named `entityId` like every other entity's slug. `projectId` below is the
+   * same value under its former name, still read so projects and repos written
+   * before the rename keep working.
+   */
+  entityId?: string
+  /** @deprecated The former name of `entityId`. Read, never written. */
   projectId?: string
   /** Workspace this project belongs to. Undefined = unassigned (legacy). */
   workspaceId?: string

@@ -52,7 +52,7 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import { localized } from '@/lib/localized'
-import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent, createEntityAttachments } from '@/lib/entity-io'
+import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent, createEntityAttachments, projectSlug } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
@@ -360,7 +360,11 @@ export function WorkspacesPage() {
         // A git-linked pointer project.json carries no description.
         description: project.description ?? {},
         createdById: undefined,
-        projectId: duplicate ? (project.projectId ? `${project.projectId}-copy` : undefined) : project.projectId,
+        ...(() => {
+          const slug = projectSlug(project)
+          const next = duplicate ? (slug ? `${slug}-copy` : undefined) : slug
+          return { entityId: next, projectId: next }
+        })(),
         workspaceId: targetWsId,
         name: duplicate
           ? (typeof project.name === 'string'

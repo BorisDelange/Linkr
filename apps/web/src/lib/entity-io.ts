@@ -801,6 +801,26 @@ const INSTANCE_FIELDS = [
 
 /** Return a copy of an entity's metadata without instance-specific fields.
  *  Accepts any object (interfaces without an index signature included). */
+/**
+ * A project's readable slug, under either of its two names.
+ *
+ * `entityId` is what every entity calls it; `projectId` is the same value under
+ * its former name, still present on rows and repos written before the rename.
+ */
+export function projectSlug(p: { entityId?: string; projectId?: string }): string | undefined {
+  return p.entityId ?? p.projectId
+}
+
+/** Do two projects carry the same readable slug? Matches across both names, so a
+ *  repo published as `projectId` still recognises a row stored as `entityId`. */
+export function sameProjectSlug(
+  a: { entityId?: string; projectId?: string },
+  b: { entityId?: string; projectId?: string },
+): boolean {
+  const left = projectSlug(a)
+  return !!left && left === projectSlug(b)
+}
+
 export function stripInstanceFields<T extends object>(meta: T): Partial<T> {
   const out: Partial<T> = { ...meta }
   for (const f of INSTANCE_FIELDS) delete (out as Record<string, unknown>)[f]
@@ -892,7 +912,14 @@ export async function buildProjectZip(
   // would churn the diff. It's dropped here (NOT added to INSTANCE_FIELDS, which
   // children share); lineageId/parentLineageId stay for cross-instance identity.
   const { readme: _r, todos: _t, notes: _n, uid: _uid, license: projectLicense, ...projectMeta } = prunedProject
+  // `entityId` leads the file and carries the slug under the name every entity
+  // uses; `projectId` follows with the same value, so a Linkr predating the
+  // rename still reads the tree. Both are written explicitly rather than left to
+  // the spread: the server builder emits them in this order and the shared
+  // golden fixture compares bytes.
+  const projectSlug = project.entityId ?? project.projectId
   zip.file('project.json', json({
+    ...(projectSlug ? { entityId: projectSlug } : {}),
     ...stripInstanceFields(projectMeta),
     ...(licenseMeta(projectLicense) ? { license: licenseMeta(projectLicense) } : {}),
     appVersion: APP_VERSION,
@@ -1645,7 +1672,7 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   // by its stable `projectId` (and `lineageId` when it has one); the target uid is
   // supplied by the caller, not read here. Accept any of the three as proof that
   // this is a real project.json — `lineageId` alone is often null on a fresh export.
-  if (!projectRaw || (!projectRaw.uid && !projectRaw.projectId && !projectRaw.lineageId)) return null
+  if (!projectRaw || (!projectRaw.uid && !projectRaw.entityId && !projectRaw.projectId && !projectRaw.lineageId)) return null
   // Strip export-only fields
   const { appVersion: _av, ...projectMeta } = projectRaw as Project & { appVersion?: string }
 
@@ -2952,7 +2979,7 @@ export async function buildWorkspaceZip(
     const wsProjects = allProjects.filter(p => p.workspaceId === workspaceId)
     for (const project of wsProjects) {
       if (excluded[project.uid]) continue
-      const folder = project.projectId || slugify(resolveProjectName(project))
+      const folder = project.entityId || project.projectId || slugify(resolveProjectName(project))
       const git = resolveGitRemote(project)
 
       if (git) {
@@ -2971,6 +2998,7 @@ export async function buildWorkspaceZip(
         // JSON.stringify drops an undefined key, which would spuriously diverge.
         const pointer = {
           uid: project.uid,
+          entityId: project.entityId ?? project.projectId,
           projectId: project.projectId,
           name: project.name,
           ...(project.createdAt ? { createdAt: project.createdAt } : {}),

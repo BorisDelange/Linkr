@@ -289,19 +289,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
 
-    // Migration: assign projectId to projects that don't have one
-    const usedIds = new Set(projects.filter(p => p.projectId).map(p => p.projectId!))
+    // Migration: assign a readable slug to projects that don't have one. Both
+    // names count as "has one": a project written after the rename carries
+    // `entityId`, one written before carries `projectId`, and re-minting for the
+    // former would change a folder name that exports and git trees already use.
+    const slugOf = (p: Project) => p.entityId ?? p.projectId
+    const usedIds = new Set(projects.map(slugOf).filter((v): v is string => !!v))
     for (const p of projects) {
-      if (p.projectId) continue
+      if (slugOf(p)) continue
       const name = typeof p.name === 'string' ? p.name : (p.name.en || p.name.fr || Object.values(p.name)[0] || 'project')
       let candidate = slugifyId(name) || 'project'
       if (candidate.length < 2) candidate = `project-${candidate}`
       let id = candidate
       let suffix = 2
       while (usedIds.has(id)) { id = `${candidate}-${suffix++}` }
+      p.entityId = id
       p.projectId = id
       usedIds.add(id)
-      storage.projects.update(p.uid, { projectId: id }).catch(() => {})
+      // Both names, same value: `entityId` is what every entity calls its slug,
+      // `projectId` is kept so a client or repo predating the rename still reads it.
+      storage.projects.update(p.uid, { entityId: id, projectId: id }).catch(() => {})
     }
 
     // Migration: coerce legacy string readme / notes / todo text into
@@ -345,6 +352,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const lang = get().language
     const project: Project = {
       uid,
+      entityId: projectId || undefined,
       projectId: projectId || undefined,
       workspaceId,
       name: { [lang]: name },

@@ -55,7 +55,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
       setName(editingProject ? localized(editingProject.name, language) : '')
       // In edit mode the field is read-only, so show the real identifier rather
       // than an empty box.
-      setEntityId(editingProject?.projectId ?? '')
+      setEntityId(editingProject?.entityId ?? editingProject?.projectId ?? '')
       setDescription(editingProject ? localized(editingProject.description, language) : '')
       setStatus(editingProject?.status ?? 'active')
       setBadges(editingProject?.badges ?? [])
@@ -69,7 +69,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
 
   const existingIds = _projectsRaw
     .filter(p => p.workspaceId === workspaceId)
-    .map(p => p.projectId)
+    .map(p => p.entityId ?? p.projectId)
     .filter((id): id is string => !!id)
 
   const canSubmit = name.trim().length > 0 && (isEditing || isEntityIdValid(entityId, existingIds))

@@ -386,6 +386,14 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
     dropped = {"readme", "todos", "notes", "uid", "license"}
     meta = {k: v for k, v in project.items() if k not in dropped}
     out = _strip_instance_fields(meta)
+    # `entityId` leads the file, matching buildProjectZip: it is the slug under the
+    # name every entity uses, and `projectId` follows with the same value so a
+    # Linkr predating the rename still reads the tree. Placed at the front rather
+    # than assigned, since a dict re-adds a popped key last — which would diff.
+    slug = project.get("entityId") or project.get("projectId")
+    if slug:
+        out.pop("entityId", None)
+        out = {"entityId": slug, **out}
     licence = license_meta(project.get("license"))
     if licence is not None:
         out["license"] = licence

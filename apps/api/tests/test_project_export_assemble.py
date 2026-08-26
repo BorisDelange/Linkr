@@ -70,6 +70,9 @@ async def _seed(db) -> Project:
     # to exercise orgSnapshot dropping it), matching what the export writes.
     project = Project(
         uid=uid,
+        # Both slug names, as the export writes them: entityId is the current
+        # name, projectId the former one kept for readers predating the rename.
+        entity_id=p.get("entityId") or p["projectId"],
         project_id=p["projectId"],
         workspace_id=p["workspaceId"],
         name=p["name"],

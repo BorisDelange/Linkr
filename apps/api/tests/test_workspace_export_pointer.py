@@ -34,8 +34,8 @@ def _pointer_json(project_meta: dict) -> dict:
 def test_pointer_omits_createdat_when_absent():
     ptr = _pointer_json({"uid": "u1", "projectId": "p", "name": {"en": "P"}})
     assert "createdAt" not in ptr
-    # Key order preserved: uid, projectId, name, gitRemoteConfig.
-    assert list(ptr.keys()) == ["uid", "projectId", "name", "gitRemoteConfig"]
+    # Key order preserved: uid, entityId, projectId, name, gitRemoteConfig.
+    assert list(ptr.keys()) == ["uid", "entityId", "projectId", "name", "gitRemoteConfig"]
 
 
 def test_pointer_keeps_createdat_when_present():
@@ -48,7 +48,7 @@ def test_pointer_keeps_createdat_when_present():
         }
     )
     assert ptr["createdAt"] == "2026-01-01T00:00:00.000Z"
-    assert list(ptr.keys()) == ["uid", "projectId", "name", "createdAt", "gitRemoteConfig"]
+    assert list(ptr.keys()) == ["uid", "entityId", "projectId", "name", "createdAt", "gitRemoteConfig"]
 
 
 def test_path_sort_matches_javascript_for_astral_characters():

@@ -194,6 +194,9 @@ def _build_projects_section(
             # mirrors buildWorkspaceZip's pointer for byte-parity.
             pointer = {
                 "uid": project.get("uid"),
+                # Both names, same slug: `entityId` is what every entity calls it,
+                # `projectId` stays so a reader predating the rename still works.
+                "entityId": project.get("entityId") or project.get("projectId"),
                 "projectId": project.get("projectId"),
                 "name": project.get("name"),
             }
