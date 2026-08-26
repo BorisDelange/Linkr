@@ -1,0 +1,112 @@
+/**
+ * Which existing row an import overwrites.
+ *
+ * Exports no longer carry the writing instance's `id` — it was that instance's
+ * local primary key, and every import path either mints its own or keeps the row
+ * it already has. What identifies an entity ACROSS instances is `lineageId`, the
+ * value `isSameEntity` already trusts. So a re-import of the same published
+ * entity is recognised by lineage, and lands on the row it wrote last time
+ * instead of piling up a fresh copy per round trip.
+ *
+ * Extracted from WorkspacesPage.doImport so the rule can be tested on its own:
+ * it decides whether user data is overwritten or duplicated, which is too
+ * load-bearing to live only inside a component.
+ */
+
+/** Anything an importer can land on: a stored row with a local key. */
+export interface ImportTarget {
+  id: string
+  lineageId?: string
+  workspaceId?: string
+}
+
+/** The identity fields an import candidate carries. `id` is the local key some
+ *  callers still hand us; it is deliberately NOT used to match. */
+export interface ImportCandidate {
+  id?: string
+  lineageId?: string
+}
+
+/**
+ * Where an imported entity should land.
+ *
+ * `id` is the key to write under. `replaces` is the row being overwritten — non-
+ * null only when an existing row is being replaced, so the caller knows to clear
+ * it (and its children) first. Callers must branch on `replaces`, never on
+ * `id === candidate.id`: that test only worked while the ZIP carried the writing
+ * instance's key, and would now silently never fire.
+ */
+export interface Resolution {
+  id: string
+  replaces: string | null
+}
+
+/** A fresh local key. Injectable so tests get deterministic ids. */
+export type MintId = () => string
+
+const defaultMint: MintId = () => crypto.randomUUID()
+
+/**
+ * Resolve a lineage-bearing child (SQL collection, ETL pipeline, DQ rule set,
+ * mapping project, data catalog) against the rows already stored.
+ *
+ * A duplicate always mints — that is what "duplicate" means. A candidate with no
+ * lineage at all (a tree published before lineage existed) also mints: there is
+ * nothing to match on, and guessing would risk clobbering an unrelated row.
+ *
+ * The match is scoped to `workspaceId`: the same published entity installed into
+ * two workspaces is two independent rows, and overwriting across that boundary
+ * would silently move one workspace's entity into another.
+ */
+export function resolveByLineage(
+  rows: ImportTarget[],
+  candidate: ImportCandidate,
+  targetWorkspaceId: string,
+  duplicate: boolean,
+  mint: MintId = defaultMint,
+): Resolution {
+  if (duplicate || !candidate.lineageId) return { id: mint(), replaces: null }
+  const match = rows.find(
+    (r) => r.lineageId === candidate.lineageId && r.workspaceId === targetWorkspaceId,
+  )
+  return match ? { id: match.id, replaces: match.id } : { id: mint(), replaces: null }
+}
+
+/**
+ * Resolve the workspace an import lands in.
+ *
+ * A re-import is recognised by lineage and updates that workspace in place. With
+ * no lineage match the caller's minted id is used — `parseWorkspaceZip` already
+ * mints one when the manifest has none, so this is always a real key.
+ */
+export function resolveWorkspaceId(
+  rows: ImportTarget[],
+  candidate: ImportCandidate & { id: string },
+  duplicate: boolean,
+  mint: MintId = defaultMint,
+): Resolution {
+  if (duplicate) return { id: mint(), replaces: null }
+  const match = candidate.lineageId
+    ? rows.find((w) => w.lineageId && w.lineageId === candidate.lineageId)
+    : undefined
+  return match ? { id: match.id, replaces: match.id } : { id: candidate.id, replaces: null }
+}
+
+/**
+ * Resolve a child addressed by its stored id rather than by lineage (the types
+ * that carry no lineage of their own).
+ *
+ * Keeps the ZIP's id so a git round trip overwrites in place — EXCEPT when that
+ * id already belongs to a child in ANOTHER workspace, where a delete-then-create
+ * would drag that row across the boundary. Then it mints instead.
+ */
+export function resolveChildId(
+  existing: { workspaceId?: string } | undefined,
+  originalId: string,
+  targetWorkspaceId: string,
+  duplicate: boolean,
+  mint: MintId = defaultMint,
+): string {
+  if (duplicate) return mint()
+  return existing && existing.workspaceId !== targetWorkspaceId ? mint() : originalId
+}

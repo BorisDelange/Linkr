@@ -15,6 +15,11 @@ import { useDqStore } from '@/stores/dq-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { isServerMode, formatApiError, type FormattedError } from '@/lib/api-client'
+import {
+  resolveByLineage as resolveByLineageRule,
+  resolveChildId as resolveChildIdRule,
+  resolveWorkspaceId,
+} from '@/lib/import-identity'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass } from '@/lib/utils'
@@ -266,11 +271,11 @@ export function WorkspacesPage() {
     // mints one), so a re-import is recognised by `lineageId` — the cross-instance
     // identity. Matching on the minted id would never hit, turning every re-import
     // into a duplicate instead of an update.
-    const sameLineage = !duplicate && wsMeta.lineageId
-      ? (await storage.workspaces.getAll().catch(() => []))
-        .find((w) => w.lineageId && w.lineageId === wsMeta.lineageId)
-      : undefined
-    const targetWsId = duplicate ? crypto.randomUUID() : (sameLineage?.id ?? wsMeta.id)
+    const targetWsId = resolveWorkspaceId(
+      duplicate ? [] : await storage.workspaces.getAll().catch(() => []),
+      wsMeta,
+      duplicate,
+    ).id
     // On a duplicate, every git-linked child is re-minted with a fresh uuid; the
     // post-import auto-clone must target those NEW ids, not the ZIP's original ones.
     // Keyed `${type}:${originalId}` → new id (see GitLinkedEntity.type vocabulary).
@@ -286,37 +291,28 @@ export function WorkspacesPage() {
     const resolveChildId = async (
       getById: (id: string) => Promise<{ workspaceId?: string } | undefined>,
       originalId: string,
-    ): Promise<string> => {
-      if (duplicate) return crypto.randomUUID()
-      const existing = await getById(originalId).catch(() => undefined)
-      return existing && existing.workspaceId !== targetWsId ? crypto.randomUUID() : originalId
-    }
+    ): Promise<string> =>
+      resolveChildIdRule(
+        duplicate ? undefined : await getById(originalId).catch(() => undefined),
+        originalId,
+        targetWsId,
+        duplicate,
+      )
 
     /**
-     * Where a lineage-bearing child should land, now that exports no longer carry
-     * the writing instance's `id`.
-     *
-     * `lineageId` is the cross-instance identity — the value `isSameEntity` already
-     * trusts — so a re-import of the same published entity finds the row it wrote
-     * last time and overwrites in place. Without this the import had nothing to
-     * match on and minted a fresh uuid every time, turning every round trip into a
-     * duplicate. Falls back to a fresh id for a repo with no lineage at all.
+     * Where a lineage-bearing child should land. The rule itself lives in
+     * lib/import-identity.ts (and is tested there); this only feeds it the rows.
      */
     const resolveByLineage = async (
       list: () => Promise<{ id: string; lineageId?: string; workspaceId?: string }[]>,
       child: { id?: string; lineageId?: string },
-    ): Promise<{ id: string; replaces: string | null }> => {
-      if (duplicate || !child.lineageId) return { id: crypto.randomUUID(), replaces: null }
-      const rows = await list().catch(() => [])
-      const match = rows.find(
-        (r) => r.lineageId === child.lineageId && r.workspaceId === targetWsId,
+    ): Promise<{ id: string; replaces: string | null }> =>
+      resolveByLineageRule(
+        duplicate || !child.lineageId ? [] : await list().catch(() => []),
+        child,
+        targetWsId,
+        duplicate,
       )
-      // `replaces` is the row this import overwrites — the caller clears it (and its
-      // children) before re-creating. Reported rather than inferred from `id ===
-      // child.id`: that test only worked while the ZIP carried the writing
-      // instance's key, and would now silently never fire, leaving duplicates.
-      return match ? { id: match.id, replaces: match.id } : { id: crypto.randomUUID(), replaces: null }
-    }
 
     /** Report a phase to the progress modal. Called between blocks of work. */
     const reportPhase = (phaseKey: string, done?: number, total?: number) => {
