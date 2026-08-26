@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryTree } from '../tree.js'
-import { detectEntityKind, validateEntity } from './entities.js'
+import { detectEntityKind, detectTreeKind, validateEntity } from './entities.js'
 
 const TREE = JSON.stringify([
   { path: 'queries', type: 'folder', order: 0 },
@@ -155,5 +155,80 @@ describe('schema preset', () => {
   it('rejects a mapping whose tables are not objects', () => {
     const issues = validateEntity(preset({ mapping: { tables: [] } }), 'schema-preset')
     expect(issues.some((i) => i.code === 'wrong-type')).toBe(true)
+  })
+})
+
+// Step 2 of the export-format harmonization: readers accept the new shared
+// `entity.json` (with its own `type`) as well as every historical manifest name,
+// so a tree written by either format imports cleanly. Writers are unchanged.
+describe('entity.json — tolerant reads', () => {
+  it('detects a kind from the declared type, with no per-kind filename', () => {
+    const tree = new MemoryTree({
+      'entity.json': JSON.stringify({ id: 'c1', type: 'sql-collection', name: { en: 'Q' } }),
+      '_tree.json': TREE,
+      'queries/cohort.sql': 'SELECT 1;\n',
+    })
+    expect(detectEntityKind(tree)).toBe('sql-collection')
+    expect(detectTreeKind(tree)).toBe('sql-collection')
+  })
+
+  it('still detects a kind from the historical filename', () => {
+    expect(detectEntityKind(collection())).toBe('sql-collection')
+  })
+
+  it('validates a tree that uses entity.json, reporting against that path', () => {
+    const tree = new MemoryTree({
+      'entity.json': JSON.stringify({ id: 'c1', type: 'sql-collection' }),
+      '_tree.json': TREE,
+      'queries/cohort.sql': 'SELECT 1;\n',
+    })
+    const issues = validateEntity(tree, 'sql-collection')
+    // `name` is required, so the tree is invalid — the point is WHERE it is
+    // reported: entity.json, the file the user actually has.
+    expect(issues.some((i) => i.path === 'entity.json')).toBe(true)
+    expect(issues.some((i) => i.path === '_collection.json')).toBe(false)
+    // ...and entity.json must not itself be reported as an unlisted stray file.
+    expect(issues.some((i) => i.code === 'orphan-record')).toBe(false)
+  })
+
+  it('tells a mapping project from a plain project by its declared type', () => {
+    const asProject = new MemoryTree({
+      'entity.json': JSON.stringify({ type: 'project', name: { en: 'P' }, projectId: 'p' }),
+    })
+    expect(detectTreeKind(asProject)).toBe('project')
+
+    const asMapping = new MemoryTree({
+      'entity.json': JSON.stringify({ type: 'mapping-project', name: { en: 'M' } }),
+      'mappings.json': JSON.stringify([]),
+    })
+    expect(detectTreeKind(asMapping)).toBe('mapping-project')
+  })
+
+  it('falls back to the filename heuristic when the type is absent or unknown', () => {
+    const noType = new MemoryTree({
+      'entity.json': JSON.stringify({ name: { en: 'Q' } }),
+      '_collection.json': JSON.stringify({ name: { en: 'Q' } }),
+      '_tree.json': TREE,
+      'queries/cohort.sql': 'SELECT 1;\n',
+    })
+    expect(detectEntityKind(noType)).toBe('sql-collection')
+
+    const badType = new MemoryTree({
+      'entity.json': JSON.stringify({ type: 'not-a-real-kind' }),
+      '_collection.json': JSON.stringify({ name: { en: 'Q' } }),
+      '_tree.json': TREE,
+      'queries/cohort.sql': 'SELECT 1;\n',
+    })
+    expect(detectEntityKind(badType)).toBe('sql-collection')
+  })
+
+  it('survives an unparseable entity.json rather than throwing', () => {
+    const tree = new MemoryTree({
+      'entity.json': '{ not json',
+      '_collection.json': JSON.stringify({ name: { en: 'Q' } }),
+      '_tree.json': TREE,
+      'queries/cohort.sql': 'SELECT 1;\n',
+    })
+    expect(detectEntityKind(tree)).toBe('sql-collection')
   })
 })

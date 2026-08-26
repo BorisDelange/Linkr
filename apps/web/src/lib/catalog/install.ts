@@ -16,7 +16,7 @@
  */
 
 import type JSZip from 'jszip'
-import { MANIFEST } from '@linkr/format'
+import { ENTITY_MANIFEST, MANIFEST } from '@linkr/format'
 import { applyClonedEntity } from '@/lib/entity-io'
 import { gitCloneToZip, gitSetSyncState, scopeForLinkedType } from '@/lib/api/git'
 import { normalizeGitUrl } from '@/lib/git-clone'
@@ -221,7 +221,9 @@ export async function prepareCatalogInstall(
     }
     const zip = await JSZipMod.loadAsync(cloned.blob)
 
-    const metaEntry = META_FILE[entry.type].map((f) => zip.files[f]).find(Boolean)
+    // ENTITY_MANIFEST first: a repo published in the new format names its
+    // manifest the same way whatever its type.
+    const metaEntry = [ENTITY_MANIFEST, ...META_FILE[entry.type]].map((f) => zip.files[f]).find(Boolean)
     const meta = metaEntry
       ? (JSON.parse(await metaEntry.async('string')) as Record<string, unknown>)
       : {}

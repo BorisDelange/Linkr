@@ -11,6 +11,7 @@ import { validateDashboards } from './dashboards.js'
 import { validateDatasets } from './datasets.js'
 import { validateCohort } from './records.js'
 import { validateScripts } from './scripts.js'
+import { manifestPath } from './entities.js'
 
 /** Validate a whole project tree. Returns every issue found, errors and warnings. */
 export function validateProject(tree: EntityTree): Issue[] {
@@ -38,12 +39,12 @@ function validateCohorts(tree: EntityTree, bag: IssueBag): void {
 }
 
 function validateProjectFile(tree: EntityTree, bag: IssueBag): void {
-  const path = 'project.json'
+  const path = manifestPath(tree, 'project')
   const parsed = readJson(tree, path)
 
   if (!parsed.ok) {
     if (parsed.error === 'missing') {
-      bag.error(path, '', 'missing-file', 'project.json is required at the tree root.')
+      bag.error(path, '', 'missing-file', `${path} is required at the tree root.`)
     } else {
       bag.error(path, '', 'invalid-json', `Cannot parse JSON: ${parsed.error}`)
     }

@@ -3,7 +3,7 @@
  */
 import JSZip from 'jszip'
 import {
-  CONTENT_FILE, MANIFEST, ROOT_FILE, SIDECAR,
+  CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SIDECAR, type LayoutKind,
   buildTabKeyMap, buildWidgetKeyMap, canonicalSchemaMapping,
   dashboardKey as sharedDashboardKey, type Issue,
 } from '@linkr/format'
@@ -1729,6 +1729,27 @@ async function readJsonFile<T>(zip: JSZip, path: string): Promise<T | null> {
   return JSON.parse(await entry.async('string')) as T
 }
 
+/**
+ * Read an entity's manifest, accepting the shared `entity.json` or the kind's
+ * historical filename.
+ *
+ * Readers stay tolerant permanently: it is a handful of lines here, and it is
+ * what lets every already-published repo keep importing after the format flip.
+ * Writers are NOT tolerant — one format out, no flag.
+ */
+async function readEntityManifest<T>(
+  zip: JSZip,
+  prefix: string,
+  kind: LayoutKind,
+  ...extraNames: string[]
+): Promise<T | null> {
+  for (const name of [ENTITY_MANIFEST, MANIFEST[kind], ...extraNames]) {
+    const found = await readJsonFile<T>(zip, `${prefix}${name}`)
+    if (found) return found
+  }
+  return null
+}
+
 /** Parse CSV text and remap column names → column IDs based on DatasetFile.columns. */
 export function parseCsvToDatasetData(csv: string, df: DatasetFile): DatasetData | null {
   const lines = csv.split('\n').filter(l => l.length > 0)
@@ -2483,7 +2504,7 @@ async function applyClonedDatabase(
   workspaceId?: string,
   gitRemoteConfig?: GitRemoteConfig,
 ): Promise<boolean> {
-  const metaEntry = zip.files[MANIFEST.database]
+  const metaEntry = zip.files[ENTITY_MANIFEST] ?? zip.files[MANIFEST.database]
   if (!metaEntry) return false
   const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
 
@@ -2615,6 +2636,9 @@ export async function applyClonedEntity(
     const entry = zip.files[name]
     return entry ? (JSON.parse(await entry.async('string')) as T) : null
   }
+  /** The cloned repo's manifest, under the shared name or the kind's own. */
+  const readManifest = async <T>(kind: LayoutKind): Promise<T | null> =>
+    (await readJson<T>(ENTITY_MANIFEST)) ?? (await readJson<T>(MANIFEST[kind]))
   const readText = async (name: string): Promise<string | null> => {
     const entry = zip.files[name]
     return entry && !entry.dir ? entry.async('string') : null
@@ -2623,8 +2647,7 @@ export async function applyClonedEntity(
   if (type === 'sql-collection' || type === 'etl-pipeline') {
     // The record itself (metadata) is re-applied from the repo's _collection.json /
     // _pipeline.json — the workspace only carried a minimal pointer. Then the files.
-    const metaName = type === 'sql-collection' ? MANIFEST['sql-collection'] : MANIFEST['etl-pipeline']
-    const meta = await readJson<SqlScriptCollection | EtlPipeline>(metaName)
+    const meta = await readManifest<SqlScriptCollection | EtlPipeline>(type)
     if (meta) {
       const { id: _id, workspaceId: _ws, ...changes } = dropForeignAuthorId(meta) as SqlScriptCollection
       // README.md / LICENSE.md / attachments/ live as files in the repo, not in the
@@ -2709,7 +2732,7 @@ export async function applyClonedEntity(
   }
 
   if (type === 'data-catalog') {
-    const catalog = await readJson<DataCatalog>(MANIFEST['data-catalog'])
+    const catalog = await readManifest<DataCatalog>('data-catalog')
     if (!catalog) return false
     const { id: _id, workspaceId: _ws, ...rest } = dropForeignAuthorId(catalog) as DataCatalog
     const changes = await withEntityDocs(rest, 'data-catalog')
@@ -2718,7 +2741,7 @@ export async function applyClonedEntity(
   }
 
   if (type === 'dq-rule-set') {
-    const ruleSet = await readJson<DqRuleSet>(MANIFEST['dq-rule-set'])
+    const ruleSet = await readManifest<DqRuleSet>('dq-rule-set')
     if (!ruleSet) return false
     const { id: _id, workspaceId: _ws, ...rest } = dropForeignAuthorId(ruleSet) as DqRuleSet
     const changes = await withEntityDocs(rest, 'dq-rule-set')
@@ -2735,7 +2758,7 @@ export async function applyClonedEntity(
   }
 
   if (type === 'schema-preset') {
-    const preset = await readJson<CustomSchemaPreset>(MANIFEST['schema-preset'])
+    const preset = await readManifest<CustomSchemaPreset>('schema-preset')
     if (!preset) return false
     // The DDL is its own file in the repo; preset.json carries only the mapping
     // config. A preset whose schema.ddl is missing would create every OMOP table
@@ -3439,7 +3462,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
       if (parsed) projects.set(folder, parsed)
     } else {
       // Lightweight entry (catalog-only)
-      const projectJson = await readJsonFile<Project & { appVersion?: string }>(zipData, `${prefix}project.json`)
+      const projectJson = await readEntityManifest<Project & { appVersion?: string }>(zipData, prefix, 'project')
       if (!projectJson) continue
       const lightWithLang = projectJson as typeof projectJson & { readmeLang?: string }
       const lightReadmeLang = lightWithLang.readmeLang
@@ -3509,7 +3532,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
   for (const folder of sqlFolders) {
     const prefix = `sql-scripts/${folder}/`
-    const collection = await readJsonFile<SqlScriptCollection>(zipData, `${prefix}_collection.json`)
+    const collection = await readEntityManifest<SqlScriptCollection>(zipData, prefix, 'sql-collection')
     if (!collection) continue
     const files = fromPathTree<SqlScriptFile & { path: string }>(
       readPathTree(await readJsonFile(zipData, `${prefix}_tree.json`)),
@@ -3534,7 +3557,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
   for (const folder of etlFolders) {
     const prefix = `etl/${folder}/`
-    const pipeline = await readJsonFile<EtlPipeline>(zipData, `${prefix}_pipeline.json`)
+    const pipeline = await readEntityManifest<EtlPipeline>(zipData, prefix, 'etl-pipeline')
     if (!pipeline) continue
     const files = fromPathTree<EtlFile & { path: string }>(
       readPathTree(await readJsonFile(zipData, `${prefix}_tree.json`)),
@@ -3585,8 +3608,9 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
   for (const folder of mpFolders) {
     const prefix = `mapping-projects/${folder}/`
-    const project = (await readJsonFile<MappingProject>(zipData, `${prefix}project.json`))
-      ?? (await readJsonFile<MappingProject>(zipData, `${prefix}_project.json`))
+    // A mapping project's metadata is `project.json`; `_project.json` is the
+    // legacy name some published trees still use.
+    const project = await readEntityManifest<MappingProject>(zipData, prefix, 'project', '_project.json')
     if (!project) continue
     const mappings = (await readJsonFile<ConceptMapping[]>(zipData, `${prefix}mappings.json`)) ?? []
 
@@ -3655,7 +3679,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
   for (const folder of pluginFolders) {
     const prefix = `plugins/${folder}/`
-    const pluginMeta = await readJsonFile<{ id: string; entityId?: string; workspaceId?: string; createdBy?: string; createdByDetails?: AuthorDetails; createdAt: string; updatedAt?: string }>(zipData, `${prefix}_plugin.json`)
+    const pluginMeta = await readEntityManifest<{ id: string; entityId?: string; workspaceId?: string; createdBy?: string; createdByDetails?: AuthorDetails; createdAt: string; updatedAt?: string }>(zipData, prefix, 'user-plugin')
     if (!pluginMeta) continue
     const files: Record<string, string> = {}
     for (const [path, entry] of Object.entries(zipData.files)) {

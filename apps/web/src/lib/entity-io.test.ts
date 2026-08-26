@@ -184,6 +184,76 @@ describe('buildWorkspaceZip — git-link pointer createdAt', () => {
   })
 })
 
+// Step 2 of the export-format harmonization: every reader accepts the shared
+// `entity.json` as well as the historical per-kind manifest name, so a tree in
+// either format imports. Writers still emit the old names — that is step 3.
+describe('entity.json — the app reads either manifest name', () => {
+  const inertStore = (capture: unknown[], table: string) => new Proxy({}, {
+    get: (_t, prop) => prop === table
+      ? {
+          save: (v: unknown) => { capture.push(v); return Promise.resolve() },
+          create: (v: unknown) => { capture.push(v); return Promise.resolve() },
+          update: (_id: string, v: unknown) => { capture.push(v); return Promise.resolve() },
+          getById: async () => undefined,
+        }
+      : new Proxy({}, { get: () => async () => [] }),
+  }) as unknown as Storage
+
+  it('clones a schema preset published as entity.json', async () => {
+    const saves: unknown[] = []
+    const zip = new JSZip()
+    zip.file('entity.json', JSON.stringify({
+      type: 'schema-preset', entityId: 'omop', lineageId: 'lin-1',
+      mapping: { presetId: 'omop', presetLabel: { en: 'OMOP' } },
+    }))
+    zip.file('schema.ddl', 'CREATE TABLE person ();')
+    expect(await applyClonedEntity(zip, 'schema-preset', 'preset-target', inertStore(saves, 'schemaPresets'))).toBe(true)
+    const saved = saves[0] as { entityId?: string; lineageId?: string; mapping?: { ddl?: string; presetId?: string } }
+    // The repo's own entityId is kept (it is the published slug); the LOCAL key
+    // follows the target, and the DDL is folded back out of its sibling file.
+    expect(saved.entityId).toBe('omop')
+    expect(saved.mapping?.presetId).toBe('preset-target')
+    expect(saved.lineageId).toBe('lin-1')
+    expect(saved.mapping?.ddl).toBe('CREATE TABLE person ();')
+  })
+
+  it('clones a data catalog published as entity.json', async () => {
+    const saves: unknown[] = []
+    const zip = new JSZip()
+    zip.file('entity.json', JSON.stringify({
+      type: 'data-catalog', id: 'cat-1', name: { en: 'Catalog' }, dimensions: [],
+    }))
+    expect(await applyClonedEntity(zip, 'data-catalog', 'cat-target', inertStore(saves, 'dataCatalogs'))).toBe(true)
+    expect(saves.length).toBeGreaterThan(0)
+  })
+
+  it('prefers entity.json when a tree carries both names', async () => {
+    const saves: unknown[] = []
+    const zip = new JSZip()
+    zip.file('entity.json', JSON.stringify({ type: 'data-catalog', id: 'c', name: { en: 'New' }, dimensions: [] }))
+    zip.file('catalog.json', JSON.stringify({ id: 'c', name: { en: 'Old' }, dimensions: [] }))
+    await applyClonedEntity(zip, 'data-catalog', 'cat-target', inertStore(saves, 'dataCatalogs'))
+    expect(JSON.stringify(saves[0])).toContain('New')
+  })
+
+  it('parses a workspace whose nested entities use entity.json', async () => {
+    const zip = new JSZip()
+    zip.file('workspace.json', JSON.stringify({ id: 'w1', name: { en: 'W' } }))
+    zip.file('sql-scripts/queries/entity.json', JSON.stringify({
+      type: 'sql-collection', id: 'col1', name: { en: 'Queries' },
+    }))
+    zip.file('sql-scripts/queries/_tree.json', JSON.stringify([
+      { path: 'top.sql', type: 'file', order: 0 },
+    ]))
+    zip.file('sql-scripts/queries/top.sql', 'SELECT 1;')
+    const parsed = await parseWorkspaceZip(
+      await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File,
+    )
+    expect(parsed.sqlCollections).toHaveLength(1)
+    expect(parsed.sqlCollections[0].collection.name).toEqual({ en: 'Queries' })
+  })
+})
+
 // The workspace export must emit the same bytes as the Python twin
 // (apps/api/.../workspace_export.py). These three cases each caught a real
 // front/back divergence that the golden fixture could not see, because the

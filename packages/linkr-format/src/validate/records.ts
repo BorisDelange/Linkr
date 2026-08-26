@@ -11,7 +11,8 @@
 import { checkArray, checkEnum, checkLocalized, checkNumber, checkString, isObject } from '../check.js'
 import type { IssueBag } from '../issue.js'
 import { readJson, type EntityTree } from '../tree.js'
-import { CONTENT_FILE } from '../layout.js'
+import { CONTENT_FILE, MANIFEST } from '../layout.js'
+import { manifestPath } from './entities.js'
 
 const DQ_SEVERITIES = ['error', 'warning', 'info'] as const
 const COHORT_LEVELS = ['patient', 'visit', 'visit_detail'] as const
@@ -19,7 +20,7 @@ const MAPPING_STATUSES = ['approved', 'pending', 'rejected', 'draft'] as const
 
 /** `rule-set.json` + `checks.json`. */
 export function validateDqRuleSet(tree: EntityTree, bag: IssueBag): void {
-  const path = 'rule-set.json'
+  const path = manifestPath(tree, 'dq-rule-set')
   const parsed = readJson(tree, path)
   if (!parsed.ok) {
     bag.error(path, '', parsed.error === 'missing' ? 'missing-file' : 'invalid-json',
@@ -79,22 +80,25 @@ export function validateDqRuleSet(tree: EntityTree, bag: IssueBag): void {
 
 /** `project.json` + `mappings.json` — a concept-mapping project. */
 export function validateMappingProject(tree: EntityTree, bag: IssueBag): void {
-  const path = 'project.json'
+  // A mapping project's METADATA lives in `project.json` (or the shared
+  // `entity.json`); `mappings.json` below is its content, and is what tells this
+  // apart from a plain project — hence the two different paths here.
+  const path = manifestPath(tree, 'project')
   const parsed = readJson(tree, path)
   if (!parsed.ok) {
     bag.error(path, '', parsed.error === 'missing' ? 'missing-file' : 'invalid-json',
       parsed.error === 'missing'
-        ? 'project.json is required at the root of a mapping project.'
+        ? `${path} is required at the root of a mapping project.`
         : `Cannot parse JSON: ${parsed.error}`)
     return
   }
   if (!isObject(parsed.value)) {
-    bag.error(path, '', 'wrong-type', 'project.json must be an object.')
+    bag.error(path, '', 'wrong-type', `${path} must be an object.`)
     return
   }
   checkLocalized(bag, path, '/name', parsed.value.name, { required: true })
 
-  const mappingsPath = 'mappings.json'
+  const mappingsPath = MANIFEST['mapping-project']
   const mappings = readJson(tree, mappingsPath)
   if (!mappings.ok) {
     if (mappings.error !== 'missing') {
@@ -174,7 +178,7 @@ export function validateCohort(
 
 /** `catalog.json` — a data catalog. */
 export function validateDataCatalog(tree: EntityTree, bag: IssueBag): void {
-  const path = 'catalog.json'
+  const path = manifestPath(tree, 'data-catalog')
   const parsed = readJson(tree, path)
   if (!parsed.ok) {
     bag.error(path, '', parsed.error === 'missing' ? 'missing-file' : 'invalid-json',

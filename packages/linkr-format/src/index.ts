@@ -13,7 +13,10 @@ export { MemoryTree, filesIn, readJson } from './tree.js'
 
 export { buildColumnIds, columnId, isLegacyColumnId, slugify } from './ids.js'
 
-export { CONTENT_FILE, MANIFEST, ROOT_FILE, SCRIPT_LANGUAGE, SIDECAR, manifestList, scriptLanguage } from './layout.js'
+export {
+  CONTENT_FILE, ENTITY_MANIFEST, ENTITY_TYPES, MANIFEST, ROOT_FILE, SCRIPT_LANGUAGE, SIDECAR,
+  isEntityType, manifestCandidates, manifestList, scriptLanguage,
+} from './layout.js'
 export type { LayoutKind } from './layout.js'
 
 export { buildTabKeyMap, buildWidgetKeyMap, dashboardKey, tabKey, widgetKey } from './keys.js'

@@ -22,8 +22,14 @@ export interface FileTreeOptions {
   ignore?: (path: string) => boolean
 }
 
-/** Docs and metadata live alongside the tree without being part of it. */
-const ALWAYS_IGNORED = /^(README(\.[a-z-]+)?\.md|LICENSE\.md|_[a-z-]+\.json|\.gitignore|\.gitattributes)$/
+/**
+ * Docs and metadata live alongside the tree without being part of it.
+ *
+ * `_<kebab>.json` covers the underscore-prefixed manifests and sidecars;
+ * `entity.json` is the shared manifest name every kind is moving to. Leaving it
+ * out would report a perfectly good new-format tree as carrying an unlisted file.
+ */
+const ALWAYS_IGNORED = /^(README(\.[a-z-]+)?\.md|LICENSE\.md|entity\.json|_[a-z-]+\.json|\.gitignore|\.gitattributes)$/
 
 export function validateFileTree(
   tree: EntityTree,

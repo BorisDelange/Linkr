@@ -49,6 +49,44 @@ export const MANIFEST: Record<LayoutKind, string> = {
 }
 
 /**
+ * The one manifest name every entity is moving to.
+ *
+ * Readers accept it *and* the per-kind name in MANIFEST; writers still emit the
+ * old names until the format flip. Being tolerant here is a few lines in one
+ * place, and it is what lets every already-published repo keep working forever.
+ */
+export const ENTITY_MANIFEST = 'entity.json'
+
+/**
+ * `entity.json`'s own declaration of what it is.
+ *
+ * Kind detection is a filename lookup today, which cannot survive one shared
+ * manifest name — and it already needs a special case (`mappings.json` is what
+ * tells a mapping project from a plain project). An explicit field replaces the
+ * heuristic rather than moving it. The vocabulary is deliberately the catalog
+ * entry schema's `type`, so the two never need translating.
+ */
+export const ENTITY_TYPES: readonly LayoutKind[] = [
+  'project', 'workspace', 'mapping-project', 'sql-collection', 'etl-pipeline',
+  'schema-preset', 'dq-rule-set', 'data-catalog', 'user-plugin', 'database',
+] as const
+
+/** Whether a value is one of the declared entity types. */
+export function isEntityType(value: unknown): value is LayoutKind {
+  return typeof value === 'string' && (ENTITY_TYPES as readonly string[]).includes(value)
+}
+
+/**
+ * Candidate manifest names for a kind, newest first.
+ *
+ * The single place that knows a tree may carry either name. Readers map over it;
+ * writers pick `MANIFEST[kind]` until the flip, then `ENTITY_MANIFEST`.
+ */
+export function manifestCandidates(kind: LayoutKind): string[] {
+  return [ENTITY_MANIFEST, MANIFEST[kind]]
+}
+
+/**
  * Sidecars: machine-written files describing the files beside them. Never a
  * manifest — that distinction is what the leading `_` is for.
  */

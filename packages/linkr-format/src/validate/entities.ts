@@ -8,7 +8,7 @@
 import { checkLocalized, checkString, isObject } from '../check.js'
 import { canonicalSchemaMapping } from '../schema-mapping.js'
 import { IssueBag, type Issue } from '../issue.js'
-import { MANIFEST, ROOT_FILE, SIDECAR } from '../layout.js'
+import { ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SIDECAR, isEntityType, type LayoutKind } from '../layout.js'
 import { readJson, type EntityTree } from '../tree.js'
 import { validateFileTree } from './file-tree.js'
 import { validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
@@ -49,10 +49,31 @@ const METADATA_FILE: Record<EntityKind, string> = {
  * what CI over a repo of mixed entities needs.
  */
 export function detectEntityKind(tree: EntityTree): EntityKind | null {
+  const declared = declaredType(tree)
+  if (declared != null && declared in METADATA_FILE) return declared as EntityKind
   for (const [kind, file] of Object.entries(METADATA_FILE) as [EntityKind, string][]) {
     if (tree.read(file) != null) return kind
   }
   return null
+}
+
+/**
+ * The `type` an `entity.json` declares, if the tree has one.
+ *
+ * Once a tree says what it is, nothing has to be inferred from filenames — which
+ * is what makes a single shared manifest name possible. Returns null for a tree
+ * with no `entity.json`, an unparseable one, or a `type` outside the vocabulary,
+ * so every caller falls back to the filename heuristic unchanged.
+ */
+function declaredType(tree: EntityTree): LayoutKind | null {
+  const raw = tree.read(ENTITY_MANIFEST)
+  if (raw == null) return null
+  try {
+    const parsed = JSON.parse(raw) as { type?: unknown }
+    return isEntityType(parsed?.type) ? parsed.type : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -64,19 +85,34 @@ export function detectEntityKind(tree: EntityTree): EntityKind | null {
  * discrimination lives here rather than in each caller.
  */
 export function detectTreeKind(tree: EntityTree): EntityKind | 'project' | null {
+  const declared = declaredType(tree)
+  if (declared === 'project') return 'project'
+  if (declared != null && declared in METADATA_FILE) return declared as EntityKind
   if (tree.read(MANIFEST['mapping-project']) != null) return 'mapping-project'
   if (tree.read(MANIFEST.project) != null) return 'project'
   return detectEntityKind(tree)
+}
+
+/**
+ * The manifest path a tree actually uses for `kind`.
+ *
+ * A tree may carry the new shared `entity.json` or the kind's historical name.
+ * Resolving once here keeps every validator, and every error message, pointing
+ * at the file the user really has. Falls back to the historical name so a
+ * missing-manifest error names something concrete.
+ */
+export function manifestPath(tree: EntityTree, kind: LayoutKind): string {
+  return tree.read(ENTITY_MANIFEST) != null ? ENTITY_MANIFEST : MANIFEST[kind]
 }
 
 export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
   const bag = new IssueBag()
   switch (kind) {
     case 'sql-collection':
-      validateScriptCollection(tree, bag, '_collection.json', 'SQL collection')
+      validateScriptCollection(tree, bag, manifestPath(tree, kind), 'SQL collection')
       break
     case 'etl-pipeline':
-      validateScriptCollection(tree, bag, '_pipeline.json', 'ETL pipeline')
+      validateScriptCollection(tree, bag, manifestPath(tree, kind), 'ETL pipeline')
       break
     case 'schema-preset':
       validateSchemaPreset(tree, bag)
@@ -107,7 +143,7 @@ export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
  * no later validation would catch.
  */
 function validateDatabase(tree: EntityTree, bag: IssueBag): void {
-  const path = '_database.json'
+  const path = manifestPath(tree, 'database')
   const parsed = readJson(tree, path)
   if (!parsed.ok) {
     bag.error(path, '', parsed.error === 'missing' ? 'missing-file' : 'invalid-json',
@@ -260,7 +296,7 @@ function validateScriptCollection(
  * it readable and diffable in git.
  */
 function validateSchemaPreset(tree: EntityTree, bag: IssueBag): void {
-  const path = 'preset.json'
+  const path = manifestPath(tree, 'schema-preset')
   const parsed = readJson(tree, path)
   if (!parsed.ok) {
     bag.error(path, '', parsed.error === 'missing' ? 'missing-file' : 'invalid-json',
