@@ -700,7 +700,7 @@ export function AddDatabaseDialog({
                         {t('databases.no_schema')}
                       </SelectItem>
                       {customPresets.map((cp) => (
-                        <SelectItem key={cp.presetId} value={cp.presetId}>
+                        <SelectItem key={cp.entityId ?? cp.id} value={cp.entityId ?? cp.id}>
                           {localized(cp.mapping.presetLabel, language)}
                         </SelectItem>
                       ))}

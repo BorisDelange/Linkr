@@ -186,7 +186,7 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
       // Sections exported whole: list items so each can be individually excluded.
       // Exclusion id must match what buildWorkspaceZip keys on — `id` for every type.
       setSimpleItems({
-        schemas: schemas.map(s => ({ id: s.id ?? s.presetId, name: (s.mapping?.presetLabel && resolveName(s.mapping.presetLabel)) || s.entityId || s.presetId })),
+        schemas: schemas.map(s => ({ id: s.id ?? s.presetId, name: (s.mapping?.presetLabel && resolveName(s.mapping.presetLabel)) || s.entityId || s.presetId || s.id })),
         databases: dataSources.map(d => ({ id: d.id, name: resolveName(d.name) || d.alias })),
         dataQuality: dqRuleSets.map(r => ({ id: r.id, name: resolveName(r.name) })),
         catalogs: [

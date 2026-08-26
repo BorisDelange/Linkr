@@ -466,9 +466,12 @@ export function WorkspacesPage() {
       // Identifier — it fills that field and the URL carries it — so a raw uuid
       // put a 36-character string in front of the user (same reason the catalog
       // install mints one, see freshId in lib/catalog/install.ts).
-      const presetId = duplicate ? mintEntityId() : sp.presetId
-      idMap.set(`schema-preset:${sp.presetId}`, presetId)
-      if (!duplicate) await storage.schemaPresets.delete(sp.presetId).catch(() => {})
+      // `entityId` is the slug a preset is addressed by; `presetId` is the retired
+      // name for it and is optional, so it cannot stand alone here.
+      const sourceSlug = sp.entityId ?? sp.presetId ?? sp.id
+      const presetId = duplicate ? mintEntityId() : sourceSlug
+      idMap.set(`schema-preset:${sourceSlug}`, presetId)
+      if (!duplicate) await storage.schemaPresets.delete(sourceSlug).catch(() => {})
       // `mapping.presetId` follows the entity id: a ZIP import reads it back as
       // the entity id and deletes whatever holds it, so letting the two drift
       // meant a later import deleted a different preset.

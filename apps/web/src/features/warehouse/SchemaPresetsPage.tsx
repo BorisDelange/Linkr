@@ -1331,7 +1331,7 @@ function SchemaDetailView({
             </div>
           ) : ddlView === 'diagram' ? (
             <DdlERD
-              ddl={displayMapping.ddl}
+              ddl={displayMapping.ddl ?? ''}
               erdGroups={baseMapping.erdGroups}
               erdLayout={baseMapping.erdLayout}
               editable={canWrite}
@@ -1799,7 +1799,7 @@ export function SchemaPresetsPage() {
     const copyName = t('settings.schema_preset_duplicate_name', { name: localized(sourceMapping.presetLabel, language) })
     // Same readable slug the create form derives, not a uuid: this id is what the
     // URL carries and what tells two schemas apart in a git export.
-    const presetId = uniqueEntityId(slugifyId(copyName), customPresets.map((p) => p.presetId))
+    const presetId = uniqueEntityId(slugifyId(copyName), customPresets.map((p) => p.entityId ?? p.id))
     const newMapping: SchemaMapping = {
       ...structuredClone(sourceMapping),
       presetId,
@@ -1994,7 +1994,7 @@ export function SchemaPresetsPage() {
   // identities differ.
   const schemaId =
     (resolveByIdPrefix(customPresets, raw.schemaId, (p) => p.id ?? p.presetId)
-      ?? resolveByIdPrefix(customPresets, raw.schemaId, (p) => p.presetId))?.id
+      ?? resolveByIdPrefix(customPresets, raw.schemaId, (p) => p.presetId ?? p.id))?.id
     ?? raw.schemaId
   if (schemaId) {
     return (

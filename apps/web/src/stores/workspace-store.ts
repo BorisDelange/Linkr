@@ -311,7 +311,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     phase('workspaces.delete_phase_schemas')
     await yieldToBrowser()
     const schemas = await storage.schemaPresets.getByWorkspace(id)
-    for (const sp of schemas) await storage.schemaPresets.delete(sp.presetId).catch(() => {})
+    for (const sp of schemas) await storage.schemaPresets.delete(sp.id).catch(() => {})
 
     // Finally delete the workspace itself
     phase('workspaces.delete_phase_finalizing')

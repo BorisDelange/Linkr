@@ -103,7 +103,7 @@ function CreateFromPresetDialog({
   const presetsWithDDL = customPresets
     .filter((cp) => cp.mapping.ddl)
     .map((cp) => ({
-      id: cp.presetId,
+      id: cp.entityId ?? cp.id,
       label: localized(cp.mapping.presetLabel, language),
       ddl: cp.mapping.ddl!,
       mapping: cp.mapping,

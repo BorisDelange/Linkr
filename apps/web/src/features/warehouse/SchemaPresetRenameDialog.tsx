@@ -41,7 +41,7 @@ export function SchemaPresetRenameDialog({ item, onOpenChange }: { item: CustomS
       description: setLocalized(item.mapping.description ?? {}, language, description.trim()),
     }
     await savePreset(
-      buildSchemaPreset(item.presetId, mapping, item, item.workspaceId, { version, badges }),
+      buildSchemaPreset(item.entityId ?? item.id, mapping, item, item.workspaceId, { version, badges }),
     )
     onOpenChange(false)
   }
@@ -91,7 +91,7 @@ export function SchemaPresetRenameDialog({ item, onOpenChange }: { item: CustomS
             </div>
             <EntityIdField
               name={name}
-              value={item.presetId}
+              value={item.entityId ?? item.id}
               onChange={() => {}}
               existingIds={[]}
               htmlId="schema-preset-id"

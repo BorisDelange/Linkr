@@ -249,8 +249,9 @@ describe('entity.json — the app reads either manifest name', () => {
     const parsed = await parseWorkspaceZip(
       await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File,
     )
-    expect(parsed.sqlCollections).toHaveLength(1)
-    expect(parsed.sqlCollections[0].collection.name).toEqual({ en: 'Queries' })
+    expect(parsed).not.toBeNull()
+    expect(parsed!.sqlCollections).toHaveLength(1)
+    expect(parsed!.sqlCollections[0].collection.name).toEqual({ en: 'Queries' })
   })
 })
 

@@ -16,6 +16,7 @@ import type {
   ConnectionConfig,
   DataSourceStatus,
   SchemaMapping,
+  SchemaSource,
   StoredFile,
   StoredFileHandle,
   ProjectBadge,
@@ -63,6 +64,9 @@ interface DataSourceState {
     sourceType: DataSourceType
     connectionConfig: ConnectionConfig
     schemaMapping?: SchemaMapping
+    /** Which published schema the mapping was copied from. The mapping is inlined
+     *  into the row, so this is the only record of where it came from. */
+    schemaSource?: SchemaSource
     files?: File[]
     /** File System Access API handles for zero-copy import (Chrome/Edge). */
     fileHandles?: { fileName: string; handle: FileSystemFileHandle; fileSize: number }[]
@@ -339,6 +343,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       sourceType: source.sourceType,
       connectionConfig: connectionConfig as unknown as ConnectionConfig,
       schemaMapping: sanitizeSchemaMapping(source.schemaMapping),
+      // Provenance of the copied mapping. The caller passed it and it was dropped:
+      // the field was missing from this signature, so a database installed from a
+      // published schema recorded nothing about where its schema came from.
+      ...(source.schemaSource ? { schemaSource: source.schemaSource } : {}),
       status: 'configuring' as DataSourceStatus,
       ...(source.isVocabularyReference ? { isVocabularyReference: true } : {}),
       // The add dialog has offered these since databases gained badges and a
