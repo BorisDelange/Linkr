@@ -1311,3 +1311,101 @@ def test_porcelain_keeps_old_path_only_for_renames():
         assert "oldPath" not in files["b.txt"]
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_selecting_a_rename_also_stages_the_name_it_replaced():
+    """Committing a renamed file must drop its old name in the SAME commit.
+
+    Git reports a rename as one entry under the new path, so the status list has
+    no row for the old name and the user cannot tick it. Staging only what they
+    could tick committed the addition and left the deletion behind: the old file
+    survived on the remote, then read back as an incoming deletion — a "changes
+    to pull" that never cleared however many times it was pushed. The manifest
+    rename (project.json -> entity.json) hit this on every entity at once.
+    """
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        # Long enough, and similar enough, that git's similarity index pairs the
+        # two — a couple of differing lines in a short file reads as add+delete.
+        shared = "".join(f'  "field{i}": "value{i}",\n' for i in range(20))
+        old = '{\n  "projectId": "icu",\n' + shared + '  "appVersion": "2.3.2"\n}\n'
+        new = '{\n  "entityId": "icu",\n' + shared + '  "appVersion": "2.3.3"\n}\n'
+        # A second, unrelated file matters: with the manifest alone in the repo,
+        # committing an empty index still writes an empty tree and the deletion
+        # looks handled. A real export always has siblings.
+        await g.commit_push(
+            getter, "u", _zip({"project.json": old, "README.md": "# p\n"}),
+            "main", "first", None, None,
+        )
+
+        st = await g.status(getter, "u", _zip({"entity.json": new, "README.md": "# p\n"}), "main", None)
+        entry = next(f for f in st["files"] if f["path"] == "entity.json")
+        assert entry["changeType"] == "renamed" and entry["oldPath"] == "project.json"
+        # The old name is NOT offered as its own row — hence the bug.
+        assert not any(f["path"] == "project.json" for f in st["files"])
+
+        # Reset the index to what a fresh repo state looks like. `status` happens
+        # to leave a fully-staged index behind, which masks the bug: the commit
+        # then inherits a deletion nobody staged on purpose. Anything between the
+        # two calls (a pull, another entity's refresh, a restart) clears it, and
+        # then the deletion is lost — which is how this reached a published repo.
+        g._run(getter("u"), "read-tree", "HEAD")
+
+        await g.commit_push(
+            getter, "u", _zip({"entity.json": new, "README.md": "# p\n"}),
+            "main", "sync", None, None, paths=["entity.json"],
+        )
+        repo = getter("u")
+        tracked = g._run(repo, "ls-tree", "-r", "--name-only", "HEAD").split()
+        assert "entity.json" in tracked
+        assert "project.json" not in tracked, "the old name survived the rename"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_staging_a_plain_addition_removes_nothing():
+    """The rename handling must not touch an unrelated file that merely looks
+    similar: only git's own pairing may remove a path."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        body = '{\n "name": "one",\n "kind": "thing",\n "note": "same"\n}\n'
+        await g.commit_push(getter, "u", _zip({"a.json": body}), "main", "first", None, None)
+        # b.json is a near-copy of a.json, but a.json still exists: a copy, not a
+        # rename, so nothing may be deleted.
+        await g.commit_push(
+            getter, "u", _zip({"a.json": body, "b.json": body}), "main", "add", None, None,
+            paths=["b.json"],
+        )
+        tracked = g._run(getter("u"), "ls-tree", "-r", "--name-only", "HEAD").split()
+        assert sorted(tracked) == ["a.json", "b.json"]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_rename_sources_leaves_the_real_index_untouched():
+    """Pairing is probed in a throwaway index: the caller's staging decisions
+    must survive the question being asked."""
+    tmp = Path(tempfile.mkdtemp())
+    repo = tmp / "repo"
+    try:
+        g._ensure_repo(repo, None)
+        g._unpack_zip_into(_zip({"keep.txt": "hello\nthere\n"}), repo)
+        g._run(repo, "add", "-A")
+        g._run(repo, "-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "-qm", "init")
+        g._unpack_zip_into(_zip({"moved.txt": "hello\nthere\n"}), repo)
+
+        assert g._rename_sources(repo) == {"moved.txt": "keep.txt"}
+        # Nothing staged by the probe: the index still matches HEAD.
+        assert g._run(repo, "diff", "--cached", "--name-only").strip() == ""
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

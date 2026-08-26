@@ -29,6 +29,7 @@ import re
 import shutil
 import socket
 import subprocess
+import tempfile
 import zipfile
 from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -370,12 +371,68 @@ def _sync_remote_branch(repo: Path, branch: str, remote_url: str | None, token: 
 def _stage_paths(repo: Path, paths: list[str]) -> None:
     """Stage exactly the given paths: `add` if present in the working tree,
     `rm --cached`+worktree delete if the path is a deletion (gone from the export
-    but tracked in HEAD)."""
+    but tracked in HEAD).
+
+    A renamed path carries its old name with it. Git reports a rename as ONE
+    entry under the new path (`R entity.json`, old name in a trailing field), so
+    the status list has no row for the old one and the caller cannot select it.
+    Staging the new path alone committed the addition and left the deletion
+    behind, so the old file survived on the remote — then read back as an
+    incoming deletion, the "changes to pull" that never cleared. The manifest
+    rename (project.json -> entity.json) hit this on every entity at once.
+    """
+    renames = _rename_sources(repo)
     for rel in paths:
         if _safe_join(repo, rel).is_file():
             _run(repo, "add", "--", rel)
+            old = renames.get(rel)
+            # `git rm --cached` would untrack it without recording a deletion;
+            # the file is already gone from the working tree, so plain `rm` is
+            # what stages the removal.
+            if old:
+                _run(repo, "rm", "-q", "--", old, check=False)
         else:
             _run(repo, "rm", "-q", "--", rel, check=False)
+
+
+def _rename_sources(repo: Path) -> dict[str, str]:
+    """new path → the path it was renamed FROM, per git's own rename detection.
+
+    Uses git's own pairing rather than a second opinion: it is a similarity
+    heuristic, so recomputing it here could disagree with the status list the
+    user actually acted on.
+
+    Detection needs BOTH sides in the index — with an untracked new file and an
+    unstaged deletion git reports `?? new` + ` D old` and no pair at all. The
+    selective-staging path deliberately leaves the index clean, so this stages
+    everything into a THROWAWAY index (`GIT_INDEX_FILE`) purely to ask the
+    question, leaving the real one untouched for the caller to fill in.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        probe_index = Path(tmp) / "index"
+        env = {"GIT_INDEX_FILE": str(probe_index)}
+        # Seed from HEAD so the probe compares against the committed tree, then
+        # add the working tree on top: that is what pairs a removal with its
+        # replacement.
+        _run(repo, "read-tree", "HEAD", check=False, env_extra=env)
+        _run(repo, "add", "-A", check=False, env_extra=env)
+        out = _run(repo, "status", "--porcelain", "-z", check=False, env_extra=env)
+    records = out.split("\0")
+    sources: dict[str, str] = {}
+    i = 0
+    while i < len(records):
+        entry = records[i]
+        i += 1
+        if not entry:
+            continue
+        code = entry[:2].strip() or entry[:2]
+        if code and code[0] in ("R", "C"):
+            source = records[i] if i < len(records) else None
+            i += 1
+            # A copy keeps its source; only a rename removes it.
+            if code[0] == "R" and source:
+                sources[entry[3:]] = source
+    return sources
 
 
 _lfs_available: bool | None = None  # cached probe result
