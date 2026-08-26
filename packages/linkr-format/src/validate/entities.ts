@@ -122,11 +122,15 @@ export function manifestPath(tree: EntityTree, kind: LayoutKind): string {
  * validator, which knows what its payload is.
  */
 function checkLegacyLayout(tree: EntityTree, kind: LayoutKind, bag: IssueBag): void {
-  const usesLegacyName = tree.read(ENTITY_MANIFEST) == null && tree.read(MANIFEST[kind]) != null
+  // `MANIFEST['mapping-project']` is `mappings.json` — that kind's PAYLOAD, which
+  // is what tells it apart from a plain project. Its manifest is the project one,
+  // so naming MANIFEST[kind] here told the author to rename their mappings file.
+  const legacyName = kind === 'mapping-project' ? MANIFEST.project : MANIFEST[kind]
+  const usesLegacyName = tree.read(ENTITY_MANIFEST) == null && tree.read(legacyName) != null
   if (usesLegacyName) {
-    bag.warn(MANIFEST[kind], '', 'legacy-format',
+    bag.warn(legacyName, '', 'legacy-format',
       `Legacy manifest name: every entity now writes "${ENTITY_MANIFEST}". `
-      + `Rename ${MANIFEST[kind]} → ${ENTITY_MANIFEST} and add "type": "${kind}".`)
+      + `Rename ${legacyName} → ${ENTITY_MANIFEST} and add "type": "${kind}".`)
     return
   }
   // Present under the shared name but not declaring what it is: the kind then

@@ -46,9 +46,18 @@ describe('readEntityDocsFrom', () => {
     expect(docs.license).toMatchObject({ id: 'mit', text: 'MIT text' })
   })
 
-  it('has no licence when the repo carries no LICENSE.md, even with an id', () => {
+  it('keeps the licence identity when the repo ships no LICENSE.md', () => {
+    // A licence has two halves and an entity may declare one without shipping
+    // its full text. Requiring the text to keep the id dropped both, so an
+    // export → import → re-export erased `license` from the manifest and the
+    // next sync read that as a deletion nobody made.
     expect(readEntityDocsFrom({ 'README.md': 'x' }, { license: { id: 'mit' } }).license)
-      .toBeUndefined()
+      .toEqual({ id: 'mit' })
+  })
+
+  it('has no licence when neither the file nor an id says which one', () => {
+    expect(readEntityDocsFrom({ 'README.md': 'x' }, { license: {} }).license).toBeUndefined()
+    expect(readEntityDocsFrom({ 'README.md': 'x' }, null).license).toBeUndefined()
   })
 
   it('ignores non-string entries, so a parsed JSON manifest is not mistaken for text', () => {

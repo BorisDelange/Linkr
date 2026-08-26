@@ -520,7 +520,15 @@ export interface EntityLicense {
   id: StandardLicenseId | 'custom'
   /** Title of a custom license. Standard titles come from the license registry. */
   name?: string
-  text: string
+  /**
+   * The full licence text, from LICENSE.md.
+   *
+   * Optional: an entity may name a licence without shipping its text, and every
+   * consumer already copes (`license.text ?? ''`, `if (!license?.text)`). Making
+   * it required forced the reader to drop the whole licence when the file was
+   * absent — so a round trip erased the identity too.
+   */
+  text?: string
 }
 
 

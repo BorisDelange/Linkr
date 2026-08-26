@@ -120,7 +120,12 @@ export function readLicense(
   meta: { id?: string; name?: string } | null | undefined,
   text: string | undefined,
 ): EntityLicense | undefined {
-  if (!text) return undefined
+  // A licence has two halves: its identity in the manifest, its text in
+  // LICENSE.md. Requiring the text to keep the identity dropped the whole thing
+  // for an entity that names a licence without shipping its full text — so an
+  // export → import → re-export round trip silently erased `license`, and the
+  // next git sync read that as a deletion nobody made.
+  if (!text) return meta?.id ? { id: meta.id as EntityLicense['id'], ...(meta.name ? { name: meta.name } : {}) } : undefined
   return {
     id: (meta?.id as EntityLicense['id']) ?? 'custom',
     ...(meta?.name ? { name: meta.name } : {}),
@@ -2535,7 +2540,11 @@ export async function buildSchemaPresetFolder(
   // The identity block leads, in the order every kind uses. Spreading `portable`
   // first would keep whatever position `entityId` already held in the record and
   // push the rest to the end.
-  const { entityId: _slug, ...presetRest } = portable as Record<string, unknown>
+  // `appVersion` is dropped and re-added last: it describes the FILE, not the
+  // entity, but an imported row keeps whatever the manifest carried. Re-assigning
+  // an existing key keeps its original position, which would strand the stamp
+  // mid-block on the next export and show as a diff with no content change.
+  const { entityId: _slug, appVersion: _stamp, ...presetRest } = portable as Record<string, unknown>
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json({
     entityId: preset.entityId ?? preset.presetId,
     type: 'schema-preset' as const,
@@ -2545,7 +2554,12 @@ export async function buildSchemaPresetFolder(
     // had to special-case this one. They are the entity's, so they rise here.
     name: mapping.presetLabel ?? null,
     description: mapping.description ?? null,
-    ...presetRest,
+    // Through orderProvenance like every other kind. Spreading the record's own
+    // key order instead made the manifest depend on how the ROW happened to be
+    // built: a freshly imported preset put `license` after `appVersion` where the
+    // original had it before, so export → import → re-export produced a diff with
+    // no content change in it.
+    ...orderProvenance(presetRest),
     appVersion: APP_VERSION,
   }))
   // `mapping` is 83% of what this file used to be — identity buried under
@@ -2902,6 +2916,69 @@ async function applyClonedDatabase(
     }
   }
   return true
+}
+
+/** What a database ZIP declares, read before deciding overwrite vs duplicate. */
+export interface ParsedDatabaseZip {
+  zip: JSZip
+  /** The repo's own id — the row it overwrites when the user keeps it. */
+  id: string
+  name: LocalizedString
+  tableCount: number
+}
+
+/**
+ * Read a database repo ZIP far enough to ask the user what to do with it.
+ *
+ * Deliberately not `parseImportZip`: that decodes every entry as text, which
+ * would corrupt `data/*.parquet`. The bytes stay untouched in the JSZip and are
+ * read as arraybuffers by `importParsedDatabase` below.
+ */
+export async function parseDatabaseZip(file: File): Promise<ParsedDatabaseZip | null> {
+  const zip = stripRootFolder(await JSZip.loadAsync(file))
+  const metaEntry = zip.files[ENTITY_MANIFEST] ?? zip.files[MANIFEST.database]
+  if (!metaEntry) return null
+  const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
+  if (!meta.id) return null
+  return {
+    zip,
+    id: meta.id,
+    name: toLocalized(meta.name ?? meta.id),
+    tableCount: meta.tables?.length ?? 0,
+  }
+}
+
+/**
+ * Import a parsed database ZIP. `duplicate` mints a fresh id so the incoming
+ * database lands beside the existing one instead of replacing it — the same two
+ * options every other per-page importer offers.
+ */
+export async function importParsedDatabase(
+  parsed: ParsedDatabaseZip,
+  storage: Storage,
+  duplicate: boolean,
+  workspaceId?: string,
+  gitRemoteConfig?: GitRemoteConfig,
+): Promise<string | null> {
+  const targetId = duplicate ? crypto.randomUUID() : parsed.id
+  const ok = await applyClonedDatabase(parsed.zip, targetId, storage, workspaceId, gitRemoteConfig)
+  if (!ok) return null
+  // The alias names the DuckDB schema, so a copy sharing the original's alias
+  // would have both databases resolve to `ds_<alias>` — the copy silently
+  // shadowing the original's tables. Only a duplicate can collide: an overwrite
+  // reuses the row it replaces.
+  if (duplicate) {
+    const others = (await storage.dataSources.getAll().catch(() => []))
+      .filter((ds) => ds.id !== targetId)
+      .map((ds) => ds.alias)
+      .filter((a): a is string => !!a)
+    const created = await storage.dataSources.getById(targetId).catch(() => null)
+    const unique = engine.ensureUniqueAlias(created?.alias ?? targetId, others)
+    if (created && unique !== created.alias) {
+      await storage.dataSources.update(targetId, { alias: unique }).catch(() => {})
+    }
+  }
+  return targetId
 }
 
 /**

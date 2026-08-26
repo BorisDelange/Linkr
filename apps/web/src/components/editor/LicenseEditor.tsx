@@ -110,7 +110,7 @@ export function LicenseEditor({
     const textarea = textareaRef.current
     if (!textarea || !draft) return
     const { text, cursorStart, cursorEnd } = applyMarkdownFormat(
-      draft.text,
+      draft.text ?? '',
       textarea.selectionStart,
       textarea.selectionEnd,
       format,
@@ -234,7 +234,7 @@ export function LicenseEditor({
                 spellCheck={false}
               />
             }
-            preview={<LicenseText text={draft.text} />}
+            preview={<LicenseText text={draft.text ?? ''} />}
           />
         </div>
       ) : (
@@ -249,7 +249,7 @@ export function LicenseEditor({
                 {/* Same renderer as the edit preview: the two disagreed before,
                     so a licence looked one way while writing it and another
                     once saved. */}
-                <LicenseText text={license.text} />
+                <LicenseText text={license.text ?? ''} />
               </>
             ) : (
               <div className="flex flex-col items-start gap-3">

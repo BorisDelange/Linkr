@@ -105,6 +105,33 @@ describe('mapping project', () => {
   })
 })
 
+describe('mapping project — legacy layout', () => {
+  it('names the manifest to rename, not the mappings payload', () => {
+    // MANIFEST['mapping-project'] is `mappings.json`, this kind's PAYLOAD — what
+    // tells it apart from a plain project. Its manifest is project.json, so the
+    // advice used to tell the author to rename the wrong file.
+    const tree = new MemoryTree({
+      'project.json': JSON.stringify({ name: { en: 'MIMIC → OMOP' } }),
+      'mappings.json': '[]',
+    })
+    const legacy = validateEntity(tree, 'mapping-project').find((i) => i.code === 'legacy-format')
+    expect(legacy?.path).toBe('project.json')
+    expect(legacy?.message).toContain('Rename project.json')
+    expect(legacy?.message).not.toContain('mappings.json')
+  })
+
+  it('flags a bare-string name, which the API refuses outright', () => {
+    // A published mapping project sat uninstallable for exactly this: the create
+    // request 422s on a string where a LocalizedString is expected.
+    const tree = new MemoryTree({
+      'entity.json': JSON.stringify({ type: 'mapping-project', name: 'MIMIC-IV Demo' }),
+      'mappings.json': '[]',
+    })
+    const issues = validateEntity(tree, 'mapping-project')
+    expect(issues.some((i) => i.pointer === '/name' && i.code === 'legacy-format')).toBe(true)
+  })
+})
+
 describe('data catalog', () => {
   const catalog = (over: Record<string, unknown> = {}) =>
     new MemoryTree({
