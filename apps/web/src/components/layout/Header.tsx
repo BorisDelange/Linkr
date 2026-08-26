@@ -190,10 +190,12 @@ export function Header() {
   const cmProject = useConceptMappingStore((s) => cmId ? resolveByIdPrefix(s.mappingProjects, cmId, (p) => p.id) : undefined)
   const dqEntity = useDqStore((s) => dqId ? resolveByIdPrefix(s.dqRuleSets, dqId, (r) => r.id) : undefined)
   // `id` first, `presetId` second: the URL carries a shortened id now, but one
-  // bookmarked before the switch still carries the slug.
+  // bookmarked before the switch still carries the slug. A preset installed from
+  // the catalog has both, and they differ — so the slug pass must run whenever the
+  // id pass found nothing, not only when `id` itself is absent.
   const schemaPreset = useSchemaPresetStore((s) => schemaId
     ? (resolveByIdPrefix(s.presets, schemaId, (p) => p.id ?? p.presetId)
-      ?? resolveByIdPrefix(s.presets, schemaId, (p) => p.presetId))
+      ?? resolveByIdPrefix(s.presets, schemaId, (p) => p.presetId ?? p.id))
     : undefined)
   const dbEntity = useDataSourceStore((s) => dbId ? resolveByIdPrefix(s.dataSources, dbId, (d) => d.id) : undefined)
 

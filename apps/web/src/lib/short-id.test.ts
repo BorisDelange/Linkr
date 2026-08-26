@@ -91,4 +91,20 @@ describe('resolveByIdPrefix', () => {
     const withExact = [{ uid: '7b44' }, { uid: '7b4450e6-0000' }]
     expect(resolveByIdPrefix(withExact, '7b44', (x) => x.uid)).toBe(withExact[0])
   })
+
+  // A schema preset installed from the catalog carries BOTH a uuid `id` and a slug
+  // `presetId`. The header badge resolves on `id` first; a URL holding the slug must
+  // still resolve through the second pass, or the page renders with no badge.
+  it('resolves a dual-identity entity by its slug when the id pass misses', () => {
+    const presets = [
+      { id: '9b35c85a-fb20-46fe-996c-6d84dec036ad', presetId: 'omop-cdm-54' },
+    ]
+    const byId = (p: (typeof presets)[number]) => p.id ?? p.presetId
+    const bySlug = (p: (typeof presets)[number]) => p.presetId ?? p.id
+
+    expect(resolveByIdPrefix(presets, 'omop-cdm-54', byId)).toBeUndefined()
+    expect(resolveByIdPrefix(presets, 'omop-cdm-54', bySlug)).toBe(presets[0])
+    // The shortened uuid still resolves on the first pass.
+    expect(resolveByIdPrefix(presets, '9b35c85a', byId)).toBe(presets[0])
+  })
 })

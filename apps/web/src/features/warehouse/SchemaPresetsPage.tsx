@@ -1762,8 +1762,13 @@ export function SchemaPresetsPage() {
   const loadCustomPresets = useCallback(() => loadPresets(wsUid), [loadPresets, wsUid])
 
   useEffect(() => {
+    // Wait for the workspace to resolve. On a cold load straight onto a preset's
+    // URL, `wsUid` is undefined for the first render; loading then would fetch
+    // every workspace's presets and immediately refetch, leaving the header badge
+    // resolving against the wrong set in between.
+    if (!wsUid) return
     loadCustomPresets()
-  }, [loadCustomPresets])
+  }, [wsUid, loadCustomPresets])
 
   // Only show schemas that exist in storage (user-added or added from templates).
   // The row's id is the entity key. It used to be `presetId`, which broke every
@@ -1949,12 +1954,16 @@ export function SchemaPresetsPage() {
     // What the user typed always wins; otherwise derive a free id from the name.
     const presetId = newPresetId.trim() || uniqueEntityId(slugifyId(name), takenIds)
     const newMapping: SchemaMapping = { presetId, presetLabel: label, description }
-    await storeSave(buildSchemaPreset(presetId, newMapping, undefined, wsUid, {
+    // Navigate on the preset's own `id`, not the slug: the header badge resolves
+    // the URL segment against `id` first, so landing on a presetId left the page
+    // with no badge until the next reload.
+    const created = buildSchemaPreset(presetId, newMapping, undefined, wsUid, {
       version: newPresetVersion.trim() || '0.1.0',
       badges: newPresetBadges,
-    }))
+    })
+    await storeSave(created)
     setShowCreateDialog(false)
-    navigate(presetId)
+    navigate(shortenId(created.id ?? presetId))
   }
 
   /** URL segment for a preset: its shortened `id`, like every other entity. */
