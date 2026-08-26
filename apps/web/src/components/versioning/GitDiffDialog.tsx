@@ -149,11 +149,23 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
                 <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
                   <FileWarning size={28} />
                   <p className="max-w-md whitespace-pre-line text-sm">
-                    {t(diff.truncationMode === 'eol_only' ? 'versioning.diff_eol_only' : 'versioning.diff_no_content_change')}
+                    {diff.truncationMode === 'eol_only'
+                      ? t('versioning.diff_eol_only')
+                      : diff.oldPath
+                        // Same bytes under a new name: say so, rather than the generic
+                        // "flagged modified but unchanged" message, which reads as a puzzle.
+                        ? t('versioning.diff_renamed_only', { path: diff.oldPath })
+                        : t('versioning.diff_no_content_change')}
                   </p>
                 </div>
               ) : (
                 <div className="flex h-full flex-col">
+                  {diff?.oldPath ? (
+                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-violet-500/10 px-3 py-1.5 text-[11px] text-violet-700 dark:text-violet-400">
+                      <FileWarning size={12} />
+                      {t('versioning.diff_renamed_from', { path: diff.oldPath })}
+                    </div>
+                  ) : null}
                   {diff?.truncationMode === 'hunks' ? (
                     <div className="flex shrink-0 items-center gap-1.5 border-b bg-sky-500/10 px-3 py-1.5 text-[11px] text-sky-700 dark:text-sky-400">
                       <FileWarning size={12} />

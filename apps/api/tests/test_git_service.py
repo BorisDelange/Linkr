@@ -1215,3 +1215,99 @@ async def test_diff_reports_added_for_a_file_absent_from_head():
         assert out["changeType"] == "added"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_rename_reports_old_path_and_diffs_against_it():
+    """A renamed file must diff against its content at the OLD path.
+
+    git reports a rename under its NEW name only, so looking HEAD up by that name
+    finds nothing and the viewer renders the whole file as added — a blank left
+    pane. This is the `project.json` → `entity.json` move: git pairs the two by
+    similarity, so the content legitimately changed too, and that before/after is
+    exactly what the user needs to see.
+    """
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        # Enough shared lines that git's similarity detection pairs the two files;
+        # a wholly-rewritten file is reported as add+delete instead, not a rename.
+        original = '{\n  "name": "demo",\n  "kind": "project",\n  "id": "local-1"\n}'
+        renamed = '{\n  "name": "demo",\n  "kind": "project",\n  "entityId": "demo"\n}'
+
+        await g.commit_push(getter, "u", _zip({"project.json": original}), "main", "first", None, None)
+
+        st = await g.status(getter, "u", _zip({"entity.json": renamed}), "main", None)
+        entry = next(f for f in st["files"] if f["path"] == "entity.json")
+        assert entry["changeType"] == "renamed"
+        assert entry["oldPath"] == "project.json"
+
+        d = await g.diff(
+            getter, "u", _zip({"entity.json": renamed}), "main", "entity.json", None,
+            old_path=entry["oldPath"],
+        )
+        # The whole point: a real before/after, not an empty left pane.
+        assert d["oldContent"] == original
+        assert d["newContent"] == renamed
+        assert d["changeType"] == "renamed"
+        assert d["oldPath"] == "project.json"
+
+        # Without the old path the "before" side is unfindable — the bug this guards.
+        blind = await g.diff(
+            getter, "u", _zip({"entity.json": renamed}), "main", "entity.json", None
+        )
+        assert blind["oldContent"] == ""
+        assert blind["changeType"] == "added"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_pure_rename_reports_no_content_change_against_old_path():
+    """Identical bytes under a new name: the diff must say "nothing changed"
+    rather than show the file as freshly added."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        body = "line one\nline two\nline three\n"
+        await g.commit_push(getter, "u", _zip({"project.json": body}), "main", "first", None, None)
+
+        st = await g.status(getter, "u", _zip({"entity.json": body}), "main", None)
+        entry = next(f for f in st["files"] if f["path"] == "entity.json")
+        assert entry["changeType"] == "renamed" and entry["oldPath"] == "project.json"
+
+        d = await g.diff(
+            getter, "u", _zip({"entity.json": body}), "main", "entity.json", None,
+            old_path="project.json",
+        )
+        assert d["truncationMode"] == "no_content_change"
+        assert d["oldPath"] == "project.json"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_porcelain_keeps_old_path_only_for_renames():
+    """The rename source field must be attached to its own record, not leak onto
+    the next file: `-z` emits it as a bare extra field between entries."""
+    tmp = Path(tempfile.mkdtemp())
+    repo = tmp / "repo"
+    try:
+        g._ensure_repo(repo, None)
+        g._unpack_zip_into(_zip({"a.txt": "keep\nthis\nfile\n", "b.txt": "other"}), repo)
+        g._run(repo, "add", "-A")
+        g._run(repo, "-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "-qm", "init")
+        g._unpack_zip_into(_zip({"renamed.txt": "keep\nthis\nfile\n", "b.txt": "changed"}), repo)
+        g._run(repo, "add", "-A")
+
+        files = {f["path"]: f for f in g._porcelain_status(repo)}
+        assert files["renamed.txt"]["oldPath"] == "a.txt"
+        # The modified sibling must NOT have picked up the rename's source field.
+        assert "oldPath" not in files["b.txt"]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

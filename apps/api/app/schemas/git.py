@@ -15,6 +15,9 @@ class GitFileChange(CamelModel):
     path: str
     change_type: str  # modified | added | deleted | renamed
     size: int = 0  # working-tree byte size (0 for deletions); drives LFS tracking in the UI
+    # Pre-rename path, set only when change_type is "renamed". The diff endpoint
+    # needs it to find the file at HEAD, which still knows it under the old name.
+    old_path: str | None = None
 
 
 class GitStatusResponse(CamelModel):
@@ -41,6 +44,9 @@ class GitDiffResponse(CamelModel):
     #                       the viewer states the fact rather than guessing which one.
     truncation_mode: str = "none"
     binary: bool = False
+    # Echoed back when the diff was resolved against a pre-rename path, so the
+    # viewer can label the left pane with the name the file used to have.
+    old_path: str | None = None
 
 
 class GitBranchesResponse(CamelModel):

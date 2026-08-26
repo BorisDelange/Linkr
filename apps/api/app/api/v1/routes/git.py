@@ -231,6 +231,8 @@ async def project_diff(
     file: UploadFile | None = File(None),
     path: str = Form(...),
     branch: str | None = Form(None),
+    # Set by the client for a renamed file: HEAD only knows it under this name.
+    old_path: str | None = Form(None),
     project=Depends(require_project_permission("project-settings:read")),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -244,6 +246,7 @@ async def project_diff(
             path,
             _remote_url(project),
             await _token(db, user, project),
+            old_path=old_path,
         )
     )
 
@@ -368,6 +371,8 @@ async def workspace_diff(
     file: UploadFile | None = File(None),
     path: str = Form(...),
     branch: str | None = Form(None),
+    # Set by the client for a renamed file: HEAD only knows it under this name.
+    old_path: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     _member=Depends(require_permission("workspace-settings:read")),
 ):
@@ -381,6 +386,7 @@ async def workspace_diff(
             path,
             _remote_url(ws),
             await _token(db, _member, ws),
+            old_path=old_path,
         )
     )
 
@@ -479,6 +485,8 @@ async def mapping_project_diff(
     file: UploadFile | None = File(None),
     path: str = Form(...),
     branch: str | None = Form(None),
+    # Set by the client for a renamed file: HEAD only knows it under this name.
+    old_path: str | None = Form(None),
     # Both sides verbatim, for callers that PARSE the content (the mappings review
     # table) rather than render it — a truncated payload is not valid JSON.
     full: bool = Form(False),
@@ -505,6 +513,7 @@ async def mapping_project_diff(
             _remote_url(mp),
             await _token(db, user, mp),
             full,
+            old_path=old_path,
         )
     )
 
@@ -747,6 +756,8 @@ async def sql_collection_diff(
     file: UploadFile | None = File(None),
     path: str = Form(...),
     branch: str | None = Form(None),
+    # Set by the client for a renamed file: HEAD only knows it under this name.
+    old_path: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -760,6 +771,7 @@ async def sql_collection_diff(
             path,
             _remote_url(c),
             await _token(db, user, c),
+            old_path=old_path,
         )
     )
 
@@ -892,6 +904,8 @@ def _register_entity_git_routes(
         file: UploadFile | None = File(None),
         path: str = Form(...),
         branch: str | None = Form(None),
+        # Set by the client for a renamed file: HEAD only knows it under this name.
+        old_path: str | None = Form(None),
         db: AsyncSession = Depends(get_db),
         user: User = Depends(get_current_user),
     ):
@@ -907,6 +921,7 @@ def _register_entity_git_routes(
                 path,
                 _remote_url(e),
                 await _token(db, user, e),
+                old_path=old_path,
             )
         )
 
@@ -1269,6 +1284,8 @@ async def settings_diff(
     file: UploadFile | None = File(None),
     path: str = Form(...),
     branch: str | None = Form(None),
+    # Set by the client for a renamed file: HEAD only knows it under this name.
+    old_path: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_admin),
 ):
@@ -1281,6 +1298,7 @@ async def settings_diff(
             path,
             await _settings_remote(db),
             await _settings_token(db, user),
+            old_path=old_path,
         )
     )
 

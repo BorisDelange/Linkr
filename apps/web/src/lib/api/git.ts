@@ -27,6 +27,9 @@ export interface GitFileChange {
   changeType: FileChangeType | 'renamed'
   /** Working-tree byte size (0 for deletions); drives default LFS tracking. */
   size: number
+  /** Pre-rename path, present only when changeType is 'renamed'. The diff call
+   *  needs it: HEAD still knows the file under this name. */
+  oldPath?: string | null
 }
 
 export interface GitStatus {
@@ -54,6 +57,9 @@ export interface GitDiff {
    */
   truncationMode: 'none' | 'head' | 'hunks' | 'eol_only' | 'no_content_change' | 'too_large'
   binary: boolean
+  /** Set when the old side was read from a pre-rename path, so the viewer can
+   *  label the left pane with the name the file used to have. */
+  oldPath?: string | null
 }
 
 export interface GitBranches {
@@ -115,12 +121,19 @@ export async function gitStatus(scope: GitScope, id: string, zip: Blob | null, b
 
 /** `full` returns both sides verbatim, skipping every size guard — for callers
  *  that PARSE the content rather than render it (a truncated payload is not valid
- *  JSON). Supported by the mapping-project scope only. */
-export async function gitDiff(scope: GitScope, id: string, zip: Blob | null, path: string, branch?: string, full?: boolean): Promise<GitDiff> {
+ *  JSON). Supported by the mapping-project scope only.
+ *
+ *  `oldPath` is the pre-rename path from the status listing. Pass it for a
+ *  `renamed` file: HEAD stores it under the old name, so without it the server
+ *  finds nothing there and the left pane renders empty. The form field is
+ *  snake_case because FastAPI `Form(...)` params are raw argument names — the
+ *  camelCase alias applies to response bodies, not to form input. */
+export async function gitDiff(scope: GitScope, id: string, zip: Blob | null, path: string, branch?: string, full?: boolean, oldPath?: string): Promise<GitDiff> {
   return postForm<GitDiff>(`${base(scope, id)}/diff`, zipForm(zip, {
     path,
     ...(branch ? { branch } : {}),
     ...(full ? { full: 'true' } : {}),
+    ...(oldPath ? { old_path: oldPath } : {}),
   }))
 }
 

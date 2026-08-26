@@ -461,16 +461,24 @@ _STATUS_CODE = {"M": "modified", "A": "added", "D": "deleted", "R": "renamed", "
 
 
 def _porcelain_status(repo: Path) -> list[dict]:
-    """Parse `git status --porcelain -z` into [{path, changeType, size}] against
-    HEAD+worktree. `size` is the working-tree byte size (0 for deletions), used
-    by the UI to decide LFS tracking.
+    """Parse `git status --porcelain -z` into [{path, changeType, size, oldPath}]
+    against HEAD+worktree. `size` is the working-tree byte size (0 for deletions),
+    used by the UI to decide LFS tracking.
 
     The `-z` (NUL-delimited) format is mandatory here: plain `--porcelain` wraps
     paths containing spaces/UTF-8 in double quotes with C-style escapes (e.g.
     `"datasets/table agregee vf/_data.json"`), and those quotes would leak into
     the path we hand back to the client and later to `git rm`, so a deletion of a
     spaced path could never be staged. `-z` emits raw, unquoted bytes and uses a
-    trailing NUL field for the rename/copy source, which we consume and drop."""
+    trailing NUL field for the rename/copy source.
+
+    `oldPath` (that source field) is carried through rather than dropped: a
+    rename is reported under its NEW path, so a diff that looked HEAD up by that
+    path alone would find nothing at HEAD and render the whole file as added —
+    an empty left pane. A rename whose content also changed (git pairs the two up
+    to a similarity threshold, so `R` does NOT mean "identical") is exactly the
+    case that needs the old path to show a real before/after.
+    """
     out = _run(repo, "status", "--porcelain", "-z")
     records = out.split("\0")
     files: list[dict] = []
@@ -482,12 +490,21 @@ def _porcelain_status(repo: Path) -> list[dict]:
             continue
         code = entry[:2].strip() or entry[:2]
         path = entry[3:]
-        # A rename/copy carries its source path in the FOLLOWING NUL field; skip it.
+        old_path = None
+        # A rename/copy carries its source path in the FOLLOWING NUL field.
         if code and code[0] in ("R", "C"):
+            old_path = records[i] if i < len(records) else None
             i += 1
         fp = repo / path
         size = fp.stat().st_size if fp.is_file() else 0
-        files.append({"path": path, "changeType": _STATUS_CODE.get(code, "modified"), "size": size})
+        record = {
+            "path": path,
+            "changeType": _STATUS_CODE.get(code, "modified"),
+            "size": size,
+        }
+        if old_path:
+            record["oldPath"] = old_path
+        files.append(record)
     return files
 
 
@@ -1218,7 +1235,7 @@ def _condense_hunks(old_text: str, new_text: str) -> tuple[str, str, bool] | Non
     return "\n".join(old_out), "\n".join(new_out), truncated
 
 
-async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, remote_url: str | None, token: str | None = None, full: bool = False) -> dict:
+async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, remote_url: str | None, token: str | None = None, full: bool = False, old_path: str | None = None) -> dict:
     """Old (remote HEAD) vs new (export) content for one file in the export tree.
 
     Oversized/binary files return no content (too_large/binary flags) so the
@@ -1228,15 +1245,25 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
     callers that PARSE the content rather than render it (the mappings review
     table, which keys JSON objects by mapping key): a condensed or head-truncated
     payload is not valid JSON, and in server mode the client has no export ZIP of
-    its own to read the local side from."""
+    its own to read the local side from.
+
+    `old_path` is the pre-rename path, as reported by the status endpoint. A
+    renamed file only exists at HEAD under its OLD name, so looking it up by
+    `path` would come back empty and render the whole file as added — the left
+    pane blank. Git pairs a rename by similarity, not equality, so the content
+    can legitimately differ too, and that before/after is the whole point."""
     _safe_ref(branch)
 
     def work() -> dict:
         repo = repo_getter(uid)
         _safe_join(repo, path)  # reject a traversing path before any git/FS use
+        head_path = path
+        if old_path:
+            _safe_join(repo, old_path)  # same traversal guard for the caller-supplied source
+            head_path = old_path
         _ensure_repo(repo, remote_url)
         _sync_remote_branch(repo, branch, remote_url, token)
-        old_raw = _run(repo, "show", f"HEAD:{path}", check=False)
+        old_raw = _run(repo, "show", f"HEAD:{head_path}", check=False)
         _unpack_zip_into(zip_bytes, repo)
         new_file = _safe_join(repo, path)
         new_raw = new_file.read_text(encoding="utf-8", errors="replace") if new_file.is_file() else ""
@@ -1249,11 +1276,13 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
         # is no good here: _run swallows the exit code under check=False, so a
         # missing file and an empty one both come back as "".)
         had_old = bool(
-            _run(repo, "ls-tree", "--name-only", "HEAD", "--", path, check=False).strip()
+            _run(repo, "ls-tree", "--name-only", "HEAD", "--", head_path, check=False).strip()
         )
         has_new = new_file.is_file()
         change_type = (
-            "modified" if had_old and has_new else "added" if has_new else "deleted"
+            "renamed"
+            if old_path and had_old and has_new
+            else "modified" if had_old and has_new else "added" if has_new else "deleted"
         )
         # HEAD content of an LFS-tracked file is just its pointer (we fetch with
         # SKIP_SMUDGE), so a text diff against it is meaningless — flag as binary.
@@ -1273,6 +1302,7 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
                 "truncated": False,
                 "truncationMode": "none",
                 "binary": old_is_lfs,
+                **({"oldPath": old_path} if old_path else {}),
             }
         # Byte-identical already? Then git flags "modified" for a reason unrelated
         # to content: a storage-mode switch (a file committed as plain text that
@@ -1302,6 +1332,7 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
                 "truncated": trunc,
                 "truncationMode": mode,
                 "binary": binary,
+                **({"oldPath": old_path} if old_path else {}),
             }
 
         # Git flags "modified" but the content is unchanged — show a plain notice

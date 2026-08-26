@@ -2015,6 +2015,8 @@
     "diff_download_both": "Télécharger les deux versions",
     "diff_download_failed": "Échec du téléchargement. Vérifiez votre connexion au dépôt distant et réessayez.",
     "diff_eol_only": "Aucun changement de contenu — seul le style de fin de ligne diffère (CRLF vs LF).",
+    "diff_renamed_from": "Renommé depuis {{path}} — le volet de gauche montre le contenu distant de ce fichier.",
+    "diff_renamed_only": "Simple renommage — ce fichier est strictement identique à {{path}} sur le dépôt distant, son emplacement précédent.",
     "diff_no_content_change": "Aucun changement de contenu — ce fichier est strictement identique à la version distante.\nGit l’a marqué comme modifié pour une raison sans rapport avec son contenu ; cela disparaît au prochain rafraîchissement.",
     "file_cat_general": "Général",
     "file_cat_readme": "Documentation",

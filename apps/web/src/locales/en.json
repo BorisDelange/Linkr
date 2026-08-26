@@ -2015,6 +2015,8 @@
     "diff_download_both": "Download both versions",
     "diff_download_failed": "Download failed. Check your connection to the remote and try again.",
     "diff_eol_only": "No content changes — only the line-ending style differs (CRLF vs LF).",
+    "diff_renamed_from": "Renamed from {{path}} — the left pane shows that file's content on the remote.",
+    "diff_renamed_only": "Renamed only — this file is byte-for-byte identical to {{path}} on the remote, which is where it used to live.",
     "diff_no_content_change": "No content changes — this file is byte-for-byte identical to the version on the remote.\nGit flagged it as modified for a reason unrelated to its content; it clears on the next refresh.",
     "file_cat_general": "General",
     "file_cat_readme": "Documentation",

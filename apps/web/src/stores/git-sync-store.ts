@@ -279,10 +279,15 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     const cacheKey = `${branch ?? ''}|${path}`
     if (_diffCache.has(cacheKey)) return _diffCache.get(cacheKey) ?? null
     try {
+      // A renamed file lives at HEAD under its OLD name, so the server needs that
+      // name to find the "before" side — without it the left pane comes back empty
+      // and a rename+edit reads as a wholesale addition. Taken from the status
+      // listing rather than asked of the caller: the store already holds it.
+      const oldPath = get().status?.files.find((f) => f.path === path)?.oldPath ?? undefined
       // Same .gitattributes as the status/commit build, so the diff of a big file
       // matches its chosen LFS state (pointer vs blob) rather than the default rule.
       const zip = await buildZip(scope, id, get().lfsOverrides)
-      const diff = await gitDiff(scope, id, zip, path, branch)
+      const diff = await gitDiff(scope, id, zip, path, branch, false, oldPath)
       _diffCache.set(cacheKey, diff)
       return diff
     } catch (err) {
@@ -302,14 +307,17 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     // an empty file, i.e. "no changes" however much had changed. Ask the server
     // for both sides verbatim instead.
     if (serverBuildsZip()) {
-      const diff = await gitDiff(scope, id, null, path, branch, true)
+      const oldPath = get().status?.files.find((f) => f.path === path)?.oldPath ?? undefined
+      const diff = await gitDiff(scope, id, null, path, branch, true, oldPath)
       return { old: diff.oldContent, new: diff.newContent }
     }
     // Standalone: the remote blob straight from the repo, the local side out of
     // the export ZIP. A file absent from the remote yields '' (an empty list),
-    // which is the honest answer for a first push.
+    // which is the honest answer for a first push. A renamed file is fetched under
+    // its OLD name — that is the only name the remote knows it by.
+    const remoteName = get().status?.files.find((f) => f.path === path)?.oldPath || path
     const [remoteBytes, zip] = await Promise.all([
-      gitPullFile(scope, id, path, branch).catch(() => new Uint8Array()),
+      gitPullFile(scope, id, remoteName, branch).catch(() => new Uint8Array()),
       buildZip(scope, id, get().lfsOverrides),
     ])
     let localText = ''
