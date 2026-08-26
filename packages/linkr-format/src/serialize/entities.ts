@@ -11,6 +11,7 @@
  */
 import { MAPPING_FIELD_ORDER, canonicalSchemaMapping, orderKeys } from '../schema-mapping.js'
 import type { LocalizedInput, WriteFile } from './project.js'
+import { CONTENT_FILE, MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES, SIDECAR } from '../layout.js'
 
 /**
  * Identity and provenance every authored entity may declare.
@@ -193,12 +194,6 @@ export interface EntitySpecMap {
 
 export type SerializableEntityKind = keyof EntitySpecMap
 
-const SCRIPT_LANGUAGES: Record<string, string> = {
-  py: 'python',
-  r: 'r',
-  sql: 'sql',
-  md: 'markdown',
-}
 
 /**
  * JSON exactly as the app's exporters write it: 2-space indent, insertion-order
@@ -282,7 +277,7 @@ function serializeScriptFiles(files: ScriptFileSpec[]): WriteFile[] {
     })),
   ]
 
-  out.push({ path: '_tree.json', content: json(sortByPath(entries)) })
+  out.push({ path: SIDECAR.tree, content: json(sortByPath(entries)) })
   return sortByPath(out)
 }
 
@@ -296,7 +291,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const s = spec as SqlCollectionSpec
       return [
         {
-          path: '_collection.json',
+          path: MANIFEST['sql-collection'],
           content: json({
             ...identityHead(s),
             name: localized(s.name),
@@ -313,7 +308,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const s = spec as EtlPipelineSpec
       return [
         {
-          path: '_pipeline.json',
+          path: MANIFEST['etl-pipeline'],
           content: json({
             ...identityHead(s),
             name: localized(s.name),
@@ -331,7 +326,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const s = spec as DqRuleSetSpec
       return [
         {
-          path: 'rule-set.json',
+          path: MANIFEST['dq-rule-set'],
           content: json({
             ...identityHead(s),
             name: localized(s.name),
@@ -342,7 +337,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
           }),
         },
         {
-          path: 'checks.json',
+          path: CONTENT_FILE.dqChecks,
           content: json(s.checks.map((check, i) => ({
             name: check.name,
             ...(check.description ? { description: check.description } : {}),
@@ -360,7 +355,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const s = spec as DataCatalogSpec
       return [
         {
-          path: 'catalog.json',
+          path: MANIFEST['data-catalog'],
           content: json({
             ...identityHead(s),
             name: localized(s.name),
@@ -380,7 +375,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const s = spec as MappingProjectSpec
       return [
         {
-          path: 'project.json',
+          path: MANIFEST.project,
           // A mapping project orders its own keys: `createdAt` sits right after
           // `status`, not with the trailing provenance — so `provenanceTail` is
           // not reused here. Matches what the app writes (see the published
@@ -399,7 +394,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
           }),
         },
         {
-          path: 'mappings.json',
+          path: MANIFEST['mapping-project'],
           // Sorted by source code so a re-export of the same alignments is
           // byte-stable and the git diff shows only real changes.
           content: json([...s.mappings]
@@ -429,7 +424,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const ddl = s.ddl ?? (typeof _inlineDdl === 'string' ? _inlineDdl : undefined)
       return [
         {
-          path: 'preset.json',
+          path: MANIFEST['schema-preset'],
           content: json({
             // Key order mirrors what the app exports, so an authored tree and a
             // Linkr re-export are byte-identical — the first sync after an
@@ -451,7 +446,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...(s.parentLineageId ? { parentLineageId: s.parentLineageId } : {}),
           }),
         },
-        ...(ddl ? [{ path: 'schema.ddl', content: ddl }] : []),
+        ...(ddl ? [{ path: CONTENT_FILE.schemaDdl, content: ddl }] : []),
       ]
     }
 

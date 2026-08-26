@@ -9,6 +9,7 @@
 import { copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import {
+  SCRIPT_LANGUAGE as SCRIPT_LANGUAGES,
   columnId, formatIssues, slugify, validateProject, type CopyFile, type WriteFile,
 } from '@linkr/format'
 import { FsTree } from '@linkr/format/node/fs-tree'
@@ -332,12 +333,6 @@ function resolveConfigColumns(
   return out
 }
 
-const SCRIPT_LANGUAGES: Record<string, string> = {
-  py: 'python',
-  r: 'r',
-  sql: 'sql',
-  md: 'markdown',
-}
 
 export function addScript(root: string, file: string, content: string): string {
   const clean = file.replace(/^scripts\//, '')

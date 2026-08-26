@@ -19,7 +19,7 @@
 import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server'
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import {
-  MemoryTree, detectTreeKind, formatIssues, serializeDatabase, serializeEntity, serializeProject,
+  MemoryTree, detectTreeKind, formatIssues, manifestList, serializeDatabase, serializeEntity, serializeProject,
   validateEntity, validateProject,
   type DatabaseSpec, type ProjectSpec, type SerializableEntityKind,
 } from '@linkr/format'
@@ -76,9 +76,7 @@ server.registerTool(
     const kind = detectTreeKind(tree)
     if (kind == null) {
       return failure(
-        `Not a Linkr entity tree: ${path} has no project.json, _collection.json, `
-        + '_pipeline.json, preset.json, rule-set.json, catalog.json, _database.json '
-        + 'or mappings.json at its root.',
+        `Not a Linkr entity tree: ${path} has no ${manifestList()} at its root.`,
       )
     }
 

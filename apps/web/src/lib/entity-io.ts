@@ -3,6 +3,7 @@
  */
 import JSZip from 'jszip'
 import {
+  CONTENT_FILE, MANIFEST, ROOT_FILE, SIDECAR,
   buildTabKeyMap, buildWidgetKeyMap, canonicalSchemaMapping,
   dashboardKey as sharedDashboardKey, type Issue,
 } from '@linkr/format'
@@ -918,7 +919,7 @@ export async function buildProjectZip(
   // the spread: the server builder emits them in this order and the shared
   // golden fixture compares bytes.
   const projectSlug = project.entityId ?? project.projectId
-  zip.file('project.json', json({
+  zip.file(MANIFEST.project, json({
     ...(projectSlug ? { entityId: projectSlug } : {}),
     ...stripInstanceFields(projectMeta),
     ...(licenseMeta(projectLicense) ? { license: licenseMeta(projectLicense) } : {}),
@@ -1212,7 +1213,7 @@ export async function buildProjectZip(
   // The project has no org link of its own; it belongs to whatever org its
   // workspace is attached to. workspaceId is stripped from project.json (instance
   // field) but still present on the in-memory record, so we resolve it here.
-  await attachEntityOrganization(zip, 'project.json', project, storage)
+  await attachEntityOrganization(zip, MANIFEST.project, project, storage)
 
   const blob = await zip.generateAsync({ type: 'blob' })
   return { blob, projectName: resolveProjectName(project) }
@@ -1665,7 +1666,7 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   const zipData = stripRootFolder(await JSZip.loadAsync(file))
 
   // --- Read project.json ---
-  const projectFile = zipData.files['project.json']
+  const projectFile = zipData.files[MANIFEST.project]
   if (!projectFile) return null
   const projectRaw = JSON.parse(await projectFile.async('string'))
   // Clean git-versioned exports strip `uid` (the local PK) and identify the project
@@ -1682,7 +1683,7 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   // as immutable provenance on the imported record (like createdByDetails) — it
   // is NOT re-linked to a local org entity.
   if (!projectMeta.organization) {
-    const orgFile = zipData.files['organization.json']
+    const orgFile = zipData.files[ROOT_FILE.organization]
     if (orgFile) projectMeta.organization = JSON.parse(await orgFile.async('string')) as Organization
   }
   const organization = projectMeta.organization as Organization | undefined
@@ -1907,7 +1908,7 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
         if (entry.dir || !path.startsWith(dsFolderPrefix)) continue
         const rest = path.slice(dsFolderPrefix.length)
         if (rest.includes('/')) continue // belongs to a nested dataset folder
-        if (rest === '_columns.json' || rest === '_data.json' || rest === '_tree.json') continue
+        if (rest === '_columns.json' || rest === '_data.json' || rest === SIDECAR.tree) continue
         if (rest.endsWith('.json')) continue // analysis files
         rawEntry = { name: rest, entry }
         break
@@ -2200,7 +2201,7 @@ export async function buildSqlCollectionZip(
   if (!collection) return null
   const zip = new JSZip()
   await buildSqlCollectionFolder(zip, '', collection, storage)
-  await attachEntityOrganization(zip, '_collection.json', collection, storage)
+  await attachEntityOrganization(zip, MANIFEST['sql-collection'], collection, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(collection.name, 'en') || collection.id }
 }
@@ -2214,7 +2215,7 @@ export async function buildEtlPipelineZip(
   if (!pipeline) return null
   const zip = new JSZip()
   await buildEtlPipelineFolder(zip, '', pipeline, storage)
-  await attachEntityOrganization(zip, '_pipeline.json', pipeline, storage)
+  await attachEntityOrganization(zip, MANIFEST['etl-pipeline'], pipeline, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(pipeline.name, 'en') || pipeline.id }
 }
@@ -2241,7 +2242,7 @@ export async function buildDataCatalogZip(
   if (!catalog) return null
   const zip = new JSZip()
   await buildDataCatalogFolder(zip, '', catalog, storage)
-  await attachEntityOrganization(zip, 'catalog.json', catalog, storage)
+  await attachEntityOrganization(zip, MANIFEST['data-catalog'], catalog, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(catalog.name, 'en') || catalog.id }
 }
@@ -2269,7 +2270,7 @@ export async function buildDqRuleSetZip(
   if (!ruleSet) return null
   const zip = new JSZip()
   await buildDqRuleSetFolder(zip, '', ruleSet, storage)
-  await attachEntityOrganization(zip, 'rule-set.json', ruleSet, storage)
+  await attachEntityOrganization(zip, MANIFEST['dq-rule-set'], ruleSet, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(ruleSet.name, 'en') || ruleSet.id }
 }
@@ -2384,7 +2385,7 @@ export async function buildUserPluginZip(
   await buildUserPluginFolder(zip, '', plugin, storage)
   // Inline the origin organization (full snapshot) so a single-plugin ZIP is
   // self-sufficient, matching single-project export.
-  await attachEntityOrganization(zip, '_plugin.json', plugin, storage)
+  await attachEntityOrganization(zip, MANIFEST['user-plugin'], plugin, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: plugin.entityId || plugin.id }
 }
@@ -2482,7 +2483,7 @@ async function applyClonedDatabase(
   workspaceId?: string,
   gitRemoteConfig?: GitRemoteConfig,
 ): Promise<boolean> {
-  const metaEntry = zip.files['_database.json']
+  const metaEntry = zip.files[MANIFEST.database]
   if (!metaEntry) return false
   const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
 
@@ -2622,7 +2623,7 @@ export async function applyClonedEntity(
   if (type === 'sql-collection' || type === 'etl-pipeline') {
     // The record itself (metadata) is re-applied from the repo's _collection.json /
     // _pipeline.json — the workspace only carried a minimal pointer. Then the files.
-    const metaName = type === 'sql-collection' ? '_collection.json' : '_pipeline.json'
+    const metaName = type === 'sql-collection' ? MANIFEST['sql-collection'] : MANIFEST['etl-pipeline']
     const meta = await readJson<SqlScriptCollection | EtlPipeline>(metaName)
     if (meta) {
       const { id: _id, workspaceId: _ws, ...changes } = dropForeignAuthorId(meta) as SqlScriptCollection
@@ -2649,7 +2650,7 @@ export async function applyClonedEntity(
     // Ids are derived from (targetId, path), so they're stable across re-clones
     // into this collection and distinct from a sibling clone of the same repo —
     // no collision to recover from, and _tree.json carries no id to churn.
-    const tree = readPathTree(await readJson('_tree.json'))
+    const tree = readPathTree(await readJson(SIDECAR.tree))
     for (const rec of fromPathTree<Record<string, unknown>>(tree, targetId, fkKey)) {
       if (rec.type === 'file') {
         const content = await zip.files[String(rec.path)]?.async('string')
@@ -2708,7 +2709,7 @@ export async function applyClonedEntity(
   }
 
   if (type === 'data-catalog') {
-    const catalog = await readJson<DataCatalog>('catalog.json')
+    const catalog = await readJson<DataCatalog>(MANIFEST['data-catalog'])
     if (!catalog) return false
     const { id: _id, workspaceId: _ws, ...rest } = dropForeignAuthorId(catalog) as DataCatalog
     const changes = await withEntityDocs(rest, 'data-catalog')
@@ -2717,12 +2718,12 @@ export async function applyClonedEntity(
   }
 
   if (type === 'dq-rule-set') {
-    const ruleSet = await readJson<DqRuleSet>('rule-set.json')
+    const ruleSet = await readJson<DqRuleSet>(MANIFEST['dq-rule-set'])
     if (!ruleSet) return false
     const { id: _id, workspaceId: _ws, ...rest } = dropForeignAuthorId(ruleSet) as DqRuleSet
     const changes = await withEntityDocs(rest, 'dq-rule-set')
     await storage.dqRuleSets.update(targetId, changes).catch(() => {})
-    const checks = (await readJson<DqCustomCheck[]>('checks.json')) ?? []
+    const checks = (await readJson<DqCustomCheck[]>(CONTENT_FILE.dqChecks)) ?? []
     await storage.dqCustomChecks.deleteByRuleSet(targetId).catch(() => {})
     for (const c of checks) {
       // Re-mint the check id: it's a global PK, so the repo's original id collides
@@ -2734,7 +2735,7 @@ export async function applyClonedEntity(
   }
 
   if (type === 'schema-preset') {
-    const preset = await readJson<CustomSchemaPreset>('preset.json')
+    const preset = await readJson<CustomSchemaPreset>(MANIFEST['schema-preset'])
     if (!preset) return false
     // The DDL is its own file in the repo; preset.json carries only the mapping
     // config. A preset whose schema.ddl is missing would create every OMOP table
@@ -2956,7 +2957,7 @@ export async function buildWorkspaceZip(
   // `readmeLang` when the primary README is not English, which the server's
   // twin has always written. Doing it by hand here dropped that marker, so a
   // French-only workspace exported different bytes front vs back.
-  zip.file('workspace.json', json({
+  zip.file(MANIFEST.workspace, json({
     ...stripInstanceFields(stripEntityDocs(workspace)),
     ...(workspace.organizationId ? { organizationId: workspace.organizationId } : {}),
     appVersion: APP_VERSION,
@@ -2969,7 +2970,7 @@ export async function buildWorkspaceZip(
   // this root org matches the inline snapshots and doesn't churn the diff.
   if (workspace.organizationId) {
     const org = await storage.organizations.getById(workspace.organizationId)
-    if (org) zip.file('organization.json', json(orgSnapshot(org as unknown as OrganizationInfo)))
+    if (org) zip.file(ROOT_FILE.organization, json(orgSnapshot(org as unknown as OrganizationInfo)))
   }
 
   // --- README.md (+ README.<lang>.md per extra language) ---
@@ -3297,7 +3298,7 @@ export async function buildWorkspaceZip(
     // (and disagree with the server) for reasons no diff would explain.
     const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0)
     const links = [...gitLinks].sort((a, b) => cmp(a.type, b.type) || cmp(a.id, b.id))
-    zip.file('git-links.json', json({ appVersion: APP_VERSION, links }))
+    zip.file(ROOT_FILE.gitLinks, json({ appVersion: APP_VERSION, links }))
   }
 
   const blob = await zip.generateAsync({ type: 'blob' })
@@ -3377,13 +3378,13 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   const zipData = stripRootFolder(await JSZip.loadAsync(file))
 
   // --- workspace.json ---
-  const wsFile = zipData.files['workspace.json']
+  const wsFile = zipData.files[MANIFEST.workspace]
   if (!wsFile) return null
   const workspace = JSON.parse(await wsFile.async('string')) as Workspace & { appVersion?: string }
   if (!workspace?.id) return null
 
   // --- organization.json (optional) ---
-  const orgFile = zipData.files['organization.json']
+  const orgFile = zipData.files[ROOT_FILE.organization]
   const organization = orgFile
     ? (JSON.parse(await orgFile.async('string')) as Organization)
     : undefined
@@ -3419,7 +3420,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   // A lightweight entry (catalog-only) and a git-linked pointer carry only
   // project.json + README*.md; anything else under the folder means full nested
   // content in the buildProjectZip layout.
-  const lightweightFile = (name: string) => name === 'project.json' || README_FILE_RE.test(name)
+  const lightweightFile = (name: string) => name === MANIFEST.project || README_FILE_RE.test(name)
   for (const folder of projectFolders) {
     const prefix = `projects/${folder}/`
     const hasFullContent = Object.entries(zipData.files).some(([p, entry]) =>
@@ -3660,7 +3661,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     for (const [path, entry] of Object.entries(zipData.files)) {
       if (!path.startsWith(prefix) || entry.dir) continue
       const relativePath = path.slice(prefix.length)
-      if (relativePath === '_plugin.json') continue
+      if (relativePath === MANIFEST['user-plugin']) continue
       files[relativePath] = await entry.async('string')
     }
     plugins.push({ ...pluginMeta, files } as UserPlugin)

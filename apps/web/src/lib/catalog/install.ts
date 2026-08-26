@@ -16,6 +16,7 @@
  */
 
 import type JSZip from 'jszip'
+import { MANIFEST } from '@linkr/format'
 import { applyClonedEntity } from '@/lib/entity-io'
 import { gitCloneToZip, gitSetSyncState, scopeForLinkedType } from '@/lib/api/git'
 import { normalizeGitUrl } from '@/lib/git-clone'
@@ -47,16 +48,24 @@ export interface InstallResult {
   error?: string
 }
 
-/** Root metadata file carrying the entity's own id, per type (git repo layout). */
-const META_FILE: Record<CatalogEntry['type'], string> = {
-  'sql-collection': '_collection.json',
-  'etl-pipeline': '_pipeline.json',
-  'mapping-project': '_project.json',
-  'project': 'project.json',
-  'data-catalog': 'catalog.json',
-  'dq-rule-set': 'rule-set.json',
-  'schema-preset': 'preset.json',
-  'database': '_database.json',
+/**
+ * Root metadata file carrying the entity's own id, per type (git repo layout).
+ *
+ * Names come from the shared layout table so this can't drift from what the
+ * exporter writes. A mapping project is the one type with two candidates: the
+ * exporter writes `project.json` (its metadata) alongside `mappings.json`, but
+ * older trees used `_project.json` — try both, or a freshly published repo
+ * installs with no id at all.
+ */
+export const META_FILE: Record<CatalogEntry['type'], string[]> = {
+  'sql-collection': [MANIFEST['sql-collection']],
+  'etl-pipeline': [MANIFEST['etl-pipeline']],
+  'mapping-project': [MANIFEST.project, '_project.json'],
+  'project': [MANIFEST.project],
+  'data-catalog': [MANIFEST['data-catalog']],
+  'dq-rule-set': [MANIFEST['dq-rule-set']],
+  'schema-preset': [MANIFEST['schema-preset']],
+  'database': [MANIFEST.database],
 }
 
 /**
@@ -212,7 +221,7 @@ export async function prepareCatalogInstall(
     }
     const zip = await JSZipMod.loadAsync(cloned.blob)
 
-    const metaEntry = zip.files[META_FILE[entry.type]]
+    const metaEntry = META_FILE[entry.type].map((f) => zip.files[f]).find(Boolean)
     const meta = metaEntry
       ? (JSON.parse(await metaEntry.async('string')) as Record<string, unknown>)
       : {}

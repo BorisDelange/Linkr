@@ -15,6 +15,7 @@
  */
 import { canonicalSchemaMapping } from '../schema-mapping.js'
 import type { CopyFile, LocalizedInput, SerializedTree, WriteFile } from './project.js'
+import { MANIFEST, ROOT_FILE } from '../layout.js'
 
 /** One table of the database: a Parquet file to copy into `data/`. */
 export interface DatabaseTableSpec {
@@ -177,14 +178,14 @@ export function serializeDatabase(spec: DatabaseSpec): SerializedTree {
     version: spec.version ?? '0.1.0',
   }
 
-  const files: WriteFile[] = [{ path: '_database.json', content: json(meta) }]
+  const files: WriteFile[] = [{ path: MANIFEST.database, content: json(meta) }]
   const copies: CopyFile[] = ordered.map((t) => ({
     path: `data/${t.name}.parquet`,
     source: t.source,
   }))
 
   // Only when there is something to track: an empty .gitattributes is noise.
-  if (copies.length > 0) files.push({ path: '.gitattributes', content: GITATTRIBUTES })
+  if (copies.length > 0) files.push({ path: ROOT_FILE.gitattributes, content: GITATTRIBUTES })
 
   return { files, copies }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { freshId, idOf, isSameEntity, type ExistingRow } from './install'
+import { META_FILE, freshId, idOf, isSameEntity, type ExistingRow } from './install'
 import type { CatalogEntry } from './types'
 
 function entry(overrides: Partial<CatalogEntry> = {}): CatalogEntry {
@@ -101,5 +101,27 @@ describe('freshId', () => {
   it('does not repeat itself', () => {
     const ids = new Set(Array.from({ length: 50 }, () => freshId('schema-preset')))
     expect(ids.size).toBe(50)
+  })
+})
+
+// The catalog reads an installed entity's own id out of its repo's root manifest.
+// This table used to be a hand-typed copy of the export layout and had drifted:
+// it expected `_project.json` for a mapping project, while the exporter writes
+// `project.json`, so every freshly published mapping project installed with no
+// id (and so could never be recognised as already installed).
+describe('META_FILE', () => {
+  it('looks for a mapping project under the name the exporter actually writes', () => {
+    expect(META_FILE['mapping-project']).toContain('project.json')
+  })
+
+  it('still accepts the legacy mapping-project name', () => {
+    expect(META_FILE['mapping-project']).toContain('_project.json')
+  })
+
+  it('names every type the catalog can install', () => {
+    for (const [type, candidates] of Object.entries(META_FILE)) {
+      expect(candidates.length, type).toBeGreaterThan(0)
+      expect(candidates.every((c) => c.endsWith('.json')), type).toBe(true)
+    }
   })
 })

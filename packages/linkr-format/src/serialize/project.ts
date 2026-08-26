@@ -9,6 +9,7 @@
  * `build_zip.py` and `entity-io.ts` did.
  */
 import { buildColumnIds, slugify } from '../ids.js'
+import { MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES, SIDECAR } from '../layout.js'
 
 export interface WriteFile {
   path: string
@@ -127,12 +128,6 @@ export interface ProjectSpec {
 }
 
 /** Language a script file is written in, from its extension. */
-const SCRIPT_LANGUAGES: Record<string, string> = {
-  py: 'python',
-  r: 'r',
-  sql: 'sql',
-  md: 'markdown',
-}
 
 /**
  * JSON exactly as the app's exporters write it: 2-space indent, insertion-order
@@ -214,7 +209,7 @@ export function serializeProject(spec: ProjectSpec): WriteFile[] {
   const files: WriteFile[] = []
 
   files.push({
-    path: 'project.json',
+    path: MANIFEST.project,
     content: json({
       projectId: spec.projectId,
       name: localized(spec.name),
@@ -290,7 +285,7 @@ function serializeDatasets(
     }
   })
 
-  files.push({ path: 'datasets/_tree.json', content: json(entries) })
+  files.push({ path: `datasets/${SIDECAR.tree}`, content: json(entries) })
   return files
 }
 
@@ -471,7 +466,7 @@ function serializeScripts(scripts: ScriptSpec[]): WriteFile[] {
     content: s.content,
   }))
   files.push({
-    path: 'scripts/_tree.json',
+    path: `scripts/${SIDECAR.tree}`,
     content: json(
       scripts
         .map((s) => ({

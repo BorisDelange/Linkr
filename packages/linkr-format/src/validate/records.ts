@@ -11,6 +11,7 @@
 import { checkArray, checkEnum, checkLocalized, checkNumber, checkString, isObject } from '../check.js'
 import type { IssueBag } from '../issue.js'
 import { readJson, type EntityTree } from '../tree.js'
+import { CONTENT_FILE } from '../layout.js'
 
 const DQ_SEVERITIES = ['error', 'warning', 'info'] as const
 const COHORT_LEVELS = ['patient', 'visit', 'visit_detail'] as const
@@ -36,7 +37,7 @@ export function validateDqRuleSet(tree: EntityTree, bag: IssueBag): void {
     checkLocalized(bag, path, '/description', parsed.value.description, { label: 'description' })
   }
 
-  const checksPath = 'checks.json'
+  const checksPath = CONTENT_FILE.dqChecks
   const checks = readJson(tree, checksPath)
   if (!checks.ok) {
     // A rule set with no checks is legitimate — a freshly created, empty one.

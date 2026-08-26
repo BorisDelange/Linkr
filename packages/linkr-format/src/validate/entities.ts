@@ -8,6 +8,7 @@
 import { checkLocalized, checkString, isObject } from '../check.js'
 import { canonicalSchemaMapping } from '../schema-mapping.js'
 import { IssueBag, type Issue } from '../issue.js'
+import { MANIFEST, ROOT_FILE, SIDECAR } from '../layout.js'
 import { readJson, type EntityTree } from '../tree.js'
 import { validateFileTree } from './file-tree.js'
 import { validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
@@ -23,21 +24,22 @@ export type EntityKind =
   | 'database'
 
 /**
- * Metadata file that identifies each kind.
+ * Metadata file that identifies each kind, projected from the shared layout table.
  *
  * Order matters: a mapping project's `project.json` is the same filename a
- * regular project uses, so it is matched LAST and only once the more specific
- * files have been ruled out. `detectEntityKind` is additionally never reached
- * for a plain project — callers test `project.json` + `mappings.json` first.
+ * regular project uses, so `mappings.json` is what distinguishes it — MANIFEST
+ * lists it first for exactly that reason. `detectEntityKind` is additionally
+ * never reached for a plain project — callers test `project.json` +
+ * `mappings.json` first.
  */
 const METADATA_FILE: Record<EntityKind, string> = {
-  'sql-collection': '_collection.json',
-  'etl-pipeline': '_pipeline.json',
-  'schema-preset': 'preset.json',
-  'dq-rule-set': 'rule-set.json',
-  'data-catalog': 'catalog.json',
-  'database': '_database.json',
-  'mapping-project': 'mappings.json',
+  'mapping-project': MANIFEST['mapping-project'],
+  'sql-collection': MANIFEST['sql-collection'],
+  'etl-pipeline': MANIFEST['etl-pipeline'],
+  'schema-preset': MANIFEST['schema-preset'],
+  'dq-rule-set': MANIFEST['dq-rule-set'],
+  'data-catalog': MANIFEST['data-catalog'],
+  'database': MANIFEST['database'],
 }
 
 /**
@@ -62,8 +64,8 @@ export function detectEntityKind(tree: EntityTree): EntityKind | null {
  * discrimination lives here rather than in each caller.
  */
 export function detectTreeKind(tree: EntityTree): EntityKind | 'project' | null {
-  if (tree.read('mappings.json') != null) return 'mapping-project'
-  if (tree.read('project.json') != null) return 'project'
+  if (tree.read(MANIFEST['mapping-project']) != null) return 'mapping-project'
+  if (tree.read(MANIFEST.project) != null) return 'project'
   return detectEntityKind(tree)
 }
 
@@ -211,8 +213,8 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
 
   // Parquet in normal git history bloats every clone forever; the app's export
   // and the server's clone both assume the LFS filter is declared.
-  if (present.size > 0 && tree.read('.gitattributes') == null) {
-    bag.warn('.gitattributes', '', 'legacy-format',
+  if (present.size > 0 && tree.read(ROOT_FILE.gitattributes) == null) {
+    bag.warn(ROOT_FILE.gitattributes, '', 'legacy-format',
       'Parquet files are present but .gitattributes does not track them with LFS.',
       'add: *.parquet filter=lfs diff=lfs merge=lfs -text')
   }
@@ -247,7 +249,7 @@ function validateScriptCollection(
   }
   checkInstanceFields(bag, metadataPath, parsed.value)
 
-  validateFileTree(tree, bag, { treePath: '_tree.json', filePrefix: '' })
+  validateFileTree(tree, bag, { treePath: SIDECAR.tree, filePrefix: '' })
 }
 
 /**

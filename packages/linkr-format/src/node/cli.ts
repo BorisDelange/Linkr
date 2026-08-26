@@ -7,6 +7,7 @@
  */
 import { detectTreeKind, formatIssues, hasErrors, validateEntity, validateProject } from '../index.js'
 import { FsTree } from './fs-tree.js'
+import { manifestList } from '../layout.js'
 
 const targets = process.argv.slice(2)
 
@@ -23,9 +24,7 @@ for (const target of targets) {
 
   if (kind == null) {
     console.log(`\n=== ${target}`)
-    console.log('ERROR  not a Linkr entity tree — no project.json, _collection.json, '
-      + '_pipeline.json, preset.json, rule-set.json, catalog.json or mappings.json '
-      + 'at its root.')
+    console.log(`ERROR  not a Linkr entity tree — no ${manifestList()} at its root.`)
     failed = true
     continue
   }
