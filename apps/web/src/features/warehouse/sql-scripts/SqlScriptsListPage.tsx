@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router'
 import { SquareTerminal } from 'lucide-react'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { cn } from '@/lib/utils'
+import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
@@ -216,8 +218,8 @@ export function SqlScriptsListPage() {
       renderCardBody={(collection, actionsMenu) => (
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-              <SquareTerminal size={20} className="text-teal-500" />
+            <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS['sql-collection'].bg)}>
+              <SquareTerminal size={20} className={ENTITY_COLORS['sql-collection'].icon} />
             </div>
             <TruncatedText text={localized(collection.name, language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
             <div className="ml-auto shrink-0">{actionsMenu}</div>

@@ -2,6 +2,8 @@ import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DataSource, DatabaseConnectionConfig } from '@/types'
 import { localized } from '@/lib/localized'
+import { cn } from '@/lib/utils'
+import { ENTITY_COLORS } from '@/lib/entity-colors'
 import {
   Database,
   Plug,
@@ -96,8 +98,8 @@ export const DatabaseCard = memo(function DatabaseCard({
     >
       <div className="flex flex-1 flex-col px-4 pt-5">
         <div className="flex flex-1 items-center gap-4">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-          <Database size={20} className="text-teal-500" />
+        <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS.database.bg)}>
+          <Database size={20} className={ENTITY_COLORS.database.icon} />
         </div>
 
         <div className="min-w-0 flex-1">

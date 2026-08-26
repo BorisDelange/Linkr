@@ -93,20 +93,17 @@ export function CatalogEntryCard({
       }}
       className="flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
     >
-      <div className="flex flex-1 flex-col px-4 pt-5">
+      <div className="flex flex-1 flex-col px-4 pt-3">
+        {/* The grid mixes all eight types, and the icon alone doesn't say which is which.
+            The badge names the type outright, in the icon's own hue. */}
+        <Badge variant="outline" className={cn('mb-2 w-fit', meta.badge)}>{typeLabel}</Badge>
         <div className="flex flex-1 items-center gap-4">
           <div className="min-w-0 flex-1">
-            {/* Icon + title row copied from the entity's own list page. No type badge:
-                the icon carries that, with the label in its tooltip. */}
+            {/* Icon + title row copied from the entity's own list page. */}
             <div className="flex min-w-0 items-center gap-3">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', meta.bg)}>
-                    <Icon size={20} className={meta.color} />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">{typeLabel}</TooltipContent>
-              </Tooltip>
+              <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', meta.bg)}>
+                <Icon size={20} className={meta.color} />
+              </div>
               {/* TruncatedText, not a bare truncate: a long name has to clip with its
                   full value on hover, never push the version and the menu out of the row. */}
               <TruncatedText text={name} readOnly className="min-w-0 flex-1 text-sm font-medium" />

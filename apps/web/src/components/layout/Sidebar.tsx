@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { shortWorkspaceId, shortProjectId } from '@/lib/paths'
+import { ENTITY_COLORS } from '@/lib/entity-colors'
 import {
   Home,
   FolderOpen,
@@ -120,13 +121,13 @@ const workspaceNavItems: SegmentNavEntry[] = [
     iconColor: 'text-teal-500',
     defaultOpen: true,
     children: [
-      { segment: 'warehouse/schemas', icon: FileSpreadsheet, labelKey: 'app_warehouse.nav_schemas', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/databases', icon: Database, labelKey: 'app_warehouse.nav_databases', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/concept-mapping', icon: ArrowRightLeft, labelKey: 'app_warehouse.nav_concept_mapping', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/sql-scripts', icon: SquareTerminal, labelKey: 'app_warehouse.nav_sql_scripts', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/data-quality', icon: ShieldCheck, labelKey: 'app_warehouse.nav_data_quality', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/catalog', icon: BookOpen, labelKey: 'app_warehouse.nav_catalog', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/etl', icon: Workflow, labelKey: 'app_warehouse.nav_etl', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/schemas', icon: FileSpreadsheet, labelKey: 'app_warehouse.nav_schemas', iconColor: ENTITY_COLORS['schema-preset'].icon },
+      { segment: 'warehouse/databases', icon: Database, labelKey: 'app_warehouse.nav_databases', iconColor: ENTITY_COLORS.database.icon },
+      { segment: 'warehouse/concept-mapping', icon: ArrowRightLeft, labelKey: 'app_warehouse.nav_concept_mapping', iconColor: ENTITY_COLORS['mapping-project'].icon },
+      { segment: 'warehouse/sql-scripts', icon: SquareTerminal, labelKey: 'app_warehouse.nav_sql_scripts', iconColor: ENTITY_COLORS['sql-collection'].icon },
+      { segment: 'warehouse/data-quality', icon: ShieldCheck, labelKey: 'app_warehouse.nav_data_quality', iconColor: ENTITY_COLORS['dq-rule-set'].icon },
+      { segment: 'warehouse/catalog', icon: BookOpen, labelKey: 'app_warehouse.nav_catalog', iconColor: ENTITY_COLORS['data-catalog'].icon },
+      { segment: 'warehouse/etl', icon: Workflow, labelKey: 'app_warehouse.nav_etl', iconColor: ENTITY_COLORS['etl-pipeline'].icon },
     ],
   },
   { segment: 'versioning', icon: GitBranch, labelKey: 'workspace_nav.versioning', iconColor: 'text-orange-400' },
@@ -149,10 +150,10 @@ const projectNavItems: SegmentNavEntry[] = [
     iconColor: 'text-teal-500',
     defaultOpen: true,
     children: [
-      { segment: 'warehouse/databases', icon: Database, labelKey: 'project_nav.databases', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/concepts', icon: BookOpen, labelKey: 'project_nav.concepts', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/cohorts', icon: UsersRound, labelKey: 'project_nav.cohorts', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/patient-data', icon: User, labelKey: 'project_nav.patient_data', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/databases', icon: Database, labelKey: 'project_nav.databases', iconColor: ENTITY_COLORS.database.icon },
+      { segment: 'warehouse/concepts', icon: BookOpen, labelKey: 'project_nav.concepts', iconColor: ENTITY_COLORS.concepts.icon },
+      { segment: 'warehouse/cohorts', icon: UsersRound, labelKey: 'project_nav.cohorts', iconColor: ENTITY_COLORS.cohorts.icon },
+      { segment: 'warehouse/patient-data', icon: User, labelKey: 'project_nav.patient_data', iconColor: ENTITY_COLORS['patient-data'].icon },
     ],
   },
   {
@@ -162,9 +163,9 @@ const projectNavItems: SegmentNavEntry[] = [
     iconColor: 'text-rose-500',
     defaultOpen: true,
     children: [
-      { segment: 'lab/datasets', icon: Table2, labelKey: 'project_nav.datasets', iconColor: 'text-rose-500' },
-      { segment: 'lab/dashboards', icon: BarChart3, labelKey: 'project_nav.dashboards', iconColor: 'text-rose-500' },
-      { segment: 'lab/reports', icon: FileText, labelKey: 'project_nav.reports', iconColor: 'text-rose-500' },
+      { segment: 'lab/datasets', icon: Table2, labelKey: 'project_nav.datasets', iconColor: ENTITY_COLORS.dataset.icon },
+      { segment: 'lab/dashboards', icon: BarChart3, labelKey: 'project_nav.dashboards', iconColor: ENTITY_COLORS.dashboard.icon },
+      { segment: 'lab/reports', icon: FileText, labelKey: 'project_nav.reports', iconColor: ENTITY_COLORS.report.icon },
     ],
   },
   { segment: 'versioning', icon: GitBranch, labelKey: 'project_nav.versioning', iconColor: 'text-orange-400' },

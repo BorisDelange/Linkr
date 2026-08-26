@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
+import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -71,8 +72,8 @@ export function CohortCard({
        <div className="flex flex-1 flex-col justify-center">
         {/* Row 1: icon + title + level pill + actions */}
         <div className="flex items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-            <UsersRound size={20} className="text-teal-500" />
+          <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS.cohorts.bg)}>
+            <UsersRound size={20} className={ENTITY_COLORS.cohorts.icon} />
           </div>
           <TruncatedText text={cohort.name} readOnly className="min-w-0 flex-1 text-sm font-medium" />
           <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${levelColors[cohort.level] ?? ''}`}>

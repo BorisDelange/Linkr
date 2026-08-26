@@ -5,6 +5,8 @@ import { Workflow, Database, ArrowRight } from 'lucide-react'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { cn } from '@/lib/utils'
+import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { useEtlStore } from '@/stores/etl-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -223,8 +225,8 @@ export function EtlListPage() {
         return (
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-                <Workflow size={20} className="text-teal-500" />
+              <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS['etl-pipeline'].bg)}>
+                <Workflow size={20} className={ENTITY_COLORS['etl-pipeline'].icon} />
               </div>
               <TruncatedText text={localized(pipeline.name, language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
               <div className="ml-auto shrink-0">{actionsMenu}</div>

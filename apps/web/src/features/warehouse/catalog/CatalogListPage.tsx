@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router'
 import { BookOpen } from 'lucide-react'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { cn } from '@/lib/utils'
+import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
@@ -199,8 +201,8 @@ export function CatalogListPage() {
         return (
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-                <BookOpen size={20} className="text-teal-500" />
+              <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS['data-catalog'].bg)}>
+                <BookOpen size={20} className={ENTITY_COLORS['data-catalog'].icon} />
               </div>
               <TruncatedText text={localized(catalog.name, language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
               <div className="ml-auto shrink-0">{actionsMenu}</div>

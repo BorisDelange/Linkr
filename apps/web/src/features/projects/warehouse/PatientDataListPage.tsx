@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
+import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { paths } from '@/lib/paths'
 import { localized } from '@/lib/localized'
 import { applySort, baseSortFields } from '@/lib/list-sort'
@@ -208,8 +209,8 @@ export function PatientDataListPage() {
                     <div className="flex flex-1 flex-col justify-center">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-3">
-                          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-                            <User size={20} className="text-teal-500" />
+                          <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS['patient-data'].bg)}>
+                            <User size={20} className={ENTITY_COLORS['patient-data'].icon} />
                           </div>
                           <span className="truncate text-sm font-medium text-card-foreground">
                             {localized(board.name, language)}

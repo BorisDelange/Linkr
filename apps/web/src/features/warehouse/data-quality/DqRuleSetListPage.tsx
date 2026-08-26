@@ -5,6 +5,7 @@ import { ShieldCheck, Database } from 'lucide-react'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { cn } from '@/lib/utils'
+import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
@@ -230,8 +231,8 @@ export function DqRuleSetListPage() {
           <div className="min-w-0 flex-1">
             {/* Row 1: icon + title (+ score) + actions — like Projects */}
             <div className="flex items-center gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-                <ShieldCheck size={20} className="text-teal-500" />
+              <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS['dq-rule-set'].bg)}>
+                <ShieldCheck size={20} className={ENTITY_COLORS['dq-rule-set'].icon} />
               </div>
               <TruncatedText text={localized(rs.name, language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
               {rs.lastScore != null && (

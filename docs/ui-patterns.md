@@ -84,8 +84,16 @@ Remove the overrides it makes redundant rather than leaving them to rot.
 `text-blue-500`…) are widespread. They are **not** broken in dark mode — an
 audit found the `bg-X-50 dark:bg-X-950` pairing applied nearly everywhere, and
 zero light blocks surviving into dark. Prefer tokens in new code anyway, because
-a raw pair has to be maintained by hand; semantic domain colours (teal =
-warehouse, rose = lab) are the deliberate exception.
+a raw pair has to be maintained by hand; semantic domain colours are the
+deliberate exception.
+
+**Entity hues live in `lib/entity-colors.ts`.** Each entity kind owns one hue,
+used by its sidebar item, the icon square on its list-page card, and its catalog
+badge (`.icon` / `.bg` / `.badge`). Hues are spread around the wheel, not shaded
+off one domain colour, so a seven-item sidebar group and a mixed catalog grid
+stay readable; picking a new one means staying clear both of its neighbours and
+of the chrome's existing blue / violet / orange / pink / slate. Import the hue;
+never re-type `text-teal-500` at a call site, or the three surfaces drift apart.
 
 > Before reporting a colour as dark-mode-broken, read the whole class attribute:
 > a per-line `grep` for `bg-green-50` matches a line whose `dark:` variant sits
