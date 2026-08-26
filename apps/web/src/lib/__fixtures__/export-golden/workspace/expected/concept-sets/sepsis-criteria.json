@@ -1,0 +1,21 @@
+{
+  "id": "cs1",
+  "name": "Sepsis criteria",
+  "description": "SNOMED codes for sepsis.",
+  "expression": {
+    "items": [
+      {
+        "conceptId": 91302008,
+        "includeDescendants": true
+      }
+    ]
+  },
+  "resolvedConceptIds": [
+    91302008
+  ],
+  "uniqueId": "dd-sepsis-1",
+  "sourceRepo": "indicate",
+  "category": "Clinical finding",
+  "provenance": "CHU Rennes",
+  "createdAt": "2026-01-02T03:04:05.000Z"
+}

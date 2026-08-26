@@ -385,6 +385,14 @@ def _build_data_quality_section(
         tree[f"data-quality/{folder}.json"] = _json({"ruleSet": rs, "checks": checks})
 
 
+def _build_concept_sets_section(tree: dict[str, bytes], concept_sets: list[dict]) -> None:
+    """Port of the concept-sets/ section (entity-io.ts). Workspace-scoped imported
+    data dictionaries. Metadata arrives already stripped from the caller."""
+    for cs in concept_sets:
+        slug = _slugify(cs.get("name") or cs["id"])
+        tree[f"concept-sets/{slug}.json"] = _json(cs)
+
+
 def _build_mapping_projects_section(
     tree: dict[str, bytes],
     mapping_projects: list[dict],
@@ -495,6 +503,7 @@ def build_workspace_tree(
     etl_pipelines: list[dict] | None,
     dq_rule_sets: list[dict] | None,
     mapping_projects: list[dict] | None,
+    concept_sets: list[dict] | None,
     id_ranges: list[dict] | None,
     catalogs: list[dict] | None,
     service_mappings: list[dict] | None,
@@ -544,6 +553,8 @@ def build_workspace_tree(
         _build_etl_section(tree, etl_pipelines, git_links)
     if dq_rule_sets is not None:
         _build_data_quality_section(tree, dq_rule_sets, git_links)
+    if concept_sets is not None:
+        _build_concept_sets_section(tree, concept_sets)
     if mapping_projects is not None:
         _build_mapping_projects_section(
             tree, mapping_projects, id_ranges or [], git_links

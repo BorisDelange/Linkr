@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/features/warehouse/etl/etl-versioning'
@@ -181,6 +181,82 @@ describe('buildWorkspaceZip — git-link pointer createdAt', () => {
     const ptr = await pointer({ uid: 'u1', projectId: 'p', name: { en: 'P' }, workspaceId: 'w1', createdAt: '2026-01-01T00:00:00.000Z', gitRemoteConfig: GIT })
     expect(ptr.createdAt).toBe('2026-01-01T00:00:00.000Z')
     expect(Object.keys(ptr)).toEqual(['uid', 'entityId', 'projectId', 'name', 'createdAt', 'gitRemoteConfig'])
+  })
+})
+
+// The workspace export must emit the same bytes as the Python twin
+// (apps/api/.../workspace_export.py). These three cases each caught a real
+// front/back divergence that the golden fixture could not see, because the
+// sections involved were exported empty.
+describe('buildWorkspaceZip — front/back parity', () => {
+  const storeWith = (tables: Record<string, Record<string, unknown>>) => {
+    const table = (methods: Record<string, unknown>) => new Proxy(methods, {
+      get: (t, prop) => (typeof prop === 'string' && prop in t ? (t as Record<string, unknown>)[prop] : async () => []),
+    })
+    return new Proxy({}, {
+      get: (_t, prop) => {
+        if (typeof prop === 'string' && prop in tables) return table(tables[prop])
+        if (prop === 'organizations') return table({ getById: async () => undefined })
+        return table({})
+      },
+    }) as unknown as Storage
+  }
+  const build = async (tables: Record<string, Record<string, unknown>>, sections: Record<string, boolean>) => {
+    const built = await buildWorkspaceZip('w1', storeWith(tables), {
+      sections: sections as unknown as NonNullable<Parameters<typeof buildWorkspaceZip>[2]>['sections'],
+    })
+    return JSZip.loadAsync(await built!.blob.arrayBuffer())
+  }
+
+  // The server writes readmeLang via strip_entity_docs whenever the primary
+  // README is not English; the front used to hand-roll the strip and omit it,
+  // so a French-only workspace exported different bytes on each side.
+  it('stamps readmeLang when the primary README is not English', async () => {
+    const zip = await build({
+      workspaces: { getById: async () => ({ id: 'w1', name: { en: 'W' }, description: {}, readme: { fr: '# Bonjour\n' } }) },
+    }, { projects: true })
+    const ws = JSON.parse(await zip.files['workspace.json'].async('string')) as Record<string, unknown>
+    expect(ws.readmeLang).toBe('fr')
+    expect('readme' in ws).toBe(false)
+  })
+
+  it('omits readmeLang when the primary README is English', async () => {
+    const zip = await build({
+      workspaces: { getById: async () => ({ id: 'w1', name: { en: 'W' }, description: {}, readme: { en: '# Hello\n', fr: '# Bonjour\n' } }) },
+    }, { projects: true })
+    const ws = JSON.parse(await zip.files['workspace.json'].async('string')) as Record<string, unknown>
+    expect('readmeLang' in ws).toBe(false)
+  })
+
+  // localeCompare orders by the reader's locale, so the same workspace could
+  // emit two different link orders — and disagree with Python's tuple sort.
+  it('orders git-links by code point, not locale', async () => {
+    const GIT = { url: 'https://example.test/r.git', branch: 'main' }
+    const zip = await build({
+      workspaces: { getById: async () => ({ id: 'w1', name: { en: 'W' }, description: {} }) },
+      dqRuleSets: { getByWorkspace: async () => [
+        { id: 'b', entityId: 'b', name: { en: 'B' }, gitRemoteConfig: GIT },
+        { id: 'A', entityId: 'a', name: { en: 'A' }, gitRemoteConfig: GIT },
+      ] },
+    }, { dataQuality: true })
+    const links = (JSON.parse(await zip.files['git-links.json'].async('string')) as { links: { id: string }[] }).links
+    // 'A' (0x41) sorts before 'b' (0x62) by code point; many locales invert this.
+    expect(links.map(l => l.id)).toEqual(['A', 'b'])
+  })
+
+  // Parsed by parseWorkspaceZip and carried in ParsedWorkspaceZip since forever,
+  // but never written — so export → reimport silently dropped every concept set.
+  it('writes concept sets so they survive a round trip', async () => {
+    const zip = await build({
+      workspaces: { getById: async () => ({ id: 'w1', name: { en: 'W' }, description: {} }) },
+      conceptSets: { getByWorkspace: async () => [
+        { id: 'cs1', workspaceId: 'w1', name: 'Sepsis criteria', description: 'd', expression: { items: [] }, resolvedConceptIds: null, updatedAt: '2026-06-01T00:00:00.000Z' },
+      ] },
+    }, { conceptMapping: true })
+    const written = JSON.parse(await zip.files['concept-sets/sepsis-criteria.json'].async('string')) as Record<string, unknown>
+    expect(written.name).toBe('Sepsis criteria')
+    expect('workspaceId' in written).toBe(false)
+    expect('updatedAt' in written).toBe(false)
   })
 })
 
@@ -1189,6 +1265,35 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     it('returns false when the repo carries no _database.json', async () => {
       const { store } = makeStore()
       expect(await applyClonedEntity(new JSZip(), 'database', 'db-target', store)).toBe(false)
+    })
+
+    // The cases above hand-write `schema`, so none of them noticed that the
+    // exporter published `schemaMapping` instead — a database repo exported by
+    // the app failed its own import with "declares the schema undefined".
+    // Round-trip through the real writer so the two names can never drift again.
+    it('re-imports a tree the app itself exported', async () => {
+      const mapping = { presetId: 'inline', presetLabel: { en: 'Inline' }, eventTables: {} }
+      const out = new JSZip()
+      await buildDataSourceFolder(out, '', {
+        id: 'db1', alias: 'db', name: { en: 'DB' }, description: {},
+        sourceType: 'database', schemaMapping: mapping,
+        connectionConfig: { engine: 'duckdb', password: 'secret' },
+      } as unknown as Parameters<typeof buildDataSourceFolder>[2], new Proxy({}, {
+        get: () => new Proxy({}, { get: () => async () => [] }),
+      }) as unknown as Storage)
+
+      const meta = JSON.parse(await out.files['_database.json'].async('string')) as Record<string, unknown>
+      expect(meta.schema).toEqual(mapping)
+      expect('schemaMapping' in meta).toBe(false)
+      // The metadata-only rule still holds: no credentials travel.
+      expect(meta.connectionConfig).toEqual({ engine: 'duckdb' })
+
+      const { store, calls } = makeStore()
+      const back = new JSZip()
+      back.file('_database.json', JSON.stringify(meta))
+      expect(await applyClonedEntity(back, 'database', 'db-target', store)).toBe(true)
+      const created = calls['ds.create']![0][0] as { schemaMapping: { presetId: string } }
+      expect(created.schemaMapping.presetId).toBe('inline')
     })
   })
 

@@ -2,7 +2,6 @@
   "ruleSet": {
     "id": "dq1",
     "entityId": "icu-checks",
-    "workspaceId": "ws1",
     "name": {
       "en": "ICU checks",
       "fr": "Contrôles réa"
@@ -16,17 +15,6 @@
     "lastRunAt": null,
     "lastRunDurationMs": null,
     "lastScore": 98,
-    "readme": {
-      "en": "# ICU checks\n",
-      "fr": "# Contrôles\n"
-    },
-    "license": {
-      "id": "MIT",
-      "text": "MIT License\n\nCopyright (c) 2026\n"
-    },
-    "origin": "user",
-    "ownerId": "u1",
-    "createdById": 7,
     "createdBy": "Boris Delange",
     "createdByDetails": {
       "firstName": "Boris",
@@ -36,8 +24,10 @@
     "lineageId": "lin-dq1",
     "parentLineageId": null,
     "createdAt": "2026-01-02T03:04:05.000Z",
-    "updatedAt": "2026-06-01T00:00:00.000Z",
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "license": {
+      "id": "MIT"
+    }
   },
   "checks": [
     {

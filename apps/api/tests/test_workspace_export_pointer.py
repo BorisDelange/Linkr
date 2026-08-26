@@ -23,6 +23,7 @@ def _pointer_json(project_meta: dict) -> dict:
         etl_pipelines=None,
         dq_rule_sets=None,
         mapping_projects=None,
+        concept_sets=None,
         id_ranges=None,
         catalogs=None,
         service_mappings=None,

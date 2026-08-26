@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.mapping_project import MappingProject
 from app.models.project import Project
 from app.models.workspace import Workspace
+from app.schemas.concept_set import ConceptSetResponse
 from app.schemas.data_catalog import DataCatalogResponse
 from app.schemas.data_source import DataSourceResponse
 from app.schemas.dq_rule_set import DqCustomCheckResponse, DqRuleSetResponse
@@ -49,6 +50,7 @@ from app.schemas.workspace import WorkspaceResponse
 from app.services import (
     attachment_service,
     blob_store,
+    concept_set_service,
     data_catalog_service,
     data_source_service,
     dq_rule_set_service,
@@ -540,7 +542,7 @@ async def build_workspace_tree_from_db(
                 continue
             schemas.append(
                 {
-                    "meta": strip_entity_docs(_dump(SchemaPresetResponse, sp)),
+                    "meta": strip_entity_docs(_strip_instance_fields(_dump(SchemaPresetResponse, sp))),
                     "git": _resolve_git_remote(sp.git_remote_config),
                 }
             )
@@ -602,7 +604,7 @@ async def build_workspace_tree_from_db(
             meta = _badged_dump(DqRuleSetResponse, rs)
             dq_rule_sets.append(
                 {
-                    "meta": strip_entity_docs(meta),
+                    "meta": strip_entity_docs(_strip_instance_fields(meta)),
                     "checks": checks,
                     "git": _resolve_git_remote(rs.git_remote_config),
                     "folder": _eid(meta),
@@ -611,10 +613,16 @@ async def build_workspace_tree_from_db(
 
     mapping_projects = None
     id_ranges = None
+    concept_sets = None
     if options.on("conceptMapping"):
         mapping_projects, id_ranges = await _mapping_projects_section(
             db, workspace.id, options
         )
+        concept_sets = [
+            _strip_instance_fields(_dump(ConceptSetResponse, cs))
+            for cs in await concept_set_service.list_for_workspace(db, workspace.id)
+            if not options.exclude_entities.get(cs.id)
+        ]
 
     catalogs = None
     service_mappings = None
@@ -625,7 +633,7 @@ async def build_workspace_tree_from_db(
                 continue
             catalogs.append(
                 {
-                    "meta": strip_entity_docs(_badged_dump(DataCatalogResponse, cat)),
+                    "meta": strip_entity_docs(_strip_instance_fields(_badged_dump(DataCatalogResponse, cat))),
                     "git": _resolve_git_remote(cat.git_remote_config),
                 }
             )
@@ -657,6 +665,7 @@ async def build_workspace_tree_from_db(
         etl_pipelines=etl_pipelines,
         dq_rule_sets=dq_rule_sets,
         mapping_projects=mapping_projects,
+        concept_sets=concept_sets,
         id_ranges=id_ranges,
         catalogs=catalogs,
         service_mappings=service_mappings,

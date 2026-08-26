@@ -2060,9 +2060,15 @@ export async function buildDataSourceFolder(
   source: DataSource,
   storage: Storage,
 ): Promise<void> {
-  const { connectionConfig, ...rest } = stripInstanceFields(source) as unknown as Record<string, unknown>
+  const { connectionConfig, schemaMapping, ...rest } = stripInstanceFields(source) as unknown as Record<string, unknown>
   const meta = {
     ...stripEntityDocs(rest as unknown as DataSource),
+    // `schema`, not `schemaMapping`: the reader (applyClonedDatabase) and the
+    // canonical writer (@linkr/format serializeDatabase) both name it `schema`.
+    // Spreading the row's own field name published a key nothing reads, so a
+    // database repo exported by the app failed its own import with "declares
+    // the schema undefined". The metadata-only rule above is unaffected.
+    ...(schemaMapping ? { schema: schemaMapping } : {}),
     connectionConfig: connectionConfig
       ? sanitizeConnectionConfig(connectionConfig as Record<string, unknown>)
       : undefined,
@@ -2946,10 +2952,12 @@ export async function buildWorkspaceZip(
   // an organization's UUID is stable across instances (it's the catalog index),
   // so a workspace keeps pointing at the org it was exported with. The full org
   // record travels alongside in organization.json.
-  const { readme: wsReadme, license: wsLicense, ...wsMeta } = workspace
+  // stripEntityDocs rather than a hand-rolled destructure: it also emits
+  // `readmeLang` when the primary README is not English, which the server's
+  // twin has always written. Doing it by hand here dropped that marker, so a
+  // French-only workspace exported different bytes front vs back.
   zip.file('workspace.json', json({
-    ...stripInstanceFields(wsMeta),
-    ...(licenseMeta(wsLicense) ? { license: licenseMeta(wsLicense) } : {}),
+    ...stripInstanceFields(stripEntityDocs(workspace)),
     ...(workspace.organizationId ? { organizationId: workspace.organizationId } : {}),
     appVersion: APP_VERSION,
   }))
@@ -2965,8 +2973,8 @@ export async function buildWorkspaceZip(
   }
 
   // --- README.md (+ README.<lang>.md per extra language) ---
-  writeReadmeFiles(zip, '', wsReadme)
-  writeLicenseFile(zip, '', wsLicense)
+  writeReadmeFiles(zip, '', workspace.readme)
+  writeLicenseFile(zip, '', workspace.license)
   // The workspace README's own images used to be left behind, so a readme that
   // embedded one exported with a dead link.
   await writeAttachmentFiles(zip, '', storage, 'workspace', workspace.id)
@@ -3082,7 +3090,11 @@ export async function buildWorkspaceZip(
         gitLinks.push({ type: 'schema-preset', id: sp.id ?? sp.presetId, folder, url: git.url, branch: git.branch })
         continue
       }
-      zip.file(`schemas/${slugify(slug)}.json`, json(sp))
+      // Stripped like every standalone entity export: the readme/licence text goes
+      // to its own files (only the licence identity stays) and instance-local
+      // fields never travel. Writing the raw row here leaked ownerId, workspaceId
+      // and updatedAt into the repo, and churned the diff on every unrelated edit.
+      zip.file(`schemas/${slugify(slug)}.json`, json(stripEntityDocs(stripInstanceFields(sp) as CustomSchemaPreset)))
     }
   }
 
@@ -3174,7 +3186,20 @@ export async function buildWorkspaceZip(
         continue
       }
       const checks = await storage.dqCustomChecks.getByRuleSet(rs.id)
-      zip.file(`data-quality/${eid(rs)}.json`, json({ ruleSet: rs, checks }))
+      // Stripped like the standalone rule-set.json export — see the schemas/ note.
+      zip.file(`data-quality/${eid(rs)}.json`, json({ ruleSet: stripEntityDocs(stripInstanceFields(rs) as DqRuleSet), checks }))
+    }
+  }
+
+  // --- concept-sets/ ---
+  // Workspace-scoped imported data dictionaries. parseWorkspaceZip has always read
+  // these back (and ParsedWorkspaceZip carries them), but nothing ever wrote them —
+  // so an export/reimport round trip silently dropped every concept set.
+  if (on('conceptMapping')) {
+    const conceptSets = await storage.conceptSets.getByWorkspace(workspaceId)
+    for (const cs of conceptSets) {
+      if (excluded[cs.id]) continue
+      zip.file(`concept-sets/${slugify(cs.name || cs.id)}.json`, json(stripInstanceFields(cs)))
     }
   }
 
@@ -3234,7 +3259,8 @@ export async function buildWorkspaceZip(
         gitLinks.push({ type: 'data-catalog', id: cat.id, folder, url: git.url, branch: git.branch })
         continue
       }
-      zip.file(`catalogs/${eid(cat)}.json`, json(cat))
+      // Stripped like the standalone catalog.json export — see the schemas/ note.
+      zip.file(`catalogs/${eid(cat)}.json`, json(stripEntityDocs(stripInstanceFields(cat) as DataCatalog)))
     }
 
     const serviceMappings = await storage.serviceMappings.getByWorkspace(workspaceId)
@@ -3266,9 +3292,11 @@ export async function buildWorkspaceZip(
   if (gitLinks.length > 0) {
     // Sort deterministically so adding/removing an unrelated link never reorders the rest
     // and churns the versioning diff. Key is (type, id) — id is an immutable UUID.
-    const links = [...gitLinks].sort(
-      (a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id),
-    )
+    // Code-point order, matching Python's tuple sort: localeCompare orders by the
+    // reader's locale, so the same workspace could emit two different link orders
+    // (and disagree with the server) for reasons no diff would explain.
+    const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0)
+    const links = [...gitLinks].sort((a, b) => cmp(a.type, b.type) || cmp(a.id, b.id))
     zip.file('git-links.json', json({ appVersion: APP_VERSION, links }))
   }
 

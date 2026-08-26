@@ -18,12 +18,14 @@ from pathlib import Path
 
 from app.services.mapping_project_export import build_mapping_project_tree
 from app.services.project_export import build_project_tree
+from app.services.entity_docs import entity_doc_files, strip_entity_docs
 from app.services.workspace_export import (
     _sanitize_connection_config,
     _slugify,
     _strip_instance_fields,
     build_workspace_tree,
 )
+from app.services.workspace_export_assemble import _to_path_tree, _tree_path
 
 _GOLDEN = (
     Path(__file__).resolve().parents[2]
@@ -35,6 +37,31 @@ _GOLDEN = (
     / "workspace"
 )
 _EXPECTED = _GOLDEN / "expected"
+
+
+def _stripped(meta: dict) -> dict:
+    """What the assembler stores as an entity's `meta`: docs split out to their own
+    files (only the licence identity stays) and instance-local fields dropped."""
+    return strip_entity_docs(_strip_instance_fields(meta))
+
+
+def _file_sub_tree(meta_name: str, meta: dict, files: list[dict], fk: str) -> dict:
+    """Full sql-collection / etl-pipeline folder, as _sql_collection_sub_tree does."""
+    tree: dict[str, bytes] = {meta_name: None}
+    tree[meta_name] = _json_bytes(_stripped(meta))
+    tree.update(entity_doc_files("", meta))
+    by_id = {f["id"]: f for f in files}
+    tree["_tree.json"] = _json_bytes(_to_path_tree(files, fk))
+    for f in files:
+        if f["type"] == "file" and f.get("content") is not None:
+            tree[_tree_path(f, by_id)] = str(f["content"]).encode("utf-8")
+    return tree
+
+
+def _json_bytes(value) -> bytes:
+    from app.core.json_export import export_json
+
+    return export_json(value)
 
 
 def _org_snapshot(org: dict) -> dict:
@@ -142,6 +169,74 @@ def _build_tree() -> dict[str, bytes]:
     wiki_atts = [{k: v for k, v in a.items() if k != "dataBase64"} for a in data["wikiAttachments"]]
     wiki_blobs = {a["id"]: base64.b64decode(a["dataBase64"]) for a in data["wikiAttachments"]}
 
+    # The six sections below mirror what the DB assembler passes in: metadata
+    # already stripped, heavy folders pre-built. They used to be empty lists,
+    # which is why every divergence in them went unnoticed.
+    schemas = [
+        {"meta": _stripped(sp), "git": sp.get("gitRemoteConfig")}
+        for sp in data["schemaPresets"]
+    ]
+    sql_collections = [
+        {
+            "meta": _stripped(c),
+            "git": c.get("gitRemoteConfig"),
+            "folder": c.get("entityId") or _slugify(c["name"].get("en") or c["id"]),
+            "id": c["id"],
+            "name": c.get("name"),
+            "createdAt": c.get("createdAt"),
+            **(
+                {}
+                if c.get("gitRemoteConfig")
+                else {
+                    "sub_tree": _file_sub_tree(
+                        "_collection.json",
+                        c,
+                        data["sqlScriptFiles"].get(c["id"], []),
+                        "collectionId",
+                    )
+                }
+            ),
+        }
+        for c in data["sqlCollections"]
+    ]
+    etl_pipelines = [
+        {
+            "meta": _stripped(p),
+            "git": p.get("gitRemoteConfig"),
+            "folder": p.get("entityId") or _slugify(p["name"].get("en") or p["id"]),
+            "id": p["id"],
+            "name": p.get("name"),
+            "createdAt": p.get("createdAt"),
+            **(
+                {}
+                if p.get("gitRemoteConfig")
+                else {
+                    "sub_tree": _file_sub_tree(
+                        "_pipeline.json",
+                        p,
+                        data["etlFiles"].get(p["id"], []),
+                        "pipelineId",
+                    )
+                }
+            ),
+        }
+        for p in data["etlPipelines"]
+    ]
+    dq_rule_sets = [
+        {
+            "meta": _stripped(rs),
+            "checks": data["dqChecks"].get(rs["id"], []),
+            "git": rs.get("gitRemoteConfig"),
+            "folder": rs.get("entityId") or _slugify(rs["name"].get("en") or rs["id"]),
+        }
+        for rs in data["dqRuleSets"]
+    ]
+    catalogs = [
+        {"meta": _stripped(c), "git": c.get("gitRemoteConfig")}
+        for c in data["dataCatalogs"]
+    ]
+    concept_sets = [_strip_instance_fields(cs) for cs in data["conceptSets"]]
+
     return build_workspace_tree(
         workspace=workspace,
         organization=org,
@@ -149,15 +244,16 @@ def _build_tree() -> dict[str, bytes]:
         wiki_pages=data["wikiPages"],
         wiki_attachments=wiki_atts,
         wiki_attachment_blobs=wiki_blobs,
-        schemas=[],
+        schemas=schemas,
         data_sources=data["dataSources"],
-        sql_collections=[],
-        etl_pipelines=[],
-        dq_rule_sets=[],
+        sql_collections=sql_collections,
+        etl_pipelines=etl_pipelines,
+        dq_rule_sets=dq_rule_sets,
         mapping_projects=mapping_projects,
+        concept_sets=concept_sets,
         id_ranges=_to_portable_ranges(data["ranges"]),
-        catalogs=[],
-        service_mappings=[],
+        catalogs=catalogs,
+        service_mappings=data["serviceMappings"],
         plugins=data["userPlugins"],
     )
 

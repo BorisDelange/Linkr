@@ -83,6 +83,7 @@ interface GoldenInput {
   dqChecks: Record<string, Record<string, unknown>[]>
   dataCatalogs: Record<string, unknown>[]
   serviceMappings: Record<string, unknown>[]
+  conceptSets: Record<string, unknown>[]
 }
 
 const input = JSON.parse(readFileSync(join(GOLDEN_DIR, 'input.json'), 'utf8')) as GoldenInput
@@ -159,6 +160,7 @@ const storage = {
   },
   dataCatalogs: { getByWorkspace: async () => input.dataCatalogs },
   serviceMappings: { getByWorkspace: async () => input.serviceMappings },
+  conceptSets: { getByWorkspace: async () => input.conceptSets },
   userPlugins: { getByWorkspace: async () => input.userPlugins },
 } as unknown as Storage
 

@@ -2,7 +2,6 @@
   "id": "sp1",
   "entityId": "omop-cdm-5-4",
   "presetId": "omop-cdm-5-4",
-  "workspaceId": "ws1",
   "mapping": {
     "presetId": "omop-cdm-5-4",
     "presetLabel": {
@@ -23,17 +22,6 @@
     ],
     "ddl": "CREATE TABLE person (person_id INTEGER);\n"
   },
-  "readme": {
-    "en": "# OMOP 5.4\n",
-    "fr": "# OMOP 5.4 (fr)\n"
-  },
-  "license": {
-    "id": "MIT",
-    "text": "MIT License\n\nCopyright (c) 2026\n"
-  },
-  "origin": "user",
-  "ownerId": "u1",
-  "createdById": 7,
   "createdBy": "Boris Delange",
   "createdByDetails": {
     "firstName": "Boris",
@@ -43,6 +31,8 @@
   "lineageId": "lin-sp1",
   "parentLineageId": null,
   "createdAt": "2026-01-02T03:04:05.000Z",
-  "updatedAt": "2026-06-01T00:00:00.000Z",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "license": {
+    "id": "MIT"
+  }
 }
