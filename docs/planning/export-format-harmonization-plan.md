@@ -665,7 +665,7 @@ field".
 Each step ends green (tests + a real export/import round trip). Steps 1–2 are the
 load-bearing ones; 3–6 are mechanical once they land.
 
-**Step 0 — Close the golden blind spot, then fix the 5 bugs (M).**
+**Step 0 — Close the golden blind spot, then fix the 5 bugs (M). DONE 2026-08-26 (`f11baa0f`).**
 Prerequisite, not cleanup. First extend `export-golden/workspace/input.json` (and the Python
 twin's inputs) to populate the six empty sections, so the nested layouts are byte-compared at
 all. That alone should turn divergences 1–3 red. Then fix them: decide raw-vs-stripped for the
@@ -674,7 +674,7 @@ on the front, and replace `localeCompare` with a code-point compare in `git-link
 Ship before any rename — these fixes are readable on their own, and burying them inside a
 5 000-line format diff makes both unreviewable.
 
-**Step 1 — Centralise the names (S).**
+**Step 1 — Centralise the names (S). DONE 2026-08-26 (`fe411b39`).**
 No behaviour change. Extract every literal filename into one exported table in
 `packages/linkr-format` (`layout.ts`: manifest name, folder names, sidecar names, per kind)
 and make `entity-io.ts`, the validator, the serializer and the MCP import it. Fold in the
@@ -689,23 +689,40 @@ Python twin kept in step the way `_canonical_schema_mapping` already is, guarded
 This step is worth doing even if the rest is deferred — it turns the later rename into a
 one-file edit and immediately fixes the CLI-rejects-a-database-repo bug.
 
-**Step 2 — `entity.json` + `type` + field order, readers first (M).**
+**Step 2 — `entity.json` + `type` + field order, readers first (M). DONE 2026-08-26 (`1fa363e9`).**
 Teach every reader to accept `entity.json` **and** the current name, and to accept both
 field orders (a reader never cares about key order — only the writers do). Add `type`,
 defaulted from the sniffing logic when absent. Ship this alone: after it, an old export still
 imports and a new one already does. Readers to touch: `entity-io.ts`, the validator's
 `detectTreeKind`, `install.ts`, `seed-loader.ts`, `scan.mjs`, and the portal's `build.sh`.
 
-**Step 3 — Flip the writers (M).**
-Emit `entity.json`, the new field order, the always-present identity fields, `organization`
-on the workspace, `appVersion` everywhere. Move the loose root files into folders (3.2) —
-including **giving ETL and SQL collections a container folder**, which moves their `_tree.json`
-off the root and is the change most visible to existing repos, and **splitting the preset's
-`mapping` out to `mapping.json`** (§3.4c). Fold the git URL into linked
-stubs and regenerate `git-links.json` as an index (§6.2).
-Front and back must flip **in the same commit** — the golden tests compare them byte for
-byte, so a half-flip is a red build. Regenerate all 89 golden fixtures and eyeball the diff;
-that diff *is* the format change, so review it as the deliverable it is.
+**Step 3 — Flip the writers (M). DONE 2026-08-26 (`93099957`).**
+Emit `entity.json` and declare `type`; give ETL and SQL collections a `scripts/` container,
+which moves their `_tree.json` off the root and is the change most visible to existing repos.
+A pipeline's `mapping/` deliberately stays at the root: it is machine-managed and the
+generated vocabulary script reads `mapping/<name>.csv` by that exact path.
+Front and back flipped in the same commit — the golden tests compare them byte for byte, so
+a half-flip is a red build. `app/services/export_layout.py` is the hand-kept Python twin of
+`layout.ts`. All 9 golden fixtures regenerated; that diff *is* the format change.
+
+*Deferred out of step 3, into 3b:* the new field order, the always-present identity fields,
+`organization` on the workspace, `appVersion` everywhere, splitting the preset's `mapping`
+out to `mapping.json` (§3.4c), and folding the git URL into the linked stubs (§6.2). Step 3
+renamed the **pointer files** to `entity.json` too — a workspace tree with two manifest names
+side by side would have defeated the point — but left their five inconsistent *shapes* alone.
+
+**Step 3a — Flip the readers (M). DONE 2026-08-26 (`7ebe5cd0`).**
+Not in the original plan, and the step that mattered most in practice. The writers alone left
+Duplicate broken on every foldered entity: it round-trips through the current writer, so it
+read back a ZIP whose names it no longer knew and produced an entity with no files. Each
+importer had spelled its own fallback chain out inline, which is precisely why one move broke
+six pages at once — `readImportedManifest` / `readImportedTree` are now the single place that
+knows which names a tree may carry. The ETL and preset pulls threw outright; the
+mapping-project pull was worse, falling back to `{}` and reporting "no metadata changes".
+
+Two writer bugs surfaced here, both the same shape: `attachEntityOrganization` no-opped when
+handed a path the zip did not contain, so two call sites still asking for `project.json`
+silently dropped the publishing organization. It throws now.
 
 **Step 3b — Make the identity + provenance blocks universal (S/M).**
 Separable from the rename, and independently valuable. The full delta is §3.4. Highlights:
