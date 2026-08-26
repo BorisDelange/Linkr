@@ -109,7 +109,7 @@ const ATTACHMENTS_RULE: Rule = {
 
 const RULES: Partial<Record<GitScope, Rule[]>> = {
   projects: [
-    { test: /^project\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_project_json' },
+    { test: /^(entity|project)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_project_json' },
     README_RULE,
     LICENSE_RULE,
     ATTACHMENTS_RULE,
@@ -129,7 +129,7 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     ATTRS_RULE,
   ],
   'mapping-projects': [
-    { test: /^project\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_mp_project_json' },
+    { test: /^(entity|project)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_mp_project_json' },
     README_RULE,
     LICENSE_RULE,
     ATTACHMENTS_RULE,
@@ -141,8 +141,8 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     ATTRS_RULE,
   ],
   'sql-script-collections': [
-    { test: /^_collection\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_collection_json' },
-    { test: /^_tree\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_tree' },
+    { test: /^(entity|_collection)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_collection_json' },
+    { test: /^(scripts\/)?_tree\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_tree' },
     README_RULE,
     LICENSE_RULE,
     ATTACHMENTS_RULE,
@@ -150,8 +150,8 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     ATTRS_RULE,
   ],
   'etl-pipelines': [
-    { test: /^_pipeline\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_pipeline_json' },
-    { test: /^_tree\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_tree' },
+    { test: /^(entity|_pipeline)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_pipeline_json' },
+    { test: /^(scripts\/)?_tree\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_tree' },
     README_RULE,
     LICENSE_RULE,
     ATTACHMENTS_RULE,
@@ -164,14 +164,14 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     ATTRS_RULE,
   ],
   'data-catalogs': [
-    { test: /^catalog\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_catalog_json' },
+    { test: /^(entity|catalog)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_catalog_json' },
     README_RULE,
     LICENSE_RULE,
     ATTACHMENTS_RULE,
     ATTRS_RULE,
   ],
   'dq-rule-sets': [
-    { test: /^rule-set\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_ruleset_json' },
+    { test: /^(entity\.json|rule-set\.json)$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_ruleset_json' },
     { test: /^checks\.json$/, category: 'checks', order: CAT.checks, descriptionKey: 'versioning.file_desc_dq_checks' },
     README_RULE,
     LICENSE_RULE,
@@ -179,7 +179,7 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     ATTRS_RULE,
   ],
   'schema-presets': [
-    { test: /^preset\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_preset_json' },
+    { test: /^(entity|preset)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_preset_json' },
     { test: /^schema\.ddl$/, category: 'scripts', order: CAT.scripts, descriptionKey: 'versioning.file_desc_schema_ddl' },
     README_RULE,
     LICENSE_RULE,
@@ -193,7 +193,7 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     ATTRS_RULE,
   ],
   'user-plugins': [
-    { test: /^_plugin\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_plugin_meta' },
+    { test: /^(entity|_plugin)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_plugin_meta' },
     { test: /^plugin\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_plugin_manifest' },
     README_RULE,
     LICENSE_RULE,
@@ -205,7 +205,7 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
   // first). The workspace root holds a few general files; everything else lives
   // under a folder prefix. source-concept-ids/ (badge allocation) is its own box.
   workspaces: [
-    { test: /^workspace\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_workspace_json' },
+    { test: /^(entity|workspace)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_workspace_json' },
     README_RULE,
     LICENSE_RULE,
     ATTACHMENTS_RULE,

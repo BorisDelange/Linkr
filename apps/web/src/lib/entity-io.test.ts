@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/features/warehouse/etl/etl-versioning'
@@ -1949,6 +1949,48 @@ describe('reconstructTreeFiles', () => {
       'conf.json': { a: 1 },
     })
     expect(nodes[0].content).toBe('{\n  "a": 1\n}')
+  })
+
+  it('finds a file under the scripts/ prefix, keeping the tree path bare', () => {
+    // The tree stays entity-relative; only the physical file moved. Reading it at
+    // the bare path found nothing, which emptied every duplicated pipeline.
+    const nodes = reconstructTreeFiles(
+      [{ path: 'load.py', type: 'file' }], { 'scripts/load.py': 'print(1)' }, 'scripts/',
+    )
+    expect(nodes[0]).toMatchObject({ path: 'load.py', content: 'print(1)' })
+  })
+
+  it('falls back to the bare path, so a mapping/ file still resolves', () => {
+    // mapping/ does NOT move under scripts/, so one prefixed call must read both.
+    const nodes = reconstructTreeFiles(
+      [{ path: 'mapping/v.csv', type: 'file' }], { 'mapping/v.csv': 'a,b\n' }, 'scripts/',
+    )
+    expect(nodes[0]).toMatchObject({ path: 'mapping/v.csv', content: 'a,b\n' })
+  })
+})
+
+describe('readImportedManifest / readImportedTree', () => {
+  it('reads the current names', () => {
+    const parsed = { 'entity.json': { id: 'p1' }, 'scripts/_tree.json': [{ path: 'a.py' }] }
+    expect(readImportedManifest(parsed, 'etl-pipeline')).toEqual({ id: 'p1' })
+    expect(readImportedTree(parsed)).toEqual({ tree: [{ path: 'a.py' }], filePrefix: 'scripts/' })
+  })
+
+  it('still reads a repo published before the rename', () => {
+    const parsed = { '_pipeline.json': { id: 'p1' }, '_tree.json': [{ path: 'a.py' }] }
+    expect(readImportedManifest(parsed, 'etl-pipeline')).toEqual({ id: 'p1' })
+    expect(readImportedTree(parsed)).toEqual({ tree: [{ path: 'a.py' }], filePrefix: '' })
+  })
+
+  it('still reads the oldest layout, via the legacy names', () => {
+    const parsed = { 'pipeline.json': { id: 'p1' }, 'files.json': [{ id: 'f1' }] }
+    expect(readImportedManifest(parsed, 'etl-pipeline', 'pipeline.json')).toEqual({ id: 'p1' })
+    expect(readImportedTree(parsed, 'files.json')).toEqual({ tree: [{ id: 'f1' }], filePrefix: '' })
+  })
+
+  it('returns undefined rather than guessing when nothing matches', () => {
+    expect(readImportedManifest({}, 'etl-pipeline')).toBeUndefined()
+    expect(readImportedTree({})).toEqual({ tree: undefined, filePrefix: '' })
   })
 })
 

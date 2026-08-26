@@ -2493,11 +2493,18 @@ export type TreeImportNode = PathNode & { content?: string }
 export function reconstructTreeFiles(
   tree: unknown,
   parsed: Record<string, unknown>,
+  /**
+   * Where the tree's files physically live. Empty for a project's scripts (which
+   * are keyed by their full path) and for the pre-`scripts/` layout; `scripts/`
+   * for a collection or pipeline written since the folder move. A node the
+   * prefix does not resolve falls back to the bare path, so one call reads both.
+   */
+  filePrefix = '',
 ): TreeImportNode[] {
   const out: TreeImportNode[] = []
   for (const node of readPathTree(tree)) {
     if (node.type !== 'file') { out.push(node); continue }
-    const raw = parsed[node.path]
+    const raw = parsed[`${filePrefix}${node.path}`] ?? parsed[node.path]
     if (raw === undefined) {
       // No blob in the ZIP. The oldest layout (files.json) carried content inline
       // on the node, so keep those; otherwise the tree is declaring a file the
@@ -2509,6 +2516,43 @@ export function reconstructTreeFiles(
     out.push({ ...node, content: typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2) })
   }
   return out
+}
+
+/**
+ * The entity metadata in a parsed import ZIP, whatever the layout named it.
+ *
+ * Tries `entity.json`, then the kind's own former manifest, then any extra
+ * legacy names. Every importer used to spell this chain out inline, which is how
+ * the `scripts/` move slipped past them: the duplicate button re-imports the
+ * export it just wrote, so a name the writer had moved on from broke duplication
+ * of an entity the user already had, not merely third-party ZIPs.
+ */
+export function readImportedManifest<T>(
+  parsed: Record<string, unknown>,
+  kind: LayoutKind,
+  ...legacyNames: string[]
+): T | undefined {
+  for (const name of [ENTITY_MANIFEST, MANIFEST[kind], ...legacyNames]) {
+    const found = parsed[name]
+    if (found !== undefined) return found as T
+  }
+  return undefined
+}
+
+/**
+ * A parsed ZIP's file tree plus the prefix its files sit behind — `scripts/`
+ * since the folder move, empty in every layout before it.
+ */
+export function readImportedTree(
+  parsed: Record<string, unknown>,
+  ...legacyNames: string[]
+): { tree: unknown; filePrefix: string } {
+  const inScripts = parsed[`${SCRIPTS_DIR}/${SIDECAR.tree}`]
+  if (inScripts !== undefined) return { tree: inScripts, filePrefix: `${SCRIPTS_DIR}/` }
+  for (const name of [SIDECAR.tree, ...legacyNames]) {
+    if (parsed[name] !== undefined) return { tree: parsed[name], filePrefix: '' }
+  }
+  return { tree: undefined, filePrefix: '' }
 }
 
 /**
@@ -3769,7 +3813,8 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     for (const [path, entry] of Object.entries(zipData.files)) {
       if (!path.startsWith(prefix) || entry.dir) continue
       const relativePath = path.slice(prefix.length)
-      if (relativePath === MANIFEST['user-plugin']) continue
+      // Both manifest names: the metadata pointer is not a plugin source file.
+      if (relativePath === ENTITY_MANIFEST || relativePath === MANIFEST['user-plugin']) continue
       files[relativePath] = await entry.async('string')
     }
     plugins.push({ ...pluginMeta, files } as UserPlugin)

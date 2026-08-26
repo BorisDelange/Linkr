@@ -8,6 +8,7 @@
  */
 import type { ConceptMapping, MappingProject } from '@/types'
 import { getStorage } from '@/lib/storage'
+import { ENTITY_MANIFEST } from '@linkr/format'
 import { readEntityDocsFrom } from '@/lib/entity-docs-pull'
 import {
   gitPullPreview,
@@ -40,8 +41,11 @@ export interface PreparedPull {
 }
 
 /** Parse a managed JSON file from a preview side; [] / {} on absence or bad JSON. */
-function parseJson<T>(side: GitPullSide, name: string, fallback: T): T {
-  const raw = side.files[name]
+function parseJson<T>(side: GitPullSide, name: string, fallback: T, ...alsoTry: string[]): T {
+  // Falling back silently is right for a genuinely absent file, but it also hid
+  // the manifest rename: a repo whose metadata moved to entity.json read as
+  // "no metadata changes" rather than as an error, so the names are all tried.
+  const raw = [name, ...alsoTry].map((n) => side.files[n]).find((v) => v !== undefined)
   if (!raw) return fallback
   try {
     return JSON.parse(raw) as T
@@ -95,8 +99,8 @@ export async function prepareMappingProjectPull(projectId: string, branch?: stri
 
   const baseMappings = parseJson<ConceptMapping[]>(preview.base, 'mappings.json', [])
   const remoteMappings = parseJson<ConceptMapping[]>(preview.remote, 'mappings.json', [])
-  const baseProject = parseJson<Partial<MappingProject>>(preview.base, 'project.json', {})
-  const remoteProject = parseJson<Partial<MappingProject>>(preview.remote, 'project.json', {})
+  const baseProject = parseJson<Partial<MappingProject>>(preview.base, ENTITY_MANIFEST, {}, 'project.json')
+  const remoteProject = parseJson<Partial<MappingProject>>(preview.remote, ENTITY_MANIFEST, {}, 'project.json')
 
   const mappings = mergeMappings(baseMappings, remoteMappings, localMappings)
   // README/LICENSE are files, not project.json fields (the export strips the readme

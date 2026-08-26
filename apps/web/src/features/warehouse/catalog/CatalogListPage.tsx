@@ -13,7 +13,7 @@ import { useCatalogStore } from '@/stores/catalog-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
-import { buildDataCatalogFolder, parseImportZip } from '@/lib/entity-io'
+import { buildDataCatalogFolder, parseImportZip, readImportedManifest } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
@@ -126,7 +126,7 @@ export function CatalogListPage() {
     await buildDataCatalogFolder(zip, '', catalog, getStorage())
     const blob = await zip.generateAsync({ type: 'blob' })
     const parsed = await parseImportZip(new File([blob], 'dup.zip'))
-    const parsedCatalog = parsed['catalog.json'] as DataCatalog | undefined
+    const parsedCatalog = readImportedManifest<DataCatalog>(parsed, 'data-catalog')
     if (!parsedCatalog?.id) return
     withEntityDocs(parsedCatalog, parsed)
     await doImport(parsedCatalog, true)
@@ -134,7 +134,7 @@ export function CatalogListPage() {
 
   const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseImportZip(file)
-    const catalog = parsed['catalog.json'] as DataCatalog | undefined
+    const catalog = readImportedManifest<DataCatalog>(parsed, 'data-catalog')
     if (!catalog?.id) return
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only

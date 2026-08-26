@@ -13,7 +13,7 @@ import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
-import { attachTreeIds, buildSqlCollectionFolder, parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
+import { attachTreeIds, buildSqlCollectionFolder, parseImportZip, readImportedManifest, readImportedTree, reconstructTreeFiles } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import type { TreeImportNode } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
@@ -138,10 +138,11 @@ export function SqlScriptsListPage() {
     await buildSqlCollectionFolder(zip, '', collection, getStorage())
     const blob = await zip.generateAsync({ type: 'blob' })
     const parsed = await parseImportZip(new File([blob], 'dup.zip'))
-    const parsedCollection = (parsed['_collection.json'] ?? parsed['collection.json']) as SqlScriptCollection | undefined
+    const parsedCollection = readImportedManifest<SqlScriptCollection>(parsed, 'sql-collection', 'collection.json')
     if (!parsedCollection?.id) return
     withEntityDocs(parsedCollection, parsed)
-    const files = reconstructTreeFiles(parsed['_tree.json'] ?? parsed['files.json'], parsed)
+    const { tree, filePrefix } = readImportedTree(parsed, 'files.json')
+    const files = reconstructTreeFiles(tree, parsed, filePrefix)
     await doImport(parsedCollection, files, true)
   }, [doImport])
 
@@ -149,14 +150,15 @@ export function SqlScriptsListPage() {
     const parsed = await parseImportZip(file)
     // New git-friendly layout (_collection.json + _tree.json + raw files) with a fallback
     // to the legacy layout (collection.json + files.json).
-    const collection = (parsed['_collection.json'] ?? parsed['collection.json']) as SqlScriptCollection | undefined
+    const collection = readImportedManifest<SqlScriptCollection>(parsed, 'sql-collection', 'collection.json')
     if (!collection?.id) return
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.
     if (gitRemote) collection.gitRemoteConfig = gitRemote
     withEntityDocs(collection, parsed)
-    const files = reconstructTreeFiles(parsed['_tree.json'] ?? parsed['files.json'], parsed)
+    const { tree, filePrefix } = readImportedTree(parsed, 'files.json')
+    const files = reconstructTreeFiles(tree, parsed, filePrefix)
     const existing = await getStorage().sqlScriptCollections.getById(collection.id)
     if (existing) {
       setConflict({ name: localized(existing.name, language), pending: collection, pendingFiles: files })

@@ -10,13 +10,14 @@
  * That is what makes ticking a file do exactly what it says (see pull-plan.ts).
  */
 import type { MappingProject } from '@/types'
+import { ENTITY_MANIFEST } from '@linkr/format'
 import { buildPullFiles, type PullFile, type PullItem, type PullPlan } from '@/lib/pull-plan'
 import type { PreparedPull } from './pull'
 import type { MappingChange } from './merge'
 
 /** Repo file that carries each merged family. */
 const MAPPINGS_FILE = 'mappings.json'
-const PROJECT_FILE = 'project.json'
+const PROJECT_FILE = ENTITY_MANIFEST
 const SOURCE_CSV = 'source-concepts.csv'
 
 /** Fields that live as their own file rather than inside project.json. */

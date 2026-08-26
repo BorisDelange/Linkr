@@ -17,9 +17,11 @@ import type { Storage } from '@/lib/storage'
 import { getStorage } from '@/lib/storage'
 import { gitCloneToZip, gitSetSyncState } from '@/lib/api/git'
 import { cleanGitUrl } from '@/lib/git-clone'
+import { ENTITY_MANIFEST } from '@linkr/format'
 import {
   dropForeignAuthorId,
   parseImportZip,
+  readImportedManifest,
   stripInstanceFields,
   SCHEMA_PRESET_DDL_FILE,
 } from '@/lib/entity-io'
@@ -31,7 +33,7 @@ import {
 import type { LocalizedString } from '@/types'
 
 /** The manifest carrying the preset's mapping config and its name/description. */
-export const PRESET_MANIFEST_FILE = 'preset.json'
+export const PRESET_MANIFEST_FILE = ENTITY_MANIFEST
 
 /**
  * The two things a preset pull offers, by SUBJECT rather than by file.
@@ -212,7 +214,7 @@ export async function prepareSchemaPresetPull(
   const cloned = await gitCloneToZip(cleanGitUrl(url), branch)
   const parsed = await parseImportZip(new File([cloned.blob], 'pull.zip'))
 
-  const rawRemote = parsed[PRESET_MANIFEST_FILE] as CustomSchemaPreset | undefined
+  const rawRemote = readImportedManifest<CustomSchemaPreset>(parsed, 'schema-preset')
   if (!rawRemote) throw new Error('Cloned repository is not a valid schema preset export')
 
   // parseImportZip decodes every entry as text and JSON-parses what it can; the

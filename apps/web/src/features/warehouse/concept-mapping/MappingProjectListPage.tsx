@@ -18,7 +18,7 @@ import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import { getStorage } from '@/lib/storage'
-import { parseImportZip, readBinaryFromImportZip } from '@/lib/entity-io'
+import { parseImportZip, readBinaryFromImportZip, readImportedManifest } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import JSZip from 'jszip'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -295,7 +295,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
    *  whether the result is written as a copy. */
   const readProjectZip = useCallback(async (file: File): Promise<{ project: MappingProject; children: ImportChildren } | null> => {
     const parsed = await parseImportZip(file)
-    const project = parsed['project.json'] as MappingProject | undefined
+    const project = readImportedManifest<MappingProject>(parsed, 'project', '_project.json')
     if (!project?.id) return null
     withEntityDocs(project, parsed)
     const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]

@@ -15,7 +15,7 @@ import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
-import { attachTreeIds, buildEtlPipelineFolder, parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
+import { attachTreeIds, buildEtlPipelineFolder, parseImportZip, readImportedManifest, readImportedTree, reconstructTreeFiles } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import type { TreeImportNode } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
@@ -144,10 +144,11 @@ export function EtlListPage() {
     await buildEtlPipelineFolder(zip, '', pipeline, getStorage())
     const blob = await zip.generateAsync({ type: 'blob' })
     const parsed = await parseImportZip(new File([blob], 'dup.zip'))
-    const parsedPipeline = (parsed['_pipeline.json'] ?? parsed['pipeline.json']) as EtlPipeline | undefined
+    const parsedPipeline = readImportedManifest<EtlPipeline>(parsed, 'etl-pipeline', 'pipeline.json')
     if (!parsedPipeline?.id) return
     withEntityDocs(parsedPipeline, parsed)
-    const files = reconstructTreeFiles(parsed['_tree.json'] ?? parsed['files.json'], parsed)
+    const { tree, filePrefix } = readImportedTree(parsed, 'files.json')
+    const files = reconstructTreeFiles(tree, parsed, filePrefix)
     await doImport(parsedPipeline, files, true)
   }, [doImport])
 
@@ -155,14 +156,15 @@ export function EtlListPage() {
     const parsed = await parseImportZip(file)
     // New git-friendly layout (_pipeline.json + _tree.json + raw files) with a fallback
     // to the legacy layout (pipeline.json + files.json).
-    const pipeline = (parsed['_pipeline.json'] ?? parsed['pipeline.json']) as EtlPipeline | undefined
+    const pipeline = readImportedManifest<EtlPipeline>(parsed, 'etl-pipeline', 'pipeline.json')
     if (!pipeline?.id) return
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.
     if (gitRemote) pipeline.gitRemoteConfig = gitRemote
     withEntityDocs(pipeline, parsed)
-    const files = reconstructTreeFiles(parsed['_tree.json'] ?? parsed['files.json'], parsed)
+    const { tree, filePrefix } = readImportedTree(parsed, 'files.json')
+    const files = reconstructTreeFiles(tree, parsed, filePrefix)
     const existing = await getStorage().etlPipelines.getById(pipeline.id)
     if (existing) {
       setConflict({ name: localized(existing.name, language), pending: pipeline, pendingFiles: files })

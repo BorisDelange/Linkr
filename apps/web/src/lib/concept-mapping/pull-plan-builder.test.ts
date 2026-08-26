@@ -111,7 +111,7 @@ describe('source-concepts row', () => {
 })
 
 describe('metadata rows', () => {
-  it('lists a field under project.json', () => {
+  it('lists a field under entity.json', () => {
     const plan = buildMappingProjectPullPlan(prepared({
       merge: {
         mappings: [],
@@ -119,7 +119,7 @@ describe('metadata rows', () => {
         sourceConcepts: { changed: false, localCount: 0, remoteCount: 0 },
       },
     }), 'main')
-    const row = plan.files.find((f) => f.path === 'project.json')!
+    const row = plan.files.find((f) => f.path === 'entity.json')!
     expect(row.items.map((i) => i.key)).toEqual(['name'])
     // No picker: a handful of fields is decided on the row itself.
     expect(row.pickable).toBeFalsy()
@@ -170,6 +170,6 @@ describe('file ordering', () => {
       },
       sourceConceptsDiff: diff({ added: 1 }),
     }), 'main')
-    expect(paths(plan)).toEqual(['project.json', 'mappings.json', 'source-concepts.csv'])
+    expect(paths(plan)).toEqual(['entity.json', 'mappings.json', 'source-concepts.csv'])
   })
 })

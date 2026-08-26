@@ -25,11 +25,14 @@ import { gitCloneToZip, gitSetSyncState } from '@/lib/api/git'
 import { cleanGitUrl } from '@/lib/git-clone'
 import { gitFileMeta } from '@/lib/git-file-meta'
 import { README_FILE_RE, treeNodePath } from '@/lib/entity-tree'
+import { ENTITY_MANIFEST, MANIFEST, SCRIPTS_DIR, SIDECAR } from '@linkr/format'
 import {
   attachTreeIds,
   dropForeignAuthorId,
   isEntityDocsFile,
   parseImportZip,
+  readImportedManifest,
+  readImportedTree,
   reconstructTreeFiles,
   stripInstanceFields,
   type TreeImportNode,
@@ -136,7 +139,8 @@ export function etlPullGroupOf(path: string): EtlPullGroup {
  * here so the two sides cannot disagree on what counts as a docs file.
  */
 export function isEtlManifest(path: string): boolean {
-  return path === '_pipeline.json' || path === '_tree.json'
+  return path === ENTITY_MANIFEST || path === MANIFEST['etl-pipeline']
+    || path === SIDECAR.tree || path === `${SCRIPTS_DIR}/${SIDECAR.tree}`
     || path === '.gitignore' || path === '.gitattributes'
     || isEntityDocsFile(path)
 }
@@ -309,11 +313,11 @@ export async function prepareEtlPull(
   const cloned = await gitCloneToZip(cleanGitUrl(url), branch)
   const parsed = await parseImportZip(new File([cloned.blob], 'pull.zip'))
 
-  const tree = parsed['_tree.json']
+  const { tree, filePrefix } = readImportedTree(parsed)
   if (!tree) throw new Error('Cloned repository is not a valid ETL pipeline export')
-  const nodes = reconstructTreeFiles(tree, parsed)
+  const nodes = reconstructTreeFiles(tree, parsed, filePrefix)
 
-  const rawRemote = parsed['_pipeline.json'] as EtlPipeline | undefined
+  const rawRemote = readImportedManifest<EtlPipeline>(parsed, 'etl-pipeline')
   const remotePipeline = rawRemote ? stripInstancePipelineFields(rawRemote) : null
   // Docs come from the FILES beside the manifests, not from _tree.json — the
   // entity owns them. The license id is in the JSON, its text in LICENSE.md.

@@ -1,3 +1,4 @@
+import { ENTITY_MANIFEST, MANIFEST, SIDECAR } from '@linkr/format'
 import { naturalCompare } from '@/lib/format-helpers'
 import type { EtlFile } from '@/types'
 
@@ -38,7 +39,7 @@ export function etlLanguageLabel(language: string | undefined): string {
  * script, so a file of that name would be read as pipeline structure on the next
  * export/import.
  */
-const RESERVED_NAMES = new Set(['_tree.json', '_pipeline.json'])
+const RESERVED_NAMES = new Set([SIDECAR.tree, ENTITY_MANIFEST, MANIFEST['etl-pipeline']])
 
 /**
  * A name safe to store as an ETL file, or undefined when the upload must be

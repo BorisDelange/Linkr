@@ -15,7 +15,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
-import { buildDqRuleSetFolder, parseImportZip } from '@/lib/entity-io'
+import { buildDqRuleSetFolder, parseImportZip, readImportedManifest } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
@@ -151,7 +151,7 @@ export function DqRuleSetListPage() {
     await buildDqRuleSetFolder(zip, '', rs, getStorage())
     const blob = await zip.generateAsync({ type: 'blob' })
     const parsed = await parseImportZip(new File([blob], 'dup.zip'))
-    const parsedRs = parsed['rule-set.json'] as DqRuleSet | undefined
+    const parsedRs = readImportedManifest<DqRuleSet>(parsed, 'dq-rule-set')
     if (!parsedRs?.id) return
     withEntityDocs(parsedRs, parsed)
     const checks = (parsed['checks.json'] ?? []) as import('@/types').DqCustomCheck[]
@@ -163,7 +163,7 @@ export function DqRuleSetListPage() {
     // One layout: buildDqRuleSetFolder, whether the ZIP came from an export or a
     // clone. The standalone export used to write `ruleset.json` instead — it now
     // calls the same builder, so there is a single name to read.
-    const rs = parsed['rule-set.json'] as DqRuleSet | undefined
+    const rs = readImportedManifest<DqRuleSet>(parsed, 'dq-rule-set')
     if (!rs?.id) return
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only

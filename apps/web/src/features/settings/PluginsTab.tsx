@@ -3,6 +3,7 @@ import type { EntityLicense } from '@/types'
 import { useTranslation } from 'react-i18next'
 import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, Search, Pencil, GitBranch } from 'lucide-react'
 import JSZip from 'jszip'
+import { ENTITY_MANIFEST, MANIFEST } from '@linkr/format'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -324,12 +325,15 @@ export function PluginsTab() {
   // manifest id within the current workspace.
   const doPluginImport = useCallback(async (files: Record<string, string>, manifestId: string, duplicate: boolean) => {
     const updatedFiles = { ...files }
-    // `_plugin.json` is the export metadata pointer (author/org provenance), not a
-    // plugin source file — pull it out and keep it from being stored as content.
+    // The entity manifest is the export metadata pointer (author/org provenance),
+    // not a plugin source file — pull it out and keep it from being stored as
+    // content. Both names: a plugin repo published before the rename says
+    // `_plugin.json`. The plugin's OWN `plugin.json` is functional and stays.
     let meta: { createdBy?: string; createdByDetails?: AuthorDetails; organization?: OrganizationInfo } = {}
-    if (updatedFiles['_plugin.json']) {
-      try { meta = JSON.parse(updatedFiles['_plugin.json']) } catch { /* ignore */ }
-      delete updatedFiles['_plugin.json']
+    for (const name of [ENTITY_MANIFEST, MANIFEST['user-plugin']]) {
+      if (!updatedFiles[name]) continue
+      try { meta = JSON.parse(updatedFiles[name]) } catch { /* ignore */ }
+      delete updatedFiles[name]
     }
     // finalizeEntityZip writes `.gitattributes` when a plugin bundles an LFS-tracked
     // file — export metadata, not plugin source, so keep it out of the file map.

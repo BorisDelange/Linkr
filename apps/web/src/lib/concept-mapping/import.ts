@@ -14,7 +14,7 @@
 import type { ConceptMapping, GitRemoteConfig, LocalizedString, MappingProject, SourceConceptIdRange } from '@/types'
 import type { Storage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { readLicense } from '@/lib/entity-io'
+import { readImportedManifest, readLicense } from '@/lib/entity-io'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { restoreFileSourceDataFromCsv } from './export'
 import { parseSourceConceptIdEntries } from './source-concept-ids-io'
@@ -95,7 +95,7 @@ export async function importMappingProjectContent(
 
   // `readmeLang` is an export-only marker (which language the suffix-free
   // README.md holds); it rides on project.json but is not part of the entity.
-  const project = files['project.json'] as (MappingProject & { readmeLang?: string }) | undefined
+  const project = readImportedManifest<MappingProject & { readmeLang?: string }>(files, 'project', '_project.json')
   if (!project?.id) return false
 
   if (replaceExisting) {
