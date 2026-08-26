@@ -180,6 +180,10 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
   ],
   'schema-presets': [
     { test: /^(entity|preset)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_preset_json' },
+    // The mapping moved out of the manifest into its own file. Without a rule it
+    // fell to 'other', i.e. a foreign file Linkr does not own — so it showed up
+    // unclassified and its deletion was never offered.
+    { test: /^mapping\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_preset_mapping' },
     { test: /^schema\.ddl$/, category: 'scripts', order: CAT.scripts, descriptionKey: 'versioning.file_desc_schema_ddl' },
     README_RULE,
     LICENSE_RULE,

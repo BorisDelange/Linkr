@@ -107,6 +107,28 @@ describe('gitFileMeta', () => {
     expect(cat('state.json')).toBe('other')
   })
 
+  it('classifies every file a standalone entity export writes', () => {
+    // A file with no rule falls to 'other', which means "foreign, not ours": it
+    // shows up unclassified and its deletion is never offered. That is what
+    // happened to mapping.json when the preset payload moved out of the
+    // manifest, so this pins one path per scope-specific file the writers emit.
+    const owned = (scope: Parameters<typeof gitFileMeta>[0], path: string) =>
+      gitFileMeta(scope, path).category !== 'other'
+
+    expect(owned('schema-presets', 'entity.json')).toBe(true)
+    expect(owned('schema-presets', 'mapping.json')).toBe(true)
+    expect(owned('schema-presets', 'schema.ddl')).toBe(true)
+    expect(owned('sql-script-collections', 'entity.json')).toBe(true)
+    expect(owned('sql-script-collections', 'scripts/_tree.json')).toBe(true)
+    expect(owned('etl-pipelines', 'entity.json')).toBe(true)
+    expect(owned('etl-pipelines', 'scripts/_tree.json')).toBe(true)
+    expect(owned('dq-rule-sets', 'entity.json')).toBe(true)
+    expect(owned('data-catalogs', 'entity.json')).toBe(true)
+    expect(owned('user-plugins', 'entity.json')).toBe(true)
+    // A genuine stray still falls through, or the check above would prove nothing.
+    expect(owned('schema-presets', 'notes.txt')).toBe(false)
+  })
+
   it('every workspace category carries an i18n description (no contentless rows)', () => {
     for (const p of [
       'workspace.json', 'projects/x/project.json', 'mapping-projects/x/project.json',
