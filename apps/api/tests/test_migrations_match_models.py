@@ -80,6 +80,35 @@ def test_every_model_column_exists(migrated_db: sa.Engine) -> None:
     )
 
 
+def test_every_model_primary_key_matches(migrated_db: sa.Engine) -> None:
+    """A model's declared primary key must be the table's actual one.
+
+    Not covered by the column check: both columns can exist while the mapping
+    names the wrong one as the key, and then `db.get(Model, key)` silently
+    queries the wrong column. That is what made deleting a catalog-installed
+    schema preset 404 — the PK had moved to `id` in the database while the model
+    still declared `preset_id`. Rows whose two identities happened to be equal
+    resolved anyway, so the mismatch stayed invisible until they diverged.
+    """
+    inspector = sa.inspect(migrated_db)
+    tables = set(inspector.get_table_names())
+
+    problems: list[str] = []
+    for name, table in sorted(Base.metadata.tables.items()):
+        if name not in tables:
+            continue
+        actual = set(inspector.get_pk_constraint(name).get("constrained_columns") or [])
+        declared = {c.name for c in table.primary_key.columns}
+        if actual and declared != actual:
+            problems.append(f"{name}: model says {sorted(declared)}, database has {sorted(actual)}")
+
+    assert not problems, (
+        "primary key declared on a model differs from the migrated table: "
+        f"{problems}. `db.get()` queries the model's key, so a mismatch resolves "
+        "the wrong row — or none."
+    )
+
+
 def test_single_head(migrated_db: sa.Engine) -> None:
     # Two heads make `alembic upgrade head` ambiguous and it refuses to run.
     version = sa.inspect(migrated_db)

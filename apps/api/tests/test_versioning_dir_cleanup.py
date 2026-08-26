@@ -98,7 +98,8 @@ _SCOPES = [
     ),
     (
         "schema-presets",
-        lambda wid, eid: SchemaPreset(preset_id=eid, workspace_id=wid),
+        # Keyed on `id` like every other entity since revision e6f7a8b9c0d1.
+        lambda wid, eid: SchemaPreset(id=eid, entity_id=eid, workspace_id=wid),
         schema_preset_service,
     ),
     (
