@@ -329,6 +329,30 @@ interface LinkrDB extends DBSchema {
 const DB_NAME = 'linkr'
 const DB_VERSION = 41
 
+/**
+ * One schema preset, rekeyed for the v41 store (keyPath `presetId` → `id`).
+ *
+ * A row written before the identity split has only `presetId`, which played
+ * every role at once. Both new fields take that value rather than a fresh uuid:
+ * `id` because git working trees, README attachment owners and `git_sync_state`
+ * already point at it — the server migration backfills identically — and
+ * `entityId` because it IS the readable slug the user knows.
+ *
+ * Returning a value with no `id` would make `put` throw on the store's keyPath
+ * and lose the row, so the fallback is not optional.
+ *
+ * Extracted from the upgrade callback so it can be tested: the surrounding
+ * ordering (read, drop, recreate — all synchronous) needs a real IndexedDB,
+ * but what each row becomes is plain logic.
+ */
+export function rekeyPresetOnId(preset: CustomSchemaPreset): CustomSchemaPreset {
+  return {
+    ...preset,
+    id: preset.id ?? preset.presetId,
+    entityId: preset.entityId ?? preset.presetId,
+  } as CustomSchemaPreset
+}
+
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
 function getDB(): Promise<IDBPDatabase<LinkrDB>> {
@@ -941,11 +965,8 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
           store.createIndex('by-workspace', 'workspaceId')
           rows.then((presets) => {
             for (const preset of presets) {
-              ;(store as unknown as { put: (v: CustomSchemaPreset) => void }).put({
-                ...preset,
-                id: preset.id ?? preset.presetId,
-                entityId: preset.entityId ?? preset.presetId,
-              })
+              ;(store as unknown as { put: (v: CustomSchemaPreset) => void })
+                .put(rekeyPresetOnId(preset))
             }
           })
         }
@@ -1326,12 +1347,9 @@ class IDBSchemaPresetStorage implements SchemaPresetStorage {
     const db = await getDB()
     // The keyPath is `id`; a row without one cannot be stored at all. Callers
     // that build a preset by hand (an old import, a hand-written fixture) get
-    // one here rather than a silent DataError.
-    await db.put('schema_presets', {
-      ...preset,
-      id: preset.id ?? preset.presetId,
-      entityId: preset.entityId ?? preset.presetId,
-    })
+    // one here rather than a silent DataError — the same rule the v41 upgrade
+    // applies, so both go through one function.
+    await db.put('schema_presets', rekeyPresetOnId(preset))
   }
 
   async delete(id: string): Promise<void> {
