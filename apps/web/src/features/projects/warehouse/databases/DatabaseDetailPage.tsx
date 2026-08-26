@@ -37,7 +37,6 @@ import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import {
   DatabaseStatsDashboard,
-  LoadStatisticsPrompt,
   useDatabaseStats,
 } from './DatabaseStatsDashboard'
 import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
@@ -434,13 +433,14 @@ function DatabaseStatCards({
   onSeeStatistics: () => void
 }) {
   const { t } = useTranslation()
-  const { cache, isLoading, refresh } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
+  const { cache, isLoading } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
-  // Nothing computed yet: an explicit trigger rather than a row of zeros, so a
-  // billion-row database is only scanned on request.
-  if (!cache && !isLoading) {
-    return <div className="col-span-full shrink-0"><LoadStatisticsPrompt onLoad={refresh} /></div>
-  }
+  // Nothing computed yet. The cards still render — with a dash, never a zero,
+  // which would read as "this database is empty" — and clicking one opens the
+  // Statistics tab, where the prompt that actually runs the COUNTs lives. That
+  // prompt belongs there and only there: shown here it explained a tab the
+  // reader was not on.
+  const pending = !cache && !isLoading
 
   const cards = [
     { key: 'tables', icon: <Table size={16} className="text-teal-600 dark:text-teal-400" />, value: cache?.summary.tableCount, label: t('databases.detail_tables') },
@@ -473,7 +473,9 @@ function DatabaseStatCards({
               {isLoading && c.value == null ? (
                 <Skeleton className="h-8 w-16" />
               ) : (
-                <div className="text-2xl font-bold tabular-nums">{(c.value ?? 0).toLocaleString()}</div>
+                <div className="text-2xl font-bold tabular-nums">
+                  {pending || c.value == null ? '—' : c.value.toLocaleString()}
+                </div>
               )}
               <div className="truncate text-xs text-muted-foreground">{c.label}</div>
             </div>
