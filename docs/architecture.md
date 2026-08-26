@@ -167,9 +167,9 @@ Each project: **IDE view = Export ZIP = Git repo**
 
 ```
 my-project/
-├── project.json              # Project metadata
+├── entity.json               # Project metadata + identity (declares "type": "project")
 ├── README.md
-├── tasks.json                # Todos + notes (separate from project.json for clean git history)
+├── tasks.json                # Todos + notes (separate from entity.json for clean git history)
 ├── .gitignore                # Excludes datasets/**/*.csv + .cache/ by default
 ├── scripts/                  # User code — ONLY editable folder in IDE
 ├── pipeline/pipeline.json    # Full DAG (single file — DAG is a connected graph)
@@ -187,6 +187,59 @@ System folders (pipeline, databases, cohorts, dashboards, datasets, attachments)
 
 ---
 
+## Export format: one shape for every entity (as-built)
+
+Nine kinds are exportable (project, workspace, mapping project, SQL collection, ETL
+pipeline, schema preset, DQ rule set, data catalog, user plugin). They used to be
+developed separately and looked it. They now share one shape.
+
+**One manifest name.** Every entity writes `entity.json` at the root of its tree and
+declares what it is in `type` — the same vocabulary the catalog entry schema uses. Kind
+detection reads that field rather than guessing from a filename. Readers stay tolerant of
+the historical per-kind names (`project.json`, `preset.json`, `_pipeline.json`, …) so
+already-published repos keep importing; writers only ever emit `entity.json`.
+
+**The manifest is metadata; payload lives beside it.** A schema preset's mapping is
+`mapping.json`, its DDL `schema.ddl`; a DQ rule set's checks are `checks.json`. Measured
+on the published `omop-cdm-5.4`, the mapping was 88% of the manifest — identity buried
+under payload in the file a human opens first.
+
+**One field order**, on every kind:
+
+```
+entityId, type, name, description   identity
+… the kind's own payload …
+createdAt                           when
+createdBy, createdByDetails, organization   by whom (person AND publishing org)
+lineageId, parentLineageId          from what
+version, license                    how it is published
+appVersion                          the file's format version, last
+```
+
+`organization` sits with the author rather than beside `version`/`license`: the Edit
+dialog's authoring section edits the two together — it is co-authorship, not packaging.
+
+**Three identity fields, and only two of them travel:**
+
+| Field | Role |
+|---|---|
+| `entityId` | portable readable slug. The entity's *name*. |
+| `lineageId` | cross-instance identity — what `isSameEntity` matches on, and what makes a re-import update in place instead of duplicating. |
+| `id` | the writing instance's local primary key. **Never exported.** |
+
+Every import path either mints its own key or keeps the row it already has, so an
+exported `id` had no third job — and `isSameEntity` explicitly refuses it as identity,
+since a hostile catalog entry must not be able to destroy a local entity by id-collision.
+Without a `lineageId`, the catalog falls back to comparing git URLs, which breaks when a
+repo moves host, when an entry declares `https://` against a local `git@` remote, or on a
+fork. Publish one.
+
+**A git-linked entity** writes a pointer instead of its content:
+`uid?, entityId, type, name, createdAt?, lineageId, gitRemoteConfig`. `lineageId` is
+written even when null — omitting it is what made a pointer re-import as a duplicate.
+
+Full history and rationale: `docs/planning/export-format-harmonization-plan.md`.
+
 ## Format package & MCP authoring (as-built)
 
 The export format is now described in **two** places, and they must be kept in step:
@@ -198,7 +251,7 @@ The export format is now described in **two** places, and they must be kept in s
 | Tools | `packages/linkr-mcp/` | MCP server exposing the format to any agent (a thin facade; holds no format knowledge) |
 
 > ⚠️ **Change the shape of an exported entity → update the format package in the same
-> change.** A field added to `project.json`, `dashboards/*.json`, `_tree.json` or any
+> change.** A field added to `entity.json`, `dashboards/*.json`, `_tree.json` or any
 > entity metadata file is invisible to the validator until its schema learns about it —
 > and the failure is silent: trees keep validating while the new field goes unchecked, or
 > a legitimate tree starts reporting a spurious issue. Run
@@ -238,7 +291,7 @@ A schema preset's canonical key order lives in `src/schema-mapping.ts` and is im
 for byte. The Python twin (`_canonical_schema_mapping` in `workspace_export_assemble.py`)
 still has to be kept in step by hand; the export golden tests guard it.
 
-A mapping project and a plain project both carry `project.json`; `mappings.json` is what
+A mapping project and a plain project both carry `entity.json`; `mappings.json` is what
 tells them apart (`detectTreeKind`). Getting that backwards would validate one against
 the other's schema and report a pile of nonsense.
 

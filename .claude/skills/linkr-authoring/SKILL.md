@@ -27,6 +27,35 @@ Never hand-write `_tree.json`, column ids, or content keys. If a tool cannot exp
 what you need, say so — do not work around it by editing the JSON directly, because the
 next validation will disagree with you.
 
+## Identity: three fields, one of them a trap
+
+Every entity carries the same identity block, and getting it wrong is the single
+most common way a published repo fails to install.
+
+| Field | What it is |
+|---|---|
+| `entityId` | the readable, URL-safe **name** (`omop-cdm-5-4`). Set once, never changes. |
+| `lineageId` | a uuid: the **identity across instances**. Two installs of the same repo are the same entity because they share it. |
+| `id` | **do not write it.** It was the writing instance's local primary key. |
+
+`id` no longer travels in an export: an importer either mints its own or keeps the
+row it already has, so an authored one is silently dropped. `entityId` names the
+entity; `lineageId` identifies it.
+
+**Write a `lineageId` on anything you publish.** Without one the catalog can only
+recognise an install by comparing the git URL — which breaks the moment the repo
+moves host or group, when an entry declares `https://` against a local `git@`
+remote, or on a fork that inherits the URL. Generate one uuid and never change it.
+
+The manifest also declares **`type`** (`project`, `schema-preset`, …). That is what
+tells a reader which kind it is, rather than the filename — every entity writes the
+same `entity.json`.
+
+**Localized fields are objects, never strings.** `name`, `description` and an
+organization's `name` are `{en, fr}`. A bare string is refused by the API with a
+422 before anything is written, and the validator will not warn you: it does not
+check the shape of these fields.
+
 ## MCP tools
 
 | Tool | Use |
