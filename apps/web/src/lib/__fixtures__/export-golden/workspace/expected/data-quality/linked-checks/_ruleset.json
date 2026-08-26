@@ -1,0 +1,15 @@
+{
+  "ruleSet": {
+    "id": "dq2",
+    "name": {
+      "en": "Linked checks",
+      "fr": "Contrôles liés"
+    },
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "gitRemoteConfig": {
+      "url": "https://git.example.org/dq.git",
+      "branch": "main"
+    }
+  },
+  "checks": []
+}

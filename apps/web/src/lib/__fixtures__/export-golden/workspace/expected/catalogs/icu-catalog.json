@@ -1,0 +1,59 @@
+{
+  "id": "cat1",
+  "entityId": "icu-catalog",
+  "workspaceId": "ws1",
+  "name": {
+    "en": "ICU catalog",
+    "fr": "Catalogue réa"
+  },
+  "description": {
+    "en": "Published metadata.",
+    "fr": "Métadonnées publiées."
+  },
+  "dataSourceId": "ds1",
+  "dimensions": [
+    {
+      "id": "d1",
+      "column": "gender",
+      "label": {
+        "en": "Gender",
+        "fr": "Sexe"
+      }
+    }
+  ],
+  "anonymization": {
+    "minCellSize": 5
+  },
+  "categoryColumn": "domain",
+  "subcategoryColumn": null,
+  "periodConfig": {
+    "granularity": "year"
+  },
+  "status": "ready",
+  "lastError": null,
+  "lastComputedAt": null,
+  "lastComputeDurationMs": null,
+  "dcatApMetadata": null,
+  "readme": {
+    "en": "# ICU catalog\n",
+    "fr": "# Catalogue\n"
+  },
+  "license": {
+    "id": "MIT",
+    "text": "MIT License\n\nCopyright (c) 2026\n"
+  },
+  "origin": "user",
+  "ownerId": "u1",
+  "createdById": 7,
+  "createdBy": "Boris Delange",
+  "createdByDetails": {
+    "firstName": "Boris",
+    "lastName": "Delange",
+    "orcid": "0000-0002-1825-0097"
+  },
+  "lineageId": "lin-cat1",
+  "parentLineageId": null,
+  "createdAt": "2026-01-02T03:04:05.000Z",
+  "updatedAt": "2026-06-01T00:00:00.000Z",
+  "version": "0.1.0"
+}

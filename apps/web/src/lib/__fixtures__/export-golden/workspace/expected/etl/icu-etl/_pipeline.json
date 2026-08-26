@@ -1,0 +1,36 @@
+{
+  "id": "pipe1",
+  "entityId": "icu-etl",
+  "name": {
+    "en": "ICU ETL",
+    "fr": "ETL réa"
+  },
+  "description": {
+    "en": "Source to OMOP",
+    "fr": "Source vers OMOP"
+  },
+  "sourceDataSourceId": null,
+  "targetDataSourceId": null,
+  "mappingProjectId": null,
+  "status": "draft",
+  "lastRunAt": null,
+  "lastRunDurationMs": null,
+  "createdBy": "Boris Delange",
+  "createdByDetails": {
+    "firstName": "Boris",
+    "lastName": "Delange",
+    "orcid": "0000-0002-1825-0097"
+  },
+  "lineageId": "lin-pipe1",
+  "parentLineageId": null,
+  "createdAt": "2026-01-02T03:04:05.000Z",
+  "version": "0.1.0",
+  "config": {
+    "versionedDataFiles": [
+      "mapping/kept.csv"
+    ]
+  },
+  "license": {
+    "id": "MIT"
+  }
+}

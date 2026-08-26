@@ -1,0 +1,38 @@
+[
+  {
+    "path": "mapping",
+    "type": "folder",
+    "language": null,
+    "order": 1,
+    "dataSourceId": null,
+    "disabled": null,
+    "createdAt": "2026-01-02T03:04:05.000Z"
+  },
+  {
+    "path": "mapping/kept.csv",
+    "type": "file",
+    "language": null,
+    "order": 0,
+    "dataSourceId": null,
+    "disabled": null,
+    "createdAt": "2026-01-02T03:04:05.000Z"
+  },
+  {
+    "path": "steps",
+    "type": "folder",
+    "language": null,
+    "order": 0,
+    "dataSourceId": null,
+    "disabled": null,
+    "createdAt": "2026-01-02T03:04:05.000Z"
+  },
+  {
+    "path": "steps/extract.sql",
+    "type": "file",
+    "language": "sql",
+    "order": 0,
+    "dataSourceId": null,
+    "disabled": null,
+    "createdAt": "2026-01-02T03:04:05.000Z"
+  }
+]

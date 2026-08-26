@@ -1,0 +1,48 @@
+{
+  "id": "sp1",
+  "entityId": "omop-cdm-5-4",
+  "presetId": "omop-cdm-5-4",
+  "workspaceId": "ws1",
+  "mapping": {
+    "presetId": "omop-cdm-5-4",
+    "presetLabel": {
+      "en": "OMOP CDM 5.4",
+      "fr": "OMOP CDM 5.4"
+    },
+    "description": {
+      "en": "OMOP 5.4 subset.",
+      "fr": "Sous-ensemble OMOP 5.4."
+    },
+    "patientTable": {
+      "table": "person",
+      "idColumn": "person_id"
+    },
+    "knownTables": [
+      "person",
+      "visit_occurrence"
+    ],
+    "ddl": "CREATE TABLE person (person_id INTEGER);\n"
+  },
+  "readme": {
+    "en": "# OMOP 5.4\n",
+    "fr": "# OMOP 5.4 (fr)\n"
+  },
+  "license": {
+    "id": "MIT",
+    "text": "MIT License\n\nCopyright (c) 2026\n"
+  },
+  "origin": "user",
+  "ownerId": "u1",
+  "createdById": 7,
+  "createdBy": "Boris Delange",
+  "createdByDetails": {
+    "firstName": "Boris",
+    "lastName": "Delange",
+    "orcid": "0000-0002-1825-0097"
+  },
+  "lineageId": "lin-sp1",
+  "parentLineageId": null,
+  "createdAt": "2026-01-02T03:04:05.000Z",
+  "updatedAt": "2026-06-01T00:00:00.000Z",
+  "version": "1.0.0"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "col2",
+  "name": {
+    "en": "Linked queries",
+    "fr": "Requêtes liées"
+  },
+  "createdAt": "2026-01-02T03:04:05.000Z",
+  "gitRemoteConfig": {
+    "url": "https://git.example.org/sql.git",
+    "branch": "main"
+  }
+}

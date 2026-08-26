@@ -74,6 +74,15 @@ interface GoldenInput {
   ranges: Record<string, unknown>[]
   entries: Record<string, unknown>[]
   userPlugins: Record<string, unknown>[]
+  schemaPresets: Record<string, unknown>[]
+  sqlCollections: Record<string, unknown>[]
+  sqlScriptFiles: Record<string, Record<string, unknown>[]>
+  etlPipelines: Record<string, unknown>[]
+  etlFiles: Record<string, Record<string, unknown>[]>
+  dqRuleSets: Record<string, unknown>[]
+  dqChecks: Record<string, Record<string, unknown>[]>
+  dataCatalogs: Record<string, unknown>[]
+  serviceMappings: Record<string, unknown>[]
 }
 
 const input = JSON.parse(readFileSync(join(GOLDEN_DIR, 'input.json'), 'utf8')) as GoldenInput
@@ -127,12 +136,14 @@ const storage = {
         data: bytesFromB64(dataBase64),
       })),
   },
-  schemaPresets: { getByWorkspace: async () => [] },
+  schemaPresets: { getByWorkspace: async () => input.schemaPresets },
   dataSources: { getByWorkspace: async () => input.dataSources },
-  sqlScriptCollections: { getByWorkspace: async () => [] },
-  etlPipelines: { getByWorkspace: async () => [] },
-  dqRuleSets: { getByWorkspace: async () => [] },
-  dqCustomChecks: { getByRuleSet: async () => [] },
+  sqlScriptCollections: { getByWorkspace: async () => input.sqlCollections },
+  sqlScriptFiles: { getByCollection: async (id: string) => input.sqlScriptFiles[id] ?? [] },
+  etlPipelines: { getByWorkspace: async () => input.etlPipelines },
+  etlFiles: { getByPipeline: async (id: string) => input.etlFiles[id] ?? [] },
+  dqRuleSets: { getByWorkspace: async () => input.dqRuleSets },
+  dqCustomChecks: { getByRuleSet: async (id: string) => input.dqChecks[id] ?? [] },
   mappingProjects: {
     getByWorkspace: async () => mappingProjects,
     getById: async (id: string) => mappingProjects.find((m) => m.id === id),
@@ -146,8 +157,8 @@ const storage = {
     getByWorkspaceAndBadge: async (_ws: string, label: string) =>
       input.entries.filter((e) => e.badgeLabel === label),
   },
-  dataCatalogs: { getByWorkspace: async () => [] },
-  serviceMappings: { getByWorkspace: async () => [] },
+  dataCatalogs: { getByWorkspace: async () => input.dataCatalogs },
+  serviceMappings: { getByWorkspace: async () => input.serviceMappings },
   userPlugins: { getByWorkspace: async () => input.userPlugins },
 } as unknown as Storage
 

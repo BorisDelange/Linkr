@@ -1,0 +1,12 @@
+{
+  "id": "cat2",
+  "name": {
+    "en": "Linked catalog",
+    "fr": "Catalogue lié"
+  },
+  "createdAt": "2026-01-02T03:04:05.000Z",
+  "gitRemoteConfig": {
+    "url": "https://git.example.org/catalog.git",
+    "branch": "main"
+  }
+}

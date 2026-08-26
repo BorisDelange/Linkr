@@ -1,0 +1,14 @@
+{
+  "entityId": "mimic-iv",
+  "presetId": "mimic-iv",
+  "mapping": {
+    "presetLabel": {
+      "en": "MIMIC-IV",
+      "fr": "MIMIC-IV"
+    }
+  },
+  "gitRemoteConfig": {
+    "url": "https://git.example.org/mimic-iv.git",
+    "branch": "main"
+  }
+}
