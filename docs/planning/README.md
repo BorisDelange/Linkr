@@ -133,6 +133,13 @@ today and is the load-bearing piece; steps 1–3 pay off even if the MCP is neve
 **Ends the `build_zip.py` ↔ `entity-io.ts` duplication** and should be scheduled *with*
 the "Split entity-io.ts" debt item below, not separately.
 
+Steps 1–8 shipped. What remains is the **edit surface** (plan §7b, added 2026-08-26): the
+MCP creates and appends well, but has no update/move/remove and cannot read a widget's
+config or a script's content back — so an agent asked to *modify* a tree falls back to
+`Read`/`Edit` on the JSON, which is what the skill forbids and what breaks entities (keys
+and ids are derived, so a hand-edit diverges from what the app re-derives). Goal: every
+mutation has a tool, so "never touch the files" is enforceable rather than advisory.
+
 | St | Item | Effort |
 |----|------|--------|
 | ✅ | 1–2. `packages/linkr-format`: schemas + validator (shape/referential/semantic) + 40 tests + column-id parity + CLI. No dependency (not zod — it would land in the WASM bundle). Verified on 3 real trees; found a missing `appVersion` in `icu-mortality-prediction` | M |
@@ -142,8 +149,53 @@ the "Split entity-io.ts" debt item below, not separately.
 | ✅ | 6–7. `linkr-authoring` skill + 6 references (`create-plugin` folded in as `plugin.md`); `create-project` → thin wrapper; `build_zip.py` and its Python format copy deleted | S |
 | ✅ | 8. All entity kinds **validated** (project, sql-collection, etl-pipeline, schema-preset, dq-rule-set, data-catalog, mapping-project, cohorts) and five of them **writable** via `write_entity`. Kind detected from the tree; `mappings.json` discriminates a mapping project from a plain one. Golden fixtures + all real content-repo entities pass. Schema presets and cohorts stay validate-only | L |
 | 🔜 | 9. `validate` in the `linkr-public-content` CI — now unblocked: the CLI detects the kind, so one command covers a mixed repo | S |
-| 💤 | 10. Granular edit tools for the non-project kinds | S |
+| 🔜 | **A. Spec passthrough + round-trip gate** (plan §7b) — the 8 dashboard fields + filter `scope` the spec cannot express; prerequisite, else every read-modify-write silently drops them | M |
+| 🔜 | B. Read-back: `read_entity`, `read_file`, `describe_tree` with configs — the missing half of read-modify-write, today's reason an agent reaches for `Read`/`Edit` | M |
+| 🔜 | C1/C2/C7. `update_project`, `update_widget`, `update_script` — the cheap, common edits | S |
+| 🔜 | C3/C5/C6 + `format/rekey.ts`. Move/rename cascades: a tab key is `slug(name)` and a widget key embeds its position, so a rename orphans every reference unless keys are recomputed in the same call | M |
+| 🔜 | C4 + D2. `remove_*`, each naming its collateral damage before acting | M |
+| 🔜 | D3. Skill matrix: stop implicitly sanctioning a fallback to `Edit` | S |
+| 💤 | C8 (was step 10). Granular edit tools for the 6 standalone kinds | L |
 | 🤔 | Open: folder vs ZIP output, how `linkr-format` ships to the MCP, import severity | S (decision) |
+
+## Export format harmonization — [export-format-harmonization-plan.md](export-format-harmonization-plan.md)
+
+Each entity's export tree was written on its own day: **five naming conventions** for the
+manifest (`project.json`, `_pipeline.json`, `rule-set.json`, `preset.json`…), loose files at
+the root where others use folders, entities that are a flat file or a folder depending on
+whether they are git-linked, and manifest fields that diverge in presence and order — a
+schema preset has no `id`/`name`/`lineageId` at all, a workspace no `version`/`license`.
+**Design fully settled 2026-08-26**: one `entity.json` per entity at every
+depth (containers and git-link stubs included), declaring a **`type`** field that shares the
+catalog's name and vocabulary; "README + LICENSE + manifest at the root, content in folders",
+plus whole-repo sidecars (`organization.json`, `git-links.json`) at the workspace root; a fixed
+three-block field order; the git URL authored in the linked stub with `git-links.json`
+regenerated as an index; ETL and SQL collections gain a **`scripts/`** container so
+`_tree.json` always sits inside the folder it describes; `_` means "sidecar", never a manifest;
+no `entityId` for workspaces, no `Workspace.version`, `plugin.json` (the widget manifest) is
+**not** renamed, the schema preset's `name`/`description` are promoted out of `mapping` to the
+root (and removed from it — a *database's* copied mapping keeps them) while `mapping` itself
+moves to a sibling `mapping.json` (**`entity.json` is metadata, not
+payload** — the preset's manifest is 83% mapping today), and every identity+provenance key is always written (`null` when unset, which deletes the
+Python null-popping shims). **Net model change: zero** — all export-layer. Readers stay tolerant of the old names; writers emit one format. Touches
+`linkr-portal`, `linkr-catalog` and `linkr-public-content`, so those move in lockstep.
+Absorbs the workspace-flat-files backlog item below and schema-preset step 5.
+
+The survey also turned up **5 live bugs** (plan §2.2), all in workspace sections that the
+golden fixtures leave completely uncovered — including a database repo that cannot be
+re-imported and workspace concept sets silently dropped on export. Hence step 0.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | **0. Close the golden blind spot (6 of 12 workspace sections untested), then fix the 5 divergences** — prerequisite, else step 3 bakes them in | M |
+| 🔜 | 1. Centralise every literal filename into `linkr-format/layout.ts` (no behaviour change) | S |
+| 🔜 | 2. Readers accept `entity.json` + `type` + both field orders | M |
+| 🔜 | 3. Flip the writers (front + back **same commit**, 89 golden fixtures regenerated; **rewrite stored `versionedDataFiles` marks** — they are keyed by export path) | M |
+| 🔜 | 3b. Universal identity+provenance blocks (plan §3.4): `lineageId` for preset + plugin (**unblocks catalog update detection**), `license`/`id`/`appVersion` where missing, `organizationId`→`organization`. **No model change** | S/M |
+| 🔜 | 4. Plugins: `_plugin.json` → `entity.json`, functional `plugin.json` keeps its name | S |
+| 🔜 | 5. Sibling repos: portal build/sync + its skill, catalog `MARKERS` + CI, re-export public content | M |
+| 🔜 | 6. MCP tools + `linkr-authoring` skill references | S/M |
+| 🔜 | 7. `docs/architecture.md` + user docs in `../linkr-website` | S |
 
 ## Fullstack backlog — [fullstack-storage-plan.md](fullstack-storage-plan.md)
 
@@ -258,7 +310,7 @@ generating STCM (detected from its files, not a stored flag), and the seed loade
 | 🤔 | Cohort schema migrations v1→v4: removable once no old cohort persists in your DB/IDB | S |
 | 💤 | git-content-retry: token input/hint on auth-gated failure | S |
 | 💤 | PTY idle sweep (kernel sessions sweep; PTY is bounded by WS lifetime) | S |
-| 🔜 | Workspace export: dq / catalogs / schemas are flat files, so their README/LICENSE only ship in a standalone entity export — move them to folders | M |
+| → | Workspace export: dq / catalogs / schemas are flat files, so their README/LICENSE only ship in a standalone entity export — move them to folders → absorbed by [export-format-harmonization-plan.md](export-format-harmonization-plan.md) step 3 | M |
 | 🔜 | Seed loader: read `LICENSE.md` (and the entity docs) from the bundled default data | S |
 | 🔜 | Plugins: import via Git. Every other entity goes through the shared `ImportSourceDialog` (ZIP + clone-from-Git tabs); `PluginsTab.tsx:466` is the last bare `<input type="file">`. Plugins already push/pull via `EntityVersioningDialog`, so only the import path is missing | S |
 
