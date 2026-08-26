@@ -9,7 +9,7 @@ const TREE = JSON.stringify([
 
 function collection(over: Record<string, unknown> = {}, files: Record<string, string> = {}) {
   return new MemoryTree({
-    '_collection.json': JSON.stringify({ name: { en: 'Queries' }, ...over }),
+    'entity.json': JSON.stringify({ type: 'sql-collection', name: { en: 'Queries' }, ...over }),
     '_tree.json': TREE,
     'queries/cohort.sql': 'SELECT 1;\n',
     ...files,
@@ -49,13 +49,13 @@ describe('sql collection / etl pipeline', () => {
   })
 
   it('requires a name', () => {
-    const tree = new MemoryTree({ '_collection.json': '{}', '_tree.json': '[]' })
+    const tree = new MemoryTree({ 'entity.json': '{"type":"sql-collection"}', '_tree.json': '[]' })
     expect(validateEntity(tree, 'sql-collection').some((i) => i.code === 'missing-field')).toBe(true)
   })
 
   it('flags a file listed in the tree but absent', () => {
     const tree = new MemoryTree({
-      '_collection.json': JSON.stringify({ name: { en: 'Q' } }),
+      'entity.json': JSON.stringify({ type: 'sql-collection', name: { en: 'Q' } }),
       '_tree.json': TREE,
     })
     const issues = validateEntity(tree, 'sql-collection')
@@ -71,7 +71,7 @@ describe('sql collection / etl pipeline', () => {
 
   it('flags a file whose parent folder the tree does not declare', () => {
     const tree = new MemoryTree({
-      '_collection.json': JSON.stringify({ name: { en: 'Q' } }),
+      'entity.json': JSON.stringify({ type: 'sql-collection', name: { en: 'Q' } }),
       '_tree.json': JSON.stringify([{ path: 'deep/q.sql', type: 'file', order: 0 }]),
       'deep/q.sql': 'SELECT 1;\n',
     })
@@ -88,9 +88,10 @@ describe('sql collection / etl pipeline', () => {
     expect(issues).toEqual([])
   })
 
-  it('keeps `id` — it is the portable identity, not a local key', () => {
-    // The golden fixtures carry `id` on a standalone entity; only a project's
-    // `uid` is regenerated on import.
+  it('tolerates an `id` left over from an older tree', () => {
+    // Exports no longer write `id` — it was the writing instance's local key.
+    // A tree that still carries one imports fine (the importer ignores it), so
+    // it is not worth an issue.
     expect(validateEntity(collection({ id: 'col-1' }), 'sql-collection')).toEqual([])
   })
 
@@ -101,8 +102,13 @@ describe('sql collection / etl pipeline', () => {
 })
 
 describe('schema preset', () => {
-  const preset = (over: Record<string, unknown> = {}) =>
-    new MemoryTree({ 'preset.json': JSON.stringify({ ...PRESET, ...over }) })
+  const preset = (over: Record<string, unknown> = {}) => {
+    const { mapping, ...manifest } = { ...PRESET, ...over }
+    return new MemoryTree({
+      'entity.json': JSON.stringify({ type: 'schema-preset', ...manifest }),
+      'mapping.json': JSON.stringify(mapping),
+    })
+  }
 
   it('accepts a well-formed preset', () => {
     expect(validateEntity(preset(), 'schema-preset')).toEqual([])
@@ -125,11 +131,11 @@ describe('schema preset', () => {
       }),
       'schema-preset',
     )
-    expect(issues.map((i) => i.pointer)).toContain('/mapping')
+    expect(issues.map((i) => i.path)).toContain('mapping.json')
   })
 
   it('requires presetId and a mapping', () => {
-    const issues = validateEntity(new MemoryTree({ 'preset.json': '{}' }), 'schema-preset')
+    const issues = validateEntity(new MemoryTree({ 'entity.json': '{"type":"schema-preset"}' }), 'schema-preset')
     expect(issues.filter((i) => i.severity === 'error')).toHaveLength(2)
   })
 
@@ -173,7 +179,15 @@ describe('entity.json — tolerant reads', () => {
   })
 
   it('still detects a kind from the historical filename', () => {
-    expect(detectEntityKind(collection())).toBe('sql-collection')
+    // `collection()` writes entity.json now, so it cannot stand in for this:
+    // the point is a tree published BEFORE the rename, carrying only the old
+    // per-kind name and no `type` to declare itself.
+    const legacy = new MemoryTree({
+      '_collection.json': JSON.stringify({ name: { en: 'Q' } }),
+      '_tree.json': TREE,
+      'queries/cohort.sql': 'SELECT 1;\n',
+    })
+    expect(detectEntityKind(legacy)).toBe('sql-collection')
   })
 
   it('validates a tree that uses entity.json, reporting against that path', () => {
@@ -184,7 +198,8 @@ describe('entity.json — tolerant reads', () => {
     })
     const issues = validateEntity(tree, 'sql-collection')
     // `name` is required, so the tree is invalid — the point is WHERE it is
-    // reported: entity.json, the file the user actually has.
+    // reported: entity.json, the file the user actually has, never the
+    // historical name it does not.
     expect(issues.some((i) => i.path === 'entity.json')).toBe(true)
     expect(issues.some((i) => i.path === '_collection.json')).toBe(false)
     // ...and entity.json must not itself be reported as an unlisted stray file.

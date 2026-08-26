@@ -16,7 +16,7 @@ const CHECK = {
 
 const ruleSet = (checks: unknown[] = [CHECK]) =>
   new MemoryTree({
-    'rule-set.json': JSON.stringify({ name: { en: 'ICU DQ' } }),
+    'entity.json': JSON.stringify({ type: 'dq-rule-set', name: { en: 'ICU DQ' } }),
     'checks.json': JSON.stringify(checks),
   })
 
@@ -29,7 +29,7 @@ const MAPPING = {
 
 const mappingProject = (mappings: unknown[] = [MAPPING]) =>
   new MemoryTree({
-    'project.json': JSON.stringify({ name: { en: 'MIMIC → OMOP' } }),
+    'entity.json': JSON.stringify({ type: 'mapping-project', name: { en: 'MIMIC → OMOP' } }),
     'mappings.json': JSON.stringify(mappings),
   })
 
@@ -53,7 +53,7 @@ describe('dq rule set', () => {
   })
 
   it('accepts a rule set with no checks yet', () => {
-    const tree = new MemoryTree({ 'rule-set.json': JSON.stringify({ name: { en: 'Empty' } }) })
+    const tree = new MemoryTree({ 'entity.json': JSON.stringify({ type: 'dq-rule-set', name: { en: 'Empty' } }) })
     expect(validateEntity(tree, 'dq-rule-set')).toEqual([])
   })
 
@@ -108,7 +108,7 @@ describe('mapping project', () => {
 describe('data catalog', () => {
   const catalog = (over: Record<string, unknown> = {}) =>
     new MemoryTree({
-      'catalog.json': JSON.stringify({ name: { en: 'Catalog' }, dimensions: ['age'], ...over }),
+      'entity.json': JSON.stringify({ type: 'data-catalog', name: { en: 'Catalog' }, dimensions: ['age'], ...over }),
     })
 
   it('accepts a well-formed catalog', () => {
@@ -121,7 +121,7 @@ describe('data catalog', () => {
   })
 
   it('requires a name', () => {
-    const issues = validateEntity(new MemoryTree({ 'catalog.json': '{}' }), 'data-catalog')
+    const issues = validateEntity(new MemoryTree({ 'entity.json': '{"type":"data-catalog"}' }), 'data-catalog')
     expect(issues.some((i) => i.code === 'missing-field')).toBe(true)
   })
 })

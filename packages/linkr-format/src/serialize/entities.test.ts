@@ -191,26 +191,32 @@ describe('serializeEntity', () => {
     })
 
     it('accepts a tree identified only by entityId', () => {
-      // What the export writes once `presetId` is dropped: the validator must
-      // not demand the retired field.
+      // The retired `presetId` must not be demanded — `entityId` alone identifies
+      // the preset. Still a legacy tree (old manifest name, inline mapping), so
+      // the only thing asserted here is that nothing is reported as an ERROR.
       const tree = new MemoryTree({
         'preset.json': JSON.stringify({ entityId: 'omop-cdm-5-4', mapping: { presetId: 'omop-cdm-5-4' } }),
       })
-      expect(validateEntity(tree, 'schema-preset')).toEqual([])
+      expect(validateEntity(tree, 'schema-preset').filter((i) => i.severity === 'error')).toEqual([])
     })
 
-    it('accepts the id + entityId pair the app exports', () => {
-      // Every standalone entity's export carries both (_collection.json,
-      // _pipeline.json, rule-set.json, catalog.json). A preset is not special.
+    it('warns a pre-harmonization tree without failing it', () => {
+      // A published repo that has not been re-exported yet: old manifest name,
+      // payload inline, `presetId` alongside `entityId`. All three still import,
+      // so they warn — silence would leave an author no reason to migrate.
       const tree = new MemoryTree({
         'preset.json': JSON.stringify({
           presetId: 'omop-cdm-5-4',
-          id: '9f3c2a11-0000-4000-8000-000000000001',
           entityId: 'omop-cdm-5-4',
           mapping: { presetId: 'omop-cdm-5-4' },
         }),
       })
-      expect(validateEntity(tree, 'schema-preset')).toEqual([])
+      const issues = validateEntity(tree, 'schema-preset')
+      expect(issues.filter((i) => i.severity === 'error')).toEqual([])
+      expect(issues.every((i) => i.code === 'legacy-format')).toBe(true)
+      expect(issues.map((i) => i.pointer)).toEqual(
+        expect.arrayContaining(['', '/mapping', '/presetId']),
+      )
     })
 
     it('moves a DDL supplied inside the mapping out to schema.ddl', () => {

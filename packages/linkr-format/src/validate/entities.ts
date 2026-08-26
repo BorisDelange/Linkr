@@ -108,8 +108,41 @@ export function manifestPath(tree: EntityTree, kind: LayoutKind): string {
   return tree.read(ENTITY_MANIFEST) != null ? ENTITY_MANIFEST : MANIFEST[kind]
 }
 
+/**
+ * Report a tree still written in the pre-harmonization layout.
+ *
+ * Warnings, not errors: these trees import fine — every reader accepts the old
+ * names — so failing them would block the published repos that have not been
+ * re-exported yet. But staying silent is worse than tolerant: an author who
+ * validates an old tree and is told "no issues found" has no reason to migrate,
+ * and the whole point of one manifest name is lost one repo at a time.
+ *
+ * Only the manifest-level facts are checked here, the ones true for every kind.
+ * Per-kind payload moves (a preset's inline `mapping`) belong to that kind's
+ * validator, which knows what its payload is.
+ */
+function checkLegacyLayout(tree: EntityTree, kind: LayoutKind, bag: IssueBag): void {
+  const usesLegacyName = tree.read(ENTITY_MANIFEST) == null && tree.read(MANIFEST[kind]) != null
+  if (usesLegacyName) {
+    bag.warn(MANIFEST[kind], '', 'legacy-format',
+      `Legacy manifest name: every entity now writes "${ENTITY_MANIFEST}". `
+      + `Rename ${MANIFEST[kind]} → ${ENTITY_MANIFEST} and add "type": "${kind}".`)
+    return
+  }
+  // Present under the shared name but not declaring what it is: the kind then
+  // has to be sniffed from which files are around, which is what `type` exists
+  // to stop.
+  const parsed = readJson(tree, ENTITY_MANIFEST)
+  if (parsed.ok && isObject(parsed.value) && parsed.value.type == null) {
+    bag.warn(ENTITY_MANIFEST, '/type', 'legacy-format',
+      `Missing "type": "${kind}". The manifest declares what it is rather than `
+      + 'leaving the kind to be inferred from the surrounding files.')
+  }
+}
+
 export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
   const bag = new IssueBag()
+  checkLegacyLayout(tree, kind, bag)
   switch (kind) {
     case 'sql-collection':
       validateScriptCollection(tree, bag, manifestPath(tree, kind), 'SQL collection')
@@ -331,10 +364,11 @@ function validateSchemaPreset(tree: EntityTree, bag: IssueBag): void {
   } else {
     checkString(bag, path, '/presetId', preset.presetId, { required: true, label: 'presetId' })
   }
-  // No check on `lineageId`: an author has none to declare — the app mints it on
-  // import, and a hand-written one would reference nothing. A database needing a
-  // schema's lineage is told so on the database side (`schemaSource.lineageId`),
-  // where the value must already exist.
+  // No check on `lineageId` here. It matters enormously for a *published* repo —
+  // the install mints a fresh uuid when the tree carries none, so two installs of
+  // a lineage-less repo are never recognised as the same entity — but a tree
+  // being authored has no reason to carry one yet, and the validator cannot tell
+  // the two apart. Flagging it would fire on every freshly serialized tree.
   checkInstanceFields(bag, path, preset)
 
   // The mapping is its own file since the split — `entity.json` carries identity
@@ -348,6 +382,20 @@ function validateSchemaPreset(tree: EntityTree, bag: IssueBag): void {
     bag.error(path, '/mapping', 'missing-field',
       `A schema preset needs a mapping — as ${CONTENT_FILE.schemaMapping} beside the manifest.`)
     return
+  }
+  if (!inFile.ok) {
+    // Measured at 88% of the published omop-cdm-5.4 manifest: inline, the payload
+    // buries the identity a human (and the catalog scanner) opens the file for.
+    bag.warn(path, '/mapping', 'legacy-format',
+      `The mapping belongs in ${CONTENT_FILE.schemaMapping} beside the manifest, not inline.`,
+      `move \`mapping\` to ${CONTENT_FILE.schemaMapping}, keeping the name at the root`)
+  }
+  // `presetId` is the retired identity — read on import so old trees keep working,
+  // never written. Reported apart from the entityId check above, which accepts it
+  // as a fallback: carrying it *alongside* entityId is the redundancy to drop.
+  if (preset.presetId != null && preset.entityId != null) {
+    bag.warn(path, '/presetId', 'legacy-format',
+      '`presetId` is `entityId` under its former name; the export no longer writes it.')
   }
   // The exporters canonicalise the mapping before writing it. A tree that is not
   // in that order still imports, but the first re-export rewrites the file — a
