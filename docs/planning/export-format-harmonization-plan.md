@@ -1,7 +1,7 @@
 # Export format harmonization
 
-**Status**: 🚧 in progress — steps 0–4b shipped 2026-08-26; what remains is
-5–7 (sibling repos, MCP, docs). Every entity writes `entity.json`, declares its `type`,
+**Status**: 🚧 in progress — steps 0–4b and 6 shipped 2026-08-26; what remains is
+5 (sibling repos) and 7 (docs). Every entity writes `entity.json`, declares its `type`,
 and opens with the same five identity keys; every reader accepts both the new name and the
 one it used before. Step 5 is the one that touches published content.
 **Decided**: `entity.json` for every entity, at every depth (containers and git-link stubs
@@ -858,10 +858,27 @@ In lockstep, since they read our trees. The survey found more attachment points 
 - Our side: `seed-loader.ts` (~20 hardcoded paths) cannot list directories over `fetch`
   (`:813`), so every path is explicit and must be updated by hand.
 
-**Step 6 — MCP + authoring surface (S/M).**
+**Step 6 — MCP + authoring surface (S/M). DONE 2026-08-26.**
 `describe_entity_schema` / `describe_tree` / `validate_entity` / `write_entity` describe the
-layout to an LLM, so their prose and examples are part of the format. Update the
-`linkr-authoring` skill references too.
+layout to an LLM, so their prose and examples are part of the format — stale prose there
+produces stale trees.
+
+The load-bearing fix was `IDENTITY_DOC`, which still instructed authors to write an `id`
+"adopted verbatim on install": it no longer travels, so an authored one is silently dropped.
+It now says not to write one, and explains that `lineageId` is what identifies an entity
+across instances and what makes a re-import update in place. Also corrected: the preset
+payload is `mapping.json` (not `preset.json` → `mapping`), the standalone-entity table in the
+`linkr-authoring` skill lists `entity.json` + the `scripts/` container, and `validate_entity`
+no longer claims a project is identified by `project.json` — the kind comes from the
+manifest's declared `type`.
+
+**Not in scope here: the MCP's missing edit surface.** The MCP is write-mostly — no
+update/move/remove, and `describe_tree` is a summary rather than a read, so an agent cannot
+read-modify-write through it and falls back to `Read`/`Edit` on the JSON. That is inventoried
+in `mcp-authoring-plan.md` §7b and sequenced **after** this effort: step 5 is still going to
+move the published trees, and a mutator written against them now would target a shape about
+to change. Re-exporting those repos is also the first real test of `validate_entity` against
+current writer output, which should sharpen that scoping.
 
 **Step 7 — Docs (S).**
 `docs/architecture.md` § *Format package & MCP authoring* becomes the single written

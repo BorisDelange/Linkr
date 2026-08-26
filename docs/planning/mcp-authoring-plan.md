@@ -635,6 +635,22 @@ Not in scope, and worth naming so it is not rediscovered as a gap: **plugins** (
 wrong one returns a different population rather than failing, so it is built in the app).
 Both stay ⚠️ in the skill's table. Closing the edit surface does not change that.
 
+**Sequenced after the export-format harmonization** (`export-format-harmonization-plan.md`),
+deliberately — not because the two conflict, but because they answer different questions:
+that effort changes *what a file contains*, this one changes *who may modify it and how*.
+Landing them together would put a key-cascade bug and a format change in one diff, and when
+the catalog CI reddens neither would be exonerated.
+
+The concrete blocker is its **step 5**: ~10 published repos still carry the pre-harmonization
+layout. A mutator written now would target a shape that is about to move under it. The
+cascade in §7b.4 is the same failure `sql-collection-id-churn` already cost once, so it wants
+its own tests and its own commits rather than a tail-end addition.
+
+Re-exporting those repos is also the first real exercise of `validate_entity` /
+`detectTreeKind` against trees the writers produce today. What that turns up — especially
+about the missing read half (§7b.1 gap 2) — is better evidence for scoping A1/A2 than this
+inventory alone.
+
 ---
 
 ## 8. Open questions
