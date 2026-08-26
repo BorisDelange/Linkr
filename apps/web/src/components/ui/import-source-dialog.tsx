@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { cleanGitUrl } from '@/lib/git-clone'
-import { gitCloneToZip } from '@/lib/api/git'
+import { gitCloneToZip, GitRemoteError } from '@/lib/api/git'
 import { isServerMode } from '@/lib/api-client'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { GitErrorInline } from '@/components/versioning/GitErrorInline'
@@ -24,7 +24,8 @@ import { useCatalogInstall } from '@/features/catalog/use-catalog-install'
 import { catalogTypeForScope } from '@/lib/catalog/scope'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import type { GitScope } from '@/lib/api/git'
+import type { GitScope, GitErrorCode } from '@/lib/api/git'
+import type { CatalogEntryType } from '@/lib/catalog/types'
 
 /** Git link captured during an import-from-git, so the caller can pre-configure
  *  the imported entity's Versioning page with the same repo. */
@@ -56,6 +57,14 @@ interface ImportSourceDialogProps {
    * (or pass a scope the catalog does not publish) to keep the two-source dialog.
    */
   scope?: GitScope
+  /**
+   * Catalog type to list, for a page whose entity has no git scope. Install-only
+   * types (`database`) deliberately have none — a database repo carries data and
+   * the app never writes a row, so it must never get a push button — but they are
+   * still installable, and naming the type directly is what lets the catalog tab
+   * appear without inventing a pushable scope. Ignored when `scope` resolves one.
+   */
+  catalogType?: CatalogEntryType
   /** Called after a catalog install, so the caller can refresh its list. */
   onCatalogInstalled?: () => void
 }
@@ -65,8 +74,8 @@ interface ImportSourceDialogProps {
  * catalog. Git clone runs SERVER-SIDE only: the backend clones the repo and returns a
  * ZIP, which flows through the same import path as an upload. In client-only (WASM)
  * mode the git tab shows a "not available" notice — the in-browser CORS-proxy
- * clone was dropped (too fragile for too little value). The catalog tab appears only
- * when `scope` names a type the catalog publishes.
+ * clone was dropped (too fragile for too little value). The catalog tab appears when
+ * `scope` names a type the catalog publishes, or when `catalogType` names one directly.
  */
 export function ImportSourceDialog({
   open,
@@ -75,6 +84,7 @@ export function ImportSourceDialog({
   onImport,
   hideGit = false,
   scope,
+  catalogType: catalogTypeProp,
   onCatalogInstalled,
 }: ImportSourceDialogProps) {
   const { t } = useTranslation()
@@ -84,13 +94,14 @@ export function ImportSourceDialog({
   const [token, setToken] = useState('')
   const [cloning, setCloning] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [error, setError] = useState<string | null>(null)  // full raw error, shown via GitErrorInline's tooltip
+  const [error, setError] = useState<string | null>(null)  // full raw error, shown by GitErrorInline
+  const [errorCode, setErrorCode] = useState<GitErrorCode | undefined>(undefined)
   const [dragActive, setDragActive] = useState(false)
 
   // Git clone is server-side only.
   const serverMode = isServerMode()
 
-  const catalogType = catalogTypeForScope(scope)
+  const catalogType = catalogTypeForScope(scope) ?? catalogTypeProp
   /** Tracked only to widen the dialog on the catalog tab, whose cards need the room. */
   const [tab, setTab] = useState('upload')
   const language = useAppStore((s) => s.language)
@@ -109,6 +120,7 @@ export function ImportSourceDialog({
     // closing first made it look done while it was still uploading in the
     // background, so the new project appeared only after a manual reload.
     setError(null)
+    setErrorCode(undefined)
     setImporting(true)
     try {
       await onImport(file)
@@ -138,6 +150,7 @@ export function ImportSourceDialog({
   const handleClone = async () => {
     if (!url.trim() || cloning) return
     setError(null)
+    setErrorCode(undefined)
     setCloning(true)
     try {
       // Users often paste a repo web-page URL (…/-/tree/main?ref_type=heads); clean
@@ -156,8 +169,9 @@ export function ImportSourceDialog({
       onOpenChange(false)
     } catch (err) {
       console.error('[import] git clone/import failed:', err)
-      // One generic line + the full raw error in an info tooltip (GitErrorInline),
-      // consistent with the versioning surfaces — no per-case message mapping.
+      // Keep the backend's typed code alongside the raw text: it is what turns
+      // "something went wrong" into "this repo needs a token".
+      setErrorCode(err instanceof GitRemoteError ? err.code : undefined)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setCloning(false)
@@ -170,7 +184,7 @@ export function ImportSourceDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => {
       if (busy) return  // don't let the modal close mid-import
-      if (!o) setError(null)
+      if (!o) { setError(null); setErrorCode(undefined) }
       onOpenChange(o)
     }}>
       {/* The catalog tab shows the same cards as the Catalog page, two to a row; the
@@ -225,6 +239,9 @@ export function ImportSourceDialog({
                 <input ref={fileInputRef} type="file" accept={accept} className="hidden" onChange={handleFile} />
               </div>
             )}
+            {/* A failed upload set `error` but only the git tab rendered it, so a
+                rejected ZIP looked like nothing had happened at all. */}
+            {!importing && error && <div className="mt-3"><GitErrorInline detail={error} message={t('import_source.upload_failed')} /></div>}
           </TabsContent>
 
           {/* Clone from Git — server-side only; hidden when a remote is already linked */}
@@ -247,7 +264,7 @@ export function ImportSourceDialog({
                   <PasswordInput value={token} onChange={(e) => setToken(e.target.value)} placeholder={t('import_source.git_token_ph')} className="h-9 text-sm" />
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed">{t('import_source.private_repo_hint')}</p>
-                {error && <GitErrorInline detail={error} />}
+                {error && <GitErrorInline detail={error} code={errorCode} />}
                 <div className="flex items-center justify-end gap-2">
                   {importing && <span className="text-xs text-muted-foreground">{t('import_source.importing')}</span>}
                   <Button onClick={handleClone} disabled={!url.trim() || busy} className="gap-1.5">

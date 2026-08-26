@@ -10,7 +10,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import type { DataSource, CustomSchemaPreset } from '@/types'
-import { Database, Plus, FileCode, Search, Plug, ChevronDown, Loader2 } from 'lucide-react'
+import { Database, Plus, FileCode, Search, Plug, ChevronDown, Loader2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { BadgeStrip } from '@/components/ui/badge-strip'
@@ -46,6 +46,9 @@ import {
 } from '@/components/ui/alert-dialog'
 import { generateAlias } from '@/lib/duckdb/engine'
 import { getStorage } from '@/lib/storage'
+import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
+import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { parseDatabaseZip, importParsedDatabase, type ParsedDatabaseZip } from '@/lib/entity-io'
 import { DatabaseCard } from '@/features/projects/warehouse/databases/DatabaseCard'
 import { AddDatabaseDialog } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
 import { DatabaseDetailPage } from '@/features/projects/warehouse/databases/DatabaseDetailPage'
@@ -237,7 +240,7 @@ export function AppDatabasesPage() {
   const navigate = useNavigate()
   const canWrite = useMyWorkspaceRole().can('databases:write')
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const { testConnection, disconnectDataSource, removeDataSource, reconnectDataSource, retestDataSource } = useDataSourceStore()
+  const { testConnection, disconnectDataSource, removeDataSource, reconnectDataSource, retestDataSource, loadDataSources } = useDataSourceStore()
   // In server mode the DB lives on the server: (re)connecting means re-testing
   // the stored connection there (testConnection/reconnect are front-only no-ops).
   const connectAction = (id: string) => (isServerMode() ? retestDataSource(id) : testConnection(id))
@@ -247,6 +250,8 @@ export function AppDatabasesPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [presetDialogOpen, setPresetDialogOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [conflict, setConflict] = useState<{ name: string; pending: ParsedDatabaseZip; gitRemote?: ImportGitRemote } | null>(null)
   const [sourceToRemove, setSourceToRemove] = useState<DataSource | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
@@ -322,6 +327,34 @@ export function AppDatabasesPage() {
     }
   }
 
+  const doImport = useCallback(async (
+    parsed: ParsedDatabaseZip,
+    duplicate: boolean,
+    gitRemote?: ImportGitRemote,
+  ) => {
+    await importParsedDatabase(
+      parsed,
+      getStorage(),
+      duplicate,
+      wsUid,
+      gitRemote ? { url: gitRemote.url, branch: gitRemote.branch } : undefined,
+    )
+    await loadDataSources()
+  }, [wsUid, loadDataSources])
+
+  /** A database repo carries its Parquet, so the ZIP is read as bytes rather than
+   *  through parseImportZip (which decodes every entry as text). */
+  const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
+    const parsed = await parseDatabaseZip(file)
+    if (!parsed) throw new Error(t('databases.import_not_a_database'))
+    const existing = await getStorage().dataSources.getById(parsed.id).catch(() => null)
+    if (existing) {
+      setConflict({ name: localized(existing.name, language), pending: parsed, gitRemote })
+    } else {
+      await doImport(parsed, false, gitRemote)
+    }
+  }, [doImport, language, t])
+
   // Ids are shortened in the URL, so resolve the prefix against this workspace's
   // own list — the same way every other detail route does.
   const siblingIds = visibleSources.map((ds: DataSource) => ds.id)
@@ -345,6 +378,16 @@ export function AppDatabasesPage() {
             </p>
           </div>
           <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 text-xs"
+              disabled={!canWrite}
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload size={14} />
+              {t('common.import')}
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" className="gap-1 text-xs" disabled={!canWrite}>
@@ -425,6 +468,25 @@ export function AppDatabasesPage() {
       {/* Creation only — editing an existing database goes through the card's
           actions menu, which renders this same dialog with the item. */}
       <AddDatabaseDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+
+      {/* `database` has no git scope on purpose (it is install-only, never pushed),
+          so the catalog tab is named by type instead. */}
+      <ImportSourceDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        accept=".zip"
+        onImport={handleImport}
+        catalogType="database"
+        onCatalogInstalled={loadDataSources}
+      />
+
+      <ImportConflictDialog
+        open={!!conflict}
+        onOpenChange={(open) => { if (!open) setConflict(null) }}
+        existingName={conflict?.name ?? ''}
+        onDuplicate={() => { if (conflict) void doImport(conflict.pending, true, conflict.gitRemote); setConflict(null) }}
+        onOverwrite={() => { if (conflict) void doImport(conflict.pending, false, conflict.gitRemote); setConflict(null) }}
+      />
 
 
       <AlertDialog

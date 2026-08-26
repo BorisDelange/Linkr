@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, reassemblePresetMapping, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, reassemblePresetMapping, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/features/warehouse/etl/etl-versioning'
@@ -1306,6 +1306,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         get: (_t, prop) => {
           switch (prop) {
             case 'dataSources': return {
+              getAll: async () => [],
               getById: async () => null,
               create: rec('ds.create'),
               update: rec('ds.update'),
@@ -1341,14 +1342,16 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
 
       expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
       expect(calls['file.create']).toHaveLength(2)
-      const created = calls['ds.create']![0][0] as {
-        id: string
+      const created = calls['ds.create']![0][0] as { id: string }
+      expect(created.id).toBe('db-target')
+      // The row is written first (server mode registers files against it), so the
+      // file list arrives in the follow-up update rather than at creation.
+      const patched = calls['ds.update']!.at(-1)![1] as {
         connectionConfig: { fileNames: string[]; fileIds: string[] }
       }
-      expect(created.id).toBe('db-target')
-      expect(created.connectionConfig.fileNames.sort())
+      expect(patched.connectionConfig.fileNames.sort())
         .toEqual(['admissions.parquet', 'patients.parquet'])
-      expect(created.connectionConfig.fileIds).toHaveLength(2)
+      expect(patched.connectionConfig.fileIds).toHaveLength(2)
     })
 
     it('refuses a schema id this instance cannot resolve', async () => {
@@ -1417,6 +1420,112 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
       expect(await applyClonedEntity(back, 'database', 'db-target', store)).toBe(true)
       const created = calls['ds.create']![0][0] as { schemaMapping: { presetId: string } }
       expect(created.schemaMapping.presetId).toBe('inline')
+    })
+
+    describe('ZIP import (Databases page)', () => {
+      /** A database repo as a ZIP file, one root folder deep like a git download. */
+      async function repoZip(over: Record<string, unknown> = {}): Promise<File> {
+        const zip = new JSZip()
+        zip.file('mimic-iv-demo/entity.json', META(over))
+        zip.file('mimic-iv-demo/data/patients.parquet', new Uint8Array([1, 2, 3]))
+        zip.file('mimic-iv-demo/data/admissions.parquet', new Uint8Array([4, 5]))
+        return await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+      }
+
+      it('reads the manifest through a root folder, keeping Parquet as bytes', async () => {
+        const parsed = await parseDatabaseZip(await repoZip())
+        expect(parsed?.id).toBe('mimic-iv-demo')
+        expect(parsed?.name).toEqual({ en: 'MIMIC-IV Demo' })
+        expect(parsed?.tableCount).toBe(2)
+
+        // parseImportZip would have decoded these as text and corrupted them.
+        const { store, calls } = makeStore()
+        await importParsedDatabase(parsed!, store, false)
+        const files = calls['file.create']!.map((c) => c[0] as { fileSize: number })
+        expect(files.map((f) => f.fileSize).sort()).toEqual([2, 3])
+      })
+
+      it('overwrite reuses the repo id, duplicate mints a fresh one', async () => {
+        const parsed = (await parseDatabaseZip(await repoZip()))!
+
+        const over = makeStore()
+        expect(await importParsedDatabase(parsed, over.store, false)).toBe('mimic-iv-demo')
+
+        const dup = makeStore()
+        const dupId = await importParsedDatabase(parsed, dup.store, true)
+        expect(dupId).not.toBe('mimic-iv-demo')
+        expect(dupId).toBeTruthy()
+      })
+
+      it('renames a duplicate whose alias is already taken', async () => {
+        // The alias names the DuckDB schema (ds_<alias>), so a copy keeping the
+        // original's alias would shadow the original's tables.
+        const parsed = (await parseDatabaseZip(await repoZip()))!
+        const calls: Record<string, unknown[][]> = {}
+        let stored: { id: string; alias: string } | null = null
+        const store = new Proxy({}, {
+          get: (_t, prop) => {
+            switch (prop) {
+              case 'dataSources': return {
+                getAll: async () => [{ id: 'other', alias: 'mimic_iv_demo' }],
+                getById: async () => stored,
+                create: async (ds: { id: string; alias: string }) => { stored = ds },
+                update: async (_id: string, ch: Record<string, unknown>) => {
+                  (calls['ds.update'] ??= []).push([ch])
+                  if (stored && typeof ch.alias === 'string') stored.alias = ch.alias
+                },
+              }
+              case 'files': return {
+                getByDataSource: async () => [],
+                create: async () => {},
+                delete: async () => {},
+              }
+              default: return new Proxy({}, { get: () => async () => {} })
+            }
+          },
+        }) as unknown as Storage
+
+        await importParsedDatabase(parsed, store, true)
+        expect(stored!.alias).toBe('mimic_iv_demo_2')
+      })
+
+      it('creates the data source before registering its files', async () => {
+        // Server mode registers each blob AGAINST the source row, so storing
+        // files first made the API answer a bare 404 ("Not found") that named
+        // nothing — the import failed with no usable message.
+        const order: string[] = []
+        const store = new Proxy({}, {
+          get: (_t, prop) => {
+            switch (prop) {
+              case 'dataSources': return {
+                getAll: async () => [],
+                getById: async () => null,
+                create: async () => { order.push('source') },
+                update: async () => { order.push('update') },
+              }
+              case 'files': return {
+                getByDataSource: async () => [],
+                create: async () => { order.push('file') },
+                delete: async () => {},
+              }
+              default: return new Proxy({}, { get: () => async () => {} })
+            }
+          },
+        }) as unknown as Storage
+
+        const zip = new JSZip()
+        zip.file('_database.json', META())
+        zip.file('data/patients.parquet', new Uint8Array([1]))
+        zip.file('data/admissions.parquet', new Uint8Array([2]))
+        expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+        expect(order.indexOf('source')).toBeLessThan(order.indexOf('file'))
+      })
+
+      it('returns null for a ZIP that is not a database repo', async () => {
+        const zip = new JSZip()
+        zip.file('project.json', '{}')
+        expect(await parseDatabaseZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File)).toBeNull()
+      })
     })
   })
 

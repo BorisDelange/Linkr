@@ -2832,29 +2832,10 @@ async function applyClonedDatabase(
   const previous = await storage.files.getByDataSource(targetId).catch(() => [])
   for (const file of previous) await storage.files.delete(file.id).catch(() => {})
 
-  const storedFiles: StoredFile[] = []
-  for (const table of declared) {
-    const entry = zip.files[`data/${table}.parquet`]
-    // Data files are gitignored in many trees, so a missing table is not fatal:
-    // the metadata still imports and the user sees a database with fewer tables.
-    if (!entry || entry.dir) continue
-    const data = await entry.async('arraybuffer')
-    const stored: StoredFile = {
-      id: crypto.randomUUID(),
-      dataSourceId: targetId,
-      fileName: `${table}.parquet`,
-      fileSize: data.byteLength,
-      data,
-      createdAt: now,
-    }
-    storedFiles.push(stored)
-    await storage.files.create(stored)
-  }
-
   const connectionConfig: DatabaseConnectionConfig = {
     engine: 'duckdb',
-    fileIds: storedFiles.map((f) => f.id),
-    fileNames: storedFiles.map((f) => f.fileName),
+    fileIds: [],
+    fileNames: [],
     ...(meta.inMemory ? { inMemory: true } : {}),
   }
 
@@ -2897,6 +2878,41 @@ async function applyClonedDatabase(
   }) as unknown as DataSource
   if (existing) await storage.dataSources.update(targetId, withDocs).catch(() => {})
   else await storage.dataSources.create(withDocs as DataSource).catch(() => {})
+
+  // The row has to exist BEFORE its files: in server mode `files.create` registers
+  // each blob against the data source, and the API refuses an unknown one with a
+  // bare 404 ("Not found") that says nothing about which row is missing.
+  const storedFiles: StoredFile[] = []
+  for (const table of declared) {
+    const entry = zip.files[`data/${table}.parquet`]
+    // Data files are gitignored in many trees, so a missing table is not fatal:
+    // the metadata still imports and the user sees a database with fewer tables.
+    if (!entry || entry.dir) continue
+    const data = await entry.async('arraybuffer')
+    const stored: StoredFile = {
+      id: crypto.randomUUID(),
+      dataSourceId: targetId,
+      fileName: `${table}.parquet`,
+      fileSize: data.byteLength,
+      data,
+      createdAt: now,
+    }
+    storedFiles.push(stored)
+    await storage.files.create(stored)
+  }
+  // Point the source at what was just stored. Client-only reads these ids back
+  // from IndexedDB to mount the tables; server mode resolves its files from
+  // data_source_files by source id and ignores them, so the names are what
+  // matter there.
+  if (storedFiles.length > 0) {
+    await storage.dataSources.update(targetId, {
+      connectionConfig: {
+        ...connectionConfig,
+        fileIds: storedFiles.map((f) => f.id),
+        fileNames: storedFiles.map((f) => f.fileName),
+      },
+    }).catch(() => {})
+  }
 
   // Server mode holds the files itself, so the browser neither mounts them in
   // DuckDB-WASM nor computes stats from them — the same split seedDatabase makes.
