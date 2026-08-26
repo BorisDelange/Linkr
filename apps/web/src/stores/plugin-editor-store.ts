@@ -13,7 +13,7 @@ import { buildPlugin, isBuiltinPluginId } from '@/lib/plugins/default-plugins'
 import { computePluginContentHash } from '@/lib/plugin-hash'
 import { useWorkspaceStore } from './workspace-store'
 import { useOrganizationStore } from './organization-store'
-import { stampAuthored } from './app-store'
+import { stampAuthored, stampLineage } from './app-store'
 
 /** Plugins are always workspace-scoped. Callers guard the UI so this only throws
  * as a backstop (e.g. a create attempted with no workspace open). */
@@ -303,7 +303,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     }
     const now = new Date().toISOString()
     const wsId = requireActiveWorkspace()
-    const userPlugin: UserPlugin = { id, entityId: entityId || undefined, files, ...stampAuthored(), createdAt: now, updatedAt: now, workspaceId: wsId }
+    const userPlugin: UserPlugin = { id, entityId: entityId || undefined, files, ...stampAuthored(), ...stampLineage(), createdAt: now, updatedAt: now, workspaceId: wsId }
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
     // Register in runtime
@@ -350,7 +350,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     }
     const now = new Date().toISOString()
     const wsId = requireActiveWorkspace()
-    await getStorage().userPlugins.create({ id, entityId: entityId || undefined, files, ...stampAuthored(), createdAt: now, updatedAt: now, workspaceId: wsId })
+    await getStorage().userPlugins.create({ id, entityId: entityId || undefined, files, ...stampAuthored(), ...stampLineage(), createdAt: now, updatedAt: now, workspaceId: wsId })
     const plugin = buildPlugin(manifest, { python: scaffoldTemplate })
     plugin.workspaceId = wsId
     registerPlugin(plugin)
@@ -444,7 +444,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     // Row id must be unique per workspace (global PK); the manifest id lives in
     // entityId + the plugin.json. Same rule as seedBuiltinPluginsForWorkspace.
     const rowId = crypto.randomUUID()
-    const userPlugin: UserPlugin = { id: rowId, entityId: pluginId, files, ...stampAuthored(), createdAt: now, updatedAt: now, workspaceId: wsId }
+    const userPlugin: UserPlugin = { id: rowId, entityId: pluginId, files, ...stampAuthored(), ...stampLineage(), createdAt: now, updatedAt: now, workspaceId: wsId }
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
     registerPlugin(plugin)
@@ -486,7 +486,16 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
 
     const now = new Date().toISOString()
     const wsId = requireActiveWorkspace()
-    const newPlugin: UserPlugin = { id: newId, files: sourceFiles, ...stampAuthored(), createdAt: now, updatedAt: now, workspaceId: wsId }
+    // A duplicate is a fork: it mints its own lineage and records where it came
+    // from, rather than sharing the source's — two rows claiming one published
+    // identity would be indistinguishable to every other instance.
+    const source = await storage.userPlugins.getById(sourceId).catch(() => undefined)
+    const newPlugin: UserPlugin = {
+      id: newId, files: sourceFiles, ...stampAuthored(),
+      lineageId: crypto.randomUUID(),
+      ...(source?.lineageId ? { parentLineageId: source.lineageId } : {}),
+      createdAt: now, updatedAt: now, workspaceId: wsId,
+    }
     await storage.userPlugins.create(newPlugin)
 
     // Register

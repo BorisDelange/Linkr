@@ -23,6 +23,15 @@ class UserPlugin(Base, TimestampMixin):
     # so it travels with the export (LICENSE.md) independently of the picker.
     license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # User-facing semver, portable across export/import (see Project.version).
+    version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
+    # Stable cross-instance identity, separate from the local PK: preserved verbatim
+    # across export/import so two instances holding the same published plugin
+    # recognise it as one entity. A fork mints a new lineage_id and records where it
+    # came from in parent_lineage_id. Missing until now, so a published plugin was
+    # identifiable only by its git URL.
+    lineage_id: Mapped[str | None] = mapped_column(String(36))
+    parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
     # Frozen origin-organization snapshot, carried across export/import.
     organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Creator provenance (see Project): created_by_id is the stable local identity;

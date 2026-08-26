@@ -2323,6 +2323,13 @@ export async function buildUserPluginFolder(
     entityId: plugin.entityId,
     createdBy: plugin.createdBy,
     createdByDetails: plugin.createdByDetails,
+    // Provenance, like every other exportable entity: without the lineage a
+    // published plugin was identifiable only by its git URL, and a fork recorded
+    // nothing about where it came from.
+    ...(plugin.lineageId ? { lineageId: plugin.lineageId } : {}),
+    ...(plugin.parentLineageId ? { parentLineageId: plugin.parentLineageId } : {}),
+    ...(plugin.createdAt ? { createdAt: plugin.createdAt } : {}),
+    version: plugin.version ?? '0.1.0',
   }))
   await writeEntityDocs(zip, prefix, plugin, storage, 'user-plugin', plugin.id)
   for (const [filename, content] of Object.entries(plugin.files)) {

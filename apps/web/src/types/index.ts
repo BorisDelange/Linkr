@@ -1260,7 +1260,7 @@ export interface DqRunHistoryEntry {
 
 // --- User Plugin Types ---
 
-export interface UserPlugin extends Authored {
+export interface UserPlugin extends Authored, Lineaged {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
@@ -1274,6 +1274,8 @@ export interface UserPlugin extends Authored {
   organization?: OrganizationInfo
   /** Git remote for exporting/versioning the plugin (same pattern as other entities). */
   gitRemoteConfig?: GitRemoteConfig
+  /** User-facing semver (default '0.1.0'). Portable across export/import. */
+  version?: string
   createdAt: string
   updatedAt: string
 }

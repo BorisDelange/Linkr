@@ -841,12 +841,26 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
 
 
 async def build_user_plugin_tree(db: AsyncSession, plugin) -> dict[str, bytes]:
-    # _plugin.json is a hand-built 4-key object (id/entityId/createdBy/
-    # createdByDetails) + org last, mirroring buildUserPluginFolder (entity-io.ts:1622);
-    # each source file is written at its raw filename. None-valued keys are dropped
-    # to match JSON.stringify omitting undefined.
+    # _plugin.json is hand-built in the same key order as buildUserPluginFolder
+    # (entity-io.ts) — identity, author, then provenance — with the org appended
+    # last; each source file is written at its raw filename. None-valued keys are
+    # dropped to match JSON.stringify omitting undefined. `version` is not: the
+    # client always writes it (defaulting to 0.1.0), so omitting it would diff.
     p = _dump(UserPluginResponse, plugin)
-    meta = {k: p[k] for k in ("id", "entityId", "createdBy", "createdByDetails") if p.get(k) is not None}
+    meta = {
+        k: p[k]
+        for k in (
+            "id",
+            "entityId",
+            "createdBy",
+            "createdByDetails",
+            "lineageId",
+            "parentLineageId",
+            "createdAt",
+        )
+        if p.get(k) is not None
+    }
+    meta["version"] = p.get("version") or "0.1.0"
     tree: dict[str, bytes] = {"_plugin.json": _json(meta)}
     tree.update(await _entity_docs(db, "", p, "user-plugin", plugin.id))
     for filename, content in (plugin.files or {}).items():
