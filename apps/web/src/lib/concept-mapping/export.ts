@@ -2,7 +2,7 @@ import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptId
 import { ENTITY_MANIFEST } from '@linkr/format'
 import { APP_VERSION } from '@/lib/version'
 import { localized } from '@/lib/localized'
-import { stripInstanceFields, attachEntityOrganization, licenseMeta, writeReadmeFiles, writeLicenseFile, writeAttachmentFiles } from '@/lib/entity-io'
+import { stripInstanceFields, attachEntityOrganization, licenseMeta, orderProvenance, writeReadmeFiles, writeLicenseFile, writeAttachmentFiles } from '@/lib/entity-io'
 import { mappingKey } from '@/lib/concept-mapping/merge'
 import { compareCodePoints } from '@/lib/concept-mapping/source-concept-ids-io'
 import { buildCcrCsvs } from '@/lib/concept-mapping/ccr-export'
@@ -724,28 +724,31 @@ function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
  */
 export function cleanMappingProjectMeta(project: MappingProject): Record<string, unknown> {
   const { conceptSetIds: _, importBatches: _ib, fileSourceData, vocabularyDataSourceId: _vds, readme: _readme, license, ...projectRest } = project
-  const { id, entityId, ...rest } = stripInstanceFields(projectRest) as Record<string, unknown>
+  // `id` never travels — it is the writing instance's local key. `entityId` is the
+  // portable slug and `lineageId` the cross-instance identity. The provenance keys
+  // go through the shared ordering, so this manifest reads the same as every other
+  // kind's; `appVersion` trails the block.
+  const { id: _localKey, entityId, ...rest } = stripInstanceFields(projectRest) as Record<string, unknown>
   return {
-    ...(id !== undefined ? { id } : {}),
     ...(entityId !== undefined ? { entityId } : {}),
     // Declared rather than inferred: `mappings.json` used to be what told this
     // apart from a plain project, which one shared manifest name cannot support.
     type: 'mapping-project' as const,
-    ...rest,
-    // The readme and the licence text travel as README.md / LICENSE.md; only the
-    // licence's identity stays here.
-    ...(licenseMeta(license) ? { license: licenseMeta(license) } : {}),
-    dataSourceId: '',
-    ...(fileSourceData ? {
-      fileSourceData: {
-        ...fileSourceData,
-        rawFileBuffer: undefined,
-        rows: [],
-      },
-    } : {}),
+    ...orderProvenance({
+      ...rest,
+      // The readme and the licence text travel as README.md / LICENSE.md; only
+      // the licence's identity stays here.
+      ...(licenseMeta(license) ? { license: licenseMeta(license) } : {}),
+      dataSourceId: '',
+      ...(fileSourceData ? {
+        fileSourceData: {
+          ...fileSourceData,
+          rawFileBuffer: undefined,
+          rows: [],
+        },
+      } : {}),
+    }),
     // The export-format version stamp, as every other kind carries it.
-    // `organization` is appended after this by attachEntityOrganization, which
-    // re-opens the file — so appVersion is last only until that runs.
     appVersion: APP_VERSION,
   }
 }

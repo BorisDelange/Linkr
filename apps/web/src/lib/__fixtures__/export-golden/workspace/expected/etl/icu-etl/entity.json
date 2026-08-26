@@ -1,5 +1,4 @@
 {
-  "id": "pipe1",
   "entityId": "icu-etl",
   "type": "etl-pipeline",
   "name": {
@@ -16,6 +15,12 @@
   "status": "draft",
   "lastRunAt": null,
   "lastRunDurationMs": null,
+  "config": {
+    "versionedDataFiles": [
+      "mapping/kept.csv"
+    ]
+  },
+  "createdAt": "2026-01-02T03:04:05.000Z",
   "createdBy": "Boris Delange",
   "createdByDetails": {
     "firstName": "Boris",
@@ -24,13 +29,7 @@
   },
   "lineageId": "lin-pipe1",
   "parentLineageId": null,
-  "createdAt": "2026-01-02T03:04:05.000Z",
   "version": "0.1.0",
-  "config": {
-    "versionedDataFiles": [
-      "mapping/kept.csv"
-    ]
-  },
   "license": {
     "id": "MIT"
   },

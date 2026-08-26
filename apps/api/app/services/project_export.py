@@ -388,30 +388,26 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
     fields, reduce ``license`` to its identity (the text travels as LICENSE.md),
     append ``appVersion``, then append the inherited ``organization`` snapshot at
     the end when one resolves."""
-    dropped = {"readme", "todos", "notes", "uid", "license"}
+    # `projectId` is the retired name of `entityId` — the same value written
+    # twice. Every reader takes `entityId` first and falls back to it, so a repo
+    # published before the rename still imports; nothing new emits it.
+    dropped = {"readme", "todos", "notes", "uid", "license", "projectId"}
     meta = {k: v for k, v in project.items() if k not in dropped}
     out = _strip_instance_fields(meta)
-    # `entityId` leads the file, matching buildProjectZip: it is the slug under the
-    # name every entity uses, and `projectId` follows with the same value so a
-    # Linkr predating the rename still reads the tree. Placed at the front rather
-    # than assigned, since a dict re-adds a popped key last — which would diff.
+    # `entityId` leads the file, matching buildProjectZip. Placed at the front
+    # rather than assigned, since a dict re-adds a popped key last — a false diff.
     slug = project.get("entityId") or project.get("projectId")
-    # A project's primary key is `uid`, dropped above as instance-local; it is
-    # written back here under the name the identity block uses on every kind.
-    out.pop("id", None)
-    out.pop("entityId", None)
-    out = {
-        "id": project.get("uid"),
-        **({"entityId": slug} if slug else {}),
-        **out,
-    }
+    if slug:
+        out.pop("entityId", None)
+        out = {"entityId": slug, **out}
     licence = license_meta(project.get("license"))
     if licence is not None:
         out["license"] = licence
-    out["appVersion"] = APP_VERSION
     if organization:
         out["organization"] = org_snapshot(organization)
-    return _json(with_entity_type(out, TYPE_PROJECT))
+    # appVersion last, after the provenance block with_entity_type orders.
+    out.pop("appVersion", None)
+    return _json(with_entity_type(out, TYPE_PROJECT, APP_VERSION))
 
 
 def _readme_files(readme: Any) -> dict[str, bytes]:

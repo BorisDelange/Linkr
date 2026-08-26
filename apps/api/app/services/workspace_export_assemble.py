@@ -48,6 +48,7 @@ from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.entity_docs import license_meta
 from app.services.export_layout import (
     CONTENT_PLUGIN_MANIFEST,
+    order_provenance,
     CONTENT_SCHEMA_MAPPING as SCHEMA_PRESET_MAPPING_FILE,
     ENTITY_MANIFEST,
     SCRIPTS_DIR,
@@ -742,14 +743,20 @@ async def assemble_workspace_zip(
 
 
 async def _attach_org(db: AsyncSession, tree: dict[str, bytes], meta_path: str, entity) -> None:
-    """Port of attachEntityOrganization (entity-io.ts:1487): re-serialize the
-    already-written metadata JSON with the resolved org snapshot appended as the
-    last key. No-op when the entity resolves no org."""
+    """Port of attachEntityOrganization (entity-io.ts): re-serialize the
+    already-written metadata JSON with the resolved org snapshot placed beside the
+    author it belongs with. No-op when the entity resolves no org.
+
+    Re-ordered rather than assigned: assigning appends (the key is new), which is
+    the only reason `organization` used to trail the whole file."""
     org = await resolve_entity_org_snapshot(db, entity)
     if org is None or meta_path not in tree:
         return
     meta = json.loads(tree[meta_path].decode("utf-8"))
-    meta["organization"] = org
+    app_version = meta.pop("appVersion", None)
+    meta = order_provenance({**meta, "organization": org})
+    if app_version is not None:
+        meta["appVersion"] = app_version
     tree[meta_path] = _json(meta)
 
 
@@ -892,7 +899,6 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
     # own name/description — see buildSchemaPresetFolder for why, and why a
     # database's copied mapping keeps them.
     stripped = {
-        "id": preset.id,
         "entityId": dumped.get("entityId") or preset.preset_id,
         "name": mapping.pop("presetLabel", None),
         "description": mapping.pop("description", None),

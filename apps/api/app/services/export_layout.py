@@ -31,6 +31,40 @@ def script_export_path(path: str) -> str:
     return f"{SCRIPTS_DIR}/{path}"
 
 
+# The provenance block, in the order every kind writes it — twin of
+# PROVENANCE_ORDER in entity-io.ts. Reads as: *when* it was made, *by whom*
+# (person + organization), *from what*, and *how it is published*.
+#
+# `organization` sits with the author rather than with version/license: it is
+# co-authorship, not packaging — the Edit dialog's authoring section edits the
+# two together. `appVersion` is NOT here; it is the file's format version and
+# trails the block.
+PROVENANCE_ORDER = (
+    "createdAt",
+    "createdBy",
+    "createdByDetails",
+    "organization",
+    "lineageId",
+    "parentLineageId",
+    "version",
+    "license",
+)
+
+
+def order_provenance(meta: dict) -> dict:
+    """Move the provenance keys to the end, in the canonical order.
+
+    Twin of ``orderProvenance`` in entity-io.ts. Anything not named keeps its
+    relative position ahead of the block, so each kind's own payload stays where
+    its builder put it.
+    """
+    out = {k: v for k, v in meta.items() if k not in PROVENANCE_ORDER}
+    for key in PROVENANCE_ORDER:
+        if key in meta:
+            out[key] = meta[key]
+    return out
+
+
 def with_entity_type(
     meta: dict, entity_type: str, app_version: str | None = None
 ) -> dict:
@@ -41,15 +75,15 @@ def with_entity_type(
     ``app_version`` is None for a caller that writes the stamp itself — re-assigning
     an existing key keeps its ORIGINAL position, which would strand it mid-block.
     """
+    # `id` never travels: it is the WRITING instance's local primary key, and an
+    # importer either mints its own or keeps the row it already has. `entityId` is
+    # the portable slug and `lineageId` the cross-instance identity.
     out: dict = {}
-    if "id" in meta:
-        out["id"] = meta["id"]
     if "entityId" in meta:
         out["entityId"] = meta["entityId"]
     out["type"] = entity_type
-    for key, value in meta.items():
-        if key not in ("id", "entityId"):
-            out[key] = value
+    rest = {k: v for k, v in meta.items() if k not in ("id", "entityId")}
+    out.update(order_provenance(rest))
     if app_version is not None:
         out["appVersion"] = app_version
     return out

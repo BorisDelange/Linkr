@@ -83,10 +83,15 @@ export function idOf(type: CatalogEntry['type'], meta: Record<string, unknown>):
     // former one, still read so repos published before the rename install.
     ? ['entityId', 'projectId', 'uid']
     // A preset exported before the identity split has only `presetId`, which was
-    // at once its key and its slug. Newer trees carry `entityId`, so it is read
-    // first — never `id`, which is the writing instance's local primary key and
-    // must not become ours (every other type drops it on export for that reason).
-    : type === 'schema-preset' ? ['entityId', 'presetId'] : ['id']
+    // at once its key and its slug.
+    : type === 'schema-preset' ? ['entityId', 'presetId']
+    // `entityId` for everyone else, with `id` kept only as the fallback for a
+    // repo published before exports stopped writing it. A local primary key is
+    // the WRITING instance's, never an identity — `isSameEntity` says so
+    // outright, matching on lineage or git remote and treating a shared id as a
+    // hazard to defend against. So it is no longer read first, and no longer
+    // written at all.
+    : ['entityId', 'id']
   for (const key of keys) {
     const value = meta[key]
     if (typeof value === 'string' && value) return value

@@ -158,12 +158,11 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
     # The export-format version stamp, as every other kind carries it. The org is
     # appended after it (attachEntityOrganization re-opens the file on the client),
     # so this is last only until that runs.
-    out["appVersion"] = APP_VERSION
-
     if organization:
         out["organization"] = org_snapshot(organization)
-
-    return _json(with_entity_type(out, TYPE_MAPPING_PROJECT))
+    # appVersion last, after the provenance block with_entity_type orders.
+    out.pop("appVersion", None)
+    return _json(with_entity_type(out, TYPE_MAPPING_PROJECT, APP_VERSION))
 
 
 _PARQUET_MAGIC = b"PAR1"

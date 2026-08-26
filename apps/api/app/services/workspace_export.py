@@ -29,6 +29,7 @@ from typing import Any
 from app.core.json_export import export_json as _json
 from app.services.export_layout import (
     ENTITY_MANIFEST,
+    order_provenance,
     TYPE_WORKSPACE,
     with_entity_type,
 )
@@ -322,9 +323,10 @@ def _build_sql_scripts_section(
             # createdAt rides along so the pointer-create records the real creation
             # date (an absent createdAt makes the server stamp func.now()). Omit when
             # absent for byte-parity with the TS builder.
-            pointer = {"id": collection["id"], "name": collection.get("name")}
+            pointer = {"entityId": _eid(collection), "name": collection.get("name")}
             if collection.get("createdAt"):
                 pointer["createdAt"] = collection["createdAt"]
+            pointer["lineageId"] = collection.get("lineageId")
             pointer["gitRemoteConfig"] = git
             tree[f"sql-scripts/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("sql-collection", collection["id"], folder, git)
@@ -348,9 +350,10 @@ def _build_etl_section(
             # createdAt rides along so the pointer-create records the real creation
             # date (an absent createdAt makes the server stamp func.now()). Omit when
             # absent for byte-parity with the TS builder.
-            pointer = {"id": pipeline["id"], "name": pipeline.get("name")}
+            pointer = {"entityId": _eid(pipeline), "name": pipeline.get("name")}
             if pipeline.get("createdAt"):
                 pointer["createdAt"] = pipeline["createdAt"]
+            pointer["lineageId"] = pipeline.get("lineageId")
             pointer["gitRemoteConfig"] = git
             tree[f"etl/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("etl-pipeline", pipeline["id"], folder, git)
@@ -424,12 +427,12 @@ def _build_mapping_projects_section(
             # date (an absent createdAt makes the server stamp func.now()). Omit when
             # absent for byte-parity with the TS builder.
             pointer = {
-                "id": entry["id"],
                 "entityId": entry.get("entityId"),
                 "name": entry.get("name"),
             }
             if clean_meta.get("createdAt"):
                 pointer["createdAt"] = clean_meta["createdAt"]
+            pointer["lineageId"] = clean_meta.get("lineageId")
             pointer["gitRemoteConfig"] = git
             tree[f"mapping-projects/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("mapping-project", entry["id"], folder, git)
@@ -459,9 +462,10 @@ def _build_catalogs_section(
             # createdAt rides along so the pointer-create records the real creation
             # date (an absent createdAt makes the server stamp func.now()). Omit when
             # absent for byte-parity with the TS builder.
-            pointer = {"id": cat["id"], "name": cat.get("name")}
+            pointer = {"entityId": _eid(cat), "name": cat.get("name")}
             if cat.get("createdAt"):
                 pointer["createdAt"] = cat["createdAt"]
+            pointer["lineageId"] = cat.get("lineageId")
             pointer["gitRemoteConfig"] = git
             tree[f"catalogs/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("data-catalog", cat["id"], folder, git)
@@ -469,7 +473,11 @@ def _build_catalogs_section(
         tree[f"catalogs/{_eid(cat)}.json"] = _json(cat)
 
     for sm in service_mappings:
-        tree[f"service-mappings/{_slugify(sm.get('name') or sm['id'])}.json"] = _json(sm)
+        # Stripped like every other section: the raw row leaked `workspaceId`
+        # (this instance's) and `updatedAt` (churns on every edit).
+        tree[f"service-mappings/{_slugify(sm.get('name') or sm['id'])}.json"] = _json(
+            _strip_instance_fields(sm)
+        )
 
 
 def _build_plugins_section(tree: dict[str, bytes], plugins: list[dict]) -> None:
@@ -480,12 +488,10 @@ def _build_plugins_section(tree: dict[str, bytes], plugins: list[dict]) -> None:
         folder = plugin.get("entityId") or _slugify(plugin["id"])
         tree[f"plugins/{folder}/{ENTITY_MANIFEST}"] = _json(
             {
-                "id": plugin["id"],
                 "entityId": plugin.get("entityId"),
-                "workspaceId": plugin.get("workspaceId"),
+                "createdAt": plugin.get("createdAt"),
                 "createdBy": plugin.get("createdBy"),
                 "createdByDetails": plugin.get("createdByDetails"),
-                "createdAt": plugin.get("createdAt"),
             }
         )
         for filename, content in (plugin.get("files") or {}).items():
@@ -545,6 +551,8 @@ def build_workspace_tree(
     # `organizationId` would diff between the two builders.
     has_org = bool(workspace.get("organizationId")) and organization is not None
     ws_out["organization"] = org_snapshot(organization) if has_org else None
+    # appVersion last, after the provenance keys are ordered into place.
+    ws_out = order_provenance(ws_out)
     ws_out["appVersion"] = APP_VERSION
     tree[ENTITY_MANIFEST] = _json(ws_out)
 

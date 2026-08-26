@@ -1,8 +1,6 @@
 {
-  "id": "proj-full",
   "entityId": "full-proj",
   "type": "project",
-  "projectId": "full-proj",
   "name": {
     "en": "Full Project"
   },
@@ -13,13 +11,9 @@
   "config": {},
   "status": "active",
   "badges": null,
-  "lineageId": null,
-  "parentLineageId": null,
+  "createdAt": "2026-01-01T00:00:00.000Z",
   "createdBy": "Boris Delange",
   "createdByDetails": null,
-  "createdAt": "2026-01-01T00:00:00.000Z",
-  "version": "0.1.0",
-  "appVersion": "2.3.3",
   "organization": {
     "id": "org1",
     "name": {
@@ -38,5 +32,9 @@
     "referenceId": null,
     "customFields": null,
     "createdAt": "2026-01-01T00:00:00.000Z"
-  }
+  },
+  "lineageId": null,
+  "parentLineageId": null,
+  "version": "0.1.0",
+  "appVersion": "2.3.3"
 }

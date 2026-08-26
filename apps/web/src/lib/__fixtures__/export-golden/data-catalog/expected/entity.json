@@ -1,5 +1,4 @@
 {
-  "id": "cat-1",
   "entityId": "icu-catalog",
   "type": "data-catalog",
   "name": {
@@ -44,20 +43,13 @@
   "lastComputedAt": null,
   "lastComputeDurationMs": null,
   "dcatApMetadata": null,
+  "createdAt": "2026-01-02T03:04:05.000Z",
   "createdBy": "Boris Delange",
   "createdByDetails": {
     "firstName": "Boris",
     "lastName": "Delange",
     "orcid": "0000-0002-1825-0097"
   },
-  "lineageId": "lin-1",
-  "parentLineageId": null,
-  "createdAt": "2026-01-02T03:04:05.000Z",
-  "version": "0.1.0",
-  "license": {
-    "id": "MIT"
-  },
-  "appVersion": "2.3.3",
   "organization": {
     "id": "org1",
     "name": {
@@ -79,5 +71,12 @@
     "referenceId": "",
     "customFields": null,
     "createdAt": "2026-01-01T00:00:00.000Z"
-  }
+  },
+  "lineageId": "lin-1",
+  "parentLineageId": null,
+  "version": "0.1.0",
+  "license": {
+    "id": "MIT"
+  },
+  "appVersion": "2.3.3"
 }

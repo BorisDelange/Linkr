@@ -109,8 +109,11 @@ describe('buildMappingProjectFolder — portable entity.json', () => {
     // Local data-source UUIDs are not portable: vocabulary id dropped, source id blanked.
     expect(parsed.vocabularyDataSourceId).toBeUndefined()
     expect(parsed.dataSourceId).toBe('')
-    // Genuine content survives.
-    expect(parsed.id).toBe('proj1')
+    // `id` is the writing instance's local key and never travels — `entityId` is
+    // the portable slug and `lineageId` the cross-instance identity. Genuine
+    // content still survives.
+    expect(parsed.id).toBeUndefined()
+    expect(parsed.name).toEqual({ en: 'Test project' })
   })
 
   it('strips volatile fields from mappings.json and sorts by a stable key', async () => {

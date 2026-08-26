@@ -728,23 +728,76 @@ handed a path the zip did not contain, so two call sites still asking for `proje
 silently dropped the publishing organization. It throws now.
 
 **Step 3b — Make the identity + provenance blocks universal (S/M). DONE 2026-08-26.**
-Eight of the nine kinds now open with the same five keys (`id, entityId, type, name,
-description`) and carry `appVersion`; `workspace` keeps its documented `entityId` exception.
+Every kind now opens with the same identity block — `entityId, type, name, description` — and
+ends with the same provenance block, contiguous and in one order:
+
+```
+… payload …
+createdAt                                  when
+createdBy, createdByDetails, organization  by whom (person AND publishing org)
+lineageId, parentLineageId                 from what
+version, license                           how it is published
+appVersion                                 the file's format version, last
+```
+
+`organization` sits with the author rather than beside `version`/`license`: the Edit dialog's
+authoring section (`authoring-fields.tsx`) edits the two together and `AuthoringValue` groups
+them in one type — it is co-authorship, not packaging. It used to trail the whole file only
+because `attachEntityOrganization` re-opens the manifest and a plain assignment appends.
+`workspace` keeps its documented `entityId` exception.
 Delivered: `name`/`description` for `schema-preset` (promoted out of `mapping`) and
 `user-plugin` (derived from its `plugin.json`), `license` for `user-plugin` (which wrote
 `LICENSE.md` with no `license` block, losing the identity on every round trip) and for
-`workspace`, `id` for `project` and `schema-preset`, `appVersion` everywhere,
+`workspace`, `appVersion` everywhere, `projectId`/`presetId` retired,
 `organizationId` → inline `organization` on the workspace, and the preset's `mapping` split
 out to its own `mapping.json` (§3.4c) — measured at **88%** of the published
 `omop-cdm-5.4/preset.json`, so that file goes from 9 KB to ~1 KB of identity.
 
-**One decision was revisited.** The plan justified `id` for the preset by saying other kinds
-round-trip theirs. They do not: `applyClonedEntity` mints or keeps a local `id` for a preset,
-and the sql-collection branch destructures the repo's away outright. So an exported `id` is
-informational on every kind, not just this one. **Decided 2026-08-26 (user): write the real
-local `id` anyway** — the identity block stays literally uniform and the value may find a use.
-Consequence to expect: re-exporting the same entity from a *different* instance shows an `id`
-diff. Normal pulls are unaffected, since the clone keeps the row it already has.
+**`id` — removed from every manifest.** The plan justified adding it by saying other kinds
+round-trip theirs. Investigating who actually *reads* it settled the question the other way:
+
+- `isSameEntity` (`install.ts:150`) matches on `lineageId` or the git remote and explicitly
+  refuses to treat a shared `id` as identity — it is documented there as a hazard, since "a
+  hostile or careless catalog entry must never be able to destroy a local entity by
+  id-collision".
+- The three import paths each mint or keep their own key: a ZIP import mints
+  (`crypto.randomUUID()`), a git clone keeps the row it already has, and the catalog install
+  adopts the repo's only as a *convenience default*.
+- Cross-entity references do not need it either: they are deliberately destroyed on export
+  (`dataSourceId: ''`, `EXTRA_INSTANCE_PIPELINE_FIELDS`), never resolved. *Within* one tree
+  the links survive by remapping every id through `deterministicId(projectUid, oldId)`, which
+  needs the value only as a join key.
+
+So `entityId` is the portable slug, `lineageId` the cross-instance identity, and `id` had no
+third job. It is gone from all 22 manifests, the git pointers included — the pointers now carry
+`entityId` + `lineageId` instead.
+
+**The import had to move with it** (step 3b would otherwise have broken re-import):
+`parseWorkspaceZip` mints a local key when the manifest carries none, and `doImport` matches an
+existing workspace, and each of the five lineage-bearing child kinds, on `lineageId` via a new
+`resolveByLineage`. That helper reports the row it *replaces* rather than inferring it from
+`id === child.id` — a test that only worked while the ZIP carried the writing instance's key,
+and would now silently never fire, leaving duplicates behind on every re-import.
+
+Two kinds keep `id`: `concept-set` and `service-mapping` are **not** application entities (they
+are absent from `ENTITY_TYPES`, have no repo, no `entityId` and no lineage), so their local id
+is all that identifies them inside a workspace.
+
+**Gap to close (carried forward).** `resolveByLineage` lives in `WorkspacesPage.doImport`, a
+1000-line component with **no tests at all** — the golden suites cover the export bytes, not
+the import that consumes them. The re-import-overwrites-in-place path is therefore currently
+guarded only by manual testing. Worth extracting the resolution out of the component and
+pinning it with a round-trip test (export → import → export produces no new rows) before the
+next change lands near it.
+
+**One more bug found on the way.** `service-mappings/*.json` was written raw (`json(sm)`),
+with no `stripInstanceFields` — so every workspace export published `workspaceId` (this
+instance's) and `updatedAt` (churns on every edit). Same bug the schema/DQ/catalog sections
+had at step 0, in a section that had no golden coverage until this effort widened it.
+
+**`projectId` retired** at the same time, for the same reason `presetId` was: it is `entityId`
+under its former name, written twice. Every reader already tries `entityId` first, so old
+repos keep importing and nothing new emits it.
 
 `presetLabel`/`description` are removed from the preset's own `mapping.json` but **kept** in a
 database's copied `schemaMapping` — `SchemaMapping.presetLabel` is required, and it is that

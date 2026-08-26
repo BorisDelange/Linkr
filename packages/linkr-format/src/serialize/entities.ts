@@ -24,11 +24,9 @@ import {
  * Leaving them out is what made the app fill them in on import and then write
  * them back, so the very first sync carried a diff nobody authored.
  *
- * `id` is the local primary key. Writing it IS correct for these kinds: the
- * catalog install reads it from the repo (`idOf`) and adopts it as the local
- * key, so the value round-trips unchanged. Schema presets are the exception —
- * they are keyed on `entityId`, so their `id` is minted locally and must not be
- * authored (see `SchemaPresetSpec`).
+ * No `id` here: an authored tree declares what travels, and a local primary key
+ * does not. `entityId` is the portable slug, `lineageId` the cross-instance
+ * identity.
  */
 export interface BadgeSpec {
   id: string
@@ -38,8 +36,6 @@ export interface BadgeSpec {
 }
 
 export interface EntityIdentity {
-  /** Local primary key, a uuid. Adopted verbatim on install. */
-  id?: string
   /** Readable, URL-safe identifier. Set once, never changes. */
   entityId?: string
   /** Cross-instance identity, preserved verbatim by every import. */
@@ -161,7 +157,7 @@ export interface EventTableSpec {
  * event-table ordering, the DDL split out to its own file, and the required
  * identity fields.
  */
-export interface SchemaPresetSpec extends Omit<EntityIdentity, 'id' | 'entityId'> {
+export interface SchemaPresetSpec extends Omit<EntityIdentity, 'entityId'> {
   /**
    * Stable identity of the preset, e.g. `omop-cdm-5-4`. Travels across instances.
    *
@@ -219,14 +215,18 @@ function localized(value: LocalizedInput): Record<string, string> {
 }
 
 /**
- * The identity keys the app writes first, in its order (`id`, `entityId`).
+ * The identity keys the app writes first, in its order (`entityId`, `type`).
+ *
+ * No `id`: it is the writing instance's local primary key, and an importer either
+ * mints its own or keeps the row it already has. `entityId` is the portable slug
+ * and `lineageId` the cross-instance identity — writing a local key alongside them
+ * only produced a value every reader had to ignore.
  *
  * Key order is part of byte-parity: the same fields in a different order still
  * produce a git diff on the first re-export.
  */
 function identityHead(s: EntityIdentity, type: LayoutKind): Record<string, unknown> {
   return {
-    ...(s.id ? { id: s.id } : {}),
     ...(s.entityId ? { entityId: s.entityId } : {}),
     // What this entity is, declared rather than inferred from the filename —
     // which is what lets every kind share one manifest name.
@@ -443,11 +443,11 @@ export function serializeEntity<K extends SerializableEntityKind>(
             // Linkr re-export are byte-identical — the first sync after an
             // install must be "nothing to commit".
             //
-            // `id` is null, not omitted: an authored tree has no local key to
-            // give, but the identity block carries the same five keys on every
-            // kind. `presetId` is the retired identity — read on import, never
-            // written. See docs/planning/schema-preset-identity-plan.md.
-            id: null,
+            // No `id`: a preset is keyed on `entityId`, and `idOf` refuses the
+            // field for this kind precisely because a repo's local primary key
+            // must not become the installing instance's. `presetId` is the
+            // retired identity — read on import, never written. See
+            // docs/planning/schema-preset-identity-plan.md.
             entityId: s.presetId,
             type: 'schema-preset' as const,
             name: localized(s.presetLabel),

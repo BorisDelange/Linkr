@@ -1,5 +1,4 @@
 {
-  "id": "ws1",
   "type": "workspace",
   "name": {
     "en": "Rennes Workspace",
@@ -9,12 +8,9 @@
     "en": "Demo workspace"
   },
   "badges": [],
+  "createdAt": "2026-01-01T00:00:00.000Z",
   "createdBy": "Boris Delange",
   "createdByDetails": null,
-  "lineageId": null,
-  "parentLineageId": null,
-  "createdAt": "2026-01-01T00:00:00.000Z",
-  "version": null,
   "organization": {
     "id": "org1",
     "name": {
@@ -34,5 +30,8 @@
     "customFields": null,
     "createdAt": "2026-01-01T00:00:00.000Z"
   },
+  "lineageId": null,
+  "parentLineageId": null,
+  "version": null,
   "appVersion": "2.3.3"
 }

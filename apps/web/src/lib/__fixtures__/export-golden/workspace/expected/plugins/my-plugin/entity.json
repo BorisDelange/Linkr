@@ -1,8 +1,6 @@
 {
-  "id": "plug1",
   "entityId": "my-plugin",
-  "workspaceId": "ws1",
+  "createdAt": "2026-01-01T00:00:00.000Z",
   "createdBy": "Boris Delange",
-  "createdByDetails": null,
-  "createdAt": "2026-01-01T00:00:00.000Z"
+  "createdByDetails": null
 }

@@ -1095,11 +1095,18 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     const zip = await exportZip({ catalogs: [CATALOG({ gitRemoteConfig: GIT })] })
     const marker = zip.files['catalogs/my-catalog/entity.json']
     expect(marker).toBeDefined()
-    expect(JSON.parse(await marker.async('string')).id).toBe('cat-1')
+    // The pointer carries the portable slug and the lineage, never the writing
+    // instance's local key.
+    const markerMeta = JSON.parse(await marker.async('string'))
+    expect(markerMeta.id).toBeUndefined()
+    expect(markerMeta.entityId).toBe('my-catalog')
     // No flat form when linked.
     expect(zip.files['catalogs/my-catalog.json']).toBeUndefined()
     const { links } = await readGitLinks(zip)
     expect(links).toContainEqual({ type: 'data-catalog', id: 'cat-1', folder: 'my-catalog', url: GIT.url, branch: 'main' })
+    // git-links.json is written from the LOCAL rows, so it keeps the local id:
+    // it is this instance's index of what to clone, not part of an entity's
+    // portable metadata.
   })
 
   it('writes a minimal-pointer marker + git-links entry for a linked dq-rule-set (checks live in the repo)', async () => {
@@ -1149,7 +1156,9 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     const parsed = await parseWorkspaceZip(file)
     const linked = collectGitLinkedEntities(parsed!)
     expect(linked.map(l => l.type).sort()).toEqual(['data-catalog', 'dq-rule-set', 'schema-preset'])
-    expect(linked.find(l => l.type === 'data-catalog')).toMatchObject({ id: 'cat-1', url: GIT.url, branch: 'main' })
+    // The id is minted by the parser now (the pointer carries none), so only the
+    // git coordinates are asserted — they are what the clone actually needs.
+    expect(linked.find(l => l.type === 'data-catalog')).toMatchObject({ url: GIT.url, branch: 'main' })
   })
 
   it('applyClonedEntity restores each type from its own repo layout', async () => {
@@ -1761,7 +1770,7 @@ describe('ETL pipeline docs — readme, license and attachments round-trip', () 
     const file = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
 
     const parsed = await parseWorkspaceZip(file)
-    const entry = parsed!.etlPipelines.find((p) => p.pipeline.id === 'etl-1')!
+    const entry = parsed!.etlPipelines.find((p) => p.pipeline.entityId === 'my-etl')!
     expect(entry.pipeline.readme).toEqual({ en: expect.stringContaining('# My ETL'), fr: '# Mon ETL' })
     expect(entry.pipeline.license).toEqual({ id: 'MIT', text: expect.stringContaining('MIT License') })
     expect(entry.attachments!.meta.map((m) => m.fileName)).toEqual(['diagram.png'])

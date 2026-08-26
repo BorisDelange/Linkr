@@ -10,6 +10,7 @@
  * fetched/stored separately (they are not part of the export format).
  */
 
+import { ENTITY_MANIFEST, MANIFEST, SCRIPTS_DIR, SIDECAR, type LayoutKind } from '@linkr/format'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
@@ -201,6 +202,38 @@ async function fetchJson<T>(path: string): Promise<T | null> {
   } catch {
     return null
   }
+}
+
+/**
+ * An entity's manifest under `dir`, whichever name the seed was baked with.
+ *
+ * The seed is a workspace export produced by `linkr-portal`'s build, so it can
+ * predate the rename to `entity.json` — and a portal that has not rebuilt yet
+ * still ships the old names. Both are tried, newest first.
+ */
+async function fetchManifest<T>(dir: string, kind: LayoutKind, ...legacy: string[]): Promise<T | null> {
+  for (const name of [ENTITY_MANIFEST, MANIFEST[kind], ...legacy]) {
+    const found = await fetchJson<T>(`${dir}/${name}`)
+    if (found) return found
+  }
+  return null
+}
+
+/**
+ * A collection's or pipeline's file tree, plus the prefix its files sit behind.
+ *
+ * `scripts/` since the folder move, empty before it — and a seed can be either.
+ */
+function seedFilePath(filePrefix: string, path: string): string {
+  // A pipeline's `mapping/` is machine-managed and stays at the entity root; the
+  // user's own files moved under `scripts/`. Same rule as the export writer.
+  return path === 'mapping' || path.startsWith('mapping/') ? path : `${filePrefix}${path}`
+}
+
+async function fetchScriptTree(dir: string): Promise<{ tree: unknown; filePrefix: string }> {
+  const inScripts = await fetchJson(`${dir}/${SCRIPTS_DIR}/${SIDECAR.tree}`)
+  if (inScripts) return { tree: inScripts, filePrefix: `${SCRIPTS_DIR}/` }
+  return { tree: await fetchJson(`${dir}/${SIDECAR.tree}`), filePrefix: '' }
 }
 
 async function fetchText(path: string): Promise<string | null> {
@@ -466,7 +499,7 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
   }
 
   // --- workspace.json ---
-  const workspace = await fetchJson<Workspace>(`${base}/workspace.json`)
+  const workspace = await fetchManifest<Workspace>(base, 'workspace')
   if (!workspace?.id) {
     console.warn(`[seed-loader] No valid workspace.json in ${folder}, skipping`)
     return
@@ -542,7 +575,7 @@ async function loadStructuralEntity(
   switch (entity.type) {
     case 'project': {
       const folder = entity.folder
-      const project = await fetchJson<Project>(`${base}/projects/${folder}/project.json`)
+      const project = await fetchManifest<Project>(`${base}/projects/${folder}`, 'project')
       if (!project?.uid) return
       const readmeByLang: LocalizedString = {}
       for (const lang of SEED_LANGUAGES) {
@@ -574,8 +607,7 @@ async function loadStructuralEntity(
     }
     case 'mappingProject': {
       const mpFolder = entity.folder
-      const project = await fetchJson<MappingProject>(`${base}/mapping-projects/${mpFolder}/_project.json`)
-        ?? await fetchJson<MappingProject>(`${base}/mapping-projects/${mpFolder}/project.json`)
+      const project = await fetchManifest<MappingProject>(`${base}/mapping-projects/${mpFolder}`, 'project', '_project.json')
       if (!project) return
       // Restore source concepts from CSV (file-based projects)
       if (project.sourceType === 'file' && project.fileSourceData) {
@@ -622,19 +654,20 @@ async function loadStructuralEntity(
     }
     case 'etlPipeline': {
       const etlFolder = entity.folder
-      const pipeline = await fetchJson<EtlPipeline>(`${base}/etl/${etlFolder}/_pipeline.json`)
+      const pipeline = await fetchManifest<EtlPipeline>(`${base}/etl/${etlFolder}`, 'etl-pipeline')
       if (!pipeline) return
       await storage.etlPipelines.create({ ...pipeline, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
       // Optional script-file tree (the generated ETL scripts themselves are seeded
       // in phase 2 via the etlScript entry; older exports may ship a _tree.json).
+      const { tree: etlTree, filePrefix } = await fetchScriptTree(`${base}/etl/${etlFolder}`)
       const tree = fromPathTree<EtlFile & { path: string }>(
-        readPathTree(await fetchJson(`${base}/etl/${etlFolder}/_tree.json`)),
+        readPathTree(etlTree),
         pipeline.id,
         'pipelineId',
       )
       for (const f of tree) {
         if (f.type === 'file') {
-          const content = await fetchText(`${base}/etl/${etlFolder}/${f.path}`)
+          const content = await fetchText(`${base}/etl/${etlFolder}/${seedFilePath(filePrefix, f.path)}`)
           if (content !== null) f.content = content
         }
         await storage.etlFiles.create(storablePathNode(f)).catch(() => {})
@@ -708,20 +741,21 @@ async function loadWorkspaceInternals(
 
   // --- sql-scripts/ ---
   for (const colFolder of index.sqlCollections ?? []) {
-    const collection = await fetchJson<SqlScriptCollection>(`${base}/sql-scripts/${colFolder}/_collection.json`)
+    const collection = await fetchManifest<SqlScriptCollection>(`${base}/sql-scripts/${colFolder}`, 'sql-collection')
     if (!collection) continue
     await storage.sqlScriptCollections.create({ ...collection, workspaceId: wsId, updatedAt: now }).catch(() => {})
     // Content lives at the file's tree path (`queries/cohort.sql`), which is also
     // its manifest key — a nested script used to be looked up at a flat
     // `<folder>/<name>` and silently seeded empty.
+    const { tree: colTree, filePrefix } = await fetchScriptTree(`${base}/sql-scripts/${colFolder}`)
     const tree = fromPathTree<SqlScriptFile & { path: string }>(
-      readPathTree(await fetchJson(`${base}/sql-scripts/${colFolder}/_tree.json`)),
+      readPathTree(colTree),
       collection.id,
       'collectionId',
     )
     for (const f of tree) {
       if (f.type === 'file' && index.sqlScriptFiles?.[`${colFolder}/${f.path}`]) {
-        const content = await fetchText(`${base}/sql-scripts/${colFolder}/${f.path}`)
+        const content = await fetchText(`${base}/sql-scripts/${colFolder}/${seedFilePath(filePrefix, f.path)}`)
         if (content !== null) f.content = content
       }
       await storage.sqlScriptFiles.create(storablePathNode(f)).catch(() => {})
@@ -730,17 +764,18 @@ async function loadWorkspaceInternals(
 
   // --- etl/ (pipeline rows + script files; the generated scripts are seeded in phase 2) ---
   for (const etlFolder of index.etlPipelines ?? []) {
-    const pipeline = await fetchJson<EtlPipeline>(`${base}/etl/${etlFolder}/_pipeline.json`)
+    const pipeline = await fetchManifest<EtlPipeline>(`${base}/etl/${etlFolder}`, 'etl-pipeline')
     if (!pipeline) continue
     await storage.etlPipelines.create({ ...pipeline, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+    const { tree: etlTree, filePrefix } = await fetchScriptTree(`${base}/etl/${etlFolder}`)
     const tree = fromPathTree<EtlFile & { path: string }>(
-      readPathTree(await fetchJson(`${base}/etl/${etlFolder}/_tree.json`)),
+      readPathTree(etlTree),
       pipeline.id,
       'pipelineId',
     )
     for (const f of tree) {
       if (f.type === 'file' && index.etlFiles?.[`${etlFolder}/${f.path}`]) {
-        const content = await fetchText(`${base}/etl/${etlFolder}/${f.path}`)
+        const content = await fetchText(`${base}/etl/${etlFolder}/${seedFilePath(filePrefix, f.path)}`)
         if (content !== null) f.content = content
       }
       await storage.etlFiles.create(storablePathNode(f)).catch(() => {})
@@ -788,11 +823,19 @@ async function loadWorkspaceInternals(
 
   // --- plugins/ ---
   for (const pluginFolder of index.pluginFolders ?? []) {
-    const pluginMeta = await fetchJson<{ id: string; createdAt: string; updatedAt: string }>(`${base}/plugins/${pluginFolder}/_plugin.json`)
+    // Either manifest name: a seed baked before the rename says `_plugin.json`.
+    const pluginBase = `${base}/plugins/${pluginFolder}`
+    const pluginMeta =
+      await fetchJson<{ id: string; createdAt: string; updatedAt: string }>(`${pluginBase}/${ENTITY_MANIFEST}`)
+      ?? await fetchJson<{ id: string; createdAt: string; updatedAt: string }>(`${pluginBase}/${MANIFEST['user-plugin']}`)
     if (!pluginMeta) continue
     const files: Record<string, string> = {}
     for (const fileName of index.pluginFiles?.[pluginFolder] ?? []) {
-      const content = await fetchText(`${base}/plugins/${pluginFolder}/${fileName}`)
+      // The entity manifest is provenance, not plugin source — a copy inside
+      // `files` would be saved as runtime code (and shadow the functional
+      // plugin.json in the editor's file list).
+      if (fileName === ENTITY_MANIFEST || fileName === MANIFEST['user-plugin']) continue
+      const content = await fetchText(`${pluginBase}/${fileName}`)
       if (content !== null) files[fileName] = content
     }
     const userPlugin: UserPlugin = {

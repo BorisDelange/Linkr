@@ -1,5 +1,4 @@
 {
-  "id": "9f3c2a11-0000-4000-8000-000000000001",
   "entityId": "omop-cdm-5-4",
   "type": "schema-preset",
   "name": {
@@ -10,18 +9,13 @@
     "en": "OMOP Common Data Model 5.4",
     "fr": "Modèle de données commun OMOP 5.4"
   },
+  "createdAt": "2026-01-02T03:04:05.000Z",
   "createdBy": "Boris Delange",
   "createdByDetails": {
     "firstName": "Boris",
     "lastName": "Delange",
     "orcid": "0000-0002-1825-0097"
   },
-  "createdAt": "2026-01-02T03:04:05.000Z",
-  "version": "0.1.0",
-  "license": {
-    "id": "MIT"
-  },
-  "appVersion": "2.3.3",
   "organization": {
     "id": "org1",
     "name": {
@@ -43,5 +37,10 @@
     "referenceId": "",
     "customFields": null,
     "createdAt": "2026-01-01T00:00:00.000Z"
-  }
+  },
+  "version": "0.1.0",
+  "license": {
+    "id": "MIT"
+  },
+  "appVersion": "2.3.3"
 }

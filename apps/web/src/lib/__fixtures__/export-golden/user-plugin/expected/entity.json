@@ -1,5 +1,4 @@
 {
-  "id": "plug-1",
   "entityId": "icu-histogram",
   "type": "user-plugin",
   "name": {
@@ -10,18 +9,13 @@
     "en": "Length-of-stay distribution",
     "fr": "Distribution des durées de séjour"
   },
+  "createdAt": "2026-01-02T03:04:05.000Z",
   "createdBy": "Boris Delange",
   "createdByDetails": {
     "firstName": "Boris",
     "lastName": "Delange",
     "orcid": "0000-0002-1825-0097"
   },
-  "createdAt": "2026-01-02T03:04:05.000Z",
-  "version": "0.1.0",
-  "license": {
-    "id": "MIT"
-  },
-  "appVersion": "2.3.3",
   "organization": {
     "id": "org1",
     "name": {
@@ -43,5 +37,10 @@
     "referenceId": "",
     "customFields": null,
     "createdAt": "2026-01-01T00:00:00.000Z"
-  }
+  },
+  "version": "0.1.0",
+  "license": {
+    "id": "MIT"
+  },
+  "appVersion": "2.3.3"
 }

@@ -1,8 +1,6 @@
 {
-  "id": "proj-uid-1",
   "entityId": "demo-project",
   "type": "project",
-  "projectId": "demo-project",
   "name": {
     "en": "Demo Project",
     "fr": "Projet démo"
@@ -22,19 +20,11 @@
       "label": "ICU"
     }
   ],
-  "lineageId": "lin-1",
-  "parentLineageId": null,
+  "createdAt": "2026-01-02T03:04:05.000Z",
   "createdBy": "Ada Lovelace",
   "createdByDetails": {
     "orcid": "0000-0000-0000-0001"
   },
-  "version": "0.3.0",
-  "createdAt": "2026-01-02T03:04:05.000Z",
-  "license": {
-    "id": "MIT",
-    "name": "MIT License"
-  },
-  "appVersion": "2.3.3",
   "organization": {
     "id": "org-1",
     "name": {
@@ -49,5 +39,13 @@
     "referenceId": "ref-1",
     "customFields": {},
     "createdAt": "2025-12-01T00:00:00.000Z"
-  }
+  },
+  "lineageId": "lin-1",
+  "parentLineageId": null,
+  "version": "0.3.0",
+  "license": {
+    "id": "MIT",
+    "name": "MIT License"
+  },
+  "appVersion": "2.3.3"
 }

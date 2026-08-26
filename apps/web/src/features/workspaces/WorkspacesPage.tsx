@@ -262,7 +262,15 @@ export function WorkspacesPage() {
     const storage = getStorage()
     const now = new Date().toISOString()
     const { appVersion: _av, ...wsMeta } = parsed.workspace
-    const targetWsId = duplicate ? crypto.randomUUID() : wsMeta.id
+    // The manifest no longer carries the writing instance's `id` (parseWorkspaceZip
+    // mints one), so a re-import is recognised by `lineageId` — the cross-instance
+    // identity. Matching on the minted id would never hit, turning every re-import
+    // into a duplicate instead of an update.
+    const sameLineage = !duplicate && wsMeta.lineageId
+      ? (await storage.workspaces.getAll().catch(() => []))
+        .find((w) => w.lineageId && w.lineageId === wsMeta.lineageId)
+      : undefined
+    const targetWsId = duplicate ? crypto.randomUUID() : (sameLineage?.id ?? wsMeta.id)
     // On a duplicate, every git-linked child is re-minted with a fresh uuid; the
     // post-import auto-clone must target those NEW ids, not the ZIP's original ones.
     // Keyed `${type}:${originalId}` → new id (see GitLinkedEntity.type vocabulary).
@@ -282,6 +290,32 @@ export function WorkspacesPage() {
       if (duplicate) return crypto.randomUUID()
       const existing = await getById(originalId).catch(() => undefined)
       return existing && existing.workspaceId !== targetWsId ? crypto.randomUUID() : originalId
+    }
+
+    /**
+     * Where a lineage-bearing child should land, now that exports no longer carry
+     * the writing instance's `id`.
+     *
+     * `lineageId` is the cross-instance identity — the value `isSameEntity` already
+     * trusts — so a re-import of the same published entity finds the row it wrote
+     * last time and overwrites in place. Without this the import had nothing to
+     * match on and minted a fresh uuid every time, turning every round trip into a
+     * duplicate. Falls back to a fresh id for a repo with no lineage at all.
+     */
+    const resolveByLineage = async (
+      list: () => Promise<{ id: string; lineageId?: string; workspaceId?: string }[]>,
+      child: { id?: string; lineageId?: string },
+    ): Promise<{ id: string; replaces: string | null }> => {
+      if (duplicate || !child.lineageId) return { id: crypto.randomUUID(), replaces: null }
+      const rows = await list().catch(() => [])
+      const match = rows.find(
+        (r) => r.lineageId === child.lineageId && r.workspaceId === targetWsId,
+      )
+      // `replaces` is the row this import overwrites — the caller clears it (and its
+      // children) before re-creating. Reported rather than inferred from `id ===
+      // child.id`: that test only worked while the ZIP carried the writing
+      // instance's key, and would now silently never fire, leaving duplicates.
+      return match ? { id: match.id, replaces: match.id } : { id: crypto.randomUUID(), replaces: null }
     }
 
     /** Report a phase to the progress modal. Called between blocks of work. */
@@ -529,11 +563,11 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const { collection, files } of parsed.sqlCollections) {
-      const id = await resolveChildId((i) => storage.sqlScriptCollections.getById(i), collection.id)
+      const { id, replaces } = await resolveByLineage(() => storage.sqlScriptCollections.getAll(), collection)
       idMap.set(`sql-collection:${collection.id}`, id)
-      if (id === collection.id) {
-        await storage.sqlScriptFiles.deleteByCollection(collection.id).catch(() => {})
-        await storage.sqlScriptCollections.delete(collection.id).catch(() => {})
+      if (replaces) {
+        await storage.sqlScriptFiles.deleteByCollection(replaces).catch(() => {})
+        await storage.sqlScriptCollections.delete(replaces).catch(() => {})
       }
       await storage.sqlScriptCollections.create({
         ...collection, id, workspaceId: targetWsId, updatedAt: now,
@@ -559,11 +593,11 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const { pipeline, files, attachments } of parsed.etlPipelines) {
-      const id = await resolveChildId((i) => storage.etlPipelines.getById(i), pipeline.id)
+      const { id, replaces } = await resolveByLineage(() => storage.etlPipelines.getAll(), pipeline)
       idMap.set(`etl-pipeline:${pipeline.id}`, id)
-      if (id === pipeline.id) {
-        await storage.etlFiles.deleteByPipeline(pipeline.id).catch(() => {})
-        await storage.etlPipelines.delete(pipeline.id).catch(() => {})
+      if (replaces) {
+        await storage.etlFiles.deleteByPipeline(replaces).catch(() => {})
+        await storage.etlPipelines.delete(replaces).catch(() => {})
       }
       await storage.etlPipelines.create({
         ...pipeline, id, workspaceId: targetWsId, updatedAt: now,
@@ -586,11 +620,11 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const { ruleSet, checks } of parsed.dqRuleSets) {
-      const id = await resolveChildId((i) => storage.dqRuleSets.getById(i), ruleSet.id)
+      const { id, replaces } = await resolveByLineage(() => storage.dqRuleSets.getAll(), ruleSet)
       idMap.set(`dq-rule-set:${ruleSet.id}`, id)
-      if (id === ruleSet.id) {
-        await storage.dqCustomChecks.deleteByRuleSet(ruleSet.id).catch(() => {})
-        await storage.dqRuleSets.delete(ruleSet.id).catch(() => {})
+      if (replaces) {
+        await storage.dqCustomChecks.deleteByRuleSet(replaces).catch(() => {})
+        await storage.dqRuleSets.delete(replaces).catch(() => {})
       }
       await storage.dqRuleSets.create({
         ...ruleSet, id, workspaceId: targetWsId, updatedAt: now,
@@ -628,12 +662,14 @@ export function WorkspacesPage() {
       let mappingIdx = 0
       const reportEvery = Math.max(1, Math.floor(totalMappings / 100)) // ~100 UI updates max
       for (const { project: mp, mappings, scoresFile } of parsed.mappingProjects) {
-        const id = await resolveChildId((i) => storage.mappingProjects.getById(i), mp.id)
+        const { id, replaces } = await resolveByLineage(() => storage.mappingProjects.getAll(), mp)
         idMap.set(`mapping-project:${mp.id}`, id)
-        const remintMappings = id !== mp.id
-        if (id === mp.id) {
-          await storage.conceptMappings.deleteByProject(mp.id).catch(() => {})
-          await storage.mappingProjects.delete(mp.id).catch(() => {})
+        // The mappings' own ids are namespaced by the project id, so they must be
+        // re-minted whenever this import did not land on the row it replaces.
+        const remintMappings = !replaces
+        if (replaces) {
+          await storage.conceptMappings.deleteByProject(replaces).catch(() => {})
+          await storage.mappingProjects.delete(replaces).catch(() => {})
         }
         await storage.mappingProjects.create({
           ...mp, id, workspaceId: targetWsId, updatedAt: now,
@@ -711,9 +747,9 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const cat of parsed.catalogs) {
-      const id = await resolveChildId((i) => storage.dataCatalogs.getById(i), cat.id)
+      const { id, replaces } = await resolveByLineage(() => storage.dataCatalogs.getAll(), cat)
       idMap.set(`data-catalog:${cat.id}`, id)
-      if (id === cat.id) await storage.dataCatalogs.delete(cat.id).catch(() => {})
+      if (replaces) await storage.dataCatalogs.delete(replaces).catch(() => {})
       await storage.dataCatalogs.create({
         ...cat, id, workspaceId: targetWsId, updatedAt: now,
         ...(duplicate ? { name: copyLocalizedName(cat.name), createdAt: now } : {}),

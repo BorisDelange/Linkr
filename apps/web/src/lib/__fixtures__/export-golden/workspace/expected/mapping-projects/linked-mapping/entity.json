@@ -1,10 +1,10 @@
 {
-  "id": "mp-linked",
   "entityId": "linked-mapping",
   "name": {
     "en": "Linked Mapping"
   },
   "createdAt": "2026-01-01T00:00:00.000Z",
+  "lineageId": null,
   "gitRemoteConfig": {
     "url": "https://git.example.org/mapping.git",
     "branch": "main"

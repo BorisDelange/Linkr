@@ -939,18 +939,19 @@ export async function buildProjectZip(
   // `uid` is the local primary key: a delete+reimport regenerates it, so writing it
   // would churn the diff. It's dropped here (NOT added to INSTANCE_FIELDS, which
   // children share); lineageId/parentLineageId stay for cross-instance identity.
-  const { readme: _r, todos: _t, notes: _n, uid: _uid, license: projectLicense, ...projectMeta } = prunedProject
-  // `entityId` leads the file and carries the slug under the name every entity
-  // uses; `projectId` follows with the same value, so a Linkr predating the
-  // rename still reads the tree. Both are written explicitly rather than left to
-  // the spread: the server builder emits them in this order and the shared
-  // golden fixture compares bytes.
+  // `projectId` is the retired name of `entityId` — the same value written
+  // twice. Every reader takes `entityId` first and falls back to it, so a repo
+  // published before the rename still imports; nothing new needs to emit it.
+  // (Same treatment as the preset's `presetId`.)
+  const {
+    readme: _r, todos: _t, notes: _n, uid: _uid, projectId: _retired,
+    license: projectLicense, ...projectMeta
+  } = prunedProject
+  // `entityId` leads the file, carrying the slug under the name every entity
+  // uses. Written explicitly rather than left to the spread: the server builder
+  // emits it in this position and the shared golden fixture compares bytes.
   const projectSlug = project.entityId ?? project.projectId
   zip.file(ENTITY_MANIFEST, json({
-    // A project's primary key is `uid`; it is written here under the name the
-    // identity block uses on every kind. Like the other local keys in this
-    // position it is informational — the import mints or keeps its own.
-    id: project.uid ?? null,
     ...(projectSlug ? { entityId: projectSlug } : {}),
     type: 'project' as const,
     ...stripInstanceFields(projectMeta),
@@ -1812,6 +1813,51 @@ async function readScriptTree(
  * one. Position matters: the golden tests compare bytes, so it goes where the
  * Python twin puts it.
  */
+/**
+ * The provenance block, in the order every kind writes it.
+ *
+ * Ordered by what it answers: *when* it was made (`createdAt`), *by whom*
+ * (`createdBy`, `createdByDetails`, `organization`), *from what*
+ * (`lineageId`, `parentLineageId`), and *how it is published* (`version`,
+ * `license`). Kept contiguous and last so the stable identity leads the file and
+ * the churn collects at the bottom — which is what makes a diff readable.
+ *
+ * `organization` sits with the author, not with `version`/`license`, because it
+ * is co-authorship rather than packaging: the Edit dialog's authoring section
+ * (`authoring-fields.tsx`, "author + organization") edits the two together, and
+ * `AuthoringValue` groups them in one type. It used to trail the block only
+ * because `attachEntityOrganization` re-opens the file and appending was what a
+ * plain assignment did.
+ *
+ * `appVersion` is deliberately NOT here: it is the format version of the whole
+ * file rather than provenance, so it trails the block.
+ */
+const PROVENANCE_ORDER = [
+  'createdAt', 'createdBy', 'createdByDetails', 'organization',
+  'lineageId', 'parentLineageId', 'version', 'license',
+] as const
+
+/**
+ * Move the provenance keys to the end, in the canonical order.
+ *
+ * Writers build their manifests in whatever order the record happened to carry,
+ * which is why a project used to emit lineage before its author and `version`
+ * before `createdAt`, and an ETL pipeline left `config` — payload — sitting in
+ * the middle of the block. Anything not named here keeps its relative position
+ * ahead of the block, so each kind's own payload stays where its writer put it.
+ */
+export function orderProvenance(meta: Record<string, unknown>): Record<string, unknown> {
+  const provenance = new Set<string>(PROVENANCE_ORDER)
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(meta)) {
+    if (!provenance.has(key)) out[key] = value
+  }
+  for (const key of PROVENANCE_ORDER) {
+    if (key in meta) out[key] = meta[key]
+  }
+  return out
+}
+
 function withEntityType<T extends Record<string, unknown>>(
   meta: T,
   type: LayoutKind,
@@ -1824,12 +1870,17 @@ function withEntityType<T extends Record<string, unknown>>(
    */
   stampVersion = true,
 ): Record<string, unknown> {
-  const { id, entityId, ...rest } = meta
+  // `id` never travels: it is the WRITING instance's local primary key, and an
+  // importer either mints its own or keeps the row it already has. Where the
+  // catalog install does adopt it, that is convenience, not identity —
+  // `isSameEntity` matches on `lineageId` or the git remote and treats a shared
+  // id as a hazard to defend against. `entityId` is the portable slug, and
+  // `lineageId` the cross-instance identity; `id` had no third job.
+  const { id: _localKey, entityId, ...rest } = meta
   return {
-    ...(id !== undefined ? { id } : {}),
     ...(entityId !== undefined ? { entityId } : {}),
     type,
-    ...rest,
+    ...orderProvenance(rest),
     // The export-format version belongs on every entity, not just the three that
     // happened to write it — a reader needs to know which format version produced
     // a tree whatever kind it is.
@@ -2292,9 +2343,17 @@ export async function attachEntityOrganization(
   // for `project.json` after the manifest rename, so every export they produced
   // quietly lost its publishing organization.
   if (!entry) throw new Error(`attachEntityOrganization: no ${metaPath} in the export`)
-  const meta = JSON.parse(await entry.async('string'))
-  meta.organization = orgSnapshot(org)
-  zip.file(metaPath, json(meta))
+  const meta = JSON.parse(await entry.async('string')) as Record<string, unknown>
+  // Re-ordered rather than assigned, so `organization` lands beside the author it
+  // belongs with. Assigning appends (the key is new), which is the only reason it
+  // used to trail the whole file — an artifact of re-opening it here, never a
+  // decision. `appVersion` stays last: it is the format version of the file, not
+  // part of the provenance.
+  const { appVersion, ...rest } = meta
+  zip.file(metaPath, json({
+    ...orderProvenance({ ...rest, organization: orgSnapshot(org) }),
+    ...(appVersion !== undefined ? { appVersion } : {}),
+  }))
 }
 
 async function finalizeEntityZip(zip: JSZip, lfsOverrides?: Map<string, boolean>): Promise<Blob> {
@@ -2427,7 +2486,6 @@ export async function buildSchemaPresetFolder(
   // push the rest to the end.
   const { entityId: _slug, ...presetRest } = portable as Record<string, unknown>
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json({
-    id: preset.id ?? null,
     entityId: preset.entityId ?? preset.presetId,
     type: 'schema-preset' as const,
     // A preset used to carry its label and blurb INSIDE `mapping`, where no
@@ -2487,7 +2545,6 @@ export async function buildUserPluginFolder(
   // step. Every other kind carries them, so a generic reader finds them here too.
   const manifest = pluginManifest(plugin)
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json({
-    id: plugin.id,
     entityId: plugin.entityId ?? null,
     type: 'user-plugin' as const,
     name: manifest.name ?? null,
@@ -3186,15 +3243,24 @@ export async function buildWorkspaceZip(
   const workspaceOrg = workspace.organizationId
     ? ((await storage.organizations.getById(workspace.organizationId)) as unknown as OrganizationInfo | undefined)
     : undefined
+  // A workspace is the container, not a published, versioned unit — `version` is
+  // deliberately null rather than added to the type. `license` and the org
+  // snapshot bring it in line with the other eight kinds; the root
+  // organization.json stays, carrying the full record the import upserts. These
+  // go through the shared ordering like every other kind's, so the provenance
+  // block reads the same here as everywhere else.
+  const workspaceMeta = withEntityType(
+    {
+      ...stripInstanceFields(stripEntityDocs(workspace)) as Record<string, unknown>,
+      version: null,
+      ...(licenseMeta(workspace.license) ? { license: licenseMeta(workspace.license) } : {}),
+      organization: workspaceOrg ? orgSnapshot(workspaceOrg) : null,
+    },
+    'workspace',
+    false,
+  )
   zip.file(ENTITY_MANIFEST, json({
-    ...withEntityType(stripInstanceFields(stripEntityDocs(workspace)) as Record<string, unknown>, 'workspace', false),
-    // A workspace is the container, not a published, versioned unit — `version`
-    // is deliberately null rather than added to the type. `license` and the org
-    // snapshot bring it in line with the other eight kinds; the root
-    // organization.json stays, carrying the full record the import upserts.
-    version: null,
-    ...(licenseMeta(workspace.license) ? { license: licenseMeta(workspace.license) } : {}),
-    organization: workspaceOrg ? orgSnapshot(workspaceOrg) : null,
+    ...workspaceMeta,
     appVersion: APP_VERSION,
   }))
 
@@ -3369,7 +3435,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`sql-scripts/${folder}/${ENTITY_MANIFEST}`, json({ id: collection.id, name: collection.name, ...(collection.createdAt ? { createdAt: collection.createdAt } : {}), gitRemoteConfig: git }))
+        zip.file(`sql-scripts/${folder}/${ENTITY_MANIFEST}`, json({ entityId: eid(collection), name: collection.name, ...(collection.createdAt ? { createdAt: collection.createdAt } : {}), lineageId: collection.lineageId ?? null, gitRemoteConfig: git }))
         gitLinks.push({ type: 'sql-collection', id: collection.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3392,7 +3458,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`etl/${folder}/${ENTITY_MANIFEST}`, json({ id: pipeline.id, name: pipeline.name, ...(pipeline.createdAt ? { createdAt: pipeline.createdAt } : {}), gitRemoteConfig: git }))
+        zip.file(`etl/${folder}/${ENTITY_MANIFEST}`, json({ entityId: eid(pipeline), name: pipeline.name, ...(pipeline.createdAt ? { createdAt: pipeline.createdAt } : {}), lineageId: pipeline.lineageId ?? null, gitRemoteConfig: git }))
         gitLinks.push({ type: 'etl-pipeline', id: pipeline.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3452,7 +3518,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`mapping-projects/${folder}/${ENTITY_MANIFEST}`, json({ id: mp.id, entityId: mp.entityId, name: mp.name, ...(mp.createdAt ? { createdAt: mp.createdAt } : {}), gitRemoteConfig: git }))
+        zip.file(`mapping-projects/${folder}/${ENTITY_MANIFEST}`, json({ entityId: mp.entityId, name: mp.name, ...(mp.createdAt ? { createdAt: mp.createdAt } : {}), lineageId: mp.lineageId ?? null, gitRemoteConfig: git }))
         gitLinks.push({ type: 'mapping-project', id: mp.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3488,7 +3554,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`catalogs/${folder}/${ENTITY_MANIFEST}`, json({ id: cat.id, name: cat.name, ...(cat.createdAt ? { createdAt: cat.createdAt } : {}), gitRemoteConfig: git }))
+        zip.file(`catalogs/${folder}/${ENTITY_MANIFEST}`, json({ entityId: eid(cat), name: cat.name, ...(cat.createdAt ? { createdAt: cat.createdAt } : {}), lineageId: cat.lineageId ?? null, gitRemoteConfig: git }))
         gitLinks.push({ type: 'data-catalog', id: cat.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3499,7 +3565,10 @@ export async function buildWorkspaceZip(
     const serviceMappings = await storage.serviceMappings.getByWorkspace(workspaceId)
     for (const sm of serviceMappings) {
       if (excluded[sm.id]) continue
-      zip.file(`service-mappings/${slugify(sm.name || sm.id)}.json`, json(sm))
+      // Stripped like every other section: writing the row raw leaked
+      // `workspaceId` (this instance's) and `updatedAt` (churns on every edit)
+      // into the repo. Same bug the schema/DQ/catalog sections had.
+      zip.file(`service-mappings/${slugify(sm.name || sm.id)}.json`, json(stripInstanceFields(sm)))
     }
   }
 
@@ -3514,7 +3583,7 @@ export async function buildWorkspaceZip(
       .filter(p => !builtinIds.has(pluginManifestId(p) ?? p.id))
     for (const plugin of plugins) {
       const folder = plugin.entityId || slugify(plugin.id)
-      zip.file(`plugins/${folder}/${ENTITY_MANIFEST}`, json({ id: plugin.id, entityId: plugin.entityId, workspaceId: plugin.workspaceId, createdBy: plugin.createdBy, createdByDetails: plugin.createdByDetails, createdAt: plugin.createdAt }))
+      zip.file(`plugins/${folder}/${ENTITY_MANIFEST}`, json({ entityId: plugin.entityId, createdAt: plugin.createdAt, createdBy: plugin.createdBy, createdByDetails: plugin.createdByDetails }))
       for (const [filename, content] of Object.entries(plugin.files)) {
         zip.file(`plugins/${folder}/${filename}`, content)
       }
@@ -3613,7 +3682,13 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   const wsFile = zipData.files[ENTITY_MANIFEST] ?? zipData.files[MANIFEST.workspace]
   if (!wsFile) return null
   const workspace = JSON.parse(await wsFile.async('string')) as Workspace & { appVersion?: string }
-  if (!workspace?.id) return null
+  if (!workspace) return null
+  // A manifest no longer carries the writing instance's `id`. The importer mints
+  // the local key, so what has to be present is a NAME — enough to build a
+  // workspace from. `lineageId` is what identifies it across instances, and a
+  // tree published before it existed simply gets one on import.
+  if (!workspace.name && !workspace.id) return null
+  if (!workspace.id) workspace.id = crypto.randomUUID()
 
   // --- organization.json (optional) ---
   const orgFile = zipData.files[ROOT_FILE.organization]
@@ -3744,6 +3819,10 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const prefix = `sql-scripts/${folder}/`
     const collection = await readEntityManifest<SqlScriptCollection>(zipData, prefix, 'sql-collection')
     if (!collection) continue
+    // A manifest no longer carries the writing instance's key; the import mints
+    // its own. One is minted here so the file ids below are namespaced by a real
+    // value — the caller re-keys them if it lands the row under a different id.
+    if (!collection.id) collection.id = crypto.randomUUID()
     const tree = await readScriptTree(zipData, prefix)
     const files = fromPathTree<SqlScriptFile & { path: string }>(
       tree.nodes,
@@ -3770,6 +3849,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const prefix = `etl/${folder}/`
     const pipeline = await readEntityManifest<EtlPipeline>(zipData, prefix, 'etl-pipeline')
     if (!pipeline) continue
+    if (!pipeline.id) pipeline.id = crypto.randomUUID()
     const tree = await readScriptTree(zipData, prefix)
     const files = fromPathTree<EtlFile & { path: string }>(
       tree.nodes,

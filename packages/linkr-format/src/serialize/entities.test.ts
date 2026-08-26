@@ -172,15 +172,15 @@ describe('serializeEntity', () => {
       expect(mapping.ddl).toBeUndefined()
     })
 
-    it('leads with the identity block every kind shares', () => {
-      // `id` is null rather than absent: an authored tree has no local key to
-      // give, but the block carries the same five keys on every kind. `presetId`
-      // is the retired identity and is never written.
+    it('leads with the identity block, keyed on entityId', () => {
+      // No `id`: `idOf` refuses the field for a preset, because a repo's local
+      // primary key must not become the installing instance's. `presetId` is the
+      // retired identity and is never written.
       const tree = treeOf('schema-preset', SPECS['schema-preset'])
       const preset = JSON.parse(tree.read('entity.json')!)
-      expect(Object.keys(preset).slice(0, 5))
-        .toEqual(['id', 'entityId', 'type', 'name', 'description'])
-      expect(preset.id).toBeNull()
+      expect(Object.keys(preset).slice(0, 4))
+        .toEqual(['entityId', 'type', 'name', 'description'])
+      expect(preset.id).toBeUndefined()
       expect(preset.entityId).toBe('omop-cdm-5-4')
       expect(preset.presetId).toBeUndefined()
       // The label rises to the root as the entity's name; the payload keeps its
