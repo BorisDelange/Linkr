@@ -1,5 +1,4 @@
 {
-  "presetId": "omop-cdm-5-4",
   "tables": {
     "person": {
       "columns": {

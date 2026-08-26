@@ -424,15 +424,23 @@ export function serializeEntity<K extends SerializableEntityKind>(
       const { ddl: _inlineDdl, ...rest } = s.mapping ?? {}
       // Ordered on the way out, so re-serializing a preset the app exported
       // reproduces its bytes rather than rearranging the file.
-      // `presetLabel`/`description` are deliberately NOT in here: they are the
-      // entity's name and description, so they live at the manifest root. A
-      // database's copied mapping still carries them (it is that database's only
-      // record of its schema) — the omission is the preset's own export only.
+      //
+      // Four keys are deliberately NOT in here, in the preset's own export only —
+      // a database's copied mapping keeps all of them, since there the mapping is
+      // that database's only record of its schema:
+      //   presetLabel, description — the entity's name and blurb, at the root.
+      //   presetId                 — `entityId` one level down, written twice.
+      //   templateId               — the built-in preset a schema derived from,
+      //                              back when the app shipped a picker of them.
+      //                              Nothing reads it; schemas are published repos.
+      // MAPPING_FIELD_ORDER still lists them: it orders a database's copy too.
+      const {
+        presetId: _retiredId, templateId: _dead, presetLabel: _label, description: _blurb,
+        ...payload
+      } = rest as Record<string, unknown>
       const mapping = canonicalSchemaMapping(orderKeys({
-        presetId: s.presetId,
-        ...rest,
+        ...payload,
         ...(s.eventTables ? { eventTables: s.eventTables } : {}),
-        ...(s.templateId ? { templateId: s.templateId } : {}),
       }, MAPPING_FIELD_ORDER))
       const ddl = s.ddl ?? (typeof _inlineDdl === 'string' ? _inlineDdl : undefined)
       return [

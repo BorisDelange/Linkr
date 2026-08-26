@@ -550,7 +550,6 @@ export function describeEntitySchema(kind: string): string | null {
       '    patientTable, visitTable, visitDetailTable, noteTable, deathTable,',
       '    conceptTables, genderValues, knownTables, erdGroups.',
       '  ddl         string    optional. CREATE TABLE statements → schema.ddl.',
-      '  templateId  string    optional. Built-in preset it derives from.',
       '  version     string    optional. Semver, default "0.1.0".',
       '',
       'The DDL is always written to schema.ddl, never inline in the manifest:',

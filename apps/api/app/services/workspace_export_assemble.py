@@ -904,6 +904,12 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
         "description": mapping.pop("description", None),
         **stripped,
     }
+    # Two more the preset's own mapping does not carry (a database's copy does):
+    # `presetId` is `entityId` one level down, written twice and re-synced by hand
+    # on every write; `templateId` named the built-in preset a schema derived from,
+    # back when the app shipped a picker of them — nothing has read it since.
+    mapping.pop("presetId", None)
+    mapping.pop("templateId", None)
     tree: dict[str, bytes] = {
         ENTITY_MANIFEST: _json(with_entity_type(stripped, TYPE_SCHEMA_PRESET, APP_VERSION)),
         SCHEMA_PRESET_MAPPING_FILE: _json(_canonical_schema_mapping(mapping)),

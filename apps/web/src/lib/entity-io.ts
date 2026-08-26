@@ -678,21 +678,33 @@ export const SCHEMA_PRESET_MAPPING_FILE = CONTENT_FILE.schemaMapping
 /**
  * Rebuild a preset's `SchemaMapping` from a split export.
  *
- * `mapping` moved out to its own file and lost `presetLabel`/`description` to the
- * manifest root — but `SchemaMapping.presetLabel` is REQUIRED, and every database
- * that copies a mapping relies on it to name its own schema. So the reader puts
- * them back from the root, and the asymmetry stays confined to the export layer.
+ * `mapping` moved out to its own file and lost four keys to the manifest root —
+ * but `SchemaMapping` is what a DATABASE copies into its own row, where the
+ * mapping is its only record of which schema it uses. `presetLabel` and
+ * `presetId` are required there, so the reader puts them back and the asymmetry
+ * stays confined to the export layer.
+ *
+ * `presetId` comes from `entityId`: they are the same value, which is exactly why
+ * the export stopped writing it twice. An importer that mints a fresh local id
+ * overrides it afterwards.
  *
  * `mappingFile` is undefined for a repo published before the split, where the
- * manifest still carries an inline `mapping` with both keys inside it.
+ * manifest still carries an inline `mapping` with those keys inside it.
  */
 export function reassemblePresetMapping(
-  meta: { name?: LocalizedString; description?: LocalizedString; mapping?: SchemaMapping },
+  meta: {
+    entityId?: string
+    presetId?: string
+    name?: LocalizedString
+    description?: LocalizedString
+    mapping?: SchemaMapping
+  },
   mappingFile: Partial<SchemaMapping> | undefined,
 ): SchemaMapping {
   const base = (mappingFile ?? meta.mapping ?? {}) as SchemaMapping
   return {
     ...base,
+    presetId: base.presetId ?? meta.entityId ?? meta.presetId ?? '',
     presetLabel: base.presetLabel ?? meta.name ?? { en: '', fr: '' },
     ...(base.description ?? meta.description
       ? { description: base.description ?? meta.description }
@@ -2540,11 +2552,23 @@ export async function buildSchemaPresetFolder(
   // payload, in the file a human opens first on the forge. The preset already
   // externalised its DDL for exactly this reason and simply stopped halfway.
   //
-  // `presetLabel`/`description` are dropped HERE only: `SchemaMapping` requires
-  // presetLabel and a database COPIES the mapping into its own row, where it is
-  // that database's only record of which schema it uses. So the preset's own
-  // export omits them (the root carries them) while a database's keeps them.
-  const { presetLabel: _label, description: _blurb, ...mappingPayload } = mapping
+  // Four fields are dropped HERE only, in the preset's OWN export — a database
+  // that copies this mapping keeps them, because there the mapping is that
+  // database's only record of which schema it uses:
+  //
+  //   presetLabel, description — the entity's name and blurb; the root carries them.
+  //   presetId                 — `entityId` under its former name, one level down.
+  //                              Keeping it forced the export and the install to
+  //                              re-sync the two by hand on every write.
+  //   templateId               — the built-in preset a schema was created from,
+  //                              back when the app shipped a picker of them. No
+  //                              code has read it since; schemas are published
+  //                              repos now, so it froze a dead reference into
+  //                              every export.
+  const {
+    presetLabel: _label, description: _blurb, presetId: _retiredId, templateId: _dead,
+    ...mappingPayload
+  } = mapping
   zip.file(`${prefix}${SCHEMA_PRESET_MAPPING_FILE}`, json(canonicalSchemaMapping(mappingPayload)))
   if (ddl) zip.file(`${prefix}${SCHEMA_PRESET_DDL_FILE}`, ddl)
   // `organization` is an INSTANCE_FIELD, stripped above; every other entity puts

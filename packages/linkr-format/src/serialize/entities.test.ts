@@ -183,11 +183,13 @@ describe('serializeEntity', () => {
       expect(preset.id).toBeUndefined()
       expect(preset.entityId).toBe('omop-cdm-5-4')
       expect(preset.presetId).toBeUndefined()
-      // The label rises to the root as the entity's name; the payload keeps its
-      // own presetId, which is a label inside what every database copies.
+      // The label rises to the root as the entity's name.
       expect(preset.name.en).toBe('OMOP CDM 5.4')
       expect(preset.mapping).toBeUndefined()
-      expect(JSON.parse(tree.read('mapping.json')!).presetId).toBe('omop-cdm-5-4')
+      // Not in the payload either: it is `entityId` one level down, and writing
+      // it twice meant the export and the install had to keep the two in step by
+      // hand. The reader puts it back from `entityId` for a database's copy.
+      expect(JSON.parse(tree.read('mapping.json')!).presetId).toBeUndefined()
     })
 
     it('accepts a tree identified only by entityId', () => {
@@ -296,12 +298,16 @@ describe('serializeEntity', () => {
         },
       })
       const preset = JSON.parse(tree.read('mapping.json')!) as Record<string, unknown>
-      // `presetLabel` and `description` are absent: they are the entity's name and
-      // description, and live at the manifest root since the split.
+      // Four keys are absent from a preset's OWN mapping. `presetLabel` and
+      // `description` are the entity's name and blurb, at the manifest root.
+      // `presetId` duplicates `entityId`. `templateId` named the built-in preset
+      // a schema derived from, back when the app shipped a picker of them —
+      // nothing has read it since, so it only froze a dead reference into the
+      // file. A database's copied mapping still carries all four.
       expect(Object.keys(preset)).toEqual([
-        'presetId', 'patientTable', 'deathTable', 'visitTable',
+        'patientTable', 'deathTable', 'visitTable',
         'noteTable', 'visitDetailTable', 'conceptTables', 'eventTables',
-        'genderValues', 'knownTables', 'erdGroups', 'templateId',
+        'genderValues', 'knownTables', 'erdGroups',
       ])
     })
   })

@@ -28,9 +28,13 @@ export interface SchemaMapping {
   /** Optional human-readable description of the schema, bilingual like the label. */
   description?: LocalizedString
   /**
-   * Built-in preset this schema was created from. The created schema's own
-   * presetId is derived from its name, so this is the only reliable link back
-   * to the template (drives the "already added" mark in the create dialog).
+   * @deprecated Vestige of the built-in preset pickers.
+   *
+   * It named the compiled-in schema a preset was created from, and drove an
+   * "already added" mark in the create dialog. Both are gone: schemas are
+   * ordinary entities installed from the catalog, and no code reads this. It is
+   * no longer written to a preset's export — kept on the type only so a mapping
+   * stored before the pickers went away still parses.
    */
   templateId?: SchemaPresetId
 
