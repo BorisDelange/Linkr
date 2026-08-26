@@ -42,6 +42,57 @@ const PROJECT_JSON = {
 
 const CSV = 'concept_name,concept_code\nHeart rate,HR\nSpO2,SPO2'
 
+describe('importMappingProjectContent — manifest shapes', () => {
+  it('reads a current-format tree: entity.json, no local id', async () => {
+    // What every export writes today. The gate used to be `project.id`, which
+    // stopped travelling when exports dropped the writing instance's local key,
+    // so a repo in the current format was refused outright — the catalog
+    // reported it as "not a mapping project" with the tree perfectly valid.
+    const { store, calls } = makeStore()
+    const ok = await importMappingProjectContent(
+      {
+        files: {
+          'entity.json': {
+            entityId: 'mimic-iv-demo',
+            type: 'mapping-project',
+            name: { en: 'MIMIC-IV Demo' },
+            sourceType: 'database',
+            lineageId: 'lin-9',
+          },
+          'mappings.json': [{ id: 'm1', sourceConceptCode: 'HR', targetConceptId: 42, comments: [] }],
+        },
+        scoresBytes: null,
+      },
+      { targetId: 'local-target', workspaceId: 'ws-1', replaceExisting: true },
+      store,
+    )
+    expect(ok).toBe(true)
+    const created = calls['mp.create']![0][0] as { id: string; lineageId?: string }
+    expect(created.id).toBe('local-target')
+    expect(created.lineageId).toBe('lin-9')
+  })
+
+  it('still reads a legacy tree that names its manifest project.json', async () => {
+    const { store } = makeStore()
+    const ok = await importMappingProjectContent(
+      { files: { 'project.json': structuredClone(PROJECT_JSON), 'mappings.json': [] }, scoresBytes: null },
+      { targetId: 'local-target', workspaceId: 'ws-1', replaceExisting: true },
+      store,
+    )
+    expect(ok).toBe(true)
+  })
+
+  it('refuses a tree with no readable manifest', async () => {
+    const { store } = makeStore()
+    const ok = await importMappingProjectContent(
+      { files: { 'mappings.json': [] }, scoresBytes: null },
+      { targetId: 'local-target', workspaceId: 'ws-1', replaceExisting: true },
+      store,
+    )
+    expect(ok).toBe(false)
+  })
+})
+
 describe('importMappingProjectContent — full restore parity', () => {
   it('restores project + source concepts + mappings + source-concept-ids under targetId', async () => {
     const { store, calls } = makeStore()
