@@ -15,7 +15,7 @@ import { getStorage } from '@/lib/storage'
 import { paths, type SummaryTab } from '@/lib/paths'
 import { buildProjectZip, parseProjectZip, deleteProjectData, importProjectContent } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
-import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil, Settings2, BookOpen, Scale } from 'lucide-react'
+import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
@@ -440,14 +440,6 @@ export function ProjectsPage() {
                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = rawByUid.get(project.uid)?.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectVersioning(w, project.uid, 'git')) }}>
                               <GitBranch size={14} />
                               {t('common.versioning')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenProject(project.uid, project.name, 'readme') }}>
-                              <BookOpen size={14} />
-                              {t('summary.tab_readme')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenProject(project.uid, project.name, 'license') }}>
-                              <Scale size={14} />
-                              {t('summary.tab_license')}
                             </DropdownMenuItem>
                             <DropdownMenuItem disabled={!canEditWs} onClick={(e) => { e.stopPropagation(); handleDuplicateProject(project.uid) }}>
                               <Copy size={14} />

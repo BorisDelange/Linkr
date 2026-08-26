@@ -15,7 +15,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { isServerMode, formatApiError, type FormattedError } from '@/lib/api-client'
-import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2, BookOpen, Scale } from 'lucide-react'
+import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
@@ -986,14 +986,6 @@ export function WorkspacesPage() {
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(paths.workspaceVersioning(ws.id, 'git')) }}>
                             <GitBranch size={14} />
                             {t('common.versioning')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenWorkspace(ws.id, ws.name, 'readme') }}>
-                            <BookOpen size={14} />
-                            {t('summary.tab_readme')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenWorkspace(ws.id, ws.name, 'license') }}>
-                            <Scale size={14} />
-                            {t('summary.tab_license')}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(paths.workspaceSettings(ws.id)) }}>
                             <Settings2 size={14} />
