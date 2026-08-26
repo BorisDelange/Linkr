@@ -1,6 +1,9 @@
 # Export format harmonization
 
-**Status**: 🔜 design fully settled 2026-08-26 — ready to start at step 0
+**Status**: 🚧 in progress — steps 0–3a shipped 2026-08-26; next is step 3b
+(field order + universal identity/provenance blocks), then 4–7 (plugins, sibling repos,
+MCP, docs). Every entity now writes `entity.json` and declares its `type`, and every
+reader accepts both that and the name it used before.
 **Decided**: `entity.json` for every entity, at every depth (containers and git-link stubs
 included); the manifest declares **`type`**, sharing the catalog's field name and vocabulary;
 git URL authored in the linked stub's `entity.json`, `git-links.json` regenerated as an index
