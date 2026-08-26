@@ -174,13 +174,13 @@ describe('buildWorkspaceZip — git-link pointer createdAt', () => {
   it('omits createdAt when absent, preserving key order', async () => {
     const ptr = await pointer({ uid: 'u1', projectId: 'p', name: { en: 'P' }, workspaceId: 'w1', gitRemoteConfig: GIT })
     expect('createdAt' in ptr).toBe(false)
-    expect(Object.keys(ptr)).toEqual(['uid', 'entityId', 'projectId', 'name', 'gitRemoteConfig'])
+    expect(Object.keys(ptr)).toEqual(['uid', 'entityId', 'type', 'name', 'lineageId', 'gitRemoteConfig'])
   })
 
   it('keeps createdAt when present', async () => {
     const ptr = await pointer({ uid: 'u1', projectId: 'p', name: { en: 'P' }, workspaceId: 'w1', createdAt: '2026-01-01T00:00:00.000Z', gitRemoteConfig: GIT })
     expect(ptr.createdAt).toBe('2026-01-01T00:00:00.000Z')
-    expect(Object.keys(ptr)).toEqual(['uid', 'entityId', 'projectId', 'name', 'createdAt', 'gitRemoteConfig'])
+    expect(Object.keys(ptr)).toEqual(['uid', 'entityId', 'type', 'name', 'createdAt', 'lineageId', 'gitRemoteConfig'])
   })
 })
 
@@ -592,6 +592,39 @@ describe('parseWorkspaceZip — organization bundle', () => {
     expect(parsed).not.toBeNull()
     expect(parsed!.organization).toBeUndefined()
     expect(parsed!.workspace.organizationId).toBeUndefined()
+  })
+})
+
+describe('parseWorkspaceZip — dq rule set shapes', () => {
+  const zipWith = async (path: string, body: unknown) => {
+    const zip = new JSZip()
+    zip.file('entity.json', JSON.stringify({ name: { en: 'W' }, type: 'workspace' }))
+    zip.file(path, JSON.stringify(body))
+    return await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+  }
+
+  it('reads a flat git pointer, the shape every linked kind now writes', async () => {
+    const parsed = await parseWorkspaceZip(await zipWith('data-quality/linked/entity.json', {
+      entityId: 'linked', type: 'dq-rule-set', name: { en: 'Linked' },
+      lineageId: 'lin-dq', gitRemoteConfig: { url: 'https://git.example.org/dq.git', branch: 'main' },
+    }))
+    expect(parsed!.dqRuleSets).toHaveLength(1)
+    const [entry] = parsed!.dqRuleSets
+    expect(entry.ruleSet.entityId).toBe('linked')
+    // The lineage must survive the read: it is what a re-import matches on, so
+    // losing it here would turn every round trip into a duplicate rule set.
+    expect(entry.ruleSet.lineageId).toBe('lin-dq')
+    expect(entry.checks).toEqual([])
+  })
+
+  it('still reads the { ruleSet, checks } bundle an unlinked rule set writes', async () => {
+    const parsed = await parseWorkspaceZip(await zipWith('data-quality/local.json', {
+      ruleSet: { entityId: 'local', name: { en: 'Local' } },
+      checks: [{ id: 'c1', ruleSetId: 'rs-1' }],
+    }))
+    expect(parsed!.dqRuleSets).toHaveLength(1)
+    expect(parsed!.dqRuleSets[0].ruleSet.entityId).toBe('local')
+    expect(parsed!.dqRuleSets[0].checks).toHaveLength(1)
   })
 })
 
@@ -1113,12 +1146,16 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     const zip = await exportZip({ ruleSets: [RULESET({ gitRemoteConfig: GIT })], checks: [CHECK()] })
     const marker = zip.files['data-quality/my-ruleset/entity.json']
     expect(marker).toBeDefined()
-    const bundle = JSON.parse(await marker.async('string'))
-    expect(bundle.ruleSet.id).toBe('rs-1')
-    expect(bundle.ruleSet.gitRemoteConfig).toEqual(GIT)
+    const pointer = JSON.parse(await marker.async('string'))
+    // Flat, like every other linked kind — it used to nest itself under `ruleSet`,
+    // which was also the last manifest still writing the local `id`.
+    expect(pointer.entityId).toBe('my-ruleset')
+    expect(pointer.type).toBe('dq-rule-set')
+    expect(pointer.id).toBeUndefined()
+    expect(pointer.gitRemoteConfig).toEqual(GIT)
     // Pointer only — the linked repo's checks.json is the source of truth, so the
-    // workspace marker no longer duplicates the checks (was: length 1).
-    expect(bundle.checks).toHaveLength(0)
+    // workspace marker carries no checks of its own.
+    expect(pointer.checks).toBeUndefined()
     expect(zip.files['data-quality/my-ruleset.json']).toBeUndefined()
     const { links } = await readGitLinks(zip)
     expect(links).toContainEqual({ type: 'dq-rule-set', id: 'rs-1', folder: 'my-ruleset', url: GIT.url, branch: 'main' })
@@ -1128,7 +1165,13 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     const zip = await exportZip({ presets: [PRESET({ gitRemoteConfig: GIT })] })
     const marker = zip.files['schemas/my-preset/entity.json']
     expect(marker).toBeDefined()
-    expect(JSON.parse(await marker.async('string')).presetId).toBe('my-preset')
+    const presetPtr = JSON.parse(await marker.async('string'))
+    expect(presetPtr.entityId).toBe('my-preset')
+    expect(presetPtr.type).toBe('schema-preset')
+    // The payload lives in the linked repo's mapping.json; the pointer keeps the
+    // promoted display name instead of inlining `mapping`.
+    expect(presetPtr.mapping).toBeUndefined()
+    expect(presetPtr.name).toEqual({ en: 'My Preset' })
     expect(zip.files['schemas/my-preset.json']).toBeUndefined()
     const { links } = await readGitLinks(zip)
     expect(links).toContainEqual({ type: 'schema-preset', id: 'my-preset', folder: 'my-preset', url: GIT.url, branch: 'main' })

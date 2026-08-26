@@ -1,5 +1,6 @@
 {
   "entityId": "linked-catalog",
+  "type": "data-catalog",
   "name": {
     "en": "Linked catalog",
     "fr": "Catalogue lié"

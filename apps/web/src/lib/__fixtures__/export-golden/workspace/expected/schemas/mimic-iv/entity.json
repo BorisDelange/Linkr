@@ -1,12 +1,12 @@
 {
   "entityId": "mimic-iv",
-  "presetId": "mimic-iv",
-  "mapping": {
-    "presetLabel": {
-      "en": "MIMIC-IV",
-      "fr": "MIMIC-IV"
-    }
+  "type": "schema-preset",
+  "name": {
+    "en": "MIMIC-IV",
+    "fr": "MIMIC-IV"
   },
+  "createdAt": "2026-01-02T03:04:05.000Z",
+  "lineageId": null,
   "gitRemoteConfig": {
     "url": "https://git.example.org/mimic-iv.git",
     "branch": "main"

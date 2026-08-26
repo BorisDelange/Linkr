@@ -36,8 +36,7 @@ def _pointer_json(project_meta: dict) -> dict:
 def test_pointer_omits_createdat_when_absent():
     ptr = _pointer_json({"uid": "u1", "projectId": "p", "name": {"en": "P"}})
     assert "createdAt" not in ptr
-    # Key order preserved: uid, entityId, projectId, name, gitRemoteConfig.
-    assert list(ptr.keys()) == ["uid", "entityId", "projectId", "name", "gitRemoteConfig"]
+    assert list(ptr.keys()) == ["uid", "entityId", "type", "name", "lineageId", "gitRemoteConfig"]
 
 
 def test_pointer_keeps_createdat_when_present():
@@ -50,7 +49,20 @@ def test_pointer_keeps_createdat_when_present():
         }
     )
     assert ptr["createdAt"] == "2026-01-01T00:00:00.000Z"
-    assert list(ptr.keys()) == ["uid", "entityId", "projectId", "name", "createdAt", "gitRemoteConfig"]
+    assert list(ptr.keys()) == [
+        "uid", "entityId", "type", "name", "createdAt", "lineageId", "gitRemoteConfig",
+    ]
+
+
+def test_pointer_writes_lineage_even_when_null_and_drops_the_retired_projectid():
+    """`lineageId` is what a re-import matches on (resolveByLineage), so a pointer
+    without it lands as a duplicate instead of an update — it is written even when
+    null. `projectId` is `entityId` under its former name and no longer travels."""
+    ptr = _pointer_json({"uid": "u1", "projectId": "p", "name": {"en": "P"}})
+    assert ptr["lineageId"] is None
+    assert "projectId" not in ptr
+    assert ptr["type"] == "project"
+    assert ptr["entityId"] == "p"
 
 
 def test_path_sort_matches_javascript_for_astral_characters():

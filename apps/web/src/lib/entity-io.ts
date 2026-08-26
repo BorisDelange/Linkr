@@ -1888,6 +1888,45 @@ function withEntityType<T extends Record<string, unknown>>(
   }
 }
 
+/**
+ * The manifest of a git-linked entity: identity + the pointer, nothing else.
+ *
+ * The linked repo's own `entity.json` is the source of truth for every other
+ * field, so a workspace tree keeps only what it needs to create the record and
+ * clone it. One helper because the five pointer writers had drifted into five
+ * different shapes — one still nested its payload, two still wrote a retired id
+ * field, and none declared `type`.
+ *
+ * `lineageId` rides along even when null: it is the cross-instance identity the
+ * import matches on (`resolveByLineage`), so a pointer without it re-imports as
+ * a duplicate rather than an update.
+ */
+function gitPointerManifest(
+  type: LayoutKind,
+  identity: {
+    entityId?: string
+    name?: unknown
+    createdAt?: string | null
+    lineageId?: string | null
+    /** Projects only: the routing key, which is not derivable from the slug. */
+    uid?: string
+  },
+  git: { url: string; branch: string },
+): Record<string, unknown> {
+  return {
+    ...(identity.uid !== undefined ? { uid: identity.uid } : {}),
+    ...(identity.entityId !== undefined ? { entityId: identity.entityId } : {}),
+    type,
+    ...(identity.name !== undefined ? { name: identity.name } : {}),
+    // Omitted when absent rather than written as null: Python emits `null` for a
+    // missing value while JSON.stringify drops an undefined key, and the golden
+    // tests compare the two byte for byte.
+    ...(identity.createdAt ? { createdAt: identity.createdAt } : {}),
+    lineageId: identity.lineageId ?? null,
+    gitRemoteConfig: git,
+  }
+}
+
 /** Parse CSV text and remap column names → column IDs based on DatasetFile.columns. */
 export function parseCsvToDatasetData(csv: string, df: DatasetFile): DatasetData | null {
   const lines = csv.split('\n').filter(l => l.length > 0)
@@ -3300,17 +3339,13 @@ export async function buildWorkspaceZip(
         // date up front (the server stamps func.now() for an absent createdAt, and
         // the follow-up clone would only correct it if reached). Kept off the churn
         // list because it's immutable provenance, not volatile placement.
-        // Omit createdAt when absent (legacy front-only projects) so it matches the
-        // server builder byte-for-byte — Python emits `null` for a missing value,
-        // JSON.stringify drops an undefined key, which would spuriously diverge.
-        const pointer = {
+        const pointer = gitPointerManifest('project', {
           uid: project.uid,
           entityId: project.entityId ?? project.projectId,
-          projectId: project.projectId,
           name: project.name,
-          ...(project.createdAt ? { createdAt: project.createdAt } : {}),
-          gitRemoteConfig: git,
-        }
+          createdAt: project.createdAt,
+          lineageId: project.lineageId,
+        }, git)
         zip.file(`projects/${folder}/${ENTITY_MANIFEST}`, json(pointer))
         gitLinks.push({ type: 'project', id: project.uid, folder, url: git.url, branch: git.branch })
       } else {
@@ -3380,11 +3415,18 @@ export async function buildWorkspaceZip(
       // readable slug rather than the row's uuid.
       const slug = sp.entityId ?? sp.presetId
       if (git) {
-        // Pointer only — the linked repo's preset.json is the source of truth. Keep
-        // just the identity (create key + git detection), presetLabel (display), and
-        // the git pointer; the clone (applyClonedEntity) re-applies the full preset.
+        // Pointer only — the linked repo's entity.json is the source of truth. Keep
+        // just the identity (create key + git detection), the display name, and the
+        // git pointer; the clone (applyClonedEntity) re-applies the full preset.
+        // `name` is the promoted root field (§3.4b), not the nested `mapping`
+        // payload this used to inline.
         const folder = slugify(slug)
-        const pointer = { entityId: slug, presetId: sp.presetId, mapping: sp.mapping?.presetLabel ? { presetLabel: sp.mapping.presetLabel } : undefined, gitRemoteConfig: git }
+        const pointer = gitPointerManifest('schema-preset', {
+          entityId: slug,
+          name: sp.mapping?.presetLabel,
+          createdAt: sp.createdAt,
+          lineageId: sp.lineageId,
+        }, git)
         zip.file(`schemas/${folder}/${ENTITY_MANIFEST}`, json(pointer))
         gitLinks.push({ type: 'schema-preset', id: sp.id ?? sp.presetId, folder, url: git.url, branch: git.branch })
         continue
@@ -3435,7 +3477,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`sql-scripts/${folder}/${ENTITY_MANIFEST}`, json({ entityId: eid(collection), name: collection.name, ...(collection.createdAt ? { createdAt: collection.createdAt } : {}), lineageId: collection.lineageId ?? null, gitRemoteConfig: git }))
+        zip.file(`sql-scripts/${folder}/${ENTITY_MANIFEST}`, json(gitPointerManifest('sql-collection', { entityId: eid(collection), name: collection.name, createdAt: collection.createdAt, lineageId: collection.lineageId }, git)))
         gitLinks.push({ type: 'sql-collection', id: collection.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3458,7 +3500,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`etl/${folder}/${ENTITY_MANIFEST}`, json({ entityId: eid(pipeline), name: pipeline.name, ...(pipeline.createdAt ? { createdAt: pipeline.createdAt } : {}), lineageId: pipeline.lineageId ?? null, gitRemoteConfig: git }))
+        zip.file(`etl/${folder}/${ENTITY_MANIFEST}`, json(gitPointerManifest('etl-pipeline', { entityId: eid(pipeline), name: pipeline.name, createdAt: pipeline.createdAt, lineageId: pipeline.lineageId }, git)))
         gitLinks.push({ type: 'etl-pipeline', id: pipeline.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3479,8 +3521,13 @@ export async function buildWorkspaceZip(
         const folder = eid(rs)
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
-        // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`data-quality/${folder}/${ENTITY_MANIFEST}`, json({ ruleSet: { id: rs.id, name: rs.name, ...(rs.createdAt ? { createdAt: rs.createdAt } : {}), gitRemoteConfig: git }, checks: [] }))
+        // would never correct it).
+        zip.file(`data-quality/${folder}/${ENTITY_MANIFEST}`, json(gitPointerManifest('dq-rule-set', {
+          entityId: rs.entityId,
+          name: rs.name,
+          createdAt: rs.createdAt,
+          lineageId: rs.lineageId,
+        }, git)))
         gitLinks.push({ type: 'dq-rule-set', id: rs.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3518,7 +3565,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`mapping-projects/${folder}/${ENTITY_MANIFEST}`, json({ entityId: mp.entityId, name: mp.name, ...(mp.createdAt ? { createdAt: mp.createdAt } : {}), lineageId: mp.lineageId ?? null, gitRemoteConfig: git }))
+        zip.file(`mapping-projects/${folder}/${ENTITY_MANIFEST}`, json(gitPointerManifest('mapping-project', { entityId: mp.entityId, name: mp.name, createdAt: mp.createdAt, lineageId: mp.lineageId }, git)))
         gitLinks.push({ type: 'mapping-project', id: mp.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3554,7 +3601,7 @@ export async function buildWorkspaceZip(
         // createdAt rides along so the pointer-create records the real creation date
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
-        zip.file(`catalogs/${folder}/${ENTITY_MANIFEST}`, json({ entityId: eid(cat), name: cat.name, ...(cat.createdAt ? { createdAt: cat.createdAt } : {}), lineageId: cat.lineageId ?? null, gitRemoteConfig: git }))
+        zip.file(`catalogs/${folder}/${ENTITY_MANIFEST}`, json(gitPointerManifest('data-catalog', { entityId: eid(cat), name: cat.name, createdAt: cat.createdAt, lineageId: cat.lineageId }, git)))
         gitLinks.push({ type: 'data-catalog', id: cat.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -3878,8 +3925,18 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   const dqRuleSets: ParsedWorkspaceZip['dqRuleSets'] = []
   for (const [path, entry] of Object.entries(zipData.files)) {
     if ((!path.startsWith('data-quality/') && !path.startsWith('dq/')) || !path.endsWith('.json') || entry.dir) continue
-    const bundle = JSON.parse(await entry.async('string')) as { ruleSet: DqRuleSet; checks: DqCustomCheck[] }
-    if (bundle.ruleSet) dqRuleSets.push(bundle)
+    const parsed = JSON.parse(await entry.async('string')) as
+      | { ruleSet: DqRuleSet; checks?: DqCustomCheck[] }
+      | (DqRuleSet & { checks?: DqCustomCheck[] })
+    // Two shapes: an unlinked rule set is a `{ ruleSet, checks }` bundle (the
+    // checks are its content), while a git pointer is the flat entity manifest
+    // every other linked kind writes — its checks live in the linked repo.
+    if ('ruleSet' in parsed && parsed.ruleSet) {
+      dqRuleSets.push({ ruleSet: parsed.ruleSet, checks: parsed.checks ?? [] })
+    } else if ((parsed as DqRuleSet).name || (parsed as DqRuleSet).entityId) {
+      const { checks, ...ruleSet } = parsed as DqRuleSet & { checks?: DqCustomCheck[] }
+      dqRuleSets.push({ ruleSet: ruleSet as DqRuleSet, checks: checks ?? [] })
+    }
   }
 
   // --- concept-sets/ ---

@@ -29,7 +29,15 @@ from typing import Any
 from app.core.json_export import export_json as _json
 from app.services.export_layout import (
     ENTITY_MANIFEST,
+    git_pointer_manifest,
     order_provenance,
+    TYPE_DATA_CATALOG,
+    TYPE_DQ_RULE_SET,
+    TYPE_ETL_PIPELINE,
+    TYPE_MAPPING_PROJECT,
+    TYPE_PROJECT,
+    TYPE_SCHEMA_PRESET,
+    TYPE_SQL_COLLECTION,
     TYPE_WORKSPACE,
     with_entity_type,
 )
@@ -199,19 +207,15 @@ def _build_projects_section(
             # createdAt rides along so the pointer-create records the real creation
             # date (an absent createdAt makes the server stamp func.now()). Key order
             # mirrors buildWorkspaceZip's pointer for byte-parity.
-            pointer = {
-                "uid": project.get("uid"),
-                # Both names, same slug: `entityId` is what every entity calls it,
-                # `projectId` stays so a reader predating the rename still works.
-                "entityId": project.get("entityId") or project.get("projectId"),
-                "projectId": project.get("projectId"),
-                "name": project.get("name"),
-            }
-            # Omit when absent so it matches the TS builder (JSON.stringify drops an
-            # undefined key; emitting `null` here would spuriously diverge).
-            if project.get("createdAt"):
-                pointer["createdAt"] = project["createdAt"]
-            pointer["gitRemoteConfig"] = git
+            pointer = git_pointer_manifest(
+                TYPE_PROJECT,
+                uid=project.get("uid"),
+                entity_id=project.get("entityId") or project.get("projectId"),
+                name=project.get("name"),
+                created_at=project.get("createdAt"),
+                lineage_id=project.get("lineageId"),
+                git=git,
+            )
             tree[f"projects/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("project", project["uid"], folder, git)
         elif entry.get("sub_tree") is not None:
@@ -275,10 +279,14 @@ def _build_schemas_section(
         if git:
             folder = _slugify(slug)
             mapping = sp.get("mapping") or {}
-            pointer: dict = {"entityId": slug, "presetId": sp["presetId"]}
-            if mapping.get("presetLabel"):
-                pointer["mapping"] = {"presetLabel": mapping["presetLabel"]}
-            pointer["gitRemoteConfig"] = git
+            pointer = git_pointer_manifest(
+                TYPE_SCHEMA_PRESET,
+                entity_id=slug,
+                name=mapping.get("presetLabel"),
+                created_at=sp.get("createdAt"),
+                lineage_id=sp.get("lineageId"),
+                git=git,
+            )
             tree[f"schemas/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("schema-preset", sp.get("id") or sp["presetId"], folder, git)
             continue
@@ -323,11 +331,14 @@ def _build_sql_scripts_section(
             # createdAt rides along so the pointer-create records the real creation
             # date (an absent createdAt makes the server stamp func.now()). Omit when
             # absent for byte-parity with the TS builder.
-            pointer = {"entityId": _eid(collection), "name": collection.get("name")}
-            if collection.get("createdAt"):
-                pointer["createdAt"] = collection["createdAt"]
-            pointer["lineageId"] = collection.get("lineageId")
-            pointer["gitRemoteConfig"] = git
+            pointer = git_pointer_manifest(
+                TYPE_SQL_COLLECTION,
+                entity_id=_eid(collection),
+                name=collection.get("name"),
+                created_at=collection.get("createdAt"),
+                lineage_id=collection.get("lineageId"),
+                git=git,
+            )
             tree[f"sql-scripts/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("sql-collection", collection["id"], folder, git)
             continue
@@ -350,11 +361,14 @@ def _build_etl_section(
             # createdAt rides along so the pointer-create records the real creation
             # date (an absent createdAt makes the server stamp func.now()). Omit when
             # absent for byte-parity with the TS builder.
-            pointer = {"entityId": _eid(pipeline), "name": pipeline.get("name")}
-            if pipeline.get("createdAt"):
-                pointer["createdAt"] = pipeline["createdAt"]
-            pointer["lineageId"] = pipeline.get("lineageId")
-            pointer["gitRemoteConfig"] = git
+            pointer = git_pointer_manifest(
+                TYPE_ETL_PIPELINE,
+                entity_id=_eid(pipeline),
+                name=pipeline.get("name"),
+                created_at=pipeline.get("createdAt"),
+                lineage_id=pipeline.get("lineageId"),
+                git=git,
+            )
             tree[f"etl/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("etl-pipeline", pipeline["id"], folder, git)
             continue
@@ -382,12 +396,15 @@ def _build_data_quality_section(
             # rides along so the pointer-create records the real creation date (an
             # absent createdAt makes the server stamp func.now()). Omit when absent
             # for byte-parity with the TS builder.
-            rule_set_ptr = {"id": rs["id"], "name": rs.get("name")}
-            if rs.get("createdAt"):
-                rule_set_ptr["createdAt"] = rs["createdAt"]
-            rule_set_ptr["gitRemoteConfig"] = git
             tree[f"data-quality/{folder}/{ENTITY_MANIFEST}"] = _json(
-                {"ruleSet": rule_set_ptr, "checks": []}
+                git_pointer_manifest(
+                    TYPE_DQ_RULE_SET,
+                    entity_id=rs.get("entityId"),
+                    name=rs.get("name"),
+                    created_at=rs.get("createdAt"),
+                    lineage_id=rs.get("lineageId"),
+                    git=git,
+                )
             )
             git_links.add("dq-rule-set", rs["id"], folder, git)
             continue
@@ -426,14 +443,14 @@ def _build_mapping_projects_section(
             # createdAt rides along so the pointer-create records the real creation
             # date (an absent createdAt makes the server stamp func.now()). Omit when
             # absent for byte-parity with the TS builder.
-            pointer = {
-                "entityId": entry.get("entityId"),
-                "name": entry.get("name"),
-            }
-            if clean_meta.get("createdAt"):
-                pointer["createdAt"] = clean_meta["createdAt"]
-            pointer["lineageId"] = clean_meta.get("lineageId")
-            pointer["gitRemoteConfig"] = git
+            pointer = git_pointer_manifest(
+                TYPE_MAPPING_PROJECT,
+                entity_id=entry.get("entityId"),
+                name=entry.get("name"),
+                created_at=clean_meta.get("createdAt"),
+                lineage_id=clean_meta.get("lineageId"),
+                git=git,
+            )
             tree[f"mapping-projects/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("mapping-project", entry["id"], folder, git)
             continue
@@ -462,11 +479,14 @@ def _build_catalogs_section(
             # createdAt rides along so the pointer-create records the real creation
             # date (an absent createdAt makes the server stamp func.now()). Omit when
             # absent for byte-parity with the TS builder.
-            pointer = {"entityId": _eid(cat), "name": cat.get("name")}
-            if cat.get("createdAt"):
-                pointer["createdAt"] = cat["createdAt"]
-            pointer["lineageId"] = cat.get("lineageId")
-            pointer["gitRemoteConfig"] = git
+            pointer = git_pointer_manifest(
+                TYPE_DATA_CATALOG,
+                entity_id=_eid(cat),
+                name=cat.get("name"),
+                created_at=cat.get("createdAt"),
+                lineage_id=cat.get("lineageId"),
+                git=git,
+            )
             tree[f"catalogs/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
             git_links.add("data-catalog", cat["id"], folder, git)
             continue

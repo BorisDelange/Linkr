@@ -1,7 +1,7 @@
 # Export format harmonization
 
-**Status**: 🚧 in progress — steps 0–3b shipped 2026-08-26; next is step 4 (plugins),
-then 5–7 (sibling repos, MCP, docs). Every entity writes `entity.json`, declares its `type`,
+**Status**: 🚧 in progress — steps 0–4b shipped 2026-08-26; what remains is
+5–7 (sibling repos, MCP, docs). Every entity writes `entity.json`, declares its `type`,
 and opens with the same five identity keys; every reader accepts both the new name and the
 one it used before. Step 5 is the one that touches published content.
 **Decided**: `entity.json` for every entity, at every depth (containers and git-link stubs
@@ -783,12 +783,13 @@ Two kinds keep `id`: `concept-set` and `service-mapping` are **not** application
 are absent from `ENTITY_TYPES`, have no repo, no `entityId` and no lineage), so their local id
 is all that identifies them inside a workspace.
 
-**Gap to close (carried forward).** `resolveByLineage` lives in `WorkspacesPage.doImport`, a
-1000-line component with **no tests at all** — the golden suites cover the export bytes, not
-the import that consumes them. The re-import-overwrites-in-place path is therefore currently
-guarded only by manual testing. Worth extracting the resolution out of the component and
-pinning it with a round-trip test (export → import → export produces no new rows) before the
-next change lands near it.
+**Gap closed** (commit `7f02e073`). The resolution used to live inside `WorkspacesPage.doImport`,
+a 1000-line component with no tests at all — the golden suites cover the export bytes, not the
+import that consumes them, so the re-import-overwrites-in-place path rested on manual testing.
+The three resolvers now live in `lib/import-identity.ts` with 16 tests; the component keeps its
+storage plumbing and calls the tested rule, so what runs is what the tests pin. Checked by
+mutation: restoring the old `id`-based match fails three of them, including the
+every-round-trip-duplicates case that motivated the switch to lineage.
 
 **One more bug found on the way.** `service-mappings/*.json` was written raw (`json(sm)`),
 with no `stripInstanceFields` — so every workspace export published `workspaceId` (this
@@ -811,9 +812,31 @@ out of scope (§2.1b). Do this **with** schema-preset-identity step 5/6, which a
 re-exporting the 4 published preset repos with a `lineageId` — the same re-export carries the
 promoted `name`/`description`, so the two land in one pass over those repos.
 
-**Step 4 — Plugins: split the two manifests (S).**
-`_plugin.json` → `entity.json`; `plugin.json` keeps its name and its meaning. Check the
-default plugins in `packages/default-plugins/` and any file-based lab plugin on disk.
+**Step 4 — Plugins: split the two manifests (S). DONE 2026-08-26.**
+Delivered by step 3: `_plugin.json` → `entity.json`, with the plugin's own `plugin.json`
+keeping its name and its functional meaning, in both the standalone and the workspace-nested
+layouts. The remaining `_plugin.json` mentions are reader fallbacks (`layout.ts`,
+`seed-loader.ts`) and stay, so a seed baked before the rename still loads.
+
+**Step 4b — The git pointers, which step 3 renamed but never reshaped (S). DONE 2026-08-26.**
+Step 3 renamed the pointer files to `entity.json` and explicitly left their five *shapes*
+alone. Reviewing them against the finished identity block showed the drift was worse than
+"inconsistent field sets" — three of the seven were still writing retired or forbidden fields:
+
+- **`dq-rule-set`** nested itself under `{ ruleSet, checks: [] }` instead of being a manifest,
+  and was **the last writer still emitting the local `id`** — the earlier "zero remaining"
+  sweep only inspected top-level keys, so it hid one level down.
+- **`project`** still wrote `projectId`, retired in step 3b.
+- **`schema-preset`** still wrote `presetId` *and* inlined the `mapping` payload the same step
+  had just split out to `mapping.json`.
+- None of the seven declared `type`, and only four carried `lineageId` — without which a
+  re-import matches nothing and lands as a duplicate (§3b, `resolveByLineage`).
+
+One `gitPointerManifest` helper (plus its Python twin in `export_layout.py`) now writes all
+seven: `uid?, entityId, type, name, createdAt?, lineageId, gitRemoteConfig`. `lineageId` is
+written even when null — omitting it is what made a pointer re-import as a duplicate.
+The DQ reader accepts both shapes, since the `{ ruleSet, checks }` bundle is still the right
+form for an *unlinked* rule set, where the checks are its content.
 
 **Step 5 — Sibling repos (M).**
 In lockstep, since they read our trees. The survey found more attachment points than expected:

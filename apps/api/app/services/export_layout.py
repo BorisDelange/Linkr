@@ -88,6 +88,41 @@ def with_entity_type(
         out["appVersion"] = app_version
     return out
 
+def git_pointer_manifest(
+    entity_type: str,
+    *,
+    entity_id: str | None = None,
+    name=None,
+    created_at: str | None = None,
+    lineage_id: str | None = None,
+    uid: str | None = None,
+    git: dict | None = None,
+) -> dict:
+    """The manifest of a git-linked entity — twin of ``gitPointerManifest`` in
+    entity-io.ts. Identity plus the pointer, nothing else: the linked repo's own
+    ``entity.json`` is the source of truth for the rest.
+
+    ``lineage_id`` is written even when None — it is the cross-instance identity
+    the import matches on, so a pointer without it re-imports as a duplicate
+    rather than an update. ``created_at`` is omitted when absent, because
+    JSON.stringify drops an undefined key while Python would emit ``null``, and
+    the golden tests compare the two byte for byte.
+    """
+    out: dict = {}
+    if uid is not None:
+        out["uid"] = uid
+    if entity_id is not None:
+        out["entityId"] = entity_id
+    out["type"] = entity_type
+    if name is not None:
+        out["name"] = name
+    if created_at:
+        out["createdAt"] = created_at
+    out["lineageId"] = lineage_id
+    out["gitRemoteConfig"] = git
+    return out
+
+
 # Sidecars: machine-written files describing the files beside them. Never a
 # manifest — that distinction is what the leading `_` is for.
 SIDECAR_TREE = "_tree.json"

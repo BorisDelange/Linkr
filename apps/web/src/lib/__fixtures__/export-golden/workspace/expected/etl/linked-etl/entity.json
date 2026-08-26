@@ -1,5 +1,6 @@
 {
   "entityId": "linked-etl",
+  "type": "etl-pipeline",
   "name": {
     "en": "Linked ETL",
     "fr": "ETL lié"

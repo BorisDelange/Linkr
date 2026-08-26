@@ -1,5 +1,6 @@
 {
   "entityId": "linked-queries",
+  "type": "sql-collection",
   "name": {
     "en": "Linked queries",
     "fr": "Requêtes liées"
