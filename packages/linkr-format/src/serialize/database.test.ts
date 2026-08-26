@@ -45,7 +45,7 @@ describe('serializeDatabase', () => {
     // The serializer has no I/O and must never hold megabytes of binary: it
     // says where each file goes and the caller moves the bytes.
     const { files, copies } = serializeDatabase(SPEC)
-    expect(files.map((f) => f.path).sort()).toEqual(['.gitattributes', 'entity.json'])
+    expect(files.map((f) => f.path).sort()).toEqual(['.gitattributes', 'entity.json', 'mapping.json'])
     expect(copies).toEqual([
       { path: 'data/admissions.parquet', source: '/data/admissions.parquet' },
       { path: 'data/patients.parquet', source: '/data/patients.parquet' },
@@ -73,7 +73,7 @@ describe('serializeDatabase', () => {
     expect(meta.connectionConfig).toBeUndefined()
   })
 
-  it('accepts an inline mapping and orders it canonically', () => {
+  it('writes the mapping beside the manifest, ordered canonically', () => {
     const tree = treeOf({
       ...SPEC,
       schema: {
@@ -85,11 +85,33 @@ describe('serializeDatabase', () => {
         },
       },
     })
-    const meta = JSON.parse(tree.read('entity.json')!) as {
-      schema: { eventTables: Record<string, Record<string, string>> }
+    // Identity stays in the manifest; the payload is its own file.
+    const meta = JSON.parse(tree.read('entity.json')!) as Record<string, unknown>
+    expect(meta.schema).toBeUndefined()
+    expect(meta.id).toBe('mimic-iv-demo')
+    const mapping = JSON.parse(tree.read('mapping.json')!) as {
+      eventTables: Record<string, Record<string, string>>
     }
-    expect(Object.keys(meta.schema.eventTables)).toEqual(['Alpha', 'Zeta'])
-    expect(Object.keys(meta.schema.eventTables.Zeta)).toEqual(['table', 'conceptIdColumn', 'dateColumn'])
+    expect(Object.keys(mapping.eventTables)).toEqual(['Alpha', 'Zeta'])
+    expect(Object.keys(mapping.eventTables.Zeta)).toEqual(['table', 'conceptIdColumn', 'dateColumn'])
+  })
+
+  it('keeps the labels a preset drops from its own export', () => {
+    // A database COPIES its mapping, so this file is its only record of which
+    // schema it uses — presetLabel and presetId have to survive here.
+    const mapping = JSON.parse(treeOf(SPEC).read('mapping.json')!) as Record<string, unknown>
+    expect(mapping.presetId).toBe('mimic-iv')
+    expect(mapping.presetLabel).toEqual({ en: 'MIMIC-IV', fr: 'MIMIC-IV' })
+  })
+
+  it('splits the DDL into its own file', () => {
+    // Same reason as a schema preset: a large text blob inline makes the JSON
+    // unreadable in a diff.
+    const tree = treeOf({ ...SPEC, schema: { ...MAPPING, ddl: 'CREATE TABLE patients (x INT);' } })
+    expect(tree.read('schema.ddl')).toBe('CREATE TABLE patients (x INT);')
+    const mapping = JSON.parse(tree.read('mapping.json')!) as Record<string, unknown>
+    expect(mapping.ddl).toBeUndefined()
+    expect(validateEntity(tree, 'database')).toEqual([])
   })
 
   it('allows an in-memory database with no tables', () => {
@@ -100,7 +122,7 @@ describe('serializeDatabase', () => {
       schema: MAPPING, schemaSource: SPEC.schemaSource, inMemory: true,
     })
     expect(copies).toEqual([])
-    expect(files.map((f) => f.path)).toEqual(['entity.json'])
+    expect(files.map((f) => f.path)).toEqual(['entity.json', 'mapping.json'])
     const tree = new MemoryTree(Object.fromEntries(files.map((f) => [f.path, f.content])))
     expect(validateEntity(tree, 'database')).toEqual([])
   })
@@ -198,11 +220,36 @@ describe('validateEntity(database)', () => {
     expect(issues.some((i) => i.pointer === '/schemaSource')).toBe(true)
   })
 
-  it('requires a schema', () => {
+  it('requires a mapping', () => {
     const tree = new MemoryTree({
       '_database.json': JSON.stringify({ id: 'x', alias: 'x', name: { en: 'X' }, tables: [] }),
     })
     const issues = validateEntity(tree, 'database')
-    expect(issues.some((i) => i.severity === 'error' && i.pointer === '/schema')).toBe(true)
+    expect(issues.some((i) => i.severity === 'error' && i.path === 'mapping.json')).toBe(true)
+  })
+
+  it('reads a mapping.json beside the manifest', () => {
+    const tree = new MemoryTree({
+      'entity.json': JSON.stringify({
+        id: 'x', alias: 'x', name: { en: 'X' }, type: 'database',
+        schemaSource: SPEC.schemaSource, tables: [], inMemory: true,
+      }),
+      'mapping.json': JSON.stringify(MAPPING),
+    })
+    expect(validateEntity(tree, 'database')).toEqual([])
+  })
+
+  it('accepts an inline mapping but says where it belongs', () => {
+    // Trees published before the split still import; the warning is what tells
+    // the author the next export will move it.
+    const tree = new MemoryTree({
+      '_database.json': JSON.stringify({
+        id: 'x', alias: 'x', name: { en: 'X' }, schema: MAPPING,
+        schemaSource: SPEC.schemaSource, tables: [], inMemory: true,
+      }),
+    })
+    const issues = validateEntity(tree, 'database')
+    expect(issues.every((i) => i.severity === 'warning')).toBe(true)
+    expect(issues.some((i) => i.pointer === '/schema' && i.message.includes('mapping.json'))).toBe(true)
   })
 })

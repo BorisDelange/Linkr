@@ -2279,17 +2279,21 @@ export async function buildDataSourceFolder(
   const { connectionConfig, schemaMapping, ...rest } = stripInstanceFields(source) as unknown as Record<string, unknown>
   const meta = {
     ...stripEntityDocs(rest as unknown as DataSource),
-    // `schema`, not `schemaMapping`: the reader (applyClonedDatabase) and the
-    // canonical writer (@linkr/format serializeDatabase) both name it `schema`.
-    // Spreading the row's own field name published a key nothing reads, so a
-    // database repo exported by the app failed its own import with "declares
-    // the schema undefined". The metadata-only rule above is unaffected.
-    ...(schemaMapping ? { schema: schemaMapping } : {}),
     connectionConfig: connectionConfig
       ? sanitizeConnectionConfig(connectionConfig as Record<string, unknown>)
       : undefined,
   }
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(meta, 'database')))
+  // The mapping and its DDL live beside the manifest, exactly as a schema preset
+  // writes them: identity and provenance in `entity.json`, payload in files a
+  // human can read and git can diff. A database's copy KEEPS the four fields the
+  // preset's own export drops (presetLabel, description, presetId, templateId) —
+  // there the mapping is this database's only record of which schema it uses.
+  if (schemaMapping) {
+    const { ddl, ...mapping } = schemaMapping as Record<string, unknown>
+    zip.file(`${prefix}${SCHEMA_PRESET_MAPPING_FILE}`, json(canonicalSchemaMapping(mapping)))
+    if (typeof ddl === 'string' && ddl) zip.file(`${prefix}${SCHEMA_PRESET_DDL_FILE}`, ddl)
+  }
   await writeEntityDocs(zip, prefix, source, storage, 'data-source', source.id)
 }
 
@@ -2807,20 +2811,36 @@ async function applyClonedDatabase(
   if (!metaEntry) return false
   const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
 
-  // A repo carries its mapping inline, so it imports whatever is installed here.
+  // The mapping is its own file since the split, with the DDL beside it — same
+  // layout a schema preset uses. A tree written before that has it inline under
+  // `schema`, and still imports.
+  //
   // A bare name is the legacy form: it only resolves against the built-in preset
   // table, which is being retired now that schemas are installed from the catalog
   // rather than compiled in. Falling back to an empty mapping would import a
   // database the app cannot read one table from, with nothing saying why — so a
   // name that no longer resolves refuses instead.
-  const schemaMapping = typeof meta.schema === 'string'
+  const mappingEntry = zip.files[SCHEMA_PRESET_MAPPING_FILE]
+  const ddlEntry = zip.files[SCHEMA_PRESET_DDL_FILE]
+  const fromFile = mappingEntry && !mappingEntry.dir
+    ? JSON.parse(await mappingEntry.async('string')) as SchemaMapping
+    : undefined
+  const inlineMapping = typeof meta.schema === 'string'
     ? getSchemaPreset(meta.schema)
     : meta.schema
+  const baseMapping = fromFile ?? inlineMapping
+  const ddl = ddlEntry && !ddlEntry.dir ? await ddlEntry.async('string') : undefined
+  const schemaMapping = baseMapping && ddl
+    ? { ...baseMapping, ddl } as SchemaMapping
+    : baseMapping
   if (!schemaMapping) {
     throw new Error(
-      `This database declares the schema "${meta.schema as string}", which is not installed. `
-      + 'Databases should carry their mapping inline; re-export this repo, or install that '
-      + 'schema preset first and retry.',
+      typeof meta.schema === 'string'
+        ? `This database declares the schema "${meta.schema}", which is not installed. `
+          + `Databases should carry their mapping in ${SCHEMA_PRESET_MAPPING_FILE}; re-export this `
+          + 'repo, or install that schema preset first and retry.'
+        : `This database carries no schema mapping (no ${SCHEMA_PRESET_MAPPING_FILE}, and nothing `
+          + 'inline). Without it the app cannot read a single one of its tables.',
     )
   }
 

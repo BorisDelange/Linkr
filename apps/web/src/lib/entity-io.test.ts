@@ -1398,7 +1398,10 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     // the app failed its own import with "declares the schema undefined".
     // Round-trip through the real writer so the two names can never drift again.
     it('re-imports a tree the app itself exported', async () => {
-      const mapping = { presetId: 'inline', presetLabel: { en: 'Inline' }, eventTables: {} }
+      const mapping = {
+        presetId: 'inline', presetLabel: { en: 'Inline' }, eventTables: {},
+        ddl: 'CREATE TABLE t (x INT);',
+      }
       const out = new JSZip()
       await buildDataSourceFolder(out, '', {
         id: 'db1', alias: 'db', name: { en: 'DB' }, description: {},
@@ -1408,16 +1411,41 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         get: () => new Proxy({}, { get: () => async () => [] }),
       }) as unknown as Storage)
 
+      // The mapping and its DDL are their own files, as a schema preset writes
+      // them; the manifest keeps identity and provenance only.
       const meta = JSON.parse(await out.files['entity.json'].async('string')) as Record<string, unknown>
-      expect(meta.schema).toEqual(mapping)
+      expect(meta.schema).toBeUndefined()
       expect('schemaMapping' in meta).toBe(false)
+      const written = JSON.parse(await out.files['mapping.json'].async('string')) as Record<string, unknown>
+      expect(written.presetId).toBe('inline')
+      expect(written.ddl).toBeUndefined()
+      expect(await out.files['schema.ddl'].async('string')).toBe('CREATE TABLE t (x INT);')
       // The metadata-only rule still holds: no credentials travel.
       expect(meta.connectionConfig).toEqual({ engine: 'duckdb' })
 
       const { store, calls } = makeStore()
       const back = new JSZip()
-      back.file('_database.json', JSON.stringify(meta))
+      back.file('entity.json', JSON.stringify(meta))
+      back.file('mapping.json', JSON.stringify(written))
+      back.file('schema.ddl', 'CREATE TABLE t (x INT);')
       expect(await applyClonedEntity(back, 'database', 'db-target', store)).toBe(true)
+      const created = calls['ds.create']![0][0] as {
+        schemaMapping: { presetId: string; ddl: string }
+      }
+      expect(created.schemaMapping.presetId).toBe('inline')
+      // The DDL is recombined on read, so the row holds the whole mapping again.
+      expect(created.schemaMapping.ddl).toBe('CREATE TABLE t (x INT);')
+    })
+
+    it('still reads a tree with the mapping inline', async () => {
+      // Databases published before the split carry `schema` in the manifest.
+      const { store, calls } = makeStore()
+      const zip = new JSZip()
+      zip.file('_database.json', META({
+        schema: { presetId: 'inline', presetLabel: { en: 'Inline' }, eventTables: {} },
+        tables: [],
+      }))
+      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
       const created = calls['ds.create']![0][0] as { schemaMapping: { presetId: string } }
       expect(created.schemaMapping.presetId).toBe('inline')
     })

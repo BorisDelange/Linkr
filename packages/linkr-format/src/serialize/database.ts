@@ -15,7 +15,7 @@
  */
 import { canonicalSchemaMapping } from '../schema-mapping.js'
 import type { CopyFile, LocalizedInput, SerializedTree, WriteFile } from './project.js'
-import { ENTITY_MANIFEST, ROOT_FILE } from '../layout.js'
+import { CONTENT_FILE, ENTITY_MANIFEST, ROOT_FILE } from '../layout.js'
 
 /** One table of the database: a Parquet file to copy into `data/`. */
 export interface DatabaseTableSpec {
@@ -68,13 +68,15 @@ export interface DatabaseSpec {
   name: LocalizedInput
   description?: LocalizedInput
   /**
-   * How to read the tables — **the mapping itself**, written inline.
+   * How to read the tables — **the mapping itself**, copied into the repo.
    *
-   * A bare string is accepted for convenience while authoring, but it is
-   * resolved to a full mapping before writing: the built-in preset table it
-   * would otherwise be looked up in is being retired (schemas are installed
-   * from the catalog now, not compiled in), so a file holding only a name would
-   * stop resolving. Inline also makes the repo installable in any order.
+   * Written to `mapping.json` beside the manifest (its DDL to `schema.ddl`),
+   * the same split a schema preset uses.
+   *
+   * A bare string is refused rather than resolved: the built-in preset table it
+   * would be looked up in is being retired (schemas are installed from the
+   * catalog now, not compiled in), so a repo holding only a name would stop
+   * resolving. Carrying the mapping is what makes it installable in any order.
    */
   schema: string | Record<string, unknown>
   /** Which published schema this mapping came from. See `SchemaProvenance`. */
@@ -163,7 +165,6 @@ export function serializeDatabase(spec: DatabaseSpec): SerializedTree {
     name: localized(spec.name),
     ...(spec.description ? { description: localized(spec.description) } : {}),
     sourceType: 'database',
-    schema: canonicalSchemaMapping(spec.schema),
     ...(source
       ? {
         schemaSource: {
@@ -179,7 +180,21 @@ export function serializeDatabase(spec: DatabaseSpec): SerializedTree {
     version: spec.version ?? '0.1.0',
   }
 
-  const files: WriteFile[] = [{ path: ENTITY_MANIFEST, content: json(meta) }]
+  // The mapping is its own file, and the DDL its own beside it — the layout a
+  // schema preset already uses. `entity.json` keeps identity and provenance; the
+  // payload lives where a human can read it and git can diff it.
+  //
+  // Unlike a preset's OWN export, nothing is dropped from the mapping here: a
+  // database copies its mapping, so this file is that database's only record of
+  // which schema it uses, labels and all.
+  const { ddl, ...mapping } = spec.schema as Record<string, unknown>
+  const files: WriteFile[] = [
+    { path: ENTITY_MANIFEST, content: json(meta) },
+    { path: CONTENT_FILE.schemaMapping, content: json(canonicalSchemaMapping(mapping)) },
+  ]
+  if (typeof ddl === 'string' && ddl) {
+    files.push({ path: CONTENT_FILE.schemaDdl, content: ddl })
+  }
   const copies: CopyFile[] = ordered.map((t) => ({
     path: `data/${t.name}.parquet`,
     source: t.source,

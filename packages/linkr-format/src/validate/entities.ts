@@ -174,7 +174,8 @@ export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
 }
 
 /**
- * A database tree: metadata plus `data/<table>.parquet`.
+ * A database tree: metadata, its mapping (`mapping.json` + `schema.ddl`, the
+ * same split a schema preset uses), plus `data/<table>.parquet`.
  *
  * Two things this checks that nothing else can. First, every declared table has
  * its file and every file is declared — a mismatch imports as a database whose
@@ -211,9 +212,25 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
       'remove `connectionConfig`; the importing instance supplies its own')
   }
 
-  if (db.schema == null) {
-    bag.error(path, '/schema', 'missing-field',
-      'A database needs `schema`: the full mapping saying how to read its tables.')
+  // The mapping is its own file since the split — `entity.json` carries identity
+  // and provenance, the payload lives beside it, exactly as a schema preset does.
+  // A tree published before that has it inline under `schema`, and still validates.
+  const mappingFile = readJson(tree, CONTENT_FILE.schemaMapping)
+  if (mappingFile.ok) {
+    if (!isObject(mappingFile.value)) {
+      bag.error(CONTENT_FILE.schemaMapping, '', 'wrong-type',
+        `${CONTENT_FILE.schemaMapping} must be a mapping object.`)
+    }
+    if (db.schema != null) {
+      bag.warn(path, '/schema', 'legacy-format',
+        `The mapping is in ${CONTENT_FILE.schemaMapping}; \`schema\` in the manifest is the older `
+        + 'form and is ignored when both are present.',
+        'drop `schema` from the manifest')
+    }
+  } else if (db.schema == null) {
+    bag.error(CONTENT_FILE.schemaMapping, '', 'missing-file',
+      `A database needs its mapping — as ${CONTENT_FILE.schemaMapping} beside the manifest.`,
+      'copy the mapping from the schema preset repo, recording its identity in `schemaSource`')
   } else if (typeof db.schema === 'string') {
     // A name only resolves against presets installed on the importing instance,
     // and the built-in preset table that used to answer these lookups is being
@@ -222,9 +239,32 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
     bag.error(path, '/schema', 'wrong-type',
       `\`schema\` is the name "${db.schema}", not a mapping. A name only resolves if that `
       + 'preset happens to be installed.',
-      'inline the full mapping from the schema preset repo, and record its identity in `schemaSource`')
+      `copy the full mapping from the schema preset repo into ${CONTENT_FILE.schemaMapping}, `
+      + 'and record its identity in `schemaSource`')
   } else if (!isObject(db.schema)) {
     bag.error(path, '/schema', 'wrong-type', '`schema` must be a mapping object.')
+  } else {
+    bag.warn(path, '/schema', 'legacy-format',
+      `The mapping belongs in ${CONTENT_FILE.schemaMapping} beside the manifest, not inline.`,
+      `move \`schema\` to ${CONTENT_FILE.schemaMapping}`)
+  }
+
+  // Whichever form carries it, the mapping gets the same two checks a preset's
+  // does: the DDL is a file, and the order is what the next export would write.
+  const mapping = mappingFile.ok ? mappingFile.value : db.schema
+  if (isObject(mapping)) {
+    const mappingPath = mappingFile.ok ? CONTENT_FILE.schemaMapping : path
+    const at = (pointer: string) => (mappingFile.ok ? pointer : `/schema${pointer}`)
+    if (mapping.ddl != null) {
+      bag.warn(mappingPath, at('/ddl'), 'legacy-format',
+        `The DDL is inline in the mapping; exports write it to ${CONTENT_FILE.schemaDdl}.`,
+        `move the value to a ${CONTENT_FILE.schemaDdl} file and drop this field`)
+    }
+    if (JSON.stringify(mapping) !== JSON.stringify(canonicalSchemaMapping(mapping))) {
+      bag.warn(mappingPath, at(''), 'legacy-format',
+        'The mapping is not in canonical order; the next export will rewrite it.',
+        'reorder it as `canonicalSchemaMapping` does, or re-export from Linkr')
+    }
   }
 
   // Provenance is what lets the app name the schema when the preset is not
