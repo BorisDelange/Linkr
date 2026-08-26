@@ -2934,21 +2934,34 @@ async function applyClonedDatabase(
     }).catch(() => {})
   }
 
-  // Server mode holds the files itself, so the browser neither mounts them in
-  // DuckDB-WASM nor computes stats from them — the same split seedDatabase makes.
+  // Leave the source connected, not 'configuring'. Both modes have to do this
+  // themselves: nothing else runs after an import, so a database that stayed
+  // 'configuring' sat there with its data present but its Schema tab refusing
+  // to browse it and its card reading "Configuring".
   //
-  // Best-effort: the row and its files are already stored, so a mount failure
-  // must not undo the import. The source stays 'configuring' and the Databases
-  // page can connect it — losing the whole install over a mount would be far
-  // worse than an unconnected database the user can retry.
-  if (!isServerMode() && storedFiles.length > 0) {
+  // Best-effort in both branches: the row and its files are already stored, so
+  // failing to connect must not undo the import — the Databases page can always
+  // retry, and losing the whole install over it would be far worse.
+  if (storedFiles.length > 0) {
     try {
-      const source = { ...withDocs, id: targetId } as DataSource
-      await engine.mountDataSource(source, storedFiles)
-      const stats = await engine.computeStats(targetId, schemaMapping)
-      await storage.dataSources.update(targetId, { status: 'connected', stats })
+      if (isServerMode()) {
+        // A Parquet database is a FILE source: the server attaches its files on
+        // demand, so there is no live connection to test — the files being
+        // uploaded is what "connected" means. (The /retest endpoint only knows
+        // external engines and would answer `ok: false` for duckdb, marking a
+        // perfectly good import as an error.)
+        await storage.dataSources.update(targetId, {
+          status: 'connected',
+          errorMessage: undefined,
+        })
+      } else {
+        const source = { ...withDocs, id: targetId } as DataSource
+        await engine.mountDataSource(source, storedFiles)
+        const stats = await engine.computeStats(targetId, schemaMapping)
+        await storage.dataSources.update(targetId, { status: 'connected', stats })
+      }
     } catch (e) {
-      console.warn('[entity-io] database imported but not mounted:', e)
+      console.warn('[entity-io] database imported but not connected:', e)
     }
   }
   return true

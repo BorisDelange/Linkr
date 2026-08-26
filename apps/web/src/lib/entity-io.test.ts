@@ -1549,6 +1549,47 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         expect(order.indexOf('source')).toBeLessThan(order.indexOf('file'))
       })
 
+      it('leaves the imported database connected, not configuring', async () => {
+        // Server mode skipped the connect step entirely (it is the browser mount
+        // that it rightly avoids), so the database sat at 'configuring' with its
+        // data present: the Schema tab refused to browse it and its card read
+        // "Configuring". A Parquet database is a file source — the files being
+        // uploaded is what "connected" means, there is no live connection.
+        serverMode.value = true
+        let row: Record<string, unknown> | null = null
+        const store = new Proxy({}, {
+          get: (_t, prop) => {
+            switch (prop) {
+              case 'dataSources': return {
+                getAll: async () => [],
+                getById: async () => row,
+                create: async (ds: Record<string, unknown>) => { row = ds },
+                update: async (_id: string, ch: Record<string, unknown>) => {
+                  if (row) Object.assign(row, ch)
+                },
+              }
+              case 'files': return {
+                getByDataSource: async () => [],
+                create: async () => {},
+                delete: async () => {},
+              }
+              default: return new Proxy({}, { get: () => async () => {} })
+            }
+          },
+        }) as unknown as Storage
+
+        try {
+          const zip = new JSZip()
+          zip.file('_database.json', META())
+          zip.file('data/patients.parquet', new Uint8Array([1]))
+          zip.file('data/admissions.parquet', new Uint8Array([2]))
+          expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+          expect(row!.status).toBe('connected')
+        } finally {
+          serverMode.value = false
+        }
+      })
+
       it('returns null for a ZIP that is not a database repo', async () => {
         const zip = new JSZip()
         zip.file('project.json', '{}')
