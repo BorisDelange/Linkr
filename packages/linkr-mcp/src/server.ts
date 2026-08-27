@@ -40,6 +40,12 @@ import {
   removeDashboardTab,
   removeDashboardWidget,
   renameColumns,
+  readEntitySpec,
+  upsertDqCheck,
+  removeDqCheck,
+  upsertMappings,
+  removeMappings,
+  writeEntityFile,
   formatBytes,
   writeTree,
   writeZip,
@@ -603,6 +609,170 @@ server.registerTool(
   async ({ path, dataset, renames }) => {
     try {
       return text(renameColumns(path, dataset, renames))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'read_entity',
+  {
+    description:
+      'Read a standalone entity tree (SQL collection, ETL pipeline, DQ rule set, data catalog, '
+      + 'mapping project) back as the spec that would rewrite it. Lossless — fields the spec '
+      + 'does not model come back too. Edit the spec and pass it to write_entity, or use the '
+      + 'granular tools below for one record out of many.',
+    inputSchema: fromJsonSchema<{ path: string }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the entity directory.' },
+      },
+      required: ['path'],
+    }),
+  },
+  async ({ path }) => {
+    try {
+      return text(readEntitySpec(path))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'write_entity_file',
+  {
+    description:
+      "Add, replace or delete one script file of a SQL collection or ETL pipeline. Pass "
+      + 'content: null to delete. Keeps the other files untouched, which re-emitting the whole '
+      + 'spec does not guarantee.',
+    inputSchema: fromJsonSchema<{
+      path: string; file: string; content?: string | null; order?: number
+    }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the entity directory.' },
+        file: { type: 'string', description: 'Path within the entity, e.g. etl/01_person.sql.' },
+        content: { type: ['string', 'null'], description: 'File contents. null deletes the file.' },
+        order: { type: 'number', description: 'Run order within the entity. Omit to keep or append.' },
+      },
+      required: ['path', 'file'],
+    }),
+  },
+  async ({ path, file, content, order }) => {
+    try {
+      // `undefined` is a caller who forgot the field; `null` is a deliberate
+      // delete. Coercing the first to '' would blank a file instead of saying so.
+      if (content === undefined) {
+        return failure('Pass `content` (the file text), or content: null to delete the file.')
+      }
+      return text(writeEntityFile(path, file, content, order))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'upsert_dq_check',
+  {
+    description:
+      'Add or update one quality check in a DQ rule set, keyed by name. Only the fields you '
+      + 'send change; the other checks are untouched.',
+    inputSchema: fromJsonSchema<{
+      path: string; name: string; sql?: string; description?: string
+      category?: string; severity?: string; threshold?: number
+    }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the entity directory.' },
+        name: { type: 'string', description: 'Check name — the key it is stored under.' },
+        sql: { type: 'string', description: 'The query the check runs. Required for a new check.' },
+        description: { type: 'string' },
+        category: { type: 'string' },
+        severity: { type: 'string', enum: ['error', 'warning', 'info'] },
+        threshold: { type: 'number', description: "Failure threshold; its meaning is the check's own." },
+      },
+      required: ['path', 'name'],
+    }),
+  },
+  async ({ path, ...check }) => {
+    try {
+      return text(upsertDqCheck(path, check as Parameters<typeof upsertDqCheck>[1]))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'remove_dq_check',
+  {
+    description: 'Delete one quality check from a DQ rule set, by name.',
+    inputSchema: fromJsonSchema<{ path: string; name: string }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the entity directory.' },
+        name: { type: 'string', description: 'Check name.' },
+      },
+      required: ['path', 'name'],
+    }),
+  },
+  async ({ path, name }) => {
+    try {
+      return text(removeDqCheck(path, name))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'upsert_mappings',
+  {
+    description:
+      'Add or update concept-mapping rows, keyed by sourceConceptCode. Rows merge field by '
+      + 'field, so setting a target does not erase the source metadata beside it. A mapping '
+      + 'project holds thousands of rows — send only the ones that change.',
+    inputSchema: fromJsonSchema<{ path: string; rows: Record<string, unknown>[] }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the entity directory.' },
+        rows: {
+          type: 'array',
+          description: 'Mapping rows. Each needs a sourceConceptCode.',
+          items: { type: 'object' },
+        },
+      },
+      required: ['path', 'rows'],
+    }),
+  },
+  async ({ path, rows }) => {
+    try {
+      return text(upsertMappings(path, rows))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'remove_mappings',
+  {
+    description: 'Delete concept-mapping rows by their sourceConceptCode.',
+    inputSchema: fromJsonSchema<{ path: string; codes: string[] }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the entity directory.' },
+        codes: { type: 'array', items: { type: 'string' }, description: 'Source concept codes to remove.' },
+      },
+      required: ['path', 'codes'],
+    }),
+  },
+  async ({ path, codes }) => {
+    try {
+      return text(removeMappings(path, codes))
     } catch (e) {
       return failure((e as Error).message)
     }

@@ -10,7 +10,8 @@
  * written here imports and then fills in the rest.
  */
 import { MAPPING_FIELD_ORDER, canonicalSchemaMapping, orderKeys } from '../schema-mapping.js'
-import type { LocalizedInput, WriteFile } from './project.js'
+import { withExtra } from './project.js'
+import type { LocalizedInput, Passthrough, WriteFile } from './project.js'
 import {
   CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES, SCRIPTS_DIR, SIDECAR,
   type LayoutKind,
@@ -36,12 +37,21 @@ export interface BadgeSpec {
 }
 
 export interface EntityIdentity {
+  /**
+   * Manifest fields this spec does not model, re-emitted verbatim in place.
+   *
+   * An app-exported manifest carries `createdBy`, `createdByDetails`,
+   * `organization`, `license`, `dataSourceId`, `appVersion`… Reading one into a
+   * spec that could not hold them and writing it back would delete provenance on
+   * every edit — silently. Same mechanism as `DashboardSpec.extra`.
+   */
+  extra?: Passthrough
   /** Readable, URL-safe identifier. Set once, never changes. */
   entityId?: string
   /** Cross-instance identity, preserved verbatim by every import. */
   lineageId?: string
-  /** The entity this was derived from, when it is a fork. */
-  parentLineageId?: string
+  /** The entity this was derived from, when it is a fork. `null` when it is not. */
+  parentLineageId?: string | null
   /** ISO 8601. The entity's real creation date, kept as provenance. */
   createdAt?: string
   /** User-facing semver; defaults to `0.1.0` like every other entity. */
@@ -117,6 +127,8 @@ export interface MappingProjectSpec extends EntityIdentity {
   name: LocalizedInput
   description?: LocalizedInput
   sourceType?: string
+  /** How far the mapping work has got. Defaults to `draft`. */
+  status?: 'draft' | 'in_progress' | 'review' | 'done'
   mappings: ConceptMappingSpec[]
 }
 
@@ -246,7 +258,7 @@ function identityHead(s: EntityIdentity, type: LayoutKind): Record<string, unkno
 function provenanceTail(s: EntityIdentity): Record<string, unknown> {
   return {
     ...(s.lineageId ? { lineageId: s.lineageId } : {}),
-    ...(s.parentLineageId ? { parentLineageId: s.parentLineageId } : {}),
+    ...(s.parentLineageId !== undefined ? { parentLineageId: s.parentLineageId } : {}),
     ...(s.createdAt ? { createdAt: s.createdAt } : {}),
     version: s.version ?? '0.1.0',
   }
@@ -303,13 +315,13 @@ export function serializeEntity<K extends SerializableEntityKind>(
       return [
         {
           path: ENTITY_MANIFEST,
-          content: json({
+          content: json(withExtra({
             ...identityHead(s, 'sql-collection'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...(s.badges ? { badges: s.badges } : {}),
             ...provenanceTail(s),
-          }),
+          }, s.extra)),
         },
         ...serializeScriptFiles(s.files),
       ]
@@ -320,14 +332,14 @@ export function serializeEntity<K extends SerializableEntityKind>(
       return [
         {
           path: ENTITY_MANIFEST,
-          content: json({
+          content: json(withExtra({
             ...identityHead(s, 'etl-pipeline'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...(s.badges ? { badges: s.badges } : {}),
             status: s.status ?? 'draft',
             ...provenanceTail(s),
-          }),
+          }, s.extra)),
         },
         ...serializeScriptFiles(s.files),
       ]
@@ -338,14 +350,14 @@ export function serializeEntity<K extends SerializableEntityKind>(
       return [
         {
           path: ENTITY_MANIFEST,
-          content: json({
+          content: json(withExtra({
             ...identityHead(s, 'dq-rule-set'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...(s.badges ? { badges: s.badges } : {}),
             status: 'draft',
             ...provenanceTail(s),
-          }),
+          }, s.extra)),
         },
         {
           path: CONTENT_FILE.dqChecks,
@@ -367,7 +379,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
       return [
         {
           path: ENTITY_MANIFEST,
-          content: json({
+          content: json(withExtra({
             ...identityHead(s, 'data-catalog'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
@@ -377,7 +389,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...(s.subcategoryColumn ? { subcategoryColumn: s.subcategoryColumn } : {}),
             status: 'draft',
             ...provenanceTail(s),
-          }),
+          }, s.extra)),
         },
       ]
     }
@@ -391,18 +403,21 @@ export function serializeEntity<K extends SerializableEntityKind>(
           // `status`, not with the trailing provenance — so `provenanceTail` is
           // not reused here. Matches what the app writes (see the published
           // mimic-iv-demo repo).
-          content: json({
+          content: json(withExtra({
             ...identityHead(s, 'mapping-project'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...(s.badges ? { badges: s.badges } : {}),
+            // `status` before `sourceType`, matching the published repo — and
+            // taken from the spec, not hardcoded: a project that has reached
+            // `in_progress` was being reset to draft by its own round trip.
+            status: s.status ?? 'draft',
             ...(s.sourceType ? { sourceType: s.sourceType } : {}),
-            status: 'draft',
             ...(s.createdAt ? { createdAt: s.createdAt } : {}),
             ...(s.lineageId ? { lineageId: s.lineageId } : {}),
-            ...(s.parentLineageId ? { parentLineageId: s.parentLineageId } : {}),
+            ...(s.parentLineageId !== undefined ? { parentLineageId: s.parentLineageId } : {}),
             version: s.version ?? '0.1.0',
-          }),
+          }, s.extra)),
         },
         {
           path: MANIFEST['mapping-project'],
@@ -446,7 +461,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
       return [
         {
           path: ENTITY_MANIFEST,
-          content: json({
+          content: json(withExtra({
             // Key order mirrors what the app exports, so an authored tree and a
             // Linkr re-export are byte-identical — the first sync after an
             // install must be "nothing to commit".
@@ -466,8 +481,8 @@ export function serializeEntity<K extends SerializableEntityKind>(
             // The lineage trails the rest: `buildSchemaPreset` spreads it last,
             // so this is where a Linkr export puts it.
             ...(s.lineageId ? { lineageId: s.lineageId } : {}),
-            ...(s.parentLineageId ? { parentLineageId: s.parentLineageId } : {}),
-          }),
+            ...(s.parentLineageId !== undefined ? { parentLineageId: s.parentLineageId } : {}),
+          }, s.extra)),
         },
         { path: CONTENT_FILE.schemaMapping, content: json(mapping) },
         ...(ddl ? [{ path: CONTENT_FILE.schemaDdl, content: ddl }] : []),

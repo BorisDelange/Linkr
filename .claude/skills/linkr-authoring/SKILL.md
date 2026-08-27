@@ -48,12 +48,23 @@ is a bug this project has already paid for once.
 | overwrite a script | `add_script` (it overwrites) | ✅ |
 | create or replace a whole tree | `write_project`, `write_entity` | ✅ |
 | rename a dataset's columns | `rename_dataset_columns` | ✅ |
-| anything on a standalone entity (SQL collection, ETL, DQ, catalog, mapping, preset) | — | ⛔ no tool yet |
+| read a standalone entity back as its spec | `read_entity` | ✅ |
+| add/replace/delete a SQL or ETL script file | `write_entity_file` | ✅ |
+| add, update or delete a quality check | `upsert_dq_check`, `remove_dq_check` | ✅ |
+| add, update or delete concept-mapping rows | `upsert_mappings`, `remove_mappings` | ✅ |
+| change a standalone entity's own fields (name, dimensions…) | `read_entity` → edit → `write_entity` | ✅ |
+| edit a schema preset's payload, or a plugin | — | ⛔ no tool yet |
 
 For the last row: **say so and stop**. Do not fall back to editing the JSON — and do not
 rewrite the whole tree with `write_project` to change one field either: it serializes the
 spec you give it without reading what is there, so everything the spec does not model is
-lost.
+lost. (`write_entity` after a `read_entity` is safe: the spec came from the tree and
+carries what it does not model.)
+
+**A record list wants its own tool.** A mapping project holds thousands of rows and a rule
+set dozens of checks. Use `upsert_mappings` / `upsert_dq_check` to change a few rather than
+re-sending the whole spec: rows merge field by field, so you send only what changes and the
+rest is provably untouched.
 
 **Renaming and moving rewrite keys.** A widget's key is `<tab>/<slug(name)>@<y>,<x>` and a
 tab's is `<parent>/<slug(name)>`, so renaming a tab re-keys its sub-tabs *and* every widget
@@ -107,6 +118,10 @@ check the shape of these fields.
 | `rename_widget`, `rename_dashboard_tab`, `move_widget` | **rekey** — the cascade is done for you and reported |
 | `remove_widget`, `remove_dashboard_tab` | delete; the result names the collateral |
 | `rename_dataset_columns` | **rekey** — re-derives column ids and repoints every widget config and filter |
+| `read_entity` | a standalone entity tree as its spec — lossless, so it is safe to edit and write back |
+| `write_entity_file` | one script file of a SQL collection or ETL pipeline (`content: null` deletes) |
+| `upsert_dq_check`, `remove_dq_check` | one quality check, by name |
+| `upsert_mappings`, `remove_mappings` | concept-mapping rows, by `sourceConceptCode` |
 
 Not registered? `claude mcp add linkr -- npx tsx <repo>/packages/linkr-mcp/src/server.ts`
 

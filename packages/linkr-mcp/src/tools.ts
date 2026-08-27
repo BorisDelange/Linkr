@@ -6,13 +6,16 @@
  * tree does read and rewrite dashboard JSON, but it only ever *places* records
  * whose shape and keys come from the format package.
  */
-import { copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import {
   ENTITY_MANIFEST, MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES,
-  columnId, findCsv, formatIssues, moveWidget, removeTab, removeWidget, renameDatasetColumns,
-  renameTab, renameWidget, slugify, tabCollateral, validateProject,
-  type CopyFile, type DashboardDocument, type DatasetRecord, type WriteFile,
+  columnId, detectTreeKind, findCsv, formatIssues, isReadableKind, moveWidget, READABLE_KINDS,
+  readEntity, removeTab, removeWidget, renameDatasetColumns, renameTab, renameWidget,
+  serializeEntity, slugify, tabCollateral, validateEntity, validateProject,
+  type CopyFile, type DashboardDocument, type DatasetRecord, type DqRuleSetSpec,
+  type EtlPipelineSpec, type MappingProjectSpec, type ReadableEntityKind,
+  type SqlCollectionSpec, type WriteFile,
 } from '@linkr/format'
 import { FsTree } from '@linkr/format/node/fs-tree'
 
@@ -867,4 +870,195 @@ function rewriteCsvHeader(
 /** Quote a header field only when it needs it, so untouched names stay byte-identical. */
 function quoteCsv(value: string): string {
   return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+}
+
+// ---------------------------------------------------------------------------
+// Standalone entities: read back, and edit one record out of many
+// ---------------------------------------------------------------------------
+
+/**
+ * A standalone entity tree as the spec that would rewrite it.
+ *
+ * The edit loop for these six kinds is read → change → `write_entity`, so this is
+ * the half that was missing. It is lossless: anything the spec does not model
+ * comes back in `extra` and is re-emitted in place, so an unrelated field is
+ * never dropped by an edit.
+ */
+export function readEntitySpec(root: string): string {
+  const tree = new FsTree(root)
+  const kind = detectTreeKind(tree)
+  if (!kind) {
+    throw new Error(`No Linkr entity found in ${root}: nothing declares what it is.`)
+  }
+  if (kind === 'project') {
+    throw new Error('This is a project tree — use describe_tree and the dashboard tools.')
+  }
+  if (!isReadableKind(kind)) {
+    throw new Error(
+      `Reading a ${kind} tree is not supported yet. Readable: ${READABLE_KINDS.join(', ')}.`,
+    )
+  }
+  const { spec } = readEntity(tree, kind)
+  return `kind: ${kind}\n\n${JSON.stringify(spec, null, 2)}`
+}
+
+/** Load a standalone tree, or explain why it cannot be edited. */
+function loadEntity(root: string, expected?: ReadableEntityKind) {
+  const tree = new FsTree(root)
+  const kind = detectTreeKind(tree)
+  if (!kind || !isReadableKind(kind)) {
+    throw new Error(`No editable Linkr entity in ${root} (found: ${kind ?? 'nothing'}).`)
+  }
+  if (expected && kind !== expected) {
+    throw new Error(`This is a ${kind} tree, not a ${expected}.`)
+  }
+  return { tree, ...readEntity(tree, kind) }
+}
+
+/** Write a spec back over its own tree, then revalidate. */
+function writeEntitySpec(root: string, kind: ReadableEntityKind, spec: unknown, summary: string): string {
+  writeTree(root, serializeEntity(kind as never, spec as never))
+  const issues = validateEntity(new FsTree(root), kind as never)
+  const errors = issues.filter((i) => i.severity === 'error').length
+  if (!issues.length) return `${summary} Tree is valid.`
+  return errors === 0
+    ? `${summary} Tree is valid (${issues.length} warning(s)).`
+    : `${summary}\n\n${errors} error(s) now in the tree:\n${formatIssues(issues)}`
+}
+
+export interface DqCheckInput {
+  name: string
+  sql?: string
+  description?: string
+  category?: string
+  severity?: 'error' | 'warning' | 'info'
+  threshold?: number
+}
+
+/**
+ * Add or update one quality check, by name.
+ *
+ * Granular because a rule set is a list: re-emitting every check to edit one
+ * means sending them all through the model's context, which is both wasteful and
+ * a chance to mangle the ones that were not meant to change.
+ */
+export function upsertDqCheck(root: string, check: DqCheckInput): string {
+  const { kind, spec } = loadEntity(root, 'dq-rule-set')
+  const s = spec as DqRuleSetSpec
+  const index = s.checks.findIndex((c) => c.name === check.name)
+  const existing = index >= 0 ? s.checks[index] : undefined
+  const merged = { ...existing, ...check } as DqRuleSetSpec['checks'][number]
+  if (!merged.sql) throw new Error(`Check "${check.name}" needs a sql query.`)
+
+  if (index >= 0) s.checks[index] = merged
+  else s.checks.push(merged)
+  return writeEntitySpec(
+    root, kind, s,
+    `${index >= 0 ? 'Updated' : 'Added'} check "${check.name}" (${s.checks.length} total).`,
+  )
+}
+
+export function removeDqCheck(root: string, name: string): string {
+  const { kind, spec } = loadEntity(root, 'dq-rule-set')
+  const s = spec as DqRuleSetSpec
+  const index = s.checks.findIndex((c) => c.name === name)
+  if (index < 0) {
+    throw new Error(
+      `Unknown check "${name}". Known: ${s.checks.map((c) => c.name).join(', ') || 'none'}.`,
+    )
+  }
+  s.checks.splice(index, 1)
+  return writeEntitySpec(root, kind, s, `Removed check "${name}" (${s.checks.length} left).`)
+}
+
+/**
+ * Add or update mapping rows, keyed by source concept code.
+ *
+ * The code is the natural key: it is what the source dictionary calls the
+ * concept, and what a re-import matches on. Rows are merged field by field, so
+ * setting a target does not erase the source metadata beside it.
+ */
+export function upsertMappings(
+  root: string,
+  rows: Record<string, unknown>[],
+): string {
+  const { kind, spec } = loadEntity(root, 'mapping-project')
+  const s = spec as MappingProjectSpec
+  const byCode = new Map(s.mappings.map((m, i) => [m.sourceConceptCode, i]))
+
+  let added = 0
+  let updated = 0
+  for (const row of rows) {
+    const code = String(row.sourceConceptCode ?? '')
+    if (!code) throw new Error('Every mapping row needs a sourceConceptCode.')
+    const at = byCode.get(code)
+    if (at != null) {
+      s.mappings[at] = { ...s.mappings[at], ...row } as unknown as MappingProjectSpec['mappings'][number]
+      updated++
+    } else {
+      s.mappings.push(row as unknown as MappingProjectSpec['mappings'][number])
+      byCode.set(code, s.mappings.length - 1)
+      added++
+    }
+  }
+  return writeEntitySpec(
+    root, kind, s,
+    `${added} row(s) added, ${updated} updated (${s.mappings.length} total).`,
+  )
+}
+
+export function removeMappings(root: string, codes: string[]): string {
+  const { kind, spec } = loadEntity(root, 'mapping-project')
+  const s = spec as MappingProjectSpec
+  const doomed = new Set(codes)
+  const before = s.mappings.length
+  s.mappings = s.mappings.filter((m) => !doomed.has(String(m.sourceConceptCode)))
+  const removed = before - s.mappings.length
+  if (!removed) {
+    throw new Error(`No row matched: ${codes.join(', ')}.`)
+  }
+  return writeEntitySpec(root, kind, s, `Removed ${removed} row(s) (${s.mappings.length} left).`)
+}
+
+/**
+ * Add, replace or delete one file of a SQL collection or ETL pipeline.
+ *
+ * `content: null` deletes. Ordering is preserved: an ETL pipeline runs its files
+ * in `order`, so a new file goes last unless one is given.
+ */
+export function writeEntityFile(
+  root: string,
+  filePath: string,
+  content: string | null,
+  order?: number,
+): string {
+  const { kind, spec } = loadEntity(root)
+  if (kind !== 'sql-collection' && kind !== 'etl-pipeline') {
+    throw new Error(`A ${kind} has no script files.`)
+  }
+  const s = spec as SqlCollectionSpec | EtlPipelineSpec
+  const index = s.files.findIndex((f) => f.path === filePath)
+
+  if (content == null) {
+    if (index < 0) {
+      throw new Error(
+        `Unknown file "${filePath}". Known: ${s.files.map((f) => f.path).join(', ') || 'none'}.`,
+      )
+    }
+    s.files.splice(index, 1)
+    // The old file is still on disk: the serializer only writes what the spec
+    // lists, so a delete must remove it explicitly or it survives untracked.
+    rmSync(resolveInside(root, `scripts/${filePath}`), { force: true })
+    return writeEntitySpec(root, kind, s, `Removed ${filePath} (${s.files.length} file(s) left).`)
+  }
+
+  if (index >= 0) {
+    s.files[index] = { ...s.files[index], content, ...(order != null ? { order } : {}) }
+  } else {
+    s.files.push({ path: filePath, content, order: order ?? s.files.length })
+  }
+  return writeEntitySpec(
+    root, kind, s,
+    `${index >= 0 ? 'Replaced' : 'Added'} ${filePath} (${s.files.length} file(s)).`,
+  )
 }

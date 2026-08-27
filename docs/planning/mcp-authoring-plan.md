@@ -614,7 +614,7 @@ the app, never touched by this package) round-trips byte for byte.
 
 | # | Item | Effort |
 |---|---|---|
-| ◐ B1 | `read_entity(path)` → the spec for any kind, kind auto-detected as `validate_entity` already does | M |
+| ✅ B1 | `read_entity(path)` → the spec for any kind, kind auto-detected as `validate_entity` already does | M |
 | ✅ B2 | `read_file(path, file)` → raw content of a script / `.sql` / DDL, so the agent stops needing `Read` | S |
 | ✅ B3 | `describe_tree` gains widget `config`, filters, and layout — it stops being a summary that forces a file read | S |
 
@@ -649,7 +649,7 @@ histogram widget — the file never opened.
 | ✅ C5 | `update_tab(key, {name?})` — same key-rewrite problem as C3 | S |
 | ✅ C6 | `update_dataset(name, {csv?, types?})` — recomputes column ids and **reports the ones that changed**, since a rename orphans every widget config pointing at the old id | M |
 | ✅ C7 | `update_script(path, content)` — trivially, `add_script` already overwrites; make it explicit rather than a side effect | S |
-| C8 | Granular tools for the 6 standalone kinds (the existing step 10): `add`/`update`/`remove` over a sql-collection or ETL **file**, a DQ **check**, a catalog **dimension**, a mapping **row**, a preset **event table** | L |
+| ◐ C8 | Granular tools for the 6 standalone kinds (the existing step 10): `add`/`update`/`remove` over a sql-collection or ETL **file**, a DQ **check**, a catalog **dimension**, a mapping **row**, a preset **event table** | L |
 
 #### C2–C5, C7 as built (2026-08-27)
 
@@ -710,6 +710,48 @@ the widgets and filters bound to that dataset, since two datasets can both hold 
 Ids are rebuilt over the whole ordered column list, not one at a time — collision suffixes
 (`_2`) are handed out in header order, so two names normalising to one slug are correct in
 exactly one arrangement.
+
+#### B1 + C8 as built (2026-08-27) — the standalone kinds
+
+Unblocked early: the plan kept C8 💤 "until the six kinds are actually being edited in
+anger", and they are.
+
+**The cascade fear was unfounded, and worth recording so it is not re-feared.** An ETL or
+SQL `_tree.json` is keyed by `path` and stores no id — ids are derived at import — and no
+script references another. So renaming a file is a self-contained path rewrite, nothing
+like the dashboard's second-order key cascade.
+
+`read_entity` (B1) is the floor the plan asked for: lossless, so `read_entity` → edit →
+`write_entity` is a safe loop. Four granular tools sit on top, for the case §7b.2 named as
+the exception — "deleting one record out of many". A published mapping project holds **1786
+rows**; re-emitting all of them to change one is both wasteful and a chance to mangle the
+rest. `upsert_mappings` / `upsert_dq_check` merge field by field.
+
+Running the round trip against the real published trees found **three writer bugs**, none
+visible from the fixtures:
+
+- **A mapping project's `status` was hardcoded to `'draft'`.** A project that had reached
+  `in_progress` was reset by its own round trip — a real edit silently undoing the user's
+  progress. It also had `status`/`sourceType` in the wrong order.
+- **`extra` was never emitted for standalone kinds.** The reader collected it; the
+  serializer had no `withExtra`, so `organization`, `createdBy`, `license` and `appVersion`
+  were dropped on write. `withExtra` is now exported from the project serializer and used
+  by all six.
+- **`parentLineageId: null` was dropped** by a truthy test, though the app always writes
+  the key (`PROVENANCE_ORDER`, "always written, `null` when unset"). The first sync after
+  an edit would have shown a deletion nobody made.
+
+After the fixes, the published `mapping-projects/mimic-iv-demo` `entity.json` round-trips
+**byte-identical**. Its `mappings.json` differs by one byte — a trailing newline the
+published file carries and the app does not write (the golden confirms), so the file is the
+outlier, not the writer.
+
+End to end on that project: two rows upserted, 1 added + 1 merged, **0 of the other 1786
+rows changed**, and `status: in_progress` preserved.
+
+Still open in C8: a schema preset's payload (`mapping.json` — its own shape, and
+`schema-preset` is deliberately outside `readEntity`) and a data catalog's dimensions,
+which are a plain list a whole-spec rewrite handles fine.
 
 **Guardrails** (what makes "never touch the files" enforceable rather than hoped-for):
 

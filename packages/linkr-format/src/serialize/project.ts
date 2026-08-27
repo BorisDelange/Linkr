@@ -492,7 +492,7 @@ function serializeDashboards(
  * did not mention (a hand-authored spec, where `extra` is absent, gets exactly the
  * declaration order below — unchanged from before this existed).
  */
-function withExtra<T extends Record<string, unknown>>(
+export function withExtra<T extends Record<string, unknown>>(
   computed: T,
   extra: Passthrough | undefined,
 ): T {

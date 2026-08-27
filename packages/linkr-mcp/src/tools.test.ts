@@ -1,12 +1,14 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { serializeProject, type ProjectSpec } from '@linkr/format'
+import { serializeEntity, serializeProject, type ProjectSpec } from '@linkr/format'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   addDashboardTab, addScript, addWidget, describeEntitySchema, describeTree,
   moveDashboardWidget, readTreeFile, removeDashboardTab, removeDashboardWidget,
-  renameColumns, renameDashboardTab, renameDashboardWidget, updateWidget, writeTree, writeZip,
+  readEntitySpec, removeDqCheck, removeMappings, renameColumns, renameDashboardTab,
+  renameDashboardWidget, updateWidget, upsertDqCheck, upsertMappings, writeEntityFile,
+  writeTree, writeZip,
 } from './tools.js'
 
 const CSV = 'patient_id,age,sex,ventilated\n1,60,M,1\n2,71,F,0\n'
@@ -432,5 +434,128 @@ describe('renameColumns', () => {
 
   it('accepts the dataset name without its extension', () => {
     expect(() => renameColumns(root, 'stays', [{ from: 'col_age', to: 'age_years' }])).not.toThrow()
+  })
+})
+
+describe('standalone entities', () => {
+  let entityRoot: string
+
+  beforeEach(() => {
+    entityRoot = mkdtempSync(join(tmpdir(), 'linkr-entity-'))
+  })
+  afterEach(() => rmSync(entityRoot, { recursive: true, force: true }))
+
+  const ruleSet = () => writeTree(entityRoot, serializeEntity('dq-rule-set', {
+    entityId: 'icu-checks',
+    name: { en: 'ICU checks' },
+    checks: [
+      { name: 'null ids', sql: 'SELECT 1', severity: 'error' },
+      { name: 'age range', sql: 'SELECT 2', severity: 'warning' },
+    ],
+  }))
+
+  const collection = () => writeTree(entityRoot, serializeEntity('sql-collection', {
+    entityId: 'icu-queries',
+    name: { en: 'ICU queries' },
+    files: [{ path: 'a.sql', content: 'SELECT 1;\n', order: 0 }],
+  }))
+
+  const mappingProject = () => writeTree(entityRoot, serializeEntity('mapping-project', {
+    entityId: 'mimic-map',
+    name: { en: 'MIMIC map' },
+    mappings: [
+      { sourceConceptCode: 'A', sourceConceptName: 'Alpha', targetConceptId: 1 },
+      { sourceConceptCode: 'B', sourceConceptName: 'Beta' },
+    ],
+  }))
+
+  const checksOf = () =>
+    JSON.parse(readFileSync(join(entityRoot, 'checks.json'), 'utf-8'))
+  const rowsOf = () =>
+    JSON.parse(readFileSync(join(entityRoot, 'mappings.json'), 'utf-8'))
+
+  it('reads a tree back as its spec, kind detected', () => {
+    collection()
+    const out = readEntitySpec(entityRoot)
+    expect(out).toMatch(/^kind: sql-collection/)
+    expect(JSON.parse(out.slice(out.indexOf('{'))).files[0].path).toBe('a.sql')
+  })
+
+  it('refuses a project tree, pointing at the right tools', () => {
+    expect(() => readEntitySpec(root)).toThrow(/use describe_tree/)
+  })
+
+  it('updates one check and leaves the others alone', () => {
+    ruleSet()
+    upsertDqCheck(entityRoot, { name: 'age range', severity: 'error' })
+    const checks = checksOf()
+    expect(checks).toHaveLength(2)
+    // Merged: the sql it did not resend survives.
+    expect(checks.find((c: { name: string }) => c.name === 'age range'))
+      .toMatchObject({ sql: 'SELECT 2', severity: 'error' })
+    expect(checks.find((c: { name: string }) => c.name === 'null ids'))
+      .toMatchObject({ sql: 'SELECT 1', severity: 'error' })
+  })
+
+  it('needs a sql query for a brand-new check', () => {
+    ruleSet()
+    expect(() => upsertDqCheck(entityRoot, { name: 'fresh' })).toThrow(/needs a sql query/)
+  })
+
+  it('removes a check and names the ones that exist when it cannot', () => {
+    ruleSet()
+    removeDqCheck(entityRoot, 'null ids')
+    expect(checksOf()).toHaveLength(1)
+    expect(() => removeDqCheck(entityRoot, 'ghost')).toThrow(/Known: age range/)
+  })
+
+  it('merges a mapping row field by field', () => {
+    // The point of a granular tool: a real project has thousands of rows, and
+    // re-sending them all to change one is both wasteful and a chance to mangle
+    // the rest.
+    mappingProject()
+    upsertMappings(entityRoot, [{ sourceConceptCode: 'A', status: 'approved' }])
+    const rows = rowsOf()
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ sourceConceptName: 'Alpha', targetConceptId: 1, status: 'approved' })
+  })
+
+  it('appends an unknown code as a new row', () => {
+    mappingProject()
+    upsertMappings(entityRoot, [{ sourceConceptCode: 'C', sourceConceptName: 'Gamma' }])
+    expect(rowsOf().map((r: { sourceConceptCode: string }) => r.sourceConceptCode)).toEqual(['A', 'B', 'C'])
+  })
+
+  it('refuses a row with no source code', () => {
+    mappingProject()
+    expect(() => upsertMappings(entityRoot, [{ targetConceptId: 9 }]))
+      .toThrow(/needs a sourceConceptCode/)
+  })
+
+  it('removes rows by code, and says so when none matched', () => {
+    mappingProject()
+    removeMappings(entityRoot, ['A'])
+    expect(rowsOf()).toHaveLength(1)
+    expect(() => removeMappings(entityRoot, ['ZZZ'])).toThrow(/No row matched/)
+  })
+
+  it('adds a script file to a collection', () => {
+    collection()
+    writeEntityFile(entityRoot, 'b.sql', 'SELECT 2;\n')
+    expect(readFileSync(join(entityRoot, 'scripts/b.sql'), 'utf-8')).toBe('SELECT 2;\n')
+  })
+
+  it('deletes a script file from disk, not only from the tree', () => {
+    // The serializer only writes what the spec lists, so a file dropped from the
+    // spec would otherwise survive on disk, untracked and still running.
+    collection()
+    writeEntityFile(entityRoot, 'b.sql', 'SELECT 2;\n')
+    writeEntityFile(entityRoot, 'b.sql', null)
+    expect(existsSync(join(entityRoot, 'scripts/b.sql'))).toBe(false)
+  })
+
+  it('refuses script files on a kind that has none', () => {
+    ruleSet()
+    expect(() => writeEntityFile(entityRoot, 'a.sql', 'x')).toThrow(/has no script files/)
   })
 })
