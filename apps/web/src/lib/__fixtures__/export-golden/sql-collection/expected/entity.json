@@ -10,6 +10,11 @@
     "fr": "SQL réutilisable"
   },
   "defaultDataSourceId": null,
+  "config": {
+    "excludedFiles": [
+      "scratch.sql"
+    ]
+  },
   "createdAt": "2026-01-02T03:04:05.000Z",
   "createdBy": "Boris Delange",
   "createdByDetails": {

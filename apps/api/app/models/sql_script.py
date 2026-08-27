@@ -40,6 +40,11 @@ class SqlScriptCollection(Base, TimestampMixin):
     # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
     lineage_id: Mapped[str | None] = mapped_column(String(36))
     parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
+    # Per-file versioning marks, mirroring EtlPipeline.config. A collection holds
+    # only .sql, so in practice only `excludedFiles` is used — a script is
+    # committed unless the user takes it out. Keyed by the file's path inside the
+    # collection, which is what the export tree uses.
+    config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
 
 
 class SqlScriptFile(Base):

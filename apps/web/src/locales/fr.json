@@ -3669,7 +3669,9 @@
     "no_database_available": "Aucune base disponible",
     "tab_result": "Résultat — {{name}}",
     "tab_preview": "Aperçu — {{name}}",
-    "label_selection": "{{name}} (sélection)"
+    "label_selection": "{{name}} (sélection)",
+    "mark_versioned_count": "Versionner {{count}} fichiers",
+    "unmark_versioned_count": "Retirer {{count}} fichiers du versioning"
   },
   "app_versioning": {
     "title": "Versioning et export",

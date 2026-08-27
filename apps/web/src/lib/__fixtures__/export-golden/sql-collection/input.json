@@ -16,6 +16,11 @@
       "url": "https://git.example.org/sql.git",
       "branch": "main"
     },
+    "config": {
+      "excludedFiles": [
+        "scratch.sql"
+      ]
+    },
     "createdById": 7,
     "createdBy": "Boris Delange",
     "createdByDetails": {
@@ -67,6 +72,17 @@
       "parentId": null,
       "content": "SELECT 1;",
       "order": 1,
+      "dataSourceId": null,
+      "createdAt": "2026-01-02T03:04:05.000Z"
+    },
+    {
+      "id": "f-scratch",
+      "collectionId": "col-1",
+      "name": "scratch.sql",
+      "type": "file",
+      "parentId": null,
+      "content": "SELECT 999;",
+      "order": 2,
       "dataSourceId": null,
       "createdAt": "2026-01-02T03:04:05.000Z"
     }

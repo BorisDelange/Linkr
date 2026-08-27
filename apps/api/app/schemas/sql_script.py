@@ -26,6 +26,9 @@ class SqlScriptCollectionCreate(CamelModel):
     # Creation date preserved on import round-trip; absent → server_default now.
     created_at: datetime | None = None
     version: str = "0.1.0"
+    # Per-file versioning marks ({"excludedFiles": [...]}). Present on Create so an
+    # import/clone carries the marks in, not just on Update.
+    config: dict | None = None
 
 
 class SqlScriptCollectionUpdate(CamelModel):
@@ -48,6 +51,8 @@ class SqlScriptCollectionUpdate(CamelModel):
     # Restored on import/clone so the original creation date survives a git
     # round-trip; a normal PATCH never sends it (exclude_unset leaves it alone).
     created_at: datetime | None = None
+    # Per-file versioning marks. Missing here would silently drop every toggle.
+    config: dict | None = None
 
 
 class SqlScriptCollectionResponse(CamelModel):
@@ -70,6 +75,11 @@ class SqlScriptCollectionResponse(CamelModel):
     created_at: datetime
     updated_at: datetime
     version: str
+    # AFTER version/createdAt, not before: this schema's declaration order IS the
+    # exported key order, and the client emits config here. Declaring it earlier
+    # produced JSON with identical content but different bytes — a false git diff
+    # between a front-only and a server client versioning the same collection.
+    config: dict | None = None
 
 
 class SqlScriptFileCreate(CamelModel):

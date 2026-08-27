@@ -2,7 +2,15 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
+import { prunedConfigForTree, renameVersioningMark } from '@/lib/entity-versioning'
+import { treeNodePath } from '@/lib/entity-tree'
 import type { SqlScriptCollection, SqlScriptFile } from '@/types'
+
+/** A file's path inside its collection — the key the versioning marks use. */
+function pathOfFile(files: SqlScriptFile[], id: string): string {
+  const node = files.find((f) => f.id === id)
+  return node ? treeNodePath(node, new Map(files.map((f) => [f.id, f]))) : ''
+}
 
 // --- Output tab types ---
 
@@ -61,6 +69,10 @@ interface SqlScriptsState {
   moveFile: (id: string, parentId: string | null) => Promise<void>
   duplicateFile: (id: string) => Promise<void>
   deleteFile: (id: string) => Promise<void>
+  /** Carry a file's versioning mark to the path it just moved to. */
+  _remapMarks: (id: string, previousPath: string) => Promise<void>
+  /** Drop versioning marks for files that no longer exist in a collection. */
+  _pruneMarks: (collectionId: string | undefined) => Promise<void>
 
   // Editor state
   selectedFileId: string | null
@@ -206,10 +218,15 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
   },
 
   updateFile: async (id, changes) => {
+    // Marks are keyed by path, so a rename has to carry them across. Captured
+    // before the write, compared after: a content save leaves the path alone and
+    // must not touch the collection.
+    const before = pathOfFile(get().files, id)
     await getStorage().sqlScriptFiles.update(id, changes)
     set((s) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, ...changes } : f)),
     }))
+    await get()._remapMarks(id, before)
   },
 
   moveFile: async (id, parentId) => {
@@ -229,10 +246,12 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
       collect(id)
       if (parentId === id || descendants.has(parentId)) return
     }
+    const before = pathOfFile(get().files, id)
     await getStorage().sqlScriptFiles.update(id, { parentId })
     set((s) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, parentId } : f)),
     }))
+    await get()._remapMarks(id, before)
   },
 
   duplicateFile: async (id) => {
@@ -293,6 +312,28 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
         _dirtyMap: newDirtyMap,
       }
     })
+    await get()._pruneMarks(node?.collectionId)
+  },
+
+  _remapMarks: async (id, previousPath) => {
+    const file = get().files.find((f) => f.id === id)
+    if (!file) return
+    const next = renameVersioningMark(
+      get().collections.find((c) => c.id === file.collectionId)?.config,
+      previousPath,
+      pathOfFile(get().files, id),
+    )
+    if (next) await get().updateCollection(file.collectionId, { config: next })
+  },
+
+  _pruneMarks: async (collectionId) => {
+    if (!collectionId) return
+    const collection = get().collections.find((c) => c.id === collectionId)
+    const next = prunedConfigForTree(
+      collection?.config,
+      get().files.filter((f) => f.collectionId === collectionId),
+    )
+    if (next) await get().updateCollection(collectionId, { config: next })
   },
 
   // --- Editor state ---

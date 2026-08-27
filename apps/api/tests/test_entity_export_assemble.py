@@ -88,6 +88,9 @@ async def test_sql_collection_matches_golden(db):
         lineage_id=c["lineageId"], parent_lineage_id=c["parentLineageId"],
         version=c["version"], readme=c.get("readme"), license=c.get("license"),
         created_at=_dt(c["createdAt"]), updated_at=_dt(c["updatedAt"]),
+        # Without this the filtering that decides WHICH files reach the repo goes
+        # untested: every file would be kept and the golden would still pass.
+        config=c.get("config"),
     )
     db.add(collection)
     await db.commit()
@@ -182,6 +185,50 @@ async def test_etl_unmarked_data_file_leaves_no_tree_entry(db):
     assert "mapping/source_to_concept_map.csv" not in paths
     assert "mapping/source_to_concept_map.csv" not in tree
     assert tree["mapping/kept.csv"] == b"a,b\n1,2\n"
+
+
+@pytest.mark.asyncio
+async def test_sql_collection_excluded_file_leaves_no_tree_entry(db):
+    """An excluded script is absent from _tree.json, not just from the zip.
+
+    Same rule and same reason as the ETL twin above: a tree naming a file the
+    repo cannot contain re-imports as an empty script and makes every pull offer
+    the phantom as an incoming change. A collection holds only `.sql`, so the
+    default runs the other way — a script is committed unless excluded.
+    """
+    data, _ = _golden("sql-collection")
+    await _seed_ws_org(db, data)
+    c = data["collection"]
+    collection = SqlScriptCollection(
+        id=c["id"], workspace_id=c["workspaceId"], entity_id=c["entityId"],
+        name=c["name"], description=c["description"],
+        created_at=_dt(c["createdAt"]), updated_at=_dt(c["updatedAt"]),
+        version=c["version"],
+        config={"excludedFiles": ["queries/private.sql"]},
+    )
+    db.add(collection)
+    await db.commit()
+    db.add(SqlScriptFile(
+        id="fold", collection_id=collection.id, name="queries", type="folder",
+        parent_id=None, order=0, created_at=data["files"][0]["createdAt"],
+    ))
+    for fid, name, content in [
+        ("keep", "cohort.sql", "SELECT 1;"),
+        ("drop", "private.sql", "SELECT 2;"),
+    ]:
+        db.add(SqlScriptFile(
+            id=fid, collection_id=collection.id, name=name, type="file",
+            parent_id="fold", content=content, order=0,
+            created_at=data["files"][0]["createdAt"],
+        ))
+    await db.commit()
+
+    tree = await build_sql_collection_tree(db, collection)
+    paths = [n["path"] for n in json.loads(tree["scripts/_tree.json"])]
+    assert "queries/cohort.sql" in paths
+    assert "queries/private.sql" not in paths
+    assert "scripts/queries/private.sql" not in tree
+    assert tree["scripts/queries/cohort.sql"] == b"SELECT 1;"
 
 
 @pytest.mark.asyncio

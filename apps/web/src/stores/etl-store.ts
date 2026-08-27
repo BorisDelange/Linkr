@@ -2,7 +2,15 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
+import { prunedConfigForTree, renameVersioningMark } from '@/lib/entity-versioning'
+import { treeNodePath } from '@/lib/entity-tree'
 import type { EtlPipeline, EtlFile, EtlRunLog, EtlRunHistoryEntry } from '@/types'
+
+/** A file's path inside its pipeline — the key the versioning marks use. */
+function pathOfFile(files: EtlFile[], id: string): string {
+  const node = files.find((f) => f.id === id)
+  return node ? treeNodePath(node, new Map(files.map((f) => [f.id, f]))) : ''
+}
 
 // --- Output tab types (mirrors useFileStore pattern) ---
 
@@ -44,6 +52,10 @@ interface EtlState {
   createFile: (file: EtlFile) => Promise<void>
   updateFile: (id: string, changes: Partial<EtlFile>) => Promise<void>
   deleteFile: (id: string) => Promise<void>
+  /** Carry a file's versioning mark to the path it just moved to. */
+  _remapMarks: (id: string, previousPath: string) => Promise<void>
+  /** Drop versioning marks for files that no longer exist in a pipeline. */
+  _pruneMarks: (pipelineId: string | undefined) => Promise<void>
 
   // Editor state
   selectedFileId: string | null
@@ -259,13 +271,19 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   },
 
   updateFile: async (id, changes) => {
+    // Marks are keyed by path, so a rename has to carry them across. Captured
+    // before the write, compared after: a content save leaves the path alone and
+    // must not touch the pipeline.
+    const before = pathOfFile(get().files, id)
     await getStorage().etlFiles.update(id, changes)
     set((s) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, ...changes } : f)),
     }))
+    await get()._remapMarks(id, before)
   },
 
   deleteFile: async (id) => {
+    const pipelineId = get().files.find((f) => f.id === id)?.pipelineId
     await getStorage().etlFiles.delete(id)
     set((s) => {
       const newDirtyMap = new Map(s._dirtyMap)
@@ -279,6 +297,28 @@ export const useEtlStore = create<EtlState>((set, get) => ({
         _dirtyMap: newDirtyMap,
       }
     })
+    await get()._pruneMarks(pipelineId)
+  },
+
+  _remapMarks: async (id, previousPath) => {
+    const file = get().files.find((f) => f.id === id)
+    if (!file) return
+    const next = renameVersioningMark(
+      get().etlPipelines.find((p) => p.id === file.pipelineId)?.config,
+      previousPath,
+      pathOfFile(get().files, id),
+    )
+    if (next) await get().updatePipeline(file.pipelineId, { config: next })
+  },
+
+  _pruneMarks: async (pipelineId) => {
+    if (!pipelineId) return
+    const pipeline = get().etlPipelines.find((p) => p.id === pipelineId)
+    const next = prunedConfigForTree(
+      pipeline?.config,
+      get().files.filter((f) => f.pipelineId === pipelineId),
+    )
+    if (next) await get().updatePipeline(pipelineId, { config: next })
   },
 
   // --- Editor state ---

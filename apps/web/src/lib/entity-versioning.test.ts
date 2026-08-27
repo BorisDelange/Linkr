@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isVersioned, pruneVersioningMarks, toggleVersioned , setVersionedMany } from './etl-versioning'
+import { isVersioned, pruneVersioningMarks, prunedConfigForTree, renameVersioningMark, toggleVersioned, setVersionedMany } from './entity-versioning'
 
 const CSV = 'mapping/source_to_concept_map.csv'
 const SQL = '00_vocabulary.sql'
@@ -133,5 +133,63 @@ describe('setVersionedMany', () => {
     const config = { excludedFiles: ['keep.sql'] }
     const out = setVersionedMany(['a.sql'], false, config)
     expect(out.excludedFiles).toContain('keep.sql')
+  })
+})
+
+describe('renameVersioningMark', () => {
+  it('carries a mark to the path the file moved to', () => {
+    // Without this the mark strands: it keeps pointing at a path nothing
+    // occupies, and the renamed script silently reverts to being committed.
+    const out = renameVersioningMark({ excludedFiles: ['old.sql'] }, 'old.sql', 'new.sql')
+    expect(out?.excludedFiles).toEqual(['new.sql'])
+  })
+
+  it('carries a whole subtree when a folder moves', () => {
+    const out = renameVersioningMark(
+      { excludedFiles: ['queries/a.sql', 'queries/sub/b.sql', 'other.sql'] },
+      'queries',
+      'archive',
+    )
+    expect(out?.excludedFiles).toEqual(['archive/a.sql', 'archive/sub/b.sql', 'other.sql'])
+  })
+
+  it('does not match a sibling that merely shares a prefix', () => {
+    // `queries2/x.sql` starts with `queries` as a STRING but is not inside it.
+    expect(renameVersioningMark({ excludedFiles: ['queries2/x.sql'] }, 'queries', 'archive'))
+      .toBeNull()
+  })
+
+  it('returns null when no mark is affected, so nothing is written', () => {
+    expect(renameVersioningMark({ excludedFiles: ['a.sql'] }, 'b.sql', 'c.sql')).toBeNull()
+    expect(renameVersioningMark(undefined, 'a.sql', 'b.sql')).toBeNull()
+    expect(renameVersioningMark({ excludedFiles: ['a.sql'] }, 'a.sql', 'a.sql')).toBeNull()
+  })
+
+  it('keeps the list sorted, so a rename is not a spurious diff', () => {
+    const out = renameVersioningMark({ excludedFiles: ['b.sql', 'c.sql'] }, 'c.sql', 'a.sql')
+    expect(out?.excludedFiles).toEqual(['a.sql', 'b.sql'])
+  })
+})
+
+describe('prunedConfigForTree', () => {
+  const node = (id: string, name: string, parentId: string | null, type: 'file' | 'folder' = 'file') =>
+    ({ id, name, parentId, type }) as never
+
+  it('drops the mark of a file that no longer exists', () => {
+    const out = prunedConfigForTree({ excludedFiles: ['a.sql', 'gone.sql'] }, [node('1', 'a.sql', null)])
+    expect(out?.excludedFiles).toEqual(['a.sql'])
+  })
+
+  it('returns null when every mark is still live, so nothing is written', () => {
+    // Persisting an unchanged config would bump updatedAt — and so the export —
+    // on every unrelated file deletion.
+    expect(prunedConfigForTree({ excludedFiles: ['a.sql'] }, [node('1', 'a.sql', null)])).toBeNull()
+    expect(prunedConfigForTree(undefined, [])).toBeNull()
+  })
+
+  it('keys marks by full path, so a nested file is matched where it lives', () => {
+    const files = [node('d', 'queries', null, 'folder'), node('1', 'a.sql', 'd')]
+    expect(prunedConfigForTree({ excludedFiles: ['queries/a.sql'] }, files)).toBeNull()
+    expect(prunedConfigForTree({ excludedFiles: ['a.sql'] }, files)?.excludedFiles).toEqual([])
   })
 })

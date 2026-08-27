@@ -43,7 +43,7 @@ import {
   type DocsOwner,
   type EntityDocs,
 } from '@/lib/entity-docs-pull'
-import { setVersionedMany } from '@/features/warehouse/etl/etl-versioning'
+import { setVersionedMany } from '@/lib/entity-versioning'
 
 /** Pullable groups of an ETL pipeline, in display order. */
 export type EtlPullGroup = 'docs' | 'scripts' | 'mappings' | 'other'

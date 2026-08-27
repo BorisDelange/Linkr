@@ -41,7 +41,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useEtlStore } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
-import { isVersioned, toggleVersioned, setVersionedMany } from './etl-versioning'
+import { isVersioned, toggleVersioned, setVersionedMany } from '@/lib/entity-versioning'
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
 import { compareTreeNodes, contentSize, sizeColumnWidthCh } from '@/lib/file-tree-sort'
 import { humanBytes } from '@/lib/format-helpers'

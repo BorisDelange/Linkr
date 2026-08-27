@@ -1023,17 +1023,26 @@ export interface EtlPipeline extends Seedable, Authored, Lineaged {
 }
 
 /**
- * What a pipeline overrides about which of its files git tracks.
+ * What an entity overrides about which of its own files git tracks.
  *
  * Data files are gitignored by default (a pipeline's mapping export holds a
  * possibly private dictionary) and code files are versioned by default; both
- * lists hold the exceptions, keyed by the file's path inside the pipeline.
+ * lists hold the exceptions, keyed by the file's path inside the entity.
+ *
+ * Shared by every entity that owns a file tree — ETL pipelines and SQL script
+ * collections today — so `lib/entity-versioning.ts` decides for all of them with
+ * one rule. A collection holds only `.sql`, so in practice only `excludedFiles`
+ * moves there; keeping the shape common is what lets the helpers, the export
+ * builders and the server schema stay single-copy.
  */
-export interface EtlPipelineConfig {
+export interface EntityFilesConfig {
   /** Data files to include despite the default ignore. */
   versionedDataFiles?: string[]
   /** Code files to leave out despite being versioned by default. */
   excludedFiles?: string[]
+}
+
+export interface EtlPipelineConfig extends EntityFilesConfig {
   /** What the Vocabulary tab generates, and from which mappings. */
   vocabulary?: EtlVocabularyConfig
 }
@@ -1180,6 +1189,8 @@ export interface SqlScriptCollection extends Authored, Lineaged {
   organization?: OrganizationInfo
   /** User-facing semver (default '0.1.0'). Portable across export/import. */
   version?: string
+  /** Per-file versioning marks. A script is committed unless listed in `excludedFiles`. */
+  config?: EntityFilesConfig
   createdAt: string
   updatedAt: string
 }

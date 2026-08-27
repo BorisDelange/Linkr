@@ -399,6 +399,11 @@ async def _sql_collection_sub_tree(db: AsyncSession, collection) -> dict[str, by
     under scripts/."""
     tree: dict[str, bytes] = {}
     dumped = _badged_dump(SqlScriptCollectionResponse, collection)
+    # Same byte-parity rule as `badges`: the client omits an unset `config`
+    # entirely (JSON.stringify skips undefined) while Pydantic emits an explicit
+    # null. A collection with no versioning marks must export identically either way.
+    if dumped.get("config") is None:
+        dumped.pop("config", None)
     tree[ENTITY_MANIFEST] = _json(
         with_entity_type(
             strip_entity_docs(_strip_instance_fields(dumped)), TYPE_SQL_COLLECTION, APP_VERSION
@@ -410,8 +415,18 @@ async def _sql_collection_sub_tree(db: AsyncSession, collection) -> dict[str, by
         for f in await sql_script_service.list_files(db, collection.id)
     ]
     by_id = {f["id"]: f for f in files}
-    tree[f"{SCRIPTS_DIR}/{SIDECAR_TREE}"] = _json(_to_path_tree(files, "collectionId"))
-    for f in files:
+    # Per-file versioning marks (collection.config), mirroring
+    # buildSqlCollectionFolder: an excluded file leaves the tree as well as the
+    # zip. A _tree.json naming a file the repo cannot contain breaks re-import
+    # and makes every pull offer the phantom as an incoming change.
+    excluded = set((getattr(collection, "config", None) or {}).get("excludedFiles") or [])
+    kept = [
+        f
+        for f in files
+        if f["type"] != "file" or _tree_path(f, by_id) not in excluded
+    ]
+    tree[f"{SCRIPTS_DIR}/{SIDECAR_TREE}"] = _json(_to_path_tree(kept, "collectionId"))
+    for f in kept:
         if f["type"] == "file" and f.get("content") is not None:
             tree[f"{SCRIPTS_DIR}/{_tree_path(f, by_id)}"] = str(f["content"]).encode(
                 "utf-8"

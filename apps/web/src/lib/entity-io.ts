@@ -2315,12 +2315,24 @@ export async function buildSqlCollectionFolder(
   await writeEntityDocs(zip, prefix, collection, storage, 'sql-collection', collection.id)
   const files = await storage.sqlScriptFiles.getByCollection(collection.id)
   const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))
+  // Per-file versioning marks (collection.config), same rule and same reasoning
+  // as buildEtlPipelineFolder: a file the user unmarked leaves the tree as well
+  // as the zip. `_tree.json` naming a file the repo cannot contain breaks
+  // re-import and makes every pull offer the phantom as an incoming change.
+  //
+  // Inlined rather than imported from lib/entity-versioning (`isVersioned`):
+  // that module imports isDataExtension from HERE, so the import would be a
+  // cycle. entity-io.test.ts asserts the two agree.
+  const kept = files.filter(
+    (f) => f.type !== 'file'
+      || !(collection.config?.excludedFiles ?? []).includes(treeNodePath(f, byId)),
+  )
   // The user's tree lives under scripts/, so its sidecar sits beside the files it
   // describes instead of at the entity root (where it had to be when the files
   // were scattered across it).
   const scripts = `${prefix}${SCRIPTS_DIR}/`
-  zip.file(`${scripts}${SIDECAR.tree}`, json(toPathTree(files, 'collectionId')))
-  for (const f of files) {
+  zip.file(`${scripts}${SIDECAR.tree}`, json(toPathTree(kept, 'collectionId')))
+  for (const f of kept) {
     if (f.type === 'file' && f.content != null) {
       zip.file(`${scripts}${treeNodePath(f, byId)}`, f.content)
     }

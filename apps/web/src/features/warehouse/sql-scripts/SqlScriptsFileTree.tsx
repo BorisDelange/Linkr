@@ -15,6 +15,7 @@ import {
   FolderPlus,
   Check,
   X,
+  GitCommitVertical,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -51,10 +52,11 @@ import {
 } from '@/lib/tree-selection'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
-import { compareTreeNodes, contentSize } from '@/lib/file-tree-sort'
+import { compareTreeNodes, contentSize, sizeColumnWidthCh } from '@/lib/file-tree-sort'
 import { humanBytes } from '@/lib/format-helpers'
+import { isVersioned, setVersionedMany, toggleVersioned } from '@/lib/entity-versioning'
 import { treeSearchMatches } from '@/components/SidebarSearch'
-import type { SqlScriptFile } from '@/types'
+import type { EntityFilesConfig, SqlScriptFile } from '@/types'
 
 interface Props {
   /** Open the create dialog targeting a folder (null = root). */
@@ -64,9 +66,14 @@ interface Props {
 }
 
 export function SqlScriptsFileTree({ onNewChild, search = '' }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { files, selectedFileId, selectFile, deleteFile, updateFile, moveFile, duplicateFile } =
     useSqlScriptsStore()
+  const collectionId = useSqlScriptsStore((s) => s.activeCollectionId)
+  const collectionConfig = useSqlScriptsStore(
+    (s) => s.collections.find((c) => c.id === s.activeCollectionId)?.config,
+  )
+  const updateCollection = useSqlScriptsStore((s) => s.updateCollection)
   const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION)
   // From the subscribed `files`, so every row's bulk state re-renders with the tree.
   const isFileId = useCallback(
@@ -114,6 +121,15 @@ export function SqlScriptsFileTree({ onNewChild, search = '' }: Props) {
     [searchMatches, expandedFolders],
   )
 
+  // One width for every row, measured from the sizes actually shown: a fixed
+  // width sized for "1000 ko" left a gap when every file is "5 ko".
+  const sizeWidthCh = sizeColumnWidthCh(
+    files.map((f) => {
+      const bytes = f.type === 'file' ? contentSize(f.content) : undefined
+      return bytes == null ? undefined : humanBytes(bytes, i18n.language)
+    }),
+  )
+
   const rootFiles = files.filter((f) => f.parentId === null && isVisible(f))
   // Alphabetical like every other explorer. `order` is still what the drag
   // handles write and what execution follows; it is simply not a display sort.
@@ -152,6 +168,15 @@ export function SqlScriptsFileTree({ onNewChild, search = '' }: Props) {
   const pathOf = (id: string) => {
     const node = files.find((f) => f.id === id)
     return node ? treeNodePath(node, new Map(files.map((f) => [f.id, f]))) : ''
+  }
+
+  /** Mark or unmark every selected FILE (folders have no versioning state). */
+  const handleBulkVersioning = (ids: string[], versioned: boolean) => {
+    if (!collectionId) return
+    const paths = ids.filter(isFileId).map(pathOf)
+    void updateCollection(collectionId, {
+      config: setVersionedMany(paths, versioned, collectionConfig),
+    })
   }
 
   /** One file downloads as itself; several as a zip, keeping their tree paths. */
@@ -232,6 +257,10 @@ export function SqlScriptsFileTree({ onNewChild, search = '' }: Props) {
               onBulkDownload={handleBulkDownload}
               onBulkDelete={setBulkDeleteIds}
               isFileId={isFileId}
+              sizeWidthCh={sizeWidthCh}
+              collectionConfig={collectionConfig}
+              pathOf={pathOf}
+              onBulkVersioning={handleBulkVersioning}
             />
           ))}
         </div>
@@ -314,6 +343,10 @@ function SqlScriptsFileTreeItem({
   isFileId,
   onBulkDownload,
   onBulkDelete,
+  sizeWidthCh,
+  collectionConfig,
+  pathOf,
+  onBulkVersioning,
 }: {
   file: SqlScriptFile
   depth: number
@@ -337,10 +370,16 @@ function SqlScriptsFileTreeItem({
   onBulkDownload: (ids: string[]) => void
   onBulkDelete: (ids: string[]) => void
   isFileId: (id: string) => boolean
+  sizeWidthCh: number
+  collectionConfig: EntityFilesConfig | undefined
+  pathOf: (id: string) => string
+  onBulkVersioning: (ids: string[], versioned: boolean) => void
 }) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('sql-scripts:write')
   const canDelete = useMyWorkspaceRole().can('sql-scripts:delete')
+  const collectionId = useSqlScriptsStore((s) => s.activeCollectionId)
+  const updateCollection = useSqlScriptsStore((s) => s.updateCollection)
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(file.name)
   const [dragOver, setDragOver] = useState(false)
@@ -403,6 +442,16 @@ function SqlScriptsFileTreeItem({
   const { ids: targetIds, bulk } = actionableTargets(selection, file.id, isFileId)
   const targetCount = targetIds.length
 
+  const treePath = pathOf(file.id)
+  const versioned = isVersioned(treePath, collectionConfig)
+  // A mixed selection offers "mark": the bulk action sets an explicit target
+  // state, so only an all-marked selection can be asking to unmark.
+  const allVersioned = targetIds.every((id) => isVersioned(pathOf(id), collectionConfig))
+  const handleToggleVersioned = () => {
+    if (!collectionId) return
+    void updateCollection(collectionId, { config: toggleVersioned(treePath, collectionConfig) })
+  }
+
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('text/plain', file.id)
     e.dataTransfer.effectAllowed = 'move'
@@ -458,6 +507,10 @@ function SqlScriptsFileTreeItem({
             onBulkDownload={onBulkDownload}
             onBulkDelete={onBulkDelete}
             isFileId={isFileId}
+            sizeWidthCh={sizeWidthCh}
+            collectionConfig={collectionConfig}
+            pathOf={pathOf}
+            onBulkVersioning={onBulkVersioning}
           />
         ))
       : null
@@ -574,13 +627,35 @@ function SqlScriptsFileTreeItem({
           >
             {icon}
             <span ref={nameRef} className="truncate">{file.name}</span>
-            {/* Discreet and last, so it answers "which is the big one" without
-                competing with the name. */}
-            {file.type === 'file' && contentSize(file.content) != null && (
-              <span className="ml-auto shrink-0 pl-1 text-[10px] tabular-nums text-muted-foreground/60">
-                {humanBytes(contentSize(file.content), i18n.language)}
+            {/* Markers are pushed to the end in a FIXED order — versioning, then
+                size — in fixed-width slots, so they line up in a column down the
+                tree. Laid out naturally, a two-character size ("5 ko" vs "10 ko")
+                shifted the icon left and right from row to row. */}
+            <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-1">
+              <span className="flex w-3 justify-center">
+                {/* Same marker as the ETL tree and the project IDE: shown on every
+                    file git will commit — here, every script the user has not
+                    excluded. */}
+                {!isFolder && versioned && (
+                  <GitCommitVertical
+                    size={11}
+                    className="text-primary"
+                    aria-label={t('datasets.versioned_badge')}
+                  />
+                )}
               </span>
-            )}
+              {/* Discreet and last, so it answers "which is the big one" without
+                  competing with the name. Right-aligned in a fixed box so the
+                  digits line up as a column. */}
+              <span
+                className="text-right text-[10px] tabular-nums text-muted-foreground/60"
+                style={{ width: `${sizeWidthCh}ch` }}
+              >
+                {file.type === 'file' && contentSize(file.content) != null
+                  ? humanBytes(contentSize(file.content), i18n.language)
+                  : ''}
+              </span>
+            </span>
           </button>
           </TooltipTrigger>
         </ContextMenuTrigger>
@@ -617,6 +692,28 @@ function SqlScriptsFileTreeItem({
               <Download size={14} />
               {bulk ? t('files.download_count', { count: targetCount }) : t('files.download')}
             </ContextMenuItem>
+          )}
+          {!isFolder && (
+            <>
+              <ContextMenuSeparator />
+              {/* Same wording, icon and badge as the ETL tree and the project IDE
+                  — the marking means the same thing, so it must not look like a
+                  different feature. A script is committed by default; this is the
+                  per-file exception. */}
+              <ContextMenuItem
+                onClick={() => (bulk
+                  ? onBulkVersioning(targetIds, !allVersioned)
+                  : handleToggleVersioned())}
+                disabled={!canWrite}
+              >
+                <GitCommitVertical size={14} />
+                {bulk
+                  ? (allVersioned
+                      ? t('sql_scripts.unmark_versioned_count', { count: targetCount })
+                      : t('sql_scripts.mark_versioned_count', { count: targetCount }))
+                  : (versioned ? t('datasets.unmark_versioned') : t('datasets.mark_versioned'))}
+              </ContextMenuItem>
+            </>
           )}
           <ContextMenuSeparator />
           <ContextMenuItem

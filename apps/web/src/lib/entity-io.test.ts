@@ -3,7 +3,7 @@ import JSZip from 'jszip'
 import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, reassemblePresetMapping, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
-import { isVersioned } from '@/features/warehouse/etl/etl-versioning'
+import { isVersioned } from '@/lib/entity-versioning'
 import { findLineageMatch, resolveByLineage } from '@/lib/import-identity'
 import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset, SqlScriptCollection, SqlScriptFile } from '@/types'
 import type { Storage } from '@/lib/storage'
@@ -2311,6 +2311,70 @@ describe('SQL collection export → import round trip (the duplicate path)', () 
     expect(resolveByLineage([collection], manifest, 'ws-1', true, () => 'minted'))
       .toEqual({ id: 'minted', replaces: null })
     expect(findLineageMatch([collection], manifest, 'ws-1')?.id).toBe('local-1')
+  })
+})
+
+/**
+ * Per-file versioning marks on a SQL collection.
+ *
+ * Twin of the ETL suite above, and it matters for the same reason: `_tree.json`
+ * naming a file the repo does not carry re-imports as an empty script and makes
+ * every pull offer the phantom as an incoming change. The default runs the other
+ * way here — a collection holds only `.sql`, so a script ships unless excluded.
+ */
+describe('SQL collection _tree.json lists only what the repo actually carries', () => {
+  const FILES = [
+    { id: 'd1', collectionId: 'col-1', name: 'queries', type: 'folder' as const, parentId: null, order: 0, createdAt: 'T0' },
+    { id: 'f1', collectionId: 'col-1', name: 'cohort.sql', type: 'file' as const, parentId: 'd1', content: 'SELECT 1;', order: 0, createdAt: 'T0' },
+    { id: 'f2', collectionId: 'col-1', name: 'scratch.sql', type: 'file' as const, parentId: null, content: 'SELECT 2;', order: 1, createdAt: 'T0' },
+  ] as unknown as SqlScriptFile[]
+
+  const COLLECTION = (over: Partial<SqlScriptCollection> = {}) => ({
+    id: 'col-1', workspaceId: 'ws-1', name: { en: 'C' }, description: { en: '' },
+    createdAt: 'T0', updatedAt: 'T0', ...over,
+  } as unknown as SqlScriptCollection)
+
+  const storage = { sqlScriptFiles: { getByCollection: async () => FILES } } as never
+
+  const treeOf = async (zip: JSZip) =>
+    (JSON.parse(await zip.files['scripts/_tree.json'].async('string')) as { path: string }[])
+      .map((n) => n.path)
+
+  it('ships every script when nothing is excluded', async () => {
+    const zip = new JSZip()
+    await buildSqlCollectionFolder(zip, '', COLLECTION(), storage)
+    expect(await treeOf(zip)).toEqual(expect.arrayContaining(['queries/cohort.sql', 'scratch.sql']))
+  })
+
+  it('omits an excluded script from the tree AND the zip', async () => {
+    const zip = new JSZip()
+    await buildSqlCollectionFolder(zip, '', COLLECTION({ config: { excludedFiles: ['scratch.sql'] } }), storage)
+    const paths = await treeOf(zip)
+    expect(paths).not.toContain('scratch.sql')
+    expect(paths).toContain('queries/cohort.sql')
+    expect(zip.files['scripts/scratch.sql']).toBeUndefined()
+    expect(zip.files['scripts/queries/cohort.sql']).toBeDefined()
+  })
+
+  it('excludes a nested script by its full path, not its name', async () => {
+    const zip = new JSZip()
+    await buildSqlCollectionFolder(zip, '', COLLECTION({ config: { excludedFiles: ['queries/cohort.sql'] } }), storage)
+    const paths = await treeOf(zip)
+    expect(paths).not.toContain('queries/cohort.sql')
+    // The folder stays: it is a node, not a file, and still holds the tree shape.
+    expect(paths).toContain('queries')
+  })
+
+  it('agrees with isVersioned, the rule the versioning UI uses', async () => {
+    // The export inlines the rule to avoid an import cycle; if the two ever
+    // disagree the tree and the UI would describe different repos.
+    const config = { excludedFiles: ['scratch.sql'] }
+    const zip = new JSZip()
+    await buildSqlCollectionFolder(zip, '', COLLECTION({ config }), storage)
+    const paths = new Set(await treeOf(zip))
+    for (const p of ['queries/cohort.sql', 'scratch.sql']) {
+      expect(paths.has(p), p).toBe(isVersioned(p, config))
+    }
   })
 })
 
