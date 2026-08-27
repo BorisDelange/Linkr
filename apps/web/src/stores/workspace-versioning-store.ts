@@ -42,7 +42,8 @@ interface WorkspaceVersioningState {
   exportZip: (workspaceId: string, options?: BuildWorkspaceZipOptions) => Promise<void>
 }
 
-export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set) => ({
+export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set, get) => ({
+  /** Which workspace `remoteConfig` belongs to — readers must check it before trusting it. */
   workspaceId: null,
   commits: [],
   loading: false,
@@ -70,15 +71,22 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
   restoreToCommit: async () => { console.info(BACKEND_MSG); return { success: false, restoredFiles: [] } },
 
   loadRemoteConfig: async (workspaceId) => {
+    // Clear before awaiting: the store is a singleton, so until the read resolves
+    // `remoteConfig` still holds the PREVIOUS workspace's remote and the versioning
+    // screen would show another workspace's repository.
+    set({ workspaceId, remoteConfig: null })
     const ws = await getStorage().workspaces.getById(workspaceId)
+    // A slower read for a workspace we have since navigated away from must not
+    // overwrite the current one.
+    if (get().workspaceId !== workspaceId) return
     set({ remoteConfig: ws?.gitRemoteConfig?.url ? ws.gitRemoteConfig : null })
   },
   setRemoteConfig: async (workspaceId, config) => {
-    set({ remoteConfig: config })
+    set({ workspaceId, remoteConfig: config })
     await getStorage().workspaces.update(workspaceId, { gitRemoteConfig: config })
   },
   clearRemoteConfig: async (workspaceId) => {
-    set({ remoteConfig: null })
+    set({ workspaceId, remoteConfig: null })
     await getStorage().workspaces.update(workspaceId, { gitRemoteConfig: undefined })
   },
   exportZip: async (workspaceId: string, options: BuildWorkspaceZipOptions = {}) => {

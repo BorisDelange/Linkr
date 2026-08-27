@@ -110,6 +110,16 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
     if (syncStateSupported) void loadSyncState(scope, id, defaultBranch)
   }, [scope, id, defaultBranch, loadBranches, ensureStatus, loadSyncState, syncStateSupported])
 
+  // `branch` seeds from defaultBranch, so it would keep the PREVIOUS entity's branch
+  // when the panel is reused for another one — committing to a branch the new entity
+  // never declared. Re-seed on entity change; an explicit pick via changeBranch stands
+  // until then.
+  const [branchSeed, setBranchSeed] = useState(`${scope}|${id}`)
+  if (branchSeed !== `${scope}|${id}`) {
+    setBranchSeed(`${scope}|${id}`)
+    setBranch(defaultBranch)
+  }
+
   const changeBranch = (b: string) => {
     setBranch(b)
     void refreshStatus(scope, id, b)

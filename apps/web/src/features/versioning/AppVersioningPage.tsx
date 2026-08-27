@@ -15,7 +15,14 @@ export function AppVersioningPage() {
   const tabParam = searchParams.get('tab')
   const forcedTab = tabParam === 'git' || tabParam === 'export' ? tabParam : null
   const { initialTab, onTabChange } = useRememberedVersioningTab('workspaces', forcedTab)
-  const { remoteConfig, loadRemoteConfig, setRemoteConfig, clearRemoteConfig } = useWorkspaceVersioningStore()
+  const remoteConfig = useWorkspaceVersioningStore((s) => s.remoteConfig)
+  const remoteConfigWsId = useWorkspaceVersioningStore((s) => s.workspaceId)
+  const loadRemoteConfig = useWorkspaceVersioningStore((s) => s.loadRemoteConfig)
+  const setRemoteConfig = useWorkspaceVersioningStore((s) => s.setRemoteConfig)
+  const clearRemoteConfig = useWorkspaceVersioningStore((s) => s.clearRemoteConfig)
+  // The store is a singleton shared by every workspace: showing its remote before
+  // the load for THIS workspace lands would display another workspace's repository.
+  const wsRemote = remoteConfigWsId === wsUid ? remoteConfig : null
   // Controlled tab so a menu changing ?tab= while already on this page switches
   // the tab (see VersioningPage for the rationale — adjust during render, keyed
   // on location.key so re-clicking the same menu item re-forces).
@@ -40,7 +47,7 @@ export function AppVersioningPage() {
       <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-6 pb-6">
         <VersioningTabs
           fillHeight
-          gitRemote={remoteConfig}
+          gitRemote={wsRemote}
           onSaveGitRemote={(cfg) => (wsUid ? (cfg ? setRemoteConfig(wsUid, cfg) : clearRemoteConfig(wsUid)) : Promise.resolve())}
           exportContent={<WsExportTab />}
           tab={tab}

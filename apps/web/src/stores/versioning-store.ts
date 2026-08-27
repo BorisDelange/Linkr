@@ -14,6 +14,8 @@ interface VersioningState {
   commits: GitCommit[]
   loading: boolean
   fileChanges: { modified: number; added: number; deleted: number }
+  /** Which project `remoteConfig` belongs to — readers must check it before trusting it. */
+  projectUid: string | null
   remoteConfig: GitRemoteConfig | null
 
   initRepo: (projectUid: string) => Promise<void>
@@ -23,15 +25,16 @@ interface VersioningState {
   createCommit: (projectUid: string, message: string) => Promise<void>
   restoreCommit: (projectUid: string, oid: string) => Promise<void>
   loadRemoteConfig: (projectUid: string) => Promise<void>
-  setRemoteConfig: (config: GitRemoteConfig) => void
-  clearRemoteConfig: () => void
+  setRemoteConfig: (projectUid: string, config: GitRemoteConfig) => void
+  clearRemoteConfig: (projectUid: string) => void
   exportZip: (options?: BuildProjectZipOptions) => Promise<void>
 }
 
-export const useVersioningStore = create<VersioningState>((set) => ({
+export const useVersioningStore = create<VersioningState>((set, get) => ({
   commits: [],
   loading: false,
   fileChanges: { modified: 0, added: 0, deleted: 0 },
+  projectUid: null,
   remoteConfig: null,
 
   initRepo: async () => { console.info(BACKEND_MSG) },
@@ -42,7 +45,14 @@ export const useVersioningStore = create<VersioningState>((set) => ({
   restoreCommit: async () => { console.info(BACKEND_MSG) },
 
   loadRemoteConfig: async (projectUid) => {
+    // Clear before awaiting: the store is a singleton, so until the read resolves
+    // `remoteConfig` still holds the PREVIOUS project's remote and the versioning
+    // screen would show another project's repository.
+    set({ projectUid, remoteConfig: null })
     const project = await getStorage().projects.getById(projectUid)
+    // A slower read for a project we have since navigated away from must not
+    // overwrite the current one.
+    if (get().projectUid !== projectUid) return
     const config = project?.gitRemoteConfig?.url
       ? project.gitRemoteConfig
       : project?.gitUrl
@@ -51,15 +61,15 @@ export const useVersioningStore = create<VersioningState>((set) => ({
     set({ remoteConfig: config })
   },
 
-  setRemoteConfig: (config) => {
-    set({ remoteConfig: config })
-    const projectUid = useAppStore.getState().activeProjectUid
-    if (projectUid) void getStorage().projects.update(projectUid, { gitRemoteConfig: config })
+  // The uid is passed in, not read from `activeProjectUid`: the caller writes to the
+  // project it is displaying, which is not necessarily the active one.
+  setRemoteConfig: (projectUid, config) => {
+    set({ projectUid, remoteConfig: config })
+    void getStorage().projects.update(projectUid, { gitRemoteConfig: config })
   },
-  clearRemoteConfig: () => {
-    set({ remoteConfig: null })
-    const projectUid = useAppStore.getState().activeProjectUid
-    if (projectUid) void getStorage().projects.update(projectUid, { gitRemoteConfig: undefined })
+  clearRemoteConfig: (projectUid) => {
+    set({ projectUid, remoteConfig: null })
+    void getStorage().projects.update(projectUid, { gitRemoteConfig: undefined })
   },
 
   exportZip: async (options) => {

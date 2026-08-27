@@ -32,7 +32,14 @@ export function VersioningPage() {
     setLastNav(location.key)
     if (forcedTab) setTab(forcedTab)
   }
-  const { remoteConfig, loadRemoteConfig, setRemoteConfig, clearRemoteConfig } = useVersioningStore()
+  const remoteConfig = useVersioningStore((s) => s.remoteConfig)
+  const remoteConfigUid = useVersioningStore((s) => s.projectUid)
+  const loadRemoteConfig = useVersioningStore((s) => s.loadRemoteConfig)
+  const setRemoteConfig = useVersioningStore((s) => s.setRemoteConfig)
+  const clearRemoteConfig = useVersioningStore((s) => s.clearRemoteConfig)
+  // The store is a singleton shared by every project: showing its remote before the
+  // load for THIS project lands would display another project's repository.
+  const projectRemote = remoteConfigUid === projectUid ? remoteConfig : null
 
   useEffect(() => {
     if (projectUid) void loadRemoteConfig(projectUid)
@@ -48,8 +55,12 @@ export function VersioningPage() {
       <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-6 pb-6">
         <VersioningTabs
           fillHeight
-          gitRemote={remoteConfig}
-          onSaveGitRemote={(cfg) => (cfg ? setRemoteConfig(cfg) : clearRemoteConfig())}
+          gitRemote={projectRemote}
+          onSaveGitRemote={(cfg) => {
+            if (!projectUid) return
+            if (cfg) setRemoteConfig(projectUid, cfg)
+            else clearRemoteConfig(projectUid)
+          }}
           exportContent={<ExportTab />}
           tab={tab}
           onTabChange={(v) => { setTab(v); onTabChange(v) }}
