@@ -3225,6 +3225,7 @@
     "install_needs_server": "L'installation depuis le catalogue nécessite le mode serveur : le dépôt est cloné côté serveur.",
     "install_unsupported_type": "Ce type d'entité ne peut pas encore être installé depuis le catalogue.",
     "install_failed": "Échec de l'installation",
+    "install_partial": "Installé, mais du contenu est manquant",
     "installed": "Installé",
     "installed_hint": "Déjà installé dans ce workspace. Réinstaller le remplacera ou le dupliquera.",
     "select_workspace_first": "Sélectionnez un workspace d'installation.",

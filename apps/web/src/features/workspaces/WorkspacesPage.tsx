@@ -602,7 +602,7 @@ export function WorkspacesPage() {
       />
 
       {/* Import a workspace from a ZIP or a git clone */}
-      <ImportSourceDialog open={importOpen} onOpenChange={setImportOpen} accept=".zip" onImport={handleImportSource} />
+      <ImportSourceDialog open={importOpen} onOpenChange={setImportOpen} accept=".zip" onImport={handleImportSource} scope="workspaces" />
 
       {/* Import conflict dialog */}
       <ImportConflictDialog

@@ -18,7 +18,8 @@
 import type JSZip from 'jszip'
 import { CONTENT_FILE, ENTITY_MANIFEST, MANIFEST } from '@linkr/format'
 import { applyClonedEntity, collectGitLinkedEntities, parseWorkspaceZip } from '@/lib/entity-io'
-import type { ParsedWorkspaceZip } from '@/lib/entity-io'
+import type { GitLinkedEntity, ParsedWorkspaceZip } from '@/lib/entity-io'
+import { findLineageMatch, type ImportTarget } from '@/lib/import-identity'
 import { importWorkspaceTree } from '@/lib/workspace-import'
 import { gitCloneToZip, gitSetSyncState, scopeForLinkedType } from '@/lib/api/git'
 import { normalizeGitUrl } from '@/lib/git-clone'
@@ -48,6 +49,8 @@ export interface InstallResult {
   id?: string
   /** Raw error text, for the inline git-error tooltip. */
   error?: string
+  /** The install succeeded, but part of it did not arrive — shown, not swallowed. */
+  warning?: string
 }
 
 /**
@@ -446,9 +449,13 @@ async function createShell(
  * children and renames a duplicate, so none of the per-entity machinery above
  * (shell row, rename, overwrite) applies.
  *
- * Always a duplicate: there is no overwrite for a workspace, since deleting one
- * takes every entity inside it with it. Re-installing yields a second workspace
- * and leaves the first untouched.
+ * Never `duplicate`, which is not the same thing as "no overwrite": duplicate
+ * mints a fresh lineage and appends "(copy)" WHETHER OR NOT anything is there,
+ * so a first install of a workspace that did not exist landed as
+ * "Demo workspace (copy)" with a new identity, losing the lineage the repo
+ * publishes. Resolution by lineage does the right thing on its own — update the
+ * matching workspace, create one when there is no match — and nothing is ever
+ * deleted, which is what "no overwrite" actually meant.
  */
 async function installWorkspaceEntry(
   prepared: PreparedInstall,
@@ -472,14 +479,13 @@ async function installWorkspaceEntry(
   parsed.workspace.gitRemoteConfig = git
 
   try {
-    const { targetWsId, idMap } = await importWorkspaceTree(parsed, { duplicate: true, language })
+    const { targetWsId, idMap } = await importWorkspaceTree(parsed, { duplicate: false, language })
     // The children are metadata-only pointers until their own repos are cloned;
     // without this a "demo workspace" entry installs as a shell of empty entities.
     // Best-effort, exactly like the page's loop: a child whose repo needs a token
     // (the catalog passes none) leaves its content behind rather than failing the
-    // install. A fresh id is minted for every child, so idMap is the only lookup —
-    // this is always a duplicate.
-    await cloneWorkspaceChildren(parsed, targetWsId, idMap)
+    // install.
+    const failed = await cloneWorkspaceChildren(parsed, targetWsId, idMap)
     if (oid) {
       try {
         await gitSetSyncState('workspaces', targetWsId, git.branch || 'main', oid)
@@ -487,34 +493,69 @@ async function installWorkspaceEntry(
         /* leave unanchored — Versioning adopts lazily */
       }
     }
-    return { ok: true, id: targetWsId }
+    return {
+      ok: true,
+      id: targetWsId,
+      // The workspace is installed; these are the children that arrived empty.
+      ...(failed.length
+        ? { warning: failed.map((f) => `${f.name}: ${f.reason}`).join('\n') }
+        : {}),
+    }
   } catch (err) {
     return { ok: false, failure: 'apply-failed', error: err instanceof Error ? err.message : String(err) }
   }
 }
 
-/** Pull each git-linked child's content into the freshly imported workspace. */
+/** Pull each git-linked child's content in. Returns the ones that did not make it. */
 async function cloneWorkspaceChildren(
   parsed: ParsedWorkspaceZip,
   targetWsId: string,
   idMap: Map<string, string>,
-): Promise<void> {
+): Promise<{ name: string; reason: string }[]> {
+  const failed: { name: string; reason: string }[] = []
   const JSZipMod = (await import('jszip')).default
   const storage = getStorage()
+  // Rows by type, for the lineage lookup below. Same set WorkspacesPage resolves
+  // over; `project` is absent from both because projects key on uid, not lineage.
+  const rowsFor: Partial<Record<GitLinkedEntity['type'], () => Promise<ImportTarget[]>>> = {
+    'mapping-project': () => storage.mappingProjects.getAll(),
+    'sql-collection': () => storage.sqlScriptCollections.getAll(),
+    'etl-pipeline': () => storage.etlPipelines.getAll(),
+    'data-catalog': () => storage.dataCatalogs.getAll(),
+    'dq-rule-set': () => storage.dqRuleSets.getAll(),
+    'schema-preset': () => storage.schemaPresets.getAll() as Promise<ImportTarget[]>,
+    'database': () => storage.dataSources.getAll(),
+  }
   for (const child of collectGitLinkedEntities(parsed)) {
-    const id = idMap.get(`${child.type}:${child.id}`) ?? child.id
+    // The row the import actually wrote, answered the way the import decided it:
+    // by lineage, falling back to the id map for a child whose manifest has none.
+    let id = idMap.get(`${child.type}:${child.id}`) ?? child.id
+    const load = child.lineageId ? rowsFor[child.type] : undefined
+    if (load) {
+      const match = findLineageMatch(await load().catch(() => []), { lineageId: child.lineageId! }, targetWsId)
+      if (match) id = match.id
+    }
     try {
       const cloned = await gitCloneToZip(child.url, child.branch)
-      if (cloned.blob.size > MAX_CLONE_BYTES) continue
+      if (cloned.blob.size > MAX_CLONE_BYTES) {
+        failed.push({ name: child.name, reason: 'The archive is too large to install.' })
+        continue
+      }
       const zip = await JSZipMod.loadAsync(cloned.blob)
-      await applyClonedEntity(zip, child.type, id, storage, targetWsId, {
+      const ok = await applyClonedEntity(zip, child.type, id, storage, targetWsId, {
         url: child.url,
         branch: child.branch,
       })
-    } catch {
-      /* leave the pointer as imported — the card badges it as content-less */
+      // The entity is in either way — as a pointer with no content. Say which
+      // ones stayed empty instead of reporting a clean install over a half-built
+      // workspace; a private repo the catalog cannot authenticate to is the
+      // common case, and nothing on screen said so.
+      if (!ok) failed.push({ name: child.name, reason: describeUnreadableTree(zip, child.type) })
+    } catch (err) {
+      failed.push({ name: child.name, reason: err instanceof Error ? err.message : String(err) })
     }
   }
+  return failed
 }
 
 /**

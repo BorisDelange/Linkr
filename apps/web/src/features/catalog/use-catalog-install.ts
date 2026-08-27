@@ -22,6 +22,8 @@ import type { CatalogEntry } from '@/lib/catalog/types'
 export interface CatalogInstallFailure {
   entry: CatalogEntry
   detail: string
+  /** The entity IS installed; this reports what part of it did not arrive. */
+  partial?: boolean
 }
 
 /** An already-installed entry awaiting "yes, install it again". */
@@ -92,6 +94,11 @@ export function useCatalogInstall(
         // Cloned rows land straight in storage, so any store already holding a list of
         // this entity type is stale until reloaded.
         await refreshStoresAfterInstall(prepared.entry.type, workspaceId)
+        // Installed, but not whole: a workspace whose children could not be cloned
+        // arrives as a set of empty entities, and saying nothing read as success.
+        if (result.warning) {
+          setFailure({ entry: prepared.entry, detail: result.warning, partial: true })
+        }
         onInstalled()
       } catch (err) {
         setFailure({ entry: prepared.entry, detail: err instanceof Error ? err.message : String(err) })

@@ -118,7 +118,9 @@ export function CatalogInstallOutcome({
       <DialogShell
         open={!!failure}
         onOpenChange={(open) => { if (!open) dismissFailure() }}
-        title={t('catalog.install_failed')}
+        // A partial install did succeed — titling it "failed" would send the user
+        // looking for an entity that is in fact there, minus some content.
+        title={failure?.partial ? t('catalog.install_partial') : t('catalog.install_failed')}
         description={failure ? localized(failure.entry.name, language) : ''}
         cancelLabel={t('common.close')}
       >
