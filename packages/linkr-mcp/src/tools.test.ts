@@ -4,8 +4,9 @@ import { join } from 'node:path'
 import { serializeProject, type ProjectSpec } from '@linkr/format'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  addDashboardTab, addScript, addWidget, describeEntitySchema, describeTree, readTreeFile,
-  writeTree, writeZip,
+  addDashboardTab, addScript, addWidget, describeEntitySchema, describeTree,
+  moveDashboardWidget, readTreeFile, removeDashboardTab, removeDashboardWidget,
+  renameDashboardTab, renameDashboardWidget, updateWidget, writeTree, writeZip,
 } from './tools.js'
 
 const CSV = 'patient_id,age,sex,ventilated\n1,60,M,1\n2,71,F,0\n'
@@ -283,5 +284,92 @@ describe('describeTree — the read half of read-modify-write', () => {
     }
     writeTree(root, serializeProject(spec))
     expect(describeTree(root)).toMatch(/filter col_age \(age, range\) scope=tabs:overview\/demographics/)
+  })
+})
+
+describe('mutators', () => {
+  const widget = (extra: Record<string, unknown> = {}) => addWidget({
+    path: root,
+    dashboard: 'overview',
+    tabKey: 'overview/demographics',
+    name: { en: 'Ages' },
+    dataset: 'stays.csv',
+    pluginId: 'linkr-analysis-plot-builder',
+    config: { xColumn: 'age', binWidth: 5 },
+    layout: { x: 0, y: 0, w: 24, h: 16 },
+    ...extra,
+  })
+
+  it('merges a config update instead of replacing it', () => {
+    // A real widget carries ~17 options; forcing a caller to resend them all to
+    // change one is how options get silently dropped.
+    widget()
+    updateWidget({
+      path: root, dashboard: 'overview',
+      key: 'overview/demographics/ages@0,0',
+      config: { binWidth: 10 },
+    })
+    expect(dashboard().widgets[0].source.config)
+      .toEqual({ xColumn: 'col_age', binWidth: 10 })
+  })
+
+  it('resolves a column name to an id on update, as add does', () => {
+    widget()
+    updateWidget({
+      path: root, dashboard: 'overview',
+      key: 'overview/demographics/ages@0,0',
+      config: { groupColumn: 'sex' },
+    })
+    expect(dashboard().widgets[0].source.config.groupColumn).toBe('col_sex')
+  })
+
+  it('rekeys on a move and says which keys changed', () => {
+    widget()
+    const out = moveDashboardWidget(root, 'overview', 'overview/demographics/ages@0,0', { x: 24, y: 8 })
+    expect(dashboard().widgets[0].key).toBe('overview/demographics/ages@8,24')
+    expect(out).toMatch(/ages@0,0 → .*ages@8,24/)
+  })
+
+  it('rekeys a tab and every widget under it', () => {
+    widget()
+    renameDashboardTab(root, 'overview', 'overview/demographics', { en: 'Cohort' })
+    const doc = dashboard()
+    expect(doc.tabs[0].key).toBe('overview/cohort')
+    expect(doc.widgets[0].key).toBe('overview/cohort/ages@0,0')
+    expect(doc.widgets[0].tabKey).toBe('overview/cohort')
+  })
+
+  it('rekeys on a widget rename', () => {
+    widget()
+    renameDashboardWidget(root, 'overview', 'overview/demographics/ages@0,0', { en: 'Age spread' })
+    expect(dashboard().widgets[0].key).toBe('overview/demographics/age-spread@0,0')
+  })
+
+  it('names the widgets a tab removal takes with it, before they are gone', () => {
+    // D2: the result is the only warning a caller gets, and there is no undo.
+    widget()
+    const out = removeDashboardTab(root, 'overview', 'overview/demographics')
+    expect(out).toMatch(/Also removed:.*ages@0,0/)
+    expect(dashboard().widgets).toEqual([])
+    expect(dashboard().tabs).toEqual([])
+  })
+
+  it('removes one widget and leaves the tab', () => {
+    widget()
+    removeDashboardWidget(root, 'overview', 'overview/demographics/ages@0,0')
+    expect(dashboard().widgets).toEqual([])
+    expect(dashboard().tabs).toHaveLength(1)
+  })
+
+  it('rejects an unknown key by naming the ones that exist', () => {
+    expect(() => updateWidget({
+      path: root, dashboard: 'overview', key: 'overview/demographics/ghost@0,0', config: {},
+    })).toThrow(/Unknown widget/)
+  })
+
+  it('revalidates, so a result always says whether the tree still holds', () => {
+    widget()
+    expect(moveDashboardWidget(root, 'overview', 'overview/demographics/ages@0,0', { x: 12 }))
+      .toMatch(/Tree is valid/)
   })
 })

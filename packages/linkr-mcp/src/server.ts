@@ -33,6 +33,12 @@ import {
   describeEntitySchema,
   describeTree,
   readTreeFile,
+  renameDashboardTab,
+  renameDashboardWidget,
+  moveDashboardWidget,
+  updateWidget,
+  removeDashboardTab,
+  removeDashboardWidget,
   formatBytes,
   writeTree,
   writeZip,
@@ -378,6 +384,182 @@ server.registerTool(
   async (args) => {
     try {
       return text(addWidget(args))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'update_widget',
+  {
+    description:
+      "Change a widget's config, dataset or plugin. Config values may be column NAMES; they are "
+      + 'resolved to ids. The config is MERGED, so send only what changes. Does not move the '
+      + "widget's key — use rename_widget or move_widget for that.",
+    inputSchema: fromJsonSchema<{
+      path: string
+      dashboard: string
+      key: string
+      config?: Record<string, unknown>
+      dataset?: string
+      pluginId?: string
+    }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory.' },
+        dashboard: { type: 'string', description: 'Dashboard file name without .json, e.g. overview.' },
+        key: { type: 'string', description: 'Widget key, from describe_tree.' },
+        config: { type: 'object', description: 'Config fields to set. Merged into the existing config.' },
+        dataset: { type: 'string', description: 'Dataset file id, e.g. stays.csv.' },
+        pluginId: { type: 'string', description: 'Plugin id to render with.' },
+      },
+      required: ['path', 'dashboard', 'key'],
+    }),
+  },
+  async (args) => {
+    try {
+      return text(updateWidget(args))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'rename_widget',
+  {
+    description:
+      "Rename a widget. Its key contains its name, so this REKEYS it and updates every filter "
+      + 'scoped to it. The result lists the keys that changed.',
+    inputSchema: fromJsonSchema<{
+      path: string; dashboard: string; key: string; name: Record<string, string>
+    }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory.' },
+        dashboard: { type: 'string', description: 'Dashboard file name without .json, e.g. overview.' },
+        key: { type: 'string', description: 'Widget key, from describe_tree.' },
+        name: { type: 'object', description: 'New name, e.g. {"en": "Beds", "fr": "Lits"}.' },
+      },
+      required: ['path', 'dashboard', 'key', 'name'],
+    }),
+  },
+  async ({ path, dashboard, key, name }) => {
+    try {
+      return text(renameDashboardWidget(path, dashboard, key, name))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'move_widget',
+  {
+    description:
+      'Move a widget on the grid and/or to another tab. Its key contains its position, so this '
+      + 'REKEYS it and updates every filter scoped to it. Omit w/h to keep its size.',
+    inputSchema: fromJsonSchema<{
+      path: string; dashboard: string; key: string
+      tabKey?: string; x?: number; y?: number; w?: number; h?: number
+    }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory.' },
+        dashboard: { type: 'string', description: 'Dashboard file name without .json, e.g. overview.' },
+        key: { type: 'string', description: 'Widget key, from describe_tree.' },
+        tabKey: { type: 'string', description: 'Move to this tab. Omit to stay where it is.' },
+        x: { type: 'number', description: 'Grid column (0-47).' },
+        y: { type: 'number', description: 'Grid row.' },
+        w: { type: 'number', description: 'Width in columns. Omit to keep.' },
+        h: { type: 'number', description: 'Height in rows. Omit to keep.' },
+      },
+      required: ['path', 'dashboard', 'key'],
+    }),
+  },
+  async ({ path, dashboard, key, tabKey, x, y, w, h }) => {
+    try {
+      return text(moveDashboardWidget(path, dashboard, key, { tabKey, x, y, w, h }))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'rename_dashboard_tab',
+  {
+    description:
+      "Rename a tab. Its key contains its name, and its widgets' and sub-tabs' keys contain the "
+      + "tab's, so this REKEYS the whole subtree and updates every filter scoped to any of it. "
+      + 'The result lists the keys that changed.',
+    inputSchema: fromJsonSchema<{
+      path: string; dashboard: string; key: string; name: Record<string, string>
+    }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory.' },
+        dashboard: { type: 'string', description: 'Dashboard file name without .json, e.g. overview.' },
+        key: { type: 'string', description: 'Tab key, from describe_tree.' },
+        name: { type: 'object', description: 'New name, e.g. {"en": "Cohort", "fr": "Cohorte"}.' },
+      },
+      required: ['path', 'dashboard', 'key', 'name'],
+    }),
+  },
+  async ({ path, dashboard, key, name }) => {
+    try {
+      return text(renameDashboardTab(path, dashboard, key, name))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'remove_widget',
+  {
+    description:
+      'Delete a widget, and drop it from any filter scoped to it. The result names the filters '
+      + 'that lost a reference.',
+    inputSchema: fromJsonSchema<{ path: string; dashboard: string; key: string }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory.' },
+        dashboard: { type: 'string', description: 'Dashboard file name without .json, e.g. overview.' },
+        key: { type: 'string', description: 'Widget key, from describe_tree.' },
+      },
+      required: ['path', 'dashboard', 'key'],
+    }),
+  },
+  async ({ path, dashboard, key }) => {
+    try {
+      return text(removeDashboardWidget(path, dashboard, key))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'remove_dashboard_tab',
+  {
+    description:
+      'Delete a tab — WITH its sub-tabs and all their widgets, which is usually more than it '
+      + 'looks. The result names everything that went. Call describe_tree first if unsure.',
+    inputSchema: fromJsonSchema<{ path: string; dashboard: string; key: string }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory.' },
+        dashboard: { type: 'string', description: 'Dashboard file name without .json, e.g. overview.' },
+        key: { type: 'string', description: 'Tab key, from describe_tree.' },
+      },
+      required: ['path', 'dashboard', 'key'],
+    }),
+  },
+  async ({ path, dashboard, key }) => {
+    try {
+      return text(removeDashboardTab(path, dashboard, key))
     } catch (e) {
       return failure((e as Error).message)
     }

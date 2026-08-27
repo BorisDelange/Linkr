@@ -643,20 +643,54 @@ histogram widget — the file never opened.
 | # | Item | Effort |
 |---|---|---|
 | C1 | `update_project` — metadata, README, license, version fields | S |
-| C2 | `update_widget(key, {name?, config?, dataset?, pluginId?})` — config resolved by column name as `add_widget` does | S |
-| C3 | `move_widget(key, layout)` + `move_tab(key, {parent?, order?})` — **key-rewriting**, see 7b.4 | M |
-| C4 | `remove_widget` / `remove_tab` / `remove_script` / `remove_dataset` — each reporting what it orphaned before doing it | M |
-| C5 | `update_tab(key, {name?})` — same key-rewrite problem as C3 | S |
+| ✅ C2 | `update_widget(key, {name?, config?, dataset?, pluginId?})` — config resolved by column name as `add_widget` does | S |
+| ✅ C3 | `move_widget(key, layout)` + `move_tab(key, {parent?, order?})` — **key-rewriting**, see 7b.4 | M |
+| ✅ C4 | `remove_widget` / `remove_tab` / `remove_script` / `remove_dataset` — each reporting what it orphaned before doing it | M |
+| ✅ C5 | `update_tab(key, {name?})` — same key-rewrite problem as C3 | S |
 | C6 | `update_dataset(name, {csv?, types?})` — recomputes column ids and **reports the ones that changed**, since a rename orphans every widget config pointing at the old id | M |
-| C7 | `update_script(path, content)` — trivially, `add_script` already overwrites; make it explicit rather than a side effect | S |
+| ✅ C7 | `update_script(path, content)` — trivially, `add_script` already overwrites; make it explicit rather than a side effect | S |
 | C8 | Granular tools for the 6 standalone kinds (the existing step 10): `add`/`update`/`remove` over a sql-collection or ETL **file**, a DQ **check**, a catalog **dimension**, a mapping **row**, a preset **event table** | L |
+
+#### C2–C5, C7 as built (2026-08-27)
+
+The cascade lives in `packages/linkr-format/src/rekey.ts`, not the MCP: key derivation is
+format knowledge, and a mutator that computed a key itself would break the layering §4
+sets out. The MCP tools are facades — read, call, write, revalidate.
+
+Six tools: `update_widget`, `rename_widget`, `move_widget`, `rename_dashboard_tab`,
+`remove_widget`, `remove_dashboard_tab` (16 in total now). Renaming and moving are kept
+**separate** from `update_widget` on purpose: those rewrite other records and it should be
+visible at the call site which ones do.
+
+The cascade is **second-order**, which is the part worth remembering: renaming a tab moves
+its sub-tabs (their keys contain the parent's), moves every widget under all of them
+(their keys contain their tab's), *and* repoints filters scoped to those widgets — a
+filter that never named the tab at all. Cascading one level would have looked right and
+silently widened those filters. 22 tests hold it.
+
+`update_widget` **merges** config rather than replacing: a real widget carries ~17 options
+and forcing a caller to resend them all is how options get dropped. Column names still
+resolve to ids, as `add_widget` does.
+
+D2 shipped with C4: a removal names its collateral (`Also removed: …`, plus the filters
+that lost a scope reference). A tab looks like one record but owns its whole subtree, and
+there is no undo on a file the agent just rewrote. A scope emptied by a removal is left as
+an empty list rather than deleted — deleting it would silently widen the filter to the
+whole dashboard, the opposite of what "only these widgets" asked for.
+
+C7 needed no code: `add_script` already overwrites. It is now documented as such in the
+skill rather than left as an undocumented side effect.
+
+Verified over real stdio JSON-RPC against a copy of the published
+`icu-activity-dashboard`: renaming one tab re-keyed all 6 widgets, reported all 7 changes,
+left zero stale references on disk, and the tree still validated.
 
 **Guardrails** (what makes "never touch the files" enforceable rather than hoped-for):
 
 | # | Item | Effort |
 |---|---|---|
 | D1 | Every mutator re-validates and reports, as the `add_*` already do — no exceptions | — |
-| D2 | Every destructive tool (C4, C6) names its **collateral damage first**: "removing tab `overview/outcomes` also removes 3 widgets" | S |
+| ✅ D2 | Every destructive tool (C4, C6) names its **collateral damage first**: "removing tab `overview/outcomes` also removes 3 widgets" | S |
 | ✅ D3 | `linkr-authoring` SKILL.md: replace "say so if a tool cannot express it" with the real matrix, so the fallback to `Edit` is no longer implicitly sanctioned | S |
 
 ### 7b.4 The hard part: keys are derived from what you are editing

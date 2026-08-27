@@ -41,12 +41,24 @@ is a bug this project has already paid for once.
 | see ids, configs, layouts, filter scopes | `describe_tree` | ✅ |
 | read a script / SQL / any file | `read_file` | ✅ |
 | add a tab, widget or script | `add_dashboard_tab`, `add_widget`, `add_script` | ✅ |
+| change a widget's config, dataset or plugin | `update_widget` | ✅ |
+| rename a widget or a tab | `rename_widget`, `rename_dashboard_tab` | ✅ |
+| move or resize a widget | `move_widget` | ✅ |
+| delete a widget or a tab | `remove_widget`, `remove_dashboard_tab` | ✅ |
+| overwrite a script | `add_script` (it overwrites) | ✅ |
 | create or replace a whole tree | `write_project`, `write_entity` | ✅ |
-| change a widget's config, move it, rename a tab, delete something | — | ⛔ no tool yet |
+| edit a dataset's columns, or anything on a standalone entity | — | ⛔ no tool yet |
 
-For the last row: **say so and stop**. Do not fall back to editing the JSON — rewriting a
-whole tree with `write_project` to change one field is also wrong, since it drops
-everything the spec does not model. Report what is missing instead.
+For the last row: **say so and stop**. Do not fall back to editing the JSON — and do not
+rewrite the whole tree with `write_project` to change one field either: it serializes the
+spec you give it without reading what is there, so everything the spec does not model is
+lost.
+
+**Renaming and moving rewrite keys.** A widget's key is `<tab>/<slug(name)>@<y>,<x>` and a
+tab's is `<parent>/<slug(name)>`, so renaming a tab re-keys its sub-tabs *and* every widget
+under them, and every filter scoped to any of it. The tools do that cascade for you and
+list what changed — read that list, because keys you quoted from an earlier
+`describe_tree` are stale afterwards.
 
 ## Identity: three fields, one of them a trap
 
@@ -88,7 +100,10 @@ check the shape of these fields.
 | `describe_tree` | what an existing tree holds: ids, keys, widget configs, layouts, filter scopes |
 | `read_file` | one file of a tree verbatim — a script, a `.sql`, a DDL |
 | `validate_entity` | check any tree; the kind is detected. Run after any change |
-| `add_dashboard_tab`, `add_widget`, `add_script` | incremental edits |
+| `add_dashboard_tab`, `add_widget`, `add_script` | add to an existing tree |
+| `update_widget` | change a widget's config (merged), dataset or plugin |
+| `rename_widget`, `rename_dashboard_tab`, `move_widget` | **rekey** — the cascade is done for you and reported |
+| `remove_widget`, `remove_dashboard_tab` | delete; the result names the collateral |
 
 Not registered? `claude mcp add linkr -- npx tsx <repo>/packages/linkr-mcp/src/server.ts`
 

@@ -35,6 +35,11 @@ export type {
 export { readDashboard } from './read/dashboard.js'
 export type { DashboardFile } from './read/dashboard.js'
 
+export {
+  moveWidget, removeTab, removeWidget, renameTab, renameWidget, tabCollateral,
+} from './rekey.js'
+export type { Collateral, DashboardDocument, Rekeyed } from './rekey.js'
+
 export { serializeDatabase } from './serialize/database.js'
 export type { DatabaseSpec, DatabaseTableSpec, SchemaProvenance } from './serialize/database.js'
 

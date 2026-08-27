@@ -10,7 +10,9 @@ import { copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from '
 import { dirname, join, relative, resolve } from 'node:path'
 import {
   ENTITY_MANIFEST, MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES,
-  columnId, formatIssues, slugify, validateProject, type CopyFile, type WriteFile,
+  columnId, formatIssues, moveWidget, removeTab, removeWidget, renameTab, renameWidget,
+  slugify, tabCollateral, validateProject,
+  type CopyFile, type DashboardDocument, type WriteFile,
 } from '@linkr/format'
 import { FsTree } from '@linkr/format/node/fs-tree'
 
@@ -646,4 +648,129 @@ export function describeEntitySchema(kind: string): string | null {
     ].join('\n'),
   }
   return docs[kind] ?? null
+}
+
+// ---------------------------------------------------------------------------
+// Mutating an existing tree
+//
+// Each of these is a facade over `@linkr/format`'s rekey functions: the key
+// cascade is format knowledge and lives there, so these only read the file,
+// call it, write, and revalidate. A mutator that computed a key itself would
+// have broken the layering the plan sets out in §4.
+// ---------------------------------------------------------------------------
+
+/** Report the keys a cascade rewrote, so the caller can see what else moved. */
+function describeChanges(changes: Map<string, string>): string {
+  if (!changes.size) return ''
+  const lines = [...changes].map(([from, to]) => `  ${from} → ${to}`)
+  return `\n\nKeys rewritten (anything referencing them was updated):\n${lines.join('\n')}`
+}
+
+export function renameDashboardTab(
+  root: string,
+  dashboard: string,
+  key: string,
+  name: Record<string, string>,
+): string {
+  const docPath = dashboardPath(dashboard)
+  const { doc, changes } = renameTab(readJson<DashboardDocument>(root, docPath), key, name)
+  writeJson(root, docPath, doc)
+  const label = name.en || Object.values(name)[0] || ''
+  return revalidate(root, `Renamed tab ${key} to "${label}".${describeChanges(changes)}`)
+}
+
+export function renameDashboardWidget(
+  root: string,
+  dashboard: string,
+  key: string,
+  name: Record<string, string>,
+): string {
+  const docPath = dashboardPath(dashboard)
+  const { doc, changes } = renameWidget(readJson<DashboardDocument>(root, docPath), key, name)
+  writeJson(root, docPath, doc)
+  const label = name.en || Object.values(name)[0] || ''
+  return revalidate(root, `Renamed widget ${key} to "${label}".${describeChanges(changes)}`)
+}
+
+export function moveDashboardWidget(
+  root: string,
+  dashboard: string,
+  key: string,
+  to: { tabKey?: string; x?: number; y?: number; w?: number; h?: number },
+): string {
+  const docPath = dashboardPath(dashboard)
+  const { doc, changes } = moveWidget(readJson<DashboardDocument>(root, docPath), key, to)
+  writeJson(root, docPath, doc)
+  return revalidate(root, `Moved widget ${key}.${describeChanges(changes)}`)
+}
+
+export interface UpdateWidgetArgs {
+  path: string
+  dashboard: string
+  key: string
+  config?: Record<string, unknown>
+  dataset?: string
+  pluginId?: string
+}
+
+/**
+ * Change a widget's config, dataset or plugin — everything that does NOT move its key.
+ *
+ * Renaming is `rename_widget` and moving is `move_widget`, deliberately: those
+ * cascade, this does not, and folding them into one tool would hide which calls
+ * rewrite other records.
+ */
+export function updateWidget(args: UpdateWidgetArgs): string {
+  const { path: root, dashboard, key } = args
+  const docPath = dashboardPath(dashboard)
+  const doc = readJson<DashboardDoc>(root, docPath)
+  const widget = doc.widgets.find((w) => w.key === key)
+  if (!widget) {
+    throw new Error(
+      `Unknown widget "${key}". Known: ${doc.widgets.map((w) => w.key).join(', ') || 'none'}.`,
+    )
+  }
+
+  if (args.dataset !== undefined) widget.datasetFileId = args.dataset
+  if (args.pluginId !== undefined) widget.source.pluginId = args.pluginId
+  if (args.config !== undefined) {
+    // Merged, not replaced: a caller changing one option should not have to
+    // re-send the other sixteen a real widget carries.
+    widget.source.config = resolveConfigColumns(
+      root,
+      widget.datasetFileId,
+      { ...(widget.source.config ?? {}), ...args.config },
+    )
+  }
+  writeJson(root, docPath, doc)
+  return revalidate(root, `Updated widget ${key}.`)
+}
+
+export function removeDashboardTab(root: string, dashboard: string, key: string): string {
+  const docPath = dashboardPath(dashboard)
+  const before = readJson<DashboardDocument>(root, docPath)
+  const { removes, scopes } = tabCollateral(before, key)
+  const { doc } = removeTab(before, key)
+  writeJson(root, docPath, doc)
+
+  // D2: name the collateral. A tab looks like one record but owns its subtree,
+  // and there is no undo on a file the agent just rewrote.
+  const also = removes.filter((r) => r !== key)
+  const detail = [
+    also.length ? `Also removed: ${also.join(', ')}.` : '',
+    scopes.length ? `Filters that lost a scope reference: ${scopes.join(', ')}.` : '',
+  ].filter(Boolean).join(' ')
+  return revalidate(root, `Removed tab ${key}. ${detail}`.trim())
+}
+
+export function removeDashboardWidget(root: string, dashboard: string, key: string): string {
+  const docPath = dashboardPath(dashboard)
+  const before = readJson<DashboardDocument>(root, docPath)
+  const scoped = (before.dashboard?.filterConfig ?? [])
+    .filter((f) => f.scope?.widgetKeys?.includes(key))
+    .map((f) => String(f.columnId ?? '(filter)'))
+  const { doc } = removeWidget(before, key)
+  writeJson(root, docPath, doc)
+  const detail = scoped.length ? ` Filters that lost a scope reference: ${scoped.join(', ')}.` : ''
+  return revalidate(root, `Removed widget ${key}.${detail}`)
 }
