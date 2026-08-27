@@ -4005,11 +4005,11 @@ export function collectGitLinkedEntities(parsed: ParsedWorkspaceZip): GitLinkedE
   for (const { project } of parsed.mappingProjects) push('mapping-project', project.entityId ?? project.id, localized(project.name, 'en'), resolveGitRemote(project) ?? undefined, project.lineageId)
   for (const cat of parsed.catalogs) push('data-catalog', cat.entityId ?? cat.id, localized(cat.name, 'en'), resolveGitRemote(cat) ?? undefined, cat.lineageId)
   for (const { ruleSet } of parsed.dqRuleSets) push('dq-rule-set', ruleSet.entityId ?? ruleSet.id, localized(ruleSet.name, 'en'), resolveGitRemote(ruleSet) ?? undefined, ruleSet.lineageId)
-  for (const sp of parsed.schemas) push('schema-preset', sp.entityId ?? sp.id ?? sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.entityId || sp.presetId || sp.id, resolveGitRemote(sp) ?? undefined, sp.lineageId)
+  for (const sp of parsed.schemas) push('schema-preset', sp.entityId ?? sp.id ?? sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.entityId || sp.presetId || sp.id || '', resolveGitRemote(sp) ?? undefined, sp.lineageId)
   // Databases were the one declared type never collected here, so a linked one
   // was imported but its repo never cloned.
   for (const ds of parsed.databases) {
-    push('database', ds.entityId ?? ds.id, localized(ds.name, 'en') || ds.entityId || ds.id, resolveGitRemote(ds) ?? undefined, ds.lineageId)
+    push('database', ds.entityId ?? ds.id, localized(ds.name, 'en') || ds.entityId || ds.id || '', resolveGitRemote(ds) ?? undefined, ds.lineageId)
   }
   return out
 }
@@ -4389,7 +4389,10 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
   for (const folder of pluginFolders) {
     const prefix = `plugins/${folder}/`
-    const pluginMeta = await readEntityManifest<{ id: string; entityId?: string; workspaceId?: string; createdBy?: string; createdByDetails?: AuthorDetails; createdAt: string; updatedAt?: string }>(zipData, prefix, 'user-plugin')
+    // `license`/`readmeLang` are part of what the export writes (see
+    // build_user_plugin_tree), and readEntityDocs below reads the licence id from
+    // them — leaving them off the type handed it a manifest with no licence at all.
+    const pluginMeta = await readEntityManifest<{ id: string; entityId?: string; workspaceId?: string; createdBy?: string; createdByDetails?: AuthorDetails; createdAt: string; updatedAt?: string; license?: { id?: string; name?: string }; readmeLang?: string }>(zipData, prefix, 'user-plugin')
     if (!pluginMeta) continue
     const files: Record<string, string> = {}
     for (const [path, entry] of Object.entries(zipData.files)) {
