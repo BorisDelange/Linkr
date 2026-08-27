@@ -161,18 +161,18 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
               ) : (
                 <div className="flex h-full flex-col">
                   {diff?.oldPath ? (
-                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-violet-500/10 px-3 py-1.5 text-[11px] text-violet-700 dark:text-violet-400">
+                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-violet-500/10 px-3 py-1.5 text-xs text-violet-700 dark:text-violet-400">
                       <FileWarning size={12} />
                       {t('versioning.diff_renamed_from', { path: diff.oldPath })}
                     </div>
                   ) : null}
                   {diff?.truncationMode === 'hunks' ? (
-                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-sky-500/10 px-3 py-1.5 text-[11px] text-sky-700 dark:text-sky-400">
+                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-sky-500/10 px-3 py-1.5 text-xs text-sky-700 dark:text-sky-400">
                       <FileWarning size={12} />
                       {diff.truncated ? t('versioning.diff_hunks_capped') : t('versioning.diff_hunks')}
                     </div>
                   ) : diff?.truncated ? (
-                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
+                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400">
                       <FileWarning size={12} />
                       {t('versioning.diff_truncated')}
                     </div>

@@ -197,7 +197,7 @@ export function PluginTestConfig({ scope = 'lab', manifestLanguages, readOnly }:
         {scope === 'lab' && (
           <>
             <div className="space-y-1">
-              <Label className="text-[10px] text-muted-foreground">{t('plugins.test_select_project')}</Label>
+              <Label className="text-muted-foreground">{t('plugins.test_select_project')}</Label>
               <Select value={testProjectUid ?? ''} onValueChange={handleProjectChange}>
                 <SelectTrigger className="h-8 w-full text-xs">
                   <SelectValue placeholder={t('plugins.test_select_project')} />
@@ -213,7 +213,7 @@ export function PluginTestConfig({ scope = 'lab', manifestLanguages, readOnly }:
             </div>
             {testProjectUid && (
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">{t('plugins.test_select_dataset')}</Label>
+                <Label className="text-muted-foreground">{t('plugins.test_select_dataset')}</Label>
                 <Select value={testDatasetFileId ?? ''} onValueChange={setTestDataset}>
                   <SelectTrigger className="h-8 w-full text-xs">
                     <SelectValue placeholder={t('plugins.test_select_dataset')} />
@@ -234,7 +234,7 @@ export function PluginTestConfig({ scope = 'lab', manifestLanguages, readOnly }:
         {scope === 'warehouse' && (
           <>
             <div className="space-y-1">
-              <Label className="text-[10px] text-muted-foreground">{t('plugins.test_select_database')}</Label>
+              <Label className="text-muted-foreground">{t('plugins.test_select_database')}</Label>
               <Select value={testDataSourceId ?? ''} onValueChange={setTestDataSource}>
                 <SelectTrigger className="h-8 w-full text-xs">
                   <SelectValue placeholder={t('plugins.test_select_database')} />
@@ -250,7 +250,7 @@ export function PluginTestConfig({ scope = 'lab', manifestLanguages, readOnly }:
             </div>
             {patients.length > 0 && (
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">{t('plugins.test_patient')}</Label>
+                <Label className="text-muted-foreground">{t('plugins.test_patient')}</Label>
                 <Select value={testPersonId ?? ''} onValueChange={setTestPersonId}>
                   <SelectTrigger className="h-8 w-full font-mono text-xs">
                     <SelectValue placeholder={t('plugins.test_patient')} />
@@ -267,7 +267,7 @@ export function PluginTestConfig({ scope = 'lab', manifestLanguages, readOnly }:
             )}
             {testPersonId && visits.length > 0 && (
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">{t('plugins.test_hospitalization')}</Label>
+                <Label className="text-muted-foreground">{t('plugins.test_hospitalization')}</Label>
                 <Select value={testVisitId ?? ''} onValueChange={setTestVisitId}>
                   <SelectTrigger className="h-8 w-full font-mono text-xs">
                     <SelectValue placeholder={t('common.optional')} />
@@ -284,7 +284,7 @@ export function PluginTestConfig({ scope = 'lab', manifestLanguages, readOnly }:
             )}
             {testVisitId && visitDetails.length > 0 && (
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">{t('plugins.test_unit_stay')}</Label>
+                <Label className="text-muted-foreground">{t('plugins.test_unit_stay')}</Label>
                 <Select value={testVisitDetailId ?? ''} onValueChange={setTestVisitDetailId}>
                   <SelectTrigger className="h-8 w-full font-mono text-xs">
                     <SelectValue placeholder={t('common.optional')} />
@@ -304,7 +304,7 @@ export function PluginTestConfig({ scope = 'lab', manifestLanguages, readOnly }:
 
         {!readOnly && (
           <div className="space-y-1">
-            <Label className="text-[10px] text-muted-foreground">{t('plugins.test_language')}</Label>
+            <Label className="text-muted-foreground">{t('plugins.test_language')}</Label>
             <Select value={testLanguage} onValueChange={(v) => setTestLanguage(v as 'python' | 'r')}>
               <SelectTrigger className="h-8 w-full text-xs">
                 <SelectValue />

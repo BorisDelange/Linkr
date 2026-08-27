@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Plus, Tag, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -318,23 +319,32 @@ function NameInput({
         />
         {dirty && (
           <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
+                  onClick={cancel}
+                  aria-label={t('common.cancel')}
+                >
+                  <X size={13} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('common.cancel')}</TooltipContent>
+            </Tooltip>
+            {/* No Tooltip on this one: it is disabled until the draft is valid,
+                and a disabled element emits no pointer events, so a Radix tooltip
+                would go silent exactly when it is needed. */}
             <Button
               type="button"
               variant="ghost"
-              size="icon-sm"
-              className="size-6 text-muted-foreground"
-              onClick={cancel}
-              title={t('common.cancel')}
-            >
-              <X size={13} />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="size-6 text-primary disabled:opacity-40"
+              size="icon-xs"
+              className="text-primary disabled:opacity-40"
               disabled={disabled || !canSave}
               onClick={commit}
+              aria-label={t('common.save')}
               title={t('common.save')}
             >
               <Check size={13} />

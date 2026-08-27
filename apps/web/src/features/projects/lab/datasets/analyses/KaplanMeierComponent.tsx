@@ -1199,7 +1199,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
           the figure, and a curve pane showing a p-value with no table to put
           it beside reads as a stray caption. */}
       {result.logRank && (
-        <div className={cn('mt-3 text-muted-foreground', compact ? 'text-[9px]' : 'text-[11px]')}>
+        <div className={cn('mt-3 text-muted-foreground', compact ? 'text-[10px]' : 'text-xs')}>
           <span className="font-semibold text-foreground">
             {t('analyses.km_logrank')}
           </span>
@@ -1222,7 +1222,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
     <div
       className={cn(
         'mx-auto h-full w-full max-w-3xl overflow-auto',
-        compact ? 'text-[9px]' : 'text-[11px]',
+        compact ? 'text-[10px]' : 'text-xs',
       )}
     >
       {!server ? (
@@ -1292,7 +1292,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
     <div className={cn('flex h-full flex-col overflow-hidden', compact ? 'p-2' : 'p-4')}>
       {/* Warnings */}
       {result.warnings.length > 0 && (
-        <div className={cn('mb-3 shrink-0 rounded border border-yellow-300/50 bg-yellow-50/50 dark:bg-yellow-900/10', compact ? 'px-2 py-1 text-[9px]' : 'px-3 py-1.5 text-[11px]')}>
+        <div className={cn('mb-3 shrink-0 rounded border border-yellow-300/50 bg-yellow-50/50 dark:bg-yellow-900/10', compact ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-xs')}>
           {result.warnings.map((w, i) => (
             <div key={i} className="flex items-start gap-1.5 text-yellow-700 dark:text-yellow-400">
               <AlertTriangle size={compact ? 10 : 12} className="mt-0.5 shrink-0" />
@@ -1315,7 +1315,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
               type="button"
               onClick={() => setActiveView(view)}
               className={cn(
-                'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors',
+                'flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
                 activeView === view
                   ? 'bg-muted text-foreground'
                   : 'text-muted-foreground hover:text-foreground',

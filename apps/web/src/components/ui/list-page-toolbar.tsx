@@ -15,6 +15,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { SectionLabel } from '@/components/ui/section-label'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -215,12 +216,12 @@ export function ListPageToolbar({
                       return (
                         <div key={opt.value}>
                         {heading && (
-                          <p className={cn(
-                            'truncate px-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70',
-                            oi > 0 && 'mt-1.5',
-                          )}>
+                          <SectionLabel
+                            as="p"
+                            className={cn('truncate px-1.5 text-muted-foreground/70', oi > 0 && 'mt-1.5')}
+                          >
                             {heading}
-                          </p>
+                          </SectionLabel>
                         )}
                         <button
                           type="button"

@@ -43,6 +43,7 @@ import { SearchInput } from '@/components/ui/search-input'
 import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { SectionLabel } from '@/components/ui/section-label'
 import { localized } from '@/lib/localized'
 import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
 import { defaultAnalysisColumns } from '@/lib/analysis-default-columns'
@@ -796,9 +797,9 @@ function SelectedColumnOrderList({
 
   return (
     <div className="mt-2 border-t pt-2">
-      <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <SectionLabel as="p" className="mb-1">
         {t('datasets.table1_row_order')}
-      </p>
+      </SectionLabel>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}

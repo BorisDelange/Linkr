@@ -346,7 +346,7 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
           // A labelled list, one field per line. `auto` on the label track sizes
           // every label to the widest one, so the values line up in a column
           // instead of starting at a different offset on each row.
-          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-t pt-2 text-[11px] text-muted-foreground">
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-t pt-2 text-xs text-muted-foreground">
             {leading && <div className="col-span-2 min-w-0 truncate">{leading}</div>}
             {label && (
               <>
@@ -392,7 +392,7 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
             {trailing && <div className="col-span-2">{trailing}</div>}
           </div>
         ) : (
-          <div className="flex min-w-0 items-center gap-2 border-t pt-2 text-[11px] text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-2 border-t pt-2 text-xs text-muted-foreground">
             {leading && <span className="min-w-0 truncate">{leading}</span>}
             {leading && (label || created || updated) && <Sep />}
             {label && (

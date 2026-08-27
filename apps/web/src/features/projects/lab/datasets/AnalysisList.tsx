@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BarChart3, Pencil, Plus, Search, Trash2, X, Zap } from 'lucide-react'
+import { BarChart3, Pencil, Plus, Search, Trash2, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { GatedButton } from '@/components/ui/gated-button'
-import { Input } from '@/components/ui/input'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -25,6 +24,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { InlineRenameField } from '@/components/InlineRenameField'
+import { SidebarSearchField } from '@/components/SidebarSearch'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { getPlugin } from '@/lib/plugins/registry'
@@ -181,9 +181,13 @@ export function AnalysisList({
       </div>
 
       {searchOpen && (
-        <div className="border-b p-1.5">
-          <SearchField value={query} onChange={setQuery} onClose={toggleSearch} onStep={step} />
-        </div>
+        <SidebarSearchField
+          value={query}
+          onChange={setQuery}
+          onClose={toggleSearch}
+          onStep={step}
+          placeholder={t('datasets.search_analyses')}
+        />
       )}
 
     <ScrollArea className="h-full min-h-0 flex-1">
@@ -341,47 +345,3 @@ function AnalysisRow({
  * conditional effect of the list — the field only exists while search is open,
  * so mounting is exactly the moment to focus.
  */
-function SearchField({
-  value,
-  onChange,
-  onClose,
-  onStep,
-}: {
-  value: string
-  onChange: (v: string) => void
-  onClose: () => void
-  onStep: (delta: number) => void
-}) {
-  const { t } = useTranslation()
-  const ref = useRef<HTMLInputElement | null>(null)
-  useEffect(() => { ref.current?.focus() }, [])
-  return (
-    <div className="relative">
-      <Input
-        ref={ref}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={t('datasets.search_analyses')}
-        className="h-6 pr-6 text-xs"
-        onKeyDown={(e) => {
-          // Arrows walk the results without leaving the field, so you can type
-          // then pick without reaching for the mouse.
-          if (e.key === 'ArrowDown') { e.preventDefault(); onStep(1) }
-          else if (e.key === 'ArrowUp') { e.preventDefault(); onStep(-1) }
-          else if (e.key === 'Escape') { e.preventDefault(); onClose() }
-        }}
-      />
-      {/* Closes the search outright rather than only emptying it — the same
-          action as clicking the magnifier again, which is what a user reaching
-          for this cross expects. */}
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label={t('common.close')}
-        className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-      >
-        <X size={12} />
-      </button>
-    </div>
-  )
-}
