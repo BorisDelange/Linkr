@@ -267,6 +267,18 @@ export function WorkspacesPage() {
     const storage = getStorage()
     const now = new Date().toISOString()
     const { appVersion: _av, ...wsMeta } = parsed.workspace
+    // `organizationId` is stripped as an instance field, so the manifest carries
+    // the org only as an inline snapshot — whose `id` IS the cross-instance UUID
+    // (an org's UUID is stable; it is what the catalog indexes). Without putting
+    // it back the FK stayed null and an imported workspace read "no organization"
+    // even when its org had just been imported from the same content repo.
+    // The workspace's own inline snapshot first — organization.json is the same
+    // record, but the inline one is what this workspace was exported pointing at.
+    const orgIdFromSnapshot =
+      wsMeta.organizationId
+      ?? (wsMeta.organization as { id?: string } | null | undefined)?.id
+      ?? parsed.organization?.id
+    if (orgIdFromSnapshot) wsMeta.organizationId = orgIdFromSnapshot
     // The manifest no longer carries the writing instance's `id` (parseWorkspaceZip
     // mints one), so a re-import is recognised by `lineageId` — the cross-instance
     // identity. Matching on the minted id would never hit, turning every re-import
@@ -328,13 +340,18 @@ export function WorkspacesPage() {
     // organizationId FK resolves. Upsert by UUID: an org already present on this
     // instance (or shared by a sibling workspace / a duplicate) is left as-is;
     // only a genuinely new org is created. Duplicating keeps the same org link.
-    if (parsed.organization?.id) {
-      const existingOrg = await storage.organizations.getById(parsed.organization.id)
+    // organization.json normally carries it; a tree that only has the manifest's
+    // inline snapshot still gets a row, so the FK set above never dangles.
+    const orgRecord = parsed.organization?.id
+      ? parsed.organization
+      : (wsMeta.organization as typeof parsed.organization | null | undefined)
+    if (orgRecord?.id) {
+      const existingOrg = await storage.organizations.getById(orgRecord.id)
       // Export strips instance fields (createdAt/updatedAt); re-stamp on import so
       // consumers (and the server's NOT-NULL columns) get a valid record.
       if (!existingOrg) await storage.organizations.create({
-        ...parsed.organization,
-        createdAt: parsed.organization.createdAt ?? now,
+        ...orgRecord,
+        createdAt: orgRecord.createdAt ?? now,
         updatedAt: now,
       })
     }

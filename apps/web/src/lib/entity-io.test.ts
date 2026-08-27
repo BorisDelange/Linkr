@@ -600,6 +600,27 @@ describe('parseWorkspaceZip — organization bundle', () => {
     expect(parsed!.organization).toBeUndefined()
     expect(parsed!.workspace.organizationId).toBeUndefined()
   })
+
+  it('carries the org UUID in the manifest snapshot a real export writes', async () => {
+    // The export strips `organizationId` (an instance field) and writes the org
+    // as an inline snapshot instead — so THIS is the shape an import actually
+    // sees. The importer recovers the FK from `organization.id`; a fixture that
+    // hand-writes `organizationId` (as the two above do) cannot catch that.
+    const zip = new JSZip()
+    zip.file('entity.json', JSON.stringify({
+      type: 'workspace', name: { en: 'W' }, description: {},
+      organization: { id: 'org-123', name: { en: 'Acme Hospital' }, type: 'hospital' },
+    }))
+    zip.file('organization.json', JSON.stringify({
+      id: 'org-123', name: { en: 'Acme Hospital' }, type: 'hospital', createdAt: '2020',
+    }))
+    const file = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const parsed = (await parseWorkspaceZip(file))!
+    // No FK in the manifest — only the snapshot carries the UUID.
+    expect(parsed.workspace.organizationId).toBeUndefined()
+    expect((parsed.workspace.organization as { id?: string })?.id).toBe('org-123')
+    expect(parsed.organization?.id).toBe('org-123')
+  })
 })
 
 describe('parseWorkspaceZip — dq rule set shapes', () => {
