@@ -5,6 +5,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_project_permission, check_workspace_permission
 from app.models.data_catalog import DataCatalog
+from app.models.data_source import DataSource
 from app.models.dq_rule_set import DqRuleSet
 from app.models.etl_pipeline import EtlPipeline
 from app.models.mapping_project import MappingProject
@@ -28,6 +29,11 @@ _OWNER_MODELS: dict[str, tuple[type, str]] = {
     "data-catalog": (DataCatalog, "catalog"),
     "schema-preset": (SchemaPreset, "schemas"),
     "user-plugin": (UserPlugin, "plugins"),
+    # A database carries a README and a licence like every other entity — it is
+    # the documentation whoever installs one from the catalog reads first. Its
+    # absence here made every attachment call for one fail with "Unknown
+    # ownerType: data-source", which aborted the whole import mid-way.
+    "data-source": (DataSource, "databases"),
 }
 
 

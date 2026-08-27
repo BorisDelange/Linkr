@@ -2950,13 +2950,6 @@ async function applyClonedDatabase(
   // database the licence is not decoration: MIMIC-IV demo is ODbL, and the notice
   // has to travel with the data for redistribution to be legitimate.
   const docs = await readEntityDocs(zip, '', record as unknown as Record<string, unknown>)
-  await createEntityAttachments(
-    storage,
-    { meta: docs.attachmentsMeta, blobs: docs.attachmentBlobs },
-    'data-source',
-    targetId,
-    workspaceId,
-  )
   const withDocs = dropForeignAuthorId({
     ...record,
     readme: docs.readme,
@@ -2965,10 +2958,27 @@ async function applyClonedDatabase(
   if (existing) await storage.dataSources.update(targetId, withDocs).catch(() => {})
   else await storage.dataSources.create(withDocs as DataSource).catch(() => {})
 
+  // AFTER the row, for the same reason the files are (see below): server-mode
+  // attachments are authorized through their owner, so attaching to a row that
+  // does not exist yet answers 404 — and unlike the calls around it this one was
+  // not best-effort, so it threw and took the whole import with it, before a
+  // single Parquet had been stored. The database then looked like a repo that
+  // carries no data.
+  await createEntityAttachments(
+    storage,
+    { meta: docs.attachmentsMeta, blobs: docs.attachmentBlobs },
+    'data-source',
+    targetId,
+    workspaceId,
+  ).catch((err) => {
+    console.error(`[import] attachments failed for "${targetId}":`, err)
+  })
+
   // The row has to exist BEFORE its files: in server mode `files.create` registers
   // each blob against the data source, and the API refuses an unknown one with a
   // bare 404 ("Not found") that says nothing about which row is missing.
   const storedFiles: StoredFile[] = []
+  const failedTables: string[] = []
   for (const table of declared) {
     const entry = zip.files[`data/${table}.parquet`]
     // Data files are gitignored in many trees, so a missing table is not fatal:
@@ -2983,8 +2993,22 @@ async function applyClonedDatabase(
       data,
       createdAt: now,
     }
-    storedFiles.push(stored)
-    await storage.files.create(stored)
+    // Per-table, and never fatal: one table failing to upload used to abort the
+    // whole import from inside this loop, leaving a database with no files and
+    // an "imported without data" banner that blamed the repo for carrying none.
+    // Which tables failed, and why, is what the user actually needs.
+    try {
+      await storage.files.create(stored)
+      storedFiles.push(stored)
+    } catch (err) {
+      failedTables.push(`${table} (${err instanceof Error ? err.message : String(err)})`)
+    }
+  }
+  if (failedTables.length > 0) {
+    console.error(
+      `[import] ${failedTables.length}/${declared.length} table(s) failed to store for "${targetId}":`,
+      failedTables,
+    )
   }
   // Point the source at what was just stored. Client-only reads these ids back
   // from IndexedDB to mount the tables; server mode resolves its files from
@@ -3019,7 +3043,14 @@ async function applyClonedDatabase(
       status: 'disconnected',
       // A key, not a sentence: this module has no i18n and the message is for
       // the user. DatabaseDetailPage translates it (see NO_DATA_ON_IMPORT).
-      errorMessage: DB_ERROR_NO_DATA_ON_IMPORT,
+      //
+      // Only when the tree genuinely carried nothing. Files that WERE there and
+      // failed to store are a different failure with a different fix, and
+      // reporting them as "this repo carries no data" sent the user looking at
+      // the repo instead of at the error the upload actually returned.
+      errorMessage: failedTables.length > 0
+        ? `Could not store this database's data: ${failedTables[0]}`
+        : DB_ERROR_NO_DATA_ON_IMPORT,
     }).catch(() => {})
     return true
   }

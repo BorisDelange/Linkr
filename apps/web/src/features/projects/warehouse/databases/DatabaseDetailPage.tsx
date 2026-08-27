@@ -385,6 +385,7 @@ function OverviewTab({
   const canWrite = useMyWorkspaceRole().can('databases:write')
   const rebuildFromSchema = useDataSourceStore((s) => s.rebuildFromSchema)
   const [rebuilding, setRebuilding] = useState(false)
+  const showStatusBanner = source.status !== 'connected' && !!source.errorMessage
 
   const handleRebuild = async () => {
     setRebuilding(true)
@@ -402,11 +403,20 @@ function OverviewTab({
     /* One grid for the whole tab, so the two columns line up across both rows:
        the stat cards stop where About starts, and the README's bottom edge
        meets the side column's. */
-    <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div className={cn(
+      'grid h-full min-h-0 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_20rem]',
+      // One `auto` track per full-width band above the content, then the content
+      // row. The banner is a THIRD full-width child when shown, so a fixed
+      // two-track template left it on an implicit row that `overflow-hidden`
+      // then clipped — it rendered behind the cards instead of pushing them down.
+      showStatusBanner
+        ? 'grid-rows-[auto_auto_minmax(0,1fr)]'
+        : 'grid-rows-[auto_minmax(0,1fr)]',
+    )}>
       {/* Shown for any non-working state that carries a reason, not just 'error':
           a database left disconnected by a data-free import has something to say
           too, and gating this on 'error' alone made those states silent. */}
-      {source.status !== 'connected' && source.errorMessage && (
+      {showStatusBanner && (
         <div className={`col-span-full shrink-0 rounded-lg border px-4 py-3 ${
           source.status === 'error'
             ? 'border-destructive/30 bg-destructive/5'

@@ -49,6 +49,11 @@ _COMMIT_EMAIL = "versioning@linkr"
 # Never let a hung git subprocess (e.g. auth prompt, dead remote) block a worker.
 _GIT_TIMEOUT = 120
 
+# `git lfs pull` downloads file CONTENT, not refs — a published dataset is tens of
+# files and can be hundreds of megabytes, so it needs a budget of its own. Sharing
+# _GIT_TIMEOUT made an ordinary demo database look like a hung clone.
+_LFS_TIMEOUT = 900
+
 # One lock per repo path: status/branches/commit for the same entity can arrive
 # concurrently (the sync panel fires several at mount), and two `git` processes
 # writing .git/config at once collide with "could not lock config file".
@@ -452,6 +457,80 @@ def _has_git_lfs() -> bool:
                 "committed as normal git blobs. Install git-lfs on the server (see Dockerfile.api)."
             )
     return _lfs_available
+
+
+#: First bytes of a Git LFS pointer file. The spec fixes this as the first line,
+#: and a pointer is always a small text file, so the prefix identifies one safely.
+_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
+#: A pointer is a few short lines; anything larger is real content.
+_LFS_POINTER_MAX_BYTES = 1024
+
+
+def _is_lfs_pointer(path: Path) -> bool:
+    try:
+        if path.stat().st_size > _LFS_POINTER_MAX_BYTES:
+            return False
+        with path.open("rb") as fh:
+            return fh.read(len(_LFS_POINTER_PREFIX)) == _LFS_POINTER_PREFIX
+    except OSError:
+        return False
+
+
+def _drop_unresolved_lfs_pointers(repo: Path) -> int:
+    """Delete files still holding an LFS pointer, and return how many.
+
+    A pointer that reaches the caller is worse than a missing file: it is 130
+    bytes of text wearing the name (and extension) of the real thing, so it flows
+    all the way into the blob store and only fails much later, where nothing can
+    name the cause — a Parquet reader saying "No magic bytes found at end of
+    file". Every import path already tolerates a missing data file (the metadata
+    imports, the table is absent), so removing it degrades gracefully where
+    keeping it corrupts silently.
+    """
+    dropped = 0
+    for p in repo.rglob("*"):
+        if ".git" in p.relative_to(repo).parts or not p.is_file():
+            continue
+        if _is_lfs_pointer(p):
+            p.unlink(missing_ok=True)
+            dropped += 1
+    if dropped:
+        logger.warning(
+            "dropped %d unresolved git-lfs pointer(s) from the clone; the entity will "
+            "import without that content rather than with placeholder bytes", dropped,
+        )
+    return dropped
+
+
+def _lfs_pull(repo: Path, token: str | None) -> str | None:
+    """Download this repo's LFS objects. Returns None on success, else why it failed.
+
+    ``"auth"`` when the LFS batch API refused the credentials — the caller can
+    retry anonymously, which is what a public repo needs. ``"other"`` for anything
+    else (network, missing objects, timeout). Never raises: the tree and its
+    metadata are still worth returning without the large files.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "lfs", "pull"],
+            # LFS pulls the file CONTENT, which is the whole point of tracking it —
+            # a demo database is tens of files. The plain git timeout is sized for
+            # refs and metadata, so reusing it made an ordinary dataset look like a
+            # hung clone.
+            capture_output=True, text=True, timeout=_LFS_TIMEOUT, env=_git_env(),
+        )
+    except subprocess.TimeoutExpired:
+        # Left unhandled this killed the whole clone, losing the metadata too.
+        logger.warning("git lfs pull timed out after %ss; large files remain pointers", _LFS_TIMEOUT)
+        return "other"
+    if proc.returncode == 0:
+        return None
+    err = _scrub((proc.stderr or proc.stdout).strip(), token)
+    logger.warning("git lfs pull failed (rc=%s): %s", proc.returncode, err[:400])
+    lowered = err.lower()
+    if "authentication required" in lowered or "authorization error" in lowered:
+        return "auth"
+    return "other"
 
 
 def _ensure_lfs(repo: Path) -> None:
@@ -1605,15 +1684,30 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> tuple[bytes,
             # and import as an empty source. Install the filter locally and pull the
             # blobs, reusing the tokenized origin URL for the private LFS endpoint.
             # Best-effort: a partial LFS failure must not lose the rest of the tree.
-            if _has_git_lfs() and (repo / ".gitattributes").is_file():
-                _run(repo, "lfs", "install", "--local", check=False)
-                lfs = subprocess.run(
-                    ["git", "-C", str(repo), "lfs", "pull"],
-                    capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env(),
-                )
-                if lfs.returncode != 0:
-                    logger.warning("git lfs pull failed during clone (%s); large files may remain pointers",
-                                   _scrub(lfs.stderr.strip(), token))
+            if (repo / ".gitattributes").is_file():
+                if not _has_git_lfs():
+                    logger.warning(
+                        "git-lfs is not installed; every LFS-tracked file in %s stays a "
+                        "pointer and will import as unreadable content", _scrub(cleaned, token),
+                    )
+                else:
+                    _run(repo, "lfs", "install", "--local", check=False)
+                    failure = _lfs_pull(repo, token)
+                    # LFS authenticates separately from git itself, against the
+                    # repo's own /info/lfs batch API — and GitLab rejects the
+                    # `oauth2:<token>` form there that it accepts for clone. So a
+                    # PUBLIC repo cloned WITH a stored token (any token for that
+                    # host, saved for an unrelated private repo) cloned fine and
+                    # then failed every LFS object with "Authentication required".
+                    # Retry anonymously: a public repo needs no credentials, and
+                    # this is exactly the case where they are what breaks it.
+                    if failure == "auth" and token:
+                        _run(repo, "remote", "set-url", "origin", cleaned, check=False)
+                        failure = _lfs_pull(repo, None)
+                # Whatever the reason, an unresolved pointer must not be handed back as
+                # if it were the file: it imports as a 130-byte blob that every reader
+                # then fails on, far from here and with nothing naming the cause.
+                _drop_unresolved_lfs_pointers(repo)
             cloned_oid = _run(repo, "rev-parse", "HEAD", check=False).strip() or None
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:

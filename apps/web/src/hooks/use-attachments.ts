@@ -70,6 +70,14 @@ export function useAttachments<T extends BaseAttachment>({
         const blob = new Blob([att.data], { type: att.mimeType })
         blobUrlsRef.current.set(att.fileName, URL.createObjectURL(blob))
       }
+    } catch (err) {
+      // Attachments illustrate a README; they are never the reason to open a
+      // page. Rethrowing rejected the effect's promise on every render, so one
+      // failing owner (an entity type the server does not know, a row not
+      // created yet) took the whole page down in a re-render loop instead of
+      // showing it without its images.
+      console.error('Failed to load attachments:', err)
+      setAttachments([])
     } finally {
       setLoading(false)
     }
