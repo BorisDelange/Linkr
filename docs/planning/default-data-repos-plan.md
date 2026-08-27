@@ -121,8 +121,9 @@ Three, all small, and each is a genuine improvement to the catalog itself:
    mapping-project, sql-collection, etl-pipeline, data-catalog, dq-rule-set,
    schema-preset — but **not a Parquet database**, which is the heavy part of the default
    data. This is the one non-trivial piece of work; **design settled below**.
-2. **No `workspace` type** either. Probably fine — seed a workspace by seeding its
-   entities — but confirm we do not need a workspace-level repo.
+2. **No `workspace` type** either. ~~Probably fine — seed a workspace by seeding its
+   entities~~ — **now needed**: the demo content ships as one curated workspace whose
+   children come in through their git links. See decision 6 (reversed 2026-08-27).
 3. **No pinned ref.** `git: { url, branch, subdir? }` tracks a *branch*. A reproducible
    build needs a **tag or commit**: add `git.ref`, prefer it over `branch` when present.
    Deployments get reproducibility; the catalog gets a real versioning story.
@@ -323,7 +324,7 @@ From `seed/default/manifest.json`, 14 entities:
 | etlScript | `mimic-iv-etl-scripts.json` (96 KB) | travels with the ETL pipeline |
 | dataset | `icu-activity-dataset.json` (1.8 MB) | travels with its project |
 | dashboard | `activity-dashboard` | travels with its project |
-| workspace | `default` (+ `Demo Hospital` organization) | 🤔 no catalog type yet — decision 6 |
+| workspace | `default` (+ `Demo Hospital` organization) | 🔜 needs the new `workspace` catalog type — decision 6 |
 | — | `demo-scripts/` (88 KB), `demo-scripts-activity/` (36 KB) | travel with their projects |
 | — | `omop-vocabulary/` (504 KB) | `databases/` or with the vocabulary DB |
 
@@ -367,8 +368,10 @@ migration). That is a **third** source of default data beyond the manifest and t
 schema presets, and it goes away with the same change as decision 10.
 
 Not a repo: the **`OMOP ETL Pipeline Example`** database (`inMemory: true`, no Parquet) —
-it is an empty target the ETL populates. It stays a manifest/setup declaration.
-Likewise the `default` **workspace** and the `Demo Hospital` **organization** (decision 6).
+it is an empty target the ETL populates. It stays a manifest/setup declaration. Likewise
+the `Demo Hospital` **organization**, which travels as a provenance snapshot inside the
+workspace export, never as its own entity (decision 6). The `default` **workspace** DOES
+become a repo, now that it has a catalog type — it is the entry that pulls the rest in.
 
 Repos 11–13 are blocked on the new **`database` catalog type** (§2 gap 1) — nothing reads
 them until that exists. Repos 1–10 work with today's code.
@@ -706,17 +709,41 @@ ordering constraint — read it before starting.
    *data* on PhysioNet is credentialed. Derive from OHDSI's **DDL** (Apache-2.0), never
    from its narrative docs (CC BY-SA 4.0, copyleft).
 
-6. **No `workspace` catalog type** (decided 2026-08-21). A workspace is the container a
-   user installs *into*, not a thing to browse and download — nobody wants to install
-   "someone else's workspace". The default-data path still needs to *seed* one (the
-   `default` workspace + its `Demo Hospital` organization), so that stays a **build/setup
-   concern**: `fetch-default-data.mjs` writes `workspace.json` + the manifest, and the
-   server first-run creates the equivalent. The catalog never lists it.
+6. **A `workspace` catalog type — reversed 2026-08-27.**
 
-   Same for **users, organizations and roles**: instance data, not shareable content — a
-   user or a role means nothing outside its instance, and publishing them would raise
-   personal-data questions. None of them is in `GitLinkedEntity` today, so there is
-   nothing to remove; this is recorded so they are never added.
+   ~~No `workspace` catalog type (decided 2026-08-21). A workspace is the container a
+   user installs *into*, not a thing to browse and download — nobody wants to install
+   "someone else's workspace".~~
+
+   The demo/default content is one curated workspace ("Demo workspace") holding every
+   default entity. Publishing it as a single catalog entry that pulls its children
+   through their git links is simpler than listing a dozen entries the user must install
+   one by one and then wire together — and it is the same import the ZIP and git paths
+   already run. The premise of the original decision was wrong: a *curated* workspace is
+   exactly a thing worth browsing and downloading.
+
+   What the reversal keeps from it:
+   - The **seed still exists and is still a build concern**. Catalog install is
+     server-mode-only (`prepareCatalogInstall` → `server-mode-required`), so a WASM build
+     cannot clone at runtime; `fetch-default-data.mjs` + `public/data/seed/` remain the
+     client-only path. The catalog entry is an *addition*, not a replacement.
+   - The **manifest keeps carrying the cross-entity links** (`linkToProject`,
+     `vocabularyDataSourceId`, `mappingProjectId` — see §3bis): the repos do not.
+
+   Shape of the type (settled 2026-08-27):
+   - **No target-workspace selector** for this type — a workspace has no parent. Install
+     creates one at instance level.
+   - **No overwrite.** Reinstalling offers "keep both" only: overwriting a workspace would
+     delete every project, database and mapping inside it, which is a different order of
+     destruction from replacing one entity.
+   - **No nesting.** `collectGitLinkedEntities` never emits `workspace`, so a workspace
+     cannot git-link another one and the clone loop cannot recurse.
+
+   Still excluded, and the 2026-08-21 reasoning stands: **users, organizations and
+   roles** are instance data, not shareable content — a user or a role means nothing
+   outside its instance, and publishing them would raise personal-data questions. Note a
+   workspace export *does* carry an organization snapshot, but as immutable provenance
+   (`organization.json`), not as a catalog-installable entity.
 
 7. **Server default-data: install-once** (decided 2026-08-21). The setup wizard clones at
    the pinned refs and records what it installed; that is the end of it. Upgrading later
