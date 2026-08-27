@@ -153,6 +153,10 @@ export function WorkspacesPage() {
   // check), so runImport re-applies the git link on duplicate/overwrite too.
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedWorkspaceZip } | null>(null)
   const [importError, setImportError] = useState<FormattedError | null>(null)
+  /** Non-fatal: the workspace imported, this only says what is missing from it. */
+  const [importWarning, setImportWarning] = useState<FormattedError | null>(null)
+  /** Held back while the git-linked summary is up, so the two dialogs don't stack. */
+  const [pendingOrgWarning, setPendingOrgWarning] = useState<FormattedError | null>(null)
   /** Git-linked entities found in the last import (metadata only — content stays in their repos). */
   const [gitLinkedSummary, setGitLinkedSummary] = useState<GitLinkedEntity[] | null>(null)
   // Target workspace for a manual clone-retry from the summary dialog — without it
@@ -327,10 +331,12 @@ export function WorkspacesPage() {
   }
 
   // --- Import logic ---
-  const doImport = useCallback(async (parsed: ParsedWorkspaceZip, duplicate: boolean): Promise<{ targetWsId: string; idMap: Map<string, string> }> => {
+  const doImport = useCallback(async (parsed: ParsedWorkspaceZip, duplicate: boolean): Promise<{ targetWsId: string; idMap: Map<string, string>; skippedOrgName: string | null }> => {
     const storage = getStorage()
     const now = new Date().toISOString()
     const { appVersion: _av, ...wsMeta } = parsed.workspace
+    /** Set when the linked organization could not be created (see the org block below). */
+    let skippedOrgName: string | null = null
     // `organizationId` is stripped as an instance field, so the manifest carries
     // the org only as an inline snapshot — whose `id` IS the cross-instance UUID
     // (an org's UUID is stable; it is what the catalog indexes). Without putting
@@ -406,18 +412,30 @@ export function WorkspacesPage() {
     // only a genuinely new org is created. Duplicating keeps the same org link.
     // organization.json normally carries it; a tree that only has the manifest's
     // inline snapshot still gets a row, so the FK set above never dangles.
+    // Best-effort: `organizations:write` is a separate global permission from
+    // `workspaces:write`, so a user allowed to import may still be refused the org
+    // (403). The org is provenance metadata — losing it must not cost the user the
+    // whole import — but a dangling FK would render as a phantom organization, so
+    // drop the link too and report it rather than failing silently.
     const orgRecord = parsed.organization?.id
       ? parsed.organization
       : (wsMeta.organization as typeof parsed.organization | null | undefined)
     if (orgRecord?.id) {
-      const existingOrg = await storage.organizations.getById(orgRecord.id)
+      const existingOrg = await storage.organizations.getById(orgRecord.id).catch(() => undefined)
       // Export strips instance fields (createdAt/updatedAt); re-stamp on import so
       // consumers (and the server's NOT-NULL columns) get a valid record.
-      if (!existingOrg) await storage.organizations.create({
-        ...orgRecord,
-        createdAt: orgRecord.createdAt ?? now,
-        updatedAt: now,
-      })
+      if (!existingOrg) {
+        try {
+          await storage.organizations.create({
+            ...orgRecord,
+            createdAt: orgRecord.createdAt ?? now,
+            updatedAt: now,
+          })
+        } catch {
+          delete (wsMeta as Partial<Workspace>).organizationId
+          skippedOrgName = localized(orgRecord.name, i18n.language) || orgRecord.id
+        }
+      }
     }
 
     // A duplicate is a fork: it must NOT inherit the source's git link, or a
@@ -932,14 +950,15 @@ export function WorkspacesPage() {
     // whole app with a full-screen loader. Reload it now (flips the flag back to true)
     // instead of waiting for some later loadCatalogs() to un-block the shell.
     await useCatalogStore.getState().loadCatalogs()
-    return { targetWsId, idMap }
-  }, [loadProjects])
+    return { targetWsId, idMap, skippedOrgName }
+  }, [loadProjects, i18n.language])
 
   /** Run an import while showing the progress modal and clearing it afterwards. */
   const runImport = useCallback(async (parsed: ParsedWorkspaceZip, duplicate: boolean) => {
     setImportProgress({ phaseKey: 'workspaces.import_phase_workspace' })
     try {
-      const { targetWsId, idMap } = await doImport(parsed, duplicate)
+      const { targetWsId, idMap, skippedOrgName } = await doImport(parsed, duplicate)
+      let gitLinkedShown = false
       // Git-linked entities carry only metadata in the workspace ZIP — their full
       // content lives in their repos. Auto-clone each and load it now (server mode),
       // so the entity arrives complete instead of empty. Best-effort per item; a
@@ -995,6 +1014,14 @@ export function WorkspacesPage() {
         // Show the dialog only when something still needs the user (a failed/pending
         // auto-clone, or client-only where auto-clone can't run).
         if (anyFailed) { setGitLinkedWsId(targetWsId); setGitLinkedSummary(linked) }
+        gitLinkedShown = anyFailed
+      }
+      // Both are AlertDialogs and would stack, so the git-linked summary — which the
+      // user must act on — wins; the org notice waits for it to close.
+      if (skippedOrgName) {
+        const notice = { summary: t('workspaces.import_org_skipped_body', { name: skippedOrgName }), detail: null }
+        if (gitLinkedShown) setPendingOrgWarning(notice)
+        else setImportWarning(notice)
       }
     } catch (err) {
       setImportError(formatApiError(err))
@@ -1302,9 +1329,23 @@ export function WorkspacesPage() {
 
       {/* Import error dialog */}
       <ImportErrorDialog error={importError} onClose={() => setImportError(null)} />
+      <ImportErrorDialog
+        error={importWarning}
+        onClose={() => setImportWarning(null)}
+        title={t('workspaces.import_org_skipped_title')}
+        variant="warning"
+      />
 
       {/* Git-linked entities summary after import (metadata only — content lives in their repos) */}
-      <AlertDialog open={gitLinkedSummary !== null} onOpenChange={(open) => { if (!open) { setGitLinkedSummary(null); setGitLinkedWsId(null) } }}>
+      <AlertDialog
+        open={gitLinkedSummary !== null}
+        onOpenChange={(open) => {
+          if (open) return
+          setGitLinkedSummary(null)
+          setGitLinkedWsId(null)
+          if (pendingOrgWarning) { setImportWarning(pendingOrgWarning); setPendingOrgWarning(null) }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
