@@ -2047,6 +2047,7 @@
     "file_cat_catalogs": "Catalogs",
     "file_cat_plugins": "Plugins",
     "file_cat_concept_ids": "Source concept IDs",
+    "file_cat_schemas": "Schema presets",
     "file_cat_organizations": "Organizations",
     "file_cat_users": "Users",
     "file_cat_roles": "Roles",

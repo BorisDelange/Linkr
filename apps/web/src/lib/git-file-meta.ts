@@ -57,6 +57,7 @@ const CAT = {
   catalogs: 26,
   plugins: 27,
   concept_ids: 28,
+  schemas: 29,
   // Settings scope (account-level) entity groups.
   organizations: 30,
   users: 31,
@@ -223,7 +224,7 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     { test: /^data-quality\//, category: 'data_quality', order: CAT.data_quality, descriptionKey: 'versioning.file_desc_ws_dq' },
     { test: /^(catalogs|service-mappings)\//, category: 'catalogs', order: CAT.catalogs, descriptionKey: 'versioning.file_desc_ws_catalog' },
     { test: /^concept-sets\//, category: 'mappings', order: CAT.mappings, descriptionKey: 'versioning.file_desc_ws_concept_set' },
-    { test: /^schemas\//, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_ws_schema' },
+    { test: /^schemas\//, category: 'schemas', order: CAT.schemas, descriptionKey: 'versioning.file_desc_ws_schema' },
     { test: /^plugins\//, category: 'plugins', order: CAT.plugins, descriptionKey: 'versioning.file_desc_ws_plugin' },
     { test: /^git-links\.json$/, category: 'config', order: CAT.config, descriptionKey: 'versioning.file_desc_git_links' },
     { test: /^organization\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_ws_organization' },
