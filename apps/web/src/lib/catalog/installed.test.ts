@@ -110,6 +110,22 @@ describe('findInstalled', () => {
     expect(found['e-ws']).toMatchObject({ id: 'ws-installed', state: 'installed' })
   })
 
+  it('still finds an installed workspace when no workspace is selected', async () => {
+    // Landing on the catalog with nothing selected is the normal first-run state,
+    // and a workspace entry does not depend on a selection — it IS the scope. The
+    // callers used to skip the lookup entirely on an empty workspaceId, so a
+    // workspace already installed kept reading "Install".
+    const storage = storageWith({
+      workspaces: [{ id: 'ws-installed', lineageId: 'lin-w' }],
+    })
+    const found = await findInstalled(
+      [entry({ id: 'e-ws', type: 'workspace', lineageId: 'lin-w' })],
+      '',
+      storage,
+    )
+    expect(found['e-ws']).toMatchObject({ id: 'ws-installed', state: 'installed' })
+  })
+
   it('reads a project by its uid, not an id field', async () => {
     const storage = storageWith({
       projects: [{ uid: 'proj-uid', workspaceId: 'ws1', lineageId: 'lin-p' }],

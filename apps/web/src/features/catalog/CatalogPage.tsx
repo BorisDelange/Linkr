@@ -62,9 +62,14 @@ export function CatalogPage() {
   // is a genuine external-system sync rather than derivable state.
   useEffect(() => {
     let cancelled = false
-    const lookup = !workspaceId || !entries.length
+    // With no workspace selected the per-workspace question is unanswerable, but a
+    // `workspace` entry does not depend on one — it IS the scope. Skipping the whole
+    // lookup left an installed workspace reading "Install" until the user picked a
+    // workspace it has nothing to do with.
+    const answerable = workspaceId ? entries : entries.filter((e) => e.type === 'workspace')
+    const lookup = !answerable.length
       ? Promise.resolve({})
-      : findInstalled(entries, workspaceId)
+      : findInstalled(answerable, workspaceId)
     void lookup.then((found) => { if (!cancelled) setInstalled(found) })
     return () => { cancelled = true }
   }, [entries, workspaceId, installedNonce])

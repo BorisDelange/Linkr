@@ -49,12 +49,15 @@ export function ImportCatalogTab({ type, workspaceId, install, language, install
   // Same external-system sync as the Catalog page: only storage can answer this.
   useEffect(() => {
     let cancelled = false
-    const lookup = !workspaceId || !ofType.length
+    // A `workspace` entry is answerable with no workspace selected — it is the
+    // scope rather than living in one (see the same guard on CatalogPage).
+    const answerable = workspaceId || type === 'workspace'
+    const lookup = !answerable || !ofType.length
       ? Promise.resolve({})
       : findInstalled(ofType, workspaceId)
     void lookup.then((found) => { if (!cancelled) setInstalled(found) })
     return () => { cancelled = true }
-  }, [ofType, workspaceId, installedNonce])
+  }, [ofType, type, workspaceId, installedNonce])
 
   // Server mode is checked before anything else: without a backend nothing here can be
   // installed, so listing entries would only offer actions that cannot run.
