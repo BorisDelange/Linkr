@@ -328,8 +328,18 @@ export async function importWorkspaceTree(
     // recognises a re-import. A database written before databases had a lineage
     // (or by an older export) falls back to its id, which the flat form carried.
     const { id: byLineage } = await resolveByLineage(() => storage.dataSources.getAll(), ds)
-    const landing = ds.lineageId ? byLineage : ds.id
+    // `entityId` before `id`, matching collectGitLinkedEntities — the clone that
+    // follows writes to THAT key. A git-linked database exports as a pointer
+    // carrying `entityId` and no `id` at all, so the parser mints a UUID for it;
+    // landing on that UUID left the clone unable to find this row, and it created
+    // a second one under the slug. Two databases, same name, one of them empty.
+    const landing = ds.lineageId ? byLineage : (ds.entityId ?? ds.id)
     const id = duplicate ? crypto.randomUUID() : landing
+    // Registered like every other git-linkable type, and BEFORE the early
+    // `continue` below, so the clone can find this row whichever branch created
+    // it. Databases were the one kind missing from the map, which left the clone
+    // falling back to the manifest's own key.
+    idMap.set(`database:${ds.entityId ?? ds.id}`, id)
     if (!duplicate) {
       const existing = await storage.dataSources.getById(landing)
       if (existing) {
@@ -342,6 +352,16 @@ export async function importWorkspaceTree(
       }
     }
     await storage.dataSources.create({
+      // A git-linked database is a POINTER: its manifest carries identity and the
+      // remote, and nothing else — the payload lives in the repo and arrives with
+      // the clone a moment later. `alias` is the one field the server requires
+      // with no default, so without this a workspace holding a linked database
+      // fails its whole install on a 422 before any clone runs.
+      //
+      // It names the DuckDB schema (`ds_<alias>`); the entity id (else the row id)
+      // is a unique stand-in until the clone writes the repo's own — the same
+      // fallback applyClonedDatabase uses, so the two paths agree.
+      alias: ds.alias ?? ds.entityId ?? id,
       ...ds,
       id,
       workspaceId: targetWsId,
