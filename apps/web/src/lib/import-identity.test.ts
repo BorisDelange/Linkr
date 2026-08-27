@@ -5,6 +5,7 @@ import {
   findLineageMatch,
   resolveByLineage,
   resolveChildId,
+  resolveSlugLanding,
   resolveWorkspaceId,
 } from '@/lib/import-identity'
 
@@ -157,6 +158,30 @@ describe('resolveChildId', () => {
 
   it('always mints on a duplicate', () => {
     const id = resolveChildId({ workspaceId: WS }, 'child-1', WS, true, counter())
+    expect(id).toBe('minted-1')
+  })
+})
+
+describe('resolveSlugLanding', () => {
+  it('takes the slug when nothing holds it', () => {
+    expect(resolveSlugLanding('mimic-iv-demo', null, WS, counter())).toBe('mimic-iv-demo')
+  })
+
+  it('reuses the row this workspace already has under that slug', () => {
+    // A re-import updates in place rather than piling up a second copy.
+    const id = resolveSlugLanding('mimic-iv-demo', { workspaceId: WS }, WS, counter())
+    expect(id).toBe('mimic-iv-demo')
+  })
+
+  it('mints when another workspace holds the slug', () => {
+    // entityId is unique only WITHIN a workspace: two workspaces may each publish
+    // a `mimic-iv-demo`, and taking the key would overwrite the other one's.
+    const id = resolveSlugLanding('mimic-iv-demo', { workspaceId: 'ws-2' }, WS, counter())
+    expect(id).toBe('minted-1')
+  })
+
+  it('mints when the holder belongs to no workspace at all', () => {
+    const id = resolveSlugLanding('mimic-iv-demo', { workspaceId: undefined }, WS, counter())
     expect(id).toBe('minted-1')
   })
 })

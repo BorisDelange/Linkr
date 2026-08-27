@@ -14,6 +14,7 @@ import { isServerMode } from '@/lib/api-client'
 import {
   resolveByLineage as resolveByLineageRule,
   resolveChildId as resolveChildIdRule,
+  resolveSlugLanding,
   resolveWorkspaceId,
 } from '@/lib/import-identity'
 import { mintEntityId } from '@/components/ui/entity-id-field'
@@ -333,11 +334,26 @@ export async function importWorkspaceTree(
     // carrying `entityId` and no `id` at all, so the parser mints a UUID for it;
     // landing on that UUID left the clone unable to find this row, and it created
     // a second one under the slug. Two databases, same name, one of them empty.
-    const landing = ds.lineageId ? byLineage : (ds.entityId ?? ds.id)
+    // Without a lineage a database cannot simply mint like the other types: the
+    // clone that follows writes to the pointer's `entityId`, so landing anywhere
+    // else orphans this row. The rule (and why it is still workspace-scoped)
+    // lives in resolveSlugLanding.
+    let landing: string
+    if (ds.lineageId) {
+      landing = byLineage
+    } else {
+      const key = ds.entityId ?? ds.id
+      landing = resolveSlugLanding(
+        key,
+        await storage.dataSources.getById(key).catch(() => null),
+        targetWsId,
+      )
+    }
     const id = duplicate ? crypto.randomUUID() : landing
     // Registered like every other git-linkable type, and BEFORE the early
     // `continue` below, so the clone can find this row whichever branch created
-    // it. Databases were the one kind missing from the map, which left the clone
+    // it — including when the key was taken and this import landed elsewhere.
+    // Databases were the one kind missing from the map, which left the clone
     // falling back to the manifest's own key.
     idMap.set(`database:${ds.entityId ?? ds.id}`, id)
     if (!duplicate) {

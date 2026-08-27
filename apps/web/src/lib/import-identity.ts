@@ -71,6 +71,33 @@ export function resolveByLineage(
 }
 
 /**
+ * Where a git-linked database lands when its pointer carries no lineage.
+ *
+ * Databases are the one type that cannot simply mint here. A git-linked database
+ * exports as a pointer holding an `entityId` and no `id`, and the clone that
+ * follows the import writes to that `entityId` (see `collectGitLinkedEntities`):
+ * land anywhere else and the row is orphaned, so the clone creates a SECOND one —
+ * two databases with the same name, one of them empty.
+ *
+ * But `entityId` is a readable slug, unique only within a workspace: two
+ * workspaces may both publish a `mimic-iv-demo`. So the key is taken only when
+ * free, or already held by the target workspace; otherwise this import mints its
+ * own id like every other type. That is the same boundary `findLineageMatch`
+ * enforces — crossing it would silently overwrite another workspace's database.
+ *
+ * `holder` is the row currently stored under `key`, if any.
+ */
+export function resolveSlugLanding(
+  key: string,
+  holder: { workspaceId?: string } | null | undefined,
+  targetWorkspaceId: string,
+  mint: MintId = defaultMint,
+): string {
+  if (!holder) return key
+  return holder.workspaceId === targetWorkspaceId ? key : mint()
+}
+
+/**
  * The stored row an import would land on, or undefined for a fresh one.
  *
  * The same rule `resolveByLineage` decides with, exposed on its own so an
