@@ -32,6 +32,11 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     # decrypted server-side to open a connection. NULL for file/no-auth sources.
     connection_secret: Mapped[str | None] = mapped_column(Text)
     schema_mapping: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Which published schema the copied mapping came from: {lineageId, label, version}.
+    # A database COPIES its mapping rather than referencing a preset, so without this
+    # nothing records where it came from — and the UI cannot name the schema on an
+    # instance where that preset is not installed.
+    schema_source: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     status: Mapped[str] = mapped_column(String(20), default="configuring")
     stats: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     error_message: Mapped[str | None] = mapped_column(Text)

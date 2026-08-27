@@ -510,12 +510,19 @@ function SchemaCard({ source }: { source: DataSource }) {
     loader.then(setPresets).catch(() => setPresets([]))
   }, [wsUid])
 
-  if (!mapping?.presetId || mapping.presetId === 'none') return null
+  // Either half names the schema. Requiring `mapping.presetId` hid the card for
+  // every database whose mapping came from a published schema repo: a preset's
+  // own export drops presetId/presetLabel from the mapping (they are `entityId`
+  // and `name` at its root), so a copy of one carries neither — and the card
+  // vanished from a database that has a perfectly good `schemaSource`.
+  const named = mapping?.presetId && mapping.presetId !== 'none'
+  if (!named && !provenance?.lineageId) return null
 
   const label =
     localized(provenance?.label, i18n.language)
-    || localized(mapping.presetLabel, i18n.language)
-    || mapping.presetId
+    || localized(mapping?.presetLabel, i18n.language)
+    || mapping?.presetId
+    || ''
 
   // Lineage is the identity that survives crossing instances, so it is tried
   // first. The copied mapping's `presetId` is only a LOCAL primary key — useless
@@ -525,7 +532,7 @@ function SchemaCard({ source }: { source: DataSource }) {
     (provenance?.lineageId != null
       ? presets.find((p) => p.lineageId === provenance.lineageId)
       : undefined)
-    ?? presets.find((p) => p.presetId === mapping.presetId)
+    ?? (named ? presets.find((p) => p.presetId === mapping.presetId) : undefined)
 
   const body = (
     <>
