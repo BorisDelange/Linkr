@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
@@ -6,7 +5,6 @@ import { paths } from '@/lib/paths'
 import { useAppStore } from '@/stores/app-store'
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Card,
   CardContent,
@@ -47,7 +45,6 @@ export function ProjectSettingsPage() {
   const navigate = useNavigate()
   const { wsUid, projectUid: uid } = useResolvedParams()
   const {
-    projects,
     deleteProject,
     closeProject,
   } = useAppStore()
@@ -59,8 +56,6 @@ export function ProjectSettingsPage() {
   // still see the tab (read-only current paths) so it renders whenever server mode.
   const canEditFolders = can('project-settings:write')
   const showFolders = isServerMode()
-
-  const project = projects.find((p) => p.uid === uid)
 
   // The active tab lives in the URL (/settings/folders) so reload/back land on
   // the same tab and other pages can deep-link here — e.g. the IDE/Datasets
@@ -79,9 +74,6 @@ export function ProjectSettingsPage() {
         ? 'danger'
         : 'members'
 
-  const [deleteConfirm, setDeleteConfirm] = useState('')
-
-  const projectDisplayName = project?.name ?? ''
 
   const handleDelete = async () => {
     if (!uid) return
@@ -145,29 +137,16 @@ export function ProjectSettingsPage() {
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle>{t('project_settings.delete_confirm_title')}</AlertDialogTitle>
-                      <AlertDialogDescription asChild>
-                        <div className="space-y-3">
-                          <p>{t('project_settings.delete_confirm_description')}</p>
-                          <p>
-                            {t('project_settings.delete_confirm_type')}{' '}
-                            <span className="font-semibold text-foreground">{projectDisplayName}</span>
-                          </p>
-                          <Input
-                            value={deleteConfirm}
-                            onChange={(e) => setDeleteConfirm(e.target.value)}
-                            placeholder={projectDisplayName}
-                            className="mt-2"
-                          />
-                        </div>
+                      <AlertDialogDescription>
+                        {t('project_settings.delete_confirm_description')}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel onClick={() => setDeleteConfirm('')}>
+                      <AlertDialogCancel>
                         {t('common.cancel')}
                       </AlertDialogCancel>
                       <AlertDialogAction
-                        disabled={deleteConfirm !== projectDisplayName}
-                        className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
+                        className="bg-destructive text-white hover:bg-destructive/90"
                         onClick={handleDelete}
                       >
                         {t('project_settings.delete_project')}

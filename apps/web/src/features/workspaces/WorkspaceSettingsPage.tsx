@@ -4,11 +4,9 @@ import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { useAppStore } from '@/stores/app-store'
 import { Trash2, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembersTab } from '@/features/settings/MembersTab'
@@ -56,12 +54,10 @@ export function WorkspaceSettingsPage() {
     : roleLoaded
       ? 'members'
       : requestedTab
-  const language = useAppStore((s) => s.language)
   const { _workspacesRaw, deleteWorkspace, closeWorkspace } = useWorkspaceStore()
 
   const workspace = _workspacesRaw.find((ws) => ws.id === wsUid)
 
-  const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleteProgress, setDeleteProgress] = useState<{ phaseKey: string } | null>(null)
 
   if (!workspace || !wsUid) return null
@@ -76,8 +72,6 @@ export function WorkspaceSettingsPage() {
       setDeleteProgress(null)
     }
   }
-
-  const wsDisplayName = workspace.name[language] ?? workspace.name['en'] ?? Object.values(workspace.name)[0] ?? ''
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -165,30 +159,17 @@ export function WorkspaceSettingsPage() {
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle>{t('workspaces.delete_workspace')}</AlertDialogTitle>
-                      <AlertDialogDescription asChild>
-                        <div className="space-y-3">
-                          <p>{t('workspaces.delete_workspace_description')}</p>
-                          <p>
-                            {t('workspaces.delete_workspace_confirm')}{' '}
-                            <span className="font-semibold text-foreground">{wsDisplayName}</span>
-                          </p>
-                          <Input
-                            value={deleteConfirm}
-                            onChange={(e) => setDeleteConfirm(e.target.value)}
-                            placeholder={wsDisplayName}
-                            className="mt-2"
-                          />
-                        </div>
+                      <AlertDialogDescription>
+                        {t('workspaces.delete_workspace_description')}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel onClick={() => setDeleteConfirm('')}>
+                      <AlertDialogCancel>
                         {t('common.cancel')}
                       </AlertDialogCancel>
                       <AlertDialogAction
                         onClick={handleDelete}
-                        disabled={deleteConfirm !== wsDisplayName}
-                        className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
+                        className="bg-destructive text-white hover:bg-destructive/90"
                       >
                         {t('workspaces.delete_workspace')}
                       </AlertDialogAction>
