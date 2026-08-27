@@ -39,6 +39,7 @@ import {
   updateWidget,
   removeDashboardTab,
   removeDashboardWidget,
+  renameColumns,
   formatBytes,
   writeTree,
   writeZip,
@@ -560,6 +561,48 @@ server.registerTool(
   async ({ path, dashboard, key }) => {
     try {
       return text(removeDashboardTab(path, dashboard, key))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'rename_dataset_columns',
+  {
+    description:
+      "Rename one or more columns of a dataset. A column id is derived from its name, so this "
+      + 'REKEYS them and repoints every widget config and filter that pointed at the old ids, '
+      + 'across all dashboards. The result lists the ids that changed. The CSV header is left '
+      + 'as it is — columns[].name is what the app displays.',
+    inputSchema: fromJsonSchema<{
+      path: string
+      dataset: string
+      renames: { from: string; to: string }[]
+    }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory.' },
+        dataset: { type: 'string', description: 'Dataset file id, e.g. stays.csv (or just stays).' },
+        renames: {
+          type: 'array',
+          description: 'Columns to rename.',
+          items: {
+            type: 'object',
+            properties: {
+              from: { type: 'string', description: 'Current column id, from describe_tree.' },
+              to: { type: 'string', description: 'New display name; the new id is derived from it.' },
+            },
+            required: ['from', 'to'],
+          },
+        },
+      },
+      required: ['path', 'dataset', 'renames'],
+    }),
+  },
+  async ({ path, dataset, renames }) => {
+    try {
+      return text(renameColumns(path, dataset, renames))
     } catch (e) {
       return failure((e as Error).message)
     }

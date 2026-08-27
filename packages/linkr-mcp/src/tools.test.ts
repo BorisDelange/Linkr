@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   addDashboardTab, addScript, addWidget, describeEntitySchema, describeTree,
   moveDashboardWidget, readTreeFile, removeDashboardTab, removeDashboardWidget,
-  renameDashboardTab, renameDashboardWidget, updateWidget, writeTree, writeZip,
+  renameColumns, renameDashboardTab, renameDashboardWidget, updateWidget, writeTree, writeZip,
 } from './tools.js'
 
 const CSV = 'patient_id,age,sex,ventilated\n1,60,M,1\n2,71,F,0\n'
@@ -371,5 +371,66 @@ describe('mutators', () => {
     widget()
     expect(moveDashboardWidget(root, 'overview', 'overview/demographics/ages@0,0', { x: 12 }))
       .toMatch(/Tree is valid/)
+  })
+})
+
+describe('renameColumns', () => {
+  const tree = () => JSON.parse(readFileSync(join(root, 'datasets/_tree.json'), 'utf-8'))
+  const csv = () => readFileSync(join(root, 'datasets/stays/stays.csv'), 'utf-8')
+
+  const widget = () => addWidget({
+    path: root,
+    dashboard: 'overview',
+    tabKey: 'overview/demographics',
+    name: { en: 'Ages' },
+    dataset: 'stays.csv',
+    pluginId: 'linkr-analysis-plot-builder',
+    config: { xColumn: 'age', stats: ['median', 'age'] },
+    layout: { x: 0, y: 0, w: 24, h: 16 },
+  })
+
+  it('re-derives the id and repoints the widget config', () => {
+    widget()
+    renameColumns(root, 'stays.csv', [{ from: 'col_age', to: 'age_years' }])
+    expect(dashboard().widgets[0].source.config.xColumn).toBe('col_age_years')
+  })
+
+  it('rewrites the CSV header, without which the tree stops validating', () => {
+    // The validator requires columns[].name to match the header, as an ERROR.
+    // Treating the header as untouchable "data" produced a broken tree every time.
+    renameColumns(root, 'stays.csv', [{ from: 'col_age', to: 'age_years' }])
+    expect(csv().split('\n')[0]).toBe('patient_id,age_years,sex,ventilated')
+    expect(tree()[0].columns[1]).toMatchObject({ id: 'col_age_years', name: 'age_years' })
+  })
+
+  it('leaves the data rows byte-identical', () => {
+    const before = csv().split('\n').slice(1).join('\n')
+    renameColumns(root, 'stays.csv', [{ from: 'col_age', to: 'age_years' }])
+    expect(csv().split('\n').slice(1).join('\n')).toBe(before)
+  })
+
+  it('quotes a name that needs it, and only then', () => {
+    renameColumns(root, 'stays.csv', [{ from: 'col_age', to: 'age, years' }])
+    expect(csv().split('\n')[0]).toBe('patient_id,"age, years",sex,ventilated')
+  })
+
+  it('reports the ids it changed, since earlier ones are now stale', () => {
+    const out = renameColumns(root, 'stays.csv', [{ from: 'col_age', to: 'age_years' }])
+    expect(out).toMatch(/col_age → col_age_years/)
+    expect(out).toMatch(/Tree is valid/)
+  })
+
+  it('says nothing moved when the id is unchanged', () => {
+    const out = renameColumns(root, 'stays.csv', [{ from: 'col_age', to: 'Age' }])
+    expect(out).toMatch(/No id changed/)
+  })
+
+  it('names the datasets that exist when one is unknown', () => {
+    expect(() => renameColumns(root, 'ghost.csv', [{ from: 'col_age', to: 'x' }]))
+      .toThrow(/Known: stays\.csv/)
+  })
+
+  it('accepts the dataset name without its extension', () => {
+    expect(() => renameColumns(root, 'stays', [{ from: 'col_age', to: 'age_years' }])).not.toThrow()
   })
 })

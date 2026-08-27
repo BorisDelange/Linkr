@@ -216,6 +216,12 @@ function validateCsv(
     return
   }
 
+  // A dataset keeps its original upload, so the resolved file is often XLSX or
+  // Parquet. Their columns live in a binary structure, not in a first text line:
+  // reading one as a header found no delimiters and reported a valid dataset as
+  // empty. The columns themselves are still checked above.
+  if (isBinaryData(csvPath)) return
+
   const raw = tree.read(csvPath)
   if (raw == null) return
   const firstLine = raw.split('\n', 1)[0]?.replace(/\r$/, '') ?? ''
@@ -251,6 +257,11 @@ function withCsv(name: string): string {
   return /\.[a-z0-9]+$/i.test(name) ? name : `${name}.csv`
 }
 
+/** Data files whose columns cannot be read from a first text line. */
+function isBinaryData(path: string): boolean {
+  return /\.(xlsx?|parquet|pq)$/i.test(path)
+}
+
 /**
  * Data file for a dataset.
  *
@@ -258,7 +269,17 @@ function withCsv(name: string): string {
  * not already carry its extension — both forms exist in real trees, so the
  * candidates cover the combinations rather than assuming one.
  */
-function findCsv(
+/**
+ * Where a dataset's data file actually lives.
+ *
+ * Exported because the resolution order is real knowledge, not a validator
+ * detail: trees in the wild put the file at `datasets/<name>/<name>.csv`, at
+ * `datasets/<name>.csv`, or wherever `entry.path` says — the published
+ * icu-activity-dashboard uses the flat form. Anything that has to open the file
+ * (the column-rename cascade, for one) must resolve it the same way or it edits
+ * the tree and misses the data.
+ */
+export function findCsv(
   tree: EntityTree,
   datasetId: string,
   name: string,

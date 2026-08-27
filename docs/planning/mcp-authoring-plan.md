@@ -647,7 +647,7 @@ histogram widget — the file never opened.
 | ✅ C3 | `move_widget(key, layout)` + `move_tab(key, {parent?, order?})` — **key-rewriting**, see 7b.4 | M |
 | ✅ C4 | `remove_widget` / `remove_tab` / `remove_script` / `remove_dataset` — each reporting what it orphaned before doing it | M |
 | ✅ C5 | `update_tab(key, {name?})` — same key-rewrite problem as C3 | S |
-| C6 | `update_dataset(name, {csv?, types?})` — recomputes column ids and **reports the ones that changed**, since a rename orphans every widget config pointing at the old id | M |
+| ✅ C6 | `update_dataset(name, {csv?, types?})` — recomputes column ids and **reports the ones that changed**, since a rename orphans every widget config pointing at the old id | M |
 | ✅ C7 | `update_script(path, content)` — trivially, `add_script` already overwrites; make it explicit rather than a side effect | S |
 | C8 | Granular tools for the 6 standalone kinds (the existing step 10): `add`/`update`/`remove` over a sql-collection or ETL **file**, a DQ **check**, a catalog **dimension**, a mapping **row**, a preset **event table** | L |
 
@@ -684,6 +684,32 @@ skill rather than left as an undocumented side effect.
 Verified over real stdio JSON-RPC against a copy of the published
 `icu-activity-dashboard`: renaming one tab re-keyed all 6 widgets, reported all 7 changes,
 left zero stale references on disk, and the tree still validated.
+
+#### C6 as built (2026-08-27) — shipped as `rename_dataset_columns`
+
+Scoped to the rename, which is the destructive half: a column id is `col_<slug(name)>`, so
+renaming a column changes its id, and the id is what every widget config and filter holds.
+Replacing a dataset's CSV wholesale (the `{csv?}` half) is a different act and stays open.
+
+Two things the end-to-end run on a real tree corrected, neither visible from the fixtures:
+
+- **The CSV header must be rewritten.** I had reasoned it was "data, not metadata" and left
+  it alone — which produced a `csv-header-mismatch` **error** every time, since the
+  validator requires `columns[].name` to equal the header. Only the first line is touched,
+  and only for a text CSV; the 1810 data rows came back byte-identical.
+- **The data file is not where the serializer puts it.** The published
+  `icu-activity-dashboard` stores it flat at `datasets/<name>.csv`, not
+  `datasets/<name>/<name>.csv`. The validator already owned that resolution order in
+  `findCsv`, so it is now **exported** and reused rather than re-guessed — re-deriving it
+  in the MCP is exactly the drift this package exists to end.
+
+Config references are matched **by value, never by key name**: a real config mixes column
+ids with unrelated lists (`subtitleStats: ["median","min"]`), and the rewrite is scoped to
+the widgets and filters bound to that dataset, since two datasets can both hold a `col_age`.
+
+Ids are rebuilt over the whole ordered column list, not one at a time — collision suffixes
+(`_2`) are handed out in header order, so two names normalising to one slug are correct in
+exactly one arrangement.
 
 **Guardrails** (what makes "never touch the files" enforceable rather than hoped-for):
 

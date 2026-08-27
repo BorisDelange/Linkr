@@ -47,7 +47,8 @@ is a bug this project has already paid for once.
 | delete a widget or a tab | `remove_widget`, `remove_dashboard_tab` | ✅ |
 | overwrite a script | `add_script` (it overwrites) | ✅ |
 | create or replace a whole tree | `write_project`, `write_entity` | ✅ |
-| edit a dataset's columns, or anything on a standalone entity | — | ⛔ no tool yet |
+| rename a dataset's columns | `rename_dataset_columns` | ✅ |
+| anything on a standalone entity (SQL collection, ETL, DQ, catalog, mapping, preset) | — | ⛔ no tool yet |
 
 For the last row: **say so and stop**. Do not fall back to editing the JSON — and do not
 rewrite the whole tree with `write_project` to change one field either: it serializes the
@@ -56,9 +57,10 @@ lost.
 
 **Renaming and moving rewrite keys.** A widget's key is `<tab>/<slug(name)>@<y>,<x>` and a
 tab's is `<parent>/<slug(name)>`, so renaming a tab re-keys its sub-tabs *and* every widget
-under them, and every filter scoped to any of it. The tools do that cascade for you and
-list what changed — read that list, because keys you quoted from an earlier
-`describe_tree` are stale afterwards.
+under them, and every filter scoped to any of it. A column id is `col_<slug(name)>`, so
+renaming a column re-keys it and repoints every widget config and filter that held the old
+id. The tools do those cascades for you and list what changed — read that list, because
+ids and keys you quoted from an earlier `describe_tree` are stale afterwards.
 
 ## Identity: three fields, one of them a trap
 
@@ -104,6 +106,7 @@ check the shape of these fields.
 | `update_widget` | change a widget's config (merged), dataset or plugin |
 | `rename_widget`, `rename_dashboard_tab`, `move_widget` | **rekey** — the cascade is done for you and reported |
 | `remove_widget`, `remove_dashboard_tab` | delete; the result names the collateral |
+| `rename_dataset_columns` | **rekey** — re-derives column ids and repoints every widget config and filter |
 
 Not registered? `claude mcp add linkr -- npx tsx <repo>/packages/linkr-mcp/src/server.ts`
 

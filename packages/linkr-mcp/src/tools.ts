@@ -10,9 +10,9 @@ import { copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from '
 import { dirname, join, relative, resolve } from 'node:path'
 import {
   ENTITY_MANIFEST, MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES,
-  columnId, formatIssues, moveWidget, removeTab, removeWidget, renameTab, renameWidget,
-  slugify, tabCollateral, validateProject,
-  type CopyFile, type DashboardDocument, type WriteFile,
+  columnId, findCsv, formatIssues, moveWidget, removeTab, removeWidget, renameDatasetColumns,
+  renameTab, renameWidget, slugify, tabCollateral, validateProject,
+  type CopyFile, type DashboardDocument, type DatasetRecord, type WriteFile,
 } from '@linkr/format'
 import { FsTree } from '@linkr/format/node/fs-tree'
 
@@ -159,6 +159,8 @@ interface DashboardDoc {
 interface DatasetEntry {
   id: string
   name: string
+  /** Location under `datasets/`, e.g. `stays/stays.csv`. */
+  path?: string
   columns?: { id: string; name: string; type?: string }[]
   rowCount?: number
 }
@@ -773,4 +775,96 @@ export function removeDashboardWidget(root: string, dashboard: string, key: stri
   writeJson(root, docPath, doc)
   const detail = scoped.length ? ` Filters that lost a scope reference: ${scoped.join(', ')}.` : ''
   return revalidate(root, `Removed widget ${key}.${detail}`)
+}
+
+/**
+ * Rename dataset columns, re-deriving their ids and repointing every reference.
+ *
+ * Loads *every* dashboard, not only one: a column id is referenced from any widget
+ * or filter bound to that dataset, and rewriting one dashboard would leave the
+ * others pointing at an id nothing answers to — a widget that renders blank with
+ * no error.
+ */
+export function renameColumns(
+  root: string,
+  dataset: string,
+  renames: { from: string; to: string }[],
+): string {
+  const entries = readJson<DatasetEntry[]>(root, 'datasets/_tree.json')
+  const fileId = dataset.endsWith('.csv') ? dataset : `${dataset}.csv`
+  const index = entries.findIndex((e) => e.id === fileId || e.name === fileId)
+  if (index < 0) {
+    throw new Error(
+      `Unknown dataset "${dataset}". Known: ${entries.map((e) => e.id).join(', ') || 'none'}.`,
+    )
+  }
+
+  const tree = new FsTree(root)
+  const paths = tree.paths().filter((p) => p.startsWith('dashboards/') && p.endsWith('.json'))
+  const dashboards = new Map<string, DashboardDocument>(
+    paths.map((p) => [p, readJson<DashboardDocument>(root, p)]),
+  )
+
+  const out = renameDatasetColumns(entries[index] as DatasetRecord, dashboards, renames)
+
+  entries[index] = out.dataset as DatasetEntry
+  writeJson(root, 'datasets/_tree.json', entries)
+  for (const [path, doc] of out.dashboards) writeJson(root, path, doc)
+
+  // The CSV header carries the same names, and the validator requires the two to
+  // agree — leaving it alone produced a tree with a `csv-header-mismatch` error
+  // every time. The header is metadata about the columns, not the data itself.
+  // Resolved the way the validator does: published trees put the file flat at
+  // `datasets/<name>.csv` as often as under its own folder, and guessing one
+  // shape would edit the metadata while leaving the data untouched.
+  const csvPath = findCsv(tree, entries[index].id, entries[index].name, entries[index] as unknown as Record<string, unknown>)
+  const renamed = csvPath ? rewriteCsvHeader(root, csvPath, out.dataset.columns ?? []) : false
+
+  // The id changes are the load-bearing part of the report: anything the caller
+  // quoted from an earlier describe_tree is stale, and a config it was about to
+  // send would silently point at nothing.
+  const moved = [...out.changes].map(([from, to]) => `  ${from} → ${to}`).join('\n')
+  const summary = out.changes.size
+    ? `Renamed ${renames.length} column(s) in ${fileId}.\n\nColumn ids rewritten `
+      + `(every widget config and filter pointing at them was updated):\n${moved}`
+    : `Renamed ${renames.length} column(s) in ${fileId}. No id changed, so nothing else moved.`
+
+  const note = renamed
+    ? '\n\nThe CSV header was updated to match.'
+    : csvPath
+      ? `\n\n${csvPath} is not a text CSV, so its header still holds the old names.`
+      : '\n\nNo data file was found, so only the metadata changed.'
+  return revalidate(root, summary + note)
+}
+
+/**
+ * Rewrite a data file's header row to the declared column names.
+ *
+ * Only the first line is touched, and only for a text CSV: a dataset keeps its
+ * original upload, so the resolved file may be XLSX or Parquet, whose columns live
+ * in a binary structure this must not corrupt. Those are left alone — the caller is
+ * told, since their header will then disagree with the tree.
+ */
+function rewriteCsvHeader(
+  root: string,
+  csvPath: string,
+  columns: { name: string }[],
+): boolean {
+  if (!csvPath || !/\.csv$/i.test(csvPath)) return false
+  let raw: string
+  try {
+    raw = readFileSync(resolveInside(root, csvPath), 'utf-8')
+  } catch {
+    return false
+  }
+  const breakAt = raw.indexOf('\n')
+  const rest = breakAt < 0 ? '' : raw.slice(breakAt)
+  const header = columns.map((c) => quoteCsv(c.name)).join(',')
+  writeFileSync(resolveInside(root, csvPath), header + rest, 'utf-8')
+  return true
+}
+
+/** Quote a header field only when it needs it, so untouched names stay byte-identical. */
+function quoteCsv(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
 }

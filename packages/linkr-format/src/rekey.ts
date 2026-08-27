@@ -18,7 +18,7 @@
  * Every function returns a **new** document plus the key changes it made, so a
  * caller can report them. None of them touch the filesystem.
  */
-import { slugify } from './ids.js'
+import { buildColumnIds, slugify } from './ids.js'
 import { readLocalized } from './check.js'
 
 /** What the cascade rewrote, for a caller that wants to report it. */
@@ -373,4 +373,139 @@ function dropFromScopes(
       },
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Column ids
+// ---------------------------------------------------------------------------
+
+/** A dataset entry as `datasets/_tree.json` stores it. */
+export interface DatasetRecord {
+  id?: string
+  name?: string
+  columns?: { id: string; name: string; type?: string; order?: number }[]
+  [field: string]: unknown
+}
+
+/**
+ * Rewrite one column id everywhere a dashboard can reference it.
+ *
+ * Two places, and they are found differently:
+ *   - a filter's `columnId` — a known field;
+ *   - a widget's `source.config` — arbitrary keys chosen by each plugin.
+ *
+ * The config is therefore matched **by value, never by key name**. A real config
+ * mixes column references with unrelated lists (`subtitleStats: ["median","min"]`),
+ * so anything that guessed from the key would rewrite the wrong thing. Strings and
+ * string arrays are both handled, exactly as the serializer's own resolver does.
+ */
+function rewriteColumnRefs(
+  doc: DashboardDocument,
+  datasetFileId: string,
+  changes: Map<string, string>,
+): DashboardDocument {
+  if (!changes.size) return doc
+
+  const remap = (value: unknown): unknown => {
+    if (typeof value === 'string') return changes.get(value) ?? value
+    if (Array.isArray(value)) return value.map(remap)
+    return value
+  }
+
+  const widgets = (doc.widgets ?? []).map((widget) => {
+    // Only widgets bound to this dataset: two datasets can both have a `col_age`,
+    // and rewriting the other one's widgets would corrupt them.
+    if (widget.datasetFileId !== datasetFileId) return widget
+    const source = widget.source as { config?: Record<string, unknown> } | undefined
+    if (!source?.config) return widget
+    const config: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(source.config)) config[key] = remap(value)
+    return { ...widget, source: { ...source, config } }
+  })
+
+  const filterConfig = (doc.dashboard?.filterConfig ?? []).map((filter) => {
+    const f = filter as FilterRecord & { datasetFileId?: string; columnId?: string; columnName?: string }
+    if (f.datasetFileId !== datasetFileId) return filter
+    const next = changes.get(String(f.columnId))
+    return next ? { ...filter, columnId: next } : filter
+  })
+
+  return {
+    ...doc,
+    dashboard: { ...doc.dashboard, filterConfig },
+    widgets,
+  }
+}
+
+export interface ColumnRename {
+  /** Column id as it stands today, from `datasets/_tree.json`. */
+  from: string
+  /** New display name; the new id is derived from it. */
+  to: string
+}
+
+export interface DatasetRekey {
+  dataset: DatasetRecord
+  dashboards: Map<string, DashboardDocument>
+  changes: Map<string, string>
+}
+
+/**
+ * Rename dataset columns, re-deriving their ids and repointing every reference.
+ *
+ * A column id is `col_<slug(name)>`, so renaming a column **changes its id** — and
+ * the id is what every widget config and filter holds. Rename without the cascade
+ * and the widget keeps pointing at an id nothing answers to: it renders blank,
+ * with an empty column picker and no error. Same silent shape as an orphaned
+ * widget key, on the data side.
+ *
+ * Ids are rebuilt over the **whole ordered column list**, not one at a time,
+ * because collision suffixes (`_2`, `_3`) are handed out in header order: two
+ * names that normalise to one slug are only correct in one arrangement.
+ *
+ * The CSV header is *not* rewritten here — the caller owns the file, and a header
+ * rewrite is a data edit rather than a metadata one. `columns[].name` is what the
+ * app displays.
+ */
+export function renameDatasetColumns(
+  dataset: DatasetRecord,
+  dashboards: Map<string, DashboardDocument>,
+  renames: ColumnRename[],
+): DatasetRekey {
+  const columns = dataset.columns ?? []
+  if (!columns.length) throw new Error(`Dataset "${dataset.id ?? '?'}" declares no columns.`)
+
+  const byId = new Map(columns.map((c) => [c.id, c]))
+  for (const { from } of renames) {
+    if (!byId.has(from)) {
+      throw new Error(
+        `Unknown column "${from}". Known: ${columns.map((c) => c.id).join(', ')}.`,
+      )
+    }
+  }
+  const newNameById = new Map(renames.map((r) => [r.from, r.to]))
+  for (const { to } of renames) {
+    if (!to.trim()) throw new Error('A column needs a name.')
+  }
+
+  const names = columns.map((c) => newNameById.get(c.id) ?? c.name)
+  const ids = buildColumnIds(names)
+
+  const changes = new Map<string, string>()
+  const nextColumns = columns.map((column, i) => {
+    if (column.id !== ids[i]) changes.set(column.id, ids[i])
+    return { ...column, id: ids[i], name: names[i] }
+  })
+
+  const fileId = String(dataset.id ?? dataset.name ?? '')
+  const nextDashboards = new Map<string, DashboardDocument>()
+  for (const [path, doc] of dashboards) {
+    nextDashboards.set(path, rewriteColumnRefs(doc, fileId, changes))
+  }
+
+  return {
+    dataset: { ...dataset, columns: nextColumns },
+    dashboards: nextDashboards,
+    changes,
+  }
 }

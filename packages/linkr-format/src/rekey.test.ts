@@ -9,8 +9,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  moveWidget, removeTab, removeWidget, renameTab, renameWidget, tabCollateral,
-  type DashboardDocument,
+  moveWidget, removeTab, removeWidget, renameDatasetColumns, renameTab, renameWidget,
+  tabCollateral, type DashboardDocument, type DatasetRecord,
 } from './rekey.js'
 
 /** A dashboard with a sub-tab, widgets in both, and both kinds of filter scope. */
@@ -196,5 +196,104 @@ describe('removeTab / removeWidget', () => {
   it('leaves the other widget alone', () => {
     const { doc: out } = removeWidget(doc(), 'overview/summary/kpi@0,0')
     expect(keys(out)).toEqual(['overview/summary/detail/chart@0,0'])
+  })
+})
+
+describe('renameDatasetColumns', () => {
+  const dataset = (): DatasetRecord => ({
+    id: 'stays.csv',
+    name: 'stays',
+    columns: [
+      { id: 'col_age', name: 'age', type: 'number', order: 0 },
+      { id: 'col_sex', name: 'sex', type: 'string', order: 1 },
+    ],
+  })
+
+  const dashboards = () => new Map<string, DashboardDocument>([
+    ['dashboards/overview.json', {
+      dashboard: {
+        filterConfig: [
+          { datasetFileId: 'stays.csv', columnId: 'col_age', columnName: 'age' },
+          { datasetFileId: 'other.csv', columnId: 'col_age', columnName: 'age' },
+        ],
+      },
+      tabs: [],
+      widgets: [
+        {
+          key: 'o/t/w@0,0', tabKey: 'o/t', datasetFileId: 'stays.csv',
+          layout: { x: 0, y: 0, w: 12, h: 8 },
+          source: { type: 'plugin', config: { xColumn: 'col_age', subtitleStats: ['median', 'col_age'] } },
+        },
+        {
+          key: 'o/t/x@0,12', tabKey: 'o/t', datasetFileId: 'other.csv',
+          layout: { x: 12, y: 0, w: 12, h: 8 },
+          source: { type: 'plugin', config: { xColumn: 'col_age' } },
+        },
+      ],
+    }],
+  ])
+
+  it('re-derives the id from the new name', () => {
+    const out = renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_age', to: 'age_years' }])
+    expect(out.dataset.columns?.[0]).toMatchObject({ id: 'col_age_years', name: 'age_years' })
+    expect(out.changes.get('col_age')).toBe('col_age_years')
+  })
+
+  it('repoints a widget config that referenced the old id', () => {
+    // Without this the widget keeps an id nothing answers to: it renders blank,
+    // with an empty column picker and no error.
+    const out = renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_age', to: 'age_years' }])
+    const doc = out.dashboards.get('dashboards/overview.json')!
+    expect(doc.widgets?.[0].source).toMatchObject({ config: { xColumn: 'col_age_years' } })
+  })
+
+  it('rewrites inside an array, as the serializer resolver does', () => {
+    const out = renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_age', to: 'age_years' }])
+    const config = (out.dashboards.get('dashboards/overview.json')!.widgets?.[0].source as
+      { config: Record<string, unknown> }).config
+    // 'median' is a stat name, not a column: matching by VALUE leaves it alone.
+    expect(config.subtitleStats).toEqual(['median', 'col_age_years'])
+  })
+
+  it('repoints a filter on the same dataset', () => {
+    const out = renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_age', to: 'age_years' }])
+    expect(out.dashboards.get('dashboards/overview.json')!.dashboard?.filterConfig?.[0])
+      .toMatchObject({ columnId: 'col_age_years' })
+  })
+
+  it('leaves another dataset\'s identical id alone', () => {
+    // Two datasets can both have a col_age; scoping by datasetFileId is what
+    // stops a rename here from corrupting a widget bound to the other one.
+    const out = renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_age', to: 'age_years' }])
+    const doc = out.dashboards.get('dashboards/overview.json')!
+    expect(doc.widgets?.[1].source).toMatchObject({ config: { xColumn: 'col_age' } })
+    expect(doc.dashboard?.filterConfig?.[1]).toMatchObject({ columnId: 'col_age' })
+  })
+
+  it('hands out collision suffixes in column order, not per column', () => {
+    // The trap: ids are only correct over the WHOLE ordered list. Renaming `sex`
+    // to `Age` makes two columns normalise to col_age; the first in header order
+    // keeps the bare id and the second takes _2. Deriving one id at a time would
+    // accept them swapped, after which the app re-derives the other arrangement
+    // and orphans everything pointing at either.
+    const out = renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_sex', to: 'Age' }])
+    expect(out.dataset.columns?.map((c) => c.id)).toEqual(['col_age', 'col_age_2'])
+    expect(out.changes.get('col_sex')).toBe('col_age_2')
+  })
+
+  it('reports nothing when the name slugifies to the same id', () => {
+    const out = renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_age', to: 'Age' }])
+    expect(out.changes.size).toBe(0)
+    expect(out.dataset.columns?.[0].name).toBe('Age')
+  })
+
+  it('names the columns that exist when the id is unknown', () => {
+    expect(() => renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_ghost', to: 'x' }]))
+      .toThrow(/Known: col_age, col_sex/)
+  })
+
+  it('refuses an empty name', () => {
+    expect(() => renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_age', to: '  ' }]))
+      .toThrow(/needs a name/)
   })
 })
