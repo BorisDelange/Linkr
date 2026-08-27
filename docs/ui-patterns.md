@@ -366,6 +366,47 @@ screen — page header, `ListPageToolbar`, cards with `EntityActionsMenu` +
 `CardMetaFooter` + `BadgeStrip`, and the empty state. 7 pages use it. If you're
 building an entity list, start here, not from a blank page.
 
+### Card-grid multi-selection
+
+Every card grid supports Cmd/Ctrl-click multi-selection through two shared
+pieces — never re-implement the maths or the confirm dialog:
+
+- **`useCardSelection(keys)`** (`components/ui/use-card-selection.ts`) — pass the
+  **filtered, sorted** keys the grid actually renders, so Shift-ranges follow
+  what the user sees and keys that leave the grid drop out of the selection. It
+  reuses `nextSelection()` from the shared data table, so cards and tables read
+  the same way.
+- **`BulkDeleteAction`** (`components/ui/bulk-delete-action.tsx`) — the
+  destructive `Delete (N)` button plus its confirm dialog listing the names.
+
+A plain click stays **navigation**: selection only ever starts with a modifier.
+Wire it in three places:
+
+```tsx
+const selection = useCardSelection(useMemo(() => rows.map((r) => r.id), [rows]))
+
+// 1. header: bulk actions REPLACE Import/New while a selection is active
+{selection.active ? (
+  <BulkDeleteAction
+    selection={selection}
+    names={(id) => localized(rows.find((r) => r.id === id)?.name, language)}
+    onDeleteMany={async (ids) => { for (const id of ids) await onDelete(id) }}
+    canDelete={canDelete}
+  />
+) : <>{/* Import + New, unchanged */}</>}
+
+// 2. the card: grey it out, and let the click be consumed
+<Card
+  className={cn('…', selection.isSelected(row.id) && selectedCardClass)}
+  onClick={(e) => { if (selection.onCardClick(e, row.id)) return; navigate(row.id) }}
+/>
+```
+
+`onDeleteMany` must reuse the page's **existing** delete function — the one the
+single-item confirm dialog calls — so both paths stay in sync. Cards living in
+their own component (`CohortCard`, `DatabaseCard`) take optional `selected` +
+click-interception props rather than being forked.
+
 ### Page header
 
 Use **`PageHeader`** + **`PageContainer`** (`components/ui/page-header.tsx`):
@@ -518,6 +559,15 @@ one silently never opens.
 
 Everything above says *which* component to use. These five say how to work when
 none of them quite fits — which is when drift starts.
+
+### Action buttons say "New", dialogs say "Create"
+
+The button that opens a creation dialog is **`New <entity>`** in sentence case —
+"New dashboard", "New rule set", never "Create dashboard", "Create a workspace"
+or Title Case. The dialog it opens keeps its own voice: the title is
+"Create a <entity>" and the submit button is `common.create`. When one i18n key
+served both, it was split rather than compromised (`concept_mapping.new_project`
+for the button, `concept_mapping.create_project_title` for the dialog).
 
 ### Extend the shared component; don't degrade the caller
 

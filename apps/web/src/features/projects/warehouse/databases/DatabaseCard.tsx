@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { selectedCardClass } from '@/components/ui/use-card-selection'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { useDatabaseActions } from './use-database-actions'
@@ -46,6 +47,10 @@ interface DatabaseCardProps {
   canEdit?: boolean
   /** Extra content rendered under the stats row (e.g. the linked-projects strip). */
   belowStats?: React.ReactNode
+  /** Part of a multi-selection — greys the card out. */
+  selected?: boolean
+  /** Returns true when the click was consumed as a selection gesture, so the card skips navigation. */
+  onSelectClick?: (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => boolean
 }
 
 function getSourceSummary(source: DataSource, lang: string): string {
@@ -85,6 +90,8 @@ export const DatabaseCard = memo(function DatabaseCard({
   onOpenVersioning,
   canEdit = true,
   belowStats,
+  selected = false,
+  onSelectClick,
 }: DatabaseCardProps) {
   const { t, i18n } = useTranslation()
   const actions = useDatabaseActions()
@@ -93,18 +100,24 @@ export const DatabaseCard = memo(function DatabaseCard({
   const config = source.connectionConfig as DatabaseConnectionConfig
   const needsReconnect = config.useFileHandles && source.status === 'disconnected'
 
-  const cardClassName = [
+  const cardClassName = cn(
     'flex min-h-44 min-w-0 flex-col gap-0 py-0 transition-colors',
-    onClick ? 'cursor-pointer hover:bg-accent' : '',
-    isActive ? 'border-green-500/50 bg-green-50 dark:bg-green-950/20' : '',
-  ].filter(Boolean).join(' ')
+    onClick && 'cursor-pointer hover:bg-accent',
+    isActive && 'border-green-500/50 bg-green-50 dark:bg-green-950/20',
+    selected && selectedCardClass,
+  )
+
+  const handleCardClick = (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => {
+    if (onSelectClick?.(e)) return
+    onClick?.()
+  }
 
   return (
     <Card
       className={cardClassName}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
-      onClick={onClick}
+      onClick={onClick || onSelectClick ? handleCardClick : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') onClick() } : undefined}
     >
       <div className="flex flex-1 flex-col px-4 pt-5">

@@ -22,7 +22,9 @@ import {
 } from '@/lib/import-identity'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { cardMenuTriggerClass } from '@/lib/utils'
+import { cardMenuTriggerClass, cn } from '@/lib/utils'
+import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
+import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-selection'
 import { Card } from '@/components/ui/card'
 import { mintEntityId } from '@/components/ui/entity-id-field'
 import { Input } from '@/components/ui/input'
@@ -116,6 +118,8 @@ export function WorkspacesPage() {
     })
   }, [workspaces, _workspacesRaw, searchQuery, badgeFilter, sort, i18n.language])
 
+  const selection = useCardSelection(useMemo(() => filteredWorkspaces.map((w) => w.id), [filteredWorkspaces]))
+
   const filterGroups = useMemo<FilterGroup[]>(() => [
     {
       key: 'badges',
@@ -139,7 +143,6 @@ export function WorkspacesPage() {
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
-  const [deleteConfirm, setDeleteConfirm] = useState('')
 
 
   // Import conflict state
@@ -248,18 +251,25 @@ export function WorkspacesPage() {
     navigate(paths.workspaceHome(id, tab))
   }
 
+  // Deleting a workspace is long enough to need its own progress modal, so both
+  // the single and the bulk path go through here.
+  const runDelete = async (ids: string[]) => {
+    setDeleteProgress({ phaseKey: 'workspaces.delete_phase_projects' })
+    try {
+      for (const id of ids) {
+        await deleteWorkspace(id, (phaseKey) => setDeleteProgress({ phaseKey }))
+      }
+    } finally {
+      setDeleteProgress(null)
+    }
+  }
+
   const handleDelete = async () => {
     if (!deleteTarget) return
     const target = deleteTarget
     // Hide the confirmation dialog right away, then show the progress modal.
     setDeleteTarget(null)
-    setDeleteConfirm('')
-    setDeleteProgress({ phaseKey: 'workspaces.delete_phase_projects' })
-    try {
-      await deleteWorkspace(target.id, (phaseKey) => setDeleteProgress({ phaseKey }))
-    } finally {
-      setDeleteProgress(null)
-    }
+    await runDelete([target.id])
   }
 
   // --- Import logic ---
@@ -963,19 +973,29 @@ export function WorkspacesPage() {
             {t('workspaces.title')}
           </h1>
           <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1 text-xs"
-              onClick={() => setImportOpen(true)}
-            >
-              <Upload size={14} />
-              {t('common.import')}
-            </Button>
-            <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
-              <Plus size={14} />
-              {t('workspaces.create')}
-            </Button>
+            {selection.active ? (
+              <BulkDeleteAction
+                selection={selection}
+                names={(id) => filteredWorkspaces.find((w) => w.id === id)?.name ?? id}
+                onDeleteMany={runDelete}
+              />
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1 text-xs"
+                  onClick={() => setImportOpen(true)}
+                >
+                  <Upload size={14} />
+                  {t('common.import')}
+                </Button>
+                <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
+                  <Plus size={14} />
+                  {t('workspaces.create')}
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
@@ -1016,8 +1036,14 @@ export function WorkspacesPage() {
               return (
                 <Card
                   key={ws.id}
-                  className="flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
-                  onClick={() => handleOpenWorkspace(ws.id, ws.name)}
+                  className={cn(
+                    'flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent',
+                    selection.isSelected(ws.id) && selectedCardClass,
+                  )}
+                  onClick={(e) => {
+                    if (selection.onCardClick(e, ws.id)) return
+                    handleOpenWorkspace(ws.id, ws.name)
+                  }}
                 >
                   <div className="flex flex-1 flex-col px-4 pt-5">
                    <div className="flex flex-1 flex-col justify-center">
@@ -1121,33 +1147,20 @@ export function WorkspacesPage() {
       />
 
       {/* Delete workspace confirmation */}
-      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteConfirm('') } }}>
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('workspaces.delete_workspace')}</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>{t('workspaces.delete_workspace_description')}</p>
-                <p>
-                  {t('workspaces.delete_workspace_confirm')}{' '}
-                  <span className="font-semibold text-foreground">{deleteTarget?.name}</span>
-                </p>
-                <Input
-                  value={deleteConfirm}
-                  onChange={(e) => setDeleteConfirm(e.target.value)}
-                  placeholder={deleteTarget?.name}
-                  className="mt-2"
-                />
-              </div>
+            <AlertDialogDescription>
+              {t('workspaces.delete_workspace_description')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => { setDeleteTarget(null); setDeleteConfirm('') }}>
+            <AlertDialogCancel onClick={() => setDeleteTarget(null)}>
               {t('common.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={deleteConfirm !== deleteTarget?.name}
-              className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
+              className="bg-destructive text-white hover:bg-destructive/90"
               onClick={handleDelete}
             >
               {t('workspaces.delete_workspace')}

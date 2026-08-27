@@ -13,6 +13,8 @@ import type { DataSource, CustomSchemaPreset } from '@/types'
 import { Database, Plus, FileCode, Search, Plug, ChevronDown, Loader2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
+import { useCardSelection } from '@/components/ui/use-card-selection'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { Input } from '@/components/ui/input'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
@@ -245,7 +247,10 @@ export function AppDatabasesPage() {
   const [sort, setSort] = useState<SortState | null>(null)
 
   // Show only databases for the current workspace, hide vocabulary-only sources
-  const visibleSources = dataSources.filter((ds) => !ds.isVocabularyReference && ds.workspaceId === wsUid)
+  const visibleSources = useMemo(
+    () => dataSources.filter((ds) => !ds.isVocabularyReference && ds.workspaceId === wsUid),
+    [dataSources, wsUid],
+  )
 
   const getLinkedProjects = useCallback(
     (dataSourceId: string) => projects.filter((p) => p.linkedDataSourceIds?.includes(dataSourceId)),
@@ -278,6 +283,8 @@ export function AppDatabasesPage() {
       updatedAt: (ds) => ds.updatedAt,
     })
   }, [visibleSources, searchQuery, statusFilter, projectFilter, getLinkedProjects, sort, language])
+
+  const selection = useCardSelection(useMemo(() => filteredSources.map((ds) => ds.id), [filteredSources]))
 
   const linkedProjectOptions = useMemo(() => {
     const seen = new Map<string, string>()
@@ -362,35 +369,49 @@ export function AppDatabasesPage() {
             </p>
           </div>
           <div className="flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1 text-xs"
-              disabled={!canWrite}
-              onClick={() => setImportOpen(true)}
-            >
-              <Upload size={14} />
-              {t('common.import')}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" className="gap-1 text-xs" disabled={!canWrite}>
-                  <Plus size={14} />
-                  {t('databases.add_database')}
-                  <ChevronDown size={14} className="ml-1 opacity-60" />
+            {selection.active ? (
+              <BulkDeleteAction
+                selection={selection}
+                canDelete={canWrite}
+                names={(id) => {
+                  const ds = filteredSources.find((s) => s.id === id)
+                  return ds ? localized(ds.name, language) : id
+                }}
+                onDeleteMany={async (ids) => { for (const id of ids) await removeDataSource(id) }}
+              />
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 text-xs"
+                  disabled={!canWrite}
+                  onClick={() => setImportOpen(true)}
+                >
+                  <Upload size={14} />
+                  {t('common.import')}
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setDialogOpen(true)}>
-                  <Plug size={14} />
-                  {t('databases.add_connection')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setPresetDialogOpen(true)}>
-                  <FileCode size={14} />
-                  {t('databases.create_from_schema')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" className="gap-1 text-xs" disabled={!canWrite}>
+                      <Plus size={14} />
+                      {t('databases.add_database')}
+                      <ChevronDown size={14} className="ml-1 opacity-60" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setDialogOpen(true)}>
+                      <Plug size={14} />
+                      {t('databases.add_connection')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPresetDialogOpen(true)}>
+                      <FileCode size={14} />
+                      {t('databases.new_from_schema')}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
           </div>
         </div>
 
@@ -447,6 +468,8 @@ export function AppDatabasesPage() {
               belowStats={
                 ds.badges?.length ? <BadgeStrip className="mt-1" badges={ds.badges} /> : undefined
               }
+              selected={selection.isSelected(ds.id)}
+              onSelectClick={(e) => selection.onCardClick(e, ds.id)}
             />
           ))}
         </div>

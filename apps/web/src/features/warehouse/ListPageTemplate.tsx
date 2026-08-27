@@ -3,9 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { Plus, Upload, type LucideIcon } from 'lucide-react'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { EntityActionsMenu, type EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
+import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
+import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-selection'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { EntityDocsDialog, type DocsTab } from '@/components/ui/entity-docs-dialog'
 import { localized } from '@/lib/localized'
+import { cn } from '@/lib/utils'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { shortenIdAmong } from '@/lib/short-id'
 import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
@@ -157,6 +160,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const selection = useCardSelection(items.map((i) => i.id))
   // The footer's license chip opens the docs dialog straight on its License tab —
   // the same dialog the card's "..." menu opens.
   const [licenseTarget, setLicenseTarget] = useState<T | null>(null)
@@ -167,7 +171,14 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
           title={t(titleKey)}
           description={t(descriptionKey)}
           above={backAction}
-          actions={<>
+          actions={selection.active ? (
+            <BulkDeleteAction
+              selection={selection}
+              canDelete={canDelete}
+              names={(id) => localized(items.find((i) => i.id === id)?.name, i18n.language)}
+              onDeleteMany={async (ids) => { for (const id of ids) await onDelete(id) }}
+            />
+          ) : <>
             {headerActions}
             {onImport ? (
               <GatedButton
@@ -222,8 +233,14 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
             {items.map((item) => (
               <Card
                 key={item.id}
-                className="flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
-                onClick={() => onNavigate(shortenIdAmong(item.id, items.map((i) => i.id)))}
+                className={cn(
+                  'flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent',
+                  selection.isSelected(item.id) && selectedCardClass,
+                )}
+                onClick={(e) => {
+                  if (selection.onCardClick(e, item.id)) return
+                  onNavigate(shortenIdAmong(item.id, items.map((i) => i.id)))
+                }}
               >
                 <div className="flex flex-1 flex-col px-4 pt-5">
                   <div className="flex flex-1 items-center gap-4">

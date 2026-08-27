@@ -10,6 +10,8 @@ import { UsersRound, Plus } from 'lucide-react'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { GatedButton } from '@/components/ui/gated-button'
 import { Card } from '@/components/ui/card'
+import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
+import { useCardSelection } from '@/components/ui/use-card-selection'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import {
@@ -56,6 +58,9 @@ export function CohortListPage() {
       updatedAt: (c) => c.updatedAt,
     })
   }, [cohorts, searchQuery, sort])
+
+  const selection = useCardSelection(useMemo(() => filteredCohorts.map((c) => c.id), [filteredCohorts]))
+
   // Built through `paths` rather than by hand: useResolvedParams returns FULL
   // uids, so a hand-assembled URL carried full ids while the sidebar matches on
   // the shortened ones — which silently dropped the Cohorts highlight.
@@ -82,10 +87,21 @@ export function CohortListPage() {
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">{t('cohorts.list_description')}</p>
           </div>
-          <GatedButton allowed={can('cohorts:write')} notAllowedReason={t('common.insufficient_permissions')} size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setDialogOpen(true)}>
-            <Plus size={14} />
-            {t('cohorts.create')}
-          </GatedButton>
+          <div className="flex shrink-0 items-center gap-1">
+            {selection.active ? (
+              <BulkDeleteAction
+                selection={selection}
+                canDelete={can('cohorts:delete')}
+                names={(id) => filteredCohorts.find((c) => c.id === id)?.name ?? id}
+                onDeleteMany={async (ids) => { for (const id of ids) await removeCohort(id) }}
+              />
+            ) : (
+              <GatedButton allowed={can('cohorts:write')} notAllowedReason={t('common.insufficient_permissions')} size="sm" className="gap-1 text-xs" onClick={() => setDialogOpen(true)}>
+                <Plus size={14} />
+                {t('cohorts.create')}
+              </GatedButton>
+            )}
+          </div>
         </div>
 
         {cohorts.length > 0 && (
@@ -126,6 +142,8 @@ export function CohortListPage() {
                 onDuplicate={() => { void duplicateCohort(cohort.id) }}
                 canEdit={can('cohorts:write')}
                 canDelete={can('cohorts:delete')}
+                selected={selection.isSelected(cohort.id)}
+                onSelectClick={(e) => selection.onCardClick(e, cohort.id)}
               />
             ))}
           </div>

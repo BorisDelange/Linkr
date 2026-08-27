@@ -14,6 +14,7 @@ import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { selectedCardClass } from '@/components/ui/use-card-selection'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,6 +34,10 @@ interface CohortCardProps {
   /** Gate the edit / remove menu items (default true for front-only mode). */
   canEdit?: boolean
   canDelete?: boolean
+  /** Part of a multi-selection — greys the card out. */
+  selected?: boolean
+  /** Returns true when the click was consumed as a selection gesture, so the card skips navigation. */
+  onSelectClick?: (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => boolean
 }
 
 const levelColors: Record<string, string> = {
@@ -49,6 +54,8 @@ export function CohortCard({
   onDuplicate,
   canEdit = true,
   canDelete = true,
+  selected = false,
+  onSelectClick,
 }: CohortCardProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -62,10 +69,16 @@ export function CohortCard({
 
   return (
     <Card
-      className="flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
+      className={cn(
+        'flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent',
+        selected && selectedCardClass,
+      )}
       role="button"
       tabIndex={0}
-      onClick={handleClick}
+      onClick={(e) => {
+        if (onSelectClick?.(e)) return
+        handleClick()
+      }}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick() }}
     >
       <div className="flex flex-1 flex-col px-4 pt-5">

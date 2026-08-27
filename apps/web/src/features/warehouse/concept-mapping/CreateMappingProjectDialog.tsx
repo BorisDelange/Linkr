@@ -790,7 +790,7 @@ export function CreateMappingProjectDialog({
           <DialogTitle>
             {isImportSettingsPage
               ? t('concept_mapping.import_settings_title')
-              : isEdit ? t('concept_mapping.edit_project') : t('concept_mapping.new_project')}
+              : isEdit ? t('concept_mapping.edit_project') : t('concept_mapping.create_project_title')}
           </DialogTitle>
           <DialogDescription>
             {isImportSettingsPage

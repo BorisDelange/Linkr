@@ -7,6 +7,8 @@ import { ENTITY_MANIFEST, MANIFEST } from '@linkr/format'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
+import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-selection'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
@@ -81,10 +83,14 @@ interface PluginCardProps {
   license?: EntityLicense | null
   /** Opens the README/licence dialog on `tab`. Absent for read-only plugins. */
   onOpenDocs?: (tab: DocsTab) => void
+  /** Part of a multi-selection — greys the card out. */
+  selected?: boolean
+  /** Returns true when the click was consumed as a selection gesture, so the card skips opening. */
+  onSelectClick?: (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => boolean
   t: (key: string) => string
 }
 
-function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate, onDelete, onVersioning, license, onOpenDocs, t }: PluginCardProps) {
+function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate, onDelete, onVersioning, license, onOpenDocs, selected, onSelectClick, t }: PluginCardProps) {
   const Icon = getPluginIcon(plugin.manifest.icon)
   const readOnly = plugin.readOnly
   const iconProps = getPluginIconColorProps(plugin.manifest.iconColor)
@@ -94,8 +100,12 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
       className={cn(
         'relative flex min-h-44 flex-col gap-0 py-0 transition-colors',
         readOnly ? 'cursor-default' : 'cursor-pointer hover:bg-accent',
+        selected && selectedCardClass,
       )}
-      onClick={readOnly ? undefined : () => onOpen(plugin.id)}
+      onClick={readOnly ? undefined : (e) => {
+        if (onSelectClick?.(e)) return
+        onOpen(plugin.id)
+      }}
     >
       <div className="flex flex-1 flex-col px-4 pt-5">
         <div className="flex items-start justify-between gap-2">
@@ -295,6 +305,13 @@ export function PluginsTab() {
     [filteredPlugins],
   )
 
+  // Only the visible tab's deletable plugins: read-only ones (built-in, system)
+  // have no delete action at all, so they never join a bulk selection.
+  const visiblePlugins = activeTab === 'warehouse' ? warehousePlugins : labPlugins
+  const selection = useCardSelection(
+    useMemo(() => visiblePlugins.filter((p) => !p.readOnly).map((p) => p.id), [visiblePlugins]),
+  )
+
   const filterGroups = useMemo<FilterGroup[]>(() => {
     const groups: FilterGroup[] = [
       {
@@ -428,6 +445,8 @@ export function PluginsTab() {
             onVersioning={(id, tab) => setVersioningTarget({ id, tab })}
             license={pluginActions.docs.getLicense({ id: plugin.id, name: plugin.manifest.name ?? plugin.id })}
             onOpenDocs={plugin.readOnly ? undefined : (tab) => setDocsTarget({ id: plugin.id, tab })}
+            selected={selection.isSelected(plugin.id)}
+            onSelectClick={(e) => selection.onCardClick(e, plugin.id)}
             t={t}
           />
         ))}
@@ -458,33 +477,47 @@ export function PluginsTab() {
           <p className="mt-1 text-sm text-muted-foreground">{t('plugins.description')}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1 text-xs"
-            disabled={!canWrite}
-            onClick={() => importInputRef.current?.click()}
-          >
-            <Upload size={14} />
-            {t('common.import')}
-          </Button>
-          <input
-            ref={importInputRef}
-            type="file"
-            accept=".zip"
-            className="hidden"
-            onChange={handleImportFile}
-          />
-          <Button
-            size="sm"
-            disabled={!activeWorkspaceId || !canWrite}
-            title={!activeWorkspaceId ? t('plugins.requires_workspace') : undefined}
-            onClick={() => setShowCreateDialog(true)}
-            className="gap-1 text-xs"
-          >
-            <Plus size={14} />
-            {t('plugins.new_plugin')}
-          </Button>
+          {selection.active ? (
+            <BulkDeleteAction
+              selection={selection}
+              canDelete={canWrite}
+              names={(id) => {
+                const p = pluginList.find((x) => x.id === id)
+                return p ? (p.manifest.name?.[lang] ?? p.manifest.name?.en ?? p.id) : id
+              }}
+              onDeleteMany={async (ids) => { for (const id of ids) await deletePlugin(id) }}
+            />
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1 text-xs"
+                disabled={!canWrite}
+                onClick={() => importInputRef.current?.click()}
+              >
+                <Upload size={14} />
+                {t('common.import')}
+              </Button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".zip"
+                className="hidden"
+                onChange={handleImportFile}
+              />
+              <Button
+                size="sm"
+                disabled={!activeWorkspaceId || !canWrite}
+                title={!activeWorkspaceId ? t('plugins.requires_workspace') : undefined}
+                onClick={() => setShowCreateDialog(true)}
+                className="gap-1 text-xs"
+              >
+                <Plus size={14} />
+                {t('plugins.new_plugin')}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 

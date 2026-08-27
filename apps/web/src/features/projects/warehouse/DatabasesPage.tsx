@@ -7,6 +7,8 @@ import { useAppStore } from '@/stores/app-store'
 import { localized } from '@/lib/localized'
 import { Database, Link as LinkIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
+import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
+import { useCardSelection } from '@/components/ui/use-card-selection'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { DatabaseCard } from './databases/DatabaseCard'
@@ -79,6 +81,8 @@ export function DatabasesPage() {
     })
   }, [sources, searchQuery, statusFilter, sort, language])
 
+  const selection = useCardSelection(useMemo(() => filteredSources.map((ds) => ds.id), [filteredSources]))
+
   const filterGroups: FilterGroup[] = [
     {
       key: 'status',
@@ -138,10 +142,27 @@ export function DatabasesPage() {
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">{t('databases.list_description')}</p>
           </div>
-          <GatedButton allowed={canEdit} notAllowedReason={t('common.insufficient_permissions')} size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setLinkDialogOpen(true)}>
-            <LinkIcon size={14} />
-            {t('app_warehouse.link_database')}
-          </GatedButton>
+          <div className="flex shrink-0 items-center gap-1">
+            {selection.active ? (
+              <BulkDeleteAction
+                selection={selection}
+                canDelete={canEdit}
+                names={(id) => {
+                  const ds = filteredSources.find((s) => s.id === id)
+                  return ds ? localized(ds.name, language) : id
+                }}
+                onDeleteMany={async (ids) => { for (const id of ids) unlinkDataSource(uid ?? '', id) }}
+                actionLabelKey="app_warehouse.unlink_count"
+                confirmTitleKey="app_warehouse.bulk_unlink_title"
+                confirmDescriptionKey="app_warehouse.bulk_unlink_description"
+              />
+            ) : (
+              <GatedButton allowed={canEdit} notAllowedReason={t('common.insufficient_permissions')} size="sm" className="gap-1 text-xs" onClick={() => setLinkDialogOpen(true)}>
+                <LinkIcon size={14} />
+                {t('app_warehouse.link_database')}
+              </GatedButton>
+            )}
+          </div>
         </div>
 
         {sources.length > 0 && (
@@ -194,6 +215,8 @@ export function DatabasesPage() {
                 removeConfirmTitleKey="app_warehouse.unlink_confirm_title"
                 removeConfirmDescriptionKey="app_warehouse.unlink_confirm_description"
                 canEdit={canEdit}
+                selected={selection.isSelected(ds.id)}
+                onSelectClick={(e) => selection.onCardClick(e, ds.id)}
               />
             ))}
           </div>

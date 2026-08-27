@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { Plus, User, MoreHorizontal, Trash2, Pencil, TriangleAlert, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
+import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-selection'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -95,6 +97,8 @@ export function PatientDataListPage() {
     })
   }, [projectBoards, searchQuery, language, sort])
 
+  const selection = useCardSelection(useMemo(() => filteredBoards.map((b) => b.id), [filteredBoards]))
+
   // Compared in the ACTIVE language: that is the string the user typed and the
   // one the list shows them, so a clash in another translation isn't a clash here.
   const nameError = useMemo(() => {
@@ -148,16 +152,27 @@ export function PatientDataListPage() {
               {t('patient_data.boards_description')}
             </p>
           </div>
-          <GatedButton
-            allowed={canEdit}
-            notAllowedReason={t('common.insufficient_permissions')}
-            size="sm"
-            className="shrink-0 gap-1 text-xs"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus size={14} />
-            {t('patient_data.create_board')}
-          </GatedButton>
+          <div className="flex shrink-0 items-center gap-1">
+            {selection.active ? (
+              <BulkDeleteAction
+                selection={selection}
+                canDelete={canDelete}
+                names={(id) => localized(filteredBoards.find((b) => b.id === id)?.name ?? {}, language)}
+                onDeleteMany={async (ids) => { for (const id of ids) await removeDashboard(id) }}
+              />
+            ) : (
+              <GatedButton
+                allowed={canEdit}
+                notAllowedReason={t('common.insufficient_permissions')}
+                size="sm"
+                className="gap-1 text-xs"
+                onClick={() => setCreateOpen(true)}
+              >
+                <Plus size={14} />
+                {t('patient_data.create_board')}
+              </GatedButton>
+            )}
+          </div>
         </div>
 
         {projectBoards.length > 0 && (
@@ -202,8 +217,14 @@ export function PatientDataListPage() {
               return (
                 <Card
                   key={board.id}
-                  className="flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
-                  onClick={() => navigate(paths.patientBoard(wsUid ?? '', projectUid, board.id))}
+                  className={cn(
+                    'flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent',
+                    selection.isSelected(board.id) && selectedCardClass,
+                  )}
+                  onClick={(e) => {
+                    if (selection.onCardClick(e, board.id)) return
+                    navigate(paths.patientBoard(wsUid ?? '', projectUid, board.id))
+                  }}
                 >
                   <div className="flex flex-1 flex-col px-4 pt-5">
                     <div className="flex flex-1 flex-col justify-center">
@@ -277,7 +298,7 @@ export function PatientDataListPage() {
         description={t('patient_data.create_board_description')}
         contentClassName="space-y-4 py-2"
         onConfirm={handleCreate}
-        confirmLabel={t('patient_data.create_board')}
+        confirmLabel={t('common.create')}
         confirmDisabled={!isNameValid}
       >
             <div className="space-y-2">

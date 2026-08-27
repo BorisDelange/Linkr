@@ -17,9 +17,10 @@ import { buildProjectZip, parseProjectZip, deleteProjectData, importProjectConte
 import type { ParsedProjectZip } from '@/lib/entity-io'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { cardMenuTriggerClass } from '@/lib/utils'
+import { cardMenuTriggerClass, cn } from '@/lib/utils'
+import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
+import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-selection'
 import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
@@ -82,7 +83,6 @@ export function ProjectsPage() {
   const [importOpen, setImportOpen] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<{ uid: string; name: string } | null>(null)
-  const [deleteConfirm, setDeleteConfirm] = useState('')
 
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip; gitRemote?: ImportGitRemote } | null>(null)
@@ -136,6 +136,8 @@ export function ProjectsPage() {
     })
   }, [displayProjects, searchQuery, statusFilter, badgeFilter, rawByUid, sort, i18n.language])
 
+  const selection = useCardSelection(useMemo(() => filteredProjects.map((p) => p.uid), [filteredProjects]))
+
   const filterGroups = useMemo<FilterGroup[]>(() => [
     {
       key: 'status',
@@ -166,7 +168,6 @@ export function ProjectsPage() {
     if (!deleteTarget) return
     await deleteProject(deleteTarget.uid)
     setDeleteTarget(null)
-    setDeleteConfirm('')
   }
 
 
@@ -357,21 +358,32 @@ export function ProjectsPage() {
             <p className="mt-1 text-sm text-muted-foreground">{t('projects.description')}</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <GatedButton
-              allowed={canEditWs}
-              notAllowedReason={t('common.insufficient_permissions')}
-              variant="outline"
-              size="sm"
-              className="gap-1 text-xs"
-              onClick={() => setImportOpen(true)}
-            >
-              <Upload size={14} />
-              {t('common.import')}
-            </GatedButton>
-            <GatedButton allowed={canEditWs} notAllowedReason={t('common.insufficient_permissions')} size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
-              <Plus size={14} />
-              {t('projects.create')}
-            </GatedButton>
+            {selection.active ? (
+              <BulkDeleteAction
+                selection={selection}
+                canDelete={canDeleteWs}
+                names={(uid) => filteredProjects.find((p) => p.uid === uid)?.name ?? uid}
+                onDeleteMany={async (uids) => { for (const uid of uids) await deleteProject(uid) }}
+              />
+            ) : (
+              <>
+                <GatedButton
+                  allowed={canEditWs}
+                  notAllowedReason={t('common.insufficient_permissions')}
+                  variant="outline"
+                  size="sm"
+                  className="gap-1 text-xs"
+                  onClick={() => setImportOpen(true)}
+                >
+                  <Upload size={14} />
+                  {t('common.import')}
+                </GatedButton>
+                <GatedButton allowed={canEditWs} notAllowedReason={t('common.insufficient_permissions')} size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
+                  <Plus size={14} />
+                  {t('projects.create')}
+                </GatedButton>
+              </>
+            )}
           </div>
         </div>
 
@@ -411,8 +423,14 @@ export function ProjectsPage() {
               return (
                 <Card
                   key={project.uid}
-                  className="relative flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
-                  onClick={() => handleOpenProject(project.uid, project.name)}
+                  className={cn(
+                    'relative flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent',
+                    selection.isSelected(project.uid) && selectedCardClass,
+                  )}
+                  onClick={(e) => {
+                    if (selection.onCardClick(e, project.uid)) return
+                    handleOpenProject(project.uid, project.name)
+                  }}
                 >
                   <div className="flex flex-1 flex-col px-4 pt-5">
                    <div className="flex flex-1 flex-col justify-center">
@@ -538,33 +556,20 @@ export function ProjectsPage() {
       <ImportSourceDialog open={importOpen} onOpenChange={setImportOpen} accept=".zip" onImport={handleImportSource} scope="projects" />
 
       {/* Delete project confirmation */}
-      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteConfirm('') } }}>
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('project_settings.delete_confirm_title')}</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>{t('project_settings.delete_confirm_description')}</p>
-                <p>
-                  {t('project_settings.delete_confirm_type')}{' '}
-                  <span className="font-semibold text-foreground">{deleteTarget?.name}</span>
-                </p>
-                <Input
-                  value={deleteConfirm}
-                  onChange={(e) => setDeleteConfirm(e.target.value)}
-                  placeholder={deleteTarget?.name}
-                  className="mt-2"
-                />
-              </div>
+            <AlertDialogDescription>
+              {t('project_settings.delete_confirm_description')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => { setDeleteTarget(null); setDeleteConfirm('') }}>
+            <AlertDialogCancel onClick={() => setDeleteTarget(null)}>
               {t('common.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={deleteConfirm !== deleteTarget?.name}
-              className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
+              className="bg-destructive text-white hover:bg-destructive/90"
               onClick={handleDelete}
             >
               {t('project_settings.delete_project')}

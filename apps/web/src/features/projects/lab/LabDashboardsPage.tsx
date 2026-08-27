@@ -7,6 +7,8 @@ import { paths } from '@/lib/paths'
 import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil, TriangleAlert, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
+import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
+import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-selection'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -87,6 +89,7 @@ export function LabDashboardsPage() {
     })
   }, [projectDashboards, searchQuery, language, sort])
 
+  const selection = useCardSelection(useMemo(() => filteredDashboards.map((d) => d.id), [filteredDashboards]))
 
   // Compared in the ACTIVE language: that is what the user typed and what the
   // list shows, so a clash in another translation isn't a clash here.
@@ -136,10 +139,21 @@ export function LabDashboardsPage() {
               {t('dashboard.dashboards_description')}
             </p>
           </div>
-          <GatedButton allowed={canEdit} notAllowedReason={t('common.insufficient_permissions')} size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setCreateOpen(true)}>
-            <Plus size={14} />
-            {t('dashboard.create_dashboard')}
-          </GatedButton>
+          <div className="flex shrink-0 items-center gap-1">
+            {selection.active ? (
+              <BulkDeleteAction
+                selection={selection}
+                canDelete={canDelete}
+                names={(id) => localized(filteredDashboards.find((d) => d.id === id)?.name ?? {}, language)}
+                onDeleteMany={async (ids) => { for (const id of ids) await deleteDashboard(id) }}
+              />
+            ) : (
+              <GatedButton allowed={canEdit} notAllowedReason={t('common.insufficient_permissions')} size="sm" className="gap-1 text-xs" onClick={() => setCreateOpen(true)}>
+                <Plus size={14} />
+                {t('dashboard.create_dashboard')}
+              </GatedButton>
+            )}
+          </div>
         </div>
 
         {projectDashboards.length > 0 && (
@@ -179,8 +193,14 @@ export function LabDashboardsPage() {
               return (
                 <Card
                   key={dash.id}
-                  className="flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
-                  onClick={() => navigate(paths.dashboard(wsUid ?? '', projectUid, dash.id))}
+                  className={cn(
+                    'flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent',
+                    selection.isSelected(dash.id) && selectedCardClass,
+                  )}
+                  onClick={(e) => {
+                    if (selection.onCardClick(e, dash.id)) return
+                    navigate(paths.dashboard(wsUid ?? '', projectUid, dash.id))
+                  }}
                 >
                   <div className="flex flex-1 flex-col px-4 pt-5">
                    <div className="flex flex-1 flex-col justify-center">
@@ -250,7 +270,7 @@ export function LabDashboardsPage() {
         description={t('dashboard.create_dialog_description')}
         contentClassName="space-y-4 py-2"
         onConfirm={handleCreate}
-        confirmLabel={t('dashboard.create_dashboard')}
+        confirmLabel={t('common.create')}
         confirmDisabled={!isNameValid}
       >
             <div className="space-y-2">

@@ -70,6 +70,8 @@ import { useSchemaPresetStore, buildSchemaPreset, forkedLineage } from '@/stores
 import { localized, setLocalized } from '@/lib/localized'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
+import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-selection'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
@@ -996,6 +998,8 @@ function SchemaCard({
   license,
   onOpenLicense,
   onNavigate,
+  onCardClick,
+  selected,
   actionsMenu,
 }: {
   mapping: SchemaMapping
@@ -1007,6 +1011,8 @@ function SchemaCard({
   license?: EntityLicense
   onOpenLicense?: () => void
   onNavigate: () => void
+  onCardClick: (e: React.MouseEvent) => void
+  selected: boolean
   actionsMenu: React.ReactNode
 }) {
   const { t, i18n } = useTranslation()
@@ -1026,8 +1032,11 @@ function SchemaCard({
 
   return (
     <Card
-      className="flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
-      onClick={onNavigate}
+      className={cn(
+        'flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent',
+        selected && selectedCardClass,
+      )}
+      onClick={onCardClick}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onNavigate() }}
@@ -1795,6 +1804,8 @@ export function SchemaPresetsPage() {
     })
   }, [allSchemas, searchQuery, sort, language])
 
+  const selection = useCardSelection(useMemo(() => filteredSchemas.map((s) => s.id), [filteredSchemas]))
+
   const duplicatePreset = async (sourceMapping: SchemaMapping) => {
     const copyName = t('settings.schema_preset_duplicate_name', { name: localized(sourceMapping.presetLabel, language) })
     // Same readable slug the create form derives, not a uuid: this id is what the
@@ -2018,20 +2029,34 @@ export function SchemaPresetsPage() {
               <p className="mt-1 text-sm text-muted-foreground">{t('schemas.description')}</p>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1 text-xs"
-                disabled={!canWrite}
-                onClick={() => setImportOpen(true)}
-              >
-                <Upload size={14} />
-                {t('common.import')}
-              </Button>
-              <Button size="sm" disabled={!canWrite} onClick={openCreateDialog} className="gap-1 text-xs">
-                <Plus size={14} />
-                {t('schemas.new_schema')}
-              </Button>
+              {selection.active ? (
+                <BulkDeleteAction
+                  selection={selection}
+                  canDelete={canDelete}
+                  names={(id) => {
+                    const found = filteredSchemas.find((s) => s.id === id)
+                    return found ? localized(found.mapping.presetLabel, language) : id
+                  }}
+                  onDeleteMany={async (ids) => { for (const id of ids) await schemaActions.onDelete(id) }}
+                />
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1 text-xs"
+                    disabled={!canWrite}
+                    onClick={() => setImportOpen(true)}
+                  >
+                    <Upload size={14} />
+                    {t('common.import')}
+                  </Button>
+                  <Button size="sm" disabled={!canWrite} onClick={openCreateDialog} className="gap-1 text-xs">
+                    <Plus size={14} />
+                    {t('schemas.new_schema')}
+                  </Button>
+                </>
+              )}
             </div>
           </div>
 
@@ -2075,6 +2100,11 @@ export function SchemaPresetsPage() {
                   license={preset.license}
                   onOpenLicense={() => navigateToSchemaTab(id, 'license')}
                   onNavigate={() => navigateToSchema(id)}
+                  selected={selection.isSelected(id)}
+                  onCardClick={(e) => {
+                    if (selection.onCardClick(e, id)) return
+                    navigateToSchema(id)
+                  }}
                   actionsMenu={
                     <EntityActionsMenu
                       item={item}
