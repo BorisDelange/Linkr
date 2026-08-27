@@ -751,7 +751,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                   </tr>
                   {mapping.matchScore != null && renderField(t('concept_mapping.detail_match_score'), `${Math.round(mapping.matchScore * 100)}%`)}
                   {renderField(t('concept_mapping.col_mapped_by'), mapping.mappedBy)}
-                  {renderField(t('concept_mapping.col_created_at'), formatDate(mapping.createdAt))}
+                  {renderField(t('concept_mapping.col_mapped_on'), formatDate(mapping.mappedOn ?? mapping.createdAt))}
                   {renderField(t('concept_mapping.detail_updated_at'), formatDate(mapping.updatedAt))}
                 </tbody>
               </table>
@@ -995,7 +995,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   }, [project.workspaceId, project.badges])
 
   const [colFilters, setColFilters] = useState<MappingColumnFilters>({})
-  const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>({ columnId: 'createdAt', desc: true })
+  const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>({ columnId: 'mappedOn', desc: true })
   const [page, setPage] = useState(0)
   const [editMode, setEditMode] = useState(false)
   const [detailMapping, setDetailMapping] = useState<ConceptMapping | null>(null)
@@ -2337,11 +2337,16 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         minSize: 60,
       },
       {
-        id: 'createdAt',
-        header: () => t('concept_mapping.col_created_at'),
-        accessorFn: (row) => row.createdAt,
+        // `mappedOn` is when a human made the mapping — the date this Provenance
+        // block is about, and the one that survives a git round trip. `createdAt`
+        // is the row's own timestamp (Usagi's createdOn, exported beside it): the
+        // two coincide in practice, but only mappedOn was ever exported, so a
+        // reimported project showed every row as created at import time.
+        id: 'mappedOn',
+        header: () => t('concept_mapping.col_mapped_on'),
+        accessorFn: (row) => row.mappedOn ?? row.createdAt,
         cell: ({ row }) => {
-          const d = row.original.createdAt
+          const d = row.original.mappedOn ?? row.original.createdAt
           if (!d) return null
           const date = new Date(d)
           return (

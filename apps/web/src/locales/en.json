@@ -3870,7 +3870,6 @@
     "no_comments_yet": "No comments yet.",
     "my_review": "My review",
     "review_comment_placeholder": "Optional comment…",
-    "col_created_at": "Created",
     "col_mapped_by": "Mapped by",
     "search_standard": "Search standard concepts…",
     "search_omop": "Search OMOP concepts (name, code or ID)…",
