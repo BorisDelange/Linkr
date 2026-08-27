@@ -5,7 +5,7 @@ import JSZip from 'jszip'
 import {
   CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, type LayoutKind,
   buildTabKeyMap, buildWidgetKeyMap, canonicalSchemaMapping,
-  dashboardKey as sharedDashboardKey, type Issue,
+  dashboardKey as sharedDashboardKey, slugify, type Issue,
 } from '@linkr/format'
 import type { Storage } from '@/lib/storage'
 import { APP_VERSION } from '@/lib/version'
@@ -407,14 +407,10 @@ export async function deleteProjectData(storage: Storage, uid: string): Promise<
 // Slugify
 // ---------------------------------------------------------------------------
 
-export function slugify(name: string): string {
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '') || 'export'
-}
+// Re-exported from `@linkr/format` rather than kept as a second copy: the two had
+// already drifted on which combining marks they strip, and a slug computed two
+// ways renames the file it keys.
+export { slugify }
 
 // ---------------------------------------------------------------------------
 // Export ZIP

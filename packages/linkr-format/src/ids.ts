@@ -43,12 +43,17 @@ export function buildColumnIds(names: string[]): string[] {
   })
 }
 
-/** Path/filename slug, `-`-separated. Used for dashboard filenames and content keys. */
+/** Path/filename slug, `-`-separated. Used for dashboard filenames and content keys.
+ *
+ *  Strips by Unicode category (`Mn`), not by the Combining Diacritical Marks
+ *  block: the Python twin uses `unicodedata.combining`, which covers every mark,
+ *  so the narrower range disagreed on ~500 code points (Cyrillic titlo, Hebrew
+ *  points\u2026). Same rule the column-id slug already uses. */
 export function slugify(name: string): string {
   return (
     name
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\p{Mn}/gu, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '') || 'export'

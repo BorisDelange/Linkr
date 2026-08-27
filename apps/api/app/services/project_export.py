@@ -106,7 +106,10 @@ def _slugify(name: str) -> str:
     marks, lowercase, non-alphanumeric runs → ``-``, trim leading/trailing ``-``,
     fall back to ``export`` when empty."""
     decomposed = unicodedata.normalize("NFD", name)
-    without_marks = "".join(c for c in decomposed if not unicodedata.combining(c))
+    # By category, like the TS twin's `\p{Mn}` and column_id.py: `combining()` is a
+    # numeric class, 0 for marks such as U+034F, which the two sides then disagreed
+    # on.
+    without_marks = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
     lowered = without_marks.lower()
     out = []
     prev_dash = False
@@ -124,16 +127,24 @@ def _slugify(name: str) -> str:
 
 def _localized_en(value: Any) -> str:
     """Port of ``localized(value, 'en')`` for the export's uses: a bare string is
-    returned as-is; a LocalizedString dict prefers ``en`` then the first value."""
+    returned as-is; a LocalizedString dict prefers ``en`` then the first value.
+
+    A language counts only when it is non-blank AFTER stripping, matching the TS
+    ``readLocalized`` (packages/linkr-format/src/check.ts). Plain truthiness
+    accepted ``"   "``, so a whitespace-only English name made this side derive a
+    dashboard key from ``en`` while the client fell through to ``fr`` — and a key
+    derived two ways re-imports as a different dashboard.
+    """
     if value is None:
         return ""
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
-        if value.get("en"):
-            return value["en"]
+        preferred = value.get("en")
+        if isinstance(preferred, str) and preferred.strip():
+            return preferred
         for v in value.values():
-            if v:
+            if isinstance(v, str) and v.strip():
                 return v
     return ""
 
@@ -166,7 +177,10 @@ def _build_tab_key_map(dash_key: str, tabs: list[dict]) -> dict[str, str]:
         parent = key_of.get(tab["parentTabId"]) if tab.get("parentTabId") else None
         key = f"{parent if parent is not None else dash_key}/{base}"
         if key in seen:
-            key = f"{key}#{tab.get('displayOrder')}"
+            # `?? 0` in the TS twin: a missing displayOrder must suffix `#0`, not
+            # `#None`, or the two sides key a colliding tab differently.
+            order = tab.get("displayOrder")
+            key = f"{key}#{0 if order is None else order}"
         seen.add(key)
         key_of[tab["id"]] = key
     return key_of

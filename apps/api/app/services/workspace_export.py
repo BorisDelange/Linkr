@@ -85,9 +85,10 @@ _INSTANCE_FIELDS = (
 
 
 def _slugify(name: str) -> str:
-    """Port of ``slugify`` (entity-io.ts:143)."""
+    """Port of ``slugify`` (packages/linkr-format/src/ids.ts)."""
     decomposed = unicodedata.normalize("NFD", name)
-    without_marks = "".join(c for c in decomposed if not unicodedata.combining(c))
+    # By category, like the TS twin's `\\p{Mn}` — see project_export._slugify.
+    without_marks = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
     lowered = without_marks.lower()
     out: list[str] = []
     prev_dash = False
