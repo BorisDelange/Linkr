@@ -3227,8 +3227,16 @@ export async function applyClonedEntity(
     // The mapping is its own file since the split; an older repo has it inline.
     const mappingFile = await readJson<Partial<SchemaMapping>>(SCHEMA_PRESET_MAPPING_FILE)
     const presetMapping = reassemblePresetMapping(preset, mappingFile ?? undefined)
-    // A re-clone of a preset already here keeps that row's local ids.
-    const existingPreset = await storage.schemaPresets.getById(targetId).catch(() => undefined)
+    // A re-clone of a preset already here keeps that row's local ids — but only
+    // when it is the same workspace's row. `getById` resolves across the whole
+    // instance, so adopting whatever it returned re-keyed the copy living in
+    // ANOTHER workspace and the save below moved it: installing a schema into a
+    // second workspace made it disappear from the first.
+    const found = await storage.schemaPresets.getById(targetId).catch(() => undefined)
+    const existingPreset =
+      found && (!workspaceId || !found.workspaceId || found.workspaceId === workspaceId)
+        ? found
+        : undefined
     // `workspaceId` and `gitRemoteConfig` must be re-stamped from the caller: unlike
     // the other types here, a preset has no shell row to carry them (save() is an
     // upsert keyed by presetId, so createShell is a no-op for it), and the repo's own

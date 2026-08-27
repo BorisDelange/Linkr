@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { META_FILE, freshId, idOf, isSameEntity, type ExistingRow } from './install'
-import type { CatalogEntry } from './types'
+import { META_FILE, freshId, idOf, isSameEntity, resolveInstallIdentity, type ExistingRow } from './install'
+import { ENTRY_TYPES, type CatalogEntry } from './types'
 
 function entry(overrides: Partial<CatalogEntry> = {}): CatalogEntry {
   return {
@@ -84,6 +84,48 @@ describe('isSameEntity, for a repo that publishes no lineageId', () => {
   })
 })
 
+describe('resolveInstallIdentity', () => {
+  it('reuses the repo id for a first install into an empty workspace', () => {
+    expect(resolveInstallIdentity({ idCollision: false }, false)).toEqual({
+      reuseId: true,
+      renameAsCopy: false,
+    })
+  })
+
+  it('reuses the repo id to update the same entity already in this workspace', () => {
+    expect(
+      resolveInstallIdentity({ idCollision: true, existingName: 'ICU Activity Dashboard' }, false),
+    ).toEqual({ reuseId: true, renameAsCopy: false })
+  })
+
+  it('mints a fresh id and marks a copy when the user keeps both side by side', () => {
+    expect(
+      resolveInstallIdentity({ idCollision: true, existingName: 'ICU Activity Dashboard' }, true),
+    ).toEqual({ reuseId: false, renameAsCopy: true })
+  })
+
+  it('mints a fresh id but does NOT mark a copy when the id is held by another workspace', () => {
+    // The regression: installing a project already present in ANOTHER workspace has
+    // to take a fresh local id (the other row owns the repo's, and reusing it made
+    // the shell insert violate the uid primary key — a 409), but this workspace shows
+    // exactly one row, so "(copy)" named a sibling that isn't there.
+    expect(
+      resolveInstallIdentity({ idCollision: true, collisionElsewhere: true }, false),
+    ).toEqual({ reuseId: false, renameAsCopy: false })
+  })
+
+  it('still marks a copy when the id is held elsewhere AND the user asked to duplicate', () => {
+    expect(
+      resolveInstallIdentity({ idCollision: true, collisionElsewhere: true }, true),
+    ).toEqual({ reuseId: false, renameAsCopy: true })
+  })
+
+  it('never reuses an id held by an unrelated local entity, whatever the caller asked', () => {
+    // No existingName = isSameEntity said no. Overwriting would destroy user data.
+    expect(resolveInstallIdentity({ idCollision: true }, false).reuseId).toBe(false)
+  })
+})
+
 describe('freshId', () => {
   // A preset's id is its user-facing Identifier (it fills that field and rides in the
   // URL), so a duplicate install used to put a 36-char uuid in front of the user.
@@ -119,7 +161,12 @@ describe('META_FILE', () => {
   })
 
   it('names every type the catalog can install', () => {
-    for (const [type, candidates] of Object.entries(META_FILE)) {
+    // Iterating ENTRY_TYPES, not META_FILE's own keys: a type published without a
+    // manifest name installs with no id, so it can never be recognised as already
+    // installed — and looping over the table itself would never notice the gap.
+    for (const type of ENTRY_TYPES) {
+      const candidates = META_FILE[type]
+      expect(candidates, type).toBeDefined()
       expect(candidates.length, type).toBeGreaterThan(0)
       expect(candidates.every((c) => c.endsWith('.json')), type).toBe(true)
     }

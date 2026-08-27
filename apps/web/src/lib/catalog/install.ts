@@ -17,7 +17,9 @@
 
 import type JSZip from 'jszip'
 import { CONTENT_FILE, ENTITY_MANIFEST, MANIFEST } from '@linkr/format'
-import { applyClonedEntity } from '@/lib/entity-io'
+import { applyClonedEntity, collectGitLinkedEntities, parseWorkspaceZip } from '@/lib/entity-io'
+import type { ParsedWorkspaceZip } from '@/lib/entity-io'
+import { importWorkspaceTree } from '@/lib/workspace-import'
 import { gitCloneToZip, gitSetSyncState, scopeForLinkedType } from '@/lib/api/git'
 import { normalizeGitUrl } from '@/lib/git-clone'
 import { isServerMode } from '@/lib/api-client'
@@ -58,6 +60,7 @@ export interface InstallResult {
  * installs with no id at all.
  */
 export const META_FILE: Record<CatalogEntry['type'], string[]> = {
+  'workspace': [MANIFEST.workspace],
   'sql-collection': [MANIFEST['sql-collection']],
   'etl-pipeline': [MANIFEST['etl-pipeline']],
   'mapping-project': [MANIFEST.project, '_project.json'],
@@ -156,6 +159,7 @@ async function findExisting(
 ): Promise<ExistingRow | null> {
   const get = async (): Promise<unknown> => {
     switch (type) {
+      case 'workspace': return storage.workspaces.getById(id)
       case 'sql-collection': return storage.sqlScriptCollections.getById(id)
       case 'etl-pipeline': return storage.etlPipelines.getById(id)
       case 'data-catalog': return storage.dataCatalogs.getById(id)
@@ -206,6 +210,10 @@ async function deleteExisting(
       case 'project': return storage.projects.delete(id)
       // schemaPresets.save is an upsert keyed by presetId — nothing to delete.
       case 'schema-preset': return undefined
+      // Never reached: a workspace install is offered as "keep both" only, because
+      // deleting one takes every project, database and mapping inside it with it.
+      // `commitCatalogInstall` refuses the overwrite before it gets here.
+      case 'workspace': return undefined
     }
   }
   await del().catch(() => {})
@@ -215,11 +223,20 @@ async function deleteExisting(
 export interface PreparedInstall {
   entry: CatalogEntry
   zip: JSZip
+  /** The archive as fetched. Kept because the workspace import parses a File, not a JSZip. */
+  blob: Blob
   /** Id declared by the repo — the id an overwrite would replace. */
   repoId: string
   oid: string | null
   /** Some local row of this type already uses `repoId` (same OR unrelated entity). */
   idCollision: boolean
+  /**
+   * The colliding row lives in ANOTHER workspace, so this install is that
+   * workspace's first copy rather than a second one sitting beside an existing
+   * row. It still needs a fresh local id (the other row holds `repoId`), but it
+   * must not be labelled "(copy)": the user sees exactly one in this workspace.
+   */
+  collisionElsewhere?: boolean
   /** Set only when the collision is genuinely the SAME published entity (safe to overwrite). */
   existingName?: string
 }
@@ -266,28 +283,34 @@ export async function prepareCatalogInstall(
     // can't collide — better than refusing the install outright.
     const repoId = idOf(entry.type, meta) ?? crypto.randomUUID()
 
-    // A collision is a conflict ONLY when the local row is the same published
-    // entity (matching lineage / git remote). Otherwise the ids just happen to
-    // coincide and we must install as a fresh copy, never offer to overwrite an
-    // unrelated entity the user owns.
-    // Scoped to the workspace being installed into. `findExisting` looks an id up
-    // across the whole instance, but installing targets ONE workspace: the same schema
-    // already installed in another workspace is not a collision here, and treating it
-    // as one forced a minted id — so a first install of OMOP CDM 5.4 into a second
-    // workspace landed as `custom-xxxxxxxx` instead of the repo's `omop-cdm-5-4`.
+    // Two different questions, and conflating them broke both ways round.
+    //
+    // 1. Is this an UPDATE of something in the workspace being installed into?
+    //    Only then may the install overwrite. An entity is offered per workspace,
+    //    so the same schema installed in another workspace is a separate copy, not
+    //    something to replace — hence the workspace scoping here.
+    // 2. Is `repoId` still free as a local id? That is an instance-wide question:
+    //    the row in the other workspace occupies it regardless of scope. Reusing
+    //    it anyway made a project's shell insert violate the uid primary key (a
+    //    409 "already exists"), and made a preset's upsert re-key the OTHER
+    //    workspace's row — which is why installing MIMIC-III into a second
+    //    workspace made it vanish from the first.
     const found = await findExisting(entry.type, repoId, getStorage())
-    const existing = found && (!workspaceId || !found.workspaceId || found.workspaceId === workspaceId)
-      ? found
-      : null
+    const inTargetWorkspace =
+      found && (!workspaceId || !found.workspaceId || found.workspaceId === workspaceId)
+    const existing = inTargetWorkspace ? found : null
     const sameEntity = existing ? isSameEntity(existing, entry) : false
     return {
       ok: true,
       prepared: {
         entry,
         zip,
+        blob: cloned.blob,
         repoId,
         oid: cloned.oid,
-        idCollision: existing != null,
+        // Any row holding the id blocks reuse, wherever it lives.
+        idCollision: found != null,
+        collisionElsewhere: found != null && !inTargetWorkspace,
         existingName: sameEntity ? (localizedName(existing?.name) ?? repoId) : undefined,
       },
     }
@@ -322,6 +345,9 @@ async function renameAsCopy(
     case 'database': await storage.dataSources.update(id, { name: next }); break
     // A preset's label lives inside `mapping`, not a `name` field — left as-is.
     case 'schema-preset': break
+    // The workspace import renames its own duplicate (it has to: every child is
+    // re-minted at the same time), so doing it again here would say "(copy) (copy)".
+    case 'workspace': break
   }
 }
 
@@ -394,6 +420,11 @@ async function createShell(
       // must set connectionConfig from the Parquet files it just stored — a
       // shell without those would be a source pointing at nothing.
       return true
+    case 'workspace':
+      // A workspace is created by the import itself, which resolves its own target
+      // row by lineage and re-mints every child with it. A shell here would be a
+      // second, empty workspace the import would then ignore.
+      return true
     default:
       return false
   }
@@ -406,6 +437,109 @@ async function createShell(
  * independent copy); `false` reuses the repo's id, replacing what's there. Same two
  * options the per-page ZIP importers offer.
  */
+/**
+ * Install a workspace entry by running the workspace import on the cloned tree.
+ *
+ * A workspace is a container, not a leaf: its projects, databases and mappings —
+ * and their own git links — arrive the way a ZIP or git import brings them.
+ * `importWorkspaceTree` already resolves its target row by lineage, re-mints the
+ * children and renames a duplicate, so none of the per-entity machinery above
+ * (shell row, rename, overwrite) applies.
+ *
+ * Always a duplicate: there is no overwrite for a workspace, since deleting one
+ * takes every entity inside it with it. Re-installing yields a second workspace
+ * and leaves the first untouched.
+ */
+async function installWorkspaceEntry(
+  prepared: PreparedInstall,
+  language: string,
+  git: GitRemoteConfig,
+  oid: string | null,
+): Promise<InstallResult> {
+  const { entry, blob } = prepared
+  const file = new File([blob], `${entry.id}.zip`, { type: 'application/zip' })
+  let parsed: ParsedWorkspaceZip | null
+  try {
+    parsed = await parseWorkspaceZip(file)
+  } catch (err) {
+    return { ok: false, failure: 'apply-failed', error: err instanceof Error ? err.message : String(err) }
+  }
+  if (!parsed) {
+    return { ok: false, failure: 'apply-failed', error: describeUnreadableTree(prepared.zip, 'workspace') }
+  }
+  // The remote comes from the catalog entry, not the tree: export strips
+  // gitRemoteConfig, so a published workspace never carries one.
+  parsed.workspace.gitRemoteConfig = git
+
+  try {
+    const { targetWsId, idMap } = await importWorkspaceTree(parsed, { duplicate: true, language })
+    // The children are metadata-only pointers until their own repos are cloned;
+    // without this a "demo workspace" entry installs as a shell of empty entities.
+    // Best-effort, exactly like the page's loop: a child whose repo needs a token
+    // (the catalog passes none) leaves its content behind rather than failing the
+    // install. A fresh id is minted for every child, so idMap is the only lookup —
+    // this is always a duplicate.
+    await cloneWorkspaceChildren(parsed, targetWsId, idMap)
+    if (oid) {
+      try {
+        await gitSetSyncState('workspaces', targetWsId, git.branch || 'main', oid)
+      } catch {
+        /* leave unanchored — Versioning adopts lazily */
+      }
+    }
+    return { ok: true, id: targetWsId }
+  } catch (err) {
+    return { ok: false, failure: 'apply-failed', error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Pull each git-linked child's content into the freshly imported workspace. */
+async function cloneWorkspaceChildren(
+  parsed: ParsedWorkspaceZip,
+  targetWsId: string,
+  idMap: Map<string, string>,
+): Promise<void> {
+  const JSZipMod = (await import('jszip')).default
+  const storage = getStorage()
+  for (const child of collectGitLinkedEntities(parsed)) {
+    const id = idMap.get(`${child.type}:${child.id}`) ?? child.id
+    try {
+      const cloned = await gitCloneToZip(child.url, child.branch)
+      if (cloned.blob.size > MAX_CLONE_BYTES) continue
+      const zip = await JSZipMod.loadAsync(cloned.blob)
+      await applyClonedEntity(zip, child.type, id, storage, targetWsId, {
+        url: child.url,
+        branch: child.branch,
+      })
+    } catch {
+      /* leave the pointer as imported — the card badges it as content-less */
+    }
+  }
+}
+
+/**
+ * Whether the install may keep the repo's own id, and whether the result should
+ * be labelled "(copy)". They are separate questions and were once one:
+ *
+ * - `reuseId` is about safety. The repo's id is reusable only for the SAME
+ *   published entity sitting in the target workspace. Any other row holding it —
+ *   an unrelated entity, or this entity's copy in another workspace — makes it
+ *   taken, and reusing it either destroys that row or (for an upsert-keyed kind
+ *   like a preset) drags it into this workspace.
+ * - `renameAsCopy` is about legibility. A suffix earns its place only when a
+ *   sibling row is visible beside it in THIS workspace. A first install into a
+ *   second workspace has no sibling here, so "(copy)" described nothing.
+ */
+export function resolveInstallIdentity(
+  prepared: Pick<PreparedInstall, 'idCollision' | 'collisionElsewhere' | 'existingName'>,
+  duplicate: boolean,
+): { reuseId: boolean; renameAsCopy: boolean } {
+  const unrelatedCollision = prepared.idCollision && !prepared.existingName
+  const reuseId = !duplicate && !unrelatedCollision
+  const sideBySide = duplicate || !prepared.collisionElsewhere
+  return { reuseId, renameAsCopy: !reuseId && sideBySide }
+}
+
 export async function commitCatalogInstall(
   prepared: PreparedInstall,
   workspaceId: string,
@@ -415,15 +549,17 @@ export async function commitCatalogInstall(
   const { entry, zip, oid } = prepared
   const branch = entry.git.branch || 'main'
   const url = entry.git.url
-  // Reusing the repo id (overwrite) is only ever allowed for the SAME published
-  // entity. If the repo id collides with an UNRELATED local row, force a fresh id
-  // so the install can never destroy an entity the user owns by id-collision —
-  // whatever the caller passed for `duplicate`.
-  const unrelatedCollision = prepared.idCollision && !prepared.existingName
-  const reuseId = !duplicate && !unrelatedCollision
+  const { reuseId, renameAsCopy: shouldRenameAsCopy } = resolveInstallIdentity(prepared, duplicate)
   const id = reuseId ? prepared.repoId : freshId(entry.type)
   const storage = getStorage()
   const git: GitRemoteConfig = { url, branch }
+
+  // A workspace runs the workspace import instead of the per-entity path: it is a
+  // container, so its children (and their own git links) have to come in the way a
+  // ZIP or git import brings them, not through applyClonedEntity.
+  if (entry.type === 'workspace') {
+    return installWorkspaceEntry(prepared, language, git, oid)
+  }
 
   // Overwrite: drop the existing row first so the shell insert below doesn't collide.
   // applyClonedEntity's per-type branches already delete child rows (files, checks,
@@ -466,9 +602,8 @@ export async function commitCatalogInstall(
 
   // Mark the copy AFTER applyClonedEntity: it rewrites `name` from the repo, so a
   // suffix set on the shell row would be overwritten. Matches the per-page importers,
-  // which append "(copy)" on duplicate so the two rows are tellable apart. A forced
-  // fresh id (unrelated collision) is a copy too.
-  if (!reuseId) {
+  // which append "(copy)" on duplicate so the two rows are tellable apart.
+  if (shouldRenameAsCopy) {
     await renameAsCopy(entry.type, id, storage, language).catch(() => {})
   }
 
