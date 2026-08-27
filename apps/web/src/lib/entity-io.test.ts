@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, reassemblePresetMapping, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
+import { DB_ERROR_NO_DATA_ON_IMPORT, slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, reassemblePresetMapping, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/lib/entity-versioning'
@@ -1783,6 +1783,46 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
           zip.file('data/admissions.parquet', new Uint8Array([2]))
           expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
           expect(row!.status).toBe('connected')
+        } finally {
+          serverMode.value = false
+        }
+      })
+
+      it('says why a database imported with no data is not connected', async () => {
+        // The normal shape of a shared repo: the export is deliberately data-free,
+        // so there are no data/*.parquet entries. The row used to stay at
+        // 'configuring' — a state with no exit and no voice, since the Schema tab
+        // gates on 'connected' and the error banner on 'error', so the database
+        // refused to work while explaining nothing.
+        serverMode.value = true
+        let row: Record<string, unknown> | null = null
+        const store = new Proxy({}, {
+          get: (_t, prop) => {
+            switch (prop) {
+              case 'dataSources': return {
+                getAll: async () => [],
+                getById: async () => row,
+                create: async (ds: Record<string, unknown>) => { row = ds },
+                update: async (_id: string, ch: Record<string, unknown>) => {
+                  if (row) Object.assign(row, ch)
+                },
+              }
+              case 'files': return {
+                getByDataSource: async () => [],
+                create: async () => {},
+                delete: async () => {},
+              }
+              default: return new Proxy({}, { get: () => async () => {} })
+            }
+          },
+        }) as unknown as Storage
+
+        try {
+          const zip = new JSZip()
+          zip.file('_database.json', META())
+          expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+          expect(row!.status).toBe('disconnected')
+          expect(row!.errorMessage).toBe(DB_ERROR_NO_DATA_ON_IMPORT)
         } finally {
           serverMode.value = false
         }

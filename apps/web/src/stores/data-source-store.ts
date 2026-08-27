@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { createFromDdlOnServer, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
+import { createFromDdlOnServer, fetchDataSourceSchema, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
+import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
@@ -469,6 +470,29 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
         d.id === id ? { ...d, status: 'configuring' as DataSourceStatus } : d,
       ),
     }))
+    // A file source (Parquet/CSV/DuckDB/SQLite) has no live connection to test:
+    // the server attaches its files on demand, and /retest only knows external
+    // engines — it would answer `ok: false` and mark a perfectly good database
+    // as broken. Reading its schema back IS the test: tables mean it works.
+    // Without this branch a file database had no way out of 'configuring',
+    // which gates the Schema tab while the Statistics tab happily queries it.
+    const fileEngine = (ds.connectionConfig as { engine?: string } | undefined)?.engine
+    if (ds.sourceType !== 'database' || fileEngine === 'duckdb' || fileEngine === 'sqlite') {
+      let fileUpdate: Partial<DataSource>
+      try {
+        const tables = await fetchDataSourceSchema(id)
+        fileUpdate = tables.length > 0
+          ? { status: 'connected', errorMessage: undefined, stats: { tableCount: tables.length } }
+          : { status: 'disconnected', errorMessage: DB_ERROR_NO_DATA_ON_IMPORT }
+      } catch (e) {
+        fileUpdate = { status: 'error', errorMessage: e instanceof Error ? e.message : String(e) }
+      }
+      await getStorage().dataSources.update(id, fileUpdate)
+      set((s) => ({
+        dataSources: s.dataSources.map((d) => (d.id === id ? { ...d, ...fileUpdate } : d)),
+      }))
+      return
+    }
     const result = await retestConnectionOnServer(id)
     let updated: Partial<DataSource>
     if (result.ok) {

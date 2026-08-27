@@ -128,6 +128,8 @@ export function AddDatabaseDialog({
   const [version, setVersion] = useState('0.1.0')
   const [selectedType, setSelectedType] = useState<DataSourceType | null>(null)
   const [uploading, setUploading] = useState(false)
+  /** Why the save failed — shown above the footer instead of failing silently. */
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
 
   const isEditMode = !!editingSource
@@ -263,6 +265,7 @@ export function AddDatabaseDialog({
 
   const handleSubmit = async () => {
     if (!selectedType || !name.trim()) return
+    setSubmitError(null)
     setUploading(true)
 
     try {
@@ -337,7 +340,11 @@ export function AddDatabaseDialog({
           // status + stats instead of keeping the stale "connected" state. The
           // re-test runs server-side against the freshly-saved config (using the
           // stored encrypted password when the field was left blank).
-          if (isExternal && isServerMode()) {
+          //
+          // File engines go through it too: they used to be excluded, which left
+          // a database imported without data stuck in 'configuring' with no way
+          // out — editing it wrote metadata and never touched the status.
+          if (isServerMode()) {
             await retestDataSource(editingSource.id)
           }
         }
@@ -399,6 +406,10 @@ export function AddDatabaseDialog({
       // force close: the guard would otherwise still see uploading=true (the
       // state update above hasn't flushed into this closure yet).
       handleClose(false, true)
+    } catch (err) {
+      // Without this the dialog just sat there on a failed upload or save, with
+      // the spinner gone and nothing said — the user could only guess.
+      setSubmitError(err instanceof Error ? err.message : String(err))
     } finally {
       setUploading(false)
     }
@@ -844,6 +855,12 @@ export function AddDatabaseDialog({
           </div>
         )}
 
+        {step === 2 && submitError && (
+          <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+            <p className="text-xs font-medium text-destructive">{t('databases.save_failed')}</p>
+            <p className="mt-1 break-all font-mono text-xs text-destructive/80">{submitError}</p>
+          </div>
+        )}
         {step === 2 && (
           <DialogFooter className="mt-4">
             {!isEditMode && (

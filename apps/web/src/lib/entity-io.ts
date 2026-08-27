@@ -2850,6 +2850,14 @@ interface DatabaseRepoMeta {
  * pointers before the tree gets here (`clone_to_zip`); catalog install is
  * server-mode-only, so that always holds.
  */
+/**
+ * Stored in `errorMessage` when an import brought a database with no data.
+ *
+ * A sentinel rather than a sentence: this module has no i18n, and the string is
+ * read by a user. `DatabaseDetailPage` maps it to a translated line.
+ */
+export const DB_ERROR_NO_DATA_ON_IMPORT = 'linkr:db-imported-without-data'
+
 async function applyClonedDatabase(
   zip: JSZip,
   targetId: string,
@@ -2994,7 +3002,22 @@ async function applyClonedDatabase(
   // Best-effort in both branches: the row and its files are already stored, so
   // failing to connect must not undo the import — the Databases page can always
   // retry, and losing the whole install over it would be far worse.
-  if (storedFiles.length > 0) {
+  // No data in the tree — the normal shape of a shared repo, whose export is
+  // deliberately data-free. The row must still leave 'configuring': that state
+  // has no exit and no voice (the Schema tab gates on 'connected' and the error
+  // banner on 'error', so a stuck 'configuring' database explains nothing while
+  // refusing to work). 'disconnected' says what is true — it exists, it has no
+  // data yet — and carries the reason to the card.
+  if (storedFiles.length === 0) {
+    await storage.dataSources.update(targetId, {
+      status: 'disconnected',
+      // A key, not a sentence: this module has no i18n and the message is for
+      // the user. DatabaseDetailPage translates it (see NO_DATA_ON_IMPORT).
+      errorMessage: DB_ERROR_NO_DATA_ON_IMPORT,
+    }).catch(() => {})
+    return true
+  }
+  {
     try {
       if (isServerMode()) {
         // A Parquet database is a FILE source: the server attaches its files on

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
+import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import ReactMarkdown from 'react-markdown'
 import {
   Activity,
@@ -386,10 +387,23 @@ function OverviewTab({
        the stat cards stop where About starts, and the README's bottom edge
        meets the side column's. */
     <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_20rem]">
-      {source.status === 'error' && source.errorMessage && (
-        <div className="col-span-full shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-          <p className="text-xs font-medium text-destructive">{t('databases.detail_error')}</p>
-          <p className="mt-1 break-all font-mono text-xs text-destructive/80">{source.errorMessage}</p>
+      {/* Shown for any non-working state that carries a reason, not just 'error':
+          a database left disconnected by a data-free import has something to say
+          too, and gating this on 'error' alone made those states silent. */}
+      {source.status !== 'connected' && source.errorMessage && (
+        <div className={`col-span-full shrink-0 rounded-lg border px-4 py-3 ${
+          source.status === 'error'
+            ? 'border-destructive/30 bg-destructive/5'
+            : 'border-amber-500/30 bg-amber-500/5'
+        }`}>
+          <p className={`text-xs font-medium ${source.status === 'error' ? 'text-destructive' : 'text-amber-700 dark:text-amber-400'}`}>
+            {t(source.status === 'error' ? 'databases.detail_error' : 'databases.detail_not_connected')}
+          </p>
+          <p className={`mt-1 break-all text-xs ${source.status === 'error' ? 'font-mono text-destructive/80' : 'text-amber-700/80 dark:text-amber-400/80'}`}>
+            {source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
+              ? t('databases.imported_without_data')
+              : source.errorMessage}
+          </p>
         </div>
       )}
 
