@@ -90,9 +90,14 @@ export function CatalogInstallOutcome({
             <Button onClick={() => void confirmReinstall(true)}>
               {t('common.import_duplicate')}
             </Button>
-            <Button variant="destructive" onClick={() => void confirmReinstall(false)}>
-              {t('common.import_overwrite')}
-            </Button>
+            {/* No overwrite for a workspace: replacing one would delete every project,
+                database and mapping it holds — a different order of destruction from
+                replacing a single entity. Re-installing adds a second one instead. */}
+            {reinstall?.entry.type !== 'workspace' && (
+              <Button variant="destructive" onClick={() => void confirmReinstall(false)}>
+                {t('common.import_overwrite')}
+              </Button>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

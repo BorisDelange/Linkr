@@ -151,7 +151,9 @@ export function CatalogPage() {
             toolbarExtra={
               /* Installing targets one workspace, and whether an entry is already
                  installed is answered per workspace — so the choice belongs here, next
-                 to the list it qualifies, rather than inside the install dialog. */
+                 to the list it qualifies, rather than inside the install dialog.
+                 A `workspace` entry ignores it: it is created at instance level, and
+                 its card stays enabled even with nothing selected here. */
               serverMode && workspaces.length > 0 ? (
                 <Select
                   value={workspaceId}

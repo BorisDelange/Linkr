@@ -52,6 +52,7 @@ async function rowsOf(type: CatalogEntryType, storage: Storage): Promise<LocalRo
       case 'project': return storage.projects.getAll()
       case 'schema-preset': return storage.schemaPresets.getAll()
       case 'database': return storage.dataSources.getAll()
+      case 'workspace': return storage.workspaces.getAll()
     }
   }
   try {
@@ -98,7 +99,13 @@ export async function findInstalled(
   await Promise.all(
     types.map(async (type) => {
       const rows = await rowsOf(type, storage)
-      byType.set(type, rows.filter((r) => !workspaceId || r.workspaceId === workspaceId))
+      // A workspace has no parent workspace to be scoped to — it IS the scope, so
+      // filtering it by workspaceId would discard every row and always read as
+      // "not installed".
+      const scoped = type === 'workspace'
+        ? rows
+        : rows.filter((r) => !workspaceId || r.workspaceId === workspaceId)
+      byType.set(type, scoped)
     }),
   )
 

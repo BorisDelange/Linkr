@@ -11,8 +11,16 @@
 import type { LocalizedString } from '@/types'
 import type { GitLinkedEntity } from '@/lib/entity-io'
 
-/** Entity kinds the catalog can list — the same union the app can clone. */
-export type CatalogEntryType = GitLinkedEntity['type']
+/**
+ * Entity kinds the catalog can list: everything the app can clone, plus `workspace`.
+ *
+ * Deliberately NOT `GitLinkedEntity['type'] | 'workspace'` as a single union on the
+ * clone side: `GitLinkedEntity` describes an entity found INSIDE a workspace, and a
+ * workspace is never inside another one. Keeping `workspace` out of that union is what
+ * makes the nesting impossible by construction rather than by a runtime guard —
+ * `collectGitLinkedEntities` cannot emit it, so the clone loop cannot recurse.
+ */
+export type CatalogEntryType = GitLinkedEntity['type'] | 'workspace'
 
 /**
  * The entry types, in the order they appear in the type filter. Lives here (not in
@@ -20,6 +28,7 @@ export type CatalogEntryType = GitLinkedEntity['type']
  * fetch's type validation — can use it without dragging React into that module.
  */
 export const ENTRY_TYPES: CatalogEntryType[] = [
+  'workspace',
   'project',
   'mapping-project',
   'sql-collection',

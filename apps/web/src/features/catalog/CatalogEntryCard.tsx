@@ -170,7 +170,9 @@ export function CatalogEntryCard({
             <InstallButton
               state={state}
               serverMode={serverMode}
-              hasWorkspace={hasWorkspace}
+              // A workspace installs at instance level, so it needs no target and
+              // must stay enabled even when no workspace is selected (or exists).
+              hasWorkspace={hasWorkspace || entry.type === 'workspace'}
               localVersion={installed?.version}
               busy={busy}
               onClick={onInstall}

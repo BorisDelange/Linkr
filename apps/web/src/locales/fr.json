@@ -3240,6 +3240,7 @@
     "status_wip": "En cours",
     "status_deprecated": "Obsolète",
     "status_unreachable": "Inaccessible",
+    "type_workspace": "Espace de travail",
     "type_project": "Projet",
     "type_mapping_project": "Alignement de concepts",
     "type_sql_collection": "Collection de scripts",

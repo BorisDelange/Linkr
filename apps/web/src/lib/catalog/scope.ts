@@ -6,8 +6,8 @@
  * different words (plural route-ish slugs vs singular type names), so the crossing has
  * to happen somewhere; keeping it here means neither side has to learn the other's.
  *
- * Scopes with no catalog counterpart (`workspaces`, `user-plugins`, `settings`) map to
- * undefined, and their dialog simply shows no catalog tab.
+ * Scopes with no catalog counterpart (`user-plugins`, `settings`) map to undefined, and
+ * their dialog simply shows no catalog tab.
  */
 import type { GitScope } from '@/lib/api/git'
 import type { CatalogEntryType } from './types'
@@ -24,6 +24,7 @@ import type { CatalogEntryType } from './types'
 export const INSTALL_ONLY_TYPES: readonly CatalogEntryType[] = ['database']
 
 const BY_SCOPE: Partial<Record<GitScope, CatalogEntryType>> = {
+  'workspaces': 'workspace',
   'projects': 'project',
   'mapping-projects': 'mapping-project',
   'sql-script-collections': 'sql-collection',

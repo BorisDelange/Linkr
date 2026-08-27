@@ -36,6 +36,10 @@ function detailPath(type: CatalogEntry['type'], wsId: string, id: string): strin
       return paths.warehouseSqlCollection(wsId, id)
     case 'data-catalog':
       return paths.warehouseDataCatalog(wsId, id)
+    // The installed workspace IS the destination — `wsId` here is the workspace the
+    // catalog installs INTO, which a workspace entry does not have.
+    case 'workspace':
+      return paths.workspaceHome(id)
     default: {
       const _exhaustive: never = type
       return _exhaustive
@@ -47,7 +51,8 @@ export function useOpenInstalled(workspaceId: string, onNavigate?: () => void): 
   const navigate = useNavigate()
   return useCallback(
     (entry, info) => {
-      if (!info || !workspaceId) return undefined
+      // A workspace entry needs no target workspace — it opens the one just installed.
+      if (!info || (!workspaceId && entry.type !== 'workspace')) return undefined
       const to = detailPath(entry.type, workspaceId, info.id)
       if (!to) return undefined
       return () => {

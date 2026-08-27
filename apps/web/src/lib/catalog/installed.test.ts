@@ -25,6 +25,8 @@ function storageWith(rows: Record<string, unknown[]>): Storage {
     mappingProjects: coll('mappingProjects'),
     projects: coll('projects'),
     schemaPresets: coll('schemaPresets'),
+    dataSources: coll('dataSources'),
+    workspaces: coll('workspaces'),
   } as unknown as Storage
 }
 
@@ -92,6 +94,20 @@ describe('findInstalled', () => {
       etlPipelines: [{ id: 'local-1', workspaceId: 'ws1', lineageId: 'lin-1' }],
     })
     expect(await findInstalled([entry({ lineageId: 'lin-1' })], 'ws1', storage)).toEqual({})
+  })
+
+  it('finds an installed workspace, which has no parent workspace to be scoped to', async () => {
+    // A workspace row carries no workspaceId, so scoping it like the other types
+    // would discard every row and the entry would always read as not installed.
+    const storage = storageWith({
+      workspaces: [{ id: 'ws-installed', lineageId: 'lin-w' }],
+    })
+    const found = await findInstalled(
+      [entry({ id: 'e-ws', type: 'workspace', lineageId: 'lin-w' })],
+      'ws1',
+      storage,
+    )
+    expect(found['e-ws']).toMatchObject({ id: 'ws-installed', state: 'installed' })
   })
 
   it('reads a project by its uid, not an id field', async () => {

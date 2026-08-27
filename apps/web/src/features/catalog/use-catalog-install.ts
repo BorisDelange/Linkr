@@ -135,7 +135,8 @@ export function useCatalogInstall(
 
   const install = useCallback(
     async (entry: CatalogEntry, installed?: InstalledInfo) => {
-      if (!workspaceId || busyId) return
+      // A workspace needs no target workspace — it is created at instance level.
+      if ((!workspaceId && entry.type !== 'workspace') || busyId) return
       // Already installed: ask first. Re-installing overwrites or duplicates a copy the
       // user already has, and which version replaces which is exactly what they need to
       // see. A first install has nothing to weigh, so it writes on click.

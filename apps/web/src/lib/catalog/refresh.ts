@@ -21,6 +21,32 @@ export async function refreshStoresAfterInstall(
   const reloads: Array<Promise<unknown>> = [useWorkspaceStore.getState().loadWorkspaces()]
 
   switch (type) {
+    // A workspace brings every kind of entity at once, so nothing that reads from a
+    // store can be assumed current — reload the lot rather than enumerate.
+    case 'workspace': {
+      const [{ useAppStore }, { useConceptMappingStore }, { useSqlScriptsStore }, { useEtlStore }, { useDqStore }, { useCatalogStore }, { useDataSourceStore }, { useSchemaPresetStore }] = await Promise.all([
+        import('@/stores/app-store'),
+        import('@/stores/concept-mapping-store'),
+        import('@/stores/sql-scripts-store'),
+        import('@/stores/etl-store'),
+        import('@/stores/dq-store'),
+        import('@/stores/catalog-store'),
+        import('@/stores/data-source-store'),
+        import('@/stores/schema-preset-store'),
+      ])
+      reloads.push(
+        useAppStore.getState().loadProjects(),
+        useConceptMappingStore.getState().loadMappingProjects(),
+        useSqlScriptsStore.getState().loadCollections(),
+        useEtlStore.getState().loadEtlPipelines(),
+        useDqStore.getState().loadDqRuleSets(),
+        useCatalogStore.getState().loadCatalogs(),
+        useDataSourceStore.getState().loadDataSources(),
+        useSchemaPresetStore.getState().loadPresets(),
+      )
+      await clearProjectScopedMarkers()
+      break
+    }
     case 'project': {
       const { useAppStore } = await import('@/stores/app-store')
       reloads.push(useAppStore.getState().loadProjects())

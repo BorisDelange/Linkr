@@ -34,6 +34,7 @@ export type EntityColorKey =
   | 'concepts'
   | 'cohorts'
   | 'patient-data'
+  | 'workspace'
   | 'project'
   | 'wiki-page'
   | 'plugin'
@@ -99,6 +100,13 @@ export const ENTITY_COLORS: Record<EntityColorKey, EntityColor> = {
   },
 
   // ── Elsewhere ──
+  // The container the rest lives in. Only shown where a workspace appears AS an
+  // entity — a catalog card — so it takes a hue none of its own contents use.
+  'workspace': {
+    icon: 'text-cyan-600 dark:text-cyan-400',
+    bg: 'bg-cyan-500/10',
+    badge: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-400',
+  },
   'project': {
     icon: 'text-blue-600 dark:text-blue-400',
     bg: 'bg-blue-500/10',

@@ -12,6 +12,7 @@ import {
   BookOpen,
   Database,
   FolderOpen,
+  LayoutGrid,
   ShieldCheck,
   SquareTerminal,
   Workflow,
@@ -33,6 +34,7 @@ export interface EntryTypeMeta {
 
 /** Every catalog entry type is also an entity kind, so the hue lookup is direct. */
 const ENTRY_ICONS: Record<CatalogEntryType, { icon: LucideIcon; labelKey: string }> = {
+  'workspace': { icon: LayoutGrid, labelKey: 'catalog.type_workspace' },
   'project': { icon: FolderOpen, labelKey: 'catalog.type_project' },
   'mapping-project': { icon: ArrowRightLeft, labelKey: 'catalog.type_mapping_project' },
   'sql-collection': { icon: SquareTerminal, labelKey: 'catalog.type_sql_collection' },

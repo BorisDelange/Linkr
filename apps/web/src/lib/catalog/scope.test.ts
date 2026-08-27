@@ -8,8 +8,8 @@ describe('catalogTypeForScope', () => {
     // tab — so the mapping is asserted to be total over the published types, minus
     // the install-only ones (a database is cloned in, never pushed out).
     const mapped = new Set(
-      (['projects', 'mapping-projects', 'sql-script-collections', 'etl-pipelines',
-        'data-catalogs', 'dq-rule-sets', 'schema-presets'] as const)
+      (['workspaces', 'projects', 'mapping-projects', 'sql-script-collections',
+        'etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets'] as const)
         .map(catalogTypeForScope),
     )
     for (const type of ENTRY_TYPES) {
@@ -38,8 +38,13 @@ describe('catalogTypeForScope', () => {
     expect(catalogTypeForScope('schema-presets')).toBe('schema-preset')
   })
 
+  it('publishes a workspace, so its import dialog offers the catalog too', () => {
+    // The demo/default content ships as one curated workspace pulling its children
+    // in through their git links (default-data-repos-plan.md, decision 6).
+    expect(catalogTypeForScope('workspaces')).toBe('workspace')
+  })
+
   it('returns undefined for scopes the catalog does not publish', () => {
-    expect(catalogTypeForScope('workspaces')).toBeUndefined()
     expect(catalogTypeForScope('settings')).toBeUndefined()
     expect(catalogTypeForScope('user-plugins')).toBeUndefined()
     expect(catalogTypeForScope(undefined)).toBeUndefined()
