@@ -20,7 +20,7 @@ import {
   resolveChildId as resolveChildIdRule,
   resolveWorkspaceId,
 } from '@/lib/import-identity'
-import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
+import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2, AlertCircle, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
@@ -46,6 +46,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
@@ -157,6 +158,10 @@ export function WorkspacesPage() {
   const [gitLinkedWsId, setGitLinkedWsId] = useState<string | null>(null)
   const [cloneToken, setCloneToken] = useState('')
   const [cloneState, setCloneState] = useState<Record<string, 'pending' | 'done' | 'error'>>({})
+  /** Why a clone failed, keyed like cloneState. The summary dialog shows it: a
+   *  bare "retry" button leaves the user guessing whether the repo is
+   *  unreachable, the token is missing, or the server rejected the content. */
+  const [cloneError, setCloneError] = useState<Record<string, FormattedError>>({})
 
   /** Record (or clear) the git-linked content reconstitution status so the entity
    *  card can badge "not imported" + offer a retry. Best-effort. Server rows in
@@ -191,6 +196,7 @@ export function WorkspacesPage() {
   ): Promise<boolean> => {
     const key = `${e.type}-${e.id}`
     setCloneState(s => ({ ...s, [key]: 'pending' }))
+    setCloneError(s => { const { [key]: _drop, ...rest } = s; return rest })
     try {
       // Server-side clone only: the backend clones the repo; load its ZIP bytes
       // into JSZip so applyClonedEntity reads it as before.
@@ -213,10 +219,17 @@ export function WorkspacesPage() {
       // mark 'failed' otherwise so the card shows a retry affordance.
       await syncContentStatus(e, opts.workspaceId, ok ? null : 'failed')
       setCloneState(s => ({ ...s, [key]: ok ? 'done' : 'error' }))
+      if (!ok) {
+        setCloneError(s => ({
+          ...s,
+          [key]: { summaryKey: 'workspaces.import_git_clone_no_content', detail: null },
+        }))
+      }
       return ok
-    } catch {
+    } catch (err) {
       await syncContentStatus(e, opts.workspaceId, 'failed')
       setCloneState(s => ({ ...s, [key]: 'error' }))
+      setCloneError(s => ({ ...s, [key]: formatApiError(err) }))
       return false
     }
   }, [cloneToken, syncContentStatus])
@@ -1269,11 +1282,34 @@ export function WorkspacesPage() {
             {(gitLinkedSummary ?? []).map((e) => {
               const key = `${e.type}-${e.id}`
               const st = cloneState[key]
+              const err = cloneError[key]
               return (
                 <div key={key} className="flex items-center justify-between gap-2 px-3 py-2 text-xs border-b border-border last:border-0">
                   <div className="min-w-0">
                     <div className="truncate font-medium">{e.name}</div>
                     <div className="truncate text-[10px] text-muted-foreground">{e.url}</div>
+                    {st === 'error' && err && (
+                      <div className="mt-1 flex items-center gap-1.5 rounded-md border border-destructive/50 bg-destructive/5 px-1.5 py-1 text-[10px] text-destructive">
+                        <AlertCircle size={11} className="shrink-0" />
+                        <span className="truncate">
+                          {err.summaryKey
+                            ? t(err.summaryKey, { count: err.summaryCount ?? 0 })
+                            : err.summary}
+                        </span>
+                        {err.detail && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info size={11} className="shrink-0 cursor-help" />
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" className="max-w-sm">
+                                <pre className="whitespace-pre-wrap break-words text-[10px]">{err.detail}</pre>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
+                    )}
                   </div>
                   {isServerMode() && (
                     <Button
@@ -1295,7 +1331,7 @@ export function WorkspacesPage() {
             })}
           </div>
           <AlertDialogFooter>
-            <AlertDialogAction onClick={() => { setGitLinkedSummary(null); setGitLinkedWsId(null); setCloneState({}) }}>
+            <AlertDialogAction onClick={() => { setGitLinkedSummary(null); setGitLinkedWsId(null); setCloneState({}); setCloneError({}) }}>
               {t('common.ok')}
             </AlertDialogAction>
           </AlertDialogFooter>

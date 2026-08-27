@@ -3192,7 +3192,9 @@ export async function applyClonedEntity(
     if (!catalog) return false
     const { id: _id, workspaceId: _ws, ...rest } = dropForeignAuthorId(catalog) as DataCatalog
     const changes = await withEntityDocs(rest, 'data-catalog')
-    await storage.dataCatalogs.update(targetId, changes).catch(() => {})
+    // Not swallowed: a rejected write must reach the caller, or the import
+    // reports success for an entity the server never stored.
+    await storage.dataCatalogs.update(targetId, changes)
     return true
   }
 
@@ -3201,7 +3203,7 @@ export async function applyClonedEntity(
     if (!ruleSet) return false
     const { id: _id, workspaceId: _ws, ...rest } = dropForeignAuthorId(ruleSet) as DqRuleSet
     const changes = await withEntityDocs(rest, 'dq-rule-set')
-    await storage.dqRuleSets.update(targetId, changes).catch(() => {})
+    await storage.dqRuleSets.update(targetId, changes)
     const checks = (await readJson<DqCustomCheck[]>(CONTENT_FILE.dqChecks)) ?? []
     await storage.dqCustomChecks.deleteByRuleSet(targetId).catch(() => {})
     for (const c of checks) {
@@ -3261,7 +3263,7 @@ export async function applyClonedEntity(
       }) as CustomSchemaPreset,
       'schema-preset',
     )
-    await storage.schemaPresets.save(withDocs).catch(() => {})
+    await storage.schemaPresets.save(withDocs)
     return true
   }
 
