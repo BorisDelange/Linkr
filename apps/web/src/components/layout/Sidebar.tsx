@@ -111,9 +111,9 @@ const appBottomItems: AppNavItem[] = [
 
 const workspaceNavItems: SegmentNavEntry[] = [
   { segment: 'home', icon: LayoutDashboard, labelKey: 'workspace_nav.home', iconColor: 'text-blue-500' },
-  { segment: 'projects', icon: FolderOpen, labelKey: 'workspace_nav.projects', iconColor: 'text-blue-700' },
-  { segment: 'wiki', icon: BookOpen, labelKey: 'workspace_nav.wiki', iconColor: 'text-emerald-500' },
-  { segment: 'plugins', icon: Puzzle, labelKey: 'workspace_nav.plugins', iconColor: 'text-pink-500' },
+  { segment: 'projects', icon: FolderOpen, labelKey: 'workspace_nav.projects', iconColor: ENTITY_COLORS.project.icon },
+  { segment: 'wiki', icon: BookOpen, labelKey: 'workspace_nav.wiki', iconColor: ENTITY_COLORS['wiki-page'].icon },
+  { segment: 'plugins', icon: Puzzle, labelKey: 'workspace_nav.plugins', iconColor: ENTITY_COLORS.plugin.icon },
   {
     type: 'group',
     labelKey: 'workspace_nav.warehouse',

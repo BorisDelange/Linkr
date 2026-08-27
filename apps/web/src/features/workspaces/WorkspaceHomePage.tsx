@@ -12,7 +12,13 @@ import { useVisitStore, sortByRecency } from '@/stores/visit-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWikiStore } from '@/stores/wiki-store'
-import type { LocalizedString, ProjectStatus } from '@/types'
+import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
+import { useEtlStore } from '@/stores/etl-store'
+import { useCatalogStore } from '@/stores/catalog-store'
+import { useDqStore } from '@/stores/dq-store'
+import { useSchemaPresetStore } from '@/stores/schema-preset-store'
+import { usePluginEditorStore } from '@/stores/plugin-editor-store'
+import { ENTITY_COLORS, type EntityColorKey } from '@/lib/entity-colors'
 import {
   FolderOpen,
   ArrowRight,
@@ -21,10 +27,16 @@ import {
   Database,
   BookOpen,
   FileText,
+  FileSpreadsheet,
+  Puzzle,
+  ShieldCheck,
+  SquareTerminal,
+  Workflow,
   Building2,
   Globe,
   Mail,
   MapPin,
+  type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -38,7 +50,13 @@ import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { AttachmentsDialog } from '@/components/editor/AttachmentsDialog'
 
-const MAX_RECENT = 2
+const MAX_RECENT = 3
+
+/** Newest-updated first, for the kinds visit history doesn't track (see sortByRecency). */
+function byUpdatedAt<T extends { updatedAt?: string; createdAt?: string }>(items: T[]): T[] {
+  const stamp = (i: T) => new Date(i.updatedAt ?? i.createdAt ?? 0).getTime()
+  return [...items].sort((a, b) => stamp(b) - stamp(a))
+}
 
 export function WorkspaceHomePage() {
   const { t } = useTranslation()
@@ -79,19 +97,45 @@ export function WorkspaceHomePage() {
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
   const loadMappingProjects = useConceptMappingStore((s) => s.loadMappingProjects)
   const loadPages = useWikiStore((s) => s.loadPages)
+  const loadCollections = useSqlScriptsStore((s) => s.loadCollections)
+  const loadEtlPipelines = useEtlStore((s) => s.loadEtlPipelines)
+  const loadCatalogs = useCatalogStore((s) => s.loadCatalogs)
+  const loadDqRuleSets = useDqStore((s) => s.loadDqRuleSets)
+  const loadPresets = useSchemaPresetStore((s) => s.loadPresets)
+  const refreshPluginList = usePluginEditorStore((s) => s.refreshPluginList)
   useEffect(() => {
     loadDataSources()
     loadMappingProjects()
-    if (wsUid) loadPages(wsUid)
-  }, [wsUid, loadDataSources, loadMappingProjects, loadPages])
+    loadCollections()
+    loadEtlPipelines()
+    loadCatalogs()
+    loadDqRuleSets()
+    void refreshPluginList()
+    if (wsUid) {
+      loadPages(wsUid)
+      loadPresets(wsUid)
+    }
+  }, [wsUid, loadDataSources, loadMappingProjects, loadPages, loadCollections, loadEtlPipelines, loadCatalogs, loadDqRuleSets, loadPresets, refreshPluginList])
 
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const mappingProjects = useConceptMappingStore((s) => s.mappingProjects)
   const wikiPages = useWikiStore((s) => s.pages)
+  const sqlCollections = useSqlScriptsStore((s) => s.collections)
+  const etlPipelines = useEtlStore((s) => s.etlPipelines)
+  const dataCatalogs = useCatalogStore((s) => s.catalogs)
+  const dqRuleSets = useDqStore((s) => s.dqRuleSets)
+  const schemaPresets = useSchemaPresetStore((s) => s.presets)
+  // Already scoped to the active workspace by the store — no workspaceId on the rows.
+  const plugins = usePluginEditorStore((s) => s.pluginList)
 
   const wsDataSources = dataSources.filter((d) => d.workspaceId === wsUid && !d.isVocabularyReference)
   const wsMappingProjects = mappingProjects.filter((m) => m.workspaceId === wsUid)
   const wsWikiPages = wikiPages.filter((p) => p.workspaceId === wsUid)
+  const wsSqlCollections = sqlCollections.filter((c) => c.workspaceId === wsUid)
+  const wsEtlPipelines = etlPipelines.filter((p) => p.workspaceId === wsUid)
+  const wsDataCatalogs = dataCatalogs.filter((c) => c.workspaceId === wsUid)
+  const wsDqRuleSets = dqRuleSets.filter((r) => r.workspaceId === wsUid)
+  const wsSchemaPresets = schemaPresets.filter((p) => p.workspaceId === wsUid)
 
   const recentMappingProjects = useMemo(
     () => sortByRecency(wsMappingProjects, 'mapping-project', (m) => m.id, (m) => m.updatedAt).slice(0, MAX_RECENT),
@@ -119,6 +163,143 @@ export function WorkspaceHomePage() {
   const handleOpenMappingProject = (id: string) => {
     navigate(paths.warehouseConceptMappingProject(wsUid ?? '', id))
   }
+
+  const ws = wsUid ?? ''
+  // Every entity kind a workspace holds, in sidebar order, so the card mirrors the
+  // nav rather than inventing its own ranking. Hue and icon come from the same
+  // ENTITY_COLORS the sidebar reads.
+  const recentGroups: RecentGroup[] = [
+    {
+      key: 'project',
+      icon: FolderOpen,
+      titleKey: 'home.recent_projects',
+      listPath: projectsPath,
+      total: projects.length,
+      items: recentProjects.map((p) => {
+        const status = _projectsRaw.find((r) => r.uid === p.uid)?.status ?? 'active'
+        return {
+          id: p.uid,
+          name: p.name,
+          badge: {
+            label: t(`project_settings.status_${status}`),
+            className: getStatusClasses(status),
+            dotClass: getStatusDotClass(status),
+          },
+          onOpen: () => handleOpenProject(p.uid, p.name),
+        }
+      }),
+    },
+    {
+      key: 'wiki-page',
+      icon: BookOpen,
+      titleKey: 'workspace_nav.wiki',
+      listPath: wikiPath,
+      total: wsWikiPages.length,
+      items: byUpdatedAt(wsWikiPages).slice(0, MAX_RECENT).map((p) => ({
+        id: p.id,
+        name: localized(p.title, language),
+        to: wikiPath,
+      })),
+    },
+    {
+      key: 'plugin',
+      icon: Puzzle,
+      titleKey: 'workspace_nav.plugins',
+      listPath: paths.plugins(ws),
+      total: plugins.length,
+      items: byUpdatedAt(plugins).slice(0, MAX_RECENT).map((p) => ({
+        id: p.id,
+        name: localized(p.manifest.name, language),
+        to: paths.plugins(ws),
+      })),
+    },
+    {
+      key: 'schema-preset',
+      icon: FileSpreadsheet,
+      titleKey: 'app_warehouse.nav_schemas',
+      listPath: paths.warehouseSchemas(ws),
+      total: wsSchemaPresets.length,
+      items: byUpdatedAt(wsSchemaPresets).slice(0, MAX_RECENT).map((p) => ({
+        id: p.id,
+        // A preset carries no `name` — its label lives on the mapping.
+        name: localized(p.mapping?.presetLabel, language) || p.id,
+        to: paths.warehouseSchemas(ws),
+      })),
+    },
+    {
+      key: 'database',
+      icon: Database,
+      titleKey: 'app_warehouse.nav_databases',
+      listPath: databasesPath,
+      total: wsDataSources.length,
+      items: byUpdatedAt(wsDataSources).slice(0, MAX_RECENT).map((d) => ({
+        id: d.id,
+        name: localized(d.name, language),
+        to: paths.warehouseDatabase(ws, d.id),
+      })),
+    },
+    {
+      key: 'mapping-project',
+      icon: ArrowRightLeft,
+      titleKey: 'workspaces.recent_mapping_projects',
+      listPath: mappingPath,
+      total: wsMappingProjects.length,
+      items: recentMappingProjects.map((mp) => ({
+        id: mp.id,
+        name: localized(mp.name, language),
+        badge: mp.status ? { label: t(`concept_mapping.project_status_${mp.status}`) } : undefined,
+        onOpen: () => handleOpenMappingProject(mp.id),
+      })),
+    },
+    {
+      key: 'sql-collection',
+      icon: SquareTerminal,
+      titleKey: 'app_warehouse.nav_sql_scripts',
+      listPath: paths.warehouseSqlScripts(ws),
+      total: wsSqlCollections.length,
+      items: byUpdatedAt(wsSqlCollections).slice(0, MAX_RECENT).map((c) => ({
+        id: c.id,
+        name: localized(c.name, language),
+        to: paths.warehouseSqlCollection(ws, c.id),
+      })),
+    },
+    {
+      key: 'dq-rule-set',
+      icon: ShieldCheck,
+      titleKey: 'app_warehouse.nav_data_quality',
+      listPath: paths.warehouseDataQuality(ws),
+      total: wsDqRuleSets.length,
+      items: byUpdatedAt(wsDqRuleSets).slice(0, MAX_RECENT).map((r) => ({
+        id: r.id,
+        name: localized(r.name, language),
+        to: paths.warehouseDqRuleSet(ws, r.id),
+      })),
+    },
+    {
+      key: 'data-catalog',
+      icon: BookOpen,
+      titleKey: 'app_warehouse.nav_catalog',
+      listPath: paths.warehouseDataCatalogs(ws),
+      total: wsDataCatalogs.length,
+      items: byUpdatedAt(wsDataCatalogs).slice(0, MAX_RECENT).map((c) => ({
+        id: c.id,
+        name: localized(c.name, language),
+        to: paths.warehouseDataCatalog(ws, c.id),
+      })),
+    },
+    {
+      key: 'etl-pipeline',
+      icon: Workflow,
+      titleKey: 'app_warehouse.nav_etl',
+      listPath: paths.warehouseEtl(ws),
+      total: wsEtlPipelines.length,
+      items: byUpdatedAt(wsEtlPipelines).slice(0, MAX_RECENT).map((p) => ({
+        id: p.id,
+        name: localized(p.name, language),
+        to: paths.warehouseEtlPipeline(ws, p.id),
+      })),
+    },
+  ]
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -189,14 +370,7 @@ export function WorkspaceHomePage() {
             readme={readme}
             resolveUrls={resolveAttachmentUrls}
             onViewReadme={() => setTab('readme')}
-            recentProjects={recentProjects}
-            totalProjects={projects.length}
-            projectsRaw={_projectsRaw}
-            onOpenProject={handleOpenProject}
-            recentMappingProjects={recentMappingProjects}
-            totalMappingProjects={wsMappingProjects.length}
-            onOpenMappingProject={handleOpenMappingProject}
-            language={language}
+            recentGroups={recentGroups}
             projectsPath={projectsPath}
             databasesPath={databasesPath}
             mappingPath={mappingPath}
@@ -256,30 +430,11 @@ export function WorkspaceHomePage() {
   )
 }
 
-interface RecentProject {
-  uid: string
-  name: string
-  updatedAt: string
-}
-
-interface RecentMappingProject {
-  id: string
-  name: LocalizedString
-  status?: string
-}
-
 function OverviewTab({
   readme,
   resolveUrls,
   onViewReadme,
-  recentProjects,
-  totalProjects,
-  projectsRaw,
-  onOpenProject,
-  recentMappingProjects,
-  totalMappingProjects,
-  onOpenMappingProject,
-  language,
+  recentGroups,
   projectsPath,
   databasesPath,
   mappingPath,
@@ -289,14 +444,7 @@ function OverviewTab({
   readme: string
   resolveUrls: (md: string) => string
   onViewReadme: () => void
-  recentProjects: RecentProject[]
-  totalProjects: number
-  projectsRaw: { uid: string; status?: ProjectStatus }[]
-  onOpenProject: (uid: string, name: string) => void
-  recentMappingProjects: RecentMappingProject[]
-  totalMappingProjects: number
-  onOpenMappingProject: (id: string) => void
-  language: string
+  recentGroups: RecentGroup[]
   projectsPath: string
   databasesPath: string
   mappingPath: string
@@ -315,46 +463,36 @@ function OverviewTab({
       {/* Readme + Recent entities — fill all remaining vertical space above the stat cards */}
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
         <ReadmePreview readme={readme} resolveUrls={resolveUrls} onViewFull={onViewReadme} />
-        <RecentEntitiesCard
-          recentProjects={recentProjects}
-          totalProjects={totalProjects}
-          projectsRaw={projectsRaw}
-          onOpenProject={onOpenProject}
-          projectsPath={projectsPath}
-          recentMappingProjects={recentMappingProjects}
-          totalMappingProjects={totalMappingProjects}
-          onOpenMappingProject={onOpenMappingProject}
-          mappingPath={mappingPath}
-          language={language}
-        />
+        <RecentEntitiesCard groups={recentGroups} />
       </div>
 
-      {/* Stat cards — fixed-height bottom row */}
+      {/* Stat cards — fixed-height bottom row. Hues come from ENTITY_COLORS so a
+          count reads as the same entity its sidebar item and list rows do. */}
       <div className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
             icon={<FolderOpen size={18} />}
-            iconBg="bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+            iconBg={`${ENTITY_COLORS.project.bg} ${ENTITY_COLORS.project.icon}`}
             value={counts.projects}
             label={t('workspaces.stat_projects', { count: counts.projects })}
             to={projectsPath}
           />
           <StatCard
             icon={<Database size={18} />}
-            iconBg="bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300"
+            iconBg={`${ENTITY_COLORS.database.bg} ${ENTITY_COLORS.database.icon}`}
             value={counts.databases}
             label={t('workspaces.stat_databases', { count: counts.databases })}
             to={databasesPath}
           />
           <StatCard
             icon={<ArrowRightLeft size={18} />}
-            iconBg="bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+            iconBg={`${ENTITY_COLORS['mapping-project'].bg} ${ENTITY_COLORS['mapping-project'].icon}`}
             value={counts.mappingProjects}
             label={t('workspaces.stat_mapping_projects', { count: counts.mappingProjects })}
             to={mappingPath}
           />
           <StatCard
             icon={<BookOpen size={18} />}
-            iconBg="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+            iconBg={`${ENTITY_COLORS['wiki-page'].bg} ${ENTITY_COLORS['wiki-page'].icon}`}
             value={counts.wikiPages}
             label={t('workspaces.stat_wiki_pages', { count: counts.wikiPages })}
             to={wikiPath}
@@ -394,113 +532,91 @@ function ReadmePreview({ readme, resolveUrls, onViewFull }: { readme: string; re
   )
 }
 
-function RecentEntitiesCard({
-  recentProjects,
-  totalProjects,
-  projectsRaw,
-  onOpenProject,
-  projectsPath,
-  recentMappingProjects,
-  totalMappingProjects,
-  onOpenMappingProject,
-  mappingPath,
-  language,
-}: {
-  recentProjects: RecentProject[]
-  totalProjects: number
-  projectsRaw: { uid: string; status?: ProjectStatus }[]
-  onOpenProject: (uid: string, name: string) => void
-  projectsPath: string
-  recentMappingProjects: RecentMappingProject[]
-  totalMappingProjects: number
-  onOpenMappingProject: (id: string) => void
-  mappingPath: string
-  language: string
-}) {
+/** One entity kind's section in the overview card. */
+interface RecentGroup {
+  key: EntityColorKey
+  icon: LucideIcon
+  titleKey: string
+  listPath: string
+  total: number
+  items: RecentRow[]
+}
+
+/** One row, normalised across entity kinds (name and id are read differently per kind). */
+interface RecentRow {
+  id: string
+  name: string
+  /** Rendered right-aligned: a project's status pill, a mapping project's status, … */
+  badge?: { label: string; className?: string; dotClass?: string }
+  onOpen?: () => void
+  to?: string
+}
+
+function RecentEntitiesCard({ groups }: { groups: RecentGroup[] }) {
   const { t } = useTranslation()
   return (
     <div className="flex min-h-0 flex-col gap-4 overflow-auto rounded-xl border bg-card p-5 shadow-sm">
-      {/* Recent projects */}
-      <section className="shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <FolderOpen size={14} className="text-muted-foreground" />
-            <h3 className="text-sm font-semibold">{t('home.recent_projects')}</h3>
-          </div>
-          {totalProjects > 0 && (
-            <Link
-              to={projectsPath}
-              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-            >
-              {t('home.view_all_projects')}
-              <ArrowRight size={10} />
-            </Link>
-          )}
-        </div>
-        <div className="mt-2 space-y-1">
-          {recentProjects.length > 0 ? (
-            recentProjects.map((project) => {
-              const status = projectsRaw.find((p) => p.uid === project.uid)?.status ?? 'active'
-              return (
-                <button
-                  key={project.uid}
-                  onClick={() => onOpenProject(project.uid, project.name)}
-                  className="flex w-full items-center gap-2 rounded-md bg-muted/50 px-3 py-1.5 text-left transition-colors hover:bg-accent"
+      {groups.map((group) => {
+        const hue = ENTITY_COLORS[group.key]
+        const Icon = group.icon
+        return (
+          <section key={group.key} className="shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Icon size={14} className={hue.icon} />
+                <h3 className="text-sm font-semibold">{t(group.titleKey)}</h3>
+                <span className="text-[10px] tabular-nums text-muted-foreground">{group.total}</span>
+              </div>
+              {group.total > 0 && (
+                <Link
+                  to={group.listPath}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
-                  <FolderOpen size={13} className="shrink-0 text-primary" />
-                  <span className="flex-1 truncate text-xs">{project.name}</span>
-                  <span className={`shrink-0 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${getStatusClasses(status)}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${getStatusDotClass(status)}`} />
-                    {t(`project_settings.status_${status}`)}
-                  </span>
-                </button>
-              )
-            })
-          ) : (
-            <p className="text-xs text-muted-foreground">{t('home.no_recent_projects')}</p>
-          )}
-        </div>
-      </section>
-
-      {/* Recent mapping projects */}
-      <section className="shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ArrowRightLeft size={14} className="text-muted-foreground" />
-            <h3 className="text-sm font-semibold">{t('workspaces.recent_mapping_projects')}</h3>
-          </div>
-          {totalMappingProjects > 0 && (
-            <Link
-              to={mappingPath}
-              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-            >
-              {t('home.view_all_projects')}
-              <ArrowRight size={10} />
-            </Link>
-          )}
-        </div>
-        <div className="mt-2 space-y-1">
-          {recentMappingProjects.length > 0 ? (
-            recentMappingProjects.map((mp) => (
-              <button
-                key={mp.id}
-                onClick={() => onOpenMappingProject(mp.id)}
-                className="flex w-full items-center gap-2 rounded-md bg-muted/50 px-3 py-1.5 text-left transition-colors hover:bg-accent"
-              >
-                <ArrowRightLeft size={13} className="shrink-0 text-primary" />
-                <span className="flex-1 truncate text-xs">{localized(mp.name, language)}</span>
-                {mp.status && (
-                  <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {t(`concept_mapping.project_status_${mp.status}`)}
-                  </span>
-                )}
-              </button>
-            ))
-          ) : (
-            <p className="text-xs text-muted-foreground">{t('home.no_recent_projects')}</p>
-          )}
-        </div>
-      </section>
+                  {t('home.view_all_projects')}
+                  <ArrowRight size={10} />
+                </Link>
+              )}
+            </div>
+            <div className="mt-2 space-y-1">
+              {group.items.length > 0 ? (
+                group.items.map((row) => {
+                  const content = (
+                    <>
+                      <Icon size={13} className={`shrink-0 ${hue.icon}`} />
+                      <span className="flex-1 truncate text-xs">{row.name}</span>
+                      {row.badge && (
+                        <span
+                          className={`shrink-0 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                            row.badge.className ?? 'bg-muted text-muted-foreground'
+                          }`}
+                        >
+                          {row.badge.dotClass && <span className={`h-1.5 w-1.5 rounded-full ${row.badge.dotClass}`} />}
+                          {row.badge.label}
+                        </span>
+                      )}
+                    </>
+                  )
+                  const className =
+                    'flex w-full items-center gap-2 rounded-md bg-muted/50 px-3 py-1.5 text-left transition-colors hover:bg-accent'
+                  return row.to ? (
+                    <Link key={row.id} to={row.to} className={className}>
+                      {content}
+                    </Link>
+                  ) : (
+                    <button key={row.id} onClick={row.onOpen} className={className}>
+                      {content}
+                    </button>
+                  )
+                })
+              ) : (
+                // A plain line, not EmptyState: at three rows per section its 40px icon
+                // would dwarf the content and the card would scroll for empty groups.
+                <p className="text-xs text-muted-foreground">{t('workspaces.overview_group_empty')}</p>
+              )}
+            </div>
+          </section>
+        )
+      })}
     </div>
   )
 }

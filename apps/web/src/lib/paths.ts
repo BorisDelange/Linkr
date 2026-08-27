@@ -91,4 +91,5 @@ export const paths = {
   warehouseDataCatalog: (wsUid: string, catalogId: string) =>
     `${ws(wsUid)}/warehouse/catalog/${shortenId(catalogId)}`,
   wiki: (wsUid: string) => `${ws(wsUid)}/wiki`,
+  plugins: (wsUid: string) => `${ws(wsUid)}/plugins`,
 } as const

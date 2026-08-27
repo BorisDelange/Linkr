@@ -5,8 +5,8 @@
  * The warehouse used to be a single teal, which made a seven-item sidebar group and a
  * mixed catalog grid read as one undifferentiated block. Hues are now spread around the
  * wheel instead, and picked to stay clear of the ones the surrounding chrome already
- * spends — blue (home, summary, projects), violet (catalog, IDE), orange (pipeline,
- * versioning), pink (plugins), slate (settings).
+ * spends — blue (home, summary), violet (catalog, IDE), orange (pipeline, versioning),
+ * slate (settings).
  *
  * Import from here rather than writing `text-teal-500` at a call site: the hue has to
  * match across all three surfaces, and a hand-copied class silently drifts.
@@ -35,6 +35,8 @@ export type EntityColorKey =
   | 'cohorts'
   | 'patient-data'
   | 'project'
+  | 'wiki-page'
+  | 'plugin'
   | 'dataset'
   | 'dashboard'
   | 'report'
@@ -101,6 +103,18 @@ export const ENTITY_COLORS: Record<EntityColorKey, EntityColor> = {
     icon: 'text-blue-600 dark:text-blue-400',
     bg: 'bg-blue-500/10',
     badge: 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400',
+  },
+  // Wiki and plugins are chrome rather than warehouse content, and the hues above
+  // deliberately leave emerald and pink to them.
+  'wiki-page': {
+    icon: 'text-emerald-500',
+    bg: 'bg-emerald-500/10',
+    badge: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  },
+  'plugin': {
+    icon: 'text-pink-500',
+    bg: 'bg-pink-500/10',
+    badge: 'border-pink-500/30 bg-pink-500/10 text-pink-700 dark:text-pink-400',
   },
 
   // ── Lab ──
