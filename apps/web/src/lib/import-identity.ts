@@ -65,11 +65,29 @@ export function resolveByLineage(
   duplicate: boolean,
   mint: MintId = defaultMint,
 ): Resolution {
-  if (duplicate || !candidate.lineageId) return { id: mint(), replaces: null }
-  const match = rows.find(
+  if (duplicate) return { id: mint(), replaces: null }
+  const match = findLineageMatch(rows, candidate, targetWorkspaceId)
+  return match ? { id: match.id, replaces: match.id } : { id: mint(), replaces: null }
+}
+
+/**
+ * The stored row an import would land on, or undefined for a fresh one.
+ *
+ * The same rule `resolveByLineage` decides with, exposed on its own so an
+ * importer can ask the question BEFORE it commits — the standalone list pages
+ * need it to raise the overwrite-or-duplicate prompt. They used to ask
+ * `getById(manifest.id)`, which since exports stopped carrying `id` matched
+ * nothing, so every re-import silently piled up a new copy.
+ */
+export function findLineageMatch<T extends ImportTarget>(
+  rows: T[],
+  candidate: ImportCandidate,
+  targetWorkspaceId: string,
+): T | undefined {
+  if (!candidate.lineageId) return undefined
+  return rows.find(
     (r) => r.lineageId === candidate.lineageId && r.workspaceId === targetWorkspaceId,
   )
-  return match ? { id: match.id, replaces: match.id } : { id: mint(), replaces: null }
 }
 
 /**

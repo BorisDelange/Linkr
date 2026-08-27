@@ -164,9 +164,6 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('sql_scripts.collection_name_placeholder')}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && name.trim()) { e.preventDefault(); handleSubmit() }
-                }}
                 autoFocus
               />
             </div>

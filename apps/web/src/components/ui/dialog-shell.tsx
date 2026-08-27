@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import {
@@ -117,6 +117,38 @@ export function DialogShell({
   const { t } = useTranslation()
 
   /**
+   * One confirm per dialog opening, latched synchronously.
+   *
+   * Callers guard with a `saving` state that they set inside `onConfirm`, but
+   * React state is not visible until the next render: two triggers in the same
+   * tick (Enter reaching both an input's own handler and this shell's, Enter
+   * plus a click, a doubled keypress) both read the pre-save render and both
+   * fire — which created the entity twice. A ref flips before `onConfirm` runs,
+   * so the second call in that tick is dropped.
+   *
+   * Released on close: the same shell instance stays mounted across openings,
+   * and a dialog that stays open after a failed save must stay usable.
+   */
+  const confirming = useRef(false)
+  useEffect(() => {
+    if (!open) confirming.current = false
+  }, [open])
+
+  const confirmOnce = () => {
+    if (!onConfirm || confirming.current) return
+    confirming.current = true
+    try {
+      onConfirm()
+    } finally {
+      // `onConfirm` is void even when async, so there is nothing to await. Hold
+      // the latch past the current task instead: long enough for a `setSaving`
+      // inside it to render and for `busy`/`confirmDisabled` to take over, short
+      // enough that a dialog left open by a failed save stays usable.
+      setTimeout(() => { confirming.current = false }, 0)
+    }
+  }
+
+  /**
    * Enter confirms, the way it does in a native `<form>`. The shell renders no
    * `<form>`, so without this a dialog migrated onto it silently loses
    * Enter-to-submit — type a name in the autofocused field, press Enter, nothing
@@ -137,7 +169,7 @@ export function DialogShell({
     if (el?.tagName === 'TEXTAREA') return
     if (el?.closest('[data-no-enter-submit], form')) return
     e.preventDefault()
-    onConfirm()
+    confirmOnce()
   }
 
   return (
@@ -175,7 +207,7 @@ export function DialogShell({
                 <Button
                   size="sm"
                   variant={destructive ? 'destructive' : 'default'}
-                  onClick={onConfirm}
+                  onClick={confirmOnce}
                   disabled={confirmDisabled || busy}
                   className="gap-1.5"
                 >

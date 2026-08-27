@@ -247,15 +247,7 @@ export function OrganizationsTab() {
         confirmLabel={editingId ? t('common.save') : t('common.create')}
         confirmDisabled={!canSaveNow}
       >
-          <div
-            className="grid gap-3 sm:grid-cols-2"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
-                e.preventDefault()
-                save()
-              }
-            }}
-          >
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>
                 {t('workspaces.field_org_name')}

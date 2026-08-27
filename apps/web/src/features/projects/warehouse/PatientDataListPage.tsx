@@ -287,9 +287,6 @@ export function PatientDataListPage() {
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder={t('patient_data.board_name_placeholder')}
                 className={cn(nameError && 'border-destructive')}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); handleCreate() }
-                }}
                 autoFocus
               />
               {nameError && (

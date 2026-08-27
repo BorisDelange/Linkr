@@ -342,7 +342,6 @@ export function CreateWikiPageDialog({
                 placeholder={t('wiki.page_title_placeholder')}
                 className="h-9 flex-1"
                 autoFocus
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate() } }}
               />
             </div>
           </div>

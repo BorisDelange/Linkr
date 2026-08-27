@@ -17,6 +17,7 @@ import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
 import { buildDataCatalogFolder, parseImportZip, readImportedManifest } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
+import { findLineageMatch, resolveByLineage } from '@/lib/import-identity'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -89,7 +90,15 @@ export function CatalogListPage() {
 
   const doImport = useCallback(async (catalog: DataCatalog, duplicate: boolean) => {
     const now = new Date().toISOString()
-    const id = duplicate ? crypto.randomUUID() : catalog.id
+    // Exports carry no `id` — lineage is what identifies the row a re-import
+    // lands on. `replaces` is the row to clear first; branching on it rather
+    // than on `duplicate` keeps a fresh import from 404ing on a row it never had.
+    const { id, replaces } = resolveByLineage(
+      duplicate ? [] : await getStorage().dataCatalogs.getAll().catch(() => []),
+      catalog,
+      activeWorkspaceId ?? catalog.workspaceId,
+      duplicate,
+    )
     // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
     // persisted — capture it for anchoring, then strip it from the stored config.
     const syncedOid = catalog.gitRemoteConfig?.syncedOid
@@ -105,8 +114,8 @@ export function CatalogListPage() {
       updatedAt: now,
       ...(duplicate ? { createdAt: now } : {}),
     }
-    if (!duplicate) {
-      await getStorage().dataCatalogs.delete(catalog.id).catch(() => {})
+    if (replaces) {
+      await getStorage().dataCatalogs.delete(replaces).catch(() => {})
     }
     await getStorage().dataCatalogs.create(entity)
     // Anchor sync state to the commit we cloned (server-mode git import only): it's
@@ -119,7 +128,7 @@ export function CatalogListPage() {
       } catch { /* leave unanchored — lazy adoption may still catch a clean sync */ }
     }
     await loadCatalogs()
-  }, [activeWorkspaceId, loadCatalogs])
+  }, [activeWorkspaceId, language, loadCatalogs])
 
   /** Duplicate = export to a ZIP and re-import it in duplicate mode, reusing the
    *  import path's cloning rules rather than repeating them here. */
@@ -129,7 +138,7 @@ export function CatalogListPage() {
     const blob = await zip.generateAsync({ type: 'blob' })
     const parsed = await parseImportZip(new File([blob], 'dup.zip'))
     const parsedCatalog = readImportedManifest<DataCatalog>(parsed, 'data-catalog')
-    if (!parsedCatalog?.id) return
+    if (!parsedCatalog) return
     withEntityDocs(parsedCatalog, parsed)
     await doImport(parsedCatalog, true)
   }, [doImport])
@@ -137,19 +146,23 @@ export function CatalogListPage() {
   const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseImportZip(file)
     const catalog = readImportedManifest<DataCatalog>(parsed, 'data-catalog')
-    if (!catalog?.id) return
+    if (!catalog) return
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.
     if (gitRemote) catalog.gitRemoteConfig = gitRemote
     withEntityDocs(catalog, parsed)
-    const existing = await getStorage().dataCatalogs.getById(catalog.id)
+    const existing = findLineageMatch(
+      await getStorage().dataCatalogs.getAll().catch(() => []),
+      catalog,
+      activeWorkspaceId ?? catalog.workspaceId,
+    )
     if (existing) {
       setConflict({ name: localized(existing.name, language), pending: catalog })
     } else {
       await doImport(catalog, false)
     }
-  }, [doImport])
+  }, [activeWorkspaceId, doImport, language])
 
   return (
     <>

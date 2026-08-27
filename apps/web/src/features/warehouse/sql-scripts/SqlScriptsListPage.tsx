@@ -18,6 +18,7 @@ import JSZip from 'jszip'
 import { attachTreeIds, buildSqlCollectionFolder, parseImportZip, readImportedManifest, readImportedTree, reconstructTreeFiles } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import type { TreeImportNode } from '@/lib/entity-io'
+import { findLineageMatch, resolveByLineage } from '@/lib/import-identity'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -90,7 +91,15 @@ export function SqlScriptsListPage() {
 
   const doImport = useCallback(async (collection: SqlScriptCollection, files: TreeImportNode[], duplicate: boolean) => {
     const now = new Date().toISOString()
-    const id = duplicate ? crypto.randomUUID() : collection.id
+    // Exports carry no `id` — lineage is what identifies the row a re-import
+    // lands on. `replaces` is the row to clear first; branching on it rather
+    // than on `duplicate` keeps a fresh import from 404ing on a row it never had.
+    const { id, replaces } = resolveByLineage(
+      duplicate ? [] : await getStorage().sqlScriptCollections.getAll().catch(() => []),
+      collection,
+      activeWorkspaceId ?? collection.workspaceId,
+      duplicate,
+    )
     // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
     // persisted — capture it for anchoring, then strip it from the stored config.
     const syncedOid = collection.gitRemoteConfig?.syncedOid
@@ -106,13 +115,9 @@ export function SqlScriptsListPage() {
       updatedAt: now,
       ...(duplicate ? { createdAt: now } : {}),
     }
-    if (!duplicate) {
-      // Overwrite of an existing collection: clear its files/row first. A fresh
-      // import (git clone of a collection not on this server) has nothing to
-      // clear — the file delete 404s ("Not found") on the missing collection, so
-      // swallow it like the collection delete below.
-      await getStorage().sqlScriptFiles.deleteByCollection(collection.id).catch(() => {})
-      await getStorage().sqlScriptCollections.delete(collection.id).catch(() => {})
+    if (replaces) {
+      await getStorage().sqlScriptFiles.deleteByCollection(replaces).catch(() => {})
+      await getStorage().sqlScriptCollections.delete(replaces).catch(() => {})
     }
     await getStorage().sqlScriptCollections.create(entity)
     // Anchor sync state to the commit we cloned (server-mode git import only): it's
@@ -141,7 +146,7 @@ export function SqlScriptsListPage() {
     const blob = await zip.generateAsync({ type: 'blob' })
     const parsed = await parseImportZip(new File([blob], 'dup.zip'))
     const parsedCollection = readImportedManifest<SqlScriptCollection>(parsed, 'sql-collection', 'collection.json')
-    if (!parsedCollection?.id) return
+    if (!parsedCollection) return
     withEntityDocs(parsedCollection, parsed)
     const { tree, filePrefix } = readImportedTree(parsed, 'files.json')
     const files = reconstructTreeFiles(tree, parsed, filePrefix)
@@ -153,7 +158,7 @@ export function SqlScriptsListPage() {
     // New git-friendly layout (_collection.json + _tree.json + raw files) with a fallback
     // to the legacy layout (collection.json + files.json).
     const collection = readImportedManifest<SqlScriptCollection>(parsed, 'sql-collection', 'collection.json')
-    if (!collection?.id) return
+    if (!collection) return
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.
@@ -161,13 +166,17 @@ export function SqlScriptsListPage() {
     withEntityDocs(collection, parsed)
     const { tree, filePrefix } = readImportedTree(parsed, 'files.json')
     const files = reconstructTreeFiles(tree, parsed, filePrefix)
-    const existing = await getStorage().sqlScriptCollections.getById(collection.id)
+    const existing = findLineageMatch(
+      await getStorage().sqlScriptCollections.getAll().catch(() => []),
+      collection,
+      activeWorkspaceId ?? collection.workspaceId,
+    )
     if (existing) {
       setConflict({ name: localized(existing.name, language), pending: collection, pendingFiles: files })
     } else {
       await doImport(collection, files, false)
     }
-  }, [doImport, language])
+  }, [activeWorkspaceId, doImport, language])
 
   return (
     <>

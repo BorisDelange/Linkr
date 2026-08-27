@@ -20,6 +20,7 @@ import JSZip from 'jszip'
 import { attachTreeIds, buildEtlPipelineFolder, parseImportZip, readImportedManifest, readImportedTree, reconstructTreeFiles } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import type { TreeImportNode } from '@/lib/entity-io'
+import { findLineageMatch, resolveByLineage } from '@/lib/import-identity'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
@@ -97,7 +98,15 @@ export function EtlListPage() {
 
   const doImport = useCallback(async (pipeline: EtlPipeline, files: TreeImportNode[], duplicate: boolean) => {
     const now = new Date().toISOString()
-    const id = duplicate ? crypto.randomUUID() : pipeline.id
+    // Exports carry no `id` — lineage is what identifies the row a re-import
+    // lands on. `replaces` is the row to clear first; branching on it rather
+    // than on `duplicate` keeps a fresh import from 404ing on a row it never had.
+    const { id, replaces } = resolveByLineage(
+      duplicate ? [] : await getStorage().etlPipelines.getAll().catch(() => []),
+      pipeline,
+      activeWorkspaceId ?? pipeline.workspaceId,
+      duplicate,
+    )
     // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
     // persisted — capture it for anchoring, then strip it from the stored config.
     const syncedOid = pipeline.gitRemoteConfig?.syncedOid
@@ -113,12 +122,9 @@ export function EtlListPage() {
       updatedAt: now,
       ...(duplicate ? { createdAt: now } : {}),
     }
-    if (!duplicate) {
-      // Overwrite: delete old children first. A fresh import (git clone of a
-      // pipeline not on this server) has nothing to clear — the file delete 404s
-      // ("Not found") on the missing pipeline, so swallow it like the row delete.
-      await getStorage().etlFiles.deleteByPipeline(pipeline.id).catch(() => {})
-      await getStorage().etlPipelines.delete(pipeline.id).catch(() => {})
+    if (replaces) {
+      await getStorage().etlFiles.deleteByPipeline(replaces).catch(() => {})
+      await getStorage().etlPipelines.delete(replaces).catch(() => {})
     }
     await getStorage().etlPipelines.create(entity)
     // Anchor sync state to the commit we cloned (server-mode git import only): it's
@@ -147,7 +153,7 @@ export function EtlListPage() {
     const blob = await zip.generateAsync({ type: 'blob' })
     const parsed = await parseImportZip(new File([blob], 'dup.zip'))
     const parsedPipeline = readImportedManifest<EtlPipeline>(parsed, 'etl-pipeline', 'pipeline.json')
-    if (!parsedPipeline?.id) return
+    if (!parsedPipeline) return
     withEntityDocs(parsedPipeline, parsed)
     const { tree, filePrefix } = readImportedTree(parsed, 'files.json')
     const files = reconstructTreeFiles(tree, parsed, filePrefix)
@@ -159,7 +165,7 @@ export function EtlListPage() {
     // New git-friendly layout (_pipeline.json + _tree.json + raw files) with a fallback
     // to the legacy layout (pipeline.json + files.json).
     const pipeline = readImportedManifest<EtlPipeline>(parsed, 'etl-pipeline', 'pipeline.json')
-    if (!pipeline?.id) return
+    if (!pipeline) return
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.
@@ -167,7 +173,11 @@ export function EtlListPage() {
     withEntityDocs(pipeline, parsed)
     const { tree, filePrefix } = readImportedTree(parsed, 'files.json')
     const files = reconstructTreeFiles(tree, parsed, filePrefix)
-    const existing = await getStorage().etlPipelines.getById(pipeline.id)
+    const existing = findLineageMatch(
+      await getStorage().etlPipelines.getAll().catch(() => []),
+      pipeline,
+      activeWorkspaceId ?? pipeline.workspaceId,
+    )
     if (existing) {
       setConflict({ name: localized(existing.name, language), pending: pipeline, pendingFiles: files })
     } else {

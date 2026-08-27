@@ -182,13 +182,9 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     // The local id (PK) may need regenerating to avoid a global collision — that's
     // an internal detail, not something to warn about. Cross-instance identity is
     // carried by lineageId, handled below.
-    let projectId: string
-    if (existingId) {
-      projectId = existingId
-    } else {
-      const globalExisting = await getStorage().mappingProjects.getById(project.id)
-      projectId = globalExisting ? crypto.randomUUID() : project.id
-    }
+    // Exports carry no `id` (it was the writing instance's PK), so anything not
+    // landing on a resolved existing row mints its own.
+    const projectId = existingId ?? crypto.randomUUID()
     // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
     // persisted — capture it for anchoring, then strip it from the stored config.
     const syncedOid = project.gitRemoteConfig?.syncedOid
@@ -296,14 +292,16 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const readProjectZip = useCallback(async (file: File): Promise<{ project: MappingProject; children: ImportChildren } | null> => {
     const parsed = await parseImportZip(file)
     const project = readImportedManifest<MappingProject>(parsed, 'project', '_project.json')
-    if (!project?.id) return null
+    if (!project) return null
     withEntityDocs(project, parsed)
     const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
     // Precomputed suggestion scores (optional, large binary — read as bytes, not
     // via parseImportZip which decodes every entry as text and corrupts parquet).
+    // The File's name is inert — importScores binds the parquet to the id it is
+    // given, which is only resolved later, in doImport.
     const scoresBuf = await readBinaryFromImportZip(file, 'similarity-scores.parquet')
     const scoresFile = scoresBuf
-      ? new File([scoresBuf as BlobPart], `${project.id}.parquet`, { type: 'application/octet-stream' })
+      ? new File([scoresBuf as BlobPart], 'similarity-scores.parquet', { type: 'application/octet-stream' })
       : undefined
     const children: ImportChildren = {
       mappings,

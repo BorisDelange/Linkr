@@ -196,9 +196,6 @@ function CreateFromPresetDialog({
                 if (!aliasManuallyEdited) setAlias(generateAlias(e.target.value))
               }}
               placeholder={t('databases.database_name_placeholder')}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim() && selectedPreset) { e.preventDefault(); handleCreate() }
-              }}
             />
           </div>
 

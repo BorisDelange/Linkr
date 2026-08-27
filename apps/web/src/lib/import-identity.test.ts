@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   type ImportTarget,
+  findLineageMatch,
   resolveByLineage,
   resolveChildId,
   resolveWorkspaceId,
@@ -75,6 +76,38 @@ describe('resolveByLineage', () => {
     const rows: ImportTarget[] = [{ id: 'local-abc', workspaceId: WS }]
     const r = resolveByLineage(rows, {}, WS, false, counter())
     expect(r).toEqual({ id: 'minted-1', replaces: null })
+  })
+})
+
+describe('findLineageMatch', () => {
+  it('finds the row a re-import would overwrite, so the caller can prompt first', () => {
+    const rows: ImportTarget[] = [{ id: 'local-abc', lineageId: 'lin-1', workspaceId: WS }]
+    expect(findLineageMatch(rows, { lineageId: 'lin-1' }, WS)?.id).toBe('local-abc')
+  })
+
+  it('agrees with resolveByLineage — a match here is the row that gets replaced', () => {
+    // The prompt and the write must not disagree: offering "overwrite" and then
+    // landing on a different row (or a fresh one) is the bug this pair prevents.
+    const rows: ImportTarget[] = [{ id: 'local-abc', lineageId: 'lin-1', workspaceId: WS }]
+    const candidate = { lineageId: 'lin-1' }
+    expect(findLineageMatch(rows, candidate, WS)?.id)
+      .toBe(resolveByLineage(rows, candidate, WS, false, counter()).replaces)
+  })
+
+  it('ignores the candidate id, like the resolver', () => {
+    // Exports carry no `id`; a match must never hinge on one.
+    const rows: ImportTarget[] = [{ id: 'local-abc', lineageId: 'lin-1', workspaceId: WS }]
+    expect(findLineageMatch(rows, { id: 'local-abc', lineageId: 'lin-other' }, WS)).toBeUndefined()
+  })
+
+  it('never matches across workspaces', () => {
+    const rows: ImportTarget[] = [{ id: 'local-abc', lineageId: 'lin-1', workspaceId: 'ws-other' }]
+    expect(findLineageMatch(rows, { lineageId: 'lin-1' }, WS)).toBeUndefined()
+  })
+
+  it('is not confused by a row whose lineage is undefined', () => {
+    const rows: ImportTarget[] = [{ id: 'local-abc', workspaceId: WS }]
+    expect(findLineageMatch(rows, {}, WS)).toBeUndefined()
   })
 })
 

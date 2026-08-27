@@ -85,7 +85,6 @@ export function SchemaPresetRenameDialog({ item, onOpenChange }: { item: CustomS
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
                 autoFocus
               />
             </div>

@@ -75,7 +75,6 @@ export function DashboardItemEditDialog({
           value={nameValue}
           onChange={(e) => setNameValue(e.target.value)}
           className={`h-8 text-sm ${isDuplicate ? 'border-destructive focus-visible:ring-destructive/40' : ''}`}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
           autoFocus
         />
         {isDuplicate && (

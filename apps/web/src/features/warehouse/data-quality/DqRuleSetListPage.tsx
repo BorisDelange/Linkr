@@ -18,6 +18,7 @@ import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
 import { buildDqRuleSetFolder, parseImportZip, readImportedManifest } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
+import { findLineageMatch, resolveByLineage } from '@/lib/import-identity'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -101,7 +102,15 @@ export function DqRuleSetListPage() {
 
   const doImport = useCallback(async (rs: DqRuleSet, checks: import('@/types').DqCustomCheck[], duplicate: boolean) => {
     const now = new Date().toISOString()
-    const id = duplicate ? crypto.randomUUID() : rs.id
+    // Exports carry no `id` — lineage is what identifies the row a re-import
+    // lands on. `replaces` is the row to clear first; branching on it rather
+    // than on `duplicate` keeps a fresh import from 404ing on a row it never had.
+    const { id, replaces } = resolveByLineage(
+      duplicate ? [] : await getStorage().dqRuleSets.getAll().catch(() => []),
+      rs,
+      activeWorkspaceId ?? rs.workspaceId,
+      duplicate,
+    )
     // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
     // persisted — capture it for anchoring, then strip it from the stored config.
     const syncedOid = rs.gitRemoteConfig?.syncedOid
@@ -117,13 +126,9 @@ export function DqRuleSetListPage() {
       updatedAt: now,
       ...(duplicate ? { createdAt: now } : {}),
     }
-    if (!duplicate) {
-      // Overwrite of an existing rule set: clear its checks/row first. A fresh
-      // import (git clone of a rule set not on this server) has nothing to clear —
-      // the check delete 404s ("Not found") on the missing rule set, so swallow it
-      // like the row delete below.
-      await getStorage().dqCustomChecks.deleteByRuleSet(rs.id).catch(() => {})
-      await getStorage().dqRuleSets.delete(rs.id).catch(() => {})
+    if (replaces) {
+      await getStorage().dqCustomChecks.deleteByRuleSet(replaces).catch(() => {})
+      await getStorage().dqRuleSets.delete(replaces).catch(() => {})
     }
     await getStorage().dqRuleSets.create(entity)
     // Anchor sync state to the commit we cloned (server-mode git import only): it's
@@ -143,7 +148,7 @@ export function DqRuleSetListPage() {
       })
     }
     await loadDqRuleSets()
-  }, [activeWorkspaceId, loadDqRuleSets])
+  }, [activeWorkspaceId, language, loadDqRuleSets])
 
   /** Duplicate = export to a ZIP and re-import it in duplicate mode, reusing the
    *  import path's cloning rules rather than repeating them here. */
@@ -153,7 +158,7 @@ export function DqRuleSetListPage() {
     const blob = await zip.generateAsync({ type: 'blob' })
     const parsed = await parseImportZip(new File([blob], 'dup.zip'))
     const parsedRs = readImportedManifest<DqRuleSet>(parsed, 'dq-rule-set')
-    if (!parsedRs?.id) return
+    if (!parsedRs) return
     withEntityDocs(parsedRs, parsed)
     const checks = (parsed['checks.json'] ?? []) as import('@/types').DqCustomCheck[]
     await doImport(parsedRs, checks, true)
@@ -165,20 +170,24 @@ export function DqRuleSetListPage() {
     // clone. The standalone export used to write `ruleset.json` instead — it now
     // calls the same builder, so there is a single name to read.
     const rs = readImportedManifest<DqRuleSet>(parsed, 'dq-rule-set')
-    if (!rs?.id) return
+    if (!rs) return
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.
     if (gitRemote) rs.gitRemoteConfig = gitRemote
     withEntityDocs(rs, parsed)
     const checks = (parsed['checks.json'] ?? []) as import('@/types').DqCustomCheck[]
-    const existing = await getStorage().dqRuleSets.getById(rs.id)
+    const existing = findLineageMatch(
+      await getStorage().dqRuleSets.getAll().catch(() => []),
+      rs,
+      activeWorkspaceId ?? rs.workspaceId,
+    )
     if (existing) {
       setConflict({ name: localized(existing.name, language), pending: rs, pendingChecks: checks })
     } else {
       await doImport(rs, checks, false)
     }
-  }, [doImport])
+  }, [activeWorkspaceId, doImport, language])
 
   return (
     <>

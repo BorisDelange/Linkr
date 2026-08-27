@@ -70,9 +70,6 @@ export function ConceptListEditDialog({
           placeholder={t('concepts.list_name_placeholder')}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); handleSave() }
-          }}
         />
       </div>
       <div className="space-y-1.5">

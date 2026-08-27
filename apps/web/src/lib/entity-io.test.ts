@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, reassemblePresetMapping, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, reassemblePresetMapping, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/features/warehouse/etl/etl-versioning'
-import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset } from '@/types'
+import { findLineageMatch, resolveByLineage } from '@/lib/import-identity'
+import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset, SqlScriptCollection, SqlScriptFile } from '@/types'
 import type { Storage } from '@/lib/storage'
 
 const serverMode = vi.hoisted(() => ({ value: false }))
@@ -2257,6 +2258,59 @@ describe('readImportedManifest / readImportedTree', () => {
   it('returns undefined rather than guessing when nothing matches', () => {
     expect(readImportedManifest({}, 'etl-pipeline')).toBeUndefined()
     expect(readImportedTree({})).toEqual({ tree: undefined, filePrefix: '' })
+  })
+})
+
+/**
+ * Duplicate = export to a ZIP and re-import it in duplicate mode, so this round
+ * trip IS the duplicate button on every standalone entity page.
+ *
+ * It regressed once already: when `id` left the manifest, the importers still
+ * bailed on `!manifest.id`, and Duplicate silently did nothing. The assertions
+ * below pin both halves of what replaced it — no `id` in the tree, lineage
+ * carrying the identity instead.
+ */
+describe('SQL collection export → import round trip (the duplicate path)', () => {
+  const collection = {
+    id: 'local-1', entityId: 'icu-scripts', workspaceId: 'ws-1',
+    name: { en: 'ICU scripts' }, description: { en: '' },
+    lineageId: 'lin-1', version: '0.1.0',
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  } as unknown as SqlScriptCollection
+
+  const files = [
+    { id: 'f1', collectionId: 'local-1', name: 'a.sql', type: 'file', parentId: null, content: 'select 1', order: 0 },
+  ] as unknown as SqlScriptFile[]
+
+  const storage = { sqlScriptFiles: { getByCollection: async () => files } } as never
+
+  const exportThenParse = async () => {
+    const zip = new JSZip()
+    await buildSqlCollectionFolder(zip, '', collection, storage)
+    return parseImportZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File)
+  }
+
+  it('writes no local id, and keeps the lineage that replaced it', async () => {
+    const manifest = readImportedManifest<SqlScriptCollection>(await exportThenParse(), 'sql-collection', 'collection.json')
+    expect(manifest).toBeTruthy()
+    expect(manifest!.id).toBeUndefined()
+    expect(manifest!.lineageId).toBe('lin-1')
+  })
+
+  it('re-keys the scripts onto the copy, content intact', async () => {
+    const parsed = await exportThenParse()
+    const { tree, filePrefix } = readImportedTree(parsed, 'files.json')
+    const attached = attachTreeIds<SqlScriptFile>(reconstructTreeFiles(tree, parsed, filePrefix), 'copy-1', 'collectionId')
+    expect(attached.length).toBeGreaterThan(0)
+    expect(attached.every((f) => f.collectionId === 'copy-1')).toBe(true)
+    expect(attached.some((f) => f.content === 'select 1')).toBe(true)
+  })
+
+  it('a duplicate mints, while a plain re-import lands on the source row', async () => {
+    const manifest = readImportedManifest<SqlScriptCollection>(await exportThenParse(), 'sql-collection', 'collection.json')!
+    expect(resolveByLineage([collection], manifest, 'ws-1', true, () => 'minted'))
+      .toEqual({ id: 'minted', replaces: null })
+    expect(findLineageMatch([collection], manifest, 'ws-1')?.id).toBe('local-1')
   })
 })
 

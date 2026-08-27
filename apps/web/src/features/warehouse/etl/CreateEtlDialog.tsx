@@ -167,9 +167,6 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('etl.pipeline_name_placeholder')}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && name.trim()) { e.preventDefault(); handleSubmit() }
-                }}
               />
             </div>
             <EntityIdField

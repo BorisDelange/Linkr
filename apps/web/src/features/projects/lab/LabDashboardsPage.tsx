@@ -260,7 +260,6 @@ export function LabDashboardsPage() {
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder={t('dashboard.field_name_placeholder')}
                 className={cn(nameError && 'border-destructive')}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate() } }}
                 autoFocus
               />
               {nameError && (
