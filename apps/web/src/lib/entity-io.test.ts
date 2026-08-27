@@ -1322,6 +1322,25 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(linked.find(l => l.type === 'data-catalog')).toMatchObject({ url: GIT.url, branch: 'main' })
   })
 
+  it('gives every linked entity a DISTINCT id, so the caller cannot collapse them onto one', async () => {
+    // Pointers carry no local `id`. Keying on it made every linked entity of a
+    // kind report `undefined`, the import's idMap kept only the last, and each
+    // clone then retargeted onto that single id: one entity received all the
+    // repos' content and the rest imported empty.
+    const zip = await exportZip({
+      catalogs: [
+        CATALOG({ id: 'c1', entityId: 'catalog-one', name: { en: 'One' }, gitRemoteConfig: GIT }),
+        CATALOG({ id: 'c2', entityId: 'catalog-two', name: { en: 'Two' }, gitRemoteConfig: { ...GIT, url: `${GIT.url}2` } }),
+      ],
+    })
+    const file = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const linked = collectGitLinkedEntities((await parseWorkspaceZip(file))!)
+      .filter(l => l.type === 'data-catalog')
+    expect(linked).toHaveLength(2)
+    expect(new Set(linked.map(l => l.id)).size).toBe(2)
+    expect(linked.every(l => l.id)).toBe(true)
+  })
+
   it('applyClonedEntity restores each type from its own repo layout', async () => {
     const calls: Record<string, unknown[][]> = {}
     const rec = (name: string) => (...args: unknown[]) => { (calls[name] ??= []).push(args); return Promise.resolve() }

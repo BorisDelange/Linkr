@@ -3921,18 +3921,25 @@ export interface GitLinkedEntity {
  */
 export function collectGitLinkedEntities(parsed: ParsedWorkspaceZip): GitLinkedEntity[] {
   const out: GitLinkedEntity[] = []
-  const push = (type: GitLinkedEntity['type'], id: string, name: string, cfg?: GitRemoteConfig) => {
-    if (cfg?.url) out.push({ type, id, name, url: cfg.url, branch: cfg.branch || 'main' })
+  // Every kind keys on `entityId` before its local `id`, and that order is the
+  // whole point: a git-linked entity exports as a POINTER, which carries no
+  // local key at all. Keying on `id` yielded `undefined` for precisely the
+  // entities this list exists to clone — so the caller's idMap collapsed all of
+  // them onto one entry, and each clone retargeted onto whichever id was
+  // written last. Seven mapping projects imported; one received all seven
+  // repos' content and six landed empty.
+  const push = (type: GitLinkedEntity['type'], id: string | undefined, name: string, cfg?: GitRemoteConfig) => {
+    if (cfg?.url && id) out.push({ type, id, name, url: cfg.url, branch: cfg.branch || 'main' })
   }
   for (const e of parsed.projectEntries) {
     push('project', e.project.uid, resolveProjectName(e.project), resolveGitRemote(e.project) ?? undefined)
   }
-  for (const { collection } of parsed.sqlCollections) push('sql-collection', collection.id, localized(collection.name, 'en'), resolveGitRemote(collection) ?? undefined)
-  for (const { pipeline } of parsed.etlPipelines) push('etl-pipeline', pipeline.id, localized(pipeline.name, 'en'), resolveGitRemote(pipeline) ?? undefined)
-  for (const { project } of parsed.mappingProjects) push('mapping-project', project.id, localized(project.name, 'en'), resolveGitRemote(project) ?? undefined)
-  for (const cat of parsed.catalogs) push('data-catalog', cat.id, localized(cat.name, 'en'), resolveGitRemote(cat) ?? undefined)
-  for (const { ruleSet } of parsed.dqRuleSets) push('dq-rule-set', ruleSet.id, localized(ruleSet.name, 'en'), resolveGitRemote(ruleSet) ?? undefined)
-  for (const sp of parsed.schemas) push('schema-preset', sp.id ?? sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.entityId || sp.presetId || sp.id, resolveGitRemote(sp) ?? undefined)
+  for (const { collection } of parsed.sqlCollections) push('sql-collection', collection.entityId ?? collection.id, localized(collection.name, 'en'), resolveGitRemote(collection) ?? undefined)
+  for (const { pipeline } of parsed.etlPipelines) push('etl-pipeline', pipeline.entityId ?? pipeline.id, localized(pipeline.name, 'en'), resolveGitRemote(pipeline) ?? undefined)
+  for (const { project } of parsed.mappingProjects) push('mapping-project', project.entityId ?? project.id, localized(project.name, 'en'), resolveGitRemote(project) ?? undefined)
+  for (const cat of parsed.catalogs) push('data-catalog', cat.entityId ?? cat.id, localized(cat.name, 'en'), resolveGitRemote(cat) ?? undefined)
+  for (const { ruleSet } of parsed.dqRuleSets) push('dq-rule-set', ruleSet.entityId ?? ruleSet.id, localized(ruleSet.name, 'en'), resolveGitRemote(ruleSet) ?? undefined)
+  for (const sp of parsed.schemas) push('schema-preset', sp.entityId ?? sp.id ?? sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.entityId || sp.presetId || sp.id, resolveGitRemote(sp) ?? undefined)
   // Databases were the one declared type never collected here, so a linked one
   // was imported but its repo never cloned.
   for (const ds of parsed.databases) {

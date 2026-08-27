@@ -510,7 +510,10 @@ export function WorkspacesPage() {
       // name for it and is optional, so it cannot stand alone here.
       const sourceSlug = sp.entityId ?? sp.presetId ?? sp.id
       const presetId = duplicate ? mintEntityId() : sourceSlug
-      idMap.set(`schema-preset:${sourceSlug}`, presetId)
+      // The row's PK is `id` (minted below), not the slug — and that is what a
+      // later clone must address, since save() puts to /schema-presets/{id}.
+      const localId = duplicate ? crypto.randomUUID() : (sp.id ?? crypto.randomUUID())
+      idMap.set(`schema-preset:${sourceSlug}`, localId)
       if (!duplicate) await storage.schemaPresets.delete(sourceSlug).catch(() => {})
       // `mapping.presetId` follows the entity id: a ZIP import reads it back as
       // the entity id and deletes whatever holds it, so letting the two drift
@@ -520,7 +523,7 @@ export function WorkspacesPage() {
         presetId,
         // A duplicate is a new row, so it takes a new local key; a move keeps
         // the one it had. `entityId` follows the readable id either way.
-        id: duplicate ? crypto.randomUUID() : (sp.id ?? crypto.randomUUID()),
+        id: localId,
         entityId: duplicate ? presetId : (sp.entityId ?? presetId),
         // A git-linked preset exports as a POINTER, which carries its name at the
         // root and has no `mapping` at all — so spreading `sp.mapping` left the row
@@ -614,7 +617,7 @@ export function WorkspacesPage() {
     }
     for (const { collection, files } of parsed.sqlCollections) {
       const { id, replaces } = await resolveByLineage(() => storage.sqlScriptCollections.getAll(), collection)
-      idMap.set(`sql-collection:${collection.id}`, id)
+      idMap.set(`sql-collection:${collection.entityId ?? collection.id}`, id)
       if (replaces) {
         await storage.sqlScriptFiles.deleteByCollection(replaces).catch(() => {})
         await storage.sqlScriptCollections.delete(replaces).catch(() => {})
@@ -644,7 +647,7 @@ export function WorkspacesPage() {
     }
     for (const { pipeline, files, attachments } of parsed.etlPipelines) {
       const { id, replaces } = await resolveByLineage(() => storage.etlPipelines.getAll(), pipeline)
-      idMap.set(`etl-pipeline:${pipeline.id}`, id)
+      idMap.set(`etl-pipeline:${pipeline.entityId ?? pipeline.id}`, id)
       if (replaces) {
         await storage.etlFiles.deleteByPipeline(replaces).catch(() => {})
         await storage.etlPipelines.delete(replaces).catch(() => {})
@@ -671,7 +674,7 @@ export function WorkspacesPage() {
     }
     for (const { ruleSet, checks } of parsed.dqRuleSets) {
       const { id, replaces } = await resolveByLineage(() => storage.dqRuleSets.getAll(), ruleSet)
-      idMap.set(`dq-rule-set:${ruleSet.id}`, id)
+      idMap.set(`dq-rule-set:${ruleSet.entityId ?? ruleSet.id}`, id)
       if (replaces) {
         await storage.dqCustomChecks.deleteByRuleSet(replaces).catch(() => {})
         await storage.dqRuleSets.delete(replaces).catch(() => {})
@@ -713,7 +716,12 @@ export function WorkspacesPage() {
       const reportEvery = Math.max(1, Math.floor(totalMappings / 100)) // ~100 UI updates max
       for (const { project: mp, mappings, scoresFile } of parsed.mappingProjects) {
         const { id, replaces } = await resolveByLineage(() => storage.mappingProjects.getAll(), mp)
-        idMap.set(`mapping-project:${mp.id}`, id)
+        // Keyed on the identity the manifest actually carries. A git-linked
+        // project exports as a pointer with no `id`, so every one of them keyed
+        // this map at "mapping-project:undefined": each overwrote the last, and
+        // all their clones then retargeted onto the single surviving id — six
+        // projects imported empty while one received everyone's content.
+        idMap.set(`mapping-project:${mp.entityId ?? mp.id}`, id)
         // The mappings' own ids are namespaced by the project id, so they must be
         // re-minted whenever this import did not land on the row it replaces.
         const remintMappings = !replaces
@@ -798,7 +806,7 @@ export function WorkspacesPage() {
     }
     for (const cat of parsed.catalogs) {
       const { id, replaces } = await resolveByLineage(() => storage.dataCatalogs.getAll(), cat)
-      idMap.set(`data-catalog:${cat.id}`, id)
+      idMap.set(`data-catalog:${cat.entityId ?? cat.id}`, id)
       if (replaces) await storage.dataCatalogs.delete(replaces).catch(() => {})
       await storage.dataCatalogs.create({
         ...cat, id, workspaceId: targetWsId, updatedAt: now,
