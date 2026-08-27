@@ -11,16 +11,21 @@ import time (no hash → disabled), not transported in the file.
 
 Keys are camelCase to match the browser's entity-io format (the same files are
 parsed client-side): the import path reads them regardless of who wrote the ZIP.
+
+Field order in each ``_*_dict`` below is the order that reaches the file, and is
+meant to read naturally to whoever opens the diff. It used to be sorted
+alphabetically by a private serializer that shadowed ``export_json``, which
+scattered a user's name across the record; the shared serializer never sorts.
 """
 import asyncio
 import io
-import json
 import zipfile
 from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.json_export import export_json
 from app.models.organization import Organization
 from app.models.role import Role
 from app.models.user import User
@@ -63,15 +68,17 @@ def _org_dict(o: Organization) -> dict:
 def _user_dict(u: User) -> dict:
     # NO passwordHash, NO isActive, NO auth/session fields, NO updatedAt. Only the
     # profile a human would otherwise re-type by hand, plus createdAt provenance.
+    # Ordered as a human reads a profile — who they are, then what describes
+    # them — not alphabetically. See _json: these files are never key-sorted.
     return {
         "username": u.username,
-        "email": u.email,
+        "role": u.role,
         "firstName": u.first_name,
         "lastName": u.last_name,
-        "affiliation": u.affiliation,
+        "email": u.email,
         "profession": u.profession,
         "orcid": u.orcid,
-        "role": u.role,
+        "affiliation": u.affiliation,
         "createdAt": _iso(u.created_at),
     }
 
@@ -88,7 +95,7 @@ def _role_dict(r: Role) -> dict:
 
 
 def _json(data: object) -> bytes:
-    return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+    return export_json(data)
 
 
 async def build_settings_tree(

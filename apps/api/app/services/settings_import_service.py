@@ -123,6 +123,16 @@ async def _import_roles(db: AsyncSession, rows: list[dict], report: SettingsImpo
             existing.label = row.get("label") or existing.label
             existing.scope = row.get("scope") or existing.scope
             existing.permissions = perms
+            # Roles match by NAME, so the row we just found may be a code-seeded
+            # placeholder (seed_default_roles runs at first startup, before any
+            # import) whose date is this instance's install time, not provenance.
+            # Take the file's date in that case — otherwise every imported role
+            # reads as created at install. A role a human actually made here keeps
+            # its own date, like orgs and users do.
+            if existing.is_system:
+                created = _created_at_kwarg(row)
+                if created:
+                    existing.created_at = created["created_at"]
             report.roles_updated += 1
 
 

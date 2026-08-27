@@ -92,6 +92,44 @@ async def test_import_preserves_createdat_on_new_records(db):
     assert role.created_at.isoformat() == "2020-03-04T05:06:07"
 
 
+async def test_import_takes_file_createdat_for_seeded_system_roles(db):
+    """A system role already exists before any import (seed_default_roles runs at
+    first startup), so the import matches it by name and takes the update branch.
+    Its date is this instance's install time, not provenance — the file's wins."""
+    db.add(Role(name="admin", label={"en": "Admin"}, scope="workspace", is_system=True, permissions=[]))
+    db.add(Role(name="curator", label={"en": "Curator"}, scope="workspace", is_system=False, permissions=[]))
+    await db.commit()
+    local_curator_date = (
+        await db.scalar(select(Role).where(Role.name == "curator"))
+    ).created_at.isoformat()
+
+    await settings_import_service.import_settings_tree(
+        db,
+        _tree(roles=[
+            {"name": "admin", "createdAt": "2020-03-04T05:06:07"},
+            {"name": "curator", "createdAt": "2020-03-04T05:06:07"},
+        ]),
+    )
+
+    admin = await db.scalar(select(Role).where(Role.name == "admin"))
+    assert admin.created_at.isoformat() == "2020-03-04T05:06:07"
+    # A role a human made on THIS instance keeps its own date, like orgs/users.
+    curator = await db.scalar(select(Role).where(Role.name == "curator"))
+    assert curator.created_at.isoformat() == local_curator_date
+
+
+async def test_export_keys_follow_authored_order(db):
+    """The files are written in the order the dicts declare — a profile reads as a
+    profile. A private serializer once sorted them alphabetically instead."""
+    await _seed(db)
+    tree = await build_settings_tree(db, SettingsSelection())
+    user = json.loads(tree["users.json"].decode())[0]
+    assert list(user) == [
+        "username", "role", "firstName", "lastName", "email",
+        "profession", "orcid", "affiliation", "createdAt",
+    ]
+
+
 async def test_export_omits_unchecked_entities(db):
     await _seed(db)
     tree = await build_settings_tree(
