@@ -77,6 +77,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { localized } from '@/lib/localized'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { CATEGORIES, SEVERITIES, CATEGORY_COLORS } from './DqConstants'
 import type { DqCustomCheck } from '@/types'
 
@@ -128,11 +129,17 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     (id: string) => !!disabledCheckIds?.includes(id),
     [disabledCheckIds],
   )
+  const ruleSetWorkspaceId = useDqStore(
+    (s) => s.dqRuleSets.find((rs) => rs.id === ruleSetId)?.workspaceId,
+  )
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+  // Resolving the CURRENT database stays unscoped, so one selected earlier is
+  // still nameable; only what the picker OFFERS is scoped to the rule set's
+  // own workspace.
   const activeSource = dataSources.find((ds) => ds.id === dataSourceId)
   const updateRuleSet = useDqStore((s) => s.updateRuleSet)
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
+  const dbSources = useDatabaseOptions(ruleSetWorkspaceId)
 
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [sidebarFilter, setSidebarFilter] = useState<SidebarFilter>('all')

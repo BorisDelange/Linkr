@@ -76,6 +76,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useEtlStore } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { isServerMode } from '@/lib/api-client'
@@ -134,11 +135,12 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
     updatePipeline,
   } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  // Databases a pipeline can read from or write to: a vocabulary reference is
-  // neither, so it never appears in the source/target pickers.
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
+  // Offered databases are scoped to the pipeline's OWN workspace. Resolving the
+  // already-linked source/target below is deliberately not: a database that was
+  // linked before must stay nameable even if it no longer qualifies.
+  const dbSources = useDatabaseOptions(pipeline?.workspaceId)
   const sourceDs = dataSources.find((ds) => ds.id === pipeline?.sourceDataSourceId)
   const targetDs = dataSources.find((ds) => ds.id === pipeline?.targetDataSourceId)
 

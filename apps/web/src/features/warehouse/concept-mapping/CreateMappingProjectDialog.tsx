@@ -37,7 +37,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { useDataSourceStore } from '@/stores/data-source-store'
+import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { VersionField } from '@/components/ui/version-field'
@@ -91,7 +91,7 @@ export function CreateMappingProjectDialog({
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const { activeWorkspaceId } = useWorkspaceStore()
-  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const workspaceDatabases = useDatabaseOptions(activeWorkspaceId)
   const { createMappingProject, updateMappingProject, reconcileMappingsToFile } = useConceptMappingStore()
 
   // --- Common fields ---
@@ -222,9 +222,7 @@ export function CreateMappingProjectDialog({
     return () => clearTimeout(id)
   }, [open])
 
-  const connectedDatabases = dataSources.filter(
-    (ds) => ds.sourceType === 'database' && ds.status === 'connected' && !ds.isVocabularyReference,
-  )
+  const connectedDatabases = workspaceDatabases.filter((ds) => ds.status === 'connected')
 
   // --- File parsing ---
   const isCSVLike = useCallback((f: File) => {

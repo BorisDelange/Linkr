@@ -19,7 +19,7 @@ import { VersionField } from '@/components/ui/version-field'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { RequiredMark } from '@/components/ui/required-mark'
-import { useDataSourceStore } from '@/stores/data-source-store'
+import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
@@ -35,7 +35,6 @@ interface Props {
 
 export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingCollection }: Props) {
   const { t } = useTranslation()
-  const dataSources = useDataSourceStore((s) => s.dataSources)
   const { activeWorkspaceId } = useWorkspaceStore()
   const { createCollection, updateCollection } = useSqlScriptsStore()
   const language = useAppStore((s) => s.language)
@@ -75,7 +74,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
     }
   }, [open, editingCollection, language])
 
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
+  const dbSources = useDatabaseOptions(activeWorkspaceId)
 
   const handleSubmit = async () => {
     if (!name.trim() || !activeWorkspaceId) return

@@ -21,7 +21,7 @@ import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { useSaveForm } from '@/hooks/use-save-form'
-import { useDataSourceStore } from '@/stores/data-source-store'
+import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDqStore } from '@/stores/dq-store'
 import type { DqRuleSet, ProjectBadge } from '@/types'
@@ -37,9 +37,8 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const { activeWorkspaceId } = useWorkspaceStore()
-  const dataSources = useDataSourceStore((s) => s.dataSources)
   const { createRuleSet, updateRuleSet } = useDqStore()
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
+  const dbSources = useDatabaseOptions(activeWorkspaceId)
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')

@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
-import { useDataSourceStore } from '@/stores/data-source-store'
+import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
@@ -36,7 +36,6 @@ interface Props {
 
 export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline }: Props) {
   const { t } = useTranslation()
-  const dataSources = useDataSourceStore((s) => s.dataSources)
   const { activeWorkspaceId } = useWorkspaceStore()
   const { createPipeline, updatePipeline } = useEtlStore()
   const language = useAppStore((s) => s.language)
@@ -77,7 +76,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
     }
   }, [open, editingPipeline, language])
 
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
+  const dbSources = useDatabaseOptions(activeWorkspaceId)
 
   const handleSubmit = async () => {
     if (!name.trim() || !activeWorkspaceId) return

@@ -72,6 +72,7 @@ import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { useSqlScriptsStore, type SqlOutputTab, type SqlExecutionResult } from '@/stores/sql-scripts-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { SqlScriptsFileTree } from './SqlScriptsFileTree'
@@ -212,10 +213,13 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   const hasOutput = outputTabs.length > 0 || executionResults.length > 0
 
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
+  const dbSources = useDatabaseOptions(collection?.workspaceId)
 
   const activeDbId = collection?.defaultDataSourceId ?? null
-  const activeDb = activeDbId ? dbSources.find((ds) => ds.id === activeDbId) : undefined
+  // Looked up in the full list, not in `dbSources`: the picker is scoped to the
+  // collection's workspace, but a database chosen before must stay resolvable
+  // (and mountable) rather than silently reading as "none selected".
+  const activeDb = activeDbId ? dataSources.find((ds) => ds.id === activeDbId) : undefined
 
   // Mount the active database
   useEffect(() => {

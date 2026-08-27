@@ -37,7 +37,7 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { localized } from '@/lib/localized'
 import { useCatalogStore } from '@/stores/catalog-store'
-import { useDataSourceStore } from '@/stores/data-source-store'
+import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useCatalogActions } from './use-catalog-actions'
@@ -366,10 +366,7 @@ function CatalogSourceCard({ catalog }: { catalog: DataCatalog }) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('catalog:write')
   const updateCatalog = useCatalogStore((s) => s.updateCatalog)
-  const dataSources = useDataSourceStore((s) => s.dataSources)
-  const dbSources = dataSources.filter(
-    (ds) => ds.sourceType === 'database' && !ds.isVocabularyReference,
-  )
+  const dbSources = useDatabaseOptions(catalog.workspaceId)
   const hasResults = catalog.status === 'success' || catalog.status === 'error'
 
   return (
