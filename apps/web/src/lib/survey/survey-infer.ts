@@ -215,22 +215,47 @@ export function inferSurveySchema(
   const questions: SurveyQuestion[] = []
   const choiceLists: Record<string, SurveyChoice[]> = {}
 
+  /**
+   * Question names and choice-list keys share one namespace, and a one-hot group
+   * is named after its PARENT while a plain column is named after its own id — so
+   * a radio `usi` beside checkboxes `usi___a` / `usi___b` (the ordinary REDCap
+   * shape) collides on `usi`. Unqualified, the second write erased the group's
+   * choices and emitted two questions under one name: the widget then charted the
+   * wrong options with every bar at zero.
+   */
+  const takenNames = new Set<string>()
+  const uniqueName = (base: string): string => {
+    if (!takenNames.has(base)) {
+      takenNames.add(base)
+      return base
+    }
+    let i = 2
+    while (takenNames.has(`${base}_${i}`)) i++
+    const name = `${base}_${i}`
+    takenNames.add(name)
+    return name
+  }
+
   for (const [parent, members] of groups) {
     // A single member is not a choice list — it is just a dotted column name.
     if (members.length < 2) continue
     if (!members.every((m) => looksBinary(m.column, rows))) continue
 
+    // The group is declared first, so it keeps the unqualified parent name; a
+    // plain column of the same name is the one that gets suffixed below.
+    const name = uniqueName(parent)
+
     // The importers put the option text in the one-hot column's own label.
-    choiceLists[parent] = members.map(({ column, code }) => ({
+    choiceLists[name] = members.map(({ column, code }) => ({
       name: code,
       label: { und: column.label ?? code },
     }))
     for (const m of members) consumed.add(m.column.id)
 
     questions.push({
-      name: parent,
+      name,
       kind: 'select_multiple',
-      listName: parent,
+      listName: name,
       // All members share the parent question, carried as their description.
       label: { und: members[0].column.description ?? humanizeName(parent) },
       shortLabel: humanizeName(parent),
@@ -246,11 +271,12 @@ export function inferSurveySchema(
     if (consumed.has(column.id)) continue
     if (isSystemColumn(column.name)) continue
     const { kind, measure, choices } = inferSingleType(column, rows, maxCategories)
-    if (choices) choiceLists[column.id] = choices
+    const name = uniqueName(column.id)
+    if (choices) choiceLists[name] = choices
     questions.push({
-      name: column.id,
+      name,
       kind,
-      ...(choices ? { listName: column.id } : {}),
+      ...(choices ? { listName: name } : {}),
       // The importers store the full question in `description` and a short name
       // in `label`; fall back to the column name when neither is set.
       label: { und: column.description ?? column.label ?? column.name },

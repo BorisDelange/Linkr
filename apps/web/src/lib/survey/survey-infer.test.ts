@@ -170,6 +170,36 @@ describe('inferSurveySchema — housekeeping', () => {
     const schema = inferSurveySchema(columns, [])
     expect(schema.questions.every((q) => q.kind !== 'select_multiple')).toBe(true)
   })
+
+  /**
+   * Regression: a radio named after a checkbox group's parent is the ordinary
+   * REDCap shape, and both used to be filed under the bare parent name — so the
+   * plain column's write erased the group's choice list (leaving it undefined)
+   * and two questions shared one name. The widget picks by column, so selecting a
+   * checkbox charted the radio's options with every bar at zero.
+   */
+  it('keeps a group and a same-named plain column apart', () => {
+    const columns = [
+      col('usi', 'string', { label: 'USI principale' }),
+      col('usi___usic', 'number', { label: 'Cardiologie' }),
+      col('usi___usinv', 'number', { label: 'Neuro-vasculaire' }),
+    ]
+    const rows = [
+      { usi: 'cardio', usi___usic: 1, usi___usinv: 0 },
+      { usi: 'neuro', usi___usic: 1, usi___usinv: 1 },
+    ]
+    const schema = inferSurveySchema(columns, rows)
+
+    const names = schema.questions.map((q) => q.name)
+    expect(new Set(names).size).toBe(names.length)
+
+    const group = schema.questions.find((q) => q.kind === 'select_multiple')!
+    const plain = schema.questions.find((q) => q.binding.kind === 'single_column')!
+    // The group is declared first, so it keeps the unqualified name.
+    expect(group.name).toBe('usi')
+    expect(questionChoices(schema, group).map((c) => c.name)).toEqual(['usic', 'usinv'])
+    expect(questionChoices(schema, plain).map((c) => c.name)).toEqual(['cardio', 'neuro'])
+  })
 })
 
 describe('yes/no questions, however each side spells them', () => {
