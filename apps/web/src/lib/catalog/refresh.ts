@@ -42,7 +42,9 @@ export async function refreshStoresAfterInstall(
         useDqStore.getState().loadDqRuleSets(),
         useCatalogStore.getState().loadCatalogs(),
         useDataSourceStore.getState().loadDataSources(),
-        useSchemaPresetStore.getState().loadPresets(),
+        // Scoped: an unscoped load pulls every workspace's presets into the store,
+        // which the database dialogs then offer as this workspace's own.
+        useSchemaPresetStore.getState().loadPresets(workspaceId),
       )
       await clearProjectScopedMarkers()
       break

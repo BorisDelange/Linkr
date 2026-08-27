@@ -93,7 +93,13 @@ export function useCatalogInstall(
         }
         // Cloned rows land straight in storage, so any store already holding a list of
         // this entity type is stale until reloaded.
-        await refreshStoresAfterInstall(prepared.entry.type, workspaceId)
+        // A workspace install has no target workspace — the one it just created
+        // IS the scope, and passing the empty target would reload every
+        // workspace's presets into the store.
+        await refreshStoresAfterInstall(
+          prepared.entry.type,
+          prepared.entry.type === 'workspace' ? (result.id ?? workspaceId) : workspaceId,
+        )
         // Installed, but not whole: a workspace whose children could not be cloned
         // arrives as a set of empty entities, and saying nothing read as success.
         if (result.warning) {

@@ -77,19 +77,19 @@ function CreateFromPresetDialog({
   const [creating, setCreating] = useState(false)
 
   const loadPresets = useCallback(async () => {
+    if (!wsUid) return
     try {
-      const presets = wsUid
-        ? await getStorage().schemaPresets.getByWorkspace(wsUid)
-        : await getStorage().schemaPresets.getAll()
-      setCustomPresets(presets)
+      setCustomPresets(await getStorage().schemaPresets.getByWorkspace(wsUid))
     } catch {
       // IDB not ready
     }
   }, [wsUid])
 
+  // Guarded on wsUid: it resolves a prefix through the workspace store, so it is
+  // undefined on a cold load and the old fallback listed every workspace's presets.
   useEffect(() => {
-    if (open) loadPresets()
-  }, [open, loadPresets])
+    if (open && wsUid) loadPresets()
+  }, [open, wsUid, loadPresets])
 
   // Only the schemas the workspace actually holds — the same list the Schemas
   // page shows. Offering the built-ins on top listed schemas that are not in

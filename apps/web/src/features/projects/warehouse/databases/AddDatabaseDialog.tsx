@@ -97,6 +97,19 @@ const sourceTypes: {
   },
 ]
 
+/**
+ * A custom preset's key in this dialog's schema dropdown.
+ *
+ * `id ?? presetId`, the same key SchemaPresetsPage uses — `presetId` stopped
+ * being the key when presets gained a separate identity (see
+ * docs/planning/schema-preset-identity-plan.md). The option value and the lookup
+ * that reads it back must agree, or a preset installed from the catalog (where
+ * id, entityId and presetId all differ) selects but resolves to no mapping.
+ */
+function presetKey(p: CustomSchemaPreset): string {
+  return p.id ?? p.presetId
+}
+
 const SIZE_WARNING_THRESHOLD = 500_000_000 // 500 MB
 const SIZE_DANGER_THRESHOLD = 2_000_000_000 // 2 GB
 
@@ -134,12 +147,18 @@ export function AddDatabaseDialog({
 
   const isEditMode = !!editingSource
 
-  // Load custom presets from IDB
+  // Wait for the workspace to resolve before loading. `wsUid` is undefined on the
+  // first render of a cold load (it resolves a prefix through the workspace store),
+  // and the old fallback fetched EVERY workspace's presets — which then raced the
+  // scoped fetch that followed, so the dropdown could keep offering another
+  // workspace's schemas. Same guard as SchemaPresetsPage.
   useEffect(() => {
-    const loader = wsUid
-      ? getStorage().schemaPresets.getByWorkspace(wsUid)
-      : getStorage().schemaPresets.getAll()
-    loader.then(setCustomPresets).catch(() => {})
+    if (!open || !wsUid) return
+    let cancelled = false
+    getStorage().schemaPresets.getByWorkspace(wsUid)
+      .then((rows) => { if (!cancelled) setCustomPresets(rows) })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [open, wsUid])
 
   // Pre-populate fields when editing
@@ -168,9 +187,17 @@ export function AddDatabaseDialog({
         const config = editingSource.connectionConfig as FhirConnectionConfig
         setFhirBaseUrl(config.baseUrl)
       }
-      setSchemaPresetId(editingSource.schemaMapping?.presetId as SchemaPresetId ?? '__none__')
+      // The stored mapping records the preset's `presetId`, but the options are
+      // keyed like everywhere else (id ?? presetId), so a preset installed from
+      // the catalog — where the two differ — matched no option and the field read
+      // empty for a database that is in fact mapped. Resolve through the list.
+      const storedPresetId = editingSource.schemaMapping?.presetId
+      const match = storedPresetId
+        ? customPresets.find((p) => p.presetId === storedPresetId || presetKey(p) === storedPresetId)
+        : undefined
+      setSchemaPresetId((match ? presetKey(match) : storedPresetId) as SchemaPresetId ?? '__none__')
     }
-  }, [open, editingSource, language])
+  }, [open, editingSource, language, customPresets])
 
   // Common fields
   const [name, setName] = useState('')
@@ -495,7 +522,7 @@ export function AddDatabaseDialog({
     if (schemaPresetId === '__none__') return undefined
     const builtin = getSchemaPreset(schemaPresetId)
     if (builtin) return builtin
-    const custom = customPresets.find((p) => p.presetId === schemaPresetId)
+    const custom = customPresets.find((p) => presetKey(p) === schemaPresetId)
     return custom?.mapping
   }
 
@@ -509,7 +536,7 @@ export function AddDatabaseDialog({
    */
   const resolveSchemaSource = (): SchemaSource | undefined => {
     if (schemaPresetId === '__none__') return undefined
-    const custom = customPresets.find((p) => p.presetId === schemaPresetId)
+    const custom = customPresets.find((p) => presetKey(p) === schemaPresetId)
     // No lineage, no provenance: a preset's own id is a local primary key,
     // regenerated on import, so recording it would name the schema on this
     // instance and nothing anywhere else.
@@ -711,7 +738,7 @@ export function AddDatabaseDialog({
                         {t('databases.no_schema')}
                       </SelectItem>
                       {customPresets.map((cp) => (
-                        <SelectItem key={cp.entityId ?? cp.id} value={cp.entityId ?? cp.id}>
+                        <SelectItem key={presetKey(cp)} value={presetKey(cp)}>
                           {localized(cp.mapping.presetLabel, language)}
                         </SelectItem>
                       ))}

@@ -518,10 +518,15 @@ function SchemaCard({ source }: { source: DataSource }) {
   const mapping = source.schemaMapping
   const provenance = source.schemaSource
 
+  // Guarded on wsUid: it resolves a prefix through the workspace store, so it is
+  // undefined on a cold load and the old fallback read every workspace's presets.
   useEffect(() => {
-    const storage = getStorage()
-    const loader = wsUid ? storage.schemaPresets.getByWorkspace(wsUid) : storage.schemaPresets.getAll()
-    loader.then(setPresets).catch(() => setPresets([]))
+    if (!wsUid) return
+    let cancelled = false
+    getStorage().schemaPresets.getByWorkspace(wsUid)
+      .then((rows) => { if (!cancelled) setPresets(rows) })
+      .catch(() => { if (!cancelled) setPresets([]) })
+    return () => { cancelled = true }
   }, [wsUid])
 
   // Either half names the schema. Requiring `mapping.presetId` hid the card for
