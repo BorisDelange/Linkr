@@ -124,10 +124,14 @@ export function shapiroWilk(values: number[]): NormalityResult | null {
     const gamma = -2.273 + 0.459 * n
     const mu = 0.5440 - 0.39978 * n + 0.025054 * n ** 2 - 0.0006714 * n ** 3
     const sigma = Math.exp(1.3822 - 0.77857 * n + 0.062767 * n ** 2 - 0.0020322 * n ** 3)
-    // The transform is undefined once W reaches gamma; that is an extremely
-    // normal sample, so the tail probability is 1, not NaN.
-    if (gamma - w <= 0) return { w, pValue: 1, n }
-    pValue = 1 - normalCdf((-Math.log(gamma - w) - mu) / sigma)
+    // Both branches transform `log(1 - W)`, never W itself: feeding W here put z
+    // around +11 for every possible W, so the tail underflowed to 0 and EVERY
+    // group of 8..11 was declared non-normal.
+    const y = Math.log(1 - w)
+    // Past gamma the transform is undefined — that is a sample so far from normal
+    // the tail has already vanished, so p is 0, not 1.
+    if (y >= gamma) return { w, pValue: 0, n }
+    pValue = 1 - normalCdf((-Math.log(gamma - y) - mu) / sigma)
   } else {
     const mu = -1.5861 - 0.31082 * logn - 0.083751 * logn ** 2 + 0.0038915 * logn ** 3
     const sigma = Math.exp(-0.4803 - 0.082676 * logn + 0.0030302 * logn ** 2)

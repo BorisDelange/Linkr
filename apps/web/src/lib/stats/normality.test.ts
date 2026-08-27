@@ -14,7 +14,39 @@ describe('shapiroWilk', () => {
     const r = shapiroWilk(x)!
     expect(r.n).toBe(11)
     expect(r.w).toBeCloseTo(0.79, 1)
-    expect(r.pValue).toBeLessThan(0.05)
+    // Pinned to R's VALUE, not merely to the right side of 0.05: asserting only
+    // `< 0.05` let a branch that returned a constant 0 pass for every input.
+    expect(r.pValue).toBeCloseTo(0.0076, 2)
+  })
+
+  /**
+   * The `n <= 11` branch takes a different Royston transform from the one above
+   * 11, so it needs its own reference values — it once fed W where the transform
+   * expects `log(1 - W)`, which pinned p to 0 across this entire window while the
+   * n > 11 tests stayed green.
+   */
+  it.each([
+    // R: shapiro.test(...) on each sample.
+    { label: 'n=8 normal', x: [-1.4, -0.8, -0.3, 0, 0, 0.3, 0.8, 1.4], p: 0.99, digits: 1 },
+    { label: 'n=9 evenly spaced', x: [10, 11, 12, 13, 14, 15, 16, 17, 18], p: 0.91, digits: 1 },
+    { label: 'n=10 normal', x: [-1.5, -1, -0.6, -0.3, 0, 0, 0.3, 0.6, 1, 1.5], p: 0.999, digits: 2 },
+  ])('does not reject a normal sample of $label', ({ x, p, digits }) => {
+    const r = shapiroWilk(x)!
+    expect(r.pValue).toBeCloseTo(p, digits)
+    expect(r.pValue).toBeGreaterThan(0.05)
+  })
+
+  it('still rejects a skewed sample in the small-n branch', () => {
+    // n=8, one extreme value: R gives p ≈ 1.2e-4.
+    const r = shapiroWilk([1, 1, 1, 1, 1, 1, 2, 90])!
+    expect(r.pValue).toBeLessThan(0.01)
+  })
+
+  it('gives a perfectly linear sample a p-value near 1, not 0', () => {
+    // W is exactly 1 here, so `log(1 - W)` is -Infinity: the guard must read that
+    // as the most normal sample possible, never as the degenerate end.
+    const r = shapiroWilk([1, 2, 3, 4, 5, 6, 7, 8, 9])!
+    expect(r.pValue).toBeGreaterThan(0.5)
   })
 
   it('does not reject a clean normal sample', () => {
