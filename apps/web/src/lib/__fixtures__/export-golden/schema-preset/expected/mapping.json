@@ -1,17 +1,4 @@
 {
-  "tables": {
-    "person": {
-      "columns": {
-        "person_id": "id",
-        "year_of_birth": "birth_year"
-      }
-    },
-    "visit_occurrence": {
-      "columns": {
-        "visit_occurrence_id": "visit_id"
-      }
-    }
-  },
   "eventTables": {
     "Alpha drugs": {
       "table": "drug_exposure",
@@ -24,6 +11,19 @@
       "conceptIdColumn": "measurement_concept_id",
       "dateColumn": "measurement_date",
       "valueColumn": "value_as_number"
+    }
+  },
+  "tables": {
+    "person": {
+      "columns": {
+        "person_id": "id",
+        "year_of_birth": "birth_year"
+      }
+    },
+    "visit_occurrence": {
+      "columns": {
+        "visit_occurrence_id": "visit_id"
+      }
     }
   }
 }

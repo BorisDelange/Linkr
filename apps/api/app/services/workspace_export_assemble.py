@@ -901,11 +901,49 @@ _EVENT_TABLE_FIELD_ORDER = [
 ]
 
 
+# Top-level mapping keys in declared order. Mirrors MAPPING_FIELD_ORDER in
+# packages/linkr-format/src/schema-mapping.ts — both ends must emit identical
+# bytes or the export golden tests fail.
+_MAPPING_FIELD_ORDER = [
+    "presetId",
+    "presetLabel",
+    "patientTable",
+    "deathTable",
+    "visitTable",
+    "noteTable",
+    "visitDetailTable",
+    "conceptTables",
+    "eventTables",
+    "genderValues",
+    "knownTables",
+    "erdGroups",
+    "templateId",
+    "description",
+]
+
+
+def _order_keys(obj: dict, order: list[str]) -> dict:
+    """One object's keys in a declared order, with unlisted keys appended sorted.
+
+    Port of ``orderKeys`` (packages/linkr-format/src/schema-mapping.ts).
+    """
+    rest = sorted(k for k in obj if k not in order)
+    return {k: obj[k] for k in [*order, *rest] if k in obj}
+
+
 def _canonical_schema_mapping(mapping: dict) -> dict:
-    """Mapping with its event tables (and their keys) in a deterministic order."""
-    tables = mapping.get("eventTables")
+    """Mapping with its top-level keys, event tables, and their keys ordered.
+
+    The top level is ordered because a mapping is assembled by spreading, and a
+    spread appends keys the source lacked: a preset's repo keeps presetId and
+    presetLabel in entity.json rather than mapping.json, so a database installed
+    from one wrote them at the END of its copy while the same mapping exported
+    anywhere else had them first — a pure reordering diff.
+    """
+    out = _order_keys(mapping, _MAPPING_FIELD_ORDER)
+    tables = out.get("eventTables")
     if not isinstance(tables, dict):
-        return mapping
+        return out
     ordered: dict = {}
     for label in sorted(tables):
         et = tables[label]
@@ -916,7 +954,7 @@ def _canonical_schema_mapping(mapping: dict) -> dict:
         ordered[label] = {
             k: et[k] for k in [*_EVENT_TABLE_FIELD_ORDER, *rest] if k in et
         }
-    return {**mapping, "eventTables": ordered}
+    return {**out, "eventTables": ordered}
 
 
 async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]:

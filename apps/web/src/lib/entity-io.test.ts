@@ -2712,9 +2712,24 @@ describe('canonicalSchemaMapping orders event tables deterministically', () => {
     expect(Object.keys(out.eventTables.T)).toEqual(['table', 'aaa', 'zzz'])
   })
 
-  it('leaves a mapping with no event tables alone', () => {
+  it('still orders the top level of a mapping with no event tables', () => {
     const m = { presetId: 'x' }
-    expect(canonicalSchemaMapping(m)).toBe(m)
+    expect(canonicalSchemaMapping(m)).toEqual(m)
+  })
+
+  it('puts the top-level keys in declared order however they were assembled', () => {
+    // The shape reassemblePresetMapping produces: a preset's repo keeps presetId
+    // and presetLabel in entity.json, so re-adding them after the spread appended
+    // them at the end and churned the diff of an installed database's copy.
+    const out = canonicalSchemaMapping({
+      knownTables: ['a'],
+      eventTables: {},
+      presetId: 'mimic-iv',
+      presetLabel: { en: 'MIMIC-IV' },
+    })
+    expect(Object.keys(out)).toEqual([
+      'presetId', 'presetLabel', 'eventTables', 'knownTables',
+    ])
   })
 })
 

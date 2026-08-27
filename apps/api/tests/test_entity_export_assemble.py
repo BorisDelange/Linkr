@@ -358,8 +358,24 @@ class TestCanonicalSchemaMapping:
         assert list(out["eventTables"]) == ["Alpha", "Zeta"]
         assert list(out["eventTables"]["Alpha"]) == ["table", "aaa", "zzz"]
 
-    def test_leaves_a_mapping_with_no_event_tables_alone(self):
+    def test_still_orders_a_mapping_with_no_event_tables(self):
         from app.services.workspace_export_assemble import _canonical_schema_mapping
 
         m = {"presetId": "x"}
-        assert _canonical_schema_mapping(m) is m
+        assert _canonical_schema_mapping(m) == m
+
+    def test_orders_the_top_level_however_it_was_assembled(self):
+        """The shape reassemblePresetMapping produces: a preset's repo keeps
+        presetId/presetLabel in entity.json, so re-adding them after the spread
+        appended them at the end and churned an installed database's diff."""
+        from app.services.workspace_export_assemble import _canonical_schema_mapping
+
+        out = _canonical_schema_mapping(
+            {
+                "knownTables": ["a"],
+                "eventTables": {},
+                "presetId": "mimic-iv",
+                "presetLabel": {"en": "MIMIC-IV"},
+            }
+        )
+        assert list(out) == ["presetId", "presetLabel", "eventTables", "knownTables"]

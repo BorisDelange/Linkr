@@ -18,11 +18,14 @@ function collection(over: Record<string, unknown> = {}, files: Record<string, st
 
 const PRESET = {
   presetId: 'omop-5-4',
+  // Canonical order: declared keys first, unlisted ones (here `tables`) appended
+  // sorted — so `eventTables` precedes `tables`. A well-formed fixture has to be
+  // in that order, or it trips the legacy-format warning it is meant to not trip.
   mapping: {
-    tables: { person: { columns: { person_id: 'id' } } },
     eventTables: {
       Labs: { table: 'measurement', conceptIdColumn: 'measurement_concept_id', dateColumn: 'measurement_date' },
     },
+    tables: { person: { columns: { person_id: 'id' } } },
   },
 }
 
@@ -153,9 +156,11 @@ describe('schema preset', () => {
       preset({ mapping: { ...PRESET.mapping, ddl: 'CREATE TABLE person ();' } }),
       'schema-preset',
     )
-    const legacy = issues.find((i) => i.code === 'legacy-format')
+    // Two checks share the legacy-format code (inline DDL, non-canonical order),
+    // and an inline `ddl` is itself out of order — match on the hint, not on
+    // whichever warning happens to come first.
+    const legacy = issues.find((i) => i.code === 'legacy-format' && i.hint?.includes('schema.ddl'))
     expect(legacy?.severity).toBe('warning')
-    expect(legacy?.hint).toContain('schema.ddl')
   })
 
   it('rejects a mapping whose tables are not objects', () => {

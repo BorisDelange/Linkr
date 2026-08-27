@@ -73,12 +73,24 @@ export function orderKeys(
   return out
 }
 
-/** A mapping with its event tables (and their keys) in a deterministic order. */
+/**
+ * A mapping with its top-level keys, its event tables, and their keys in a
+ * deterministic order.
+ *
+ * The top level is ordered here, not just at the call sites that remember to:
+ * a mapping is assembled by spreading, and a spread appends keys the source
+ * lacked. `reassemblePresetMapping` re-adds `presetId`/`presetLabel` after
+ * spreading (a preset's repo keeps them in entity.json, not in mapping.json),
+ * so an installed database wrote them at the END of its copy while the same
+ * mapping exported anywhere else had them first — a pure reordering diff on a
+ * file nothing had edited.
+ */
 export function canonicalSchemaMapping(
   mapping: Record<string, unknown>,
 ): Record<string, unknown> {
-  const tables = mapping.eventTables
-  if (!tables || typeof tables !== 'object') return mapping
+  const out = orderKeys(mapping, MAPPING_FIELD_ORDER)
+  const tables = out.eventTables
+  if (!tables || typeof tables !== 'object') return out
   const src = tables as Record<string, Record<string, unknown>>
   const ordered: Record<string, unknown> = {}
   // Table labels sorted too: they are a user-keyed map, so their insertion order
@@ -91,5 +103,5 @@ export function canonicalSchemaMapping(
     // from the browser.
     ordered[label] = et && typeof et === 'object' ? orderKeys(et, EVENT_TABLE_FIELD_ORDER) : et
   }
-  return { ...mapping, eventTables: ordered }
+  return { ...out, eventTables: ordered }
 }

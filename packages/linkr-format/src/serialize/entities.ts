@@ -9,7 +9,7 @@
  * lineage, organisation snapshots). The validator accepts both, so a tree
  * written here imports and then fills in the rest.
  */
-import { MAPPING_FIELD_ORDER, canonicalSchemaMapping, orderKeys } from '../schema-mapping.js'
+import { canonicalSchemaMapping } from '../schema-mapping.js'
 import { withExtra } from './project.js'
 import type { LocalizedInput, Passthrough, WriteFile } from './project.js'
 import {
@@ -450,15 +450,16 @@ export function serializeEntity<K extends SerializableEntityKind>(
       //   templateId               — the built-in preset a schema derived from,
       //                              back when the app shipped a picker of them.
       //                              Nothing reads it; schemas are published repos.
-      // MAPPING_FIELD_ORDER still lists them: it orders a database's copy too.
+      // MAPPING_FIELD_ORDER (applied by canonicalSchemaMapping) still lists
+      // them: it orders a database's copy too.
       const {
         presetId: _retiredId, templateId: _dead, presetLabel: _label, description: _blurb,
         ...payload
       } = rest as Record<string, unknown>
-      const mapping = canonicalSchemaMapping(orderKeys({
+      const mapping = canonicalSchemaMapping({
         ...payload,
         ...(s.eventTables ? { eventTables: s.eventTables } : {}),
-      }, MAPPING_FIELD_ORDER))
+      })
       const ddl = s.ddl ?? (typeof _inlineDdl === 'string' ? _inlineDdl : undefined)
       return [
         {
