@@ -34,16 +34,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { generateAlias } from '@/lib/duckdb/engine'
 import { getStorage } from '@/lib/storage'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
@@ -249,7 +239,6 @@ export function AppDatabasesPage() {
   const [presetDialogOpen, setPresetDialogOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [conflict, setConflict] = useState<{ name: string; pending: ParsedDatabaseZip; gitRemote?: ImportGitRemote } | null>(null)
-  const [sourceToRemove, setSourceToRemove] = useState<DataSource | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [projectFilter, setProjectFilter] = useState<string[]>([])
@@ -317,13 +306,6 @@ export function AppDatabasesPage() {
     },
   ]
 
-  const handleRemove = () => {
-    if (sourceToRemove) {
-      removeDataSource(sourceToRemove.id)
-      setSourceToRemove(null)
-    }
-  }
-
   const doImport = useCallback(async (
     parsed: ParsedDatabaseZip,
     duplicate: boolean,
@@ -345,12 +327,17 @@ export function AppDatabasesPage() {
     const parsed = await parseDatabaseZip(file)
     if (!parsed) throw new Error(t('databases.import_not_a_database'))
     const existing = await getStorage().dataSources.getById(parsed.id).catch(() => null)
-    if (existing) {
+    // Only a row in THIS workspace is a conflict the user can answer. The same id
+    // in another workspace is a different database: overwriting it would delete
+    // that workspace's Parquet (applyClonedDatabase clears the previous files
+    // first), so it imports as a fresh copy instead — the rule catalog install
+    // already follows.
+    if (existing && existing.workspaceId === wsUid) {
       setConflict({ name: localized(existing.name, language), pending: parsed, gitRemote })
     } else {
-      await doImport(parsed, false, gitRemote)
+      await doImport(parsed, !!existing, gitRemote)
     }
-  }, [doImport, language, t])
+  }, [doImport, language, t, wsUid])
 
   // Ids are shortened in the URL, so resolve the prefix against this workspace's
   // own list — the same way every other detail route does.
@@ -448,7 +435,15 @@ export function AppDatabasesPage() {
               onTestConnection={() => connectAction(ds.id)}
               onDisconnect={() => disconnectDataSource(ds.id)}
               onReconnect={() => reconnectAction(ds.id)}
-              onRemove={() => setSourceToRemove(ds)}
+              onRemove={() => removeDataSource(ds.id)}
+              // The "projects will be unlinked" warning only when there are any:
+              // on a database no project uses it stated a consequence that could
+              // not happen.
+              removeConfirmDescriptionKey={
+                getLinkedProjects(ds.id).length > 0
+                  ? 'app_warehouse.delete_confirm_description'
+                  : 'databases.remove_confirm_description'
+              }
               belowStats={
                 ds.badges?.length ? <BadgeStrip className="mt-1" badges={ds.badges} /> : undefined
               }
@@ -486,28 +481,6 @@ export function AppDatabasesPage() {
       />
 
 
-      <AlertDialog
-        open={!!sourceToRemove}
-        onOpenChange={(open) => { if (!open) setSourceToRemove(null) }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('app_warehouse.delete_confirm_title')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('app_warehouse.delete_confirm_description')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={handleRemove}
-            >
-              {t('common.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
       </div>
     </div>
   )

@@ -48,6 +48,11 @@ export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedS
   renderEditDialog: (props: { item: T; onOpenChange: (open: boolean) => void }) => ReactNode
   deleteConfirmTitleKey: string
   deleteConfirmDescriptionKey: string
+  /** Overrides the menu entry's and the confirm button's wording. Set it when the
+   *  destructive action is not a delete — a project's database card unlinks, and
+   *  labelling that "Delete" said the database would be destroyed for every
+   *  project. Defaults to `common.delete`. */
+  deleteLabelKey?: string
   /** Optional custom trigger; defaults to a ghost icon "..." button. */
   trigger?: ReactNode
   /** Controls DropdownMenu open state externally (for right-click). Optional. */
@@ -113,6 +118,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   renderEditDialog,
   deleteConfirmTitleKey,
   deleteConfirmDescriptionKey,
+  deleteLabelKey = 'common.delete',
   trigger,
   open,
   onOpenChange,
@@ -227,7 +233,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             className="text-destructive focus:text-destructive"
           >
             <Trash2 size={14} className="text-destructive" />
-            {t('common.delete')}
+            {t(deleteLabelKey)}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -313,7 +319,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-              <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDelete}>{t('common.delete')}</AlertDialogAction>
+              <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDelete}>{t(deleteLabelKey)}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

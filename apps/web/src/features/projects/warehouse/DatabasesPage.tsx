@@ -5,21 +5,10 @@ import { useMyProjectRole } from '@/hooks/use-context-role'
 import { GatedButton } from '@/components/ui/gated-button'
 import { useAppStore } from '@/stores/app-store'
 import { localized } from '@/lib/localized'
-import type { DataSource } from '@/types'
 import { Database, Link as LinkIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { DatabaseCard } from './databases/DatabaseCard'
 import { DatabaseDetailPage } from './databases/DatabaseDetailPage'
 import { LinkDatabaseDialog } from './databases/LinkDatabaseDialog'
@@ -57,7 +46,6 @@ export function DatabasesPage() {
   const unlinkDataSource = useAppStore((s) => s.unlinkDataSource)
 
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
-  const [sourceToUnlink, setSourceToUnlink] = useState<DataSource | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [sort, setSort] = useState<SortState | null>(null)
@@ -127,13 +115,6 @@ export function DatabasesPage() {
       setActiveDataSource(uid, firstMapped.id)
     }
   }, [uid, activeSource, sources, setActiveDataSource])
-
-  const handleUnlink = () => {
-    if (sourceToUnlink && uid) {
-      unlinkDataSource(uid, sourceToUnlink.id)
-      setSourceToUnlink(null)
-    }
-  }
 
   // Ids are shortened in the URL, so resolve the prefix against the project's
   // own linked list — the same way every other detail route does.
@@ -205,7 +186,13 @@ export function DatabasesPage() {
                 onTestConnection={() => testConnection(ds.id)}
                 onDisconnect={() => disconnectDataSource(ds.id)}
                 onReconnect={() => reconnectDataSource(ds.id)}
-                onRemove={() => setSourceToUnlink(ds)}
+                onRemove={() => uid && unlinkDataSource(uid, ds.id)}
+                // From a project the action unlinks — the database stays in the
+                // warehouse. Calling it "Delete" said it would be destroyed for
+                // every project using it.
+                removeLabelKey="app_warehouse.unlink"
+                removeConfirmTitleKey="app_warehouse.unlink_confirm_title"
+                removeConfirmDescriptionKey="app_warehouse.unlink_confirm_description"
                 canEdit={canEdit}
               />
             ))}
@@ -221,26 +208,6 @@ export function DatabasesPage() {
         />
       )}
 
-      {/* Unlink confirmation dialog */}
-      <AlertDialog
-        open={!!sourceToUnlink}
-        onOpenChange={(open) => { if (!open) setSourceToUnlink(null) }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('app_warehouse.unlink_confirm_title')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('app_warehouse.unlink_confirm_description')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleUnlink}>
-              {t('app_warehouse.unlink')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

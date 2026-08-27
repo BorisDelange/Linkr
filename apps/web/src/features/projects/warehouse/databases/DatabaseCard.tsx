@@ -27,7 +27,15 @@ interface DatabaseCardProps {
   onTestConnection: () => void
   onDisconnect?: () => void
   onReconnect?: () => void
+  /** The destructive action, run AFTER the menu's own confirmation — the card
+   *  must not raise a second dialog of its own. */
   onRemove: () => void
+  /** Wording for that action and its confirmation, when the default ("delete this
+   *  database") is wrong: a project's card unlinks, and the workspace's card
+   *  warns about the projects it is about to unlink. */
+  removeLabelKey?: string
+  removeConfirmTitleKey?: string
+  removeConfirmDescriptionKey?: string
   /** Opens the licence in the docs dialog, from the footer chip. */
   onOpenLicense?: () => void
   /** Sends the menu's Readme/License items to the detail page's own tabs. */
@@ -69,6 +77,9 @@ export const DatabaseCard = memo(function DatabaseCard({
   onDisconnect,
   onReconnect,
   onRemove,
+  removeLabelKey,
+  removeConfirmTitleKey,
+  removeConfirmDescriptionKey,
   onOpenLicense,
   onOpenDocs,
   onOpenVersioning,
@@ -149,6 +160,9 @@ export const DatabaseCard = memo(function DatabaseCard({
           canEdit={canEdit}
           canDelete={canEdit}
           onDelete={async () => onRemove()}
+          deleteLabelKey={removeLabelKey}
+          deleteConfirmTitleKey={removeConfirmTitleKey ?? actions.deleteConfirmTitleKey}
+          deleteConfirmDescriptionKey={removeConfirmDescriptionKey ?? actions.deleteConfirmDescriptionKey}
           onOpenDocs={onOpenDocs ? (_item, tab) => onOpenDocs(tab) : undefined}
           onVersioningOverride={onOpenVersioning ? () => onOpenVersioning() : undefined}
           extraItems={
