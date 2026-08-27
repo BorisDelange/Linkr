@@ -53,6 +53,7 @@ is a bug this project has already paid for once.
 | add, update or delete a quality check | `upsert_dq_check`, `remove_dq_check` | ✅ |
 | add, update or delete concept-mapping rows | `upsert_mappings`, `remove_mappings` | ✅ |
 | change a standalone entity's own fields (name, dimensions…) | `read_entity` → edit → `write_entity` | ✅ |
+| change a project's name, status, version, licence or README | `update_project` | ✅ |
 | edit a schema preset's payload, or a plugin | — | ⛔ no tool yet |
 
 For the last row: **say so and stop**. Do not fall back to editing the JSON — and do not
@@ -118,6 +119,7 @@ check the shape of these fields.
 | `rename_widget`, `rename_dashboard_tab`, `move_widget` | **rekey** — the cascade is done for you and reported |
 | `remove_widget`, `remove_dashboard_tab` | delete; the result names the collateral |
 | `rename_dataset_columns` | **rekey** — re-derives column ids and repoints every widget config and filter |
+| `update_project` | a project's own metadata; its datasets, dashboards and scripts stay untouched |
 | `read_entity` | a standalone entity tree as its spec — lossless, so it is safe to edit and write back |
 | `write_entity_file` | one script file of a SQL collection or ETL pipeline (`content: null` deletes) |
 | `upsert_dq_check`, `remove_dq_check` | one quality check, by name |

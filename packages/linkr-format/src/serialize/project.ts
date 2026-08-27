@@ -181,10 +181,17 @@ export interface ScriptSpec {
 }
 
 export interface ProjectSpec {
+  /** Readable, URL-safe identifier. Written as `entityId`, its current name. */
   projectId: string
   name: LocalizedInput
   description?: LocalizedInput
+  shortDescription?: LocalizedInput
+  /** Per-project settings the app stores; opaque here. */
+  config?: Record<string, unknown>
+  status?: string
   appVersion: string
+  /** @see DashboardSpec.extra */
+  extra?: Passthrough
   datasets?: DatasetSpec[]
   dashboards?: DashboardSpec[]
   scripts?: ScriptSpec[]
@@ -277,18 +284,23 @@ export function serializeProject(spec: ProjectSpec): WriteFile[] {
 
   files.push({
     path: ENTITY_MANIFEST,
-    content: json({
-      projectId: spec.projectId,
+    // `entityId`, not `projectId`: the app writes the former (see the golden and
+    // every published project), and the retired name only reads.
+    // `config` and `status` come from the spec rather than being hardcoded — a
+    // round trip was blanking a project's own settings and forcing it active.
+    content: json(withExtra({
+      entityId: spec.projectId,
       type: 'project' as const,
       name: localized(spec.name),
       ...(spec.description ? { description: localized(spec.description) } : {}),
-      config: {},
-      status: 'active',
+      ...(spec.shortDescription ? { shortDescription: localized(spec.shortDescription) } : {}),
+      config: spec.config ?? {},
+      status: spec.status ?? 'active',
       ...(spec.createdBy ? { createdBy: spec.createdBy } : {}),
       ...(spec.createdAt ? { createdAt: spec.createdAt } : {}),
       ...(spec.license ? { license: spec.license } : {}),
       appVersion: spec.appVersion,
-    }),
+    }, spec.extra)),
   })
 
   if (spec.readme) {

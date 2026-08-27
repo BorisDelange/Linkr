@@ -8,12 +8,20 @@
  * run status, an entity's organization snapshot, a script's order.
  */
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { MemoryTree } from '../tree.js'
+import { serializeProject, type ProjectSpec } from '../serialize/project.js'
 import { serializeEntity } from '../serialize/entities.js'
 import type {
   DataCatalogSpec, DqRuleSetSpec, EtlPipelineSpec, MappingProjectSpec, SqlCollectionSpec,
 } from '../serialize/entities.js'
-import { readEntity, type ReadableEntityKind } from './entities.js'
+import { readEntity, readProjectManifest, type ReadableEntityKind } from './entities.js'
+
+const GOLDEN_PROJECT = fileURLToPath(new URL(
+  '../../../../apps/web/src/lib/__fixtures__/export-golden/project/expected/entity.json',
+  import.meta.url,
+))
 
 /** Serialize a spec into a tree the reader can consume. */
 function treeOf(kind: Parameters<typeof serializeEntity>[0], spec: never): MemoryTree {
@@ -206,5 +214,47 @@ describe('readEntity — lossless carry', () => {
   it('refuses a tree with no manifest, by saying so', () => {
     expect(() => readEntity(new MemoryTree({ 'scripts/a.sql': '' }), 'sql-collection'))
       .toThrow(/No entity\.json/)
+  })
+})
+
+describe('readProjectManifest', () => {
+  it('round-trips the app\'s golden project manifest byte for byte', () => {
+    // The gate that was missing: every existing test passed `projectId` as spec
+    // INPUT and none asserted the emitted key, so the writer had drifted to the
+    // retired name unnoticed while the app wrote `entityId`.
+    const raw = readFileSync(GOLDEN_PROJECT, 'utf-8')
+    const tree = new MemoryTree({ 'entity.json': raw })
+    const spec = readProjectManifest(tree) as unknown as ProjectSpec
+    const out = serializeProject(spec).find((f) => f.path === 'entity.json')!
+    expect(out.content).toBe(raw)
+  })
+
+  it('writes entityId, the name the app uses', () => {
+    const out = serializeProject({ projectId: 'demo', name: { en: 'D' }, appVersion: '2.3.3' })
+    const meta = JSON.parse(out.find((f) => f.path === 'entity.json')!.content)
+    expect(meta.entityId).toBe('demo')
+    expect(meta).not.toHaveProperty('projectId')
+  })
+
+  it('keeps a project\'s own config and status', () => {
+    // Both were hardcoded (`config: {}`, `status: 'active'`), so a round trip
+    // blanked the user's settings and forced an archived project back to active.
+    const tree = new MemoryTree({
+      'entity.json': JSON.stringify({
+        entityId: 'p', type: 'project', name: { en: 'P' },
+        config: { theme: 'dark' }, status: 'archived', appVersion: '2.3.3',
+      }, null, 2),
+    })
+    const spec = readProjectManifest(tree) as unknown as ProjectSpec
+    const meta = JSON.parse(serializeProject(spec)[0].content)
+    expect(meta.config).toEqual({ theme: 'dark' })
+    expect(meta.status).toBe('archived')
+  })
+
+  it('still reads a tree written with the retired projectId', () => {
+    const tree = new MemoryTree({
+      'entity.json': JSON.stringify({ projectId: 'old', name: { en: 'O' }, appVersion: '2.3.3' }),
+    })
+    expect(readProjectManifest(tree).projectId).toBe('old')
   })
 })

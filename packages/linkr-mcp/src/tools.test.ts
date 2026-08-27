@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   addDashboardTab, addScript, addWidget, describeEntitySchema, describeTree,
   moveDashboardWidget, readTreeFile, removeDashboardTab, removeDashboardWidget,
-  readEntitySpec, removeDqCheck, removeMappings, renameColumns, renameDashboardTab,
+  readEntitySpec, removeDqCheck, removeMappings, renameColumns, renameDashboardTab, updateProject,
   renameDashboardWidget, updateWidget, upsertDqCheck, upsertMappings, writeEntityFile,
   writeTree, writeZip,
 } from './tools.js'
@@ -557,5 +557,50 @@ describe('standalone entities', () => {
   it('refuses script files on a kind that has none', () => {
     ruleSet()
     expect(() => writeEntityFile(entityRoot, 'a.sql', 'x')).toThrow(/has no script files/)
+  })
+})
+
+describe('updateProject', () => {
+  const manifest = () => JSON.parse(readFileSync(join(root, 'entity.json'), 'utf-8'))
+
+  it('changes only the fields it was given', () => {
+    const before = manifest()
+    updateProject({ path: root, status: 'archived' })
+    const after = manifest()
+    expect(after.status).toBe('archived')
+    expect(after.name).toEqual(before.name)
+    expect(Object.keys(after)).toEqual(Object.keys(before))
+  })
+
+  it('leaves the project content alone', () => {
+    // serializeProject emits a whole tree from a spec, and this spec holds no
+    // datasets or dashboards — writing all of it would delete them.
+    addWidget({
+      path: root, dashboard: 'overview', tabKey: 'overview/demographics',
+      name: { en: 'W' }, pluginId: 'kpi', layout: { x: 0, y: 0, w: 12, h: 8 },
+    })
+    updateProject({ path: root, status: 'archived' })
+    expect(existsSync(join(root, 'dashboards/overview.json'))).toBe(true)
+    expect(existsSync(join(root, 'datasets/stays/stays.csv'))).toBe(true)
+    expect(dashboard().widgets).toHaveLength(1)
+  })
+
+  it('writes a localized README', () => {
+    updateProject({ path: root, readme: { en: '# Hello', fr: '# Bonjour' } })
+    expect(readFileSync(join(root, 'README.md'), 'utf-8')).toBe('# Hello')
+    expect(readFileSync(join(root, 'README.fr.md'), 'utf-8')).toBe('# Bonjour')
+  })
+
+  it('refuses a call that changes nothing', () => {
+    expect(() => updateProject({ path: root })).toThrow(/at least one field/)
+  })
+
+  it('refuses a tree that is not a project', () => {
+    const other = mkdtempSync(join(tmpdir(), 'linkr-other-'))
+    writeTree(other, serializeEntity('dq-rule-set', {
+      entityId: 'r', name: { en: 'R' }, checks: [{ name: 'c', sql: 'SELECT 1' }],
+    }))
+    expect(() => updateProject({ path: other, status: 'x' })).toThrow(/not a project tree/)
+    rmSync(other, { recursive: true, force: true })
   })
 })

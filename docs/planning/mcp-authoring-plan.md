@@ -642,7 +642,7 @@ histogram widget — the file never opened.
 
 | # | Item | Effort |
 |---|---|---|
-| C1 | `update_project` — metadata, README, license, version fields | S |
+| ✅ C1 | `update_project` — metadata, README, license, version fields | S |
 | ✅ C2 | `update_widget(key, {name?, config?, dataset?, pluginId?})` — config resolved by column name as `add_widget` does | S |
 | ✅ C3 | `move_widget(key, layout)` + `move_tab(key, {parent?, order?})` — **key-rewriting**, see 7b.4 | M |
 | ✅ C4 | `remove_widget` / `remove_tab` / `remove_script` / `remove_dataset` — each reporting what it orphaned before doing it | M |
@@ -752,6 +752,30 @@ rows changed**, and `status: in_progress` preserved.
 Still open in C8: a schema preset's payload (`mapping.json` — its own shape, and
 `schema-preset` is deliberately outside `readEntity`) and a data catalog's dimensions,
 which are a plain list a whole-spec rewrite handles fine.
+
+#### C1 as built (2026-08-27) — and the drift it exposed
+
+`update_project` rewrites **only** the manifest (plus the README when given): a project's
+datasets, dashboards and scripts have their own tools, and `serializeProject` emits a whole
+tree from a spec, so writing all of it from a metadata-only spec would delete them.
+
+Building it surfaced that the authoring writer had drifted from the app on three counts,
+none of them caught because every test passed `projectId` as spec *input* and none asserted
+the emitted key:
+
+- it wrote **`projectId`**, the retired name — the golden and every published project write
+  `entityId`;
+- **`config: {}` and `status: 'active'` were hardcoded**, so a round trip blanked a
+  project's own settings and forced an archived project back to active;
+- no `extra`, so **10 of the manifest's 17 fields** (organization, badges, createdByDetails,
+  lineageId, …) would be dropped by any read-modify-write.
+
+`readProjectManifest` + the golden round trip now close that gap: the app's own project
+manifest re-serializes byte for byte, which is the assertion that had been missing.
+
+Verified on the published `icu-activity-dashboard`: changing `status` and `version` altered
+**exactly two lines**, left key order identical, kept organization, lineage and badges, and
+all 11 files intact.
 
 **Guardrails** (what makes "never touch the files" enforceable rather than hoped-for):
 

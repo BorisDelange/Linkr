@@ -37,7 +37,7 @@ export { findCsv } from './validate/datasets.js'
 export { readDashboard } from './read/dashboard.js'
 export type { DashboardFile } from './read/dashboard.js'
 
-export { isReadableKind, readEntity, READABLE_KINDS } from './read/entities.js'
+export { isReadableKind, readEntity, readProjectManifest, READABLE_KINDS } from './read/entities.js'
 export type { ReadableEntityKind, ReadEntityResult } from './read/entities.js'
 
 export {

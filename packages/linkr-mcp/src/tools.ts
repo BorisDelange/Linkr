@@ -11,8 +11,9 @@ import { dirname, join, relative, resolve } from 'node:path'
 import {
   ENTITY_MANIFEST, MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES,
   columnId, detectTreeKind, findCsv, formatIssues, isReadableKind, moveWidget, READABLE_KINDS,
-  readEntity, removeTab, removeWidget, renameDatasetColumns, renameTab, renameWidget,
-  serializeEntity, slugify, tabCollateral, validateEntity, validateProject,
+  readEntity, readProjectManifest, removeTab, removeWidget, renameDatasetColumns, renameTab,
+  renameWidget,
+  serializeEntity, serializeProject, slugify, tabCollateral, validateEntity, validateProject,
   type CopyFile, type DashboardDocument, type DatasetRecord, type DqRuleSetSpec,
   type EtlPipelineSpec, type MappingProjectSpec, type ReadableEntityKind,
   type SqlCollectionSpec, type WriteFile,
@@ -1061,4 +1062,68 @@ export function writeEntityFile(
     root, kind, s,
     `${index >= 0 ? 'Replaced' : 'Added'} ${filePath} (${s.files.length} file(s)).`,
   )
+}
+
+export interface UpdateProjectArgs {
+  path: string
+  name?: Record<string, string>
+  description?: Record<string, string>
+  shortDescription?: Record<string, string>
+  status?: string
+  version?: string
+  license?: { id: string; name?: string }
+  readme?: Record<string, string>
+}
+
+/**
+ * Change a project's own metadata, leaving its content alone.
+ *
+ * Only the manifest (and README when given) is rewritten — not the datasets,
+ * dashboards or scripts, which have their own tools. Going through
+ * `readProjectManifest` first is what makes that safe: a project carries 17
+ * fields and the spec models 8, so writing a hand-built spec would drop the
+ * organization, the badges and the provenance.
+ */
+export function updateProject(args: UpdateProjectArgs): string {
+  const { path: root } = args
+  const tree = new FsTree(root)
+  const kind = detectTreeKind(tree)
+  if (kind !== 'project') {
+    throw new Error(`This is not a project tree (found: ${kind ?? 'nothing'}).`)
+  }
+
+  const spec = readProjectManifest(tree) as Record<string, unknown>
+  const changed: string[] = []
+  for (const field of ['name', 'description', 'shortDescription', 'status'] as const) {
+    if (args[field] !== undefined) { spec[field] = args[field]; changed.push(field) }
+  }
+  if (args.license !== undefined) { spec.license = args.license; changed.push('license') }
+  if (args.version !== undefined) {
+    // `version` is provenance, not a modelled spec field, so it rides in `extra`
+    // — where the manifest's own key order is recorded, so it stays in place.
+    const extra = (spec.extra ?? {}) as Record<string, unknown>
+    extra.version = args.version
+    spec.extra = extra
+    changed.push('version')
+  }
+  if (!changed.length && !args.readme) {
+    throw new Error('Nothing to change: pass at least one field.')
+  }
+
+  // Only the manifest is rewritten. serializeProject emits the whole tree from a
+  // spec, and this spec deliberately holds no datasets or dashboards — writing
+  // all of it would delete them.
+  const files = serializeProject(spec as unknown as Parameters<typeof serializeProject>[0])
+  const manifest = files.find((f) => f.path === ENTITY_MANIFEST)
+  if (!manifest) throw new Error('The serializer produced no manifest.')
+  writeTree(root, [manifest])
+
+  if (args.readme) {
+    writeTree(root, Object.entries(args.readme)
+      .filter(([, body]) => typeof body === 'string' && body.length)
+      .map(([lang, body]) => ({ path: lang === 'en' ? 'README.md' : `README.${lang}.md`, content: body })))
+    changed.push('readme')
+  }
+
+  return revalidate(root, `Updated ${changed.join(', ')}.`)
 }

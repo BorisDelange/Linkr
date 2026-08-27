@@ -210,3 +210,41 @@ export const READABLE_KINDS: readonly ReadableEntityKind[] = [
 export function isReadableKind(kind: string): kind is ReadableEntityKind {
   return (READABLE_KINDS as readonly string[]).includes(kind)
 }
+
+/**
+ * A project's manifest as the spec fields that rewrite it.
+ *
+ * Only the manifest: a project's datasets, dashboards and scripts are read with
+ * `describe_tree` and edited with their own tools, so pulling megabytes of CSV
+ * into a spec to rename a project would be the wrong trade.
+ *
+ * Lossless on the manifest, like every other reader here — a project carries 17
+ * fields and the spec models 8, so without `extra` an edit would drop the
+ * organization, the badges and the provenance.
+ */
+export function readProjectManifest(tree: EntityTree): Record<string, unknown> {
+  const meta = readJson<Record<string, unknown>>(tree, ENTITY_MANIFEST)
+    ?? readJson<Record<string, unknown>>(tree, MANIFEST.project)
+  if (!meta) throw new Error(`No ${ENTITY_MANIFEST} in this tree.`)
+
+  const known = [
+    'entityId', 'projectId', 'type', 'name', 'description', 'shortDescription',
+    'config', 'status', 'createdBy', 'createdAt', 'license', 'appVersion',
+  ]
+  const extra = extraOf(meta, known)
+
+  return {
+    // Either spelling reads; `entityId` is what gets written back.
+    projectId: (meta.entityId ?? meta.projectId ?? '') as string,
+    name: nameOf(meta.name),
+    ...(meta.description ? { description: nameOf(meta.description) } : {}),
+    ...(meta.shortDescription ? { shortDescription: nameOf(meta.shortDescription) } : {}),
+    ...(meta.config ? { config: meta.config as Record<string, unknown> } : {}),
+    ...(meta.status ? { status: meta.status as string } : {}),
+    ...(meta.createdBy ? { createdBy: meta.createdBy as string } : {}),
+    ...(meta.createdAt ? { createdAt: meta.createdAt as string } : {}),
+    ...(meta.license ? { license: meta.license } : {}),
+    appVersion: (meta.appVersion ?? '') as string,
+    ...(extra ? { extra } : {}),
+  }
+}

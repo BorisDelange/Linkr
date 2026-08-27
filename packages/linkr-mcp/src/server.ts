@@ -41,6 +41,7 @@ import {
   removeDashboardWidget,
   renameColumns,
   readEntitySpec,
+  updateProject,
   upsertDqCheck,
   removeDqCheck,
   upsertMappings,
@@ -773,6 +774,45 @@ server.registerTool(
   async ({ path, codes }) => {
     try {
       return text(removeMappings(path, codes))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'update_project',
+  {
+    description:
+      "Change a project's own metadata — name, description, status, version, licence, README. "
+      + 'Leaves its datasets, dashboards and scripts untouched. Send only the fields that change.',
+    inputSchema: fromJsonSchema<{
+      path: string
+      name?: Record<string, string>
+      description?: Record<string, string>
+      shortDescription?: Record<string, string>
+      status?: string
+      version?: string
+      license?: { id: string; name?: string }
+      readme?: Record<string, string>
+    }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory.' },
+        name: { type: 'object', description: 'Localized name, e.g. {"en": "...", "fr": "..."}.' },
+        description: { type: 'object', description: 'Localized description.' },
+        shortDescription: { type: 'object', description: 'Localized one-liner for the card.' },
+        status: { type: 'string', description: 'e.g. active, archived.' },
+        version: { type: 'string', description: 'User-facing semver.' },
+        license: { type: 'object', description: 'e.g. {"id": "Apache-2.0"}.' },
+        readme: { type: 'object', description: 'Localized README bodies, e.g. {"en": "# Title..."}.' },
+      },
+      required: ['path'],
+    }),
+  },
+  async (args) => {
+    try {
+      return text(updateProject(args))
     } catch (e) {
       return failure((e as Error).message)
     }
