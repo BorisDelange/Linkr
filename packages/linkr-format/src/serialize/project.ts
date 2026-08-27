@@ -56,6 +56,8 @@ export type ColumnType = 'string' | 'number' | 'date' | 'boolean'
 
 export interface WidgetSpec {
   name: LocalizedInput
+  /** Optional text shown via the widget's info bubble. */
+  description?: LocalizedInput
   /** Tab this widget belongs to, by tab name. */
   tab: string
   /** Dataset name, as given in `datasets`. */
@@ -68,6 +70,16 @@ export interface WidgetSpec {
   code?: string
   language?: 'python' | 'r'
   /**
+   * The widget's `source` block verbatim, when it came from an existing tree.
+   *
+   * Wins over `pluginId` / `code` / `config`. A round trip must be **faithful,
+   * not corrective**: an old tree spells the discriminant `kind` instead of
+   * `type`, and rewriting it here would silently "fix" a widget the author never
+   * touched — turning every edit into a diff of unrelated lines. Reporting that
+   * is the validator's job (`legacy-format`), not the serializer's.
+   */
+  source?: Record<string, unknown>
+  /**
    * Grid placement. Omit to let widgets flow left-to-right and wrap, which is
    * what a spec author usually wants: hand-placing every widget on a 48-column
    * grid is tedious and easy to get wrong (overlaps render as stacked cards).
@@ -76,9 +88,21 @@ export interface WidgetSpec {
   /** Width/height when the layout is auto-flowed. */
   w?: number
   h?: number
+  /** @see DashboardSpec.extra */
+  extra?: Passthrough
 }
 
 export type FilterInputType = 'multi-select' | 'select' | 'range'
+
+/**
+ * Where a filter applies. Absent = the whole dashboard.
+ *
+ * Referenced by content key, not id — so renaming a tab or moving a widget
+ * changes the key this points at, and a mutator must cascade into it.
+ */
+export type FilterScope =
+  | { type: 'tabs'; tabKeys: string[] }
+  | { type: 'widgets'; widgetKeys: string[] }
 
 export interface FilterSpec {
   /** Dataset name, as given in `datasets`. */
@@ -88,16 +112,54 @@ export interface FilterSpec {
   label?: string
   /** Derived from the column type when omitted. */
   inputType?: FilterInputType
+  /** Restrict the filter to some tabs or widgets. */
+  scope?: FilterScope
+  /** @see DashboardSpec.extra */
+  extra?: Passthrough
 }
 
 export interface TabSpec {
   name: LocalizedInput
+  /** Optional tooltip shown on the tab. */
+  description?: LocalizedInput
   /** Parent tab name, for one level of nesting. */
   parent?: string
+  /** @see DashboardSpec.extra */
+  extra?: Passthrough
 }
+
+/**
+ * Entity fields this spec has no opinion about, written through unchanged.
+ *
+ * A spec is a *simplified authoring view*: an author supplies a name and a
+ * plugin, while the app additionally holds everything a user has since
+ * configured — `widgetSpacing`, `fitToHeight`, `version`, `createdByDetails`…
+ * The app's exporter spreads the stored record and deletes what is instance-
+ * local, so those fields are whatever the entity happens to carry.
+ *
+ * Enumerating them here would go stale the day one is added to `Dashboard`, and
+ * a read-modify-write through a stale spec **drops** the fields it does not know
+ * — silently, which is worse than refusing. So the spec mirrors the exporter:
+ * it carries anything extra opaquely, and re-emits it in its original position.
+ *
+ * Authoring a tree by hand never needs this. It exists so a tree the *app* wrote
+ * can be read into a spec and written back byte-identical.
+ */
+/**
+ * Where the reader records the record's original key order.
+ *
+ * A symbol, not a string key: it must never be mistaken for a field and written
+ * into the tree. `Object.entries`/`JSON.stringify` both skip symbol keys, so an
+ * `extra` carrying one serializes exactly like one that does not.
+ */
+export const KEY_ORDER = Symbol.for('linkr.format.keyOrder')
+
+export type Passthrough = Record<string, unknown> & { [KEY_ORDER]?: string[] }
 
 export interface DashboardSpec {
   name: LocalizedInput
+  /** Shown under the dashboard title. */
+  description?: LocalizedInput
   tabs: TabSpec[]
   widgets?: WidgetSpec[]
   /** Dashboard-level filters, shown in the sidebar. */
@@ -105,6 +167,11 @@ export interface DashboardSpec {
   showWidgetTitles?: boolean
   /** 48-column grid (`gridV: 2`) unless explicitly set to 1. */
   gridV?: 1 | 2
+  /**
+   * Fields of the dashboard record this spec does not model, re-emitted verbatim.
+   * Keys the serializer sets itself (`name`, `filterConfig`, `gridV`…) win.
+   */
+  extra?: Passthrough
 }
 
 export interface ScriptSpec {
@@ -338,13 +405,13 @@ function serializeDashboards(
 
     const tabs = dashboard.tabs.map((tab, i) => {
       const label = tab.name.en || Object.values(tab.name)[0] || ''
-      return {
+      return withExtra({
         name: localized(tab.name),
-        description: null,
+        description: tab.description ? localized(tab.description) : null,
         displayOrder: i,
         key: tabKeys.get(label)!,
         parentKey: tab.parent ? tabKeys.get(tab.parent) ?? null : null,
-      }
+      }, tab.extra)
     })
 
     // One cursor per tab: widgets flow within their own tab, not across tabs.
@@ -358,42 +425,48 @@ function serializeDashboards(
       const layout = widget.layout
         ?? flows.get(tabKey)!(widget.w ?? DEFAULT_WIDGET.w, widget.h ?? DEFAULT_WIDGET.h)
 
-      const source = widget.code != null
-        ? {
-          type: 'inline',
-          language: widget.language ?? 'python',
-          code: widget.code,
-          config: resolveColumns(widget.config ?? {}, columns),
-        }
-        : {
-          type: 'plugin',
-          pluginId: widget.pluginId,
-          config: resolveColumns(widget.config ?? {}, columns),
-        }
+      // A source read back from a tree is re-emitted as it was found, with only
+      // its config re-resolved (an author edits config by column NAME).
+      const source = widget.source
+        ? ('config' in widget.source
+          ? { ...widget.source, config: resolveColumns(widget.config ?? widget.source.config as Record<string, unknown> ?? {}, columns) }
+          : widget.source)
+        : widget.code != null
+          ? {
+            type: 'inline',
+            language: widget.language ?? 'python',
+            code: widget.code,
+            config: resolveColumns(widget.config ?? {}, columns),
+          }
+          : {
+            type: 'plugin',
+            pluginId: widget.pluginId,
+            config: resolveColumns(widget.config ?? {}, columns),
+          }
 
-      return {
+      return withExtra({
         name: localized(widget.name),
-        description: null,
+        description: widget.description ? localized(widget.description) : null,
         ...(widget.dataset ? { datasetFileId: `${widget.dataset}.csv` } : {}),
         layout,
         source,
         key: `${tabKey}/${slugify(label)}@${layout.y},${layout.x}`,
         tabKey,
-      }
+      }, widget.extra)
     })
 
     return {
       path: `dashboards/${dashKey}.json`,
       content: json({
-        dashboard: {
+        dashboard: withExtra({
           name: localized(dashboard.name),
-          description: null,
+          description: dashboard.description ? localized(dashboard.description) : null,
           filterConfig: serializeFilters(dashboard.filters ?? [], columnsByDataset),
           ...(dashboard.showWidgetTitles != null
             ? { showWidgetTitles: dashboard.showWidgetTitles }
             : {}),
           gridV: dashboard.gridV ?? 2,
-        },
+        }, dashboard.extra),
         tabs: tabs.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)),
         widgets: widgets.sort((a, b) =>
           a.tabKey < b.tabKey ? -1 : a.tabKey > b.tabKey ? 1 : a.key < b.key ? -1 : 1),
@@ -401,6 +474,50 @@ function serializeDashboards(
     }
   })
 }
+
+/**
+ * Merge the fields this serializer computes with the ones it carries opaquely,
+ * preserving the **original** key order of a round-tripped record.
+ *
+ * Key position is load-bearing: the export is compared byte for byte, so a field
+ * that moves shows up as a git diff on a tree nobody edited. Two facts make the
+ * naive spreads wrong:
+ *   - spreading `extra` last appends its keys, so `gridV` (computed) lands before
+ *     `defaultDatasetFileId` (carried) where the app emits the reverse;
+ *   - spreading it first puts every carried key before `name`, which the app
+ *     writes first.
+ *
+ * So `extra`, when it came from a real record, already holds the true order: walk
+ * it, substituting each computed value in place, then append the computed keys it
+ * did not mention (a hand-authored spec, where `extra` is absent, gets exactly the
+ * declaration order below — unchanged from before this existed).
+ */
+function withExtra<T extends Record<string, unknown>>(
+  computed: T,
+  extra: Passthrough | undefined,
+): T {
+  if (!extra) return computed
+  const order = extra[KEY_ORDER]
+  const out: Record<string, unknown> = {}
+  // The recorded order covers computed and carried keys alike, which is the only
+  // way to know that (say) `defaultDatasetFileId` sat between `showWidgetTitles`
+  // and `gridV`: `extra` alone holds the leftovers, with no memory of where they
+  // sat relative to the fields the serializer recomputes.
+  if (Array.isArray(order)) {
+    for (const key of order as string[]) {
+      if (key in computed) out[key] = computed[key]
+      else if (key in extra) out[key] = extra[key]
+    }
+  }
+  for (const [key, value] of Object.entries(extra)) {
+    if (!(key in out)) out[key] = value
+  }
+  for (const [key, value] of Object.entries(computed)) {
+    if (!(key in out)) out[key] = value
+  }
+  return out as T
+}
+
 
 /**
  * Rewrite config values that name a column into column ids.
@@ -457,6 +574,8 @@ function serializeFilters(
       type: derived.type,
       inputType: filter.inputType ?? derived.inputType,
       ...(filter.label ? { label: filter.label } : {}),
+      ...(filter.scope ? { scope: filter.scope } : {}),
+      ...(filter.extra ?? {}),
     }
   })
 }

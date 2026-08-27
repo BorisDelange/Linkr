@@ -25,11 +25,15 @@ export type { TabKeyInput, WidgetKeyInput } from './keys.js'
 export type { LocalizedString } from './check.js'
 export { readLocalized } from './check.js'
 
-export { serializeProject } from './serialize/project.js'
+export { serializeProject, KEY_ORDER } from './serialize/project.js'
 export type {
-  ColumnType, CopyFile, DashboardSpec, DatasetSpec, FilterInputType, FilterSpec,
-  LocalizedInput, ProjectSpec, ScriptSpec, SerializedTree, TabSpec, WidgetSpec, WriteFile,
+  ColumnType, CopyFile, DashboardSpec, DatasetSpec, FilterInputType, FilterScope, FilterSpec,
+  LocalizedInput, Passthrough, ProjectSpec, ScriptSpec, SerializedTree, TabSpec, WidgetSpec,
+  WriteFile,
 } from './serialize/project.js'
+
+export { readDashboard } from './read/dashboard.js'
+export type { DashboardFile } from './read/dashboard.js'
 
 export { serializeDatabase } from './serialize/database.js'
 export type { DatabaseSpec, DatabaseTableSpec, SchemaProvenance } from './serialize/database.js'
