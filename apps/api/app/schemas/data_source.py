@@ -37,6 +37,10 @@ class DataSourceCreate(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    # Accepted so an import keeps the creation date its tree carries. Undeclared,
+    # model_dump dropped it and server_default stamped now() instead, so every
+    # re-import of a git-linked database rewrote createdAt and churned the diff.
+    created_at: datetime | None = None
 
 
 class DataSourceUpdate(CamelModel):
@@ -59,6 +63,9 @@ class DataSourceUpdate(CamelModel):
     organization: dict | None = None
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
+    # The branch a re-import actually takes when the row already exists: without
+    # this the clone's createdAt was silently dropped and the stored date stood.
+    created_at: datetime | None = None
 
 
 class DataSourceResponse(CamelModel):

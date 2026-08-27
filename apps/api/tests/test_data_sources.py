@@ -85,6 +85,38 @@ async def test_create_strips_password(client):
     assert "password" not in fetched["connectionConfig"]
 
 
+async def test_import_preserves_created_at(client):
+    """A git-linked database is re-applied from the repo it points at, which
+    carries the creation date. The server must keep it on BOTH paths — the
+    create, and the update a re-import takes when the row already exists — or
+    databases/<name>/entity.json churns on every import→export round trip."""
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    created = "2026-07-24T09:56:57.000Z"
+    r = await client.post(
+        f"{API}/data-sources",
+        headers=headers,
+        json={
+            "workspaceId": ws,
+            "alias": "mimic",
+            "name": {"en": "MIMIC-IV"},
+            "createdAt": created,
+        },
+    )
+    assert r.status_code == 201
+    ds = r.json()
+    assert ds["createdAt"] == created
+
+    # The re-import path: the row exists, so applyClonedDatabase PATCHes it.
+    r = await client.patch(
+        f"{API}/data-sources/{ds['id']}",
+        headers=headers,
+        json={"name": {"en": "MIMIC-IV"}, "createdAt": created},
+    )
+    assert r.status_code == 200
+    assert r.json()["createdAt"] == created
+
+
 async def test_password_encrypted_at_rest_and_recoverable(client, db):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)
