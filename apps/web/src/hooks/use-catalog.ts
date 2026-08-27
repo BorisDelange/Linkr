@@ -19,6 +19,9 @@ import {
 } from '@/lib/catalog/remote'
 import type { CatalogCache, CatalogDiff, CatalogEntry } from '@/lib/catalog/types'
 
+/** Stable identity for "no entries" — see the note on `entries` below. */
+const EMPTY_ENTRIES: CatalogEntry[] = []
+
 interface UseCatalogResult {
   entries: CatalogEntry[]
   /** True once a cache exists (or a load succeeded) — drives the empty state. */
@@ -87,7 +90,11 @@ export function useCatalog(): UseCatalogResult {
   }, [cache])
 
   return {
-    entries: cache?.entries ?? [],
+    // NOT `?? []`: a fresh literal each render is a new reference, and callers use
+    // `entries` as an effect dependency. With no cache (the catalog never loaded)
+    // that spun forever — render → new [] → effect → setState → render. One frozen
+    // empty array keeps the identity stable across renders.
+    entries: cache?.entries ?? EMPTY_ENTRIES,
     loaded: !!cache,
     loading,
     error,
