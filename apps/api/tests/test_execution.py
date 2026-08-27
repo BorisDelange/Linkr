@@ -312,19 +312,30 @@ async def test_render_table1_produces_table1data(client):
     client code) and returns the same Table1Data shape the component consumes."""
     headers = await _admin_headers(client)
     project_uid, path = await _disk_dataset(client, headers)  # cols: age (num), grp
+    # Mirrors buildTable1Spec (table1-server.ts): `group` is {name, label} and the
+    # labels travel in the spec, because they can come from a locale the server
+    # does not know and both ends must print the same words.
     r = await client.post(f"{API}/execute/render", headers=headers, json={
         "kind": "table1",
-        "spec": {"selected": [{"name": "age", "numeric": True}], "group": "grp",
-                 "metrics": ["n", "mean_sd"]},
+        "spec": {
+            "selected": [{"name": "age", "label": "Age", "numeric": True}],
+            "group": {"name": "grp", "label": "Group"},
+            "stat": "mean_sd",
+            "showMissing": False,
+            "missingLabel": "Missing",
+            "maxLevels": 10,
+            "othersLabel": "Others",
+        },
         "projectUid": project_uid, "datasetFileId": path,
     })
     assert r.status_code == 200, r.text
     import json
     data = json.loads(r.json()["stdout"].strip())
-    assert data["groupNames"] == ["a", "b"]
-    assert data["rows"][0]["variable"] == "age"
-    # One row per group is present with the requested metric keys.
-    assert "a::n" in data["rows"][0]["values"] and "b::mean_sd" in data["rows"][0]["values"]
+    assert data["groups"] == ["a", "b"]
+    assert data["groupSizes"] == {"a": 1, "b": 1}
+    # The row prints the label from the spec, and carries one cell per group.
+    assert data["rows"][0]["label"] == "Age"
+    assert len(data["rows"][0]["cells"]) == len(data["groups"])
 
 
 async def test_render_correlation_matrix_end_to_end(client):
