@@ -53,10 +53,23 @@ export function fillLicensePlaceholders(text: string, opts: { year: number; hold
 /**
  * Display title of an entity's license: standard licenses take their canonical
  * title from the registry, custom ones the name their author gave them.
+ *
+ * `customLabel` is what an unnamed custom licence falls back to — pass
+ * `t('license.custom')`. Without it the raw id surfaces, which is how a licence
+ * whose author left the name blank came to read as a lowercase "custom".
+ * Untranslatable here: this is a plain function, not a hook.
  */
-export function licenseTitle(license: { id: string; name?: string } | null | undefined): string {
+export function licenseTitle(
+  license: { id: string; name?: string } | null | undefined,
+  customLabel?: string,
+): string {
   if (!license) return ''
-  return getLicenseTemplate(license.id)?.title ?? license.name ?? license.id
+  // A blank name counts as no name: the picker leaves the field empty until the
+  // author types one, so `??` alone would render an empty chip.
+  return getLicenseTemplate(license.id)?.title
+    || license.name?.trim()
+    || customLabel
+    || license.id
 }
 
 /** Categories in picker display order. */

@@ -251,7 +251,7 @@ function LicenseChip({
   onOpen?: () => void
   t: (k: string) => string
 }) {
-  const title = license ? licenseTitle(license) : t('license.none_short')
+  const title = license ? licenseTitle(license, t('license.custom')) : t('license.none_short')
   const body = (
     <span className={cn('flex w-full min-w-0 items-center gap-1', !license && 'italic')}>
       <Scale size={11} className="shrink-0" />

@@ -244,7 +244,7 @@ export function LicenseEditor({
               <>
                 <div className="mb-3 flex items-center gap-2">
                   <Scale size={14} className="text-muted-foreground" />
-                  <span className="text-sm font-medium text-card-foreground">{licenseTitle(license)}</span>
+                  <span className="text-sm font-medium text-card-foreground">{licenseTitle(license, t('license.custom'))}</span>
                 </div>
                 {/* Same renderer as the edit preview: the two disagreed before,
                     so a licence looked one way while writing it and another
