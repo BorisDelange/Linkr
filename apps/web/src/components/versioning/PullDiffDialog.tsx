@@ -44,7 +44,8 @@ export function PullDiffDialog({ plan, initialPath, buildDiff, onClose }: PullDi
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex h-[85vh] w-[92vw] max-w-[1400px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1400px]">
+      {/* Same flush-header offset as GitDiffDialog — see the note there. */}
+      <DialogContent className="flex h-[85vh] w-[92vw] max-w-[1400px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1400px] [&>[data-slot=dialog-close]]:top-1.5">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
           <DialogTitle className="flex items-center gap-2 truncate font-mono">
             {path}
