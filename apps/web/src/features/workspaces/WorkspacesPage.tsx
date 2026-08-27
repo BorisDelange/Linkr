@@ -75,7 +75,7 @@ export function WorkspacesPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { workspaces, _workspacesRaw, openWorkspace, deleteWorkspace } = useWorkspaceStore()
-  const { getWorkspaceProjects, loadProjects } = useAppStore()
+  const { loadProjects } = useAppStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
 
@@ -980,7 +980,6 @@ export function WorkspacesPage() {
         ) : (
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {filteredWorkspaces.map((ws) => {
-              const projectCount = getWorkspaceProjects(ws.id).length
               const raw = _workspacesRaw.find((w) => w.id === ws.id)
               const badges = raw?.badges ?? []
               return (
@@ -1047,9 +1046,6 @@ export function WorkspacesPage() {
                       )}
                     </div>
                     <BadgeStrip badges={badges} className="mt-1.5 h-5" />
-                    <div className="mt-1.5 text-[11px] text-muted-foreground">
-                      {projectCount} {projectCount === 1 ? t('workspaces.project_count_one') : t('workspaces.project_count_other')}
-                    </div>
                    </div>
                     <CardMetaFooter
                       createdById={raw?.createdById}
