@@ -17,9 +17,14 @@ import type { FormattedError } from '@/lib/api-client'
  * Files whose CONTENT the validator inspects. Everything else in the ZIP still
  * has to appear in the tree — the validator checks that a script listed in
  * `_tree.json` exists — it just does not need the bytes.
+ *
+ * `.tsv` counts: the dataset validator resolves one as a data file (its
+ * last-resort match accepts `.csv|.tsv`), so leaving it undecoded made it read as
+ * an empty file. Binary data files are deliberately absent — the validator skips
+ * their header cross-check rather than judging them by a first text line.
  */
 function needsContent(path: string): boolean {
-  return path.endsWith('.json') || path.endsWith('.csv')
+  return /\.(json|csv|tsv)$/i.test(path)
 }
 
 /**
@@ -45,9 +50,12 @@ export async function treeFromZip(zip: JSZip): Promise<MemoryTree> {
           return
         }
         const text = await entry.async('string')
-        // A CSV is truncated to its header — the only part the validator reads —
-        // so a 50 MB dataset is not decoded to check a column list.
-        files[path] = path.endsWith('.csv') ? text.slice(0, text.indexOf('\n') + 1 || undefined) : text
+        // A delimited file is truncated to its header — the only part the
+        // validator reads — so a 50 MB dataset is not decoded to check a column
+        // list.
+        files[path] = /\.(csv|tsv)$/i.test(path)
+          ? text.slice(0, text.indexOf('\n') + 1 || undefined)
+          : text
       }),
   )
   return new MemoryTree(files)
