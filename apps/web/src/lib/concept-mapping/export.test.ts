@@ -133,10 +133,12 @@ describe('buildMappingProjectFolder — portable entity.json', () => {
     for (const m of parsed) {
       expect(m.id).toBeUndefined()
       expect(m.projectId).toBeUndefined()
-      expect(m.createdAt).toBeUndefined()
       expect(m.updatedAt).toBeUndefined()
+      // …but createdAt is provenance, not bookkeeping: stripping it made every
+      // reimport re-stamp the row at import time.
+      expect(m.createdAt).toBe('2026-01-01T00:00:00Z')
     }
-    // …but content + human provenance + nested comment/review ids survive.
+    // …as do content + human provenance + nested comment/review ids.
     expect(parsed[1].targetConceptCode).toBe('20112-9')
     expect(parsed[1].mappedBy).toBe('Boris Delange')
     expect((parsed[1].comments as Record<string, unknown>[])[0].id).toBe('c1')

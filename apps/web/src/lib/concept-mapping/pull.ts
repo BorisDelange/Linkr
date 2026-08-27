@@ -283,6 +283,8 @@ async function applyMappingChange(
     return
   }
   // update (or conflict→remote where a local row exists): overwrite content fields.
+  // createdAt is dropped so the row keeps the date it was first created here — the
+  // remote's own creation date belongs to its instance, and this row already exists.
   if (change.remote && localId) {
     const { id: _id, projectId: _p, createdAt: _c, ...rest } = change.remote
     await storage.conceptMappings.update(localId, rest)

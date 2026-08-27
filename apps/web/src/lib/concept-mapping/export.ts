@@ -679,10 +679,12 @@ interface BuildMappingProjectFolderOptions {
  * Serialize the project's mappings for `mappings.json`. Instance-local, volatile
  * fields are dropped so the committed file tracks mapping *content*, not the DB's
  * bookkeeping: `id`/`projectId` are per-instance uuids (regenerated on pull/import
- * — see pull.ts), and `createdAt`/`updatedAt` are instance timestamps that churn on
- * every edit (or wholesale on reimport). These are exactly the fields the 3-way
- * merge already ignores (merge.ts COMPARED_FIELDS), so removing them can't hide a
- * real change. `sourceConceptId` goes too: the source-concept-ids registry owns it
+ * — see pull.ts), and `updatedAt` is an instance timestamp that churns on every
+ * edit. These are exactly the fields the 3-way merge already ignores (merge.ts
+ * COMPARED_FIELDS), so removing them can't hide a real change. `createdAt` stays:
+ * it is immutable provenance, not bookkeeping — stripping it made every reimport
+ * and pull re-stamp the row at import time, losing when the mapping was really
+ * made. `sourceConceptId` goes too: the source-concept-ids registry owns it
  * (keyed by badge + vocabulary + code, which is what makes it site-specific), and
  * duplicating it here let a re-assignment desynchronise the two — the registry
  * moved, the committed file did not. `mappedOn`/`reviewedOn` are kept — human-
@@ -693,7 +695,7 @@ interface BuildMappingProjectFolderOptions {
  */
 function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
   const cleaned = mappings.map((m) => {
-    const { id: _id, projectId: _p, createdAt: _c, updatedAt: _u, sourceConceptId: _s, ...rest } = m
+    const { id: _id, projectId: _p, updatedAt: _u, sourceConceptId: _s, ...rest } = m
     return rest
   })
   // Sort by sourceConceptCode first (readable diffs), then break EVERY tie down to

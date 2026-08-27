@@ -121,6 +121,8 @@ export interface ConceptMappingSpec {
   mappingType?: string
   equivalence?: string
   status?: 'approved' | 'pending' | 'rejected' | 'draft'
+  /** ISO date the mapping was made. Preserved across import; absent → import time. */
+  createdAt?: string
 }
 
 export interface MappingProjectSpec extends EntityIdentity {

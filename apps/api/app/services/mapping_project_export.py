@@ -72,15 +72,15 @@ def _mapping_key(m: dict) -> str:
 
 
 def _serialize_mappings(mappings: list[dict]) -> bytes:
-    """Port of ``serializeMappingsForVersioning`` (export.ts:571-587): drop the
+    """Port of ``serializeMappingsForVersioning`` (export.ts): drop the
     instance-bookkeeping fields, sort by sourceConceptCode then the full merge
-    identity, serialize like ``JSON.stringify(...,null,2)``."""
+    identity, serialize like ``JSON.stringify(...,null,2)``. ``createdAt`` is
+    kept — it is provenance, and dropping it re-stamped every row on reimport."""
     cleaned = [
         {
             k: v
             for k, v in m.items()
-            if k
-            not in ("id", "projectId", "createdAt", "updatedAt", "sourceConceptId")
+            if k not in ("id", "projectId", "updatedAt", "sourceConceptId")
         }
         for m in mappings
     ]

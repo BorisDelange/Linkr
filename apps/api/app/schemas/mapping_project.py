@@ -149,6 +149,8 @@ class ConceptMappingBase(CamelModel):
 class ConceptMappingCreate(ConceptMappingBase):
     id: str
     project_id: str
+    # Creation date preserved on import round-trip; absent → server_default now.
+    created_at: datetime | None = None
 
 
 class ConceptMappingUpdate(ConceptMappingBase):

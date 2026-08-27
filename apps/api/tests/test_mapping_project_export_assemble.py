@@ -97,6 +97,10 @@ async def _seed(db) -> MappingProject:
                     "status": m["status"],
                     "mapped_by": m["mappedBy"],
                     "mapped_by_details": m["mappedByDetails"],
+                    # Like the project above: createdAt is exported, so the seeded
+                    # row must carry the fixture's value or server_default would
+                    # stamp "now" and the golden bytes would drift every run.
+                    "created_at": datetime.fromisoformat(m["createdAt"]),
                 }
             )
         )

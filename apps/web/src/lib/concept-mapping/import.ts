@@ -155,7 +155,15 @@ export async function importMappingProjectContent(
       const migratedComments = (!m.comments?.length && typeof legacy === 'string' && legacy.trim())
         ? [{ id: crypto.randomUUID(), authorId: m.mappedBy ?? 'unknown', text: legacy.trim(), createdAt: m.mappedOn ?? now }]
         : m.comments
-      return { ...m, comments: migratedComments, id: crypto.randomUUID(), projectId: targetId }
+      // createdAt rides in from mappings.json — kept, so a round-trip preserves when
+      // the mapping was really made. Older exports stripped it: fall back to now.
+      return {
+        ...m,
+        comments: migratedComments,
+        id: crypto.randomUUID(),
+        projectId: targetId,
+        createdAt: m.createdAt ?? now,
+      }
     })
     await storage.conceptMappings.createBatch(toCreate)
   }

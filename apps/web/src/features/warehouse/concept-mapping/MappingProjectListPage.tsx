@@ -234,7 +234,15 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         const migratedComments = (!m.comments?.length && typeof legacy === 'string' && legacy.trim())
           ? [{ id: crypto.randomUUID(), authorId: m.mappedBy ?? 'unknown', text: legacy.trim(), createdAt: m.mappedOn ?? new Date().toISOString() }]
           : m.comments
-        return { ...m, comments: migratedComments, id: crypto.randomUUID(), projectId }
+        // createdAt rides in from mappings.json — kept, so a round-trip preserves when
+        // the mapping was really made. Older exports stripped it: fall back to now.
+        return {
+          ...m,
+          comments: migratedComments,
+          id: crypto.randomUUID(),
+          projectId,
+          createdAt: m.createdAt ?? now,
+        }
       })
       if (toCreate.length > 0) await getStorage().conceptMappings.createBatch(toCreate)
 
