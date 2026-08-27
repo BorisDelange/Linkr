@@ -976,6 +976,11 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
     Metadata only, deliberately: no host, no credentials, no rows — see the TS
     twin's docstring for why the app is never the path data leaves by."""
     stripped = _strip_instance_fields(dumped)
+    # Live connection state: says whether THIS instance can reach the database, so
+    # it flipped between "connected" and "disconnected" on every round trip. Twin
+    # of DATA_SOURCE_LOCAL_FIELDS in entity-io.ts.
+    stripped.pop("status", None)
+    stripped.pop("errorMessage", None)
     connection_config = stripped.pop("connectionConfig", None)
     schema_mapping = stripped.pop("schemaMapping", None)
     meta = {

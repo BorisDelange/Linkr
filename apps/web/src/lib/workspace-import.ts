@@ -202,6 +202,13 @@ export async function importWorkspaceTree(
     const uid = duplicate ? crypto.randomUUID() : project.uid
     const entity: Project = {
       ...project,
+      // The pointer's git config is narrowed to url+branch: a tree written before
+      // gitPointerManifest stopped spreading the whole config still carries the
+      // transient syncedOid — and, from a client-only export, an authToken. Storing
+      // either would put it back into the next export.
+      ...(project.gitRemoteConfig
+        ? { gitRemoteConfig: { url: project.gitRemoteConfig.url, branch: project.gitRemoteConfig.branch } }
+        : {}),
       uid,
       // A git-linked pointer project.json carries no description.
       description: project.description ?? {},

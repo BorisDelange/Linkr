@@ -208,7 +208,9 @@ def _build_projects_section(
         }
         project_meta_out = _strip_instance_fields(project_meta)
         if git:
-            project_meta_out["gitRemoteConfig"] = git
+            # url+branch only: the stored config also carries authToken and the
+            # transient syncedOid, and this line undoes the strip above.
+            project_meta_out["gitRemoteConfig"] = {"url": git["url"], "branch": git["branch"]}
         project_meta_out["appVersion"] = APP_VERSION
 
         if git:

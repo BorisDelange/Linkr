@@ -319,6 +319,9 @@ def _build_tree() -> dict[str, bytes]:
     # repo (entity.json + mapping.json/schema.ddl + docs); linked ones a pointer.
     def _database_sub_tree(ds: dict) -> dict:
         stripped = _strip_instance_fields(ds)
+        # Live connection state, dropped like the production helper does.
+        stripped.pop("status", None)
+        stripped.pop("errorMessage", None)
         connection_config = stripped.pop("connectionConfig", None)
         schema_mapping = stripped.pop("schemaMapping", None)
         meta = {

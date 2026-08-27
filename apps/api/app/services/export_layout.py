@@ -119,7 +119,11 @@ def git_pointer_manifest(
     if created_at:
         out["createdAt"] = created_at
     out["lineageId"] = lineage_id
-    out["gitRemoteConfig"] = git
+    # Rebuilt field by field, never passed through: callers hand over the whole
+    # stored config, which also carries ``authToken`` and the transient
+    # ``syncedOid``. Writing it straight out committed a credential into the repo
+    # it points at.
+    out["gitRemoteConfig"] = {"url": git["url"], "branch": git["branch"]}
     return out
 
 

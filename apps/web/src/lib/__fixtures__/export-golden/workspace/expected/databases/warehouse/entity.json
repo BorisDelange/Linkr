@@ -4,9 +4,7 @@
   "name": "Warehouse",
   "description": null,
   "sourceType": "postgres",
-  "status": "connected",
   "stats": null,
-  "errorMessage": null,
   "isVocabularyReference": false,
   "connectionConfig": {
     "engine": "postgres"

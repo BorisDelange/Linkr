@@ -1152,6 +1152,23 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(Object.keys(zip.files).filter(p => p.startsWith('databases/') && p.endsWith('entity.json'))).toHaveLength(1)
   })
 
+  it('leaves a database\'s live connection state out of its export', async () => {
+    // `status` and `errorMessage` describe whether THIS instance can reach the
+    // database right now, so exporting them flipped connected/disconnected on
+    // every round trip. `stats` stays: it describes the data, not the connection.
+    const zip = await exportZip({
+      dataSources: [{
+        id: 'ds-real', workspaceId: 'w1', name: 'My Postgres', sourceType: 'database',
+        status: 'connected', errorMessage: 'Connection refused',
+        stats: { patientCount: 42 }, createdAt: '2020', updatedAt: '2021',
+      }],
+    })
+    const meta = JSON.parse(await zip.files['databases/my-postgres/entity.json'].async('string'))
+    expect(meta.status).toBeUndefined()
+    expect(meta.errorMessage).toBeUndefined()
+    expect(meta.stats).toEqual({ patientCount: 42 })
+  })
+
   it('writes a folder marker + git-links entry for a linked data-catalog', async () => {
     const zip = await exportZip({ catalogs: [CATALOG({ gitRemoteConfig: GIT })] })
     const marker = zip.files['catalogs/my-catalog/entity.json']
@@ -1180,7 +1197,8 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(pointer.entityId).toBe('my-ruleset')
     expect(pointer.type).toBe('dq-rule-set')
     expect(pointer.id).toBeUndefined()
-    expect(pointer.gitRemoteConfig).toEqual(GIT)
+    // url+branch and nothing else — see the credential-leak test below.
+    expect(pointer.gitRemoteConfig).toEqual({ url: GIT.url, branch: GIT.branch })
     // Pointer only — the linked repo's checks.json is the source of truth, so the
     // workspace marker carries no checks of its own.
     expect(pointer.checks).toBeUndefined()
@@ -1203,6 +1221,28 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(zip.files['schemas/my-preset.json']).toBeUndefined()
     const { links } = await readGitLinks(zip)
     expect(links).toContainEqual({ type: 'schema-preset', folder: 'my-preset', url: GIT.url, branch: 'main' })
+  })
+
+  it('never writes a credential or a transient oid into a git pointer', async () => {
+    // gitPointerManifest declares its `git` parameter as {url, branch}, but that
+    // stops nothing: excess-property checking only applies to object literals, and
+    // every caller passes a whole stored GitRemoteConfig. Spreading it wrote the
+    // user's authToken into the repo the pointer points at — and committed it.
+    const DIRTY = { ...GIT, authToken: 'glpat-SECRET', syncedOid: 'deadbeefcafe' }
+    const zip = await exportZip({
+      ruleSets: [RULESET({ gitRemoteConfig: DIRTY })],
+      presets: [PRESET({ gitRemoteConfig: DIRTY })],
+    })
+    for (const path of ['data-quality/my-ruleset/entity.json', 'schemas/my-preset/entity.json']) {
+      const raw = await zip.files[path].async('string')
+      expect(raw, path).not.toContain('glpat-SECRET')
+      expect(raw, path).not.toContain('deadbeefcafe')
+      expect(JSON.parse(raw).gitRemoteConfig, path).toEqual({ url: GIT.url, branch: GIT.branch })
+    }
+    // git-links.json is written from the same config and must stay clean too.
+    const raw = await zip.files['git-links.json'].async('string')
+    expect(raw).not.toContain('glpat-SECRET')
+    expect(raw).not.toContain('deadbeefcafe')
   })
 
   it('writes the same folder as the standalone export when the entity is NOT linked', async () => {

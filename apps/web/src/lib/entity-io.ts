@@ -840,6 +840,14 @@ const INSTANCE_FIELDS = [
   'linkedDataSourceIds',
 ] as const
 
+// A data source's live connection state, and the message explaining it. Both say
+// whether THIS instance can currently reach the database — nothing about the
+// database itself — so an export flipped between "connected" and "disconnected"
+// on every round trip. Not in INSTANCE_FIELDS: `status` is deliberate content on
+// a project, an ETL pipeline and a DQ rule set. `stats` is NOT stripped either —
+// patient and table counts describe the data, not the connection.
+const DATA_SOURCE_LOCAL_FIELDS = ['status', 'errorMessage'] as const
+
 /** Return a copy of an entity's metadata without instance-specific fields.
  *  Accepts any object (interfaces without an index signature included). */
 /**
@@ -1954,7 +1962,12 @@ function gitPointerManifest(
     // tests compare the two byte for byte.
     ...(identity.createdAt ? { createdAt: identity.createdAt } : {}),
     lineageId: identity.lineageId ?? null,
-    gitRemoteConfig: git,
+    // Rebuilt field by field, never spread: callers pass a whole GitRemoteConfig,
+    // which also carries `authToken` and the transient `syncedOid`. The narrow
+    // parameter type does NOT stop them — excess-property checking only applies to
+    // object literals, and every call site passes a variable — so writing `git`
+    // straight out committed a credential into the repo it points at.
+    gitRemoteConfig: { url: git.url, branch: git.branch },
   }
 }
 
@@ -2298,6 +2311,7 @@ export async function buildDataSourceFolder(
   storage: Storage,
 ): Promise<void> {
   const { connectionConfig, schemaMapping, ...rest } = stripInstanceFields(source) as unknown as Record<string, unknown>
+  for (const field of DATA_SOURCE_LOCAL_FIELDS) delete rest[field]
   const meta = {
     ...stripEntityDocs(rest as unknown as DataSource),
     connectionConfig: connectionConfig

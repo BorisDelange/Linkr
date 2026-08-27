@@ -260,8 +260,12 @@ export function ProjectsPage() {
         ? { lineageId: crypto.randomUUID(), parentLineageId: project.lineageId }
         : { lineageId: project.lineageId ?? crypto.randomUUID() }),
       // Imported from a git repo → pre-link its Versioning page to that repo
-      // (with the token, if one was supplied at import).
-      ...(gitRemote ? { gitRemoteConfig: gitRemote } : {}),
+      // (with the token, if one was supplied at import). syncedOid is transient:
+      // it anchors sync state below and must not be stored, or the next export
+      // writes a stale commit id into the repo's own entity.json.
+      ...(gitRemote
+        ? { gitRemoteConfig: { url: gitRemote.url, branch: gitRemote.branch, authToken: gitRemote.authToken } }
+        : {}),
     }
 
     // Always clean up existing data for the target uid to avoid IDB constraint errors
@@ -269,6 +273,16 @@ export function ProjectsPage() {
     await storage.projects.delete(uid).catch(() => {})
 
     await storage.projects.create(entity)
+
+    // Anchor sync state to the commit we cloned, like every other git-imported
+    // entity: it is the base this instance imported from, so a later push
+    // elsewhere reads as "behind". Best-effort — a failure just means no banner.
+    if (gitRemote?.syncedOid) {
+      try {
+        const { gitSetSyncState } = await import('@/lib/api/git')
+        await gitSetSyncState('projects', uid, gitRemote.branch, gitRemote.syncedOid)
+      } catch { /* leave unanchored — lazy adoption may still catch a clean sync */ }
+    }
 
     // Write all sub-entities (child ids remapped to fresh UUIDs to avoid collisions).
     await importProjectContent(parsed, uid, storage)
