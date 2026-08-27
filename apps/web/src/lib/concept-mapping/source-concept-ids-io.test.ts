@@ -303,6 +303,41 @@ describe('mergeSourceConceptIdRegistry — workspace reconstruction (entries own
     expect(ranges[0].nextId).toBe(2000182284) // bumped past the highest assigned id
   })
 
+  it('ranges: the ROOT window wins over a project that drifted, whatever the group order', () => {
+    // The RiCDC workspace: the root and one project agree on 2000000000-2001999999,
+    // two other projects carry the default window addBadge mints (start+1, 1M wide).
+    // Folding project-first made the winner depend on zip iteration order.
+    const rootWindow = pr({ rangeStart: 2000000000, rangeEnd: 2001999999, nextId: 2000183039 })
+    const drifted = pr({ rangeStart: 2000000001, rangeEnd: 2001000000, nextId: 2000183039 })
+    const root = { ranges: [rootWindow], entries: [] }
+    const first = mergeSourceConceptIdRegistry(
+      [{ ranges: [drifted], entries: [] }, { ranges: [rootWindow], entries: [] }], root,
+    )
+    const second = mergeSourceConceptIdRegistry(
+      [{ ranges: [rootWindow], entries: [] }, { ranges: [drifted], entries: [] }], root,
+    )
+    expect(first.ranges[0].rangeStart).toBe(2000000000)
+    expect(first.ranges[0].rangeEnd).toBe(2001999999)
+    expect(second.ranges).toEqual(first.ranges)
+  })
+
+  it('ranges: a project cursor ahead of the root is still carried up', () => {
+    // The window comes from the root, the cursor from whoever got furthest —
+    // lowering nextId would re-hand-out ids already consumed.
+    const root = { ranges: [pr({ rangeStart: 2000000000, rangeEnd: 2001999999, nextId: 2000010000 })], entries: [] }
+    const ahead = { ranges: [pr({ rangeStart: 2000000001, rangeEnd: 2001000000, nextId: 2000900000 })], entries: [] }
+    const { ranges } = mergeSourceConceptIdRegistry([ahead], root)
+    expect(ranges[0].rangeStart).toBe(2000000000)
+    expect(ranges[0].nextId).toBe(2000900000)
+  })
+
+  it('ranges: a badge the root does not know is still adopted from its project', () => {
+    const root = { ranges: [pr({ badgeLabel: 'Rennes' })], entries: [] }
+    const proj = { ranges: [pr({ badgeLabel: 'Nouveau', rangeStart: 2050000000, rangeEnd: 2051000000 })], entries: [] }
+    const { ranges } = mergeSourceConceptIdRegistry([proj], root)
+    expect(ranges.find(r => r.badgeLabel === 'Nouveau')?.rangeStart).toBe(2050000000)
+  })
+
   it('ranges: keeps one merged range per badge', () => {
     const root = { ranges: [pr({ badgeLabel: 'Rennes' }), pr({ badgeLabel: 'Paris', rangeStart: 2010000000, rangeEnd: 2011000000, nextId: 2010000005 })], entries: [] }
     const { ranges } = mergeSourceConceptIdRegistry([], root)

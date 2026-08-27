@@ -283,16 +283,35 @@ export function mergeSourceConceptIdRegistry(
   projectGroups: SourceConceptIdGroup[],
   rootGroup: SourceConceptIdGroup,
 ): { ranges: PortableRange[]; entries: SourceConceptIdEntry[] } {
-  // --- ranges: monotone merge per badge ---
+  // --- ranges: the root owns the window, nextId is monotone across every source ---
+  // The window and the cursor are merged by different rules on purpose.
+  //
+  // WINDOW: a badge has ONE window per workspace, and the root registry is where
+  // it lives. Projects each serialize a copy, and those copies drift — a badge
+  // re-added in one project mints a fresh default window (addBadge), which then
+  // disagrees with the root and with the workspace's other projects. Folding them
+  // all through resolveImportedRange made the FIRST group seen authoritative, so
+  // the winner depended on zip iteration order: the same workspace could import
+  // to either window, and re-export rewrote the root from whichever project won.
+  // Taking the root settles it, and makes the fold genuinely order-independent.
+  // A badge the root does not know is still adopted from a project (first seen),
+  // so a project carrying a new badge is not dropped.
+  //
+  // NEXT ID: max across every source, root included. It must never go backwards
+  // or a later assign re-hands-out ids already consumed elsewhere, so a project
+  // that allocated further than the root still carries its cursor up.
   const rangeByBadge = new Map<string, PortableRange>()
-  const allRangeSources = [...projectGroups.flatMap((g) => g.ranges), ...rootGroup.ranges]
-  for (const r of allRangeSources) {
+  for (const r of [...projectGroups.flatMap((g) => g.ranges), ...rootGroup.ranges]) {
     const seen = rangeByBadge.get(r.badgeLabel)
-    // resolveImportedRange treats `local` as authoritative for the window and
-    // takes max(nextId); feeding the accumulator as `local` makes the fold
-    // order-independent for nextId (max is commutative).
-    const merged = resolveImportedRange(seen as SourceConceptIdRange | undefined, r)
-    rangeByBadge.set(r.badgeLabel, merged.range)
+    rangeByBadge.set(
+      r.badgeLabel,
+      seen ? { ...seen, nextId: Math.max(seen.nextId, r.nextId) } : r,
+    )
+  }
+  for (const r of rootGroup.ranges) {
+    const seen = rangeByBadge.get(r.badgeLabel)
+    // The root's window, but never the root's cursor if a project got further.
+    rangeByBadge.set(r.badgeLabel, { ...r, nextId: Math.max(seen?.nextId ?? r.nextId, r.nextId) })
   }
 
   // --- entries: project-owned, root as fallback, first-writer-wins ---
