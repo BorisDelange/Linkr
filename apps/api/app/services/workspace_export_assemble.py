@@ -124,13 +124,14 @@ def _dump(schema, row) -> dict:
 
 
 def _badged_dump(schema, row) -> dict:
-    """_dump for scopes whose client rows carry ``badges`` only once set (sql
-    collections, ETL pipelines, DQ rule sets, data catalogs): the client export
-    omits the absent field entirely (JSON.stringify skips undefined) while
-    Pydantic always emits an explicit null — drop it for byte-parity. Projects
-    and workspaces store the field explicitly, so their null must be kept."""
+    """_dump for scopes whose export metadata is NOT passed through
+    ``_strip_instance_fields`` (sql collections, ETL pipelines, DQ rule sets, data
+    catalogs, schema presets): the client export omits an empty ``badges``
+    entirely (JSON.stringify skips undefined) while Pydantic emits an explicit
+    null — drop it for byte-parity. The scopes that ARE stripped get the same rule
+    from that helper instead."""
     data = _dump(schema, row)
-    if data.get("badges") is None:
+    if not data.get("badges"):
         data.pop("badges", None)
     return data
 

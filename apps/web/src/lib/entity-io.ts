@@ -877,6 +877,12 @@ export function stripInstanceFields<T extends object>(meta: T): Partial<T> {
   // it rather than writing `"createdAt": ""` (no false date, no churn). A real
   // createdAt is kept as portable provenance.
   if (!(out as Record<string, unknown>).createdAt) delete (out as Record<string, unknown>).createdAt
+  // Same rule for badges: a row carries `[]` or nothing depending only on whether
+  // it was last written by a create (which omits the key) or an update (which
+  // sends the empty list). Both mean "no badges", so emit neither — otherwise
+  // editing an entity churned the diff. Mirrored server-side in `_dump`
+  // (workspace_export_assemble.py); the two must agree or byte-parity breaks.
+  if (!(out as Record<string, unknown[]>).badges?.length) delete (out as Record<string, unknown>).badges
   return out
 }
 

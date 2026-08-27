@@ -124,10 +124,15 @@ def _localized_en(value: Any) -> str:
 def _strip_instance_fields(meta: dict) -> dict:
     """Port of ``stripInstanceFields`` (entity-io.ts:417): copy, drop the
     instance-specific fields (preserving key order), then drop an empty
-    ``createdAt``."""
+    ``createdAt`` and an empty ``badges``."""
     out = {k: v for k, v in meta.items() if k not in _INSTANCE_FIELDS}
     if not out.get("createdAt"):
         out.pop("createdAt", None)
+    # A row carries `[]` or None purely by which write path touched it last
+    # (create excludes None, update lets an explicit [] through). Both mean "no
+    # badges", so emit neither — otherwise editing an entity churned the diff.
+    if not out.get("badges"):
+        out.pop("badges", None)
     return out
 
 
