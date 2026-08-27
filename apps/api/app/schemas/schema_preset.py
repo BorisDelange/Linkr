@@ -24,6 +24,9 @@ class SchemaPresetSave(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    # Frozen provenance snapshot of the origin organization, re-attributable from
+    # the Attribution tab. Absent means "inherit the parent workspace's" at export.
+    organization: dict | None = None
     # Creation date preserved on import round-trip; applied only when creating.
     created_at: datetime | None = None
     version: str = "0.1.0"
@@ -45,6 +48,7 @@ class SchemaPresetResponse(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    organization: dict | None = None
     created_at: datetime
     updated_at: datetime
     version: str

@@ -96,7 +96,7 @@ import type {
   CustomSchemaPreset,
 } from '@/types/schema-mapping'
 import type { AuthorDetails } from '@/types/author'
-import type { EntityLicense, LocalizedString, ProjectBadge } from '@/types'
+import type { EntityLicense, LocalizedString, OrganizationInfo, ProjectBadge } from '@/types'
 import type * as Monaco from 'monaco-editor'
 
 // ---------------------------------------------------------------------------
@@ -995,6 +995,8 @@ function SchemaCard({
   createdBy,
   createdByDetails,
   createdById,
+  organizationId,
+  organization,
   license,
   onOpenLicense,
   onNavigate,
@@ -1008,6 +1010,8 @@ function SchemaCard({
   createdBy?: string
   createdByDetails?: AuthorDetails
   createdById?: number
+  organizationId?: string
+  organization?: OrganizationInfo
   license?: EntityLicense
   onOpenLicense?: () => void
   onNavigate: () => void
@@ -1072,7 +1076,7 @@ function SchemaCard({
             {actionsMenu}
           </div>
         </div>
-        <CardMetaFooter className="mt-auto" createdAt={createdAt} updatedAt={updatedAt} createdBy={createdBy} createdByDetails={createdByDetails} createdById={createdById} license={license} onOpenLicense={onOpenLicense} />
+        <CardMetaFooter className="mt-auto" createdAt={createdAt} updatedAt={updatedAt} createdBy={createdBy} createdByDetails={createdByDetails} createdById={createdById} organizationId={organizationId} organization={organization} license={license} onOpenLicense={onOpenLicense} />
       </div>
     </Card>
   )
@@ -1732,7 +1736,11 @@ function SchemaIdentityCard({
         createdById={preset.createdById}
         createdBy={preset.createdBy}
         createdByDetails={preset.createdByDetails}
-        organizationId={workspace?.organizationId}
+        // The preset's own snapshot wins, and the parent workspace's org is only
+        // the fallback — the same precedence the export applies, so the card shows
+        // what a published entity.json would actually carry.
+        organizationId={preset.organization ? undefined : workspace?.organizationId}
+        organization={preset.organization}
         createdAt={preset.createdAt}
         updatedAt={preset.updatedAt}
         license={preset.license}
@@ -1755,6 +1763,9 @@ export function SchemaPresetsPage() {
   const canWrite = useMyWorkspaceRole().can('schemas:write')
   const canDelete = useMyWorkspaceRole().can('schemas:delete')
   const customPresets = useSchemaPresetStore((s) => s.presets)
+  // Fallback attribution for a preset carrying no snapshot of its own — what its
+  // export would inherit, so the card and the published entity.json agree.
+  const workspaceOrgId = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === wsUid)?.organizationId)
   const loadPresets = useSchemaPresetStore((s) => s.loadPresets)
   const storeSave = useSchemaPresetStore((s) => s.savePreset)
   const storeDelete = useSchemaPresetStore((s) => s.deletePreset)
@@ -2097,6 +2108,8 @@ export function SchemaPresetsPage() {
                   createdBy={preset.createdBy}
                   createdByDetails={preset.createdByDetails}
                   createdById={preset.createdById}
+                  organizationId={preset.organization ? undefined : workspaceOrgId}
+                  organization={preset.organization}
                   license={preset.license}
                   onOpenLicense={() => navigateToSchemaTab(id, 'license')}
                   onNavigate={() => navigateToSchema(id)}

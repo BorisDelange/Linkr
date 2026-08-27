@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import type { AuthoringValue } from '@/components/ui/authoring-fields'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { stampAuthored, stampLineage } from '@/stores/app-store'
 import type { CustomSchemaPreset, GitRemoteConfig, ProjectBadge, SchemaMapping } from '@/types'
@@ -90,13 +91,18 @@ export function buildSchemaPreset(
   existing: CustomSchemaPreset | undefined,
   workspaceId: string | undefined,
   /** Metadata set by the create/edit form. Absent keys keep the existing value. */
-  meta?: { version?: string; badges?: ProjectBadge[] },
+  meta?: { version?: string; badges?: ProjectBadge[]; authoring?: Partial<AuthoringValue> },
 ): CustomSchemaPreset {
   const now = new Date().toISOString()
-  // Stamp the creator on first save; keep the original author on update.
-  const authored = existing
-    ? { createdById: existing.createdById, createdBy: existing.createdBy, createdByDetails: existing.createdByDetails }
-    : stampAuthored()
+  // Stamp the creator on first save; keep the original author on update, unless the
+  // Attribution tab re-attributed it — the same contract as every other entity's
+  // edit dialog, which passes only the keys the user actually unlocked.
+  const authored = {
+    ...(existing
+      ? { createdById: existing.createdById, createdBy: existing.createdBy, createdByDetails: existing.createdByDetails }
+      : stampAuthored()),
+    ...meta?.authoring,
+  }
   // Same rule for the lineage: minted once, then carried unchanged. It is the
   // preset's cross-instance identity, so re-minting it on every save would make
   // every other instance holding a copy stop recognising it. A duplicate does NOT
@@ -115,6 +121,16 @@ export function buildSchemaPreset(
     entityId: existing?.entityId ?? presetId,
     mapping: { ...mapping, presetId },
     gitRemoteConfig: existing?.gitRemoteConfig,
+    // Carried, not dropped: this function rebuilds the whole record, so a field it
+    // forgets is erased on every save. Editing a preset's mapping used to wipe its
+    // README and licence that way.
+    readme: existing?.readme,
+    license: existing?.license,
+    // Absent on a preset that has never been re-attributed: the export then inherits
+    // the parent workspace's org (attachEntityOrganization). Once set here it wins,
+    // which is what makes the choice survive the next export. `authored` spreads
+    // after, so a re-attribution from the Attribution tab overrides it.
+    organization: existing?.organization,
     version: meta?.version ?? existing?.version ?? '0.1.0',
     badges: meta?.badges ?? existing?.badges,
     createdAt: existing?.createdAt ?? now,

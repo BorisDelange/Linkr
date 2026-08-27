@@ -167,6 +167,38 @@ async def test_preset_persists_author_provenance(client):
     assert authored["createdBy"] == "Ada Lovelace"
 
 
+async def test_preset_persists_its_organization(client):
+    """The organization snapshot survives the round-trip.
+
+    Without the column the API dropped it silently, so a preset had no
+    organization of its own and every export fell back to the parent workspace's
+    — which silently re-attributed the entity whenever it was re-exported from an
+    instance with a different active organization."""
+    headers = await _admin_headers(client)
+    org = {"name": {"en": "InterHop", "fr": "InterHop"}, "website": "https://interhop.org"}
+    r = await client.put(
+        f"{API}/schema-presets/attributed",
+        headers=headers,
+        json={"presetId": "attributed", "mapping": {"tables": []}, "organization": org},
+    )
+    assert r.status_code == 200
+    assert r.json()["organization"] == org
+
+    # Persisted, not just echoed back.
+    r = await client.get(f"{API}/schema-presets", headers=headers)
+    attributed = next(p for p in r.json() if p["presetId"] == "attributed")
+    assert attributed["organization"] == org
+
+    # Re-attributing replaces the snapshot rather than merging into it.
+    other = {"name": {"en": "RiCDC"}, "website": "https://www.chu-hugo.fr/"}
+    r = await client.put(
+        f"{API}/schema-presets/attributed",
+        headers=headers,
+        json={"presetId": "attributed", "mapping": {"tables": []}, "organization": other},
+    )
+    assert r.json()["organization"] == other
+
+
 async def test_preset_keeps_its_creation_date_but_accepts_an_imported_one(client):
     """createdAt is provenance, so an import must be able to restore the repo's
     date onto a row that already exists — while an ordinary re-save, which sends

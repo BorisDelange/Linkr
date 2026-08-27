@@ -1,4 +1,4 @@
-import type { EntityLicense, GitRemoteConfig, LocalizedString, ProjectBadge } from './index'
+import type { EntityLicense, GitRemoteConfig, LocalizedString, OrganizationInfo, ProjectBadge } from './index'
 import type { Authored, Lineaged } from './author'
 
 /**
@@ -310,6 +310,8 @@ export interface CustomSchemaPreset extends Authored, Lineaged {
   mapping: SchemaMapping
   readme?: LocalizedString
   license?: EntityLicense
+  /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
+  organization?: OrganizationInfo
   /** User-facing semver (default '0.1.0'). Portable across export/import. */
   version?: string
   badges?: ProjectBadge[]
