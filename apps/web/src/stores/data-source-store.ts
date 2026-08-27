@@ -77,6 +77,30 @@ interface DataSourceState {
     alias?: string
     badges?: ProjectBadge[]
     version?: string
+    /**
+     * Identity and provenance of a row this one REPLACES, carried over verbatim.
+     *
+     * Re-importing a database's files goes through remove + create (stored files are
+     * keyed by data source id, so they cannot be swapped underneath the row). That
+     * makes the result a different entity to every consumer keyed on identity: the
+     * export diffs `lineageId`/`createdAt`, and a git-linked database loses the
+     * pointer saying which repo it belongs to. Passing the old row here keeps the
+     * replacement the same entity, with only its data changed.
+     */
+    inherit?: Pick<
+      DataSource,
+      | 'entityId'
+      | 'lineageId'
+      | 'parentLineageId'
+      | 'createdAt'
+      | 'createdById'
+      | 'createdBy'
+      | 'createdByDetails'
+      | 'organization'
+      | 'gitRemoteConfig'
+      | 'readme'
+      | 'license'
+    >
   }) => Promise<string>
 
   updateDataSource: (id: string, changes: Partial<DataSource>) => Promise<void>
@@ -129,6 +153,13 @@ function handleDuckDBError(err: unknown): void {
     engine.resetDuckDB()
     mountedSources.clear()
   }
+}
+
+/** Drop the undefined-valued keys of an object, so spreading it cannot blank a field. */
+function definedOnly<T extends object>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined),
+  ) as Partial<T>
 }
 
 /** Track which data sources are currently mounted in DuckDB. */
@@ -361,6 +392,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       ...stampLineage(),
       createdAt: now,
       updatedAt: now,
+      // Last: a replacement keeps the identity of the row it stands in for, so the
+      // stamps above only apply to a genuinely new database. Undefined entries are
+      // dropped first — spreading them raw would blank fields the stamps just set.
+      ...(source.inherit ? definedOnly(source.inherit) : {}),
     }
 
     await getStorage().dataSources.create(newSource)

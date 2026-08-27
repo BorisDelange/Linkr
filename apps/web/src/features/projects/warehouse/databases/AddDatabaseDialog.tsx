@@ -303,7 +303,23 @@ export function AddDatabaseDialog({
         const hasNewFiles = uploadedFiles.length > 0 || fsHandles.length > 0
 
         if (hasNewFiles) {
-          // User selected new files — remove old source and create new one with same name
+          // User selected new files — remove old source and create new one with same
+          // name. The replacement inherits the original's identity (see `inherit`):
+          // without it, re-importing a database's files silently forked it into a new
+          // entity, changing lineageId/createdAt and dropping its git pointer.
+          const inherit = {
+            entityId: editingSource.entityId,
+            lineageId: editingSource.lineageId,
+            parentLineageId: editingSource.parentLineageId,
+            createdAt: editingSource.createdAt,
+            createdById: editingSource.createdById,
+            createdBy: editingSource.createdBy,
+            createdByDetails: editingSource.createdByDetails,
+            organization: editingSource.organization,
+            gitRemoteConfig: editingSource.gitRemoteConfig,
+            readme: editingSource.readme,
+            license: editingSource.license,
+          }
           await removeDataSource(editingSource.id)
 
           if (selectedType === 'database') {
@@ -330,6 +346,9 @@ export function AddDatabaseDialog({
               files: fsHandles.length > 0 ? undefined : (uploadedFiles.length > 0 ? uploadedFiles : undefined),
               fileHandles: fsHandles.length > 0 ? fsHandles : undefined,
               alias: alias.trim() || undefined,
+              badges,
+              version: version.trim() || '0.1.0',
+              inherit,
             })
             if (projectUid) useAppStore.getState().linkDataSource(projectUid, newId)
           }
