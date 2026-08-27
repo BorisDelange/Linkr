@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { serializeProject, type ProjectSpec } from '@linkr/format'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  addDashboardTab, addScript, addWidget, describeEntitySchema, describeTree, writeTree, writeZip,
+  addDashboardTab, addScript, addWidget, describeEntitySchema, describeTree, readTreeFile,
+  writeTree, writeZip,
 } from './tools.js'
 
 const CSV = 'patient_id,age,sex,ventilated\n1,60,M,1\n2,71,F,0\n'
@@ -216,5 +217,71 @@ describe('describeEntitySchema', () => {
 
   it('returns null for an unknown kind', () => {
     expect(describeEntitySchema('cohort')).toBeNull()
+  })
+})
+
+describe('readTreeFile', () => {
+  it('returns a script verbatim, so an agent never opens the file itself', () => {
+    addScript(root, 'q.sql', 'SELECT 1;\n')
+    expect(readTreeFile(root, 'scripts/q.sql')).toBe('SELECT 1;\n')
+  })
+
+  it('names the files that do exist when one does not', () => {
+    // The correctable-failure contract: a rejection enumerates the alternatives
+    // so the model fixes its own call instead of guessing again.
+    expect(() => readTreeFile(root, 'scripts/ghost.sql')).toThrow(/Known:.*entity\.json/s)
+  })
+
+  it('refuses a path that escapes the tree', () => {
+    // Same guard as every write: the caller is a model acting on text it was
+    // given, so a path is untrusted input even when only reading.
+    expect(() => readTreeFile(root, '../../../etc/passwd')).toThrow(/escapes the project/)
+  })
+})
+
+describe('describeTree — the read half of read-modify-write', () => {
+  it('shows a widget config, which is what an edit targets', () => {
+    addWidget({
+      path: root,
+      dashboard: 'overview',
+      tabKey: 'overview/demographics',
+      name: { en: 'Ages' },
+      dataset: 'stays.csv',
+      pluginId: 'linkr-analysis-plot-builder',
+      config: { xColumn: 'age' },
+      layout: { x: 0, y: 0, w: 24, h: 16 },
+    })
+    const out = describeTree(root)
+    // The name was resolved to a column id on write; the agent must see the id
+    // it would be editing, not the name it happened to pass.
+    expect(out).toMatch(/config\.xColumn = "col_age"/)
+    expect(out).toMatch(/dataset stays\.csv/)
+  })
+
+  it('shows a widget layout, so a move has coordinates to work from', () => {
+    addWidget({
+      path: root,
+      dashboard: 'overview',
+      tabKey: 'overview/demographics',
+      name: { en: 'Ages' },
+      pluginId: 'kpi',
+      layout: { x: 6, y: 2, w: 12, h: 8 },
+    })
+    expect(describeTree(root)).toMatch(/@2,6 12x8/)
+  })
+
+  it('lists a filter and the tab keys it is scoped to', () => {
+    // A tab-scoped filter is invisible from the tab itself, so renaming that tab
+    // would orphan the scope with nothing having warned the agent.
+    const spec: ProjectSpec = {
+      ...SPEC,
+      dashboards: [{
+        name: { en: 'Overview' },
+        tabs: [{ name: { en: 'Demographics' } }],
+        filters: [{ dataset: 'stays', column: 'age', scope: { type: 'tabs', tabKeys: ['overview/demographics'] } }],
+      }],
+    }
+    writeTree(root, serializeProject(spec))
+    expect(describeTree(root)).toMatch(/filter col_age \(age, range\) scope=tabs:overview\/demographics/)
   })
 })

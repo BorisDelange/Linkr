@@ -571,16 +571,72 @@ one record out of many).
 
 | # | Item | Effort |
 |---|---|---|
-| A1 | `ProjectSpec` grows **optional passthrough** for the 8 dashboard fields + filter `scope`; serializer emits them when present, omits them when absent (so today's specs stay byte-identical) | M |
-| A2 | Round-trip test as the acceptance gate: parse a real app-exported tree → spec → re-serialize → **byte-identical**. Run over the golden fixtures + the `linkr-public-content` trees | M |
+| ✅ A1 | `ProjectSpec` grows **optional passthrough** for the 8 dashboard fields + filter `scope`; serializer emits them when present, omits them when absent (so today's specs stay byte-identical) | M |
+| ✅ A2 | Round-trip test as the acceptance gate: parse a real app-exported tree → spec → re-serialize → **byte-identical**. Run over the golden fixtures + the `linkr-public-content` trees | M |
+
+#### A1–A2 as built (2026-08-27)
+
+**Enumerating the fields would have been wrong.** The app does not list them: its
+exporter *spreads* the stored record and deletes what is instance-local, so the set is
+whatever `Dashboard` happens to carry — and `Dashboard extends Seedable, Authored`, which
+is why the count above was already short (the golden has **9**, `gridV` was missing, plus
+the filter `scope`). A named list would go stale on the next field added, and a stale spec
+drops what it does not know *silently*. So the spec mirrors the exporter: anything it does
+not model rides in `extra` and is re-emitted in place.
+
+**Key position is part of the contract**, and neither spread does it: `...extra` last
+appends its keys (`gridV` then lands before `defaultDatasetFileId`, the app writes the
+reverse); `...extra` first puts every carried key before `name`. The reader therefore
+records the record's **full original key order** under a symbol — never serialized, since
+`Object.entries` and `JSON.stringify` both skip symbol keys — and `withExtra` replays that
+order, substituting recomputed values in place.
+
+Writing the gate meant writing the read half (B1's dashboard slice) to have something to
+round-trip; it landed with A2 rather than waiting for B.
+
+Two findings, both from the gate's **first** run:
+
+- **`description` was hardcoded to `null`** for dashboards, tabs and widgets. A real spec
+  gap, not something `extra` should paper over — it is now a real field. It also caused the
+  first failure in a confusing way: routed through `extra`, it became that object's first
+  key and dragged the whole block out of order.
+- **A widget's `source` is carried verbatim.** The golden spells the discriminant `kind`
+  where the app's type says `type`; the validator already flags this as `legacy-format`
+  (the app keys off `type`, so a `kind`-only widget renders nothing). Re-deriving it here
+  would *fix* a widget the author never touched — turning every edit into a diff of
+  unrelated lines. **A round trip is faithful, not corrective**; reporting is the
+  validator's job.
+
+Verified beyond the fixture: the published `icu-activity-dashboard` (6 widgets, written by
+the app, never touched by this package) round-trips byte for byte.
 
 **Read back** (the missing half of read-modify-write):
 
 | # | Item | Effort |
 |---|---|---|
-| B1 | `read_entity(path)` → the spec for any kind, kind auto-detected as `validate_entity` already does | M |
-| B2 | `read_file(path, file)` → raw content of a script / `.sql` / DDL, so the agent stops needing `Read` | S |
-| B3 | `describe_tree` gains widget `config`, filters, and layout — it stops being a summary that forces a file read | S |
+| ◐ B1 | `read_entity(path)` → the spec for any kind, kind auto-detected as `validate_entity` already does | M |
+| ✅ B2 | `read_file(path, file)` → raw content of a script / `.sql` / DDL, so the agent stops needing `Read` | S |
+| ✅ B3 | `describe_tree` gains widget `config`, filters, and layout — it stops being a summary that forces a file read | S |
+
+#### B2–B3 as built (2026-08-27)
+
+`describe_tree` now prints each widget's `config` (with the resolved column **ids**, which
+is what an edit targets), its grid position, and its dataset. `read_file` returns any file
+verbatim, through the same `resolveInside` traversal guard as every write — a path stays
+untrusted input even when only reading.
+
+**Filters are listed before the tabs they scope.** A tab-scoped filter is invisible from
+the tab itself, so an agent renaming that tab would orphan `scope.tabKeys` with nothing
+having warned it. Surfacing the scope is what makes the cascade in §7b.4 *visible* before
+the mutators that must perform it exist.
+
+`read_entity` (B1) is half-built: the dashboard slice landed with A2 as
+`readDashboard` in the format package. The remaining kinds follow with the mutators that
+need them.
+
+Verified over real stdio JSON-RPC against the published `icu-activity-dashboard`, not only
+unit tests: 10 tools listed, and the tree came back with all 17 config values of its
+histogram widget — the file never opened.
 
 **Mutate** (the right-hand side of the table):
 
@@ -601,7 +657,7 @@ one record out of many).
 |---|---|---|
 | D1 | Every mutator re-validates and reports, as the `add_*` already do — no exceptions | — |
 | D2 | Every destructive tool (C4, C6) names its **collateral damage first**: "removing tab `overview/outcomes` also removes 3 widgets" | S |
-| D3 | `linkr-authoring` SKILL.md: replace "say so if a tool cannot express it" with the real matrix, so the fallback to `Edit` is no longer implicitly sanctioned | S |
+| ✅ D3 | `linkr-authoring` SKILL.md: replace "say so if a tool cannot express it" with the real matrix, so the fallback to `Edit` is no longer implicitly sanctioned | S |
 
 ### 7b.4 The hard part: keys are derived from what you are editing
 

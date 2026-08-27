@@ -133,8 +133,16 @@ function revalidate(root: string, summary: string): string {
     : `${summary}\n\n${errors} error(s) now in the tree:\n${formatIssues(issues)}`
 }
 
+/** A filter as stored, with the tab/widget keys its scope points at. */
+interface FilterDoc {
+  columnId?: string
+  columnName?: string
+  inputType?: string
+  scope?: { type: string; tabKeys?: string[]; widgetKeys?: string[] }
+}
+
 interface DashboardDoc {
-  dashboard: Record<string, unknown>
+  dashboard: Record<string, unknown> & { filterConfig?: FilterDoc[] }
   tabs: { name: unknown; key?: string; parentKey?: string | null; displayOrder?: number }[]
   widgets: {
     name: unknown
@@ -196,10 +204,30 @@ export function describeTree(root: string): string {
   for (const path of dashboards) {
     const doc = JSON.parse(tree.read(path)!) as DashboardDoc
     lines.push(`  ${path}`)
+    // Filters are listed before the tabs they scope: a filter restricted to one
+    // tab is invisible from the tab itself, so an agent editing that tab would
+    // not know a filter points at its key until the rename orphaned it.
+    for (const f of doc.dashboard?.filterConfig ?? []) {
+      const where = f.scope?.type === 'tabs'
+        ? ` scope=tabs:${f.scope.tabKeys?.join(',')}`
+        : f.scope?.type === 'widgets'
+          ? ` scope=widgets:${f.scope.widgetKeys?.join(',')}`
+          : ''
+      lines.push(`    filter ${f.columnId} (${f.columnName}, ${f.inputType})${where}`)
+    }
     for (const tab of doc.tabs) {
       lines.push(`    tab ${tab.key ?? '(no key)'} — ${JSON.stringify(tab.name)}`)
       for (const w of doc.widgets.filter((x) => x.tabKey === tab.key)) {
-        lines.push(`      widget ${w.key} — ${JSON.stringify(w.name)} [${w.source.pluginId ?? w.source.type}]`)
+        const l = w.layout
+        const at = l ? ` @${l.y},${l.x} ${l.w}x${l.h}` : ''
+        lines.push(`      widget ${w.key} — ${JSON.stringify(w.name)} [${w.source.pluginId ?? w.source.type}]${at}`)
+        if (w.datasetFileId) lines.push(`        dataset ${w.datasetFileId}`)
+        // The config is what an edit actually targets. Omitting it was what forced
+        // an agent to open the file, and from there to hand-edit derived ids.
+        const config = w.source.config as Record<string, unknown> | undefined
+        for (const [k, v] of Object.entries(config ?? {})) {
+          lines.push(`        config.${k} = ${JSON.stringify(v)}`)
+        }
       }
     }
   }
@@ -207,8 +235,31 @@ export function describeTree(root: string): string {
   const scripts = tree.paths().filter((p) => p.startsWith('scripts/') && !p.endsWith('_tree.json'))
   lines.push('', 'Scripts:')
   lines.push(scripts.length ? scripts.map((s) => `  ${s}`).join('\n') : '  (none)')
+  if (scripts.length) lines.push('  (read one with read_file)')
 
   return lines.join('\n')
+}
+
+/**
+ * One file of a tree, verbatim.
+ *
+ * `describe_tree` lists script paths but no tool returned their content, so an
+ * agent that wanted to change a query had to reach for its own file reader — and
+ * an agent already reading the tree directly is one step from editing a derived
+ * id by hand. Reading through the server keeps the traversal guard in play and
+ * keeps "do not touch the files" a rule it can follow.
+ */
+export function readTreeFile(root: string, file: string): string {
+  const full = resolveInside(root, file)
+  try {
+    return readFileSync(full, 'utf-8')
+  } catch {
+    const tree = new FsTree(root)
+    const known = tree.paths().filter((p) => !p.endsWith('_tree.json'))
+    throw new Error(
+      `No file "${file}" in the tree. Known: ${known.slice(0, 40).join(', ') || 'none'}.`,
+    )
+  }
 }
 
 export function addDashboardTab(

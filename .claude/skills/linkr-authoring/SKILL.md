@@ -23,9 +23,30 @@ indicators matter.
 5. **Fix what it reports** — every issue names a file, a JSON Pointer and the valid
    alternatives. Repeat until clean.
 
-Never hand-write `_tree.json`, column ids, or content keys. If a tool cannot express
-what you need, say so — do not work around it by editing the JSON directly, because the
-next validation will disagree with you.
+### Editing a tree that already exists
+
+**Read it through the server, not with your own file tools.** `describe_tree` gives the
+ids, every widget's `config` and grid position, and which tabs or widgets a filter is
+scoped to; `read_file` returns any file verbatim. Between them you should never need to
+open a file yourself.
+
+The reason is not tidiness. **Ids in a Linkr tree are derived, not stored**: a column id
+is `col_<slug of name>`, and a widget's key is `<tab>/<slug of name>@<y>,<x>`. Edit one by
+hand and the app re-derives a different one on import — the entity comes back as a
+*different* entity, orphaning every filter, layout and reference that pointed at it. That
+is a bug this project has already paid for once.
+
+| To… | Use | |
+|---|---|---|
+| see ids, configs, layouts, filter scopes | `describe_tree` | ✅ |
+| read a script / SQL / any file | `read_file` | ✅ |
+| add a tab, widget or script | `add_dashboard_tab`, `add_widget`, `add_script` | ✅ |
+| create or replace a whole tree | `write_project`, `write_entity` | ✅ |
+| change a widget's config, move it, rename a tab, delete something | — | ⛔ no tool yet |
+
+For the last row: **say so and stop**. Do not fall back to editing the JSON — rewriting a
+whole tree with `write_project` to change one field is also wrong, since it drops
+everything the spec does not model. Report what is missing instead.
 
 ## Identity: three fields, one of them a trap
 
@@ -64,7 +85,8 @@ check the shape of these fields.
 | `write_project` | create a whole project tree (`format: "zip"` for the import dialog) |
 | `write_entity` | create a standalone entity (SQL collection, ETL pipeline, DQ rule set, data catalog, mapping project, schema preset) |
 | `write_database` | create a database: metadata + `data/*.parquet` copied in + LFS — **public/synthetic data only** |
-| `describe_tree` | what an existing tree holds, with its real ids and keys |
+| `describe_tree` | what an existing tree holds: ids, keys, widget configs, layouts, filter scopes |
+| `read_file` | one file of a tree verbatim — a script, a `.sql`, a DDL |
 | `validate_entity` | check any tree; the kind is detected. Run after any change |
 | `add_dashboard_tab`, `add_widget`, `add_script` | incremental edits |
 

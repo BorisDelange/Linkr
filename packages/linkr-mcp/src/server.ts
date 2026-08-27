@@ -32,6 +32,7 @@ import {
   copyFiles,
   describeEntitySchema,
   describeTree,
+  readTreeFile,
   formatBytes,
   writeTree,
   writeZip,
@@ -250,6 +251,31 @@ server.registerTool(
       return text(describeTree(path))
     } catch (e) {
       return failure(`Could not read the tree: ${(e as Error).message}`)
+    }
+  },
+)
+
+server.registerTool(
+  'read_file',
+  {
+    description:
+      'Read one file of a project tree verbatim — a script, a .sql, a DDL, a dashboard JSON. '
+      + 'Use this instead of opening the file yourself: ids in a Linkr tree are derived, so a '
+      + 'hand-edit makes an entity re-import as a different one.',
+    inputSchema: fromJsonSchema<{ path: string; file: string }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory.' },
+        file: { type: 'string', description: 'Path of the file within the tree, e.g. scripts/01_extract.sql.' },
+      },
+      required: ['path', 'file'],
+    }),
+  },
+  async ({ path, file }) => {
+    try {
+      return text(readTreeFile(path, file))
+    } catch (e) {
+      return failure((e as Error).message)
     }
   },
 )
