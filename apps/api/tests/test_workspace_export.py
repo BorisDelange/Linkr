@@ -18,9 +18,15 @@ from pathlib import Path
 
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.export_layout import (
+    CONTENT_SCHEMA_DDL,
+    order_provenance,
+    TYPE_SCHEMA_PRESET,
+    TYPE_USER_PLUGIN,
+    CONTENT_SCHEMA_MAPPING,
     ENTITY_MANIFEST,
     SCRIPTS_DIR,
     SIDECAR_TREE,
+    TYPE_DATABASE,
     TYPE_ETL_PIPELINE,
     TYPE_SQL_COLLECTION,
     script_export_path,
@@ -28,14 +34,20 @@ from app.services.export_layout import (
 )
 from app.services.mapping_project_export import build_mapping_project_tree
 from app.services.project_export import build_project_tree
-from app.services.entity_docs import entity_doc_files, strip_entity_docs
+from app.services.entity_docs import entity_doc_files, license_meta, strip_entity_docs
 from app.services.workspace_export import (
     _sanitize_connection_config,
     _slugify,
     _strip_instance_fields,
     build_workspace_tree,
 )
-from app.services.workspace_export_assemble import _to_path_tree, _tree_path
+from app.services.workspace_export_assemble import (
+    _canonical_schema_mapping,
+    _is_entity_docs_file,
+    _plugin_manifest,
+    _to_path_tree,
+    _tree_path,
+)
 
 _GOLDEN = (
     Path(__file__).resolve().parents[2]
@@ -188,8 +200,51 @@ def _build_tree() -> dict[str, bytes]:
     # The six sections below mirror what the DB assembler passes in: metadata
     # already stripped, heavy folders pre-built. They used to be empty lists,
     # which is why every divergence in them went unnoticed.
+    # Mirrors build_schema_preset_tree / buildSchemaPresetFolder: an unlinked
+    # preset is the folder its own repo holds — entity.json with the name and
+    # description promoted out of the mapping, mapping.json, schema.ddl, docs.
+    def _schema_preset_sub_tree(sp: dict) -> dict:
+        stripped = strip_entity_docs(_strip_instance_fields(sp))
+        mapping = dict(stripped.pop("mapping", None) or {})
+        ddl = mapping.pop("ddl", None)
+        for key in ("id", "entityId", "presetId", "appVersion"):
+            stripped.pop(key, None)
+        stripped = {
+            "entityId": sp.get("entityId") or sp.get("presetId"),
+            "type": TYPE_SCHEMA_PRESET,
+            "name": mapping.pop("presetLabel", None),
+            "description": mapping.pop("description", None),
+            **order_provenance(stripped),
+        }
+        # attach_entity_organization re-orders rather than appends, so the snapshot
+        # lands beside the author it belongs with, with appVersion still last.
+        # The preset carries no snapshot of its own, so the org resolves from the
+        # parent workspace — the first export is what freezes it into the repo.
+        stripped = order_provenance(
+            {**stripped, "organization": _org_snapshot(data["organization"])}
+        )
+        stripped["appVersion"] = APP_VERSION
+        for key in ("presetId", "templateId"):
+            mapping.pop(key, None)
+        tree = {
+            ENTITY_MANIFEST: _json_bytes(stripped),
+            CONTENT_SCHEMA_MAPPING: _json_bytes(_canonical_schema_mapping(mapping)),
+        }
+        if ddl:
+            tree[CONTENT_SCHEMA_DDL] = ddl.encode()
+        tree.update(entity_doc_files("", sp))
+        return tree
+
     schemas = [
-        {"meta": _stripped(sp), "git": sp.get("gitRemoteConfig")}
+        {
+            "meta": _stripped(sp),
+            "git": sp.get("gitRemoteConfig"),
+            **(
+                {}
+                if sp.get("gitRemoteConfig")
+                else {"sub_tree": _schema_preset_sub_tree(sp)}
+            ),
+        }
         for sp in data["schemaPresets"]
     ]
     sql_collections = [
@@ -238,20 +293,109 @@ def _build_tree() -> dict[str, bytes]:
         }
         for p in data["etlPipelines"]
     ]
+    # An unlinked rule set / catalog is written as a folder, like its own repo, so
+    # its docs come along — the assembler reads them from the DB and passes them in.
     dq_rule_sets = [
         {
             "meta": _stripped(rs),
             "checks": data["dqChecks"].get(rs["id"], []),
             "git": rs.get("gitRemoteConfig"),
             "folder": rs.get("entityId") or _slugify(rs["name"].get("en") or rs["id"]),
+            **({} if rs.get("gitRemoteConfig") else {"docs": entity_doc_files("", rs)}),
         }
         for rs in data["dqRuleSets"]
     ]
     catalogs = [
-        {"meta": _stripped(c), "git": c.get("gitRemoteConfig")}
+        {
+            "meta": _stripped(c),
+            "git": c.get("gitRemoteConfig"),
+            **({} if c.get("gitRemoteConfig") else {"docs": entity_doc_files("", c)}),
+        }
         for c in data["dataCatalogs"]
     ]
     concept_sets = [_strip_instance_fields(cs) for cs in data["conceptSets"]]
+
+    # Mirrors _data_source_sub_tree: unlinked databases are a folder like their own
+    # repo (entity.json + mapping.json/schema.ddl + docs); linked ones a pointer.
+    def _database_sub_tree(ds: dict) -> dict:
+        stripped = _strip_instance_fields(ds)
+        connection_config = stripped.pop("connectionConfig", None)
+        schema_mapping = stripped.pop("schemaMapping", None)
+        meta = {
+            **strip_entity_docs(stripped),
+            "connectionConfig": (
+                _sanitize_connection_config(connection_config)
+                if connection_config
+                else None
+            ),
+        }
+        tree = {
+            ENTITY_MANIFEST: _json_bytes(
+                with_entity_type(meta, TYPE_DATABASE, APP_VERSION)
+            )
+        }
+        if schema_mapping:
+            mapping = dict(schema_mapping)
+            ddl = mapping.pop("ddl", None)
+            tree[CONTENT_SCHEMA_MAPPING] = _json_bytes(_canonical_schema_mapping(mapping))
+            if isinstance(ddl, str) and ddl:
+                tree[CONTENT_SCHEMA_DDL] = ddl.encode()
+        tree.update(entity_doc_files("", ds))
+        return tree
+
+    data_sources = [
+        {
+            "meta": ds,
+            "git": ds.get("gitRemoteConfig"),
+            **({} if ds.get("gitRemoteConfig") else {"sub_tree": _database_sub_tree(ds)}),
+        }
+        for ds in data["dataSources"]
+    ]
+
+    # Mirrors build_user_plugin_tree / buildUserPluginFolder: the plugin's own
+    # folder, with name/description derived from its functional plugin.json.
+    def _user_plugin_sub_tree(pl: dict) -> dict:
+        # createdBy/createdByDetails ride along even when null (the TS builder
+        # writes them unconditionally); the optional lineage keys do not.
+        manifest = _plugin_manifest(pl)
+        meta = {
+            "entityId": pl.get("entityId"),
+            "name": manifest.get("name"),
+            "description": manifest.get("description"),
+            "createdBy": pl.get("createdBy"),
+            "createdByDetails": pl.get("createdByDetails"),
+            **{
+                k: pl[k]
+                for k in ("lineageId", "parentLineageId", "createdAt")
+                if pl.get(k) is not None
+            },
+        }
+        meta["version"] = pl.get("version") or "0.1.0"
+        licence = license_meta(pl.get("license"))
+        if licence is not None:
+            meta["license"] = licence
+        tree = {
+            ENTITY_MANIFEST: _json_bytes(
+                with_entity_type(meta, TYPE_USER_PLUGIN, APP_VERSION)
+            )
+        }
+        tree.update(entity_doc_files("", pl))
+        for filename, content in (pl.get("files") or {}).items():
+            # The entity's own docs are written above; a stale copy in `files`
+            # would overwrite them.
+            if _is_entity_docs_file(filename):
+                continue
+            tree[filename] = str(content).encode("utf-8")
+        return tree
+
+    user_plugins = [
+        {
+            "meta": pl,
+            "folder": pl.get("entityId") or _slugify(pl["id"]),
+            "sub_tree": _user_plugin_sub_tree(pl),
+        }
+        for pl in data["userPlugins"]
+    ]
 
     return build_workspace_tree(
         workspace=workspace,
@@ -261,7 +405,7 @@ def _build_tree() -> dict[str, bytes]:
         wiki_attachments=wiki_atts,
         wiki_attachment_blobs=wiki_blobs,
         schemas=schemas,
-        data_sources=data["dataSources"],
+        data_sources=data_sources,
         sql_collections=sql_collections,
         etl_pipelines=etl_pipelines,
         dq_rule_sets=dq_rule_sets,
@@ -270,7 +414,7 @@ def _build_tree() -> dict[str, bytes]:
         id_ranges=_to_portable_ranges(data["ranges"]),
         catalogs=catalogs,
         service_mappings=data["serviceMappings"],
-        plugins=data["userPlugins"],
+        plugins=user_plugins,
     )
 
 

@@ -1,7 +1,6 @@
 {
-  "id": "ds2",
   "entityId": "mimic-demo",
-  "workspaceId": "ws1",
+  "type": "database",
   "alias": "mimic",
   "name": {
     "en": "MIMIC-IV demo",
@@ -14,20 +13,15 @@
   "sourceType": "database",
   "status": "connected",
   "isVocabularyReference": false,
-  "version": "1.2.0",
-  "readme": {
-    "en": "# MIMIC-IV demo\n"
-  },
-  "license": {
-    "id": "ODbL-1.0",
-    "text": "ODbL text\n"
-  },
-  "origin": "user",
-  "createdBy": "Boris Delange",
-  "createdAt": "2026-01-02T00:00:00.000Z",
-  "updatedAt": "2026-02-02T00:00:00.000Z",
   "connectionConfig": {
     "engine": "duckdb",
     "inMemory": true
-  }
+  },
+  "createdAt": "2026-01-02T00:00:00.000Z",
+  "createdBy": "Boris Delange",
+  "version": "1.2.0",
+  "license": {
+    "id": "ODbL-1.0"
+  },
+  "appVersion": "2.3.3"
 }

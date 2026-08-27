@@ -6,7 +6,7 @@ import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { localized } from '@/lib/localized'
-import { useAppStore, stampAuthored } from '@/stores/app-store'
+import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import type {
@@ -355,6 +355,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       version: source.version || '0.1.0',
       workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
       ...stampAuthored(),
+      // Cross-instance identity, like every other exportable entity: without it a
+      // re-imported database matched nothing and landed as a duplicate.
+      ...stampLineage(),
       createdAt: now,
       updatedAt: now,
     }
@@ -550,6 +553,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       status: 'configuring' as DataSourceStatus,
       workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
       ...stampAuthored(),
+      // Cross-instance identity, like every other exportable entity: without it a
+      // re-imported database matched nothing and landed as a duplicate.
+      ...stampLineage(),
       createdAt: now,
       updatedAt: now,
     }

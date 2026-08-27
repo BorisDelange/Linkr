@@ -307,13 +307,18 @@ describe('buildWorkspaceZip — front/back parity', () => {
     const zip = await build({
       workspaces: { getById: async () => ({ id: 'w1', name: { en: 'W' }, description: {} }) },
       dqRuleSets: { getByWorkspace: async () => [
-        { id: 'b', entityId: 'b', name: { en: 'B' }, gitRemoteConfig: GIT },
-        { id: 'A', entityId: 'a', name: { en: 'A' }, gitRemoteConfig: GIT },
+        { id: 'r1', entityId: 'b', name: { en: 'B' }, lineageId: 'b', gitRemoteConfig: GIT },
+        { id: 'r2', entityId: 'a', name: { en: 'A' }, lineageId: 'A', gitRemoteConfig: GIT },
       ] },
     }, { dataQuality: true })
-    const links = (JSON.parse(await zip.files['git-links.json'].async('string')) as { links: { id: string }[] }).links
-    // 'A' (0x41) sorts before 'b' (0x62) by code point; many locales invert this.
-    expect(links.map(l => l.id)).toEqual(['A', 'b'])
+    const links = (JSON.parse(await zip.files['git-links.json'].async('string')) as { links: { folder: string }[] }).links
+    // Sorted by lineageId: 'A' (0x41) before 'b' (0x62) by code point; many
+    // locales invert this. The entity ids deliberately run the other way, so a
+    // sort that fell back to `id` would produce the opposite order.
+    expect(links.map(l => l.folder)).toEqual(['a', 'b'])
+    // `id` is instance-local and re-minted on import — exporting one churned the
+    // file on every round trip, so no entry may carry it.
+    expect(links.every(l => !('id' in l))).toBe(true)
   })
 
   // Parsed by parseWorkspaceZip and carried in ParsedWorkspaceZip since forever,
@@ -1096,7 +1101,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     return JSZip.loadAsync(await built!.blob.arrayBuffer())
   }
   const readGitLinks = async (zip: JSZip) =>
-    JSON.parse(await zip.files['git-links.json'].async('string')) as { links: { type: string; id: string; folder: string; url: string; branch: string }[] }
+    JSON.parse(await zip.files['git-links.json'].async('string')) as { links: { type: string; folder: string; url: string; branch: string }[] }
 
   it('writes root source-concept-ids/ranges.json but NOT root entries.json', async () => {
     // Ownership model: the workspace root holds only the badge RANGES; ENTRIES
@@ -1121,9 +1126,9 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     })
     // The real DB is versioned; the vocabulary reference (internal ATHENA target
     // vocabulary) is not — it must not appear as a phantom database.
-    expect(zip.files['databases/my-postgres.json']).toBeDefined()
-    expect(zip.files['databases/athena-vocabulary-adult-icu-rennes.json']).toBeUndefined()
-    expect(Object.keys(zip.files).filter(p => p.startsWith('databases/') && p.endsWith('.json'))).toHaveLength(1)
+    expect(zip.files['databases/my-postgres/entity.json']).toBeDefined()
+    expect(zip.files['databases/athena-vocabulary-adult-icu-rennes/entity.json']).toBeUndefined()
+    expect(Object.keys(zip.files).filter(p => p.startsWith('databases/') && p.endsWith('entity.json'))).toHaveLength(1)
   })
 
   it('writes a folder marker + git-links entry for a linked data-catalog', async () => {
@@ -1138,10 +1143,10 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     // No flat form when linked.
     expect(zip.files['catalogs/my-catalog.json']).toBeUndefined()
     const { links } = await readGitLinks(zip)
-    expect(links).toContainEqual({ type: 'data-catalog', id: 'cat-1', folder: 'my-catalog', url: GIT.url, branch: 'main' })
-    // git-links.json is written from the LOCAL rows, so it keeps the local id:
-    // it is this instance's index of what to clone, not part of an entity's
-    // portable metadata.
+    // No `id`: it is instance-local and re-minted on import, so exporting one
+    // reshuffled and churned the file on every round trip. The portal clones from
+    // type/folder/url/branch alone.
+    expect(links).toContainEqual({ type: 'data-catalog', folder: 'my-catalog', url: GIT.url, branch: 'main' })
   })
 
   it('writes a minimal-pointer marker + git-links entry for a linked dq-rule-set (checks live in the repo)', async () => {
@@ -1160,7 +1165,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(pointer.checks).toBeUndefined()
     expect(zip.files['data-quality/my-ruleset.json']).toBeUndefined()
     const { links } = await readGitLinks(zip)
-    expect(links).toContainEqual({ type: 'dq-rule-set', id: 'rs-1', folder: 'my-ruleset', url: GIT.url, branch: 'main' })
+    expect(links).toContainEqual({ type: 'dq-rule-set', folder: 'my-ruleset', url: GIT.url, branch: 'main' })
   })
 
   it('writes a folder marker + git-links entry for a linked schema-preset', async () => {
@@ -1176,18 +1181,108 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(presetPtr.name).toEqual({ en: 'My Preset' })
     expect(zip.files['schemas/my-preset.json']).toBeUndefined()
     const { links } = await readGitLinks(zip)
-    expect(links).toContainEqual({ type: 'schema-preset', id: 'my-preset', folder: 'my-preset', url: GIT.url, branch: 'main' })
+    expect(links).toContainEqual({ type: 'schema-preset', folder: 'my-preset', url: GIT.url, branch: 'main' })
   })
 
-  it('keeps the flat form (no marker, no git-links) when the entity is NOT linked', async () => {
+  it('writes the same folder as the standalone export when the entity is NOT linked', async () => {
     const zip = await exportZip({
       catalogs: [CATALOG()], ruleSets: [RULESET()], checks: [CHECK()], presets: [PRESET()],
     })
-    expect(zip.files['catalogs/my-catalog.json']).toBeDefined()
-    expect(zip.files['catalogs/my-catalog/entity.json']).toBeUndefined()
-    expect(zip.files['data-quality/my-ruleset.json']).toBeDefined()
-    expect(zip.files['schemas/my-preset.json']).toBeDefined()
+    // Linked or not, an entity has ONE shape: the folder its own repo would hold.
+    // The flat form gave the same entity two layouts and silently dropped its docs.
+    expect(zip.files['catalogs/my-catalog/entity.json']).toBeDefined()
+    expect(zip.files['catalogs/my-catalog.json']).toBeUndefined()
+    expect(zip.files['data-quality/my-ruleset/entity.json']).toBeDefined()
+    // Checks are the rule set's payload, in their own file — they used to ride
+    // inside the manifest under a `ruleSet` wrapper key found nowhere else.
+    expect(zip.files['data-quality/my-ruleset/checks.json']).toBeDefined()
+    expect(zip.files['data-quality/my-ruleset.json']).toBeUndefined()
+    expect(zip.files['schemas/my-preset/entity.json']).toBeDefined()
+    // The DDL is a readable file, not an escaped string inside the manifest.
+    expect(zip.files['schemas/my-preset/mapping.json']).toBeDefined()
+    expect(zip.files['schemas/my-preset.json']).toBeUndefined()
+    // Unlinked means no repo to point at, so still no manifest of links.
     expect(zip.files['git-links.json']).toBeUndefined()
+  })
+
+  it('writes a linked database as a pointer and collects it for cloning', async () => {
+    // 'database' was a declared GitLinkedEntity type with no export branch: a
+    // linked one was inlined, never reached git-links.json, and so was never
+    // cloned even though applyClonedEntity handles the type.
+    const zip = await exportZip({
+      dataSources: [{ id: 'ds-git', workspaceId: 'w1', entityId: 'my-db', name: 'My DB', sourceType: 'database', status: 'connected', gitRemoteConfig: GIT, createdAt: '2020', updatedAt: '2021' }],
+    })
+    expect(zip.files['databases/my-db/entity.json']).toBeDefined()
+    const { links } = await readGitLinks(zip)
+    expect(links).toContainEqual({ type: 'database', folder: 'my-db', url: GIT.url, branch: 'main' })
+
+    const file = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const linked = collectGitLinkedEntities((await parseWorkspaceZip(file))!)
+    expect(linked.find(l => l.type === 'database')).toMatchObject({ url: GIT.url, branch: 'main' })
+  })
+
+  it('round-trips an unlinked database through mapping.json + schema.ddl', async () => {
+    // The flat form inlined the whole mapping, DDL included, as one escaped JSON
+    // string; the split has to survive re-import or the database loses its schema.
+    const schemaMapping = { presetId: 'omop', presetLabel: { en: 'OMOP' }, tables: { person: 'person' }, ddl: 'CREATE TABLE person (id INT);' }
+    const zip = await exportZip({
+      dataSources: [{ id: 'ds1', workspaceId: 'w1', entityId: 'my-db', name: 'My DB', sourceType: 'database', status: 'connected', schemaMapping, createdAt: '2020', updatedAt: '2021' }],
+    })
+    expect(await zip.files['databases/my-db/schema.ddl'].async('string')).toBe(schemaMapping.ddl)
+    // The DDL is NOT duplicated inside the manifest.
+    expect(await zip.files['databases/my-db/entity.json'].async('string')).not.toContain('CREATE TABLE')
+
+    const file = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const parsed = (await parseWorkspaceZip(file))!
+    expect(parsed.databases).toHaveLength(1)
+    expect(parsed.databases[0].schemaMapping).toMatchObject({ presetId: 'omop', ddl: schemaMapping.ddl })
+  })
+
+  it('round-trips a schema preset name through the promoted root field', async () => {
+    // The name lives at the root of the manifest but the app reads it from
+    // mapping.presetLabel; without the bridge the preset came back nameless.
+    const zip = await exportZip({ presets: [PRESET({ mapping: { presetId: 'my-preset', presetLabel: { en: 'My preset' }, tables: {}, ddl: 'CREATE TABLE t (a INT);' } })] })
+    const manifest = JSON.parse(await zip.files['schemas/my-preset/entity.json'].async('string'))
+    expect(manifest.name).toEqual({ en: 'My preset' })
+    expect(await zip.files['schemas/my-preset/schema.ddl'].async('string')).toBe('CREATE TABLE t (a INT);')
+
+    const file = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const parsed = (await parseWorkspaceZip(file))!
+    expect(parsed.schemas).toHaveLength(1)
+    expect(parsed.schemas[0].mapping?.presetLabel).toEqual({ en: 'My preset' })
+    expect(parsed.schemas[0].mapping?.ddl).toBe('CREATE TABLE t (a INT);')
+  })
+
+  it('keeps a database lineage through the round trip, so a re-import can match it', async () => {
+    // The manifest drops the local `id` by design, so lineage is the only thing
+    // that can recognise a re-imported database — without it the import lands a
+    // duplicate instead of updating the row in place.
+    const zip = await exportZip({
+      dataSources: [{ id: 'ds1', workspaceId: 'w1', entityId: 'my-db', name: 'My DB', sourceType: 'database', status: 'connected', lineageId: 'lin-db1', createdAt: '2020', updatedAt: '2021' }],
+    })
+    const file = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const parsed = (await parseWorkspaceZip(file))!
+    expect(parsed.databases[0].lineageId).toBe('lin-db1')
+    // Instance-local fields never reach the repo (this section used to leak them).
+    const manifest = JSON.parse(await zip.files['databases/my-db/entity.json'].async('string'))
+    for (const leaked of ['id', 'workspaceId', 'ownerId', 'updatedAt', 'origin']) {
+      expect(manifest[leaked]).toBeUndefined()
+    }
+  })
+
+  it('re-imports an unlinked catalog and rule set from their folders, once each', async () => {
+    // The parser used to glob `<section>/*.json`, so a folder holding a manifest
+    // AND its payload yielded a phantom second entity (checks.json read as a rule
+    // set). It now reads the manifest by name, one folder = one entity.
+    const zip = await exportZip({ catalogs: [CATALOG()], ruleSets: [RULESET()], checks: [CHECK()] })
+    const file = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const parsed = (await parseWorkspaceZip(file))!
+    expect(parsed.catalogs).toHaveLength(1)
+    expect(parsed.catalogs[0].entityId).toBe('my-catalog')
+    expect(parsed.dqRuleSets).toHaveLength(1)
+    expect(parsed.dqRuleSets[0].ruleSet.entityId).toBe('my-ruleset')
+    // The checks travel as the rule set's payload, not as a second rule set.
+    expect(parsed.dqRuleSets[0].checks).toHaveLength(1)
   })
 
   it('parseWorkspaceZip + collectGitLinkedEntities discover the 3 linked entities from their markers', async () => {

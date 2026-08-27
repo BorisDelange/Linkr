@@ -1797,6 +1797,24 @@ async function readEntityManifest<T>(
 }
 
 /**
+ * The immediate sub-folder names under `section` (e.g. `catalogs/`).
+ *
+ * Sections list their entities by folder, never by globbing `*.json`: a folder
+ * holds a manifest AND its payload (checks.json, mapping.json, …), so a glob
+ * ingests those as extra, phantom entities. Reading the manifest by name is what
+ * keeps one folder = one entity.
+ */
+function entityFolders(zip: JSZip, section: string): Set<string> {
+  const folders = new Set<string>()
+  for (const path of Object.keys(zip.files)) {
+    if (!path.startsWith(section)) continue
+    const name = path.slice(section.length).split('/')[0]
+    if (name && path.length > section.length + name.length) folders.add(name)
+  }
+  return folders
+}
+
+/**
  * An entity's file tree, from `scripts/` or from the entity root.
  *
  * Exports write the tree under `scripts/`; repos published before that keep it at
@@ -2229,15 +2247,21 @@ export interface BuildWorkspaceZipOptions {
   excludeEntities?: Record<string, boolean>
 }
 
-/** A single git-linked entity recorded in the workspace's git-links.json manifest. */
+/** A single git-linked entity recorded in the workspace's git-links.json manifest.
+ *
+ *  No `id`: entity ids are instance-local and re-minted on import (entity.json
+ *  stopped carrying them for the same reason), so exporting one wrote a value
+ *  that changed on every round trip. The portal's sync-git-links.sh reads only
+ *  type/folder/url/branch, and nothing in this repo reads the file back. */
 export interface GitLinkEntry {
   type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'schema-preset' | 'database'
-  /** Stable entity id (project.uid or entity id). */
-  id: string
   /** Folder name used inside the workspace zip (projectId / entityId / slug). */
   folder: string
   url: string
   branch: string
+  /** Sort key only — stripped before the file is written. `lineageId` is the
+   *  cross-instance identity, so it holds still where an id does not. */
+  lineageId?: string | null
 }
 
 /**
@@ -2257,8 +2281,9 @@ function resolveWorkspaceName(ws: Workspace): string {
 }
 
 /**
- * Lay out a database in a git-friendly tree under `prefix`: `_database.json`
- * (metadata), `README.md`, `LICENSE.md`.
+ * Lay out a database in a git-friendly tree under `prefix`: `entity.json`
+ * (metadata), `mapping.json` + `schema.ddl` (its schema mapping, split so the DDL
+ * is readable and diffable), `README.md`, `LICENSE.md`, `attachments/`.
  *
  * Metadata only, and deliberately so. `connectionConfig` is reduced to what
  * `sanitizeConnectionConfig` allows (no host, no credentials, no local file
@@ -2633,9 +2658,12 @@ export async function buildUserPluginFolder(
   // duplicating that onto the entity would give two sources of truth to keep in
   // step. Every other kind carries them, so a generic reader finds them here too.
   const manifest = pluginManifest(plugin)
-  zip.file(`${prefix}${ENTITY_MANIFEST}`, json({
+  // Through withEntityType like every other kind, rather than a hand-ordered
+  // literal: this one wrote its provenance block in its own order (createdAt
+  // after createdByDetails), which the server port — which does use the shared
+  // helper — could never reproduce, so the two ends disagreed byte for byte.
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType({
     entityId: plugin.entityId ?? null,
-    type: 'user-plugin' as const,
     name: manifest.name ?? null,
     description: manifest.description ?? null,
     createdBy: plugin.createdBy,
@@ -2651,8 +2679,7 @@ export async function buildUserPluginFolder(
     // as LICENSE.md. Writing the file without this block lost which licence it
     // was on every round trip.
     ...(licenseMeta(plugin.license) ? { license: licenseMeta(plugin.license) } : {}),
-    appVersion: APP_VERSION,
-  }))
+  }, 'user-plugin')))
   await writeEntityDocs(zip, prefix, plugin, storage, 'user-plugin', plugin.id)
   for (const [filename, content] of Object.entries(plugin.files)) {
     // README.md / LICENSE.md are the entity's own fields (written above); a stale
@@ -3505,7 +3532,7 @@ export async function buildWorkspaceZip(
           lineageId: project.lineageId,
         }, git)
         zip.file(`projects/${folder}/${ENTITY_MANIFEST}`, json(pointer))
-        gitLinks.push({ type: 'project', id: project.uid, folder, url: git.url, branch: git.branch })
+        gitLinks.push({ type: 'project', lineageId: project.lineageId, folder, url: git.url, branch: git.branch })
       } else {
         // Full project content nested under projects/<folder>/ (reuses buildProjectZip layout).
         // Data files are bundled per the project's own versionedDataFiles marking
@@ -3532,7 +3559,11 @@ export async function buildWorkspaceZip(
   if (on('wiki')) {
     const wikiPages = await storage.wikiPages.getByWorkspace(workspaceId)
     if (wikiPages.length > 0) {
-      const treeMeta = wikiPages.map(({ content: _, ...meta }) => meta)
+      // Stripped like every other section: the raw rows leaked this instance's
+      // `workspaceId`/`createdById` and an `updatedAt` that churns on every edit.
+      // `id`/`parentId` stay — they are the tree's own structure, and the import
+      // re-keys them (mapWikiId) rather than adopting them.
+      const treeMeta = wikiPages.map(({ content: _, ...meta }) => stripInstanceFields(meta as WikiPage))
       zip.file('wiki/_tree.json', json(treeMeta))
 
       for (const page of wikiPages) {
@@ -3586,14 +3617,13 @@ export async function buildWorkspaceZip(
           lineageId: sp.lineageId,
         }, git)
         zip.file(`schemas/${folder}/${ENTITY_MANIFEST}`, json(pointer))
-        gitLinks.push({ type: 'schema-preset', id: sp.id ?? sp.presetId, folder, url: git.url, branch: git.branch })
+        gitLinks.push({ type: 'schema-preset', lineageId: sp.lineageId, folder, url: git.url, branch: git.branch })
         continue
       }
-      // Stripped like every standalone entity export: the readme/licence text goes
-      // to its own files (only the licence identity stays) and instance-local
-      // fields never travel. Writing the raw row here leaked ownerId, workspaceId
-      // and updatedAt into the repo, and churned the diff on every unrelated edit.
-      zip.file(`schemas/${slugify(slug)}.json`, json(stripEntityDocs(stripInstanceFields(sp) as CustomSchemaPreset)))
+      // Same folder layout as the standalone export, via the same builder: the
+      // DDL becomes a readable schema.ddl instead of one escaped JSON string, the
+      // name/description rise to the root, and the docs travel with it.
+      await buildSchemaPresetFolder(zip, `schemas/${slugify(slug)}/`, sp, storage)
     }
   }
 
@@ -3607,17 +3637,28 @@ export async function buildWorkspaceZip(
       // hides them (isVocabularyReference). They must not be versioned either,
       // or the workspace shows a phantom "Databases (1)" with an empty list.
       if ((ds as { isVocabularyReference?: boolean }).isVocabularyReference) continue
-      // DataSource has no index signature; widen via unknown to destructure dynamically
-      const { connectionConfig, ...rest } = ds as unknown as Record<string, unknown>
-      const safeDsJson = {
-        ...rest,
-        connectionConfig: connectionConfig
-          ? sanitizeConnectionConfig(connectionConfig as Record<string, unknown>)
-          : undefined,
-      }
       // eid(), like every other section: prefers the stable entityId, so renaming
-      // a database no longer moves its file and churns the git diff.
-      zip.file(`databases/${eid(ds)}.json`, json(safeDsJson))
+      // a database no longer moves its folder and churns the git diff.
+      const folder = eid(ds)
+      const git = resolveGitRemote(ds)
+      if (git) {
+        // Pointer only, like every other linked kind. This branch did not exist:
+        // a linked database was inlined and never reached git-links.json, so the
+        // clone never ran for it even though applyClonedEntity handles the type.
+        zip.file(`databases/${folder}/${ENTITY_MANIFEST}`, json(gitPointerManifest('database', {
+          entityId: folder,
+          name: ds.name,
+          createdAt: ds.createdAt,
+          lineageId: ds.lineageId,
+        }, git)))
+        gitLinks.push({ type: 'database', lineageId: ds.lineageId, folder, url: git.url, branch: git.branch })
+        continue
+      }
+      // Same folder layout as the standalone export, via the same builder. The
+      // flat form was the only section calling NONE of the strip helpers, so it
+      // leaked workspaceId/ownerId/updatedAt and inlined the whole DDL as one
+      // escaped JSON string.
+      await buildDataSourceFolder(zip, `databases/${folder}/`, ds, storage)
     }
   }
 
@@ -3636,7 +3677,7 @@ export async function buildWorkspaceZip(
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
         zip.file(`sql-scripts/${folder}/${ENTITY_MANIFEST}`, json(gitPointerManifest('sql-collection', { entityId: eid(collection), name: collection.name, createdAt: collection.createdAt, lineageId: collection.lineageId }, git)))
-        gitLinks.push({ type: 'sql-collection', id: collection.id, folder, url: git.url, branch: git.branch })
+        gitLinks.push({ type: 'sql-collection', lineageId: collection.lineageId, folder, url: git.url, branch: git.branch })
         continue
       }
 
@@ -3659,7 +3700,7 @@ export async function buildWorkspaceZip(
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
         zip.file(`etl/${folder}/${ENTITY_MANIFEST}`, json(gitPointerManifest('etl-pipeline', { entityId: eid(pipeline), name: pipeline.name, createdAt: pipeline.createdAt, lineageId: pipeline.lineageId }, git)))
-        gitLinks.push({ type: 'etl-pipeline', id: pipeline.id, folder, url: git.url, branch: git.branch })
+        gitLinks.push({ type: 'etl-pipeline', lineageId: pipeline.lineageId, folder, url: git.url, branch: git.branch })
         continue
       }
 
@@ -3686,12 +3727,13 @@ export async function buildWorkspaceZip(
           createdAt: rs.createdAt,
           lineageId: rs.lineageId,
         }, git)))
-        gitLinks.push({ type: 'dq-rule-set', id: rs.id, folder, url: git.url, branch: git.branch })
+        gitLinks.push({ type: 'dq-rule-set', lineageId: rs.lineageId, folder, url: git.url, branch: git.branch })
         continue
       }
-      const checks = await storage.dqCustomChecks.getByRuleSet(rs.id)
-      // Stripped like the standalone rule-set.json export — see the schemas/ note.
-      zip.file(`data-quality/${eid(rs)}.json`, json({ ruleSet: stripEntityDocs(stripInstanceFields(rs) as DqRuleSet), checks }))
+      // Same folder layout as the standalone export, via the same builder: checks
+      // move to their own checks.json (they were bundled under a `ruleSet` wrapper
+      // key that existed nowhere else in the format) and the docs travel too.
+      await buildDqRuleSetFolder(zip, `data-quality/${eid(rs)}/`, rs, storage)
     }
   }
 
@@ -3724,7 +3766,7 @@ export async function buildWorkspaceZip(
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
         zip.file(`mapping-projects/${folder}/${ENTITY_MANIFEST}`, json(gitPointerManifest('mapping-project', { entityId: mp.entityId, name: mp.name, createdAt: mp.createdAt, lineageId: mp.lineageId }, git)))
-        gitLinks.push({ type: 'mapping-project', id: mp.id, folder, url: git.url, branch: git.branch })
+        gitLinks.push({ type: 'mapping-project', lineageId: mp.lineageId, folder, url: git.url, branch: git.branch })
         continue
       }
 
@@ -3760,11 +3802,13 @@ export async function buildWorkspaceZip(
         // (an absent createdAt makes the server stamp func.now(), and a failed clone
         // would never correct it). Omit when absent for byte-parity with the server.
         zip.file(`catalogs/${folder}/${ENTITY_MANIFEST}`, json(gitPointerManifest('data-catalog', { entityId: eid(cat), name: cat.name, createdAt: cat.createdAt, lineageId: cat.lineageId }, git)))
-        gitLinks.push({ type: 'data-catalog', id: cat.id, folder, url: git.url, branch: git.branch })
+        gitLinks.push({ type: 'data-catalog', lineageId: cat.lineageId, folder, url: git.url, branch: git.branch })
         continue
       }
-      // Stripped like the standalone catalog.json export — see the schemas/ note.
-      zip.file(`catalogs/${eid(cat)}.json`, json(stripEntityDocs(stripInstanceFields(cat) as DataCatalog)))
+      // Same folder layout as the standalone export, via the same builder: a
+      // workspace-embedded entity and its own repo are then the same tree, and the
+      // README/LICENSE/attachments the flat form silently dropped travel too.
+      await buildDataCatalogFolder(zip, `catalogs/${eid(cat)}/`, cat, storage)
     }
 
     const serviceMappings = await storage.serviceMappings.getByWorkspace(workspaceId)
@@ -3788,22 +3832,29 @@ export async function buildWorkspaceZip(
       .filter(p => !builtinIds.has(pluginManifestId(p) ?? p.id))
     for (const plugin of plugins) {
       const folder = plugin.entityId || slugify(plugin.id)
-      zip.file(`plugins/${folder}/${ENTITY_MANIFEST}`, json({ entityId: plugin.entityId, createdAt: plugin.createdAt, createdBy: plugin.createdBy, createdByDetails: plugin.createdByDetails }))
-      for (const [filename, content] of Object.entries(plugin.files)) {
-        zip.file(`plugins/${folder}/${filename}`, content)
-      }
+      // Same folder as the standalone export, via the same builder. The manifest
+      // written here by hand carried four keys: no type, name, description,
+      // version, licence or lineage — and it copied `files` verbatim, so a stale
+      // README.md inside them overwrote the entity's own.
+      await buildUserPluginFolder(zip, `plugins/${folder}/`, plugin, storage)
     }
   }
 
   // --- git-links.json (manifest of git-linked entities; portal build derives .gitmodules from it) ---
   if (gitLinks.length > 0) {
     // Sort deterministically so adding/removing an unrelated link never reorders the rest
-    // and churns the versioning diff. Key is (type, id) — id is an immutable UUID.
+    // and churns the versioning diff. Key is (type, lineageId, folder): lineageId is the
+    // cross-instance identity, so it survives the re-minting that entity ids undergo on
+    // import — sorting on an id reshuffled the whole file every round trip. `folder`
+    // breaks the tie for a link published before lineage existed (null lineageId).
     // Code-point order, matching Python's tuple sort: localeCompare orders by the
     // reader's locale, so the same workspace could emit two different link orders
     // (and disagree with the server) for reasons no diff would explain.
     const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0)
-    const links = [...gitLinks].sort((a, b) => cmp(a.type, b.type) || cmp(a.id, b.id))
+    const links = [...gitLinks]
+      .sort((a, b) =>
+        cmp(a.type, b.type) || cmp(a.lineageId ?? '', b.lineageId ?? '') || cmp(a.folder, b.folder))
+      .map(({ lineageId: _l, ...entry }) => entry)
     zip.file(ROOT_FILE.gitLinks, json({ appVersion: APP_VERSION, links }))
   }
 
@@ -3877,6 +3928,12 @@ export function collectGitLinkedEntities(parsed: ParsedWorkspaceZip): GitLinkedE
   for (const cat of parsed.catalogs) push('data-catalog', cat.id, localized(cat.name, 'en'), resolveGitRemote(cat) ?? undefined)
   for (const { ruleSet } of parsed.dqRuleSets) push('dq-rule-set', ruleSet.id, localized(ruleSet.name, 'en'), resolveGitRemote(ruleSet) ?? undefined)
   for (const sp of parsed.schemas) push('schema-preset', sp.id ?? sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.entityId || sp.presetId || sp.id, resolveGitRemote(sp) ?? undefined)
+  // Databases were the one declared type never collected here, so a linked one
+  // was imported but its repo never cloned.
+  for (const ds of parsed.databases) {
+    if (!ds.id) continue
+    push('database', ds.id, localized(ds.name, 'en') || ds.entityId || ds.id, resolveGitRemote(ds) ?? undefined)
+  }
   return out
 }
 
@@ -3971,15 +4028,57 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
 
   // --- schemas/ ---
   const schemas: CustomSchemaPreset[] = []
+  for (const folder of entityFolders(zipData, 'schemas/')) {
+    const prefix = `schemas/${folder}/`
+    const sp = await readEntityManifest<CustomSchemaPreset>(zipData, prefix, 'schema-preset')
+    if (!sp) continue
+    // The mapping is its own file with the DDL beside it; the root carries the
+    // promoted name/description. reassemblePresetMapping folds them back — a git
+    // pointer has neither file, and keeps just its name.
+    const mappingFile = await readJsonFile<SchemaMapping>(zipData, `${prefix}${SCHEMA_PRESET_MAPPING_FILE}`)
+    const ddlEntry = zipData.files[`${prefix}${SCHEMA_PRESET_DDL_FILE}`]
+    const ddl = ddlEntry && !ddlEntry.dir ? await ddlEntry.async('string') : undefined
+    const mapping = reassemblePresetMapping(sp, mappingFile ?? undefined)
+    sp.mapping = (ddl ? { ...mapping, ddl } : mapping) as SchemaMapping
+    const docs = await readEntityDocs(zipData, prefix, sp)
+    if (docs.readme) sp.readme = docs.readme
+    if (docs.license) sp.license = docs.license
+    schemas.push(sp)
+  }
+  // Flat form written before presets moved to a folder: the whole preset, mapping
+  // and DDL inlined, in one file.
   for (const [path, entry] of Object.entries(zipData.files)) {
     if (!path.startsWith('schemas/') || !path.endsWith('.json') || entry.dir) continue
+    if (path.slice('schemas/'.length).includes('/')) continue
     schemas.push(JSON.parse(await entry.async('string')))
   }
 
   // --- databases/ (sanitized connection metadata) ---
   const databases: Partial<DataSource>[] = []
+  for (const folder of entityFolders(zipData, 'databases/')) {
+    const prefix = `databases/${folder}/`
+    const ds = await readEntityManifest<Partial<DataSource> & { schema?: unknown }>(zipData, prefix, 'database')
+    if (!ds) continue
+    // A manifest carries no local key (a pointer least of all), and the import
+    // keys rows by id — mint one here, as the sql/etl sections do.
+    if (!ds.id) ds.id = crypto.randomUUID()
+    // The mapping is its own file with the DDL beside it, like a schema preset —
+    // a pointer folder has neither, and the clone fills them in.
+    const mappingFile = await readJsonFile<SchemaMapping>(zipData, `${prefix}${SCHEMA_PRESET_MAPPING_FILE}`)
+    const ddlEntry = zipData.files[`${prefix}${SCHEMA_PRESET_DDL_FILE}`]
+    const ddl = ddlEntry && !ddlEntry.dir ? await ddlEntry.async('string') : undefined
+    const base = mappingFile ?? (ds.schemaMapping as SchemaMapping | undefined)
+    if (base) ds.schemaMapping = (ddl ? { ...base, ddl } : base) as SchemaMapping
+    const docs = await readEntityDocs(zipData, prefix, ds as { readmeLang?: string })
+    if (docs.readme) ds.readme = docs.readme
+    if (docs.license) ds.license = docs.license
+    databases.push(ds)
+  }
+  // Flat form written before databases moved to a folder: the whole row, mapping
+  // and DDL inlined, in one file.
   for (const [path, entry] of Object.entries(zipData.files)) {
     if (!path.startsWith('databases/') || !path.endsWith('.json') || entry.dir) continue
+    if (path.slice('databases/'.length).includes('/')) continue
     databases.push(JSON.parse(await entry.async('string')))
   }
 
@@ -4081,19 +4180,32 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
 
   // --- data-quality/ (also supports legacy 'dq/' prefix) ---
   const dqRuleSets: ParsedWorkspaceZip['dqRuleSets'] = []
-  for (const [path, entry] of Object.entries(zipData.files)) {
-    if ((!path.startsWith('data-quality/') && !path.startsWith('dq/')) || !path.endsWith('.json') || entry.dir) continue
-    const parsed = JSON.parse(await entry.async('string')) as
-      | { ruleSet: DqRuleSet; checks?: DqCustomCheck[] }
-      | (DqRuleSet & { checks?: DqCustomCheck[] })
-    // Two shapes: an unlinked rule set is a `{ ruleSet, checks }` bundle (the
-    // checks are its content), while a git pointer is the flat entity manifest
-    // every other linked kind writes — its checks live in the linked repo.
-    if ('ruleSet' in parsed && parsed.ruleSet) {
-      dqRuleSets.push({ ruleSet: parsed.ruleSet, checks: parsed.checks ?? [] })
-    } else if ((parsed as DqRuleSet).name || (parsed as DqRuleSet).entityId) {
-      const { checks, ...ruleSet } = parsed as DqRuleSet & { checks?: DqCustomCheck[] }
-      dqRuleSets.push({ ruleSet: ruleSet as DqRuleSet, checks: checks ?? [] })
+  for (const section of ['data-quality/', 'dq/']) {
+    for (const folder of entityFolders(zipData, section)) {
+      const prefix = `${section}${folder}/`
+      const ruleSet = await readEntityManifest<DqRuleSet>(zipData, prefix, 'dq-rule-set')
+      if (!ruleSet) continue
+      // A pointer folder has no checks.json — the linked repo owns the checks.
+      const checks = (await readJsonFile<DqCustomCheck[]>(zipData, `${prefix}${CONTENT_FILE.dqChecks}`)) ?? []
+      const docs = await readEntityDocs(zipData, prefix, ruleSet)
+      if (docs.readme) ruleSet.readme = docs.readme
+      if (docs.license) ruleSet.license = docs.license
+      dqRuleSets.push({ ruleSet, checks })
+    }
+    // Flat form written before rule sets moved to a folder: the whole entity in
+    // one file, checks bundled under a `ruleSet` wrapper key.
+    for (const [path, entry] of Object.entries(zipData.files)) {
+      if (!path.startsWith(section) || !path.endsWith('.json') || entry.dir) continue
+      if (path.slice(section.length).includes('/')) continue
+      const parsed = JSON.parse(await entry.async('string')) as
+        | { ruleSet: DqRuleSet; checks?: DqCustomCheck[] }
+        | (DqRuleSet & { checks?: DqCustomCheck[] })
+      if ('ruleSet' in parsed && parsed.ruleSet) {
+        dqRuleSets.push({ ruleSet: parsed.ruleSet, checks: parsed.checks ?? [] })
+      } else if ((parsed as DqRuleSet).name || (parsed as DqRuleSet).entityId) {
+        const { checks, ...ruleSet } = parsed as DqRuleSet & { checks?: DqCustomCheck[] }
+        dqRuleSets.push({ ruleSet: ruleSet as DqRuleSet, checks: checks ?? [] })
+      }
     }
   }
 
@@ -4167,8 +4279,19 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
 
   // --- catalogs/ ---
   const catalogs: DataCatalog[] = []
+  for (const folder of entityFolders(zipData, 'catalogs/')) {
+    const prefix = `catalogs/${folder}/`
+    const cat = await readEntityManifest<DataCatalog>(zipData, prefix, 'data-catalog')
+    if (!cat) continue
+    const docs = await readEntityDocs(zipData, prefix, cat)
+    if (docs.readme) cat.readme = docs.readme
+    if (docs.license) cat.license = docs.license
+    catalogs.push(cat)
+  }
+  // Flat form written before catalogs moved to a folder.
   for (const [path, entry] of Object.entries(zipData.files)) {
     if (!path.startsWith('catalogs/') || !path.endsWith('.json') || entry.dir) continue
+    if (path.slice('catalogs/'.length).includes('/')) continue
     catalogs.push(JSON.parse(await entry.async('string')))
   }
 
@@ -4197,9 +4320,19 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
       const relativePath = path.slice(prefix.length)
       // Both manifest names: the metadata pointer is not a plugin source file.
       if (relativePath === ENTITY_MANIFEST || relativePath === MANIFEST['user-plugin']) continue
+      // Nor are the entity's own docs — the export writes them from the row's
+      // readme/license, and reading them back as source would both duplicate them
+      // and decode attachment blobs as text.
+      if (isEntityDocsFile(relativePath)) continue
       files[relativePath] = await entry.async('string')
     }
-    plugins.push({ ...pluginMeta, files } as UserPlugin)
+    const docs = await readEntityDocs(zipData, prefix, pluginMeta)
+    plugins.push({
+      ...pluginMeta,
+      files,
+      ...(docs.readme ? { readme: docs.readme } : {}),
+      ...(docs.license ? { license: docs.license } : {}),
+    } as UserPlugin)
   }
 
   return {

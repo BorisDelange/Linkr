@@ -1,6 +1,6 @@
 {
-  "id": "cat1",
   "entityId": "icu-catalog",
+  "type": "data-catalog",
   "name": {
     "en": "ICU catalog",
     "fr": "Catalogue réa"
@@ -33,6 +33,7 @@
   "lastComputedAt": null,
   "lastComputeDurationMs": null,
   "dcatApMetadata": null,
+  "createdAt": "2026-01-02T03:04:05.000Z",
   "createdBy": "Boris Delange",
   "createdByDetails": {
     "firstName": "Boris",
@@ -41,9 +42,9 @@
   },
   "lineageId": "lin-cat1",
   "parentLineageId": null,
-  "createdAt": "2026-01-02T03:04:05.000Z",
   "version": "0.1.0",
   "license": {
     "id": "MIT"
-  }
+  },
+  "appVersion": "2.3.3"
 }

@@ -32,6 +32,7 @@ from app.services.export_layout import (
     git_pointer_manifest,
     order_provenance,
     TYPE_DATA_CATALOG,
+    TYPE_DATABASE,
     TYPE_DQ_RULE_SET,
     TYPE_ETL_PIPELINE,
     TYPE_MAPPING_PROJECT,
@@ -40,6 +41,7 @@ from app.services.export_layout import (
     TYPE_SQL_COLLECTION,
     TYPE_WORKSPACE,
     with_entity_type,
+    CONTENT_DQ_CHECKS,
 )
 
 # The export-format version stamped into workspace.json / project pointers
@@ -162,14 +164,19 @@ class _GitLinks:
     def __init__(self) -> None:
         self.links: list[dict] = []
 
-    def add(self, kind: str, entity_id: str, folder: str, git: dict) -> None:
+    def add(
+        self, kind: str, folder: str, git: dict, lineage_id: str | None = None
+    ) -> None:
+        # No "id": entity ids are instance-local and re-minted on import, so one
+        # written here changed on every round trip. ``lineage_id`` is a sort key
+        # only — stripped below, never serialized. Must match the TS export.
         self.links.append(
             {
                 "type": kind,
-                "id": entity_id,
                 "folder": folder,
                 "url": git["url"],
                 "branch": git["branch"],
+                "_lineageId": lineage_id,
             }
         )
 
@@ -218,7 +225,7 @@ def _build_projects_section(
                 git=git,
             )
             tree[f"projects/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
-            git_links.add("project", project["uid"], folder, git)
+            git_links.add("project", folder, git, project.get("lineageId"))
         elif entry.get("sub_tree") is not None:
             for path, content in entry["sub_tree"].items():
                 tree[f"projects/{folder}/{path}"] = content
@@ -236,8 +243,14 @@ def _build_wiki_section(
     """Port of the wiki/ section (entity-io.ts:1924-1954)."""
     if not wiki_pages:
         return
+    # Stripped like every other section: the raw rows leaked this instance's
+    # workspaceId/createdById and an updatedAt that churns on every edit.
+    # id/parentId stay — they are the tree's own structure.
     tree["wiki/_tree.json"] = _json(
-        [{k: v for k, v in p.items() if k != "content"} for p in wiki_pages]
+        [
+            _strip_instance_fields({k: v for k, v in p.items() if k != "content"})
+            for p in wiki_pages
+        ]
     )
     for page in wiki_pages:
         page_folder = page.get("entityId") or (
@@ -289,31 +302,44 @@ def _build_schemas_section(
                 git=git,
             )
             tree[f"schemas/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
-            git_links.add("schema-preset", sp.get("id") or sp["presetId"], folder, git)
+            git_links.add("schema-preset", folder, git, sp.get("lineageId"))
             continue
-        tree[f"schemas/{_slugify(slug)}.json"] = _json(sp)
+        # Same folder layout as the standalone export (buildSchemaPresetFolder):
+        # the DDL becomes a readable schema.ddl instead of one escaped JSON string.
+        prefix = f"schemas/{_slugify(slug)}/"
+        for name, content in (entry.get("sub_tree") or {}).items():
+            tree[f"{prefix}{name}"] = content
 
 
 def _build_databases_section(
-    tree: dict[str, bytes], data_sources: list[dict]
+    tree: dict[str, bytes], data_sources: list[dict], git_links: _GitLinks
 ) -> None:
     """Port of the databases/ section (entity-io.ts). Vocabulary references are
-    filtered out by the caller. connectionConfig is sanitized here — connection
-    details and passwords never leave the machine."""
-    for ds in data_sources:
-        connection_config = ds.get("connectionConfig")
-        rest = {k: v for k, v in ds.items() if k != "connectionConfig"}
-        safe = {
-            **rest,
-            "connectionConfig": (
-                _sanitize_connection_config(connection_config)
-                if connection_config
-                else None
-            ),
-        }
+    filtered out by the caller. Each entry is
+    ``{"meta": <dict>, "git": <cfg|None>, "sub_tree": <dict|None>}``: linked → a
+    pointer, unlinked → the folder the caller built (connectionConfig sanitized
+    there — connection details and passwords never leave the machine)."""
+    for entry in data_sources:
+        ds = entry["meta"]
+        git = entry.get("git")
         # _eid, like every other section: prefers the stable entityId, so
-        # renaming a database no longer moves its file and churns the git diff.
-        tree[f"databases/{_eid(ds)}.json"] = _json(safe)
+        # renaming a database no longer moves its folder and churns the git diff.
+        folder = _eid(ds)
+        if git:
+            tree[f"databases/{folder}/{ENTITY_MANIFEST}"] = _json(
+                git_pointer_manifest(
+                    TYPE_DATABASE,
+                    entity_id=folder,
+                    name=ds.get("name"),
+                    created_at=ds.get("createdAt"),
+                    lineage_id=ds.get("lineageId"),
+                    git=git,
+                )
+            )
+            git_links.add("database", folder, git, ds.get("lineageId"))
+            continue
+        for name, content in (entry.get("sub_tree") or {}).items():
+            tree[f"databases/{folder}/{name}"] = content
 
 
 def _build_sql_scripts_section(
@@ -341,7 +367,7 @@ def _build_sql_scripts_section(
                 git=git,
             )
             tree[f"sql-scripts/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
-            git_links.add("sql-collection", collection["id"], folder, git)
+            git_links.add("sql-collection", folder, git, collection.get("lineageId"))
             continue
         if entry.get("sub_tree") is None:
             tree[f"sql-scripts/{folder}/{ENTITY_MANIFEST}"] = _json(collection)
@@ -371,7 +397,7 @@ def _build_etl_section(
                 git=git,
             )
             tree[f"etl/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
-            git_links.add("etl-pipeline", pipeline["id"], folder, git)
+            git_links.add("etl-pipeline", folder, git, pipeline.get("lineageId"))
             continue
         if entry.get("sub_tree") is None:
             tree[f"etl/{folder}/{ENTITY_MANIFEST}"] = _json(pipeline)
@@ -407,9 +433,19 @@ def _build_data_quality_section(
                     git=git,
                 )
             )
-            git_links.add("dq-rule-set", rs["id"], folder, git)
+            git_links.add("dq-rule-set", folder, git, rs.get("lineageId"))
             continue
-        tree[f"data-quality/{folder}.json"] = _json({"ruleSet": rs, "checks": checks})
+        # Same folder layout as the standalone export (buildDqRuleSetFolder): the
+        # checks get their own file rather than a `ruleSet` wrapper key that existed
+        # nowhere else, and the docs travel with the entity.
+        prefix = f"data-quality/{folder}/"
+        tree[f"{prefix}{ENTITY_MANIFEST}"] = _json(
+            with_entity_type(rs, TYPE_DQ_RULE_SET, APP_VERSION)
+        )
+        for name, content in (entry.get("docs") or {}).items():
+            tree[f"{prefix}{name}"] = content
+        if checks:
+            tree[f"{prefix}{CONTENT_DQ_CHECKS}"] = _json(checks)
 
 
 def _build_concept_sets_section(tree: dict[str, bytes], concept_sets: list[dict]) -> None:
@@ -453,7 +489,7 @@ def _build_mapping_projects_section(
                 git=git,
             )
             tree[f"mapping-projects/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
-            git_links.add("mapping-project", entry["id"], folder, git)
+            git_links.add("mapping-project", folder, git, entry.get("lineageId"))
             continue
         if entry.get("sub_tree") is None:
             tree[f"mapping-projects/{folder}/{ENTITY_MANIFEST}"] = _json(clean_meta)
@@ -489,9 +525,17 @@ def _build_catalogs_section(
                 git=git,
             )
             tree[f"catalogs/{folder}/{ENTITY_MANIFEST}"] = _json(pointer)
-            git_links.add("data-catalog", cat["id"], folder, git)
+            git_links.add("data-catalog", folder, git, cat.get("lineageId"))
             continue
-        tree[f"catalogs/{_eid(cat)}.json"] = _json(cat)
+        # Same folder layout as the standalone export (buildDataCatalogFolder), so
+        # a workspace-embedded catalog and its own repo are the same tree and the
+        # docs the flat form dropped travel with it.
+        prefix = f"catalogs/{_eid(cat)}/"
+        tree[f"{prefix}{ENTITY_MANIFEST}"] = _json(
+            with_entity_type(cat, TYPE_DATA_CATALOG, APP_VERSION)
+        )
+        for name, content in (entry.get("docs") or {}).items():
+            tree[f"{prefix}{name}"] = content
 
     for sm in service_mappings:
         # Stripped like every other section: the raw row leaked `workspaceId`
@@ -502,21 +546,14 @@ def _build_catalogs_section(
 
 
 def _build_plugins_section(tree: dict[str, bytes], plugins: list[dict]) -> None:
-    """Port of the plugins/ section (entity-io.ts:2132-2143). Built-in plugins are
-    filtered out by the caller (they're reconstitutable from the registry on
-    import). Each entry is a userPlugin dict with a ``files`` dict."""
-    for plugin in plugins:
-        folder = plugin.get("entityId") or _slugify(plugin["id"])
-        tree[f"plugins/{folder}/{ENTITY_MANIFEST}"] = _json(
-            {
-                "entityId": plugin.get("entityId"),
-                "createdAt": plugin.get("createdAt"),
-                "createdBy": plugin.get("createdBy"),
-                "createdByDetails": plugin.get("createdByDetails"),
-            }
-        )
-        for filename, content in (plugin.get("files") or {}).items():
-            tree[f"plugins/{folder}/{filename}"] = str(content).encode("utf-8")
+    """Port of the plugins/ section (entity-io.ts). Built-in plugins are filtered
+    out by the caller (they're reconstitutable from the registry on import). Each
+    entry is ``{"folder": str, "sub_tree": <dict>}`` — the folder the standalone
+    export writes, built by the caller (it needs the DB for the docs)."""
+    for entry in plugins:
+        folder = entry["folder"]
+        for name, content in (entry.get("sub_tree") or {}).items():
+            tree[f"plugins/{folder}/{name}"] = content
 
 
 def build_workspace_tree(
@@ -594,7 +631,7 @@ def build_workspace_tree(
     if schemas is not None:
         _build_schemas_section(tree, schemas, git_links)
     if data_sources is not None:
-        _build_databases_section(tree, data_sources)
+        _build_databases_section(tree, data_sources, git_links)
     if sql_collections is not None:
         _build_sql_scripts_section(tree, sql_collections, git_links)
     if etl_pipelines is not None:
@@ -614,9 +651,21 @@ def build_workspace_tree(
 
     if git_links.links:
         # Sort deterministically so adding/removing an unrelated link never reorders
-        # the rest and churns the versioning diff. Key is (type, id) — id is an
-        # immutable UUID. Must match the TS export (entity-io.ts).
-        links = sorted(git_links.links, key=lambda link: (link["type"], link["id"]))
+        # the rest and churns the versioning diff. Key is (type, lineageId, folder):
+        # lineageId is the cross-instance identity, so it survives the re-minting
+        # that entity ids undergo on import, and `folder` breaks the tie for a link
+        # published before lineage existed. Must match the TS export (entity-io.ts).
+        links = [
+            {k: v for k, v in link.items() if k != "_lineageId"}
+            for link in sorted(
+                git_links.links,
+                key=lambda link: (
+                    link["type"],
+                    link["_lineageId"] or "",
+                    link["folder"],
+                ),
+            )
+        ]
         tree["git-links.json"] = _json({"appVersion": APP_VERSION, "links": links})
 
     return tree

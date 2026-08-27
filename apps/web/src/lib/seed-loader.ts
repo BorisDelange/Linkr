@@ -10,7 +10,7 @@
  * fetched/stored separately (they are not part of the export format).
  */
 
-import { ENTITY_MANIFEST, MANIFEST, SCRIPTS_DIR, SIDECAR, type LayoutKind } from '@linkr/format'
+import { CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, SCRIPTS_DIR, SIDECAR, type LayoutKind } from '@linkr/format'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
@@ -18,7 +18,7 @@ import { getSchemaPreset } from '@/lib/schema-presets'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
-import { parseSourceConceptIdEntries, type CompactSourceConceptIdEntries } from '@/lib/entity-io'
+import { parseSourceConceptIdEntries, reassemblePresetMapping, type CompactSourceConceptIdEntries } from '@/lib/entity-io'
 import { fromPathTree, readPathTree, storablePathNode } from '@/lib/entity-tree'
 import { mergeSourceConceptIdRegistry, type SourceConceptIdGroup } from '@/lib/concept-mapping/source-concept-ids-io'
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
@@ -152,10 +152,11 @@ interface SeedEntitySpecs {
   project: { folder: string; full?: boolean }
   /** Folder name under `mapping-projects/`. */
   mappingProject: { folder: string }
-  /** Path (relative to the workspace folder) to the rule-set bundle JSON. */
-  dqRuleSet: { path: string }
-  /** Path (relative to the workspace folder) to the catalog JSON. */
-  catalog: { path: string }
+  /** Folder name under `data-quality/`. `path` is the flat `{ruleSet, checks}`
+   *  bundle seeds shipped before rule sets moved to a folder of their own. */
+  dqRuleSet: { folder?: string; path?: string }
+  /** Folder name under `catalogs/`; `path` is the pre-folder flat JSON. */
+  catalog: { folder?: string; path?: string }
   /** Folder name under `etl/` (pipeline row + optional script-file tree). */
   etlPipeline: { folder: string }
 }
@@ -638,16 +639,31 @@ async function loadStructuralEntity(
       break
     }
     case 'dqRuleSet': {
-      const bundle = await fetchJson<{ ruleSet: DqRuleSet; checks: Array<{ id: string; ruleSetId: string; [k: string]: unknown }> }>(`${base}/${entity.path}`)
-      if (!bundle?.ruleSet) return
-      await storage.dqRuleSets.create({ ...bundle.ruleSet, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
-      for (const check of bundle.checks ?? []) {
-        await storage.dqCustomChecks.create({ ...check, ruleSetId: bundle.ruleSet.id } as import('@/types').DqCustomCheck).catch(() => {})
+      // A rule set is a folder (entity.json + checks.json), like its own repo.
+      // `path` is the flat `{ruleSet, checks}` bundle older seeds shipped.
+      const folder = entity.folder
+      let ruleSet: DqRuleSet | null = null
+      let checks: Array<{ id: string; ruleSetId: string; [k: string]: unknown }> = []
+      if (folder) {
+        ruleSet = await fetchManifest<DqRuleSet>(`${base}/data-quality/${folder}`, 'dq-rule-set')
+        checks = (await fetchJson<typeof checks>(`${base}/data-quality/${folder}/${CONTENT_FILE.dqChecks}`)) ?? []
+      } else {
+        const bundle = await fetchJson<{ ruleSet: DqRuleSet; checks: typeof checks }>(`${base}/${entity.path}`)
+        ruleSet = bundle?.ruleSet ?? null
+        checks = bundle?.checks ?? []
+      }
+      if (!ruleSet) return
+      await storage.dqRuleSets.create({ ...ruleSet, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+      for (const check of checks) {
+        await storage.dqCustomChecks.create({ ...check, ruleSetId: ruleSet.id } as import('@/types').DqCustomCheck).catch(() => {})
       }
       break
     }
     case 'catalog': {
-      const cat = await fetchJson<DataCatalog>(`${base}/${entity.path}`)
+      const folder = entity.folder
+      const cat = folder
+        ? await fetchManifest<DataCatalog>(`${base}/catalogs/${folder}`, 'data-catalog')
+        : await fetchJson<DataCatalog>(`${base}/${entity.path}`)
       if (!cat) return
       await storage.dataCatalogs.create({ ...cat, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
       break
@@ -696,6 +712,10 @@ async function loadWorkspaceInternals(
       ...sp,
       id: sp.id ?? crypto.randomUUID(),
       entityId: sp.entityId ?? sp.presetId,
+      // A git-linked preset is seeded as a POINTER: its name sits at the root and
+      // there is no `mapping`, so the row would have no presetLabel — no name —
+      // until the repo was pulled. Same bridge the ZIP import and clone paths use.
+      mapping: reassemblePresetMapping(sp, sp.mapping),
       workspaceId: wsId,
     }).catch(() => {})
   }
@@ -711,7 +731,7 @@ async function loadWorkspaceInternals(
       workspaceId: wsId,
       status: 'disconnected',
       origin: 'seed',
-      createdAt: now,
+      createdAt: ds.createdAt ?? now,
       updatedAt: now,
     } as DataSource)
   }

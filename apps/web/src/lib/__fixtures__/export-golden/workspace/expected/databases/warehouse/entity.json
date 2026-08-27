@@ -1,0 +1,18 @@
+{
+  "type": "database",
+  "alias": "wh",
+  "name": "Warehouse",
+  "description": null,
+  "sourceType": "postgres",
+  "status": "connected",
+  "stats": null,
+  "errorMessage": null,
+  "isVocabularyReference": false,
+  "connectionConfig": {
+    "engine": "postgres"
+  },
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "createdBy": "Boris Delange",
+  "createdByDetails": null,
+  "appVersion": "2.3.3"
+}

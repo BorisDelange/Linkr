@@ -54,6 +54,7 @@ from app.services.export_layout import (
     SCRIPTS_DIR,
     SIDECAR_TREE,
     TYPE_DATA_CATALOG,
+    TYPE_DATABASE,
     TYPE_DQ_RULE_SET,
     TYPE_ETL_PIPELINE,
     TYPE_SCHEMA_PRESET,
@@ -95,6 +96,7 @@ from app.services.workspace_export import (
     _eid,
     _json,
     _localized_en,
+    _sanitize_connection_config,
     _slugify,
     _strip_instance_fields,
     build_workspace_tree,
@@ -531,7 +533,15 @@ async def _exportable_plugins(db: AsyncSession, workspace_id: str) -> list[dict]
         d = _dump(UserPluginResponse, p)
         if _is_seeded_builtin(d):
             continue
-        out.append(d)
+        # The folder is the standalone export's, via the same builder — the
+        # hand-built manifest here carried four keys and no type/name/version.
+        out.append(
+            {
+                "meta": d,
+                "folder": d.get("entityId") or _slugify(d["id"]),
+                "sub_tree": await build_user_plugin_tree(db, p),
+            }
+        )
     return out
 
 
@@ -595,12 +605,16 @@ async def build_workspace_tree_from_db(
                 sp.preset_id
             ):
                 continue
-            schemas.append(
-                {
-                    "meta": strip_entity_docs(_strip_instance_fields(_dump(SchemaPresetResponse, sp))),
-                    "git": _resolve_git_remote(sp.git_remote_config),
-                }
-            )
+            sp_git = _resolve_git_remote(sp.git_remote_config)
+            sp_entry = {
+                "meta": strip_entity_docs(_strip_instance_fields(_dump(SchemaPresetResponse, sp))),
+                "git": sp_git,
+            }
+            # Unlinked → the folder its own repo would hold (entity.json +
+            # mapping.json/schema.ddl + org + docs), built here for the DB reads.
+            if not sp_git:
+                sp_entry["sub_tree"] = await build_schema_preset_tree(db, sp)
+            schemas.append(sp_entry)
 
     data_sources = None
     if options.on("databases"):
@@ -610,7 +624,14 @@ async def build_workspace_tree_from_db(
                 continue
             if ds.is_vocabulary_reference:
                 continue
-            data_sources.append(_dump(DataSourceResponse, ds))
+            dumped = _dump(DataSourceResponse, ds)
+            git = _resolve_git_remote(ds.git_remote_config)
+            entry = {"meta": dumped, "git": git}
+            # Unlinked → the folder its own repo would hold, built here because
+            # the docs need a DB read. Linked → the pure module writes a pointer.
+            if not git:
+                entry["sub_tree"] = await _data_source_sub_tree(db, ds, dumped)
+            data_sources.append(entry)
 
     sql_collections = None
     if options.on("sqlScripts"):
@@ -657,14 +678,18 @@ async def build_workspace_tree_from_db(
                 for c in await dq_rule_set_service.list_checks(db, rs.id)
             ]
             meta = _badged_dump(DqRuleSetResponse, rs)
-            dq_rule_sets.append(
-                {
-                    "meta": strip_entity_docs(_strip_instance_fields(meta)),
-                    "checks": checks,
-                    "git": _resolve_git_remote(rs.git_remote_config),
-                    "folder": _eid(meta),
-                }
-            )
+            git = _resolve_git_remote(rs.git_remote_config)
+            entry = {
+                "meta": strip_entity_docs(_strip_instance_fields(meta)),
+                "checks": checks,
+                "git": git,
+                "folder": _eid(meta),
+            }
+            # An unlinked rule set is written as a folder, like its own repo: the
+            # docs need a DB read, so they are built here and passed through.
+            if not git:
+                entry["docs"] = await _entity_docs(db, "", meta, "dq-rule-set", rs.id)
+            dq_rule_sets.append(entry)
 
     mapping_projects = None
     id_ranges = None
@@ -686,12 +711,17 @@ async def build_workspace_tree_from_db(
         for cat in await data_catalog_service.list_for_workspace(db, workspace.id):
             if options.exclude_entities.get(cat.id):
                 continue
-            catalogs.append(
-                {
-                    "meta": strip_entity_docs(_strip_instance_fields(_badged_dump(DataCatalogResponse, cat))),
-                    "git": _resolve_git_remote(cat.git_remote_config),
-                }
-            )
+            cat_meta = _badged_dump(DataCatalogResponse, cat)
+            cat_git = _resolve_git_remote(cat.git_remote_config)
+            cat_entry = {
+                "meta": strip_entity_docs(_strip_instance_fields(cat_meta)),
+                "git": cat_git,
+            }
+            if not cat_git:
+                cat_entry["docs"] = await _entity_docs(
+                    db, "", cat_meta, "data-catalog", cat.id
+                )
+            catalogs.append(cat_entry)
         service_mappings = []
         for sm in await mapping_project_service.list_service_mappings_for_workspace(
             db, workspace.id
@@ -936,6 +966,37 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
     # dropped the publishing organization from the repo.
     await _attach_org(db, tree, ENTITY_MANIFEST, preset)
     tree.update(await _entity_docs(db, "", dumped, "schema-preset", preset.preset_id))
+    return tree
+
+
+async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[str, bytes]:
+    """Server equivalent of ``buildDataSourceFolder`` (entity-io.ts): entity.json
+    (stripped, connectionConfig sanitized) + mapping.json / schema.ddl + docs.
+
+    Metadata only, deliberately: no host, no credentials, no rows — see the TS
+    twin's docstring for why the app is never the path data leaves by."""
+    stripped = _strip_instance_fields(dumped)
+    connection_config = stripped.pop("connectionConfig", None)
+    schema_mapping = stripped.pop("schemaMapping", None)
+    meta = {
+        **strip_entity_docs(stripped),
+        "connectionConfig": (
+            _sanitize_connection_config(connection_config) if connection_config else None
+        ),
+    }
+    tree: dict[str, bytes] = {
+        ENTITY_MANIFEST: _json(with_entity_type(meta, TYPE_DATABASE, APP_VERSION))
+    }
+    # A database's copy of the mapping KEEPS presetLabel/description/presetId/
+    # templateId — unlike a preset's own export, here it is this database's only
+    # record of which schema it uses.
+    if schema_mapping:
+        mapping = dict(schema_mapping)
+        ddl = mapping.pop("ddl", None)
+        tree[SCHEMA_PRESET_MAPPING_FILE] = _json(_canonical_schema_mapping(mapping))
+        if isinstance(ddl, str) and ddl:
+            tree[SCHEMA_PRESET_DDL_FILE] = ddl.encode()
+    tree.update(await _entity_docs(db, "", dumped, "data-source", source.id))
     return tree
 
 

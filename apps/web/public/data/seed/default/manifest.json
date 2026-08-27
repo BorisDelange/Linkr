@@ -31,12 +31,12 @@
     {
       "type": "dqRuleSet",
       "id": "mimic-iv-demo",
-      "path": "data-quality/mimic-iv-demo.json"
+      "folder": "mimic-iv-demo"
     },
     {
       "type": "catalog",
       "id": "mimic-iv-demo",
-      "path": "catalogs/mimic-iv-demo.json"
+      "folder": "mimic-iv-demo"
     },
     {
       "type": "database",

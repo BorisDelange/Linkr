@@ -1,0 +1,45 @@
+{
+  "entityId": "omop-cdm-5-4",
+  "type": "schema-preset",
+  "name": {
+    "en": "OMOP CDM 5.4",
+    "fr": "OMOP CDM 5.4"
+  },
+  "description": {
+    "en": "OMOP 5.4 subset.",
+    "fr": "Sous-ensemble OMOP 5.4."
+  },
+  "createdAt": "2026-01-02T03:04:05.000Z",
+  "createdBy": "Boris Delange",
+  "createdByDetails": {
+    "firstName": "Boris",
+    "lastName": "Delange",
+    "orcid": "0000-0002-1825-0097"
+  },
+  "organization": {
+    "id": "org1",
+    "name": {
+      "en": "CHU Rennes"
+    },
+    "type": "hospital",
+    "location": {
+      "en": "Rennes"
+    },
+    "country": {
+      "en": "France"
+    },
+    "website": "https://chu-rennes.fr",
+    "email": null,
+    "customType": null,
+    "referenceId": null,
+    "customFields": null,
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  },
+  "lineageId": "lin-sp1",
+  "parentLineageId": null,
+  "version": "1.0.0",
+  "license": {
+    "id": "MIT"
+  },
+  "appVersion": "2.3.3"
+}

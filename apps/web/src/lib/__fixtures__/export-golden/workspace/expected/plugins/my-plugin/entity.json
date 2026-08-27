@@ -1,6 +1,11 @@
 {
   "entityId": "my-plugin",
+  "type": "user-plugin",
+  "name": "My Plugin",
+  "description": null,
   "createdAt": "2026-01-01T00:00:00.000Z",
   "createdBy": "Boris Delange",
-  "createdByDetails": null
+  "createdByDetails": null,
+  "version": "0.1.0",
+  "appVersion": "2.3.3"
 }

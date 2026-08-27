@@ -1,0 +1,31 @@
+{
+  "entityId": "icu-checks",
+  "type": "dq-rule-set",
+  "name": {
+    "en": "ICU checks",
+    "fr": "Contrôles réa"
+  },
+  "description": {
+    "en": "Quality rules.",
+    "fr": "Règles qualité."
+  },
+  "dataSourceId": "ds1",
+  "status": "ready",
+  "lastRunAt": null,
+  "lastRunDurationMs": null,
+  "lastScore": 98,
+  "createdAt": "2026-01-02T03:04:05.000Z",
+  "createdBy": "Boris Delange",
+  "createdByDetails": {
+    "firstName": "Boris",
+    "lastName": "Delange",
+    "orcid": "0000-0002-1825-0097"
+  },
+  "lineageId": "lin-dq1",
+  "parentLineageId": null,
+  "version": "0.1.0",
+  "license": {
+    "id": "MIT"
+  },
+  "appVersion": "2.3.3"
+}

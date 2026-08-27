@@ -3,49 +3,42 @@
   "links": [
     {
       "type": "data-catalog",
-      "id": "cat2",
       "folder": "linked-catalog",
       "url": "https://git.example.org/catalog.git",
       "branch": "main"
     },
     {
       "type": "dq-rule-set",
-      "id": "dq2",
       "folder": "linked-checks",
       "url": "https://git.example.org/dq.git",
       "branch": "main"
     },
     {
       "type": "etl-pipeline",
-      "id": "pipe2",
       "folder": "linked-etl",
       "url": "https://git.example.org/etl.git",
       "branch": "main"
     },
     {
       "type": "mapping-project",
-      "id": "mp-linked",
       "folder": "linked-mapping",
       "url": "https://git.example.org/mapping.git",
       "branch": "main"
     },
     {
       "type": "project",
-      "id": "proj-linked",
       "folder": "linked-proj",
       "url": "https://git.example.org/linked.git",
       "branch": "main"
     },
     {
       "type": "schema-preset",
-      "id": "sp2",
       "folder": "mimic-iv",
       "url": "https://git.example.org/mimic-iv.git",
       "branch": "main"
     },
     {
       "type": "sql-collection",
-      "id": "col2",
       "folder": "linked-queries",
       "url": "https://git.example.org/sql.git",
       "branch": "main"

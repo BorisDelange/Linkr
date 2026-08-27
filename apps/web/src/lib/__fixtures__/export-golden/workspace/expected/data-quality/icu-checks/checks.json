@@ -1,0 +1,18 @@
+[
+  {
+    "id": "chk1",
+    "ruleSetId": "dq1",
+    "name": {
+      "en": "No null person_id",
+      "fr": "person_id non nul"
+    },
+    "description": null,
+    "category": "completeness",
+    "severity": "error",
+    "threshold": 0,
+    "sql": "SELECT count(*) FROM person WHERE person_id IS NULL",
+    "order": 0,
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "updatedAt": "2026-06-01T00:00:00.000Z"
+  }
+]

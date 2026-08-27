@@ -57,7 +57,7 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import { localized } from '@/lib/localized'
-import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent, createEntityAttachments, projectSlug } from '@/lib/entity-io'
+import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent, createEntityAttachments, projectSlug, reassemblePresetMapping } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
@@ -482,7 +482,11 @@ export function WorkspacesPage() {
         // the one it had. `entityId` follows the readable id either way.
         id: duplicate ? crypto.randomUUID() : (sp.id ?? crypto.randomUUID()),
         entityId: duplicate ? presetId : (sp.entityId ?? presetId),
-        mapping: { ...sp.mapping, presetId },
+        // A git-linked preset exports as a POINTER, which carries its name at the
+        // root and has no `mapping` at all — so spreading `sp.mapping` left the row
+        // with no presetLabel, i.e. no name, until the repo was pulled. The clone
+        // path already bridges the two; reuse it rather than re-deriving here.
+        mapping: { ...reassemblePresetMapping(sp, sp.mapping), presetId },
         workspaceId: targetWsId,
       })
     }
@@ -494,12 +498,17 @@ export function WorkspacesPage() {
     }
     for (const ds of parsed.databases) {
       if (!ds.id) continue
-      const id = duplicate ? crypto.randomUUID() : ds.id
+      // Lineage first — the manifest carries no local key, so that is what
+      // recognises a re-import. A database written before databases had a lineage
+      // (or by an older export) falls back to its id, which the flat form carried.
+      const { id: byLineage } = await resolveByLineage(() => storage.dataSources.getAll(), ds)
+      const landing = ds.lineageId ? byLineage : ds.id
+      const id = duplicate ? crypto.randomUUID() : landing
       if (!duplicate) {
-        const existing = await storage.dataSources.getById(ds.id)
+        const existing = await storage.dataSources.getById(landing)
         if (existing) {
           // Update metadata only, keep existing credentials and file refs
-          await storage.dataSources.update(ds.id, {
+          await storage.dataSources.update(landing, {
             name: ds.name, description: ds.description, alias: ds.alias,
             schemaMapping: ds.schemaMapping, updatedAt: now,
           })
@@ -511,7 +520,9 @@ export function WorkspacesPage() {
         id,
         workspaceId: targetWsId,
         status: 'disconnected',
-        createdAt: now,
+        // The file carries the date the database was created; re-stamping it here
+        // made every reimport read as brand new. Matches applyClonedDatabase.
+        createdAt: ds.createdAt ?? now,
         updatedAt: now,
       } as import('@/types').DataSource)
     }
@@ -775,8 +786,11 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const plugin of parsed.plugins) {
-      const id = duplicate ? crypto.randomUUID() : plugin.id
-      if (!duplicate) await storage.userPlugins.delete(plugin.id).catch(() => {})
+      // The manifest carries no local key, so `plugin.id` was undefined here: the
+      // delete below was a no-op and every re-import piled up another copy.
+      // Lineage is what recognises the row, as for every other workspace child.
+      const { id, replaces } = await resolveByLineage(() => storage.userPlugins.getAll(), plugin)
+      if (replaces) await storage.userPlugins.delete(replaces).catch(() => {})
       await storage.userPlugins.create({
         ...plugin, id, workspaceId: targetWsId, updatedAt: now,
         ...(duplicate ? { createdAt: now } : {}),

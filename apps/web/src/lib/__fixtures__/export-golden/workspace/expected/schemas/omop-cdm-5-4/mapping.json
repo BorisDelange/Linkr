@@ -1,0 +1,10 @@
+{
+  "patientTable": {
+    "table": "person",
+    "idColumn": "person_id"
+  },
+  "knownTables": [
+    "person",
+    "visit_occurrence"
+  ]
+}

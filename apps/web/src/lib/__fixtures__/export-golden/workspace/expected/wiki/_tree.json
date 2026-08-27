@@ -1,7 +1,6 @@
 [
   {
     "id": "wp1",
-    "workspaceId": "ws1",
     "entityId": "home",
     "parentId": null,
     "title": {
@@ -15,10 +14,8 @@
     "verifiedAt": null,
     "reviewDueAt": null,
     "sortOrder": 0,
-    "createdById": null,
     "createdBy": "Boris Delange",
     "createdByDetails": null,
-    "createdAt": "2026-01-01T00:00:00.000Z",
-    "updatedAt": "2026-02-01T00:00:00.000Z"
+    "createdAt": "2026-01-01T00:00:00.000Z"
   }
 ]
