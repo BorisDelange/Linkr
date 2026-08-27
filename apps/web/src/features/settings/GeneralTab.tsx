@@ -20,8 +20,17 @@ import {
 
 const isServerMode = !!import.meta.env.VITE_API_URL
 
-const DB_ENGINES = ['sqlite', 'postgresql'] as const
-type DbEngine = (typeof DB_ENGINES)[number]
+/**
+ * Engines the application database may be switched to from here.
+ *
+ * PostgreSQL is deliberately not offered: only SQLite has been exercised, and
+ * switching engines mid-life has no migration path — the existing data does not
+ * follow, so picking Postgres on a live instance would silently start from an
+ * empty database. The type below still admits it so an instance already
+ * configured that way (via LINKR_DATABASE_URL) reads and renders correctly.
+ */
+const DB_ENGINES = ['sqlite'] as const
+type DbEngine = 'sqlite' | 'postgresql'
 
 interface DbConnectionConfig {
   engine: DbEngine
@@ -306,7 +315,11 @@ export function GeneralTab() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {DB_ENGINES.map((engine) => (
+                  {/* The engine in use is always listed, even when it is no longer
+                      offered: a Select whose value is absent from its options
+                      renders blank, which would read as "unset" on an instance
+                      that is in fact running on Postgres. */}
+                  {[...new Set<DbEngine>([...DB_ENGINES, config.engine])].map((engine) => (
                     <SelectItem key={engine} value={engine}>
                       {t(`settings.general_db_engine_${engine}`)}
                     </SelectItem>

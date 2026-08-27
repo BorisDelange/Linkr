@@ -104,6 +104,16 @@ interface DataSourceState {
   }) => Promise<string>
 
   updateDataSource: (id: string, changes: Partial<DataSource>) => Promise<void>
+  /**
+   * Recreate an empty database from the DDL its schema mapping carries.
+   *
+   * A database built from a schema holds no files — the tables live in a
+   * server-owned (or in-browser) DuckDB file that the export deliberately does
+   * not carry. So an imported one arrives with its mapping and DDL but no
+   * tables anywhere, and nothing could rebuild them: creation was the only code
+   * path that ever applied the DDL. Throws so the caller can surface why.
+   */
+  rebuildFromSchema: (id: string) => Promise<void>
   /** Re-validate a server-mode external source (Postgres) using its stored
    *  credentials, refreshing status + stats. No-op in front-only mode. */
   retestDataSource: (id: string) => Promise<void>
@@ -494,6 +504,42 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       ),
     }))
 
+  },
+
+  rebuildFromSchema: async (id) => {
+    const ds = get().dataSources.find((d) => d.id === id)
+    const ddl = ds?.schemaMapping?.ddl
+    if (!ds || !ddl) return
+    set((s) => ({
+      dataSources: s.dataSources.map((d) =>
+        d.id === id ? { ...d, status: 'configuring' as DataSourceStatus } : d,
+      ),
+    }))
+    try {
+      if (isServerMode()) {
+        await createFromDdlOnServer(id, ddl)
+      } else {
+        await withTimeout(engine.mountEmptyFromDDL(id, ddl, ds.alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
+        mountedSources.add(id)
+      }
+      const stats = await withTimeout(engine.computeStats(id, ds.schemaMapping), STATS_TIMEOUT, 'computeStats')
+      const updated: Partial<DataSource> = { status: 'connected', stats, errorMessage: undefined }
+      await getStorage().dataSources.update(id, updated)
+      set((s) => ({
+        dataSources: s.dataSources.map((d) => (d.id === id ? { ...d, ...updated } : d)),
+      }))
+    } catch (err) {
+      handleDuckDBError(err)
+      const updated: Partial<DataSource> = {
+        status: 'error',
+        errorMessage: err instanceof Error ? err.message : String(err),
+      }
+      await getStorage().dataSources.update(id, updated)
+      set((s) => ({
+        dataSources: s.dataSources.map((d) => (d.id === id ? { ...d, ...updated } : d)),
+      }))
+      throw err
+    }
   },
 
   retestDataSource: async (id) => {

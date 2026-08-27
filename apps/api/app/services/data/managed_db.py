@@ -10,18 +10,26 @@ needs a stable, mutable file of its own. That is what this module owns:
 from __future__ import annotations
 
 import re
-import uuid
 from pathlib import Path
 
 import duckdb
 
 from app.config import settings
 
-# A managed file is named after the source id. It is a UUID everywhere in the
-# app; validate it as one rather than trust it, because it reaches here from the
-# API layer and becomes a filesystem path. A strict UUID also rules out the
-# case-insensitive-filesystem collision a loose hex pattern allowed (`abc`/`ABC`
-# → same file on macOS).
+# A managed file is named after the source id, which reaches here from the API
+# layer and becomes a filesystem path — so it is validated rather than trusted.
+#
+# Not as a UUID, though it usually is one: a database imported from a workspace
+# or installed from the catalog keeps the readable slug its repo declares
+# (`mimic-iv-demo`) as its primary key, so requiring a UUID made every managed
+# operation on such a source raise, surfacing as a 500 on /schema and friends.
+#
+# The check that matters is that the id cannot escape the directory or collide
+# with another: lowercase alphanumerics, dash and underscore only. Lowercase is
+# what rules out the case-insensitive-filesystem collision (`abc`/`ABC` → same
+# file on macOS) that motivated the original UUID rule; every id the app mints
+# (UUID or slugified entityId) is already lowercase.
+_SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,127}$")
 
 # DuckDB has no ADD CONSTRAINT; the OMOP DDL is full of foreign keys.
 _ALTER_TABLE = re.compile(r"^\s*ALTER\s+TABLE\s", re.IGNORECASE)
@@ -35,11 +43,9 @@ def _databases_dir() -> Path:
 
 def path_for(source_id: str) -> Path:
     """Filesystem path of a managed database (may not exist yet)."""
-    try:
-        canonical = str(uuid.UUID(str(source_id)))
-    except (ValueError, AttributeError, TypeError) as exc:
-        raise ValueError(f"invalid data source id: {source_id!r}") from exc
-    return _databases_dir() / f"{canonical}.duckdb"
+    if not isinstance(source_id, str) or not _SAFE_ID.match(source_id):
+        raise ValueError(f"invalid data source id: {source_id!r}")
+    return _databases_dir() / f"{source_id}.duckdb"
 
 
 def exists(source_id: str) -> bool:

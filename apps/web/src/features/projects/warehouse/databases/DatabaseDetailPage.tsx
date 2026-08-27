@@ -14,6 +14,7 @@ import {
   Database as DatabaseIcon,
   FileText,
   Info,
+  Loader2,
   Plug,
   Table,
   Table2,
@@ -381,6 +382,21 @@ function OverviewTab({
 }) {
   const { t, i18n } = useTranslation()
   const { resolveAttachmentUrls } = useReadmeAttachments('data-source', source.id, source.workspaceId)
+  const canWrite = useMyWorkspaceRole().can('databases:write')
+  const rebuildFromSchema = useDataSourceStore((s) => s.rebuildFromSchema)
+  const [rebuilding, setRebuilding] = useState(false)
+
+  const handleRebuild = async () => {
+    setRebuilding(true)
+    try {
+      await rebuildFromSchema(source.id)
+    } catch {
+      // The failure is already on the row as `errorMessage`, which the banner
+      // above renders — rethrowing here would only add an unhandled rejection.
+    } finally {
+      setRebuilding(false)
+    }
+  }
 
   return (
     /* One grid for the whole tab, so the two columns line up across both rows:
@@ -404,6 +420,21 @@ function OverviewTab({
               ? t('databases.imported_without_data')
               : source.errorMessage}
           </p>
+          {/* A database built from a schema carries its DDL but never its tables —
+              the export leaves the DuckDB file behind on purpose. Offer the one
+              action that can fix it, since creation was the only path that ever
+              applied the DDL. */}
+          {canWrite && source.schemaMapping?.ddl && (
+            <div className="mt-2 flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={handleRebuild} disabled={rebuilding}>
+                {rebuilding && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
+                {t('databases.rebuild_from_schema')}
+              </Button>
+              <span className="text-[10px] text-muted-foreground">
+                {t('databases.rebuild_from_schema_hint')}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
