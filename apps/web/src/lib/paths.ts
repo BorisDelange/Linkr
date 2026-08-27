@@ -84,5 +84,11 @@ export const paths = {
   warehouseConceptMapping: (wsUid: string) => `${ws(wsUid)}/warehouse/concept-mapping/projects`,
   warehouseConceptMappingProject: (wsUid: string, mappingProjectId: string) =>
     `${ws(wsUid)}/warehouse/concept-mapping/${shortenId(mappingProjectId)}`,
+  warehouseSqlScripts: (wsUid: string) => `${ws(wsUid)}/warehouse/sql-scripts`,
+  warehouseSqlCollection: (wsUid: string, collectionId: string) =>
+    `${ws(wsUid)}/warehouse/sql-scripts/${shortenId(collectionId)}`,
+  warehouseDataCatalogs: (wsUid: string) => `${ws(wsUid)}/warehouse/catalog`,
+  warehouseDataCatalog: (wsUid: string, catalogId: string) =>
+    `${ws(wsUid)}/warehouse/catalog/${shortenId(catalogId)}`,
   wiki: (wsUid: string) => `${ws(wsUid)}/wiki`,
 } as const
