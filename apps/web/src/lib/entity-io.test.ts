@@ -1341,6 +1341,15 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(linked.every(l => l.id)).toBe(true)
   })
 
+  it('carries each linked entity lineage, so the clone can resolve its row the way the import did', async () => {
+    const zip = await exportZip({
+      catalogs: [CATALOG({ id: 'c1', entityId: 'catalog-one', lineageId: 'lin-cat-1', gitRemoteConfig: GIT })],
+    })
+    const file = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const linked = collectGitLinkedEntities((await parseWorkspaceZip(file))!)
+    expect(linked.find(l => l.type === 'data-catalog')?.lineageId).toBe('lin-cat-1')
+  })
+
   it('applyClonedEntity restores each type from its own repo layout', async () => {
     const calls: Record<string, unknown[][]> = {}
     const rec = (name: string) => (...args: unknown[]) => { (calls[name] ??= []).push(args); return Promise.resolve() }

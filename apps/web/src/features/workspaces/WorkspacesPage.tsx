@@ -19,6 +19,8 @@ import {
   resolveByLineage as resolveByLineageRule,
   resolveChildId as resolveChildIdRule,
   resolveWorkspaceId,
+  findLineageMatch,
+  type ImportTarget,
 } from '@/lib/import-identity'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2, AlertCircle, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -185,6 +187,45 @@ export function WorkspacesPage() {
       else await gitSetContentStatus(wsId, scope, e.id, status)
     } catch { /* status is advisory — never block the import/clone on it */ }
   }, [gitLinkedWsId])
+
+  /**
+   * The stored row a clone must write into, found by lineage.
+   *
+   * The single source of truth for "which row is this entity?" is the one the
+   * import used (`findLineageMatch`), asked here against what it actually
+   * wrote. Returns null when the manifest carries no lineage or nothing
+   * matches, and the caller falls back to the id map.
+   *
+   * `project` is absent on purpose: projects are keyed by `uid`, not by a
+   * lineage-bearing row, and their id already survives the round trip.
+   */
+  const resolveClonedEntityId = useCallback(async (
+    e: GitLinkedEntity,
+    targetWsId: string,
+    duplicate: boolean,
+  ): Promise<string | null> => {
+    // A duplicate copies the lineage but is a NEW row, so matching on it would
+    // resolve to the entity being copied and the clone would overwrite the
+    // original. The import mints fresh ids there; only idMap knows them.
+    if (duplicate || !e.lineageId) return null
+    const storage = getStorage()
+    const rowsFor: Partial<Record<GitLinkedEntity['type'], () => Promise<ImportTarget[]>>> = {
+      'mapping-project': () => storage.mappingProjects.getAll(),
+      'sql-collection': () => storage.sqlScriptCollections.getAll(),
+      'etl-pipeline': () => storage.etlPipelines.getAll(),
+      'data-catalog': () => storage.dataCatalogs.getAll(),
+      'dq-rule-set': () => storage.dqRuleSets.getAll(),
+      'schema-preset': () => storage.schemaPresets.getAll() as Promise<ImportTarget[]>,
+      'database': () => storage.dataSources.getAll(),
+    }
+    const load = rowsFor[e.type]
+    if (!load) return null
+    try {
+      return findLineageMatch(await load(), { lineageId: e.lineageId }, targetWsId)?.id ?? null
+    } catch {
+      return null
+    }
+  }, [])
 
   /** Clone a git-linked entity server-side and load its full content under its
    *  imported record. `token`/`workspaceId` override the component state so the
@@ -903,11 +944,19 @@ export function WorkspacesPage() {
       // content lives in their repos. Auto-clone each and load it now (server mode),
       // so the entity arrives complete instead of empty. Best-effort per item; a
       // repo that needs a token (or fails) drops to the summary dialog for a manual
-      // retry. Works for duplicates too: retarget each clone to the entity's freshly
-      // minted id via idMap (else content would apply to the ZIP's original ids).
-      const linked = collectGitLinkedEntities(parsed).map((e) => ({
-        ...e, id: idMap.get(`${e.type}:${e.id}`) ?? e.id,
-      }))
+      // retry.
+      //
+      // Each clone must be pointed at the row the import actually wrote. Lineage
+      // answers that the way the import itself decided it (resolveByLineage), by
+      // reading back the stored rows — so the two agree by construction rather
+      // than by two call sites happening to build the same lookup key. idMap
+      // remains the fallback for an entity whose manifest carries no lineage.
+      const linked = await Promise.all(
+        collectGitLinkedEntities(parsed).map(async (e) => ({
+          ...e,
+          id: (await resolveClonedEntityId(e, targetWsId, duplicate)) ?? idMap.get(`${e.type}:${e.id}`) ?? e.id,
+        })),
+      )
       if (linked.length > 0) {
         const token = parsed.workspace.gitRemoteConfig?.authToken
         let anyFailed = false

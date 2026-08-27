@@ -3909,6 +3909,15 @@ export interface GitLinkedEntity {
   type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'schema-preset' | 'database'
   /** Stable id (project.uid or entity id) of the created record, for a later clone. */
   id: string
+  /**
+   * Cross-instance identity, when the manifest carries one.
+   *
+   * The clone resolves the row to write through this, exactly as the import
+   * itself does (`resolveByLineage`): both sides then answer "which row is
+   * this?" the same way, instead of the clone trusting an id handed to it
+   * through a lookup table it cannot verify.
+   */
+  lineageId?: string | null
   name: string
   url: string
   branch: string
@@ -3928,23 +3937,28 @@ export function collectGitLinkedEntities(parsed: ParsedWorkspaceZip): GitLinkedE
   // them onto one entry, and each clone retargeted onto whichever id was
   // written last. Seven mapping projects imported; one received all seven
   // repos' content and six landed empty.
-  const push = (type: GitLinkedEntity['type'], id: string | undefined, name: string, cfg?: GitRemoteConfig) => {
-    if (cfg?.url && id) out.push({ type, id, name, url: cfg.url, branch: cfg.branch || 'main' })
+  const push = (
+    type: GitLinkedEntity['type'],
+    id: string | undefined,
+    name: string,
+    cfg?: GitRemoteConfig,
+    lineageId?: string | null,
+  ) => {
+    if (cfg?.url && id) out.push({ type, id, lineageId, name, url: cfg.url, branch: cfg.branch || 'main' })
   }
   for (const e of parsed.projectEntries) {
     push('project', e.project.uid, resolveProjectName(e.project), resolveGitRemote(e.project) ?? undefined)
   }
-  for (const { collection } of parsed.sqlCollections) push('sql-collection', collection.entityId ?? collection.id, localized(collection.name, 'en'), resolveGitRemote(collection) ?? undefined)
-  for (const { pipeline } of parsed.etlPipelines) push('etl-pipeline', pipeline.entityId ?? pipeline.id, localized(pipeline.name, 'en'), resolveGitRemote(pipeline) ?? undefined)
-  for (const { project } of parsed.mappingProjects) push('mapping-project', project.entityId ?? project.id, localized(project.name, 'en'), resolveGitRemote(project) ?? undefined)
-  for (const cat of parsed.catalogs) push('data-catalog', cat.entityId ?? cat.id, localized(cat.name, 'en'), resolveGitRemote(cat) ?? undefined)
-  for (const { ruleSet } of parsed.dqRuleSets) push('dq-rule-set', ruleSet.entityId ?? ruleSet.id, localized(ruleSet.name, 'en'), resolveGitRemote(ruleSet) ?? undefined)
-  for (const sp of parsed.schemas) push('schema-preset', sp.entityId ?? sp.id ?? sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.entityId || sp.presetId || sp.id, resolveGitRemote(sp) ?? undefined)
+  for (const { collection } of parsed.sqlCollections) push('sql-collection', collection.entityId ?? collection.id, localized(collection.name, 'en'), resolveGitRemote(collection) ?? undefined, collection.lineageId)
+  for (const { pipeline } of parsed.etlPipelines) push('etl-pipeline', pipeline.entityId ?? pipeline.id, localized(pipeline.name, 'en'), resolveGitRemote(pipeline) ?? undefined, pipeline.lineageId)
+  for (const { project } of parsed.mappingProjects) push('mapping-project', project.entityId ?? project.id, localized(project.name, 'en'), resolveGitRemote(project) ?? undefined, project.lineageId)
+  for (const cat of parsed.catalogs) push('data-catalog', cat.entityId ?? cat.id, localized(cat.name, 'en'), resolveGitRemote(cat) ?? undefined, cat.lineageId)
+  for (const { ruleSet } of parsed.dqRuleSets) push('dq-rule-set', ruleSet.entityId ?? ruleSet.id, localized(ruleSet.name, 'en'), resolveGitRemote(ruleSet) ?? undefined, ruleSet.lineageId)
+  for (const sp of parsed.schemas) push('schema-preset', sp.entityId ?? sp.id ?? sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.entityId || sp.presetId || sp.id, resolveGitRemote(sp) ?? undefined, sp.lineageId)
   // Databases were the one declared type never collected here, so a linked one
   // was imported but its repo never cloned.
   for (const ds of parsed.databases) {
-    if (!ds.id) continue
-    push('database', ds.id, localized(ds.name, 'en') || ds.entityId || ds.id, resolveGitRemote(ds) ?? undefined)
+    push('database', ds.entityId ?? ds.id, localized(ds.name, 'en') || ds.entityId || ds.id, resolveGitRemote(ds) ?? undefined, ds.lineageId)
   }
   return out
 }
