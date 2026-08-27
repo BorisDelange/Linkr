@@ -2819,6 +2819,7 @@ interface DatabaseRepoMeta {
   inMemory?: boolean
   isVocabularyReference?: boolean
   version?: string
+  createdAt?: string
 }
 
 /**
@@ -2912,7 +2913,9 @@ async function applyClonedDatabase(
     ...(meta.version ? { version: meta.version } : {}),
     ...(workspaceId ? { workspaceId } : {}),
     ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
-    createdAt: existing?.createdAt ?? now,
+    // The repo's own date first: deleting the workspace and re-cloning left no
+    // local row to recover it from, so every re-import read as brand new.
+    createdAt: meta.createdAt ?? existing?.createdAt ?? now,
     updatedAt: now,
   }
   // README.md / LICENSE.md live as files in the repo, not in the metadata. For a

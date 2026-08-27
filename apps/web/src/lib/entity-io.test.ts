@@ -1450,6 +1450,19 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
       ...over,
     })
 
+    it('keeps the createdAt the repo carries when no local row survives', async () => {
+      // Delete the workspace and re-import: there is no existing row to recover
+      // the date from, so it used to fall through to now() and every database
+      // read as brand new. The pointer manifest carries it — read that.
+      const { store, calls } = makeStore()
+      const zip = new JSZip()
+      zip.file('_database.json', META({ createdAt: '2026-08-27T14:28:28.000Z' }))
+
+      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+      const created = calls['ds.create']![0][0] as { createdAt: string }
+      expect(created.createdAt).toBe('2026-08-27T14:28:28.000Z')
+    })
+
     it('stores each declared Parquet and points the source at them', async () => {
       const { store, calls } = makeStore()
       const zip = new JSZip()
