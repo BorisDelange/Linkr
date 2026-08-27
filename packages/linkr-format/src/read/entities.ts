@@ -18,7 +18,7 @@ import { CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, SCRIPTS_DIR, SIDECAR, type Lay
 import { KEY_ORDER, type LocalizedInput, type Passthrough } from '../serialize/project.js'
 import type {
   ConceptMappingSpec, DataCatalogSpec, DqCheckSpec, DqRuleSetSpec, EtlPipelineSpec,
-  MappingProjectSpec, ScriptFileSpec, SqlCollectionSpec,
+  EventTableSpec, MappingProjectSpec, SchemaPresetSpec, ScriptFileSpec, SqlCollectionSpec,
 } from '../serialize/entities.js'
 import type { EntityTree } from '../tree.js'
 
@@ -31,13 +31,15 @@ const MANIFEST_KEYS = [
   'status', 'sourceType', 'dimensions', 'categoryColumn', 'subcategoryColumn', 'checks',
 ]
 
-/** Kinds this module can read back. `schema-preset` has its own payload shape. */
+/** Kinds this module can read back. */
 export type ReadableEntityKind =
   | 'sql-collection' | 'etl-pipeline' | 'dq-rule-set' | 'data-catalog' | 'mapping-project'
+  | 'schema-preset'
 
 export interface ReadEntityResult {
   kind: ReadableEntityKind
   spec: SqlCollectionSpec | EtlPipelineSpec | DqRuleSetSpec | DataCatalogSpec | MappingProjectSpec
+    | SchemaPresetSpec
 }
 
 /**
@@ -186,6 +188,30 @@ export function readEntity(tree: EntityTree, kind: ReadableEntityKind): ReadEnti
         } as DataCatalogSpec,
       }
 
+    case 'schema-preset': {
+      // Payload lives beside the manifest: `mapping.json` (the table/column map)
+      // and `schema.ddl` (50 kB of CREATE TABLE on a real preset — which is why
+      // an event-table edit gets its own tool rather than a whole-spec rewrite).
+      const mapping = readJson<Record<string, unknown>>(tree, CONTENT_FILE.schemaMapping) ?? {}
+      const { eventTables, ...payload } = mapping
+      return {
+        kind,
+        spec: {
+          ...identityOf(meta),
+          // A preset's identity is `presetId` in the spec, `entityId` on disk.
+          presetId: (meta.entityId ?? '') as string,
+          presetLabel: nameOf(meta.name),
+          ...(meta.description ? { description: nameOf(meta.description) } : {}),
+          ...(eventTables ? { eventTables: eventTables as Record<string, EventTableSpec> } : {}),
+          mapping: payload,
+          ...(tree.read(CONTENT_FILE.schemaDdl) != null
+            ? { ddl: tree.read(CONTENT_FILE.schemaDdl) as string }
+            : {}),
+          ...tail,
+        } as SchemaPresetSpec,
+      }
+    }
+
     case 'mapping-project': {
       const mappings = readJson<ConceptMappingSpec[]>(tree, MANIFEST['mapping-project']) ?? []
       return {
@@ -205,6 +231,7 @@ export function readEntity(tree: EntityTree, kind: ReadableEntityKind): ReadEnti
 /** Kinds `readEntity` handles, for a caller that must refuse the others. */
 export const READABLE_KINDS: readonly ReadableEntityKind[] = [
   'sql-collection', 'etl-pipeline', 'dq-rule-set', 'data-catalog', 'mapping-project',
+  'schema-preset',
 ]
 
 export function isReadableKind(kind: string): kind is ReadableEntityKind {

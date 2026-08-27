@@ -54,7 +54,8 @@ is a bug this project has already paid for once.
 | add, update or delete concept-mapping rows | `upsert_mappings`, `remove_mappings` | ✅ |
 | change a standalone entity's own fields (name, dimensions…) | `read_entity` → edit → `write_entity` | ✅ |
 | change a project's name, status, version, licence or README | `update_project` | ✅ |
-| edit a schema preset's payload, or a plugin | — | ⛔ no tool yet |
+| add, update or delete a schema preset's event table | `write_event_table` | ✅ |
+| write a plugin | — | ⛔ files by hand |
 
 For the last row: **say so and stop**. Do not fall back to editing the JSON — and do not
 rewrite the whole tree with `write_project` to change one field either: it serializes the
@@ -124,6 +125,7 @@ check the shape of these fields.
 | `write_entity_file` | one script file of a SQL collection or ETL pipeline (`content: null` deletes) |
 | `upsert_dq_check`, `remove_dq_check` | one quality check, by name |
 | `upsert_mappings`, `remove_mappings` | concept-mapping rows, by `sourceConceptCode` |
+| `write_event_table` | one event table of a schema preset (`fields: null` deletes) |
 
 Not registered? `claude mcp add linkr -- npx tsx <repo>/packages/linkr-mcp/src/server.ts`
 

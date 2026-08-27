@@ -14,7 +14,8 @@ import { MemoryTree } from '../tree.js'
 import { serializeProject, type ProjectSpec } from '../serialize/project.js'
 import { serializeEntity } from '../serialize/entities.js'
 import type {
-  DataCatalogSpec, DqRuleSetSpec, EtlPipelineSpec, MappingProjectSpec, SqlCollectionSpec,
+  DataCatalogSpec, DqRuleSetSpec, EtlPipelineSpec, MappingProjectSpec, SchemaPresetSpec,
+  SqlCollectionSpec,
 } from '../serialize/entities.js'
 import { readEntity, readProjectManifest, type ReadableEntityKind } from './entities.js'
 
@@ -178,7 +179,8 @@ describe('readEntity — lossless carry', () => {
       ], null, 2),
       'scripts/a.sql': 'SELECT 1;\n',
     })
-    expect(readEntity(tree, 'sql-collection').spec.name).toEqual({ en: 'Old' })
+    const { spec } = readEntity(tree, 'sql-collection')
+    expect((spec as SqlCollectionSpec).name).toEqual({ en: 'Old' })
   })
 
   it('keeps parentLineageId when it is explicitly null', () => {
@@ -256,5 +258,42 @@ describe('readProjectManifest', () => {
       'entity.json': JSON.stringify({ projectId: 'old', name: { en: 'O' }, appVersion: '2.3.3' }),
     })
     expect(readProjectManifest(tree).projectId).toBe('old')
+  })
+})
+
+describe('readEntity — schema preset', () => {
+  const PRESET = {
+    presetId: 'omop-cdm-5-4',
+    presetLabel: { en: 'OMOP CDM 5.4' },
+    description: { en: 'The common data model' },
+    lineageId: 'abc-123',
+    version: '1.0.0',
+    eventTables: {
+      Measurement: {
+        table: 'measurement',
+        conceptIdColumn: 'measurement_concept_id',
+        dateColumn: 'measurement_datetime',
+      },
+    },
+    mapping: { patientTable: { table: 'person', idColumn: 'person_id' } },
+    ddl: 'CREATE TABLE person (person_id INTEGER);\n',
+  }
+
+  it('round-trips byte for byte', () => {
+    const { first, second } = roundTrip('schema-preset', PRESET)
+    expect(second).toEqual(first)
+  })
+
+  it('splits the payload back out of its own files', () => {
+    const first = serializeEntity('schema-preset' as never, PRESET as never)
+    const tree = new MemoryTree(Object.fromEntries(first.map((f) => [f.path, f.content])))
+    const { spec } = readEntity(tree, 'schema-preset')
+    const s = spec as SchemaPresetSpec
+    // The DDL is a separate file — 50 kB on a real preset — and the event tables
+    // live in mapping.json, not the manifest.
+    expect(s.ddl).toBe('CREATE TABLE person (person_id INTEGER);\n')
+    expect(s.eventTables?.Measurement.table).toBe('measurement')
+    expect(s.presetId).toBe('omop-cdm-5-4')
+    expect(s.presetLabel).toEqual({ en: 'OMOP CDM 5.4' })
   })
 })

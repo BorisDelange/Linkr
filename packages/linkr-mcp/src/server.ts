@@ -47,6 +47,7 @@ import {
   upsertMappings,
   removeMappings,
   writeEntityFile,
+  writeEventTable,
   formatBytes,
   writeTree,
   writeZip,
@@ -813,6 +814,43 @@ server.registerTool(
   async (args) => {
     try {
       return text(updateProject(args))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'write_event_table',
+  {
+    description:
+      "Add, replace or delete one event table of a schema preset (Measurement, Condition, …). "
+      + 'Pass fields: null to delete. Fields merge, so naming one column keeps the others. '
+      + "Granular on purpose: a preset's schema.ddl is ~50 kB, and rewriting the whole spec "
+      + 'would push all of it through your context to change one column.',
+    inputSchema: fromJsonSchema<{
+      path: string; label: string; fields?: Record<string, unknown> | null
+    }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the schema preset directory.' },
+        label: { type: 'string', description: 'Event table label, e.g. Measurement.' },
+        fields: {
+          type: ['object', 'null'],
+          description:
+            'Columns to set — table, conceptIdColumn and dateColumn are required for a new one. '
+            + 'null deletes the event table.',
+        },
+      },
+      required: ['path', 'label'],
+    }),
+  },
+  async ({ path, label, fields }) => {
+    try {
+      if (fields === undefined) {
+        return failure('Pass `fields` (the columns), or fields: null to delete the event table.')
+      }
+      return text(writeEventTable(path, label, fields))
     } catch (e) {
       return failure((e as Error).message)
     }

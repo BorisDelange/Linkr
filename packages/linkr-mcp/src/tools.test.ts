@@ -8,7 +8,7 @@ import {
   moveDashboardWidget, readTreeFile, removeDashboardTab, removeDashboardWidget,
   readEntitySpec, removeDqCheck, removeMappings, renameColumns, renameDashboardTab, updateProject,
   renameDashboardWidget, updateWidget, upsertDqCheck, upsertMappings, writeEntityFile,
-  writeTree, writeZip,
+  writeEventTable, writeTree, writeZip,
 } from './tools.js'
 
 const CSV = 'patient_id,age,sex,ventilated\n1,60,M,1\n2,71,F,0\n'
@@ -602,5 +602,68 @@ describe('updateProject', () => {
     }))
     expect(() => updateProject({ path: other, status: 'x' })).toThrow(/not a project tree/)
     rmSync(other, { recursive: true, force: true })
+  })
+})
+
+describe('writeEventTable', () => {
+  let presetRoot: string
+
+  beforeEach(() => {
+    presetRoot = mkdtempSync(join(tmpdir(), 'linkr-preset-'))
+    writeTree(presetRoot, serializeEntity('schema-preset', {
+      presetId: 'omop-cdm-5-4',
+      presetLabel: { en: 'OMOP CDM 5.4' },
+      eventTables: {
+        Measurement: { table: 'measurement', conceptIdColumn: 'measurement_concept_id', dateColumn: 'measurement_date' },
+        Condition: { table: 'condition_occurrence', conceptIdColumn: 'condition_concept_id', dateColumn: 'condition_start_date' },
+      },
+      mapping: { patientTable: { table: 'person', idColumn: 'person_id' } },
+      ddl: 'CREATE TABLE person (person_id INTEGER);\n',
+    }))
+  })
+  afterEach(() => rmSync(presetRoot, { recursive: true, force: true }))
+
+  const mapping = () => JSON.parse(readFileSync(join(presetRoot, 'mapping.json'), 'utf-8'))
+
+  it('merges fields instead of replacing the table', () => {
+    writeEventTable(presetRoot, 'Measurement', { valueColumn: 'value_as_number' })
+    expect(mapping().eventTables.Measurement).toMatchObject({
+      table: 'measurement',
+      conceptIdColumn: 'measurement_concept_id',
+      valueColumn: 'value_as_number',
+    })
+  })
+
+  it('leaves the DDL alone', () => {
+    // The whole reason this tool exists: on a real preset schema.ddl is ~50 kB,
+    // and it is a spec field — a whole-spec rewrite would push it all through
+    // the caller's context to change one column.
+    const before = readFileSync(join(presetRoot, 'schema.ddl'), 'utf-8')
+    writeEventTable(presetRoot, 'Measurement', { valueColumn: 'value_as_number' })
+    expect(readFileSync(join(presetRoot, 'schema.ddl'), 'utf-8')).toBe(before)
+  })
+
+  it('leaves the other event tables untouched', () => {
+    const before = mapping().eventTables.Condition
+    writeEventTable(presetRoot, 'Measurement', { valueColumn: 'x' })
+    expect(mapping().eventTables.Condition).toEqual(before)
+  })
+
+  it('requires the three columns the app needs to query at all', () => {
+    expect(() => writeEventTable(presetRoot, 'Note', { table: 'note' }))
+      .toThrow(/needs conceptIdColumn/)
+  })
+
+  it('adds a new event table when all three are given', () => {
+    writeEventTable(presetRoot, 'Note', {
+      table: 'note', conceptIdColumn: 'note_type_concept_id', dateColumn: 'note_date',
+    })
+    expect(Object.keys(mapping().eventTables).sort()).toEqual(['Condition', 'Measurement', 'Note'])
+  })
+
+  it('deletes on null, and names the ones that exist when it cannot', () => {
+    writeEventTable(presetRoot, 'Condition', null)
+    expect(Object.keys(mapping().eventTables)).toEqual(['Measurement'])
+    expect(() => writeEventTable(presetRoot, 'Ghost', null)).toThrow(/Known: Measurement/)
   })
 })

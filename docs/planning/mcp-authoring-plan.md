@@ -649,7 +649,7 @@ histogram widget — the file never opened.
 | ✅ C5 | `update_tab(key, {name?})` — same key-rewrite problem as C3 | S |
 | ✅ C6 | `update_dataset(name, {csv?, types?})` — recomputes column ids and **reports the ones that changed**, since a rename orphans every widget config pointing at the old id | M |
 | ✅ C7 | `update_script(path, content)` — trivially, `add_script` already overwrites; make it explicit rather than a side effect | S |
-| ◐ C8 | Granular tools for the 6 standalone kinds (the existing step 10): `add`/`update`/`remove` over a sql-collection or ETL **file**, a DQ **check**, a catalog **dimension**, a mapping **row**, a preset **event table** | L |
+| ✅ C8 | Granular tools for the 6 standalone kinds (the existing step 10): `add`/`update`/`remove` over a sql-collection or ETL **file**, a DQ **check**, a catalog **dimension**, a mapping **row**, a preset **event table** | L |
 
 #### C2–C5, C7 as built (2026-08-27)
 
@@ -749,9 +749,20 @@ outlier, not the writer.
 End to end on that project: two rows upserted, 1 added + 1 merged, **0 of the other 1786
 rows changed**, and `status: in_progress` preserved.
 
-Still open in C8: a schema preset's payload (`mapping.json` — its own shape, and
-`schema-preset` is deliberately outside `readEntity`) and a data catalog's dimensions,
-which are a plain list a whole-spec rewrite handles fine.
+The schema preset closed C8 (2026-08-27). It is now readable like the rest, and gets one
+granular tool, `write_event_table`. The reason is the same "one record out of many" argument
+in a different disguise: `mapping.json` is small (~7 kB, 6-7 event tables), but `ddl` **is a
+spec field** and `schema.ddl` is ~50 kB of CREATE TABLE on a real preset — so a whole-spec
+rewrite would push all of it through the caller's context to change one column name.
+
+All four published presets round-trip. Three are byte-identical; `omop-cdm-5.3` differs by
+two lines, and correctly so — it still carries the retired `presetId` inside `mapping.json`,
+which the writer now strips. **Re-syncing that repo through the app would drop those two
+lines**; it is the one preset not re-exported after that cleanup.
+
+A data catalog's dimensions stay without a granular tool on purpose: a plain list of column
+names that a `read_entity` → edit → `write_entity` round trip handles without pushing
+anything large through context.
 
 #### C1 as built (2026-08-27) — and the drift it exposed
 

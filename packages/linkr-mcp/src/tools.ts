@@ -16,7 +16,7 @@ import {
   serializeEntity, serializeProject, slugify, tabCollateral, validateEntity, validateProject,
   type CopyFile, type DashboardDocument, type DatasetRecord, type DqRuleSetSpec,
   type EtlPipelineSpec, type MappingProjectSpec, type ReadableEntityKind,
-  type SqlCollectionSpec, type WriteFile,
+  type SchemaPresetSpec, type SqlCollectionSpec, type WriteFile,
 } from '@linkr/format'
 import { FsTree } from '@linkr/format/node/fs-tree'
 
@@ -1126,4 +1126,55 @@ export function updateProject(args: UpdateProjectArgs): string {
   }
 
   return revalidate(root, `Updated ${changed.join(', ')}.`)
+}
+
+/**
+ * Add, replace or delete one event table of a schema preset.
+ *
+ * Granular for the same reason the mapping-row tools are: a preset's `schema.ddl`
+ * is ~50 kB of CREATE TABLE on a real one, and `ddl` is a spec field — so a
+ * whole-spec rewrite would push all of it through the caller's context to change
+ * one column name.
+ *
+ * `table: null` deletes. Fields are merged, so naming a column does not clear the
+ * dozen others an event table can carry.
+ */
+export function writeEventTable(
+  root: string,
+  label: string,
+  fields: Record<string, unknown> | null,
+): string {
+  const { kind, spec } = loadEntity(root, 'schema-preset')
+  const s = spec as SchemaPresetSpec
+  const tables = { ...(s.eventTables ?? {}) } as unknown as Record<string, Record<string, unknown>>
+  const existing = tables[label]
+
+  if (fields === null) {
+    if (!existing) {
+      throw new Error(
+        `Unknown event table "${label}". Known: ${Object.keys(tables).join(', ') || 'none'}.`,
+      )
+    }
+    delete tables[label]
+    s.eventTables = tables as unknown as SchemaPresetSpec['eventTables']
+    return writeEntitySpec(
+      root, kind, s,
+      `Removed event table "${label}" (${Object.keys(tables).length} left).`,
+    )
+  }
+
+  const merged = { ...existing, ...fields }
+  // The three the app needs to query the table at all; without them it is not an
+  // event table, and the failure would only show when a widget returned nothing.
+  for (const required of ['table', 'conceptIdColumn', 'dateColumn']) {
+    if (!merged[required]) {
+      throw new Error(`Event table "${label}" needs ${required}.`)
+    }
+  }
+  tables[label] = merged
+  s.eventTables = tables as unknown as SchemaPresetSpec['eventTables']
+  return writeEntitySpec(
+    root, kind, s,
+    `${existing ? 'Updated' : 'Added'} event table "${label}" (${Object.keys(tables).length} total).`,
+  )
 }
