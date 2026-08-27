@@ -268,6 +268,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     count: number
     written?: Artefact[]
     error?: string
+    errorHint?: string
   } | null>(null)
 
   /**
@@ -556,7 +557,12 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     // from the mappings and the prune script only reads the target, so both must
     // stay available when no ATHENA import exists.
     if (effectiveSelected.has('script') && !vocabSchema) {
-      setResult({ success: false, count: 0, error: t('etl.vocab_no_vocab_ds') })
+      setResult({
+        success: false,
+        count: 0,
+        error: t('etl.vocab_no_vocab_ds'),
+        errorHint: t('etl.vocab_no_vocab_ds_hint'),
+      })
       return
     }
     setCreating(true)
@@ -606,20 +612,27 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
   /** The amber notices, gathered so they stack once at the top rather than
    *  pushing the form down one by one. */
   const notices = [
-    !selectedProjectId && (availableProjects.length > 0
-      ? t('etl.vocab_no_project_attached')
-      : t('etl.vocab_no_project_available')),
-    !readiness.ready && (readiness.missingExports.length > 0
-      ? t('etl.vocab_export_missing', {
-          files: readiness.missingExports.map((n) => mappingExportPath(n)).join(', '),
-          count: readiness.missingExports.length,
-        })
-      : t('etl.vocab_export_empty', {
-          files: readiness.emptyExports.map((n) => mappingExportPath(n)).join(', '),
-          count: readiness.emptyExports.length,
-        })),
-    selectedProjectId && !vocabSchema && t('etl.vocab_no_vocab_ds'),
-  ].filter(Boolean) as string[]
+    !selectedProjectId && {
+      text: availableProjects.length > 0
+        ? t('etl.vocab_no_project_attached')
+        : t('etl.vocab_no_project_available'),
+    },
+    !readiness.ready && {
+      text: readiness.missingExports.length > 0
+        ? t('etl.vocab_export_missing', {
+            files: readiness.missingExports.map((n) => mappingExportPath(n)).join(', '),
+            count: readiness.missingExports.length,
+          })
+        : t('etl.vocab_export_empty', {
+            files: readiness.emptyExports.map((n) => mappingExportPath(n)).join(', '),
+            count: readiness.emptyExports.length,
+          }),
+    },
+    selectedProjectId && !vocabSchema && {
+      text: t('etl.vocab_no_vocab_ds'),
+      hint: t('etl.vocab_no_vocab_ds_hint'),
+    },
+  ].filter(Boolean) as { text: string; hint?: string }[]
 
   return (
     <div className="h-full overflow-auto p-6">
@@ -635,9 +648,12 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
         {notices.length > 0 && (
           <div className="space-y-1.5 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
             {notices.map((notice) => (
-              <span key={notice} className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-200">
-                <AlertCircle size={14} className="mt-px shrink-0" />
-                <span>{notice}</span>
+              <span key={notice.text} className="flex items-center gap-2.5 text-xs text-amber-800 dark:text-amber-200">
+                <AlertCircle size={16} className="shrink-0" />
+                <span>
+                  {notice.text}
+                  {notice.hint && <span className="block">{notice.hint}</span>}
+                </span>
               </span>
             ))}
           </div>
@@ -803,9 +819,12 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                 })}
               </span>
             ) : (
-              <span className="flex items-center gap-1.5">
-                <AlertCircle size={14} />
-                {result.error || t('etl.vocab_import_error')}
+              <span className="flex items-center gap-2.5">
+                <AlertCircle size={16} className="shrink-0" />
+                <span>
+                  {result.error || t('etl.vocab_import_error')}
+                  {result.errorHint && <span className="block">{result.errorHint}</span>}
+                </span>
               </span>
             )}
           </div>
