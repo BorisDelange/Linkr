@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { isTypingTarget } from '@/lib/utils'
 import type { WikiAttachment } from '@/types'
 
 interface WikiAttachmentsDialogProps {
@@ -85,7 +86,10 @@ export function WikiAttachmentsDialog({
           role="button"
           tabIndex={0}
           onClick={() => fileInputRef.current?.click()}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click() }}
+          onKeyDown={(e) => {
+            if (isTypingTarget(e)) return
+            if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click()
+          }}
           onDrop={handleDrop}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={(e) => { e.preventDefault(); setDragOver(false) }}

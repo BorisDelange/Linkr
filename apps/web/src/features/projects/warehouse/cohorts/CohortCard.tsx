@@ -9,7 +9,7 @@ import {
   Copy,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { cardMenuTriggerClass, cn } from '@/lib/utils'
+import { cardMenuTriggerClass, cn, isTypingTarget } from '@/lib/utils'
 import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
@@ -79,7 +79,10 @@ export function CohortCard({
         if (onSelectClick?.(e)) return
         handleClick()
       }}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick() }}
+      onKeyDown={(e) => {
+        if (isTypingTarget(e)) return
+        if (e.key === 'Enter' || e.key === ' ') handleClick()
+      }}
     >
       <div className="flex flex-1 flex-col px-4 pt-5">
        <div className="flex flex-1 flex-col justify-center">

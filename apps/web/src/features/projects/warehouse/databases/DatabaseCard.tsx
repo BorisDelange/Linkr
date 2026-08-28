@@ -2,7 +2,7 @@ import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DataSource, DatabaseConnectionConfig } from '@/types'
 import { localized } from '@/lib/localized'
-import { cn } from '@/lib/utils'
+import { cn, isTypingTarget } from '@/lib/utils'
 import { ENTITY_COLORS } from '@/lib/entity-colors'
 import {
   Database,
@@ -118,7 +118,10 @@ export const DatabaseCard = memo(function DatabaseCard({
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick || onSelectClick ? handleCardClick : undefined}
-      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') onClick() } : undefined}
+      onKeyDown={onClick ? (e) => {
+        if (isTypingTarget(e)) return
+        if (e.key === 'Enter' || e.key === ' ') onClick()
+      } : undefined}
     >
       <div className="flex flex-1 flex-col px-4 pt-5">
         <div className="flex flex-1 items-center gap-4">

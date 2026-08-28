@@ -8,6 +8,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { isTypingTarget } from '@/lib/utils'
+
 /** Structural shape shared by README and wiki attachments. */
 export interface AttachmentItem {
   id: string
@@ -107,6 +109,7 @@ export function AttachmentsDialog({
           tabIndex={0}
           onClick={() => fileInputRef.current?.click()}
           onKeyDown={(e) => {
+            if (isTypingTarget(e)) return
             if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click()
           }}
           onDrop={handleDrop}

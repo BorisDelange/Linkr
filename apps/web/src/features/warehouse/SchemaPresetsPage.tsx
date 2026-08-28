@@ -28,7 +28,7 @@ import {
   Columns3,
   Network,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, isTypingTarget } from '@/lib/utils'
 import { ENTITY_COLORS } from '@/lib/entity-colors'
 import ReactMarkdown from 'react-markdown'
 import { Badge } from '@/components/ui/badge'
@@ -1043,7 +1043,10 @@ function SchemaCard({
       onClick={onCardClick}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onNavigate() }}
+      onKeyDown={(e) => {
+        if (isTypingTarget(e)) return
+        if (e.key === 'Enter' || e.key === ' ') onNavigate()
+      }}
     >
       <div className="flex flex-1 flex-col px-4 pt-5">
         <div className="flex flex-1 items-center gap-4">

@@ -23,7 +23,7 @@ import {
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedText } from '@/components/ui/truncated-text'
-import { cardMenuTriggerClass, cn } from '@/lib/utils'
+import { cardMenuTriggerClass, cn, isTypingTarget } from '@/lib/utils'
 import { localized } from '@/lib/localized'
 import { humanBytes } from '@/lib/format-helpers'
 import { ENTRY_TYPE_META } from '@/lib/catalog/entry-meta'
@@ -86,6 +86,7 @@ export function CatalogEntryCard({
       aria-label={onOpen ? t('catalog.open_in_app') : t('catalog.open_repository')}
       onClick={activate}
       onKeyDown={(e) => {
+        if (isTypingTarget(e)) return
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
           activate()
