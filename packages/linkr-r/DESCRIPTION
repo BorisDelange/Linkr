@@ -7,10 +7,14 @@ Description: Client library for scripts running inside a Linkr IDE session.
     Resolves the project's directories from the environment the kernel or
     terminal was started with, and opens its databases as DBI connections
     without the script having to know where anything lives.
+    DBI, duckdb and jsonlite are Suggests rather than Imports on purpose: they
+    are resolved at call time from a private library (see R/zzz.R), so that
+    installing this package does not put them on the kernel's .libPaths() and
+    let a script load them without declaring them in its project environment.
 License: AGPL-3
 Encoding: UTF-8
 Depends: R (>= 4.0)
-Imports: DBI, duckdb, jsonlite, utils
-Suggests: testthat (>= 3.0.0)
+Imports: utils
+Suggests: DBI, duckdb, jsonlite, testthat (>= 3.0.0)
 Config/testthat/edition: 3
 RoxygenNote: 7.3.2

@@ -191,6 +191,24 @@ def kernel_r_lib() -> Path:
     return d
 
 
+def client_r_lib() -> Path:
+    """A Linkr-wide R library holding the ``linkr`` client package and ITS
+    dependencies (DBI, duckdb, jsonlite).
+
+    Separate from kernel_r_lib on purpose. That library sits on every isolated
+    kernel's .libPaths(), so anything in it is loadable by user code — putting DBI
+    and duckdb there would let a script ``library(duckdb)`` without declaring it,
+    and the script would then break on a machine where the project's own
+    environment is all there is. This library is NOT on .libPaths(); the linkr
+    package appends it for its own namespace resolution only. So
+    ``library(linkr)`` works in an empty project, while ``library(duckdb)``
+    remains something the project must declare — which is what makes an exported
+    project reproducible."""
+    d = settings.data_path / ".cache" / "client-r-lib"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def dataset_path(project_uid: str, rel: str) -> Path:
     """Absolute on-disk path of a raw dataset file, validated against traversal."""
     return _safe_join(datasets_dir(project_uid), rel)

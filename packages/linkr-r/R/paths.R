@@ -1,17 +1,17 @@
 #' Where this project's files live
 #'
-#' A Linkr project has three server directories that are bound independently and
-#' can each be re-pointed: the IDE working dir, the code sub-tree that gets
+#' A Linkr project has three server directories that are bound independently
+#' and can each be re-pointed: the IDE working dir, the code sub-tree that gets
 #' exported, and the datasets dir. Out of the box the first two are the same
 #' folder, which is exactly why deriving one from another (`"../datasets"`,
-#' `getwd()`) works until someone re-points a binding and then silently reads the
-#' wrong place. The kernel exports all four as environment variables; these
+#' `getwd()`) works until someone re-points a binding and then silently reads
+#' the wrong place. The kernel exports all four as environment variables; these
 #' functions read them, and nothing else.
 #'
 #' Outside a Linkr session — a plain `Rscript` on a laptop — none of the
-#' variables are set. Rather than guess, every accessor falls back to the working
-#' directory and warns once, so a script runs in both places but never quietly
-#' writes somewhere unintended.
+#' variables are set. Rather than guess, every accessor falls back to the
+#' working directory and warns once, so a script runs in both places but never
+#' quietly writes somewhere unintended.
 #'
 #' @return An absolute path, as a character scalar.
 #' @name linkr_paths
@@ -26,7 +26,10 @@ NULL
     .linkr_warned[[var]] <- TRUE
     warning(
       sprintf(
-        "%s is not set: not running inside a Linkr IDE session. Falling back to the working directory (%s).",
+        paste(
+          "%s is not set: not running inside a Linkr IDE session.",
+          "Falling back to the working directory (%s)."
+        ),
         var, getwd()
       ),
       call. = FALSE

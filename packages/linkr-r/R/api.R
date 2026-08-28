@@ -10,21 +10,30 @@
       call. = FALSE
     )
   }
-  url <- sprintf("%s/api/v1/projects/%s/client%s", sub("/$", "", base), project, path)
-  # curl over any R HTTP package: this must work in an empty project environment,
-  # where the only libraries on the path are this one's own dependencies.
+  url <- sprintf(
+    "%s/api/v1/projects/%s/client%s", sub("/$", "", base), project, path
+  )
+  # curl rather than an R HTTP package: this must work in an empty project
+  # environment, where nothing beyond this package's own dependencies is
+  # installed. The token goes in via a config file rather than argv, which every
+  # other user on the machine can read out of `ps`.
   out <- tempfile(fileext = ".json")
-  on.exit(unlink(out), add = TRUE)
+  conf <- tempfile(fileext = ".conf")
+  on.exit(unlink(c(out, conf)), add = TRUE)
+  cat(sprintf('header = "Authorization: Bearer %s"\n', token), file = conf)
+  Sys.chmod(conf, "0600")
   status <- suppressWarnings(system2(
     "curl",
-    c("-sS", "-o", shQuote(out), "-w", "%{http_code}",
-      "-H", shQuote(paste("Authorization: Bearer", token)),
-      shQuote(url)),
+    c("-sS", "--config", shQuote(conf), "-o", shQuote(out),
+      "-w", "%{http_code}", shQuote(url)),
     stdout = TRUE, stderr = TRUE
   ))
   code <- suppressWarnings(as.integer(utils::tail(status, 1)))
   if (is.na(code)) {
-    stop("Could not reach the Linkr server: ", paste(status, collapse = " "), call. = FALSE)
+    stop(
+      "Could not reach the Linkr server: ", paste(status, collapse = " "),
+      call. = FALSE
+    )
   }
   if (code == 401 || code == 403) {
     stop(
@@ -36,13 +45,13 @@
   if (code >= 400) {
     stop("The Linkr server returned HTTP ", code, ".", call. = FALSE)
   }
-  jsonlite::fromJSON(out, simplifyVector = FALSE)
+  get("fromJSON", envir = .linkr_dep("jsonlite"))(out, simplifyVector = FALSE)
 }
 
 #' The databases this project can query
 #'
-#' Lists what the acting user may read — the same set the Databases page shows,
-#' resolved server-side, so a script never hardcodes a path.
+#' Lists what the acting user may read — the same set the Databases page
+#' shows, resolved server-side, so a script never hardcodes a path.
 #'
 #' The `dialect` column, not `engine`, says which SQL to write: PostgreSQL and
 #' MySQL are reached by attaching them into DuckDB exactly as the app's own SQL
@@ -62,7 +71,13 @@ linkr_databases <- function() {
     ))
   }
   field <- function(name, default = NA_character_) {
-    vapply(rows, function(r) if (is.null(r[[name]])) default else as.character(r[[name]]), character(1))
+    vapply(
+      rows,
+      function(r) {
+        if (is.null(r[[name]])) default else as.character(r[[name]])
+      },
+      character(1)
+    )
   }
   data.frame(
     id = field("id"),
