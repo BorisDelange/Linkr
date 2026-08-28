@@ -36,6 +36,16 @@ interface CardMetaFooterProps {
   /** Shows the "No license" chip even when nothing can be opened — on read-only
    *  cards (catalog entries) the absence of a licence is itself worth stating. */
   showLicenseWhenEmpty?: boolean
+  /**
+   * Drops the licence chip (and the dates) to leave the row to the author and
+   * `trailing`.
+   *
+   * For a card whose content wasn't imported: the "content not imported" badge
+   * is the one thing worth reading there, and author + date + licence + badge
+   * overflows a card-width row. The licence of an entity whose content is
+   * missing is fine print about something that isn't there yet.
+   */
+  compact?: boolean
   /** Opens the entity's license (tab or dialog). Without it the chip is plain text. */
   onOpenLicense?: () => void
   /** Extra leading content on the meta row (e.g. a per-card stat like "3 projects"). */
@@ -66,6 +76,16 @@ function authorInitials(label: string): string {
 }
 
 const Sep = () => <span aria-hidden className="text-muted-foreground/50">·</span>
+
+/**
+ * Keep a click on a footer chip from reaching the card underneath.
+ *
+ * The chips are provenance UI (and the licence one is a button): clicking one —
+ * or a link inside its hover tooltip — must not also navigate. The footer strip
+ * around them stays transparent to clicks, so the card's own onClick still works
+ * everywhere else.
+ */
+const stopChipClick = (e: React.MouseEvent) => e.stopPropagation()
 
 /**
  * One label/value line inside the author hover card. Rendered as two grid cells
@@ -200,7 +220,7 @@ function AuthorChip({
             two that may give ground when the row is narrower than its content.
             Without it the author name holds its full width and the row — and
             with it the card — refuses to go below that. */}
-        <span tabIndex={0} className="min-w-0 shrink cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">{name}</span>
+        <span tabIndex={0} onClick={stopChipClick} className="min-w-0 shrink cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">{name}</span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs text-xs">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
@@ -230,7 +250,7 @@ function DateChip({ created, updated, t }: { created: string; updated: string; t
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span tabIndex={0} className="shrink-0 cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">{shown}</span>
+        <span tabIndex={0} onClick={stopChipClick} className="shrink-0 cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">{shown}</span>
       </TooltipTrigger>
       <TooltipContent side="top" className="text-xs">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
@@ -273,13 +293,13 @@ function LicenseChip({
         {onOpen ? (
           <button
             type="button"
-            onClick={onOpen}
+            onClick={(e) => { e.stopPropagation(); onOpen() }}
             className="flex min-w-0 shrink rounded-sm text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             {body}
           </button>
         ) : (
-          <span tabIndex={0} className="flex min-w-0 shrink cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <span tabIndex={0} onClick={stopChipClick} className="flex min-w-0 shrink cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
             {body}
           </span>
         )}
@@ -295,7 +315,7 @@ function LicenseChip({
  * which). Renders nothing when there's nothing to show. Sits below the card body
  * so every harmonized list widget reads the same.
  */
-export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, datesInAuthorTooltip, license, onOpenLicense, showLicenseWhenEmpty, leading, trailing, stacked, className }: CardMetaFooterProps) {
+export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, datesInAuthorTooltip, license, onOpenLicense, showLicenseWhenEmpty, leading, trailing, stacked, compact, className }: CardMetaFooterProps) {
   const { t, i18n } = useTranslation()
   // Prefer the live directory name + details (reflects profile edits); fall back to
   // the snapshot taken at creation when the id can't be resolved (author gone /
@@ -319,8 +339,10 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
   const label = resolved || authorLabel(createdBy, details)
   const created = createdAt ? formatDate(createdAt, i18n.language) : ''
   const updated = updatedAt ? formatDate(updatedAt, i18n.language) : ''
-  const showLicense = !!license || !!onOpenLicense || !!showLicenseWhenEmpty
-  const showDatesOnRow = !datesInAuthorTooltip && (created || updated)
+  // `compact` leaves the row to the author + trailing: the licence goes, and the
+  // dates move into the author tooltip rather than vanishing.
+  const showLicense = !compact && (!!license || !!onOpenLicense || !!showLicenseWhenEmpty)
+  const showDatesOnRow = !datesInAuthorTooltip && !compact && (created || updated)
   if (!label && !created && !updated && !showLicense && !leading && !trailing) return null
 
   // Outer wrapper owns the top gap + optional mt-auto (pin to card bottom); the
@@ -328,10 +350,12 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
   // drop the card's bottom padding so the bar sits flush at the base — pb-2 here
   // leaves only a small margin below it.
   return (
-    // The footer (author/date chips + their tooltips) is provenance UI, not a way
-    // to open the card. Swallow clicks so interacting with it — a chip or a link
-    // inside its hover tooltip — never triggers the card's onClick navigation.
-    <div className={cn('pt-3 pb-2', className)} onClick={(e) => e.stopPropagation()}>
+    // Clicks are NOT swallowed here. The footer is provenance UI, but it is also
+    // most of a short card's height: stopping propagation on the whole strip made
+    // that whole band dead to the card's onClick, so a click just below the title
+    // did nothing. Only the interactive bits (chips, their tooltip links, and
+    // `trailing`) stop the event — see stopChipClick below.
+    <div className={cn('pt-3 pb-2', className)}>
       {/* One provider for the whole row: 200ms before the first chip opens (matching
           the clipped title in TruncatedHeader, so the card behaves consistently),
           then sliding between chips is instant. Leave the row for longer than
@@ -389,7 +413,7 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
                 </span>
               </>
             )}
-            {trailing && <div className="col-span-2">{trailing}</div>}
+            {trailing && <div onClick={stopChipClick} className="col-span-2">{trailing}</div>}
           </div>
         ) : (
           <div className="flex min-w-0 items-center gap-2 border-t pt-2 text-xs text-muted-foreground">
@@ -400,7 +424,7 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
                 label={label}
                 details={details}
                 organization={org}
-                dates={datesInAuthorTooltip ? { created, updated } : undefined}
+                dates={datesInAuthorTooltip || compact ? { created, updated } : undefined}
                 lang={i18n.language}
                 t={t}
               />
@@ -411,7 +435,9 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
             {showLicense && <LicenseChip license={license} onOpen={onOpenLicense} t={t} />}
             {/* ml-auto pins the action right; the meta chips above it truncate rather
                 than push it off the row. */}
-            {trailing && <span className="ml-auto shrink-0">{trailing}</span>}
+            {/* `trailing` is an action (a button, the git badge's link): its own
+                click must not also open the card. */}
+            {trailing && <span onClick={stopChipClick} className="ml-auto shrink-0">{trailing}</span>}
           </div>
         )}
       </TooltipProvider>
