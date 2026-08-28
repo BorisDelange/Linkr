@@ -142,6 +142,26 @@ function checkLegacyLayout(tree: EntityTree, kind: LayoutKind, bag: IssueBag): v
       `Missing "type": "${kind}". The manifest declares what it is rather than `
       + 'leaving the kind to be inferred from the surrounding files.')
   }
+  if (parsed.ok) checkEmptyBadges(bag, ENTITY_MANIFEST, parsed.value)
+}
+
+/**
+ * `badges: []` in a manifest.
+ *
+ * The app writes no `badges` key at all when there are none (its
+ * `stripInstanceFields`): a row carries `[]` or nothing depending only on
+ * whether it was last created or updated, and both mean the same. An authored
+ * `[]` is therefore deleted on the first export after an install — a diff nobody
+ * wrote, on a line nobody typed.
+ */
+export function checkEmptyBadges(bag: IssueBag, path: string, manifest: unknown): void {
+  if (!isObject(manifest)) return
+  if (Array.isArray(manifest.badges) && manifest.badges.length === 0) {
+    bag.warn(path, '/badges', 'non-canonical',
+      'Empty "badges": the app omits the key entirely when there are none, so '
+      + 'this line is removed on the first export.',
+      'delete the "badges" key')
+  }
 }
 
 export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {

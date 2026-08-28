@@ -38,6 +38,9 @@ export type IssueCode =
   | 'csv-header-mismatch'
   | 'layout-out-of-grid'
   | 'legacy-format'
+  /** A sidecar the app rewrites on export, written here in a different shape. */
+  | 'unsorted-tree'
+  | 'non-canonical'
 
 /** Collects issues while walking a tree, so callers never juggle arrays. */
 export class IssueBag {

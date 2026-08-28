@@ -752,6 +752,66 @@ export function updateWidget(args: UpdateWidgetArgs): string {
   return revalidate(root, `Updated widget ${key}.`)
 }
 
+export interface UpdateFilterArgs {
+  path: string
+  dashboard: string
+  /** Which filter, by the column id it controls — what `describe_tree` prints. */
+  columnId: string
+  dataset?: string
+  newColumnId?: string
+  label?: string
+}
+
+/**
+ * Repoint or relabel one dashboard filter.
+ *
+ * Filters were the one part of a dashboard no tool could reach, so an agent that
+ * found one pointing at a renamed or deleted dataset had to hand-edit the JSON —
+ * which is exactly what the ids-are-derived rule forbids. A stale
+ * `datasetFileId` is not inert: the app cannot resolve the name on import, so it
+ * mints a UUID in its place, and that lands back in git as a diff nobody wrote.
+ */
+export function updateDashboardFilter(args: UpdateFilterArgs): string {
+  const { path: root, dashboard, columnId } = args
+  const docPath = dashboardPath(dashboard)
+  const doc = readJson<DashboardDocument>(root, docPath)
+  const filters = doc.dashboard?.filterConfig ?? []
+  const filter = filters.find((f) => String(f.columnId) === columnId) as
+    Record<string, unknown> | undefined
+  if (!filter) {
+    const known = filters.map((f) => String(f.columnId ?? '?')).join(', ') || 'none'
+    throw new Error(`No filter on column "${columnId}". Known: ${known}.`)
+  }
+
+  const changed: string[] = []
+  if (args.dataset !== undefined) {
+    // Widgets and filters reference a dataset by its `id`, not by its tree path:
+    // the path carries the containing folder (`stays/stays.csv`) while the id is
+    // the bare file (`stays.csv`). Checking the wrong one rejects every valid
+    // dataset.
+    const datasets = readJson<DatasetEntry[]>(root, 'datasets/_tree.json')
+    if (!datasets.some((d) => d.id === args.dataset)) {
+      throw new Error(
+        `Unknown dataset "${args.dataset}". Known: ${datasets.map((d) => d.id).join(', ') || 'none'}.`,
+      )
+    }
+    filter.datasetFileId = args.dataset
+    changed.push('dataset')
+  }
+  if (args.newColumnId !== undefined) {
+    filter.columnId = args.newColumnId
+    changed.push('columnId')
+  }
+  if (args.label !== undefined) {
+    filter.label = args.label
+    changed.push('label')
+  }
+  if (!changed.length) throw new Error('Nothing to change: pass at least one field.')
+
+  writeJson(root, docPath, doc)
+  return revalidate(root, `Updated filter ${columnId}: ${changed.join(', ')}.`)
+}
+
 export function removeDashboardTab(root: string, dashboard: string, key: string): string {
   const docPath = dashboardPath(dashboard)
   const before = readJson<DashboardDocument>(root, docPath)

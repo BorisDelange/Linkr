@@ -7,7 +7,8 @@ import {
   addDashboardTab, addScript, addWidget, describeEntitySchema, describeTree,
   moveDashboardWidget, readTreeFile, removeDashboardTab, removeDashboardWidget,
   readEntitySpec, removeDqCheck, removeMappings, renameColumns, renameDashboardTab, updateProject,
-  renameDashboardWidget, updateWidget, upsertDqCheck, upsertMappings, writeEntityFile,
+  renameDashboardWidget, updateDashboardFilter, updateWidget, upsertDqCheck, upsertMappings,
+  writeEntityFile,
   writeEventTable, writeTree, writeZip,
 } from './tools.js'
 
@@ -323,6 +324,39 @@ describe('mutators', () => {
       config: { groupColumn: 'sex' },
     })
     expect(dashboard().widgets[0].source.config.groupColumn).toBe('col_sex')
+  })
+
+  it('repoints a filter left pointing at a dataset that no longer exists', () => {
+    // The case this tool exists for: a filter naming a renamed dataset. The app
+    // cannot resolve the name on import, so it substitutes a generated id — and
+    // that lands back in git as a diff nobody wrote. Editing the JSON by hand
+    // was previously the only way to fix it.
+    const doc = dashboard()
+    doc.dashboard.filterConfig = [
+      { datasetFileId: 'old_name.csv', columnId: 'col_age', columnName: 'age', type: 'numeric' },
+    ]
+    writeTree(root, [{ path: 'dashboards/overview.json', content: JSON.stringify(doc, null, 2) }])
+
+    updateDashboardFilter({
+      path: root, dashboard: 'overview', columnId: 'col_age', dataset: 'stays.csv',
+    })
+    expect(dashboard().dashboard.filterConfig[0].datasetFileId).toBe('stays.csv')
+  })
+
+  it('refuses a dataset that is not in the tree, rather than writing a new dangling id', () => {
+    const doc = dashboard()
+    doc.dashboard.filterConfig = [{ datasetFileId: 'stays.csv', columnId: 'col_age' }]
+    writeTree(root, [{ path: 'dashboards/overview.json', content: JSON.stringify(doc, null, 2) }])
+
+    expect(() => updateDashboardFilter({
+      path: root, dashboard: 'overview', columnId: 'col_age', dataset: 'ghost.csv',
+    })).toThrow(/Unknown dataset "ghost.csv"/)
+  })
+
+  it('names the filters it knows when the column does not match', () => {
+    expect(() => updateDashboardFilter({
+      path: root, dashboard: 'overview', columnId: 'col_nope', label: 'x',
+    })).toThrow(/No filter on column "col_nope"/)
   })
 
   it('rekeys on a move and says which keys changed', () => {

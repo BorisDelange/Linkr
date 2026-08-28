@@ -93,6 +93,22 @@ export function validateFileTree(
     }
   })
 
+  // The app writes this tree sorted by path, so an unsorted one is rewritten on
+  // the first export after an install — a diff nobody authored, on a file the
+  // author never meant to touch. Only hand-editing produces it: every writer
+  // here sorts.
+  const paths = entries
+    .filter((e) => isObject(e) && typeof e.path === 'string')
+    .map((e) => (e as { path: string }).path)
+  const sorted = [...paths].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  const firstOutOfOrder = paths.findIndex((p, i) => p !== sorted[i])
+  if (firstOutOfOrder !== -1) {
+    bag.warn(treePath, `/${firstOutOfOrder}/path`, 'unsorted-tree',
+      `Entries must be sorted by path; "${paths[firstOutOfOrder]}" is out of order. `
+      + 'The app rewrites this file on export, so an unsorted tree shows up as a diff.',
+      `expected "${sorted[firstOutOfOrder]}" at this position`)
+  }
+
   // A file's parent folder must be declared, or the import reparents it to the
   // root and the layout the author built silently flattens.
   for (const p of listed) {

@@ -253,6 +253,37 @@ describe('readProjectManifest', () => {
     expect(meta.status).toBe('archived')
   })
 
+  it('drops an empty badges list rather than carrying it through extra', () => {
+    // `badges` is not a modelled project field, so it rides in `extra` and is
+    // re-emitted verbatim. The app writes no key at all for an empty list
+    // (stripInstanceFields), so re-emitting `[]` made `update_project` add a
+    // line the app then deleted — a diff on every pull.
+    const tree = new MemoryTree({
+      'entity.json': JSON.stringify({
+        entityId: 'p', type: 'project', name: { en: 'P' },
+        badges: [], appVersion: '2.3.3',
+      }, null, 2),
+    })
+    const spec = readProjectManifest(tree) as unknown as ProjectSpec
+    const meta = JSON.parse(serializeProject(spec)[0].content)
+    expect('badges' in meta).toBe(false)
+  })
+
+  it('keeps a non-empty badges list, in place', () => {
+    const badges = [{ label: 'ICU' }]
+    const tree = new MemoryTree({
+      'entity.json': JSON.stringify({
+        entityId: 'p', type: 'project', name: { en: 'P' },
+        status: 'active', badges, appVersion: '2.3.3',
+      }, null, 2),
+    })
+    const spec = readProjectManifest(tree) as unknown as ProjectSpec
+    const meta = JSON.parse(serializeProject(spec)[0].content)
+    expect(meta.badges).toEqual(badges)
+    const keys = Object.keys(meta)
+    expect(keys.indexOf('badges')).toBe(keys.indexOf('status') + 1)
+  })
+
   it('still reads a tree written with the retired projectId', () => {
     const tree = new MemoryTree({
       'entity.json': JSON.stringify({ projectId: 'old', name: { en: 'O' }, appVersion: '2.3.3' }),

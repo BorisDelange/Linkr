@@ -42,6 +42,7 @@ is a bug this project has already paid for once.
 | read a script / SQL / any file | `read_file` | ✅ |
 | add a tab, widget or script | `add_dashboard_tab`, `add_widget`, `add_script` | ✅ |
 | change a widget's config, dataset or plugin | `update_widget` | ✅ |
+| repoint or relabel a dashboard filter | `update_dashboard_filter` | ✅ |
 | rename a widget or a tab | `rename_widget`, `rename_dashboard_tab` | ✅ |
 | move or resize a widget | `move_widget` | ✅ |
 | delete a widget or a tab | `remove_widget`, `remove_dashboard_tab` | ✅ |
@@ -62,6 +63,21 @@ rewrite the whole tree with `write_project` to change one field either: it seria
 spec you give it without reading what is there, so everything the spec does not model is
 lost. (`write_entity` after a `read_entity` is safe: the spec came from the tree and
 carries what it does not model.)
+
+**Never hand-write a sidecar.** `_tree.json`, `_columns.json`, `entity.json` and the
+dashboard documents are *rewritten by the app* on the next export. Write one yourself in a
+shape the app would not have produced and the first sync after an install carries a diff
+nobody authored — on a file nobody meant to touch. The rules are not guessable, so do not
+try to reproduce them by hand: entries are sorted by path, JSON carries no trailing
+newline, and a key whose value is empty is often omitted rather than written as `[]`. The
+tools already emit exactly what the app emits; `validate_entity` flags a tree that has
+drifted (`unsorted-tree`, `non-canonical`), so run it before you publish.
+
+**A stale reference is not inert.** A widget or filter naming a dataset that no longer
+exists does not simply do nothing: the app cannot resolve the name on import, so it
+substitutes a generated id — which is then what comes back in git. `validate_entity`
+reports these as `unknown-reference`; fix them with `update_widget` /
+`update_dashboard_filter` rather than leaving them or editing the JSON.
 
 **A record list wants its own tool.** A mapping project holds thousands of rows and a rule
 set dozens of checks. Use `upsert_mappings` / `upsert_dq_check` to change a few rather than
@@ -117,6 +133,7 @@ check the shape of these fields.
 | `validate_entity` | check any tree; the kind is detected. Run after any change |
 | `add_dashboard_tab`, `add_widget`, `add_script` | add to an existing tree |
 | `update_widget` | change a widget's config (merged), dataset or plugin |
+| `update_dashboard_filter` | repoint a filter at another dataset or column, or relabel it |
 | `rename_widget`, `rename_dashboard_tab`, `move_widget` | **rekey** — the cascade is done for you and reported |
 | `remove_widget`, `remove_dashboard_tab` | delete; the result names the collateral |
 | `rename_dataset_columns` | **rekey** — re-derives column ids and repoints every widget config and filter |

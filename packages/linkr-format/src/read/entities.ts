@@ -54,10 +54,15 @@ function extraOf(record: Record<string, unknown>, known: string[]): Passthrough 
   let any = false
   for (const [key, value] of Object.entries(record)) {
     if (known.includes(key)) continue
+    // An empty `badges` is the app's "no badges", which it writes as an absent
+    // key (`stripInstanceFields`). Carrying `[]` through `extra` would re-emit a
+    // key the app then deletes, so every sync after an authored edit showed a
+    // line nobody wrote. Kinds that model `badges` never reach here.
+    if (key === 'badges' && Array.isArray(value) && value.length === 0) continue
     out[key] = value
     any = true
   }
-  if (any) out[KEY_ORDER] = Object.keys(record)
+  if (any) out[KEY_ORDER] = Object.keys(record).filter((k) => k in out || known.includes(k))
   return any ? out : undefined
 }
 
@@ -78,7 +83,9 @@ function identityOf(meta: Record<string, unknown>): Record<string, unknown> {
     ...(meta.parentLineageId !== undefined ? { parentLineageId: meta.parentLineageId } : {}),
     ...(meta.createdAt ? { createdAt: meta.createdAt } : {}),
     ...(meta.version ? { version: meta.version } : {}),
-    ...(meta.badges ? { badges: meta.badges } : {}),
+    // Empty means absent, as in the app: carrying `[]` back into the spec would
+    // make the writer emit a key the app deletes. See `badgesField`.
+    ...(Array.isArray(meta.badges) && meta.badges.length ? { badges: meta.badges } : {}),
   }
 }
 

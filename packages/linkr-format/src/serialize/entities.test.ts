@@ -106,6 +106,19 @@ describe('serializeEntity', () => {
     ).badges).toBeUndefined()
   })
 
+  it('omits badges when the list is empty, as the app does', () => {
+    // A row carries `[]` or nothing depending only on whether it was last
+    // written by a create or an update; both mean "no badges". The app deletes
+    // the key (stripInstanceFields), so writing `[]` here showed up as an added
+    // line on the first sync after an authored edit.
+    const catalog = JSON.parse(
+      treeOf('data-catalog', {
+        ...SPECS['data-catalog'], description: { en: 'D' }, badges: [],
+      } as never).read('entity.json')!,
+    )
+    expect('badges' in catalog).toBe(false)
+  })
+
   it('declares every parent folder in the tree', () => {
     const tree = treeOf('sql-collection', SPECS['sql-collection'])
     const entries = JSON.parse(tree.read('scripts/_tree.json')!) as { path: string; type: string }[]

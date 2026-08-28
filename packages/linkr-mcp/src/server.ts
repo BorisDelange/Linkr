@@ -36,6 +36,7 @@ import {
   renameDashboardTab,
   renameDashboardWidget,
   moveDashboardWidget,
+  updateDashboardFilter,
   updateWidget,
   removeDashboardTab,
   removeDashboardWidget,
@@ -429,6 +430,43 @@ server.registerTool(
   async (args) => {
     try {
       return text(updateWidget(args))
+    } catch (e) {
+      return failure((e as Error).message)
+    }
+  },
+)
+
+server.registerTool(
+  'update_dashboard_filter',
+  {
+    description:
+      "Repoint or relabel a dashboard filter, identified by the column it controls. Use this "
+      + 'rather than editing the JSON when a filter points at a renamed or deleted dataset: the '
+      + 'app cannot resolve a stale name on import and substitutes a generated id, which comes '
+      + 'back as a diff. The dataset is checked against datasets/_tree.json.',
+    inputSchema: fromJsonSchema<{
+      path: string
+      dashboard: string
+      columnId: string
+      dataset?: string
+      newColumnId?: string
+      label?: string
+    }>({
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory.' },
+        dashboard: { type: 'string', description: 'Dashboard file name without .json, e.g. overview.' },
+        columnId: { type: 'string', description: 'Column id the filter controls, from describe_tree.' },
+        dataset: { type: 'string', description: 'Dataset file id to point at, e.g. stays.csv.' },
+        newColumnId: { type: 'string', description: 'Column id to control instead.' },
+        label: { type: 'string', description: 'Label shown above the filter.' },
+      },
+      required: ['path', 'dashboard', 'columnId'],
+    }),
+  },
+  async (args) => {
+    try {
+      return text(updateDashboardFilter(args))
     } catch (e) {
       return failure((e as Error).message)
     }

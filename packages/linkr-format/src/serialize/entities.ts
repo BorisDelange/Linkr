@@ -266,6 +266,19 @@ function provenanceTail(s: EntityIdentity): Record<string, unknown> {
   }
 }
 
+/**
+ * `badges`, emitted only when there is at least one.
+ *
+ * An entity carries `[]` or nothing depending only on whether it was last
+ * written by a create (which omits the key) or an update (which sends the empty
+ * list). Both mean "no badges", so the app emits neither — see
+ * `stripInstanceFields` in `apps/web/src/lib/entity-io.ts`. Writing `[]` here
+ * showed up as an added line on the first sync after an authored edit.
+ */
+function badgesField(s: { badges?: BadgeSpec[] }): Record<string, unknown> {
+  return s.badges?.length ? { badges: s.badges } : {}
+}
+
 function sortByPath<T extends { path: string }>(files: T[]): T[] {
   return [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 }
@@ -321,7 +334,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...identityHead(s, 'sql-collection'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
-            ...(s.badges ? { badges: s.badges } : {}),
+            ...badgesField(s),
             ...provenanceTail(s),
           }, s.extra)),
         },
@@ -338,7 +351,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...identityHead(s, 'etl-pipeline'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
-            ...(s.badges ? { badges: s.badges } : {}),
+            ...badgesField(s),
             status: s.status ?? 'draft',
             ...provenanceTail(s),
           }, s.extra)),
@@ -356,7 +369,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...identityHead(s, 'dq-rule-set'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
-            ...(s.badges ? { badges: s.badges } : {}),
+            ...badgesField(s),
             status: 'draft',
             ...provenanceTail(s),
           }, s.extra)),
@@ -385,7 +398,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...identityHead(s, 'data-catalog'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
-            ...(s.badges ? { badges: s.badges } : {}),
+            ...badgesField(s),
             dimensions: s.dimensions,
             ...(s.categoryColumn ? { categoryColumn: s.categoryColumn } : {}),
             ...(s.subcategoryColumn ? { subcategoryColumn: s.subcategoryColumn } : {}),
@@ -409,7 +422,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...identityHead(s, 'mapping-project'),
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
-            ...(s.badges ? { badges: s.badges } : {}),
+            ...badgesField(s),
             // `status` before `sourceType`, matching the published repo — and
             // taken from the spec, not hardcoded: a project that has reached
             // `in_progress` was being reset to draft by its own round trip.
@@ -478,7 +491,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             type: 'schema-preset' as const,
             name: localized(s.presetLabel),
             description: s.description ? localized(s.description) : null,
-            ...(s.badges ? { badges: s.badges } : {}),
+            ...badgesField(s),
             ...(s.createdAt ? { createdAt: s.createdAt } : {}),
             version: s.version ?? '0.1.0',
             // The lineage trails the rest: `buildSchemaPreset` spreads it last,

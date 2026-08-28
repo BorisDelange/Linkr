@@ -252,3 +252,41 @@ describe('entity.json — tolerant reads', () => {
     expect(detectEntityKind(tree)).toBe('sql-collection')
   })
 })
+
+describe('canonical shape — what the app would rewrite', () => {
+  it('flags an empty badges list, which the app deletes on export', () => {
+    const issues = validateEntity(collection({ badges: [] }), 'sql-collection')
+    const issue = issues.find((i) => i.code === 'non-canonical')
+    expect(issue?.severity).toBe('warning')
+    expect(issue?.pointer).toBe('/badges')
+  })
+
+  it('accepts a non-empty badges list', () => {
+    const issues = validateEntity(collection({ badges: [{ label: 'ICU' }] }), 'sql-collection')
+    expect(issues.some((i) => i.code === 'non-canonical')).toBe(false)
+  })
+
+  it('flags a file tree that is not sorted by path', () => {
+    // The app writes this sorted, so an unsorted tree is rewritten on the first
+    // export — a diff on a file the author never meant to touch.
+    const unsorted = JSON.stringify([
+      { path: 'queries', type: 'folder', order: 0 },
+      { path: 'queries/z.sql', type: 'file', order: 0 },
+      { path: 'queries/a.sql', type: 'file', order: 1 },
+    ])
+    const tree = new MemoryTree({
+      'entity.json': JSON.stringify({ type: 'sql-collection', name: { en: 'Q' } }),
+      '_tree.json': unsorted,
+      'queries/z.sql': 'SELECT 1;\n',
+      'queries/a.sql': 'SELECT 2;\n',
+    })
+    const issue = validateEntity(tree, 'sql-collection').find((i) => i.code === 'unsorted-tree')
+    expect(issue?.severity).toBe('warning')
+    expect(issue?.hint).toContain('queries/a.sql')
+  })
+
+  it('accepts a sorted file tree', () => {
+    expect(validateEntity(collection(), 'sql-collection')
+      .some((i) => i.code === 'unsorted-tree')).toBe(false)
+  })
+})
