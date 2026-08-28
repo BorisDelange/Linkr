@@ -4,15 +4,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.database import get_db
-from app.core.deps import get_current_user_optional
+from app.core.deps import get_current_admin, get_current_user_optional
 from app.core.security import hash_password
 from app.models.user import User
 from app.schemas.auth import (
     DbInfoResponse,
+    DefaultDataRequest,
+    DefaultDataResponse,
     SetupRequest,
     SetupStatusResponse,
     UserResponse,
 )
+from app.services import app_settings_service
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 
@@ -71,3 +74,50 @@ async def setup_initialize(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.get("/default-data", response_model=DefaultDataResponse)
+async def get_default_data(
+    user: User | None = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+):
+    """What this instance decided about the default data.
+
+    Read by the wizard (before any user exists) and by the app on load, which is
+    how the browser-side seed knows to stay out of the way in server mode. Public
+    during setup for the same reason `db-info` is, and it exposes nothing
+    sensitive: an entry id and a boolean.
+    """
+    count = await db.scalar(select(func.count(User.id)))
+    if count and count > 0 and user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentication required")
+    stored = await app_settings_service.get_default_data(db) or {}
+    return DefaultDataResponse(
+        entry_id=stored.get("entryId"),
+        decided_at=stored.get("decidedAt"),
+        installed=bool(stored.get("installed")),
+        workspace_id=stored.get("workspaceId"),
+    )
+
+
+@router.post("/default-data", response_model=DefaultDataResponse)
+async def record_default_data(
+    request: DefaultDataRequest,
+    user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record the wizard's decision, once the install it describes has run.
+
+    Admin-only, and written *after* the fact: the catalog install runs in the
+    browser (the server's part is the clone alone), so this reports an outcome
+    rather than triggering one.
+    """
+    stored = await app_settings_service.set_default_data(
+        db, request.entry_id, request.installed, request.workspace_id
+    )
+    return DefaultDataResponse(
+        entry_id=stored.get("entryId"),
+        decided_at=stored.get("decidedAt"),
+        installed=bool(stored.get("installed")),
+        workspace_id=stored.get("workspaceId"),
+    )

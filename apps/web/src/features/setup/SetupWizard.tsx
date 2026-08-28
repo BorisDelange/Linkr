@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label'
 import { LinkrLogo } from '@/components/ui/linkr-logo'
 import { getApiBaseUrl } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth-store'
+import { DefaultDataStep } from './DefaultDataStep'
 
 interface DbInfo {
   engine: string
@@ -77,7 +78,10 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         // first API call fires unauthenticated → 401).
         const loggedIn = await login(username, password)
         if (loggedIn) {
-          onComplete()
+          // Step 3 installs through the catalog, which writes through
+          // authenticated API routes — so it can only run now that a token is
+          // stored, never before.
+          setStep(3)
         } else {
           setCreateError(t('setup.error_generic'))
         }
@@ -110,7 +114,9 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         <div className="mb-6 flex items-center justify-center gap-2">
           <StepDot active={step === 1} completed={step > 1} label="1" />
           <div className="h-px w-8 bg-border" />
-          <StepDot active={step === 2} completed={false} label="2" />
+          <StepDot active={step === 2} completed={step > 2} label="2" />
+          <div className="h-px w-8 bg-border" />
+          <StepDot active={step === 3} completed={false} label="3" />
         </div>
 
         {/* Step 1: Database */}
@@ -219,6 +225,10 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             </CardContent>
           </Card>
         )}
+
+        {/* Step 3: Default data. No Back button — the admin account is created and
+            the session is live, so there is nothing to go back to. */}
+        {step === 3 && <DefaultDataStep onDone={onComplete} />}
       </div>
     </div>
   )

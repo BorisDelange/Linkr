@@ -4715,7 +4715,18 @@
     "error_missing_fields": "Le nom d'utilisateur et le mot de passe sont requis.",
     "create_account": "Créer le compte",
     "creating": "Création en cours…",
-    "error_generic": "La configuration a échoué. Veuillez réessayer."
+    "error_generic": "La configuration a échoué. Veuillez réessayer.",
+    "data_title": "Données par défaut",
+    "data_description": "Installez un espace de démonstration pour découvrir Linkr avec de vraies données — une base OMOP, des alignements, un pipeline ETL et des projets d'exemple. Vous pourrez l'installer ou le supprimer plus tard depuis le Catalogue.",
+    "data_loading": "Chargement du catalogue…",
+    "data_unavailable": "Le catalogue n'a pas pu être contacté, aucune donnée par défaut n'est disponible pour le moment. Votre instance démarrera vide — vous pourrez installer du contenu plus tard depuis la page Catalogue.",
+    "data_installed": "L'espace de démonstration a été installé.",
+    "data_partial": "Une partie du contenu n'a pas pu être téléchargée. Ce qui manque est listé ci-dessus ; vous pouvez réessayer depuis la page Catalogue.",
+    "data_install": "Importer les données par défaut",
+    "data_install_action": "Installer et terminer",
+    "data_installing": "Installation…",
+    "data_skip": "Démarrer à vide",
+    "data_finish": "Terminer"
   },
   "terminal": {
     "installWarning": "Note : ceci installe directement, hors de l'environnement géré — utilisable maintenant et jusqu'à la prochaine reconstruction sur cette machine, mais absent du lockfile (donc du git / de l'export / des autres machines). Ajoutez-le via le gestionnaire d'Environnements pour le versionner.",

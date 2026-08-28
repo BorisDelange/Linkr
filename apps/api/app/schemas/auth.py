@@ -69,3 +69,26 @@ class SetupRequest(BaseModel):
     username: str
     email: str | None = None
     password: str
+
+
+class DefaultDataRequest(BaseModel):
+    """The setup wizard reporting what it did about the default data.
+
+    Sent after the choice is made, not before: the install itself runs in the
+    browser (the server only clones), so this records an outcome rather than
+    requesting one. ``installed=False`` is a real answer — "start empty" — and is
+    stored so the wizard is not re-offered.
+    """
+
+    entry_id: str
+    installed: bool
+    workspace_id: str | None = None
+
+
+class DefaultDataResponse(BaseModel):
+    """What this instance decided about the default data, or nulls if never asked."""
+
+    entry_id: str | None = None
+    decided_at: str | None = None
+    installed: bool = False
+    workspace_id: str | None = None

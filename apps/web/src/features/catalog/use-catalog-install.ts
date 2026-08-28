@@ -70,9 +70,15 @@ function failureText(t: (k: string) => string, failure?: InstallFailure): string
   }
 }
 
+/**
+ * `onInstalled` receives the local id the install wrote — `project.uid`, or the
+ * workspace id for a `workspace` entry, which is the only way a caller can learn
+ * what a workspace install created (it mints its own row and takes no target).
+ * Existing callers ignore the argument and only use it as a "reload now" signal.
+ */
 export function useCatalogInstall(
   workspaceId: string,
-  onInstalled: () => void,
+  onInstalled: (installedId?: string) => void,
 ): CatalogInstallState {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -105,7 +111,7 @@ export function useCatalogInstall(
         if (result.warning) {
           setFailure({ entry: prepared.entry, detail: result.warning, partial: true })
         }
-        onInstalled()
+        onInstalled(result.id)
       } catch (err) {
         setFailure({ entry: prepared.entry, detail: err instanceof Error ? err.message : String(err) })
       } finally {

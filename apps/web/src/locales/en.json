@@ -4715,7 +4715,18 @@
     "error_missing_fields": "Username and password are required.",
     "create_account": "Create Account",
     "creating": "Creating account…",
-    "error_generic": "Setup failed. Please try again."
+    "error_generic": "Setup failed. Please try again.",
+    "data_title": "Default data",
+    "data_description": "Install a demo workspace to explore Linkr with real data — an OMOP database, mappings, an ETL pipeline and example projects. You can install or remove it later from the Catalog.",
+    "data_loading": "Loading the catalog…",
+    "data_unavailable": "The catalog could not be reached, so no default data is available right now. Your instance will start empty — you can install content later from the Catalog page.",
+    "data_installed": "The demo workspace has been installed.",
+    "data_partial": "Some content could not be downloaded. What is missing is listed above; you can retry from the Catalog page.",
+    "data_install": "Install the default data",
+    "data_install_action": "Install and finish",
+    "data_installing": "Installing…",
+    "data_skip": "Start empty",
+    "data_finish": "Finish"
   },
   "terminal": {
     "installWarning": "Note: this installs directly, outside the managed environment — usable now and until the next rebuild on this machine, but not in the lockfile (so absent from git / export / other machines). Add it via the Environments manager to version it.",
