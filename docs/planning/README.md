@@ -102,6 +102,24 @@ server mode is essentially built, and the remaining work is A→D below.
 | 🔜 | Catalog schema: `git.ref` + `sizeBytes` (`bundled`/`defaultInstall` dropped — see §0.3) | S |
 | 🔜 | Import dialog third tab: client-only half, on a shared catalog card/install component | M |
 
+## Portable cross-entity links — [portable-entity-links-plan.md](portable-entity-links-plan.md)
+
+An entity pointing at another entity exports **this instance's primary key**, and nothing
+translates it back on import — so an ETL pipeline or SQL collection shared with anyone lands
+pointing at rows that do not exist, and reads as "no source database". Four fields
+(`sourceDataSourceId`, `targetDataSourceId`, `mappingProjectId`, `defaultDataSourceId`);
+`linkedDataSourceIds` is fine, it is stripped on purpose. Verified on the real published
+repos 2026-08-28. Hand-writing a `lineageId` into the repo does **not** fix it — the
+consumers match on the PK, so both ends have to move. Blocks nothing, but silently degrades
+every shared workspace with a pipeline, the demo one included.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | 1–2. Export the 4 fields as `lineageId`; resolve back to local PKs in a second import pass (after databases + mapping projects exist) | S |
+| 🔜 | 3. Tests: pure resolution + an export→import→export round trip that keeps the links | S |
+| 🔜 | 4. Re-export the published ETL repos so they carry lineages | S |
+| 💤 | 5. `source.`/`target.` role aliases in generated SQL — different half of the problem, larger, later | L |
+
 ## Schema preset identity — [schema-preset-identity-plan.md](schema-preset-identity-plan.md)
 
 Schema presets were the only entity whose `presetId` played all three roles at once (local

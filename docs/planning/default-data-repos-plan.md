@@ -111,14 +111,28 @@ is already on the backlog for exactly this reason) and have both call it. The po
 type→folder table (`project → projects/`, `mapping-project → mapping-projects/`, …) is the
 mapping to reuse.
 
-Two details the seed needs that the repos deliberately do not carry, and that the manifest
-must therefore keep supplying (see §3bis): the **cross-entity links**
-(`linkToProject`, `mappingProjectId`, `vocabularyDataSourceId`) and each database's
-`parquetBase` + `tables`. The workspace export does not encode "this database is the ETL's
-vocabulary source", so the generator derives them from the workspace tree or a small
-committed `seed-extras.json` beside the fetch script. **Settle this while doing A**: if the
-workspace export can be made to carry them, the generator gets simpler and the portal
-benefits too.
+**What the manifest must still supply** — audited against the export 2026-08-28, and it
+is far less than this plan assumed:
+
+| Link | Exported? | Verdict |
+|---|---|---|
+| `linkedDataSourceIds` (project → databases) | **No** — listed in `INSTANCE_FIELDS` | The seed's `linkToProject` **is** its replacement, and must stay |
+| `sourceDataSourceId` / `targetDataSourceId` / `mappingProjectId` (ETL) | Yes, as **local PKs** | Broken cross-instance, but **not the seed's problem** — see below |
+| `defaultDataSourceId` (SQL collection) | Yes, as a **local PK** | Same |
+| `parquetBase` + `tables` (database) | No | Seed-only, must stay |
+
+So the generator needs exactly two things the repos do not carry: **`linkToProject`** and
+each database's **`parquetBase` + `tables`**. Everything else either travels or is
+deliberately dropped. No `seed-extras.json` for the ETL wiring.
+
+**The ETL/SQL links are a separate, pre-existing bug** (the `etl-source-target-aliases`
+backlog item): the export writes this instance's primary keys, and nothing remaps them on
+import — verified, `grep sourceDataSourceId` finds no hit in `workspace-import.ts` or
+`entity-io.ts`. A pipeline therefore lands on another instance pointing at rows that do not
+exist. It bites the demo workspace exactly as it bites any shared workspace, and fixing it
+there (lineage-addressed links, or the `source.`/`target.` role aliases) fixes the default
+data for free, because the seed is only a projection of that repo. **Do not work around it
+here.**
 
 **C. Setup-wizard step, server mode** — ✅ **shipped 2026-08-28**
 ([DefaultDataStep.tsx](../../apps/web/src/features/setup/DefaultDataStep.tsx)). A third
