@@ -20,7 +20,7 @@ import {
   Table2,
   Users,
 } from 'lucide-react'
-import type { CustomSchemaPreset, DataSource, DatabaseConnectionConfig, SchemaMapping } from '@/types'
+import type { CustomSchemaPreset, DataSource, DatabaseConnectionConfig, DatabaseStatsCache, SchemaMapping } from '@/types'
 import { localized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { cn } from '@/lib/utils'
@@ -438,6 +438,18 @@ function DatabaseLicenseTab({ source }: { source: DataSource }) {
   )
 }
 
+/**
+ * Row template for the overview grid, by how many full-width banners sit above
+ * the content: one `auto` track each, then the content row. Spelled out as whole
+ * literals because Tailwind scans source text — a class assembled at runtime is
+ * never generated.
+ */
+const BAND_ROWS = [
+  'grid-rows-[auto_minmax(0,1fr)]',
+  'grid-rows-[auto_auto_minmax(0,1fr)]',
+  'grid-rows-[auto_auto_auto_minmax(0,1fr)]',
+]
+
 function OverviewTab({
   source,
   statsMapping,
@@ -458,6 +470,12 @@ function OverviewTab({
   const canWrite = useMyWorkspaceRole().can('databases:write')
   const rebuildFromSchema = useDataSourceStore((s) => s.rebuildFromSchema)
   const [rebuilding, setRebuilding] = useState(false)
+  // Mounted here rather than inside the cards: the "not computed yet" banner sits
+  // above them as a sibling in this grid, and both need the same state. One
+  // instance, so the cards keep reading the very numbers the banner speaks for.
+  const { cache, isLoading: statsLoading, refresh: refreshStats } = useDatabaseStats(
+    source.id, statsMapping, source.status,
+  )
   // A rebuildable database is one that is not working and still holds the DDL it
   // was built from. Not gated on `errorMessage`: a database imported before the
   // import recorded a reason (or by a path that never did) is disconnected and
@@ -465,6 +483,11 @@ function OverviewTab({
   // fix it unreachable — the user had to delete the database and recreate it.
   const canRebuild = source.status !== 'connected' && !!source.schemaMapping?.ddl
   const showStatusBanner = source.status !== 'connected' && (!!source.errorMessage || canRebuild)
+  // Cards show a dash rather than a zero (which would read as "empty"), so
+  // without a word here the tab looked like a database with nothing in it.
+  // Not while the status banner is up: a database that cannot connect has no
+  // statistics to run, and saying so twice buries the reason that matters.
+  const showStatsBanner = !cache && !statsLoading && !showStatusBanner
 
   const handleRebuild = async () => {
     setRebuilding(true)
@@ -485,12 +508,10 @@ function OverviewTab({
     <div className={cn(
       'grid h-full min-h-0 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_20rem]',
       // One `auto` track per full-width band above the content, then the content
-      // row. The banner is a THIRD full-width child when shown, so a fixed
+      // row. Each banner is another full-width child when shown, so a fixed
       // two-track template left it on an implicit row that `overflow-hidden`
       // then clipped — it rendered behind the cards instead of pushing them down.
-      showStatusBanner
-        ? 'grid-rows-[auto_auto_minmax(0,1fr)]'
-        : 'grid-rows-[auto_minmax(0,1fr)]',
+      BAND_ROWS[Number(showStatusBanner) + Number(showStatsBanner)],
     )}>
       {/* Shown for any non-working state that carries a reason, not just 'error':
           a database left disconnected by a data-free import has something to say
@@ -527,10 +548,29 @@ function OverviewTab({
         </div>
       )}
 
+      {/* The counts below are COUNT(*) over what may be billions of rows, so
+          server mode never runs them unasked — the cards then read "—" with
+          nothing saying why, or that one click fixes it. */}
+      {showStatsBanner && (
+        <div className="col-span-full shrink-0 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+            {t('databases.stats_not_computed')}
+          </p>
+          <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-400/80">
+            {t('databases.stats_not_computed_hint')}
+          </p>
+          <div className="mt-2">
+            <Button size="sm" variant="outline" onClick={refreshStats} disabled={statsLoading}>
+              <BarChart3 size={14} className="mr-1.5" />
+              {t('databases.load_statistics')}
+            </Button>
+          </div>
+        </div>
+      )}
+
       <DatabaseStatCards
-        dataSourceId={source.id}
-        schemaMapping={statsMapping}
-        sourceStatus={source.status}
+        cache={cache}
+        isLoading={statsLoading}
         hasMappedSchema={hasMappedSchema}
         onSeeStatistics={onSeeStatistics}
       />
@@ -554,26 +594,22 @@ function OverviewTab({
 
 /** Headline figures, as the project summary shows its own: cards, not a table. */
 function DatabaseStatCards({
-  dataSourceId,
-  schemaMapping,
-  sourceStatus,
+  cache,
+  isLoading,
   hasMappedSchema,
   onSeeStatistics,
 }: {
-  dataSourceId: string
-  schemaMapping: SchemaMapping
-  sourceStatus?: string
+  cache: DatabaseStatsCache | null
+  isLoading: boolean
   hasMappedSchema: boolean
   onSeeStatistics: () => void
 }) {
   const { t } = useTranslation()
-  const { cache, isLoading } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
   // Nothing computed yet. The cards still render — with a dash, never a zero,
   // which would read as "this database is empty" — and clicking one opens the
-  // Statistics tab, where the prompt that actually runs the COUNTs lives. That
-  // prompt belongs there and only there: shown here it explained a tab the
-  // reader was not on.
+  // Statistics tab, where the full breakdown lives. What the dash MEANS is said
+  // by the banner the overview puts above these cards.
   const pending = !cache && !isLoading
 
   const cards = [
