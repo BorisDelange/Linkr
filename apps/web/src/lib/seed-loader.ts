@@ -984,9 +984,12 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
   // never fetched and never mounted. So the guard asks whether the row already
   // has files, not whether it exists.
   const existing = await storage.dataSources.getById(db.id)
+  const existingConfig = existing?.connectionConfig as
+    | DatabaseConnectionConfig
+    | undefined
   const hasData = !!existing && (
-    existing.connectionConfig?.inMemory === true
-    || (existing.connectionConfig?.fileIds?.length ?? 0) > 0
+    existingConfig?.inMemory === true
+    || (existingConfig?.fileIds?.length ?? 0) > 0
   )
   if (hasData) {
     localStorage.setItem(lsKey, '1')
