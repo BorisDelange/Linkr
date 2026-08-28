@@ -13,7 +13,7 @@
  * user is only notified and decides whether to delete the local copy manually.
  */
 import { getStorage } from '@/lib/storage'
-import { deleteProjectData } from '@/lib/entity-io'
+import { deleteProjectData, projectSlug } from '@/lib/entity-io'
 import {
   seedWorkspaces, seedDatabases, clearSeedFlag, clearGlobalSeedFlag,
   fetchProjectChildEntities,
@@ -43,7 +43,7 @@ async function deleteEntity(change: SeedChange): Promise<void> {
       // so nothing needs deleting; the re-seed below refreshes the metadata.
       break
     case 'project': {
-      const proj = (await storage.projects.getAll()).find((p) => p.projectId === entityId)
+      const proj = (await storage.projects.getAll()).find((p) => projectSlug(p) === entityId)
       if (proj) {
         // deleteProjectData also drops the project's datasets and dashboards, which are
         // separate manifest entities guarded by their own flags. Derive those children from
@@ -161,7 +161,7 @@ export async function removedDisposition(change: SeedChange): Promise<RemovedDis
       // its children (see deleteRemovedSelection / the dialog), not from here.
       return 'gone'
     case 'project': {
-      const proj = (await storage.projects.getAll()).find((p) => p.projectId === entityId)
+      const proj = (await storage.projects.getAll()).find((p) => projectSlug(p) === entityId)
       return disp(proj)
     }
     case 'database': return disp(await storage.dataSources.getById(entityId))
@@ -184,7 +184,7 @@ async function resolveWorkspaceIdOf(change: SeedChange): Promise<string | undefi
 
   switch (entityType) {
     case 'project': {
-      const proj = (await storage.projects.getAll()).find((p) => p.projectId === entityId)
+      const proj = (await storage.projects.getAll()).find((p) => projectSlug(p) === entityId)
       return wsOf(proj)
     }
     case 'database': return wsOf(await storage.dataSources.getById(entityId))
