@@ -14,11 +14,13 @@
     "dev:client": "cd apps/web && npm run dev:client",
     "dev:api": "cd apps/api && uvicorn app.main:app --reload --reload-dir app --port 8000",
     "dev:all": "concurrently \"npm run dev:web\" \"npm run dev:api\"",
+    "data:fetch": "tsx scripts/fetch-default-data.ts",
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "prepare": "node scripts/install-git-hooks.mjs"
   },
   "packageManager": "npm@11.5.2",
   "devDependencies": {
-    "turbo": "^2"
+    "turbo": "^2",
+    "tsx": "^4.19.2"
   }
 }

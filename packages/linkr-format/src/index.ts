@@ -22,6 +22,11 @@ export type { LayoutKind } from './layout.js'
 export { buildTabKeyMap, buildWidgetKeyMap, dashboardKey, tabKey, widgetKey } from './keys.js'
 export type { TabKeyInput, WidgetKeyInput } from './keys.js'
 
+export { buildSeedManifest, buildSeedRoot } from './seed-manifest.js'
+export type {
+  BuildSeedManifestOptions, SeedEntityKind, SeedInternals, SeedManifest, SeedManifestEntity,
+} from './seed-manifest.js'
+
 export type { LocalizedString } from './check.js'
 export { readLocalized } from './check.js'
 
