@@ -39,9 +39,12 @@ export function GitErrorInline({ message, detail, code }: GitErrorInlineProps) {
   // when the raw error actually says more than the friendly summary.
   const showDetail = detail !== '' && detail !== line
   return (
-    <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+    // min-w-0: as a flex/grid child (the dialog body is one), the default
+    // min-width:auto floors this box at its longest unbreakable word, so a raw
+    // error with no spaces widened it past the border instead of wrapping inside.
+    <div className="min-w-0 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
       <div className="flex items-start gap-1.5">
-        <p className="min-w-0 flex-1 text-xs text-destructive">{line}</p>
+        <p className="min-w-0 flex-1 break-words text-xs text-destructive">{line}</p>
         {showDetail && (
           <TooltipProvider delayDuration={150}>
             <Tooltip>
@@ -51,7 +54,10 @@ export function GitErrorInline({ message, detail, code }: GitErrorInlineProps) {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="left" className="max-w-sm">
-                <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-relaxed">{detail}</pre>
+                {/* break-all, not break-words: the raw error is often one long
+                    unbroken string (a JSON body, a URL), which `break-word` leaves
+                    intact — and it then runs straight out of the box. */}
+                <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-relaxed">{detail}</pre>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -61,7 +67,7 @@ export function GitErrorInline({ message, detail, code }: GitErrorInlineProps) {
           usually identifies the problem behind a hover the user had no reason
           to try. */}
       {showDetail && (
-        <pre className="mt-1.5 max-h-24 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-relaxed text-destructive/80">{detail}</pre>
+        <pre className="mt-1.5 max-h-24 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-relaxed text-destructive/80">{detail}</pre>
       )}
     </div>
   )
