@@ -131,6 +131,17 @@ export function findSourcePreset(
   return presets.find((p) => p.presetId === storedPresetId || presetKey(p) === storedPresetId)
 }
 
+/**
+ * Is this engine backed by files the app stores, rather than a network server?
+ *
+ * The distinction drives what an edit has to carry: a file database keeps its
+ * data in the blob store and has no connection to test, a network one is the
+ * opposite. DuckDB and SQLite are `engine` values, not a separate `sourceType`.
+ */
+function isFileEngine(engine: string | undefined): boolean {
+  return engine === 'duckdb' || engine === 'sqlite'
+}
+
 const SIZE_WARNING_THRESHOLD = 500_000_000 // 500 MB
 const SIZE_DANGER_THRESHOLD = 2_000_000_000 // 2 GB
 
@@ -343,7 +354,7 @@ export function AddDatabaseDialog({
           if (selectedType === 'database') {
             const connectionConfig: DatabaseConnectionConfig = {
               engine: dbEngine,
-              ...(dbEngine !== 'duckdb' && dbEngine !== 'sqlite'
+              ...(!isFileEngine(dbEngine)
                 ? {
                     host: dbHost,
                     port: dbPort ? Number(dbPort) : undefined,
@@ -383,7 +394,32 @@ export function AddDatabaseDialog({
             version: version.trim() || '0.1.0',
           }
           const isExternal =
-            selectedType === 'database' && dbEngine !== 'duckdb' && dbEngine !== 'sqlite'
+            selectedType === 'database' && !isFileEngine(dbEngine)
+          // Switching a file database (DuckDB/SQLite, backed by uploaded Parquet)
+          // to a network one leaves those files registered against a source that
+          // can never read them again: dead weight in the blob store, and rows the
+          // export would still list. Nothing else ever collects them, since the
+          // source itself is not deleted. Dropping the stored connection config is
+          // the same story in reverse — an unused host/port/credential kept for an
+          // engine no longer in use.
+          // Databases only: a FHIR source has no engine to compare and no files
+          // of its own, so it must not be dragged through this.
+          const bothDatabases =
+            selectedType === 'database' && editingSource.sourceType === 'database'
+          const wasExternal = !isFileEngine(
+            (editingSource.connectionConfig as DatabaseConnectionConfig).engine,
+          )
+          if (bothDatabases && isExternal !== wasExternal) {
+            if (isExternal) {
+              // Best-effort: the engine change is what the user asked for, and
+              // failing to tidy up must not cost them the edit.
+              await getStorage().files.deleteByDataSource(editingSource.id).catch(() => {})
+              await getStorage().fileHandles.deleteByDataSource(editingSource.id).catch(() => {})
+            }
+            // Either direction: the new config replaces the old one wholesale, so
+            // the keys that belonged to the previous engine do not linger.
+            changes.connectionConfig = { engine: dbEngine }
+          }
           if (isExternal) {
             const connectionConfig: DatabaseConnectionConfig = {
               engine: dbEngine,
@@ -420,7 +456,7 @@ export function AddDatabaseDialog({
       if (selectedType === 'database') {
         const connectionConfig: DatabaseConnectionConfig = {
           engine: dbEngine,
-          ...(dbEngine !== 'duckdb' && dbEngine !== 'sqlite'
+          ...(!isFileEngine(dbEngine)
             ? {
                 host: dbHost,
                 port: dbPort ? Number(dbPort) : undefined,
