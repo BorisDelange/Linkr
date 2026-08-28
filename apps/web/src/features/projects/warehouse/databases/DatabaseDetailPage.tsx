@@ -36,6 +36,9 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { CopyablePath, ParquetFilesDialog } from '@/components/ui/parquet-files-dialog'
+import { isServerMode } from '@/lib/api-client'
+import { fetchDatabaseConnectionInfo, type DatabaseConnectionInfo } from '@/lib/api/data-sources'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import {
   DatabaseStatsDashboard,
@@ -283,13 +286,36 @@ function ConnectionRow({ label, value }: { label: string; value: string }) {
 function ConnectionCard({ source }: { source: DataSource }) {
   const { t, i18n } = useTranslation()
   const config = source.connectionConfig as DatabaseConnectionConfig
+  const [connInfo, setConnInfo] = useState<DatabaseConnectionInfo | null>(null)
+  const [filesOpen, setFilesOpen] = useState(false)
+
+  // Where the data actually sits on the server, so it can be read from an
+  // R/Python script outside Linkr. Server mode only: the browser build keeps its
+  // data inside the WASM sandbox, where there is no path to give.
+  useEffect(() => {
+    if (!isServerMode()) {
+      setConnInfo(null)
+      return
+    }
+    let cancelled = false
+    fetchDatabaseConnectionInfo(source.id)
+      .then((r) => { if (!cancelled) setConnInfo(r) })
+      .catch(() => { if (!cancelled) setConnInfo(null) })
+    return () => { cancelled = true }
+  }, [source.id])
+
+  const parquetTables = connInfo?.kind === 'parquet-folder' ? connInfo.tables : []
+  const filePath = connInfo?.kind === 'file' ? connInfo.path : null
+
   const rows: { label: string; value: string }[] = [
     { label: 'Type', value: formatSourceType(source, i18n.language) },
     ...(source.sourceType === 'database' && config.engine
       ? [{ label: t('databases.field_engine'), value: capitalize(config.engine) }]
       : []),
-    ...(config.fileNames?.length
-      ? [{ label: t('databases.upload_files'), value: `${config.fileNames.length} Parquet files` }]
+    // The server's own count wins when it answered: it counts the blobs actually
+    // stored, where `config.fileNames` is whatever the import recorded.
+    ...(parquetTables.length || config.fileNames?.length
+      ? []
       : config.host
         ? [{
             label: t('databases.field_host'),
@@ -298,6 +324,8 @@ function ConnectionCard({ source }: { source: DataSource }) {
         : []),
     { label: t('databases.field_identifier'), value: source.alias },
   ]
+
+  const fileCount = parquetTables.length || config.fileNames?.length || 0
 
   return (
     <div className="flex shrink-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm">
@@ -318,7 +346,47 @@ function ConnectionCard({ source }: { source: DataSource }) {
         {rows.map((r) => (
           <ConnectionRow key={r.label} label={r.label} value={r.value} />
         ))}
+        {fileCount > 0 && (
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="shrink-0 text-muted-foreground">{t('databases.parquet_files_label')}</span>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-medium">
+                {t('databases.parquet_files_count', { count: fileCount })}
+              </span>
+              {/* Only the server knows the paths; without them there is nothing
+                  a dialog could show beyond the count already on this row.
+                  Negative margin: even the smallest button is taller than a
+                  text-xs line, and without it this one row sat lower than the
+                  rest of the card. */}
+              {parquetTables.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="xs"
+                  className="-my-1"
+                  onClick={() => setFilesOpen(true)}
+                >
+                  {t('common.show')}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+        {/* A single-file source (DuckDB, SQLite) has one path, so it reads inline
+            rather than behind a dialog. */}
+        {filePath && (
+          <div className="space-y-1 pt-0.5">
+            <span className="block text-xs text-muted-foreground">{t('databases.file_location')}</span>
+            <CopyablePath value={filePath} />
+            {connInfo?.blob && (
+              <p className="text-[10px] text-muted-foreground/70">{t('etl.pipeline_db_blob_hint')}</p>
+            )}
+            {connInfo && !connInfo.exists && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-500">{t('etl.pipeline_db_missing')}</p>
+            )}
+          </div>
+        )}
       </div>
+      <ParquetFilesDialog open={filesOpen} onOpenChange={setFilesOpen} tables={parquetTables} />
     </div>
   )
 }

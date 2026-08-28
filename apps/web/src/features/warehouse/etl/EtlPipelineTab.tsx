@@ -50,8 +50,6 @@ import {
   Building2,
   ArrowDownAZ,
   Trash2,
-  Copy,
-  Check,
   CornerDownRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -63,6 +61,7 @@ import {
 } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SectionLabel } from '@/components/ui/section-label'
+import { CopyablePath, ParquetFilesDialog } from '@/components/ui/parquet-files-dialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -616,50 +615,6 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-/** A value plus a copy button: it is meant to be pasted into another tool, and a
- *  long path is impractical to select by hand in a narrow sidebar. */
-function CopyableValue({ value, mono = true }: { value: string; mono?: boolean }) {
-  const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
-
-  const copy = () => {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
-  }
-
-  return (
-    <div className="flex min-w-0 items-center gap-1">
-      {/* break-all, not break-words: a path has no spaces to wrap on, so it would
-          otherwise widen the whole sidebar. */}
-      <code
-        className={cn(
-          'block min-w-0 flex-1 break-all rounded bg-muted/50 px-1.5 py-1 text-[10px] leading-relaxed',
-          !mono && 'font-sans',
-        )}
-      >
-        {value}
-      </code>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={copy}
-            aria-label={t('files.copy')}
-            // items-center on the row centres the button against the whole code
-            // block; a hand-tuned top margin only lined up on a one-line value.
-            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            {copied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>{copied ? t('common.copied') : t('files.copy')}</TooltipContent>
-      </Tooltip>
-    </div>
-  )
-}
-
 /**
  * How to reach this database from outside Linkr.
  *
@@ -686,7 +641,7 @@ function ConnectionInfoBlock({ info }: { info: DatabaseConnectionInfo }) {
         {info.database && <DetailRow label={t('etl.pipeline_db_database')} value={info.database} />}
         {info.schemaName && <DetailRow label={t('etl.pipeline_db_schema_name')} value={info.schemaName} />}
         {info.username && <DetailRow label={t('etl.pipeline_db_user')} value={info.username} />}
-        {dsn && <CopyableValue value={dsn} />}
+        {dsn && <CopyablePath value={dsn} />}
         <p className="text-[10px] text-muted-foreground/70">{t('etl.pipeline_db_no_password')}</p>
       </div>
     )
@@ -694,21 +649,13 @@ function ConnectionInfoBlock({ info }: { info: DatabaseConnectionInfo }) {
 
   // A Parquet source has no single path: each table is its own blob, and the
   // directory holding them is the shared content-addressed store (other sources'
-  // files live there too, none with a .parquet suffix). So list table → path.
+  // files live there too, none with a .parquet suffix). So the paths are listed
+  // table by table — in a dialog, since 30+ hashes would bury the sidebar.
   if (info.kind === 'parquet-folder') {
     if (info.tables.length === 0) return null
     return (
       <div className="space-y-1.5 border-t pt-3">
-        {/* block + margin, not the parent's space-y: this label heads a list of
-            table/path pairs, so it needs more air under it than the pairs need
-            between themselves, or it reads as part of the first entry. */}
-        <span className="block mb-2 text-muted-foreground">
-          {t('etl.pipeline_db_parquet_tables', { count: info.tables.length })}
-        </span>
-        <ParquetTableList tables={info.tables} />
-        <p className="text-[10px] text-muted-foreground/70">
-          {t('etl.pipeline_db_parquet_blob_hint')}
-        </p>
+        <ParquetFilesRow tables={info.tables} />
         {!info.exists && (
           <p className="text-[10px] text-amber-600 dark:text-amber-500">{t('etl.pipeline_db_missing')}</p>
         )}
@@ -721,7 +668,7 @@ function ConnectionInfoBlock({ info }: { info: DatabaseConnectionInfo }) {
   return (
     <div className="space-y-1.5 border-t pt-3">
       <span className="block mb-2 text-muted-foreground">{t('etl.pipeline_db_file')}</span>
-      <CopyableValue value={info.path} />
+      <CopyablePath value={info.path} />
       {/* An uploaded file is stored content-addressed: no .duckdb suffix, which a
           tool keying off the extension will refuse. Worth saying plainly. */}
       {info.blob && (
@@ -734,45 +681,30 @@ function ConnectionInfoBlock({ info }: { info: DatabaseConnectionInfo }) {
   )
 }
 
-/** Table → blob path for a Parquet source. Only a few rows are shown up front:
- *  a raw MIMIC import has 30+ tables, which would bury the rest of the sidebar. */
-function ParquetTableList({ tables }: { tables: ParquetTablePath[] }) {
+/** "N files" + a Show button opening the table → blob path list. */
+function ParquetFilesRow({ tables }: { tables: ParquetTablePath[] }) {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
-  const visible = expanded ? tables : tables.slice(0, 4)
-  const hidden = tables.length - visible.length
+  const [open, setOpen] = useState(false)
 
   return (
-    // space-y-2.5 between tables against space-y-0.5 inside one: the name has to
-    // group with its own path, not float between two.
-    <div className="space-y-2.5">
-      {visible.map((tb) => (
-        <div key={tb.table} className="space-y-0.5">
-          <div className="flex items-center gap-1.5">
-            <code className="text-[10px] font-medium">{tb.table}</code>
-            {!tb.exists && (
-              <span className="text-[10px] text-amber-600 dark:text-amber-500">
-                {t('etl.pipeline_db_table_missing')}
-              </span>
-            )}
-          </div>
-          {tb.paths.map((p) => (
-            <CopyableValue key={p} value={p} />
-          ))}
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <span className="shrink-0 text-muted-foreground">
+          {t('databases.parquet_files_label')}
+        </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-medium">
+            {t('databases.parquet_files_count', { count: tables.length })}
+          </span>
+          {/* Negative margin: even the smallest button is taller than a text-xs
+              line, and without it this row sat lower than the ones above it. */}
+          <Button variant="outline" size="xs" className="-my-1" onClick={() => setOpen(true)}>
+            {t('common.show')}
+          </Button>
         </div>
-      ))}
-      {(hidden > 0 || expanded) && (
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          className="mt-0.5 text-[10px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-        >
-          {expanded
-            ? t('common.show_less')
-            : t('etl.pipeline_db_show_all_tables', { count: hidden })}
-        </button>
-      )}
-    </div>
+      </div>
+      <ParquetFilesDialog open={open} onOpenChange={setOpen} tables={tables} />
+    </>
   )
 }
 

@@ -517,6 +517,7 @@ Check this table before writing any form field.
 | `ColorPickerPopover` / `IconPicker` | Colour and icon selection. |
 | `FileTypeIcon` / `LanguageIcon` / `FileTreeHeader` | File-tree chrome: per-extension icon, language brand logo, sortable column header. |
 | `CopySelectButton` | The "Copy SELECT" button in every database schema view. |
+| `CopyablePath` / `ParquetFilesDialog` | A server path shown as copyable code, and the "N files" + Show dialog listing a Parquet source's table → blob paths (ETL sidebar, database Connection card). |
 | `CustomSqlDot` | Marks a widget whose SQL was hand-edited; its tooltip carries the consequence (regenerating discards the edit). |
 | `LinkrLogo` | The logo. |
 
