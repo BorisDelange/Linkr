@@ -47,7 +47,8 @@ export function PullDiffDialog({ plan, initialPath, buildDiff, onClose }: PullDi
       {/* Same flush-header offset as GitDiffDialog — see the note there. */}
       <DialogContent className="flex h-[85vh] w-[92vw] max-w-[1400px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1400px] [&>[data-slot=dialog-close]]:top-1.5">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
-          <DialogTitle className="flex items-center gap-2 truncate font-mono">
+          {/* Sized like GitDiffDialog's title — see the note there on leading-4. */}
+          <DialogTitle className="flex items-center gap-2 truncate font-mono text-sm leading-4">
             {path}
             <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-sans text-[10px] font-normal text-muted-foreground">
               {t('versioning.pull_diff_direction')}

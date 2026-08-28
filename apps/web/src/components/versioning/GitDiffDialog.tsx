@@ -71,11 +71,14 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       {/* The close button is positioned for a p-6 dialog; this one is flush, and
-          its header bar is 40px tall (py-3 + a leading-none title), so the
+          its header bar is 40px tall (py-3 + a 16px-line title), so the
           default offset left the X sitting low. Centre it on the bar: (40-28)/2. */}
       <DialogContent className="flex h-[85vh] w-[92vw] max-w-[1400px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1400px] [&>[data-slot=dialog-close]]:top-1.5">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
-          <DialogTitle className="truncate font-mono">{path}</DialogTitle>
+          {/* leading-4 over the primitive's leading-none: a path is monospace and
+              truncated, and a line box the exact height of the text clipped the
+              descenders (the j of .json). Keeps the bar at 40px either way. */}
+          <DialogTitle className="truncate font-mono text-sm leading-4">{path}</DialogTitle>
         </DialogHeader>
 
         <div className="min-h-0 flex-1">
