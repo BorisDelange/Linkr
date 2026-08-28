@@ -1,0 +1,7 @@
+export(linkr_connect)
+export(linkr_databases)
+export(linkr_datasets_dir)
+export(linkr_ide_dir)
+export(linkr_project_dir)
+export(linkr_scripts_dir)
+importFrom(utils,tail)

@@ -215,7 +215,21 @@ def runtime_env(project_uid: str, token: str | None = None) -> dict[str, str]:
     if token:
         env["LINKR_API_URL"] = settings.kernel_api_url
         env["LINKR_TOKEN"] = token
+        # The client libraries ATTACH Postgres/MySQL from the script's own process,
+        # which needs the matching DuckDB extension. Pointing them at the server's
+        # extension directory reuses the copy the app already downloaded — so a
+        # connection works on an air-gapped instance, and does not re-download per
+        # session (DuckDB's default is a temp dir that dies with the process).
+        env["LINKR_DUCKDB_EXTENSIONS"] = str(_duckdb_ext_dir())
     return env
+
+
+def _duckdb_ext_dir() -> Path:
+    """The DuckDB extension directory the server itself installs into (mirrors
+    db_connect/managed_db, which own the same path)."""
+    d = settings.data_path / "_duckdb_ext"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _safe_join(root: Path, rel: str) -> Path:

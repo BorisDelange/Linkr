@@ -1,0 +1,96 @@
+.linkr_api_call <- function(path) {
+  base <- Sys.getenv("LINKR_API_URL", unset = "")
+  token <- Sys.getenv("LINKR_TOKEN", unset = "")
+  project <- Sys.getenv("LINKR_PROJECT_UID", unset = "")
+  if (!nzchar(base) || !nzchar(token) || !nzchar(project)) {
+    stop(
+      "Cannot reach the Linkr server: LINKR_API_URL, LINKR_TOKEN and ",
+      "LINKR_PROJECT_UID are only set inside a Linkr IDE session (console, ",
+      "terminal or job). The path helpers work anywhere, but databases do not.",
+      call. = FALSE
+    )
+  }
+  url <- sprintf("%s/api/v1/projects/%s/client%s", sub("/$", "", base), project, path)
+  # curl over any R HTTP package: this must work in an empty project environment,
+  # where the only libraries on the path are this one's own dependencies.
+  out <- tempfile(fileext = ".json")
+  on.exit(unlink(out), add = TRUE)
+  status <- suppressWarnings(system2(
+    "curl",
+    c("-sS", "-o", shQuote(out), "-w", "%{http_code}",
+      "-H", shQuote(paste("Authorization: Bearer", token)),
+      shQuote(url)),
+    stdout = TRUE, stderr = TRUE
+  ))
+  code <- suppressWarnings(as.integer(utils::tail(status, 1)))
+  if (is.na(code)) {
+    stop("Could not reach the Linkr server: ", paste(status, collapse = " "), call. = FALSE)
+  }
+  if (code == 401 || code == 403) {
+    stop(
+      "The Linkr server refused this request (HTTP ", code, "). Your session ",
+      "token may have expired — restart the console or terminal.",
+      call. = FALSE
+    )
+  }
+  if (code >= 400) {
+    stop("The Linkr server returned HTTP ", code, ".", call. = FALSE)
+  }
+  jsonlite::fromJSON(out, simplifyVector = FALSE)
+}
+
+#' The databases this project can query
+#'
+#' Lists what the acting user may read — the same set the Databases page shows,
+#' resolved server-side, so a script never hardcodes a path.
+#'
+#' The `dialect` column, not `engine`, says which SQL to write: PostgreSQL and
+#' MySQL are reached by attaching them into DuckDB exactly as the app's own SQL
+#' editor does, so a query moves between the IDE and the app unchanged.
+#'
+#' @return A data frame with columns `id`, `name`, `engine`, `dialect`, `kind`
+#'   and `connectable`. `connectable` is FALSE for a source whose file was never
+#'   uploaded: it is listed, but `linkr_connect()` on it will fail.
+#' @export
+linkr_databases <- function() {
+  rows <- .linkr_api_call("/databases")
+  if (length(rows) == 0) {
+    return(data.frame(
+      id = character(0), name = character(0), engine = character(0),
+      dialect = character(0), kind = character(0), connectable = logical(0),
+      stringsAsFactors = FALSE
+    ))
+  }
+  field <- function(name, default = NA_character_) {
+    vapply(rows, function(r) if (is.null(r[[name]])) default else as.character(r[[name]]), character(1))
+  }
+  data.frame(
+    id = field("id"),
+    name = field("name"),
+    engine = field("engine"),
+    dialect = field("dialect"),
+    kind = field("kind"),
+    connectable = vapply(rows, function(r) isTRUE(r$connectable), logical(1)),
+    stringsAsFactors = FALSE
+  )
+}
+
+.linkr_find_database <- function(rows, name) {
+  ids <- vapply(rows, function(r) as.character(r$id), character(1))
+  names_ <- vapply(rows, function(r) as.character(r$name), character(1))
+  hit <- which(ids == name)
+  if (length(hit) == 1) return(rows[[hit]])
+  hit <- which(names_ == name)
+  if (length(hit) == 1) return(rows[[hit]])
+  if (length(hit) > 1) {
+    stop(
+      "Several databases are named '", name, "'. Use the id instead, one of: ",
+      paste(ids[hit], collapse = ", "), call. = FALSE
+    )
+  }
+  stop(
+    "No database named '", name, "' in this project. Available: ",
+    if (length(names_)) paste(names_, collapse = ", ") else "(none)",
+    call. = FALSE
+  )
+}
