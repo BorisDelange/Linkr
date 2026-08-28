@@ -158,6 +158,19 @@ def _scope(config: dict) -> str:
     return scope
 
 
+def attach_recipe(config: dict, password: str | None) -> dict:
+    """The ATTACH ingredients for an external database, for a client that opens the
+    connection itself (the R/Python libraries) rather than asking the server to run
+    the query. Same DSN and scope `_attach` uses here, so a client-side connection
+    behaves exactly like the app's own."""
+    spec = _engine_spec(config)
+    return {
+        "type": spec["type"],
+        "dsn": _dsn(config, password),
+        "scope": _scope(config),
+    }
+
+
 def _attach(con: duckdb.DuckDBPyConnection, config: dict, password: str | None) -> None:
     spec = _engine_spec(config)
     dsn = _dsn(config, password)

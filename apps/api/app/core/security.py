@@ -42,6 +42,39 @@ def create_refresh_token(user_id: int, username: str, role: str) -> str:
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
+def create_kernel_token(user_id: int, username: str, role: str, project_uid: str) -> str:
+    """Mint the token injected into a kernel/terminal as ``LINKR_TOKEN``, for the
+    client libraries (``linkr::databases()``).
+
+    Deliberately NOT an access token. Anything the user runs in that project can
+    read this value out of the environment, so it is narrowed on three axes an
+    access token is not:
+
+      * ``type="kernel"`` — ``get_current_user`` accepts only ``type="access"``,
+        so this cannot call the general API (no password change, no user admin,
+        no minting a longer-lived token from it).
+      * ``project`` — bound to the one project whose kernel it was injected into,
+        checked on every request, so it cannot read a project the script does not
+        run in.
+      * ``exp`` — kernel_token_expire_minutes, not 24 hours.
+
+    It carries the acting user's identity, so the permission checks behind the
+    endpoints it may reach resolve to exactly what that user could already do in
+    the UI: it never widens reach, it only spares the script a hardcoded path.
+    """
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "username": username,
+        "role": role,
+        "project": project_uid,
+        "type": "kernel",
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.kernel_token_expire_minutes),
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
 def decode_token(token: str) -> dict:
     """Decode and validate a JWT token. Raises JWTError on failure."""
     return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])

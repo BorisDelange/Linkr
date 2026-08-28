@@ -198,6 +198,45 @@ class ParquetTablePath(CamelModel):
     exists: bool = False
 
 
+class ClientDatabase(CamelModel):
+    """One database as the R/Python client libraries see it, with the recipe for
+    opening it (``linkr_connect``).
+
+    `dialect` — NOT `engine` — is what a script needs to know: it says which SQL
+    it must write. Postgres and MySQL are reached by ATTACHing them into DuckDB,
+    exactly as the app's own SQL editor does, so a query written in the IDE pastes
+    into the app unchanged and can join a live table against a local Parquet. An
+    engine DuckDB cannot attach (Oracle and friends) would carry its own dialect
+    and its own recipe; the field exists so adding one is a new case, not a new
+    contract.
+
+    `attach` carries the credentials for that ATTACH, password included — the one
+    place Linkr hands a secret to user code. It is only ever sent to a caller who
+    already holds `databases:read` on the source, i.e. someone who can read the
+    same data through the UI; see the endpoint for why that trade is made.
+    """
+
+    id: str
+    name: str
+    engine: str | None = None
+    # "duckdb" today for every supported engine (see the class docstring).
+    dialect: str = "duckdb"
+    # One of "managed" | "file" | "parquet-folder" | "external".
+    kind: str | None = None
+    # Whether the client can actually open it: a source whose file was never
+    # uploaded is listed (so `linkr_databases()` shows it) but cannot be connected.
+    connectable: bool = False
+    # kind="managed"/"file": the DuckDB/SQLite file to open or ATTACH.
+    path: str | None = None
+    # kind="parquet-folder": table name → blob path(s), registered as views.
+    tables: list[ParquetTablePath] = []
+    # kind="external": the DuckDB ATTACH type ("postgres"/"mysql"), the DSN, and
+    # the schema whose tables land on the search path.
+    attach_type: str | None = None
+    attach_dsn: str | None = None
+    attach_scope: str | None = None
+
+
 class DatabaseConnectionInfo(CamelModel):
     """How to reach this database from OUTSIDE Linkr — an R/Python script, a SQL
     client. What that means depends on the source:
@@ -228,3 +267,23 @@ class DatabaseConnectionInfo(CamelModel):
     database: str | None = None
     schema_name: str | None = None
     username: str | None = None
+
+
+class ProjectDatabase(CamelModel):
+    """One database a script running in a project may query.
+
+    The identity half (`id`, `alias`, `name`) is what a user types into
+    ``linkr::connect()``; the `connection` half is how the library actually opens
+    it. `name` is flattened from the stored LocalizedString to a plain string:
+    a script matches on it, and picking a language server-side keeps that from
+    being every caller's problem.
+    """
+
+    id: str
+    entity_id: str | None = None
+    alias: str
+    name: str
+    source_type: str
+    status: str
+    is_vocabulary_reference: bool = False
+    connection: DatabaseConnectionInfo

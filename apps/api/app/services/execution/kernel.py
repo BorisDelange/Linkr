@@ -838,12 +838,19 @@ class KernelManager:
         language: str,
         session_id: str,
         environment: "Environment | None" = None,
+        token: str | None = None,
     ) -> Kernel:
         """Return the caller's live kernel, launching one on a cache miss.
 
         `environment` is the resolved project environment (interpreter + packages)
         used only when a new kernel is spawned; on the hot path (kernel already
-        alive) it is ignored, so callers may pass None to keep today's behaviour."""
+        alive) it is ignored, so callers may pass None to keep today's behaviour.
+
+        `token` (a kernel token for the client libraries) is likewise baked into the
+        process env at spawn. A live kernel therefore keeps the token it started
+        with: it outlives a single request, so it cannot be refreshed per call. The
+        token's lifetime is what bounds this — an expired one is re-minted by the
+        next kernel this session starts."""
         # BEFORE the lock: provisioning the shared R sandbox / kernel-infra library
         # shells out to Rscript (~9s on a cold cache, ~0.3s warm). Doing it inside
         # _make — which runs under self._lock — froze the whole event loop and queued
@@ -860,7 +867,7 @@ class KernelManager:
                     raise KernelLimitReached(
                         f"Kernel session limit reached ({settings.max_kernels_per_user})."
                     )
-                kernel = self._make(language, project_uid, environment)
+                kernel = self._make(language, project_uid, environment, token)
                 self._kernels[key] = kernel
         for k in to_shutdown:
             await k.shutdown()
@@ -960,7 +967,11 @@ class KernelManager:
         ]
 
     def _make(
-        self, language: str, project_uid: str, environment: "Environment | None" = None
+        self,
+        language: str,
+        project_uid: str,
+        environment: "Environment | None" = None,
+        token: str | None = None,
     ) -> Kernel:
         # The kernel runs in the IDE working dir (RStudio/Jupyter model), so what the
         # terminal sees matches the IDE sidebar. The datasets dir is reachable via
@@ -968,7 +979,7 @@ class KernelManager:
         from app.services import project_fs
 
         cwd = str(project_fs.ide_dir(project_uid))
-        env = project_fs.runtime_env(project_uid)
+        env = project_fs.runtime_env(project_uid, token)
         # A project environment isolates the interpreter (Python venv) or library path
         # (R). `environment is None` is the APP INTERPRETER — the shared server Python /
         # Rscript that runs built-in dashboard component renders; it is deliberately

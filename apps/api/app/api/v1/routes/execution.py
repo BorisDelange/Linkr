@@ -9,6 +9,7 @@ from starlette.websockets import WebSocketDisconnect
 from app.config import settings
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
+from app.core.security import create_kernel_token
 from app.core.permissions import (
     check_project_permission,
     check_workspace_permission,
@@ -254,6 +255,12 @@ async def run_as_job(
     return JobResponse.model_validate(job, from_attributes=True)
 
 
+def _kernel_token(user: User, project_uid: str) -> str:
+    """The LINKR_TOKEN handed to a kernel/terminal for the R/Python client
+    libraries. Minted per spawn, scoped to this user and this project."""
+    return create_kernel_token(user.id, user.username, user.role, project_uid)
+
+
 async def _run_in_kernel(
     db: AsyncSession, project_uid: str, user: User, language: str, session_id: str, code: str, resolver,
 ) -> ExecuteResponse:
@@ -266,7 +273,10 @@ async def _run_in_kernel(
     environment = await environments.ensure_ready(db, project_uid, language, user.id)
     try:
         try:
-            k = await kernel.manager.get(project_uid, user.id, language, session_id, environment)
+            k = await kernel.manager.get(
+                project_uid, user.id, language, session_id, environment,
+                _kernel_token(user, project_uid),
+            )
         except kernel.KernelLimitReached as e:
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
         out = await k.execute(code, query_resolver=resolver)
@@ -506,7 +516,10 @@ async def _terminal_kernel_loop(
             except Exception as e:  # noqa: BLE001 — surface the build failure, keep the socket
                 await websocket.send_json({"type": "stderr", "data": f"Environment build failed: {e}\n"})
     try:
-        k = await kernel.manager.get(project_uid, user.id, language, session_id, environment)
+        k = await kernel.manager.get(
+            project_uid, user.id, language, session_id, environment,
+            _kernel_token(user, project_uid),
+        )
     except kernel.KernelLimitReached as e:
         await websocket.send_json({"type": "error", "data": str(e)})
         await websocket.close()
@@ -585,13 +598,15 @@ async def _terminal_kernel_loop(
 
 
 async def _terminal_pty_loop(
-    websocket: WebSocket, project_uid: str, session_id: str, user_id: int
+    websocket: WebSocket, project_uid: str, session_id: str, user: User
 ) -> None:
     """Interactive Bash over a PTY: pump raw bytes both ways. Client sends
     {input} keystrokes (Ctrl+C is byte 0x03, handled natively by the PTY) and
     {resize}; the shell's output is forwarded as {output} messages."""
     try:
-        shell = await pty_kernel.manager.create(project_uid, session_id, user_id)
+        shell = await pty_kernel.manager.create(
+            project_uid, session_id, user.id, _kernel_token(user, project_uid)
+        )
     except pty_kernel.SessionLimitReached as e:
         await websocket.send_json({"type": "error", "message": str(e)})
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -650,7 +665,7 @@ async def terminal_ws(websocket: WebSocket):
     try:
         if language == "bash":
             await _terminal_pty_loop(
-                websocket, project_uid, session_id=uuid.uuid4().hex, user_id=user.id
+                websocket, project_uid, session_id=uuid.uuid4().hex, user=user
             )
         else:
             session_id = websocket.query_params.get("sessionId", "default")

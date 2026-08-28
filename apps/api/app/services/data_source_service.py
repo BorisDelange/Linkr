@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 from collections.abc import Callable
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,9 +10,11 @@ from app.core import crypto
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.user import User
 from app.schemas.data_source import (
+    DatabaseConnectionInfo,
     DataSourceCreate,
     DataSourceFileImportRequest,
     DataSourceUpdate,
+    ParquetTablePath,
 )
 from app.services import author_provenance, blob_store, concept_stats_cache_service, git_secret
 from app.services.data import (
@@ -234,6 +237,76 @@ def is_external_engine(engine: str | None) -> bool:
     return engine in _EXTERNAL_ENGINES
 
 
+async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConnectionInfo:
+    """How to reach `source` from outside Linkr — never its password.
+
+    Shared by GET /data-sources/{id}/connection-info and the per-project database
+    listing the client libraries read, so a script and the UI are told the same
+    thing about the same database. Callers must have checked `databases:read`.
+    """
+    from pathlib import Path
+
+    config = dict(source.connection_config or {})
+    engine = config.get("engine")
+
+    if is_external_engine(engine):
+        return DatabaseConnectionInfo(
+            engine=engine,
+            kind="external",
+            host=config.get("host"),
+            port=config.get("port"),
+            database=config.get("database"),
+            schema_name=config.get("schema"),
+            username=config.get("username"),
+        )
+
+    if is_managed(source):
+        path = managed_db.path_for(source.id)
+        return DatabaseConnectionInfo(
+            engine="duckdb", kind="file", path=str(path), exists=path.exists()
+        )
+
+    files = await list_files(db, source.id)
+    if not files:
+        return DatabaseConnectionInfo(engine=engine)
+
+    paths = [blob_store.path_for(f.content_hash) for f in files]
+    names = [f.file_name for f in files]
+    # A Parquet source is addressed table by table, NOT by the directory holding
+    # the blobs: that directory is the shared content-addressed store, so it mixes
+    # in every other source's files and its entries have no .parquet suffix for a
+    # glob to match. `path` is deliberately left unset.
+    if len(files) > 1 or names[0].lower().endswith((".parquet", ".pq")):
+        pairs = [(f.file_name, str(blob_store.path_for(f.content_hash))) for f in files]
+        groups = parquet_table_paths(source, pairs)
+        return DatabaseConnectionInfo(
+            engine=engine,
+            kind="parquet-folder",
+            exists=all(p.is_file() for p in paths),
+            blob=True,
+            file_names=names,
+            tables=[
+                ParquetTablePath(
+                    table=table,
+                    paths=table_paths,
+                    exists=all(Path(p).is_file() for p in table_paths),
+                )
+                for table, table_paths in sorted(groups.items())
+            ],
+        )
+
+    return DatabaseConnectionInfo(
+        engine=engine,
+        kind="file",
+        path=str(paths[0]),
+        exists=paths[0].is_file(),
+        # Content-addressed: the file is named by its sha, with no extension, so
+        # a tool that keys off ".duckdb" needs telling.
+        blob=True,
+        file_names=names,
+    )
+
+
 async def role_attachments(
     db: AsyncSession, sources: dict[str, DataSource]
 ) -> dict[str, dict]:
@@ -343,6 +416,67 @@ async def run_etl(
         with contextlib.suppress(BaseException):
             await task
         raise
+
+
+async def client_recipe(db: AsyncSession, source: DataSource) -> dict:
+    """How the R/Python client libraries open this database themselves.
+
+    Unlike `query`, which runs the SQL here and returns rows, this hands the script
+    what it needs to hold its own DuckDB connection — so it gets a real DBI/DBAPI
+    handle and everything built on one (dbplyr, joins against local Parquet). For an
+    external engine that includes the decrypted password, since the ATTACH happens
+    in the script's process. The caller MUST have checked `databases:read` first.
+    """
+    config = dict(source.connection_config or {})
+    engine = config.get("engine")
+
+    if engine in _EXTERNAL_ENGINES:
+        recipe = db_connect.attach_recipe(config, connection_password(source))
+        return {
+            "engine": engine,
+            "kind": "external",
+            "connectable": True,
+            "attach_type": recipe["type"],
+            "attach_dsn": recipe["dsn"],
+            "attach_scope": recipe["scope"],
+        }
+
+    if is_managed(source):
+        path = managed_db.path_for(source.id)
+        return {
+            "engine": "duckdb",
+            "kind": "managed",
+            "connectable": path.exists(),
+            "path": str(path),
+        }
+
+    if engine in _FILE_ENGINES:
+        files = await _source_files(db, source)
+        if not files:
+            return {"engine": engine, "kind": "file", "connectable": False}
+        if _is_parquet_folder(config, files):
+            groups = parquet_table_paths(source, files)
+            return {
+                "engine": engine,
+                "kind": "parquet-folder",
+                "connectable": bool(groups),
+                "tables": [
+                    {
+                        "table": table,
+                        "paths": paths,
+                        "exists": all(Path(p).is_file() for p in paths),
+                    }
+                    for table, paths in sorted(groups.items())
+                ],
+            }
+        return {
+            "engine": engine,
+            "kind": "file",
+            "connectable": Path(files[0][1]).is_file(),
+            "path": files[0][1],
+        }
+
+    return {"engine": engine, "kind": None, "connectable": False}
 
 
 # --- Live connection test (external databases) -----------------------------

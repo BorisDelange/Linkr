@@ -150,7 +150,9 @@ class PtyManager:
     def _count_for_user(self, user_id: int) -> int:
         return sum(1 for uid in self._owner.values() if uid == user_id)
 
-    async def create(self, project_uid: str, session_id: str, user_id: int) -> PtyShell:
+    async def create(
+        self, project_uid: str, session_id: str, user_id: int, token: str | None = None
+    ) -> PtyShell:
         from app.config import settings
 
         if self._count_for_user(user_id) >= settings.max_kernels_per_user:
@@ -158,7 +160,7 @@ class PtyManager:
                 f"Terminal session limit reached ({settings.max_kernels_per_user})."
             )
         cwd = str(project_fs.ide_dir(project_uid))
-        shell = PtyShell(cwd, extra_env=project_fs.runtime_env(project_uid))
+        shell = PtyShell(cwd, extra_env=project_fs.runtime_env(project_uid, token))
         await shell.start()
         key = (project_uid, session_id)
         self._shells[key] = shell

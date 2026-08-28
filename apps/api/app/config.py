@@ -27,6 +27,16 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 hours
     refresh_token_expire_days: int = 30
+    # Lifetime of the token injected into a kernel/terminal for the R/Python client
+    # libraries. Short by design: it sits in an environment variable that any code
+    # the user runs in that project can read, so it should outlive a working session
+    # and no more. A kernel outliving it re-mints on the next run.
+    kernel_token_expire_minutes: int = 12 * 60
+    # Where the R/Python client libraries reach this API from inside a kernel. The
+    # kernel runs ON the server, so the loopback default holds for every normal
+    # deployment (including Docker, where API and kernels share a container); set
+    # it only when kernels run somewhere the API is not on localhost.
+    kernel_api_url: str = "http://127.0.0.1:8000"
     auth_provider: str = "local"  # local, ldap, oidc, saml (only local implemented)
 
     # CORS — comma-separated string in env; exposed as a list via cors_origin_list.

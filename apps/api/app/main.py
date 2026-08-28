@@ -25,6 +25,7 @@ from app.api.v1.routes.user_plugins import router as user_plugins_router
 from app.api.v1.routes.mapping_projects import router as mapping_projects_router
 from app.api.v1.routes.source_concept_ids import router as source_concept_ids_router
 from app.api.v1.routes.data_catalogs import router as data_catalogs_router
+from app.api.v1.routes.client_lib import router as client_lib_router
 from app.api.v1.routes.data_sources import router as data_sources_router
 from app.api.v1.routes.database import router as database_router
 from app.api.v1.routes.dq_rule_sets import router as dq_rule_sets_router
@@ -205,6 +206,7 @@ app.include_router(mapping_projects_router, prefix="/api/v1")
 app.include_router(ide_connections_router, prefix="/api/v1")
 app.include_router(user_plugins_router, prefix="/api/v1")
 app.include_router(data_sources_router, prefix="/api/v1")
+app.include_router(client_lib_router, prefix="/api/v1")
 app.include_router(pipelines_router, prefix="/api/v1")
 app.include_router(etl_pipelines_router, prefix="/api/v1")
 app.include_router(execution_router, prefix="/api/v1")

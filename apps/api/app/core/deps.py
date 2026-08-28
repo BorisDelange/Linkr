@@ -61,6 +61,52 @@ async def get_current_user(
     return user
 
 
+async def get_kernel_user(
+    project_uid: str,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Authenticate a request from a script running inside a kernel (the R/Python
+    client libraries), for endpoints under ``/projects/{project_uid}/``.
+
+    Accepts EITHER a normal access token (a user calling the same endpoint from the
+    app) or a kernel token (``create_kernel_token``). A kernel token additionally
+    carries the project it was minted for, and is refused against any other one —
+    without that check a token lifted from one project's environment would read
+    every project its owner can reach, which is exactly the widening a scoped token
+    exists to prevent.
+
+    Returning the User means the endpoint's own permission checks still run: the
+    token authenticates, it never authorises.
+    """
+    try:
+        payload = decode_token(credentials.credentials)
+        token_type = payload.get("type")
+        if token_type not in ("access", "kernel"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type"
+            )
+        if token_type == "kernel" and payload.get("project") != project_uid:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This token is scoped to another project",
+            )
+        user_id = int(payload["sub"])
+    except (JWTError, KeyError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    user = await db.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
+    return user
+
+
 async def get_current_admin(user: User = Depends(get_current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(

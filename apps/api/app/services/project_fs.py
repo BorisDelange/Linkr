@@ -196,16 +196,26 @@ def dataset_path(project_uid: str, rel: str) -> Path:
     return _safe_join(datasets_dir(project_uid), rel)
 
 
-def runtime_env(project_uid: str) -> dict[str, str]:
+def runtime_env(project_uid: str, token: str | None = None) -> dict[str, str]:
     """The LINKR_* variables injected into every kernel/terminal so scripts reach
     the project's dirs by name rather than a hard-coded absolute path (a binding can
-    be re-pointed without editing code). Bindings must be primed first."""
-    return {
+    be re-pointed without editing code). Bindings must be primed first.
+
+    `token` is a kernel token (``create_kernel_token``) for the R/Python client
+    libraries, which call the API to list and open the project's databases. It is
+    omitted for runs with no acting user (an internal render), where the libraries'
+    path helpers still work and only ``linkr_databases()`` is unavailable."""
+    env = {
         "LINKR_IDE": str(ide_dir(project_uid)),
         "LINKR_SCRIPTS": str(scripts_dir(project_uid)),
         "LINKR_DATASETS": str(datasets_dir(project_uid)),
         "LINKR_PROJECT": str(project_dir(project_uid)),
+        "LINKR_PROJECT_UID": project_uid,
     }
+    if token:
+        env["LINKR_API_URL"] = settings.kernel_api_url
+        env["LINKR_TOKEN"] = token
+    return env
 
 
 def _safe_join(root: Path, rel: str) -> Path:
