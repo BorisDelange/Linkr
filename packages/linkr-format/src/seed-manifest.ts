@@ -20,7 +20,7 @@
  * See docs/planning/default-data-repos-plan.md §0.
  */
 
-import { ENTITY_MANIFEST, MANIFEST } from './layout.js'
+import { CONTENT_FILE, ENTITY_MANIFEST, MANIFEST } from './layout.js'
 import { filesIn, readJson, type EntityTree } from './tree.js'
 
 /** Entity kinds the loader re-seeds individually, each with its own guard flag. */
@@ -203,6 +203,18 @@ export function buildSeedManifest(
 
     const meta = readJson<Record<string, unknown>>(tree, `${dir}/${manifest}`)
     const declared = meta.ok ? (meta.value as Record<string, unknown>) : {}
+
+    // The mapping is its own file since the schema split, with the DDL beside it;
+    // only a tree written before that has it inline under `schemaMapping`. The
+    // loader mounts against this, so reading only the inline form left a seeded
+    // database with no schema and not one readable table.
+    const fromFile = readJson<unknown>(tree, `${dir}/${CONTENT_FILE.schemaMapping}`)
+    const ddl = tree.read(`${dir}/${CONTENT_FILE.schemaDdl}`)
+    const baseMapping = fromFile.ok ? fromFile.value : declared.schemaMapping
+    const schema = baseMapping && ddl
+      ? { ...(baseMapping as Record<string, unknown>), ddl }
+      : baseMapping
+
     entities.push({
       type: 'database',
       // Must match the row the workspace import wrote, which keys on the
@@ -211,7 +223,8 @@ export function buildSeedManifest(
       alias: declared.alias ?? folder,
       name: declared.name ?? folder,
       ...(declared.description ? { description: declared.description } : {}),
-      ...(declared.schemaMapping ? { schema: declared.schemaMapping } : {}),
+      ...(schema ? { schema } : {}),
+      ...(declared.schemaSource ? { schemaSource: declared.schemaSource } : {}),
       ...(declared.isVocabularyReference ? { isVocabularyReference: true } : {}),
       parquetBase: `${options.seedBaseUrl.replace(/\/$/, '')}/${dir}/data`,
       tables,
@@ -293,4 +306,116 @@ export function buildSeedManifest(
 /** Root `seed.json`: the list of workspace folders the loader walks. */
 export function buildSeedRoot(workspaces: string[]): { schemaVersion: 2; workspaces: string[] } {
   return { schemaVersion: 2, workspaces: [...workspaces].sort() }
+}
+
+/**
+ * `projects/<folder>/_index.json` — what a full project seed ships.
+ *
+ * The loader fetches over HTTP and so cannot list a directory: everything it
+ * reads under a project has to be named here first. No index, no content — the
+ * project seeds as a bare row with no scripts, dashboards or datasets.
+ */
+export interface SeedProjectIndex {
+  scripts?: string[]
+  pipelines?: string[]
+  cohorts?: string[]
+  connections?: string[]
+  dashboards?: string[]
+  datasetFolders?: string[]
+  datasetAnalyses?: Record<string, string[]>
+  datasetCsvFiles?: Record<string, string>
+  datasetRawFiles?: Record<string, string>
+  datasetDataSidecars?: string[]
+  attachments?: string[]
+}
+
+/** Metadata sidecars that are never themselves content. */
+const DATASET_SIDECARS = new Set(['_columns.json', '_data.json', '_tree.json'])
+
+/** Names directly under `dir/`, files only, in stable order. */
+function namesIn(tree: EntityTree, dir: string, extension?: string): string[] {
+  const prefix = `${dir}/`
+  const out: string[] = []
+  for (const p of tree.paths()) {
+    if (!p.startsWith(prefix)) continue
+    const rest = p.slice(prefix.length)
+    if (rest.includes('/')) continue
+    if (extension && !rest.endsWith(extension)) continue
+    out.push(rest)
+  }
+  return out.sort()
+}
+
+/**
+ * Index one project folder for the seed loader.
+ *
+ * Ported from `linkr-portal`'s `build.sh` (~150 lines of bash) for the same
+ * reason `buildSeedManifest` was: two producers of one format is one too many,
+ * and the bash version could only ever run in the portal's pipeline. This repo's
+ * own fetcher never had an equivalent, which is why a project seeded from the
+ * published workspace arrived with no dashboard, no scripts and an empty dataset.
+ *
+ * `dir` is the project folder within `tree` (e.g. `projects/icu-activity-dashboard`).
+ */
+export function buildSeedProjectIndex(tree: EntityTree, dir: string): SeedProjectIndex {
+  const index: SeedProjectIndex = {}
+
+  // Scripts are listed only alongside their tree: the loader reads `_tree.json`
+  // for the rows and consults this list to decide whether to fetch contents.
+  if (tree.read(`${dir}/scripts/_tree.json`) != null) {
+    const scripts = namesIn(tree, `${dir}/scripts`).filter((n) => n !== '_tree.json')
+    if (scripts.length) index.scripts = scripts
+  }
+
+  for (const [sub, key] of [
+    ['pipeline', 'pipelines'],
+    ['cohorts', 'cohorts'],
+    ['databases', 'connections'],
+    ['dashboards', 'dashboards'],
+  ] as const) {
+    const found = namesIn(tree, `${dir}/${sub}`, '.json')
+    if (found.length) index[key] = found
+  }
+
+  if (tree.read(`${dir}/datasets/_tree.json`) != null) {
+    const folders: string[] = []
+    const analyses: Record<string, string[]> = {}
+    const csvFiles: Record<string, string> = {}
+    const rawFiles: Record<string, string> = {}
+    const sidecars: string[] = []
+
+    for (const folder of foldersIn(tree, `${dir}/datasets`)) {
+      folders.push(folder)
+      const sub = `${dir}/datasets/${folder}`
+
+      const found = namesIn(tree, sub, '.json').filter((n) => !DATASET_SIDECARS.has(n))
+      if (found.length) analyses[folder] = found
+
+      if (tree.read(`${sub}/_data.json`) != null) sidecars.push(folder)
+
+      // The one data file per folder: whatever is neither a sidecar nor an
+      // analysis. A CSV the loader can parse itself; anything else (XLSX,
+      // Parquet) is restored verbatim as the original upload.
+      const data = namesIn(tree, sub).find(
+        (n) => !DATASET_SIDECARS.has(n) && !n.endsWith('.json'),
+      )
+      if (data) {
+        if (data.toLowerCase().endsWith('.csv')) csvFiles[folder] = data
+        else rawFiles[folder] = data
+      }
+    }
+
+    if (folders.length) index.datasetFolders = folders
+    if (Object.keys(analyses).length) index.datasetAnalyses = analyses
+    if (Object.keys(csvFiles).length) index.datasetCsvFiles = csvFiles
+    if (Object.keys(rawFiles).length) index.datasetRawFiles = rawFiles
+    if (sidecars.length) index.datasetDataSidecars = sidecars
+  }
+
+  if (tree.read(`${dir}/attachments/_meta.json`) != null) {
+    const files = namesIn(tree, `${dir}/attachments`).filter((n) => n !== '_meta.json')
+    if (files.length) index.attachments = files
+  }
+
+  return index
 }

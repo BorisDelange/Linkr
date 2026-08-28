@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildSeedManifest, buildSeedRoot } from './seed-manifest.js'
+import { buildSeedManifest, buildSeedProjectIndex, buildSeedRoot } from './seed-manifest.js'
 import { MemoryTree } from './tree.js'
 
 /** A workspace tree as the fetch script assembles it: pointers already spliced. */
@@ -109,6 +109,133 @@ describe('buildSeedManifest — databases', () => {
       { seedBaseUrl: '/data/seed/default' },
     )
     expect(m.entities[0]).toMatchObject({ isVocabularyReference: true })
+  })
+
+  // The loader mounts against this. Reading only the inline form (which a repo
+  // published since the schema split no longer has) seeded a database whose
+  // every table was unreadable.
+  it('takes the schema from mapping.json, where the split put it', () => {
+    const m = buildSeedManifest(
+      workspace({
+        'databases/db/entity.json': '{"entityId":"db"}',
+        'databases/db/mapping.json': '{"patientTable":"patients"}',
+        'databases/db/data/patients.parquet': 'PAR1',
+      }),
+      { seedBaseUrl: '/data/seed/default' },
+    )
+    expect(m.entities[0].schema).toEqual({ patientTable: 'patients' })
+  })
+
+  it('folds the DDL in beside the mapping when the repo ships one', () => {
+    const m = buildSeedManifest(
+      workspace({
+        'databases/db/entity.json': '{"entityId":"db"}',
+        'databases/db/mapping.json': '{"patientTable":"patients"}',
+        'databases/db/schema.ddl': 'CREATE TABLE patients (id INT);',
+        'databases/db/data/patients.parquet': 'PAR1',
+      }),
+      { seedBaseUrl: '/data/seed/default' },
+    )
+    expect(m.entities[0].schema).toEqual({
+      patientTable: 'patients',
+      ddl: 'CREATE TABLE patients (id INT);',
+    })
+  })
+
+  it('still reads the inline mapping a pre-split tree carries', () => {
+    const m = buildSeedManifest(workspace(withData), { seedBaseUrl: '/data/seed/default' })
+    expect(m.entities[0].schema).toEqual({ tables: {} })
+  })
+
+  // The link back to the published schema, so the database can say what it was
+  // built from even where that preset is not installed.
+  it('carries schemaSource through', () => {
+    const m = buildSeedManifest(
+      workspace({
+        'databases/db/entity.json': '{"entityId":"db","schemaSource":{"lineageId":"lin-1"}}',
+        'databases/db/mapping.json': '{}',
+        'databases/db/data/t.parquet': 'PAR1',
+      }),
+      { seedBaseUrl: '/data/seed/default' },
+    )
+    expect(m.entities[0].schemaSource).toEqual({ lineageId: 'lin-1' })
+  })
+})
+
+describe('buildSeedProjectIndex', () => {
+  // The loader fetches over HTTP and cannot list a directory: anything absent
+  // from this index is never read. That is why a project seeded from the
+  // published workspace arrived with no dashboard, no scripts, an empty dataset.
+  it('lists the scripts beside their tree', () => {
+    const tree = new MemoryTree({
+      'projects/p/scripts/_tree.json': '[]',
+      'projects/p/scripts/01_extract.sql': 'SELECT 1',
+      'projects/p/scripts/02_build.py': 'x = 1',
+    })
+    expect(buildSeedProjectIndex(tree, 'projects/p').scripts)
+      .toEqual(['01_extract.sql', '02_build.py'])
+  })
+
+  // Without the tree the loader has no rows to attach contents to, so listing
+  // the files alone would be meaningless.
+  it('omits scripts when the tree itself is missing', () => {
+    const tree = new MemoryTree({ 'projects/p/scripts/01.sql': 'SELECT 1' })
+    expect(buildSeedProjectIndex(tree, 'projects/p').scripts).toBeUndefined()
+  })
+
+  it('lists dashboards, cohorts, pipelines and connections', () => {
+    const tree = new MemoryTree({
+      'projects/p/dashboards/icu.json': '{}',
+      'projects/p/cohorts/adults.json': '{}',
+      'projects/p/pipeline/pipeline.json': '[]',
+      'projects/p/databases/conn.json': '{}',
+    })
+    expect(buildSeedProjectIndex(tree, 'projects/p')).toMatchObject({
+      dashboards: ['icu.json'],
+      cohorts: ['adults.json'],
+      pipelines: ['pipeline.json'],
+      connections: ['conn.json'],
+    })
+  })
+
+  it('separates a CSV the loader parses from a raw upload it restores verbatim', () => {
+    const tree = new MemoryTree({
+      'projects/p/datasets/_tree.json': '[]',
+      'projects/p/datasets/activity/activity.csv': 'a,b',
+      'projects/p/datasets/activity/_columns.json': '[]',
+      'projects/p/datasets/cohort/cohort.xlsx': 'PK',
+    })
+    const index = buildSeedProjectIndex(tree, 'projects/p')
+    expect(index.datasetFolders).toEqual(['activity', 'cohort'])
+    expect(index.datasetCsvFiles).toEqual({ activity: 'activity.csv' })
+    expect(index.datasetRawFiles).toEqual({ cohort: 'cohort.xlsx' })
+  })
+
+  it('reports a parsed-rows sidecar, which the loader prefers over the CSV', () => {
+    const tree = new MemoryTree({
+      'projects/p/datasets/_tree.json': '[]',
+      'projects/p/datasets/activity/_data.json': '{"rows":[]}',
+      'projects/p/datasets/activity/activity.csv': 'a,b',
+    })
+    expect(buildSeedProjectIndex(tree, 'projects/p').datasetDataSidecars).toEqual(['activity'])
+  })
+
+  // `_columns.json` and `_data.json` are metadata, not analyses — indexing them
+  // as analyses would have the loader write junk rows.
+  it('counts only real analyses, never the sidecars', () => {
+    const tree = new MemoryTree({
+      'projects/p/datasets/_tree.json': '[]',
+      'projects/p/datasets/activity/_columns.json': '[]',
+      'projects/p/datasets/activity/_data.json': '{}',
+      'projects/p/datasets/activity/survival.json': '{}',
+    })
+    expect(buildSeedProjectIndex(tree, 'projects/p').datasetAnalyses)
+      .toEqual({ activity: ['survival.json'] })
+  })
+
+  it('is empty for a project that ships only metadata', () => {
+    const tree = new MemoryTree({ 'projects/p/entity.json': '{}', 'projects/p/README.md': '# hi' })
+    expect(buildSeedProjectIndex(tree, 'projects/p')).toEqual({})
   })
 })
 

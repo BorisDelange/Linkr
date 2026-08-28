@@ -10,7 +10,10 @@
  * fetched/stored separately (they are not part of the export format).
  */
 
-import { CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, SCRIPTS_DIR, SIDECAR, type LayoutKind } from '@linkr/format'
+import {
+  CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, SCRIPTS_DIR, SIDECAR,
+  type LayoutKind, type SeedProjectIndex as FormatSeedProjectIndex,
+} from '@linkr/format'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
@@ -18,20 +21,20 @@ import { getSchemaPreset } from '@/lib/schema-presets'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
-import { parseSourceConceptIdEntries, reassemblePresetMapping, type CompactSourceConceptIdEntries } from '@/lib/entity-io'
+import { attachTreeIds, parseSourceConceptIdEntries, reassemblePresetMapping, type CompactSourceConceptIdEntries } from '@/lib/entity-io'
 import { fromPathTree, readPathTree, storablePathNode } from '@/lib/entity-tree'
 import { entityKey } from '@/lib/import-identity'
 import { mergeSourceConceptIdRegistry, type SourceConceptIdGroup } from '@/lib/concept-mapping/source-concept-ids-io'
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
 import type {
   Workspace, Organization, Project, CustomSchemaPreset, UserPlugin,
-  DataSource, StoredFile, DatabaseConnectionConfig, SchemaMapping, SchemaPresetId,
+  DataSource, StoredFile, DatabaseConnectionConfig, SchemaMapping, SchemaPresetId, SchemaSource,
   MappingProject, ConceptMapping, SourceConceptIdRange, SourceConceptIdEntry, EtlPipeline, EtlFile,
   DqRuleSet, DataCatalog, ServiceMapping,
   SqlScriptCollection, SqlScriptFile,
   WikiPage, ConceptSet,
   Dashboard, DashboardTab, DashboardWidget,
-  DatasetFile, DatasetColumn,
+  DatasetFile, DatasetColumn, IdeFile,
   LocalizedString, TodoItem,
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
@@ -66,6 +69,8 @@ export interface SeedDatabase {
   description?: LocalizedString | string
   /** Schema preset id (e.g. 'omop-5.4', 'mimic-iv') or inline SchemaMapping */
   schema: SchemaPresetId | SchemaMapping
+  /** Which published schema the mapping came from, for the "installed from" link. */
+  schemaSource?: SchemaSource
   /** Base path relative to public/ (e.g. '/data/mimic-iv-demo-omop') */
   parquetBase: string
   /** List of table names (without .parquet extension) */
@@ -312,15 +317,20 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
   const projectIndex = await fetchJson<SeedProjectIndex>(`${base}/_index.json`)
 
   // --- IDE files (scripts/) ---
-  const ideFiles = await fetchJson<import('@/types').IdeFile[]>(`${base}/scripts/_tree.json`)
-  if (ideFiles) {
-    for (const f of ideFiles) {
-      if (f.type === 'file' && projectIndex?.scripts) {
-        // Try to find the file content
-        const content = await fetchText(`${base}/scripts/${f.name}`)
-        if (content !== null) f.content = content
-      }
-      await storage.ideFiles.create({ ...f, projectUid }).catch(() => {})
+  // Same two helpers the ZIP import uses: `readPathTree` accepts a path-keyed
+  // tree as well as the legacy id/name/parentId one, and `attachTreeIds` derives
+  // the row ids from (projectUid, path). Reading `_tree.json` as rows directly —
+  // as this did — only ever worked on the legacy shape, so a project published in
+  // the current format seeded with no scripts at all.
+  const scriptTree = readPathTree(await fetchJson(`${base}/scripts/_tree.json`))
+  if (scriptTree.length) {
+    for (const node of scriptTree) {
+      if (node.type !== 'file') continue
+      const content = await fetchText(`${base}/scripts/${node.path}`)
+      if (content !== null) (node as { content?: string }).content = content
+    }
+    for (const f of attachTreeIds<IdeFile>(scriptTree, projectUid, 'projectUid')) {
+      await storage.ideFiles.create(f).catch(() => {})
     }
   }
 
@@ -728,6 +738,14 @@ async function loadWorkspaceInternals(
   for (const path of index.schemas ?? []) {
     const sp = await fetchJson<CustomSchemaPreset>(`${base}/${path}`)
     if (!sp) continue
+    // The mapping and the DDL are their own files since the schema split; only a
+    // tree written before it has them inline. Reading just the inline form seeded
+    // every published preset with an empty mapping and no DDL — a schema that
+    // creates no table and names no column. Same two files the clone path reads.
+    const dir = `${base}/${path.split('/').slice(0, -1).join('/')}`
+    const mappingFile = await fetchJson<Partial<SchemaMapping>>(`${dir}/${CONTENT_FILE.schemaMapping}`)
+    const ddl = await fetchText(`${dir}/${CONTENT_FILE.schemaDdl}`)
+    const mapping = reassemblePresetMapping(sp, mappingFile ?? sp.mapping)
     // A seed file predates id/entityId, so fill them in rather than storing a
     // row the rest of the app expects to carry them (see
     // docs/planning/schema-preset-identity-plan.md).
@@ -741,7 +759,7 @@ async function loadWorkspaceInternals(
       // A git-linked preset is seeded as a POINTER: its name sits at the root and
       // there is no `mapping`, so the row would have no presetLabel — no name —
       // until the repo was pulled. Same bridge the ZIP import and clone paths use.
-      mapping: reassemblePresetMapping(sp, sp.mapping),
+      mapping: { ...mapping, ...(ddl ? { ddl } : {}) },
       workspaceId: wsId,
     }).catch(() => {})
   }
@@ -921,35 +939,25 @@ export interface WorkspaceInternals {
   pluginFiles?: Record<string, string[]>  // folder → list of file names
 }
 
-/** Index of files in a full project seed folder */
-interface SeedProjectIndex {
-  /** IDE script files: paths relative to scripts/ (e.g. 'analysis.py') */
-  scripts?: string[]
-  /** Pipeline JSON files under pipeline/ */
-  pipelines?: string[]
-  /** Cohort JSON files under cohorts/ */
-  cohorts?: string[]
-  /** Database/connection JSON files under databases/ */
-  connections?: string[]
-  /** Dashboard JSON files under dashboards/ (bundled: dashboard + tabs + widgets) */
-  dashboards?: string[]
-  /** Dataset folder names under datasets/ */
-  datasetFolders?: string[]
-  /** Dataset analysis JSON paths: 'folder/analysis.json' */
-  datasetAnalyses?: Record<string, string[]>
-  /** Dataset CSV paths: 'folder/data.csv' */
-  datasetCsvFiles?: Record<string, string>
-  /** Original uploaded data file per folder (CSV/XLSX/parquet), filename only. */
-  datasetRawFiles?: Record<string, string>
-  /** Folders that ship a parsed-rows sidecar (_data.json) for format-agnostic restore. */
-  datasetDataSidecars?: string[]
-  /** Attachment file names under attachments/ */
-  attachments?: string[]
-}
+/** Index of files in a full project seed folder, written by `buildSeedProjectIndex`. */
+type SeedProjectIndex = FormatSeedProjectIndex
 
 // ---------------------------------------------------------------------------
 // Database seeding (Parquet files)
 // ---------------------------------------------------------------------------
+
+/**
+ * Write the finished row, over phase 1's metadata-only one when it is there.
+ *
+ * Not a plain `create`: phase 1 has usually already written this id from
+ * `internals.databases`, and creating over it would either throw or leave the
+ * connection-less row in place.
+ */
+async function writeSeededDatabase(dataSource: DataSource, exists: boolean): Promise<void> {
+  const storage = getStorage()
+  if (exists) await storage.dataSources.update(dataSource.id, dataSource)
+  else await storage.dataSources.create(dataSource)
+}
 
 /**
  * Seed a database from Parquet files.
@@ -961,9 +969,19 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
 
   const storage = getStorage()
 
-  // Guard: already exists in IDB
+  // Guard: already seeded with its data.
+  //
+  // Phase 1 writes this same row from `internals.databases` as METADATA ONLY —
+  // an export carries no connection, so it lands with an empty file list. Bailing
+  // on its mere existence left the database permanently empty: the Parquet was
+  // never fetched and never mounted. So the guard asks whether the row already
+  // has files, not whether it exists.
   const existing = await storage.dataSources.getById(db.id)
-  if (existing) {
+  const hasData = !!existing && (
+    existing.connectionConfig?.inMemory === true
+    || (existing.connectionConfig?.fileIds?.length ?? 0) > 0
+  )
+  if (hasData) {
     localStorage.setItem(lsKey, '1')
     return
   }
@@ -990,10 +1008,10 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
       status: 'connected',
       origin: 'seed',
       workspaceId: wsId,
-      createdAt: now,
+      createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     }
-    await storage.dataSources.create(dataSource)
+    await writeSeededDatabase(dataSource, !!existing)
     // Server mode: no browser WASM mount (the empty schema is materialized
     // server-side on first query). Front-only mounts it in DuckDB-WASM.
     if (!isServerMode()) {
@@ -1054,15 +1072,16 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
     sourceType: 'database',
     connectionConfig,
     schemaMapping,
+    ...(db.schemaSource ? { schemaSource: db.schemaSource } : {}),
     isVocabularyReference: db.isVocabularyReference,
     status: 'configuring',
     origin: 'seed',
     workspaceId: wsId,
-    createdAt: now,
+    createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   }
 
-  await storage.dataSources.create(dataSource)
+  await writeSeededDatabase(dataSource, !!existing)
 
   // Mount in DuckDB and compute stats
   await engine.mountDataSource(dataSource, storedFiles)

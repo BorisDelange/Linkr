@@ -35,7 +35,9 @@ import { fileURLToPath } from 'node:url'
 // Relative paths, not `@linkr/format`: the workspace link is not installed in
 // every checkout (npm workspaces is declared, but CI clones and portal builds run
 // without it), and this script has to work on a bare `git clone` + `npm ci`.
-import { buildSeedManifest, buildSeedRoot } from '../packages/linkr-format/src/seed-manifest.js'
+import {
+  buildSeedManifest, buildSeedProjectIndex, buildSeedRoot,
+} from '../packages/linkr-format/src/seed-manifest.js'
 import { FsTree } from '../packages/linkr-format/src/node/fs-tree.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -174,6 +176,16 @@ function main() {
     join(SEED_DIR, 'seed.json'),
     `${JSON.stringify(buildSeedRoot([WORKSPACE_FOLDER]), null, 2)}\n`,
   )
+
+  // Per-project index. The loader fetches over HTTP and cannot list a directory,
+  // so a project's scripts, dashboards and datasets are only read if named here.
+  const tree = new FsTree(target)
+  for (const entity of manifest.entities) {
+    if (entity.type !== 'project') continue
+    const dir = `projects/${entity.folder ?? entity.id}`
+    const index = buildSeedProjectIndex(tree, dir)
+    writeFileSync(join(target, dir, '_index.json'), `${JSON.stringify(index, null, 2)}\n`)
+  }
 
   // A `demo` build that fetched nothing must fail rather than ship looking like a
   // `lean` one — an app silently missing its default data is far worse than a
