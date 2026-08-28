@@ -260,9 +260,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     const storage = getStorage()
     let projects = await storage.projects.getAll()
 
-    // Seed workspaces from public/data/seed/ on first launch only (never re-seed)
+    // Seed workspaces from public/data/seed/ on first launch only (never re-seed).
+    //
+    // Front-only mode ONLY. In server mode the baseline is instance state, and
+    // `isSeeded()` reads localStorage — which is per-browser, so a second user (or
+    // the same one on another machine) came in "unseeded" and re-ran the whole seed
+    // THROUGH THE API, writing a duplicate copy of the demo content into a shared
+    // instance. The server-mode baseline is the setup wizard's default-data step
+    // (one catalog install, recorded in `app_settings`); see
+    // `docs/planning/default-data-repos-plan.md` §0.
     const workspaces = await storage.workspaces.getAll()
-    if (projects.length === 0 && workspaces.length === 0 && !isSeeded()) {
+    if (!isServerMode() && projects.length === 0 && workspaces.length === 0 && !isSeeded()) {
       try {
         await seedWorkspaces()
         projects = await storage.projects.getAll()

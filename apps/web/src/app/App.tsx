@@ -12,6 +12,7 @@ import { useCatalogStore } from '@/stores/catalog-store'
 import { useVisitStore } from '@/stores/visit-store'
 import { useUserDirectoryStore } from '@/stores/user-directory-store'
 import { seedDatabases } from '@/lib/seed-loader'
+import { isServerMode } from '@/lib/api-client'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
@@ -87,9 +88,15 @@ export function App() {
 
   // Seed databases (Parquet files, concept mappings, ETL, datasets, dashboards)
   // from public/data/seed/seed.json after stores are loaded.
+  //
+  // Front-only mode ONLY, and for the same reason phase 1 is gated in app-store:
+  // in server mode the baseline belongs to the instance, not to a browser. This
+  // phase gates on "some workspace exists" rather than on `isSeeded()`, so in
+  // server mode it ran on EVERY load — including right after a catalog install
+  // had created the workspace, re-seeding bundled Parquet on top of it.
   const hasWorkspaces = useWorkspaceStore((s) => s._workspacesRaw.length > 0)
   useEffect(() => {
-    if (!projectsLoaded || !dataSourcesLoaded || !hasWorkspaces) return
+    if (isServerMode() || !projectsLoaded || !dataSourcesLoaded || !hasWorkspaces) return
     seedDatabases()
       .then(() => {
         loadProjects()

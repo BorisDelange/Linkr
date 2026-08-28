@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Trash2, X, Info } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { useAppStore } from '@/stores/app-store'
+import { isServerMode } from '@/lib/api-client'
 import { checkVersion, acknowledgeVersion, clearAllData, type VersionStatus } from '@/lib/version-check'
 import {
   detectSeedChanges, storeSeedHashes, fetchSeedHashes, getStoredSeedHashes,
@@ -46,6 +47,13 @@ export function VersionCheckDialog() {
     // bundled workspaces/projects far more often than the app itself. So always diff
     // the seed against the stored baseline, independent of the build hash.
     if (result.kind === 'new-build') setStatus(result)
+
+    // Server mode owns no bundled seed: its default data is a catalog install, and
+    // updating it is the catalog's own update flow. Diffing `public/data/seed/`
+    // here would offer one browser the chance to rewrite content shared by every
+    // user of the instance. The app-version dialog above still applies.
+    if (isServerMode()) return
+
     setSeedChecking(true)
     detectSeedChanges().then((diff) => {
       setSeedDiff(diff)
