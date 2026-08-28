@@ -110,6 +110,27 @@ function presetKey(p: CustomSchemaPreset): string {
   return p.id ?? p.presetId
 }
 
+/**
+ * The installed preset an existing database's schema came from, or undefined.
+ *
+ * Lineage first: it is the only identity that survives crossing instances. A
+ * database imported with its workspace carries the ORIGIN instance's `presetId`
+ * in its copied mapping, which matches nothing here — the field then read empty
+ * for a database that is in fact mapped, and there was no way to re-link it.
+ * `presetId` is still tried after, as the local key of a database built here.
+ */
+export function findSourcePreset(
+  source: Pick<DataSource, 'schemaSource' | 'schemaMapping'>,
+  presets: CustomSchemaPreset[],
+): CustomSchemaPreset | undefined {
+  const lineageId = source.schemaSource?.lineageId
+  const byLineage = lineageId ? presets.find((p) => p.lineageId === lineageId) : undefined
+  if (byLineage) return byLineage
+  const storedPresetId = source.schemaMapping?.presetId
+  if (!storedPresetId || storedPresetId === 'none') return undefined
+  return presets.find((p) => p.presetId === storedPresetId || presetKey(p) === storedPresetId)
+}
+
 const SIZE_WARNING_THRESHOLD = 500_000_000 // 500 MB
 const SIZE_DANGER_THRESHOLD = 2_000_000_000 // 2 GB
 
@@ -187,14 +208,11 @@ export function AddDatabaseDialog({
         const config = editingSource.connectionConfig as FhirConnectionConfig
         setFhirBaseUrl(config.baseUrl)
       }
-      // The stored mapping records the preset's `presetId`, but the options are
-      // keyed like everywhere else (id ?? presetId), so a preset installed from
-      // the catalog — where the two differ — matched no option and the field read
-      // empty for a database that is in fact mapped. Resolve through the list.
+      // Options are keyed like everywhere else (id ?? presetId), so the stored
+      // mapping's own `presetId` matches no option whenever the two differ.
+      // Resolve through the list, by lineage first — see findSourcePreset.
+      const match = findSourcePreset(editingSource, customPresets)
       const storedPresetId = editingSource.schemaMapping?.presetId
-      const match = storedPresetId
-        ? customPresets.find((p) => p.presetId === storedPresetId || presetKey(p) === storedPresetId)
-        : undefined
       setSchemaPresetId((match ? presetKey(match) : storedPresetId) as SchemaPresetId ?? '__none__')
     }
   }, [open, editingSource, language, customPresets])
@@ -909,10 +927,16 @@ export function AddDatabaseDialog({
         )}
         {step === 2 && (
           <DialogFooter className="mt-4">
-            {!isEditMode && (
+            {!isEditMode ? (
               <Button variant="outline" onClick={() => setStep(1)} disabled={uploading} className="gap-1.5">
                 <ArrowLeft size={12} />
                 {t('common.back')}
+              </Button>
+            ) : (
+              // Edit mode has no Back step, so without this the footer offered Save
+              // alone — leaving the X as the only way out of a form full of edits.
+              <Button variant="outline" onClick={() => handleClose(false)} disabled={uploading}>
+                {t('common.cancel')}
               </Button>
             )}
             {canSubmit || uploading ? (

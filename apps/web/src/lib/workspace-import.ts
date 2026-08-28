@@ -19,16 +19,27 @@ import {
 } from '@/lib/import-identity'
 import { mintEntityId } from '@/components/ui/entity-id-field'
 import { localized } from '@/lib/localized'
-import { deleteProjectData, importProjectContent, createEntityAttachments, projectSlug, reassemblePresetMapping } from '@/lib/entity-io'
+import { deleteProjectData, importProjectContent, createEntityAttachments, projectSlug, reassemblePresetMapping, DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { getStorage } from '@/lib/storage'
-import type { Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
+import type { DataSource, Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
 
 /** Append " (copy)" to every language of a multilingual name when duplicating. */
 function copyLocalizedName(name: LocalizedString): LocalizedString {
   return Object.fromEntries(Object.entries(name ?? {}).map(([k, v]) => [k, `${v} (copy)`]))
+}
+
+/**
+ * A database whose data lives in files this import cannot carry (DuckDB/SQLite,
+ * and every non-`database` source type). Same split as retestDataSource: an
+ * external server has a connection to retest, a file source has data to restore.
+ */
+function isFileBackedDatabase(ds: Partial<DataSource>): boolean {
+  if (ds.sourceType !== 'database') return true
+  const engine = (ds.connectionConfig as { engine?: string } | undefined)?.engine
+  return engine === 'duckdb' || engine === 'sqlite'
 }
 
 export interface WorkspaceImportOptions {
@@ -382,11 +393,18 @@ export async function importWorkspaceTree(
       id,
       workspaceId: targetWsId,
       status: 'disconnected',
+      // Say WHY it is disconnected, as the standalone import does: a workspace
+      // export is deliberately data-free, so a file-backed database lands empty.
+      // Left silent, the row read "Disconnected" with nothing to act on — and the
+      // one action that fixes it (rebuild from the DDL) hangs off this reason.
+      // Only for file-backed engines: an external server is disconnected because
+      // nobody has retested it, which is a different state with a different fix.
+      ...(isFileBackedDatabase(ds) ? { errorMessage: DB_ERROR_NO_DATA_ON_IMPORT } : {}),
       // The file carries the date the database was created; re-stamping it here
       // made every reimport read as brand new. Matches applyClonedDatabase.
       createdAt: ds.createdAt ?? now,
       updatedAt: now,
-    } as import('@/types').DataSource)
+    } as DataSource)
   }
 
   // --- Import the workspace README's images ---

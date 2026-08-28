@@ -453,7 +453,13 @@ function OverviewTab({
   const canWrite = useMyWorkspaceRole().can('databases:write')
   const rebuildFromSchema = useDataSourceStore((s) => s.rebuildFromSchema)
   const [rebuilding, setRebuilding] = useState(false)
-  const showStatusBanner = source.status !== 'connected' && !!source.errorMessage
+  // A rebuildable database is one that is not working and still holds the DDL it
+  // was built from. Not gated on `errorMessage`: a database imported before the
+  // import recorded a reason (or by a path that never did) is disconnected and
+  // silent, and gating the banner on the message made the ONLY action that can
+  // fix it unreachable — the user had to delete the database and recreate it.
+  const canRebuild = source.status !== 'connected' && !!source.schemaMapping?.ddl
+  const showStatusBanner = source.status !== 'connected' && (!!source.errorMessage || canRebuild)
 
   const handleRebuild = async () => {
     setRebuilding(true)
@@ -494,7 +500,7 @@ function OverviewTab({
             {t(source.status === 'error' ? 'databases.detail_error' : 'databases.detail_not_connected')}
           </p>
           <p className={`mt-1 break-all text-xs ${source.status === 'error' ? 'font-mono text-destructive/80' : 'text-amber-700/80 dark:text-amber-400/80'}`}>
-            {source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
+            {!source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
               ? t('databases.imported_without_data')
               : source.errorMessage}
           </p>
@@ -502,7 +508,7 @@ function OverviewTab({
               the export leaves the DuckDB file behind on purpose. Offer the one
               action that can fix it, since creation was the only path that ever
               applied the DDL. */}
-          {canWrite && source.schemaMapping?.ddl && (
+          {canWrite && canRebuild && (
             <div className="mt-2 flex items-center gap-2">
               <Button size="sm" variant="outline" onClick={handleRebuild} disabled={rebuilding}>
                 {rebuilding && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
