@@ -3957,6 +3957,9 @@ export async function buildWorkspaceZip(
 export interface ParsedProjectEntry {
   project: Project & { appVersion?: string }
   readme?: LocalizedString
+  /** Its folder in the tree — the slug an export addresses it by, and the key
+   *  `entityKey` falls back to when the manifest carries no id of its own. */
+  folder: string
 }
 
 export interface ParsedWorkspaceZip {
@@ -4130,7 +4133,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
         readmeByLang[m[1] ?? lightReadmeLang ?? 'en'] = await file.async('string')
       }
       const readme = Object.keys(readmeByLang).length > 0 ? readmeByLang : undefined
-      projectEntries.push({ project: projectJson, readme })
+      projectEntries.push({ project: projectJson, readme, folder })
     }
   }
 

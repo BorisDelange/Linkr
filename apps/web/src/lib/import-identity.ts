@@ -138,6 +138,32 @@ export function resolveWorkspaceId(
 }
 
 /**
+ * The key an entity read out of an export tree is addressed by.
+ *
+ * An export carries **no primary key**: `uid`/`id` are the writing instance's
+ * local keys and are stripped, which is the premise this whole module is built
+ * on. What survives is `entityId` — the readable slug — and `lineageId`. Yet
+ * several readers still opened with `if (!project.uid) continue`, written when a
+ * tree did carry one. Against a published repo that guard is simply always true,
+ * so the entity was skipped in silence: workspace import dropped every project of
+ * a git-published workspace, and the seed loader dropped all of them plus its
+ * mapping projects.
+ *
+ * `folder` is the entity's directory in the tree, which IS its slug there — the
+ * last resort for a tree so old it has neither key nor slug.
+ *
+ * This answers "what is this entity called", not "which row does it land on":
+ * `resolveByLineage` and `resolveSlugLanding` still decide that, and take this
+ * as their input.
+ */
+export function entityKey(
+  meta: { uid?: string; id?: string; entityId?: string } | null | undefined,
+  folder: string,
+): string {
+  return meta?.uid || meta?.id || meta?.entityId || folder
+}
+
+/**
  * Resolve a child addressed by its stored id rather than by lineage (the types
  * that carry no lineage of their own).
  *

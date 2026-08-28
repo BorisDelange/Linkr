@@ -76,7 +76,9 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
   const reseedable = useMemo(() => diff.changes.filter((c) => c.changeType !== 'removed'), [diff.changes])
   const removed = useMemo(() => diff.changes.filter((c) => c.changeType === 'removed'), [diff.changes])
 
-  // Selection: re-importable entities checked by default; removed ones unchecked (destructive).
+  // Selection: everything the dialog can act on is checked by default — accepting
+  // the update wholesale is the common answer, and leaving removals unticked meant
+  // the usual case took one click per stale entity.
   const [selected, setSelected] = useState<Set<string>>(() => new Set(reseedable.map(changeKey)))
   const [busy, setBusy] = useState(false)
 
@@ -100,6 +102,10 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
           if (hasDeletableChild) set.add(changeKey(c))
         }
         setDeletable(set)
+        // Tick the removals now rather than at mount: which ones are safe is only
+        // knowable once this resolves, and pre-ticking a row that turns out to hold
+        // user content would offer to delete work the seed never created.
+        setSelected((prev) => new Set([...prev, ...set]))
       })
     return () => { cancelled = true }
   }, [removed, canDeleteRemoved])
@@ -163,6 +169,21 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
       return next
     })
   }
+
+  /**
+   * Every row the user can actually tick: rows that own their own control, and —
+   * among removals — only the ones resolved as safe to delete. A child of a wholly
+   * added/removed workspace rides along with its workspace row and is read-only,
+   * so selecting it would be invisible here and ignored downstream.
+   */
+  const selectableKeys = useMemo(
+    () => diff.changes
+      .filter((c) => !isChildOfWholeWorkspace(c))
+      .filter((c) => c.changeType !== 'removed' || deletable.has(changeKey(c)))
+      .map(changeKey),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [diff.changes, wholeWorkspaceFolders, deletable],
+  )
 
   // Expand a selected whole-workspace row into all its child changes of a given change type,
   // so checking the workspace applies to everything inside it (children are read-only).
@@ -284,8 +305,26 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
         </DialogHeader>
 
         <TooltipProvider delayDuration={200}>
-        <div className="max-h-[320px] overflow-y-auto rounded-md border p-3">
-          <div className="space-y-5">
+        {/* Vertical padding lives on the children, not here: a sticky bar sits
+            BELOW its container's top padding, so a padded box leaves a transparent
+            strip above it that scrolling rows show through. */}
+        <div className="max-h-[320px] overflow-y-auto rounded-md border px-3">
+          {/* Same pair-of-links treatment every other multi-select list uses
+              (ExportDashboardDialog, the filter sidebar, the analysis panels).
+              Sticky so it stays reachable once the list scrolls. */}
+          {selectableKeys.length > 1 && (
+            <div className="sticky top-0 z-10 flex justify-end gap-1.5 bg-background pb-1.5 pt-3 text-[10px] text-muted-foreground">
+              <button type="button" disabled={busy} onClick={() => setSelected(new Set(selectableKeys))} className="hover:text-foreground">
+                {t('common.select_all')}
+              </button>
+              <span className="text-muted-foreground/40">/</span>
+              <button type="button" disabled={busy} onClick={() => setSelected(new Set())} className="hover:text-foreground">
+                {t('common.select_none')}
+              </button>
+            </div>
+          )}
+          {/* The sticky bar already carries the top padding when it is shown. */}
+          <div className={`space-y-5 pb-3 ${selectableKeys.length > 1 ? '' : 'pt-3'}`}>
             {[...byWorkspace.entries()].map(([wsFolder, changes]) => (
               <div key={wsFolder}>
                 <p className="text-sm font-semibold mb-3">

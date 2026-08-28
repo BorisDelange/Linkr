@@ -14,6 +14,7 @@ import { isServerMode } from '@/lib/api-client'
 import {
   resolveByLineage as resolveByLineageRule,
   resolveChildId as resolveChildIdRule,
+  entityKey,
   resolveSlugLanding,
   resolveWorkspaceId,
 } from '@/lib/import-identity'
@@ -207,9 +208,13 @@ export async function importWorkspaceTree(
     await yieldToBrowser()
   }
   let projectIdx = 0
-  for (const [, parsedProject] of parsed.projects) {
+  for (const [folder, parsedProject] of parsed.projects) {
     const { project } = parsedProject
-    if (!project?.uid) continue
+    if (!project) continue
+    // An export carries no `uid` (it is the writing instance's key, stripped on
+    // purpose), so requiring one skipped every project of a git-published
+    // workspace in silence. entityKey falls back to the slug, then the folder.
+    project.uid = entityKey(project, folder)
 
     const uid = duplicate ? crypto.randomUUID() : project.uid
     const entity: Project = {
@@ -266,7 +271,9 @@ export async function importWorkspaceTree(
   }
   for (const entry of parsed.projectEntries) {
     const { project } = entry
-    if (!project?.uid) continue
+    if (!project) continue
+    // Same as the full-content loop above: no `uid` in an export.
+    project.uid = entityKey(project, entry.folder)
     const uid = duplicate ? crypto.randomUUID() : project.uid
     idMap.set(`project:${project.uid}`, uid)
     const existing = await storage.projects.getById(uid)
@@ -389,6 +396,12 @@ export async function importWorkspaceTree(
       // is a unique stand-in until the clone writes the repo's own — the same
       // fallback applyClonedDatabase uses, so the two paths agree.
       alias: ds.alias ?? ds.entityId ?? id,
+      // Same reasoning for the connection: an export writes none (a database's
+      // rows never leave), yet every reader of a data source dereferences
+      // `connectionConfig.engine` — so a pointer landed a row that threw on the
+      // Databases page instead of reading as "no data yet". An empty file source
+      // is what it truthfully is until the clone mounts its Parquet.
+      connectionConfig: { engine: 'duckdb', fileIds: [], fileNames: [] },
       ...ds,
       id,
       workspaceId: targetWsId,

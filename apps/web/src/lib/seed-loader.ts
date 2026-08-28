@@ -20,6 +20,7 @@ import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/w
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { parseSourceConceptIdEntries, reassemblePresetMapping, type CompactSourceConceptIdEntries } from '@/lib/entity-io'
 import { fromPathTree, readPathTree, storablePathNode } from '@/lib/entity-tree'
+import { entityKey } from '@/lib/import-identity'
 import { mergeSourceConceptIdRegistry, type SourceConceptIdGroup } from '@/lib/concept-mapping/source-concept-ids-io'
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
 import type {
@@ -219,6 +220,7 @@ async function fetchManifest<T>(dir: string, kind: LayoutKind, ...legacy: string
   }
   return null
 }
+
 
 /**
  * A collection's or pipeline's file tree, plus the prefix its files sit behind.
@@ -499,12 +501,21 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
     }
   }
 
-  // --- workspace.json ---
+  // --- the workspace's own manifest ---
   const workspace = await fetchManifest<Workspace>(base, 'workspace')
-  if (!workspace?.id) {
-    console.warn(`[seed-loader] No valid workspace.json in ${folder}, skipping`)
+  if (!workspace) {
+    console.warn(`[seed-loader] No workspace manifest in ${folder}, skipping`)
     return
   }
+  // A real export carries no `id`: the local primary key belongs to the writing
+  // instance and is stripped on purpose (identity travels as `lineageId`). The
+  // seed used to be hand-written WITH an id, so requiring one silently skipped
+  // every workspace once the seed became a projection of a published repo.
+  //
+  // Derived from the folder, not minted: it must be the same on every visitor's
+  // machine and stable across re-seeds, or "reset all data" would land a second
+  // copy beside the first instead of replacing it.
+  if (!workspace.id) workspace.id = `seed-${folder}`
 
   // README.md (+ README.<lang>.md per language)
   const wsReadmeByLang: LocalizedString = {}
@@ -577,7 +588,10 @@ async function loadStructuralEntity(
     case 'project': {
       const folder = entity.folder
       const project = await fetchManifest<Project>(`${base}/projects/${folder}`, 'project')
-      if (!project?.uid) return
+      if (!project) return
+      // An export carries no `uid` — see seedRowId. Without this every project in
+      // a seed built from published repos was silently skipped.
+      project.uid = entityKey(project, folder)
       const readmeByLang: LocalizedString = {}
       for (const lang of SEED_LANGUAGES) {
         const suffix = lang === 'en' ? '' : `.${lang}`
@@ -610,6 +624,9 @@ async function loadStructuralEntity(
       const mpFolder = entity.folder
       const project = await fetchManifest<MappingProject>(`${base}/mapping-projects/${mpFolder}`, 'project', '_project.json')
       if (!project) return
+      // Same as the project branch: an export carries no primary key, and every
+      // child row below is written against this one (`projectId: project.id`).
+      project.id = entityKey(project, mpFolder)
       // Restore source concepts from CSV (file-based projects)
       if (project.sourceType === 'file' && project.fileSourceData) {
         const csvText = await fetchText(`${base}/mapping-projects/${mpFolder}/source-concepts.csv`)
@@ -653,6 +670,9 @@ async function loadStructuralEntity(
         checks = bundle?.checks ?? []
       }
       if (!ruleSet) return
+      // See seedRowId: no primary key in an export, and the checks below are
+      // written against this one.
+      ruleSet.id = entityKey(ruleSet, folder ?? entity.id)
       await storage.dqRuleSets.create({ ...ruleSet, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
       for (const check of checks) {
         await storage.dqCustomChecks.create({ ...check, ruleSetId: ruleSet.id } as import('@/types').DqCustomCheck).catch(() => {})
@@ -665,6 +685,7 @@ async function loadStructuralEntity(
         ? await fetchManifest<DataCatalog>(`${base}/catalogs/${folder}`, 'data-catalog')
         : await fetchJson<DataCatalog>(`${base}/${entity.path}`)
       if (!cat) return
+      cat.id = entityKey(cat, folder ?? entity.id)
       await storage.dataCatalogs.create({ ...cat, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
       break
     }
@@ -672,6 +693,8 @@ async function loadStructuralEntity(
       const etlFolder = entity.folder
       const pipeline = await fetchManifest<EtlPipeline>(`${base}/etl/${etlFolder}`, 'etl-pipeline')
       if (!pipeline) return
+      // See seedRowId — and the whole script tree below is keyed on `pipeline.id`.
+      pipeline.id = entityKey(pipeline, etlFolder)
       await storage.etlPipelines.create({ ...pipeline, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
       // Optional script-file tree (the generated ETL scripts themselves are seeded
       // in phase 2 via the etlScript entry; older exports may ship a _tree.json).
@@ -710,7 +733,10 @@ async function loadWorkspaceInternals(
     // docs/planning/schema-preset-identity-plan.md).
     await storage.schemaPresets.save({
       ...sp,
-      id: sp.id ?? crypto.randomUUID(),
+      // NOT a fresh uuid: `save` is an upsert keyed on this, so minting one for
+      // an export (which carries no id) inserted a second copy of every preset on
+      // every re-seed instead of replacing the first.
+      id: entityKey(sp, path.split('/').at(-2) ?? path),
       entityId: sp.entityId ?? sp.presetId,
       // A git-linked preset is seeded as a POINTER: its name sits at the root and
       // there is no `mapping`, so the row would have no presetLabel — no name —
@@ -723,11 +749,17 @@ async function loadWorkspaceInternals(
   // --- databases/ (metadata only, no credentials/files) ---
   for (const path of index.databases ?? []) {
     const ds = await fetchJson<Partial<DataSource>>(`${base}/${path}`)
-    if (!ds?.id) continue
-    const existingDs = await storage.dataSources.getById(ds.id)
+    if (!ds) continue
+    const id = entityKey(ds, path.split('/').at(-2) ?? path)
+    const existingDs = await storage.dataSources.getById(id)
     if (existingDs) continue
     await storage.dataSources.create({
+      // Same default the workspace import writes, and for the same reason: an
+      // export carries no connection, yet every reader dereferences
+      // `connectionConfig.engine`. Overridden by `...ds` when the tree has one.
+      connectionConfig: { engine: 'duckdb', fileIds: [], fileNames: [] },
       ...ds,
+      id,
       workspaceId: wsId,
       status: 'disconnected',
       origin: 'seed',
@@ -1374,9 +1406,12 @@ export async function seedDatabases(): Promise<void> {
   if (!folders.length) return
 
   for (const folder of folders) {
-    const workspace = await fetchJson<Workspace>(`${SEED_BASE}/${folder}/workspace.json`)
-    if (!workspace?.id) continue
-    const wsId = workspace.id
+    // Same manifest resolution as phase 1 — reading `workspace.json` directly
+    // missed the `entity.json` a real export writes, so every data entity was
+    // skipped while phase 1 had already created the workspace.
+    const workspace = await fetchManifest<Workspace>(`${SEED_BASE}/${folder}`, 'workspace')
+    if (!workspace) continue
+    const wsId = workspace.id || `seed-${folder}`
 
     const manifest = await fetchWorkspaceManifest(folder)
     if (!manifest) continue

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   type ImportTarget,
+  entityKey,
   findLineageMatch,
   resolveByLineage,
   resolveChildId,
@@ -183,5 +184,31 @@ describe('resolveSlugLanding', () => {
   it('mints when the holder belongs to no workspace at all', () => {
     const id = resolveSlugLanding('mimic-iv-demo', { workspaceId: undefined }, WS, counter())
     expect(id).toBe('minted-1')
+  })
+})
+
+describe('entityKey', () => {
+  // The case that was silently dropping entities: a published repo carries a slug
+  // and a lineage, never a primary key.
+  it('falls back to the slug when the export carries no primary key', () => {
+    expect(entityKey({ entityId: 'icu-demo' }, 'projects-folder')).toBe('icu-demo')
+  })
+
+  it('falls back to the folder when the tree has neither', () => {
+    expect(entityKey({}, 'icu-demo')).toBe('icu-demo')
+    expect(entityKey(null, 'icu-demo')).toBe('icu-demo')
+    expect(entityKey(undefined, 'icu-demo')).toBe('icu-demo')
+  })
+
+  // A hand-written tree (the old seed) did carry one; keeping it first means this
+  // changes nothing for those.
+  it('prefers a primary key when the tree still has one', () => {
+    expect(entityKey({ uid: 'uid-1', entityId: 'slug' }, 'folder')).toBe('uid-1')
+    expect(entityKey({ id: 'id-1', entityId: 'slug' }, 'folder')).toBe('id-1')
+  })
+
+  it('is stable — the same tree always yields the same key', () => {
+    const meta = { entityId: 'icu-demo' }
+    expect(entityKey(meta, 'f')).toBe(entityKey(meta, 'f'))
   })
 })
