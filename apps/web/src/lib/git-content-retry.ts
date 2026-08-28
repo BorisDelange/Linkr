@@ -1,7 +1,8 @@
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { gitCloneToZip, gitSetSyncState, gitClearContentStatus, gitSetContentStatus, type GitScope } from '@/lib/api/git'
+import { gitCloneToZip, gitClearContentStatus, gitSetContentStatus, type GitScope } from '@/lib/api/git'
 import { toGitError } from '@/lib/git-error-message'
+import { anchorClonedEntity } from '@/lib/git-clone-anchor'
 import { applyClonedEntity, type GitLinkedEntity } from '@/lib/entity-io'
 
 /** Outcome of a content re-clone. On failure, `error` holds the underlying git
@@ -37,9 +38,7 @@ export async function retryGitContentClone(args: {
     const cloned = await gitCloneToZip(url, branch, token)
     const zip = await JSZip.loadAsync(cloned.blob)
     const ok = await applyClonedEntity(zip, type, id, getStorage(), workspaceId, { url, branch })
-    if (ok && type === 'mapping-project' && cloned.oid) {
-      try { await gitSetSyncState('mapping-projects', id, branch, cloned.oid) } catch { /* leave unanchored */ }
-    }
+    if (ok) await anchorClonedEntity(type, id, branch, cloned.oid)
     try {
       if (ok) await gitClearContentStatus(workspaceId, scope, id)
       else await gitSetContentStatus(workspaceId, scope, id, 'failed')

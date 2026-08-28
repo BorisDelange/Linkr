@@ -21,7 +21,8 @@ import { applyClonedEntity, collectGitLinkedEntities, parseWorkspaceZip } from '
 import type { GitLinkedEntity, ParsedWorkspaceZip } from '@/lib/entity-io'
 import { findLineageMatch, type ImportTarget } from '@/lib/import-identity'
 import { importWorkspaceTree } from '@/lib/workspace-import'
-import { gitCloneToZip, gitSetSyncState, scopeForLinkedType } from '@/lib/api/git'
+import { gitCloneToZip, gitSetSyncState } from '@/lib/api/git'
+import { anchorClonedEntity } from '@/lib/git-clone-anchor'
 import { normalizeGitUrl } from '@/lib/git-clone'
 import { isServerMode } from '@/lib/api-client'
 import { getStorage } from '@/lib/storage'
@@ -546,6 +547,7 @@ async function cloneWorkspaceChildren(
         url: child.url,
         branch: child.branch,
       })
+      if (ok) await anchorClonedEntity(child.type, id, child.branch, cloned.oid)
       // The entity is in either way — as a pointer with no content. Say which
       // ones stayed empty instead of reporting a clean install over a half-built
       // workspace; a private repo the catalog cannot authenticate to is the
@@ -650,14 +652,7 @@ export async function commitCatalogInstall(
 
   // Anchor sync state to the cloned commit so the Versioning page can detect "behind"
   // later — same as the workspace-import clone loop.
-  const scope = scopeForLinkedType[entry.type]
-  if (oid && scope) {
-    try {
-      await gitSetSyncState(scope, id, branch, oid)
-    } catch {
-      /* leave unanchored — Versioning adopts lazily */
-    }
-  }
+  await anchorClonedEntity(entry.type, id, branch, oid)
 
   return { ok: true, id }
 }

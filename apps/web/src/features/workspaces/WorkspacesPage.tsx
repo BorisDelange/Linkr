@@ -55,6 +55,7 @@ import { parseWorkspaceZip, collectGitLinkedEntities, applyClonedEntity } from '
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { gitCloneToZip } from '@/lib/api/git'
+import { anchorClonedEntity } from '@/lib/git-clone-anchor'
 import { getStorage } from '@/lib/storage'
 import type { Workspace } from '@/types'
 
@@ -234,14 +235,11 @@ export function WorkspacesPage() {
       // Only url+branch are stored — the token is persisted separately, encrypted.
       const gitRemote = { url: e.url, branch: e.branch }
       const ok = await applyClonedEntity(zip, e.type, e.id, getStorage(), opts.workspaceId, gitRemote)
-      // Anchor sync state to the cloned commit (mapping projects, server mode) so
-      // a later remote push is detected as "behind" — mirrors the standalone import.
-      if (ok && e.type === 'mapping-project' && cloned.oid && isServerMode()) {
-        try {
-          const { gitSetSyncState } = await import('@/lib/api/git')
-          await gitSetSyncState('mapping-projects', e.id, e.branch, cloned.oid)
-        } catch { /* leave unanchored */ }
-      }
+      // Anchor sync state to the cloned commit so a later remote push is detected
+      // as "behind" — mirrors the standalone import and the catalog install. Every
+      // linked type, not just mapping projects: a workspace-imported project used
+      // to land unanchored, and its Versioning page then never offered a pull.
+      if (ok && isServerMode()) await anchorClonedEntity(e.type, e.id, e.branch, cloned.oid)
       // Content reconstitution status: clear it on success (card badge disappears),
       // mark 'failed' otherwise so the card shows a retry affordance.
       await syncContentStatus(e, opts.workspaceId, ok ? null : 'failed')
