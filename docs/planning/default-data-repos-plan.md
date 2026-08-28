@@ -1,8 +1,9 @@
 # Default data as external repos — plan
 
-**Status**: 🔜 design settled, all decisions taken (§11) — ready to build · **Effort**: L
-**Date**: 2026-08-21 · **Depends on**: [catalog-plan.md](catalog-plan.md) (the
-`linkr-catalog` repo must exist first)
+**Status**: 🔜 design settled, all decisions taken (§11) — ready to build · **Effort**: M
+(was L; see §0) · **Date**: 2026-08-21, **re-scoped 2026-08-27** ·
+**Depends on**: [catalog-plan.md](catalog-plan.md) (the `linkr-catalog` repo — it now
+exists, with a `demo-workspace` entry already written)
 
 Move the bundled default data out of this repo and into one public git repo per entity
 (database, project, schema preset, mapping project, ETL pipeline, catalog, DQ rule
@@ -25,6 +26,179 @@ can move to a public git repo in Parquet provided the ODbL notices travel with i
 And the fourth: **the registry and the install path already exist — they are the
 community catalog** (§2, §5, §7). This plan is mostly "extend the catalog with a
 `database` type and a pinned ref, then let CI install from it at build time".
+
+---
+
+## 0. The default data IS one workspace — re-scope, 2026-08-27
+
+Everything below was written when the default data was going to be *a list of entities*
+the app assembles. It is not: it is **one published workspace**,
+[`linkr-public-content/workspaces/demo-workspace`](https://framagit.org/interhop/linkr/linkr-public-content/workspaces/demo-workspace),
+whose children are git links to the per-entity repos this plan already created. Installing
+the default data = **installing that one catalog entry**. Nothing else.
+
+That collapses the plan, because each half of it is now an existing mechanism rather than
+something to design:
+
+| Mode | What "install the default data" means | State |
+|---|---|---|
+| **server** | `prepareCatalogInstall` + `commitCatalogInstall` on the `demo-workspace` entry — the workspace branch runs `importWorkspaceTree`, then `cloneWorkspaceChildren` pulls every git-linked child ([install.ts](../../apps/web/src/lib/catalog/install.ts)) | ✅ built, incl. LFS-backed Parquet |
+| **client (WASM)** | CI clones that same workspace + its children and bakes the tree into `public/data/seed/<ws>/` — which is *literally the job `linkr-portal`'s `build.sh` already does* | 🔜 the one real piece of work |
+
+So the ordering flips: the seed is no longer "the primary path with a catalog bolted on",
+it is **a build-time projection of the catalog install**. One source of truth
+(`demo-workspace` + its children), two ways of reaching it.
+
+### 0.1 What is already done (verify, don't rebuild)
+
+Checked against the code on 2026-08-27, and several of the 🔜 rows further down are stale:
+
+- **`workspace` catalog type** — `CatalogEntryType`, `ENTRY_TYPES`, `META_FILE`, plus the
+  `installWorkspaceEntry` branch: no target selector, no overwrite, resolution by lineage,
+  no nesting (`collectGitLinkedEntities` cannot emit `workspace`). Matches §11 decision 6
+  point by point.
+- **Child cloning** — `cloneWorkspaceChildren` resolves each child by lineage, clones,
+  `applyClonedEntity`, and reports the ones that arrived empty as a `warning` rather than
+  failing the install.
+- **Database import *with* its data** — `applyClonedEntity` reads the repo's
+  `data/*.parquet` into `storage.files`, wires `connectionConfig.fileIds/fileNames` and
+  mounts (or, in server mode, marks connected); a tree with no data lands `disconnected`
+  with `DB_ERROR_NO_DATA_ON_IMPORT` instead of a stuck `configuring`. LFS resolves
+  server-side in `clone_to_zip`. **§2's work items 1–3 for the `database` type are done.**
+- **The catalog repo exists**, with `entries/demo-workspace.json` already carrying its
+  `lineageId`, author and organization.
+- **The per-entity content repos exist** — `database-schemas/`, `databases/` (both MIMIC
+  Parquet repos, LFS + `.gitattributes` + ODbL `LICENSE.md`), `etl-pipelines/`,
+  `mapping-projects/`, `projects/`.
+- **The `workspaces/demo-workspace` repo exists and is published**, in exactly the
+  intended shape: `entity.json` (`type: "workspace"`, `lineageId`
+  `6b2f05cc-…` — the same one the catalog entry declares) + `organization.json` +
+  `git-links.json` + one pointer folder per child. Verified against the remote
+  2026-08-27, `appVersion` 2.3.3.
+
+### 0.2 What is actually missing
+
+Four things, in this order:
+
+**A. Complete `workspaces/demo-workspace`'s child set** — S. The repo exists and its
+layout is right; what it does **not** yet carry is the whole default data. Its
+`git-links.json` lists 6 children — 2 projects and the 4 schema presets — whereas today's
+seed also ships:
+
+| Missing from the workspace | Repo state |
+|---|---|
+| the 2 MIMIC **databases** (OMOP + source) | repos exist under `databases/`, with LFS Parquet |
+| the **ETL pipeline** (`mimic-iv-to-omop`) | repo exists under `etl-pipelines/` |
+| the **mapping project** (`mimic-iv-to-omop`) | repo exists under `mapping-projects/` |
+| the **DQ rule set** + **data catalog** (`mimic-iv-demo`) | no repo yet |
+
+So A is: publish the two missing repos, link all six children into the workspace, re-export
+and push. Then **install it into an empty server-mode instance and diff the result against
+today's seed** — that single test validates the entire server-mode story, and is also what
+answers the open question in B about cross-entity links.
+
+**B. `scripts/fetch-default-data.mjs`** — M, the only genuinely new code. Given the
+catalog entry (or the URL directly): clone the workspace repo, read `git-links.json`,
+clone each child at its pinned ref (`git lfs pull` where `.gitattributes` says so), splice
+each child's tree into the workspace tree in place of its pointer, and write the result to
+`apps/web/public/data/seed/<folder>/` + a generated `manifest.json` + `seed.json`.
+
+**This is `linkr-portal/scripts/build.sh` §"Generate manifest.json" and
+`sync-git-links.sh`, minus the submodule bookkeeping** — the portal resolves git links to
+submodules because it tracks them; here they are transient clones. Do not write a third
+copy: extract the manifest generation into `scripts/seed-manifest.mjs` with unit tests (it
+is already on the backlog for exactly this reason) and have both call it. The portal's
+type→folder table (`project → projects/`, `mapping-project → mapping-projects/`, …) is the
+mapping to reuse.
+
+Two details the seed needs that the repos deliberately do not carry, and that the manifest
+must therefore keep supplying (see §3bis): the **cross-entity links**
+(`linkToProject`, `mappingProjectId`, `vocabularyDataSourceId`) and each database's
+`parquetBase` + `tables`. The workspace export does not encode "this database is the ETL's
+vocabulary source", so the generator derives them from the workspace tree or a small
+committed `seed-extras.json` beside the fetch script. **Settle this while doing A**: if the
+workspace export can be made to carry them, the generator gets simpler and the portal
+benefits too.
+
+**C. Setup-wizard step, server mode** — ✅ **shipped 2026-08-28**
+([DefaultDataStep.tsx](../../apps/web/src/features/setup/DefaultDataStep.tsx)). A third
+step after the admin account:
+
+```
+Step 3  Default data
+        ☑ Install the default data
+                                    [ Install and finish ]
+```
+
+A **checkbox, not the catalog card**: at setup the question is "do you want demo
+content", not "which of these entries" — the user has nothing yet to compare against,
+and the card's version/author/size chrome answers a question nobody is asking on their
+first screen. One button carries the decision and is labelled with what the click does
+(*Install and finish* / *Start empty* / *Installing…* / *Finish*), so it reads without
+inferring from a checkbox two lines up.
+
+It runs the existing catalog install for the `demo-workspace` entry. §4's original
+design listed a per-entity checkbox grid and a `GET /setup/default-data` route resolving
+entries server-side; **both were over-built** — it is one entry, and the frontend
+already fetches the catalog. (The GET route exists, but only to report what this
+instance decided, which is a different question.)
+
+**And the background job is dropped too, for a structural reason worth stating**: the
+catalog install is *not* a server-side operation. The server only clones
+(`gitCloneToZip` → `POST /git/clone`, which is also where LFS is resolved); everything
+else — reading the ZIP with JSZip, resolving identity and collisions, writing each entity
+through `storage` — runs **in the browser**, which is precisely why
+`prepareCatalogInstall` returns `server-mode-required` rather than doing the work
+server-side. There is nothing to enqueue: the front drives the loop, so progress belongs
+in the wizard's own UI.
+
+Two consequences for C:
+
+- the install must run **after `login()`**, since it writes through authenticated API
+  routes. The wizard already creates the account then logs in before `onComplete`, so the
+  install slots between them.
+- a tab closed mid-install leaves a **partially built workspace**. Hence the persisted
+  record distinguishes *decided* from *succeeded*: `{entryId, decidedAt, installed,
+  workspaceId}` on the existing `app_settings` singleton (no new `instance_settings`
+  table — the account-level row is already there and already means "this instance").
+
+Updating later goes through the catalog's own update flow (§11 decision 7), which
+already exists.
+
+**D. Gate the browser seed in server mode** — ✅ **shipped 2026-08-28**, alongside C. It
+was a **live bug**, not new work.
+`seedWorkspaces` was gated on `localStorage` alone ([app-store.ts](../../apps/web/src/stores/app-store.ts)),
+so in a server instance a second user with an empty `localStorage` re-triggered a seed that
+wrote through the API. **Phase 2 (`seedDatabases`, App.tsx) was the worse half**: it gates
+on "some workspace exists" rather than on the seeded flag, so it ran on *every* load —
+including immediately after a catalog install had created the workspace, laying bundled
+Parquet over it. Both are now front-only. Same for the "Default data has been updated" dialog, which
+in server mode is a per-browser prompt to rewrite shared instance data.
+
+### 0.3 What this re-scope kills
+
+- **No `bundled` / `defaultInstall` fields** in the catalog schema. One entry is the
+  default data; a boolean marking "this is the bundled one" adds a second registry
+  concept for a set of size one. The fetch script names the entry (an env var overrides
+  it for a fork or an internal mirror).
+- **No per-entity checkbox grid** at setup, and no `GET /setup/default-data`.
+- **The `demo` / `lean` build profiles shrink to one boolean** (§11 decision 8): fetch the
+  workspace, or do not. `lean` = do not run the script.
+- **§5's `bundled || defaultInstall` filter** for the import dialog's catalog tab: drop it.
+  The tab lists every catalog entry of its type, which was already noted there as the
+  correct server-mode behaviour.
+
+### 0.4 The one thing to decide 🤔
+
+**Does the client-only build stay a seed, or does it disappear?** Decided 2026-08-27:
+**it stays.** Catalog install is server-mode-only by construction (no git client in the
+browser), so a WASM build has no runtime way to acquire content; killing the seed would
+make the public demo an empty app. The seed remains, but stops being authored here — it
+becomes a build-time projection of the published workspace, which is what §0 is.
+
+The residual risk to name: the build gains a hard dependency on a public repo being
+reachable. §3's mitigations stand — pinned refs, a CI cache keyed `<repo>@<ref>`, and a
+**build that fetched nothing must fail loudly**, never silently ship an empty app.
 
 ---
 

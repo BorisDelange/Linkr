@@ -75,20 +75,32 @@ the notices travel with the data.
 
 | St | Item | Effort |
 |----|------|--------|
-| ✅ | All design decisions taken (plan §11): install-once + upgrade via the catalog, `demo`/`lean` build profiles, no auto-seeded schema presets | — |
+**Re-scoped 2026-08-27 (plan §0)**: the default data is not a list of entities to assemble,
+it is **one published workspace** (`linkr-public-content/workspaces/demo-workspace`) whose
+children are git links to the per-entity repos. Installing it = installing that one catalog
+entry, which the code already does end to end. The seed survives as a **build-time
+projection** of the same workspace, because a WASM build has no git client. Net effect:
+server mode is essentially built, and the remaining work is A→D below.
+
+| St | Item | Effort |
+|----|------|--------|
+| ✅ | All design decisions taken (plan §11 + §0): install-once + upgrade via the catalog, no auto-seeded schema presets | — |
 | ✅ | 4 schema repos filled + pushed (OMOP 5.4/5.3, MIMIC-IV/III) — private until the import test passes | M |
-| 🔜 | **Stop auto-creating schema presets** (workspace-store + seed-loader); presets arrive by import/catalog like anything else — lands *with* the build fetch, never before | M |
+| ✅ | **`workspace` catalog type** — type, `installWorkspaceEntry`, lineage resolution, no overwrite/nesting, `cloneWorkspaceChildren` with per-child warnings | M |
+| ✅ | **Import a database WITH its data** — `applyClonedEntity` reads `data/*.parquet` → files → mount; export stays data-free; LFS resolves in `clone_to_zip` | M |
+| ✅ | The `linkr-catalog` repo exists, with `entries/demo-workspace.json` (lineageId, author, org) | S |
+| ✅ | `workspaces/demo-workspace` published, right shape (`entity.json` + `organization.json` + `git-links.json` + pointer folders), lineage matching the catalog entry | S |
+| 🔜 | **A. Complete its child set** — it links 2 projects + 4 schemas; the 2 databases, the ETL pipeline and the mapping project are unlinked, and the DQ rule set + data catalog have no repo. Then install into an empty server instance and diff against the current seed. **Unblocks everything else** | S |
+| 🔜 | **B. `fetch-default-data.mjs`** + extract `seed-manifest.mjs` from the portal `build.sh` (+ unit tests) + CI wiring + clone cache keyed `<repo>@<ref>` | M |
+| ✅ | **C. Setup-wizard step 3** — checkbox + one button, on the catalog's own install; `app_settings.default_data` records the decision (incl. "start empty"). The background job was dropped too: the install runs in the browser, so there is nothing to enqueue | S/M |
+| ✅ | **D. Gate the browser seed in server mode** — both phases + the seed-update diff; phase 2 was the worse one (gated on "a workspace exists", so it re-seeded over a fresh catalog install) | S |
+| 🔜 | **[TO TEST]** Wizard end to end on a *virgin* instance (`LINKR_DATA_DIR=/tmp/…`): install → children cloned → decision recorded → no browser re-seed on a second machine | S |
+| 🔜 | **Stop auto-creating schema presets** (workspace-store + seed-loader) — lands *with* B, never before | M |
 | 🐛 | App builds `omop-5.3` from the **5.4 DDL** (spread inherits `ddl`); correct DDL now in the repo, fixed for free by the item above | S |
 | 🔜 | Verify `mimic-iv-demo` (source format) license page + version/DOI | S |
-| 🔜 | Create the **database** repos (ODbL text, NOTICE, PROVENANCE, conversion script, LFS, tag `v1`) | M |
 | 🔜 | git-lfs in the API image + test that a cloned Parquet is data, not an LFS pointer | S |
-| 🔜 | Catalog schema: `database` type, `git.ref`, `bundled`, `defaultInstall`, `sizeBytes` | M |
-| 🔜 | **`workspace` catalog type** — the demo content ships as one curated workspace pulling its children through git links (plan §11 decision 6, reversed 2026-08-27); no target selector, no overwrite, no nesting | M |
-| 🔜 | **Import a database WITH its data** (ZIP/git/catalog read `data/*.parquet`; export stays data-free — plan §11) + size shown before install | M |
-| 🔜 | Extract `seed-manifest.mjs` from the portal `build.sh` + unit tests (kills the duplicate-logic drift risk) | M |
-| 🔜 | `fetch-default-data.mjs` + CI wiring + clone cache | M |
-| 🔜 | Import dialog third tab, on a shared catalog card/install component | M |
-| 🔜 | Server mode: gate the browser seed, `instance_settings`, setup-wizard step, install job | L |
+| 🔜 | Catalog schema: `git.ref` + `sizeBytes` (`bundled`/`defaultInstall` dropped — see §0.3) | S |
+| 🔜 | Import dialog third tab: client-only half, on a shared catalog card/install component | M |
 
 ## Schema preset identity — [schema-preset-identity-plan.md](schema-preset-identity-plan.md)
 
