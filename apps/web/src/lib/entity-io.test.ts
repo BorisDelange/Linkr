@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { DB_ERROR_NO_DATA_ON_IMPORT, slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, reassemblePresetMapping, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
+import { DB_ERROR_NO_DATA_ON_IMPORT, slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, reassemblePresetMapping, resolveDashboardBundle, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/lib/entity-versioning'
@@ -2172,6 +2172,78 @@ describe('§4 projectUid-scoped dashboard ids', () => {
     expect(w.tabId).toBe(tabs[0].id)
     expect(d.filterConfig[0].scope.tabIds).toEqual([tabs[0].id])
     expect(d.filterConfig[0].id).toBeTruthy()
+  })
+})
+
+// The seed loader reads the same key-based bundle the ZIP import does, so it
+// derives ids through this. Writing a bundle's records as-is stored a dashboard
+// with no id and tabs pointing at nothing — storage rejected them and the
+// dashboard never appeared.
+describe('resolveDashboardBundle — a bundle carries keys, not ids', () => {
+  const bundle = () => ({
+    dashboard: {
+      name: { en: 'ICU Activity' },
+      defaultDatasetFileId: 'icu.csv',
+      filterConfig: [
+        { columnId: 'col_age', datasetFileId: 'icu.csv', scope: { type: 'tabs', tabKeys: ['icu-activity/demographics'] } },
+      ],
+    },
+    tabs: [
+      { name: { en: 'Demographics' }, displayOrder: 0, key: 'icu-activity/demographics', parentKey: null },
+      { name: { en: 'Detail' }, displayOrder: 1, key: 'icu-activity/demographics/detail', parentKey: 'icu-activity/demographics' },
+    ],
+    widgets: [
+      { name: { en: 'Age' }, datasetFileId: 'icu.csv', key: 'icu-activity/demographics/age', tabKey: 'icu-activity/demographics' },
+    ],
+  }) as unknown as Parameters<typeof resolveDashboardBundle>[0]
+
+  it('gives every record an id and wires the FKs between them', () => {
+    const r = resolveDashboardBundle(bundle(), 'p1')
+    expect(r.dashboard.id).toBeTruthy()
+    expect(r.tabs[0].dashboardId).toBe(r.dashboard.id)
+    expect(r.tabs[1].parentTabId).toBe(r.tabs[0].id)
+    expect(r.tabs[0].parentTabId).toBeNull()
+    expect(r.widgets[0].tabId).toBe(r.tabs[0].id)
+  })
+
+  it('derives the ids from the keys, so a re-seed lands on the same rows', () => {
+    const a = resolveDashboardBundle(bundle(), 'p1')
+    const b = resolveDashboardBundle(bundle(), 'p1')
+    expect(b.dashboard.id).toBe(a.dashboard.id)
+    expect(b.tabs.map((t) => t.id)).toEqual(a.tabs.map((t) => t.id))
+    expect(a.tabs[0].id).toBe(deterministicId('p1', 'icu-activity/demographics'))
+  })
+
+  // Dashboard/tab/widget ids are global PKs: scoping by anything shared would
+  // collide when the same project is seeded into a second workspace.
+  it('scopes the ids to the project', () => {
+    expect(resolveDashboardBundle(bundle(), 'p2').dashboard.id)
+      .not.toBe(resolveDashboardBundle(bundle(), 'p1').dashboard.id)
+  })
+
+  it('rewrites a key-based filter scope to the tab ids it now points at', () => {
+    const r = resolveDashboardBundle(bundle(), 'p1')
+    const filter = r.dashboard.filterConfig![0] as unknown as { id: string; scope: { tabIds: string[] } }
+    expect(filter.scope.tabIds).toEqual([r.tabs[0].id])
+    expect(filter.id).toBeTruthy()
+  })
+
+  // A seed writes its datasets under the ids the bundle already names, so the
+  // default is identity; the ZIP import passes a real remap.
+  it('routes dataset references through the caller resolver', () => {
+    const r = resolveDashboardBundle(bundle(), 'p1', (id) => `remapped:${id}`)
+    expect(r.dashboard.defaultDatasetFileId).toBe('remapped:icu.csv')
+    expect(r.widgets[0].datasetFileId).toBe('remapped:icu.csv')
+  })
+
+  it('handles a bundle with no tabs or widgets at all', () => {
+    const r = resolveDashboardBundle(
+      { dashboard: { name: { en: 'Empty' } } } as unknown as Parameters<typeof resolveDashboardBundle>[0],
+      'p1',
+    )
+    expect(r.dashboard.id).toBeTruthy()
+    expect(r.tabs).toEqual([])
+    expect(r.widgets).toEqual([])
   })
 })
 

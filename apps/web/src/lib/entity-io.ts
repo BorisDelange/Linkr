@@ -738,6 +738,96 @@ function dashboardKey(d: Dashboard): string {
 // helpers below stay local for now; they differ (flat tabs, own ordering rule)
 // and have a byte-parity Python twin to keep in step.
 
+/** One dashboard as a key-based export writes it: no ids anywhere. */
+export interface DashboardBundle {
+  dashboard: Dashboard
+  tabs?: (DashboardTab & { key?: string; parentKey?: string | null })[]
+  widgets?: (DashboardWidget & { key?: string; tabKey?: string })[]
+}
+
+/**
+ * Turn a key-based dashboard bundle into rows, deriving every id from its key.
+ *
+ * A dashboard travels with NO ids: the export strips them and leaves content
+ * keys (`<dashboard>/<tab>`, `parentKey`, `tabKey`) behind, because a UUID is
+ * local to the instance that minted it and would churn the whole diff on every
+ * round trip. Ids come back as `deterministicId(projectUid, key)` — stable for
+ * the same project, distinct across projects.
+ *
+ * Shared so the seed loader and the ZIP import agree: writing a bundle's records
+ * as-is stores a dashboard with no id and tabs pointing at nothing, which the
+ * storage layer rejects — the dashboard simply never appears.
+ *
+ * `resolveDatasetId` maps an exported dataset reference to the local row (the
+ * ZIP import remaps ids; a seed writes datasets under the same path-like ids the
+ * bundle already names, so it passes identity).
+ */
+export function resolveDashboardBundle(
+  bundle: DashboardBundle,
+  projectUid: string,
+  resolveDatasetId: (id: string) => string = (id) => id,
+): { dashboard: Dashboard; tabs: DashboardTab[]; widgets: DashboardWidget[] } {
+  const keyId = (key: string): string => deterministicId(projectUid, key)
+  const dashKey = dashboardKey(bundle.dashboard)
+  const dashId = keyId(dashKey)
+  const tabIdFor = (key: string): string => keyId(key)
+
+  const filterConfig = (bundle.dashboard.filterConfig ?? []).map((f, index) => {
+    const scope = f.scope as
+      | { type: 'tabs'; tabIds?: string[]; tabKeys?: string[] }
+      | { type: 'widgets'; widgetIds?: string[]; widgetKeys?: string[] }
+      | { type: 'all' }
+      | undefined
+    let rewrittenScope = f.scope
+    if (scope?.type === 'tabs' && scope.tabKeys) {
+      rewrittenScope = { type: 'tabs', tabIds: scope.tabKeys.map(tabIdFor) }
+    } else if (scope?.type === 'widgets' && scope.widgetKeys) {
+      rewrittenScope = { type: 'widgets', widgetIds: scope.widgetKeys.map(keyId) }
+    }
+    return {
+      ...f,
+      id: f.id ?? keyId(`${dashKey}#f${index}`),
+      datasetFileId: f.datasetFileId ? resolveDatasetId(f.datasetFileId) : f.datasetFileId,
+      ...(f.scope ? { scope: rewrittenScope } : {}),
+    }
+  })
+
+  const dashboard: Dashboard = {
+    ...bundle.dashboard,
+    id: dashId,
+    projectUid,
+    filterConfig,
+    defaultDatasetFileId: bundle.dashboard.defaultDatasetFileId
+      ? resolveDatasetId(bundle.dashboard.defaultDatasetFileId)
+      : bundle.dashboard.defaultDatasetFileId,
+  }
+
+  const tabs = (bundle.tabs ?? []).map((tab) => {
+    const { key, parentKey, ...rest } = tab
+    return {
+      ...rest,
+      id: key ? tabIdFor(key) : tab.id,
+      // A tabKey is `<dashboardKey-or-parentTabKey>/<slug>[#n]`; a nested tab's
+      // first segment is its parent's, so the dashboard id comes from this
+      // bundle rather than from parsing the key.
+      dashboardId: dashId,
+      parentTabId: parentKey ? tabIdFor(parentKey) : null,
+    } as DashboardTab
+  })
+
+  const widgets = (bundle.widgets ?? []).map((w) => {
+    const { key, tabKey, ...rest } = w
+    return {
+      ...rest,
+      id: key ? keyId(key) : w.id,
+      tabId: tabKey ? tabIdFor(tabKey) : w.tabId,
+      datasetFileId: w.datasetFileId ? resolveDatasetId(w.datasetFileId) : w.datasetFileId,
+    } as DashboardWidget
+  })
+
+  return { dashboard, tabs, widgets }
+}
+
 /** Code-point order on the id, matching Python's `sorted(key=str)`. */
 function byId<T extends { id: string }>(items: T[]): T[] {
   return [...items].sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0))

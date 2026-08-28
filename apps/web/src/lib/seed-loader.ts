@@ -21,7 +21,10 @@ import { getSchemaPreset } from '@/lib/schema-presets'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
-import { attachTreeIds, parseSourceConceptIdEntries, reassemblePresetMapping, type CompactSourceConceptIdEntries } from '@/lib/entity-io'
+import {
+  attachTreeIds, parseSourceConceptIdEntries, reassemblePresetMapping, resolveDashboardBundle,
+  type CompactSourceConceptIdEntries, type DashboardBundle,
+} from '@/lib/entity-io'
 import { fromPathTree, readPathTree, storablePathNode } from '@/lib/entity-tree'
 import { entityKey } from '@/lib/import-identity'
 import { mergeSourceConceptIdRegistry, type SourceConceptIdGroup } from '@/lib/concept-mapping/source-concept-ids-io'
@@ -355,16 +358,20 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
   }
 
   // --- Dashboards ---
+  // A bundle carries content KEYS, not ids: the export strips every UUID, so
+  // writing its records as-is stored a dashboard with no id and tabs pointing at
+  // nothing — rejected by storage, and the dashboard never appeared. Same
+  // derivation the ZIP import uses. Datasets are seeded above under the very ids
+  // the bundle names (a path, not a UUID), so no dataset remapping is needed.
   for (const path of projectIndex?.dashboards ?? []) {
-    const bundle = await fetchJson<{
-      dashboard: Dashboard; tabs: DashboardTab[]; widgets: DashboardWidget[]
-    }>(`${base}/dashboards/${path}`)
+    const bundle = await fetchJson<DashboardBundle>(`${base}/dashboards/${path}`)
     if (!bundle?.dashboard) continue
-    await storage.dashboards.create({ ...bundle.dashboard, projectUid, origin: 'seed' }).catch(() => {})
-    for (const tab of bundle.tabs ?? []) {
+    const resolved = resolveDashboardBundle(bundle, projectUid)
+    await storage.dashboards.create({ ...resolved.dashboard, origin: 'seed' }).catch(() => {})
+    for (const tab of resolved.tabs) {
       await storage.dashboardTabs.create(tab).catch(() => {})
     }
-    for (const w of bundle.widgets ?? []) {
+    for (const w of resolved.widgets) {
       await storage.dashboardWidgets.create(w).catch(() => {})
     }
   }
