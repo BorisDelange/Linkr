@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, status
 from fastapi.responses import Response
@@ -31,7 +30,6 @@ from app.schemas.data_source import (
     DataSourceUpdate,
     EtlRunRequest,
     IntrospectedTable,
-    ParquetTablePath,
     QueryRequest,
     QueryResult,
     TestConnectionRequest,
@@ -430,66 +428,7 @@ async def get_database_connection_info(
     connection details.
     """
     source = await _load_source(db, source_id, user, "databases:read")
-    config = dict(source.connection_config or {})
-    engine = config.get("engine")
-    info = DatabaseConnectionInfo(engine=engine)
-
-    if data_source_service.is_external_engine(engine):
-        return DatabaseConnectionInfo(
-            engine=engine,
-            kind="external",
-            host=config.get("host"),
-            port=config.get("port"),
-            database=config.get("database"),
-            schema_name=config.get("schema"),
-            username=config.get("username"),
-        )
-
-    if data_source_service.is_managed(source):
-        path = managed_db.path_for(source.id)
-        return DatabaseConnectionInfo(
-            engine="duckdb", kind="file", path=str(path), exists=path.exists()
-        )
-
-    files = await data_source_service.list_files(db, source.id)
-    if not files:
-        return info
-
-    paths = [blob_store.path_for(f.content_hash) for f in files]
-    names = [f.file_name for f in files]
-    # A Parquet source is addressed table by table, NOT by the directory holding
-    # the blobs: that directory is the shared content-addressed store, so it mixes
-    # in every other source's files and its entries have no .parquet suffix for a
-    # glob to match. `path` is deliberately left unset.
-    if len(files) > 1 or names[0].lower().endswith((".parquet", ".pq")):
-        pairs = [(f.file_name, str(blob_store.path_for(f.content_hash))) for f in files]
-        groups = data_source_service.parquet_table_paths(source, pairs)
-        return DatabaseConnectionInfo(
-            engine=engine,
-            kind="parquet-folder",
-            exists=all(p.is_file() for p in paths),
-            blob=True,
-            file_names=names,
-            tables=[
-                ParquetTablePath(
-                    table=table,
-                    paths=table_paths,
-                    exists=all(Path(p).is_file() for p in table_paths),
-                )
-                for table, table_paths in sorted(groups.items())
-            ],
-        )
-
-    return DatabaseConnectionInfo(
-        engine=engine,
-        kind="file",
-        path=str(paths[0]),
-        exists=paths[0].is_file(),
-        # Content-addressed: the file is named by its sha, with no extension, so
-        # a tool that keys off ".duckdb" needs telling.
-        blob=True,
-        file_names=names,
-    )
+    return await data_source_service.connection_info(db, source)
 
 
 @router.get("/{source_id}/concept-cache", response_model=ConceptCacheStatus)
