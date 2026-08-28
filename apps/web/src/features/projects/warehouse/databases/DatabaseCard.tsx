@@ -45,6 +45,12 @@ interface DatabaseCardProps {
   onOpenVersioning?: () => void
   /** When false, edit/remove actions are disabled (viewer). Default true. */
   canEdit?: boolean
+  /** "Content not imported" badge for a git-linked database whose repo wasn't
+   *  reconstituted. Sits in the footer, right of the author. */
+  contentBadge?: React.ReactNode
+  /** Leaves only Delete in the card menu — for a pointer with no content behind
+   *  it, where editing or exporting an empty shell does nothing useful. */
+  deleteOnly?: boolean
   /** Extra content rendered under the stats row (e.g. the linked-projects strip). */
   belowStats?: React.ReactNode
   /** Part of a multi-selection — greys the card out. */
@@ -85,6 +91,8 @@ export const DatabaseCard = memo(function DatabaseCard({
   removeLabelKey,
   removeConfirmTitleKey,
   removeConfirmDescriptionKey,
+  contentBadge,
+  deleteOnly,
   onOpenLicense,
   onOpenDocs,
   onOpenVersioning,
@@ -173,6 +181,7 @@ export const DatabaseCard = memo(function DatabaseCard({
         <EntityActionsMenu
           item={source}
           {...actions}
+          deleteOnly={deleteOnly}
           canEdit={canEdit}
           canDelete={canEdit}
           onDelete={async () => onRemove()}
@@ -215,6 +224,9 @@ export const DatabaseCard = memo(function DatabaseCard({
           updatedAt={source.updatedAt}
           license={source.license}
           onOpenLicense={onOpenLicense}
+          // With the badge, the row is the author and the badge only.
+          compact={!!contentBadge}
+          trailing={contentBadge}
         />
       </div>
     </Card>

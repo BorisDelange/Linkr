@@ -24,6 +24,7 @@ import { Card } from '@/components/ui/card'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
+import { cardRepoUrl } from '@/lib/git-web-url'
 import { useGitContentStatuses } from '@/components/versioning/use-git-content-statuses'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { applySort, visitSortFields } from '@/lib/list-sort'
@@ -67,6 +68,12 @@ export function ProjectsPage() {
   const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(activeWorkspaceId)
   /** The "content not imported" badge for a project card, or null when it doesn't
    *  apply. Sits in the footer's trailing slot, pinned right of the meta chips. */
+  /** Repo page for a project whose content is missing and can't be cloned here. */
+  const projectRepoUrl = (uid: string, url: string | undefined): string | null => cardRepoUrl({
+    serverMode: isServerMode(),
+    status: contentStatuses.get(`projects:${uid}`),
+    url,
+  })
   const projectContentBadge = (
     project: { uid: string; name: string | LocalizedString },
     raw: { gitRemoteConfig?: GitRemoteConfig } | undefined,
@@ -464,6 +471,10 @@ export function ProjectsPage() {
                   )}
                   onClick={(e) => {
                     if (selection.onCardClick(e, project.uid)) return
+                    // Nothing behind this card in client-only: open the repo that
+                    // holds the content instead of an empty project.
+                    const repo = projectRepoUrl(project.uid, raw?.gitRemoteConfig?.url)
+                    if (repo) { window.open(repo, '_blank', 'noopener,noreferrer'); return }
                     handleOpenProject(project.uid, project.name)
                   }}
                 >
@@ -488,6 +499,10 @@ export function ProjectsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {/* Content never imported: editing, exporting or
+                                duplicating an empty shell does nothing useful,
+                                so only the removal stays. */}
+                            {!projectRepoUrl(project.uid, raw?.gitRemoteConfig?.url) && <>
                             <DropdownMenuItem disabled={!canEditWs} onClick={(e) => { e.stopPropagation(); const raw = _projectsRaw.find((p) => p.uid === project.uid); if (raw) setEditingProject(raw) }}>
                               <Pencil size={14} />
                               {t('common.edit')}
@@ -509,6 +524,7 @@ export function ProjectsPage() {
                               {t('nav.settings')}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
+                            </>}
                             <DropdownMenuItem
                               disabled={!canDeleteWs}
                               onClick={(e) => { e.stopPropagation(); setDeleteTarget({ uid: project.uid, name: project.name }) }}
@@ -536,9 +552,8 @@ export function ProjectsPage() {
                       organization={raw?.organization}
                       createdAt={project.createdAt}
                       updatedAt={project.updatedAt}
-                      // Author + date + licence + the badge overflows one row, so
-                      // the dates move into the author tooltip.
-                      datesInAuthorTooltip={!!projectContentBadge(project, raw)}
+                      // With the badge, the row is the author and the badge only.
+                      compact={!!projectContentBadge(project, raw)}
                       trailing={projectContentBadge(project, raw)}
                       license={raw?.license}
                       onOpenLicense={() => {

@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
+import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
+import { useGitContentStatuses } from '@/components/versioning/use-git-content-statuses'
+import { cardRepoUrl } from '@/lib/git-web-url'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
@@ -224,8 +227,17 @@ function CreateFromPresetDialog({
 // ---------------------------------------------------------------------------
 
 export function AppDatabasesPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { wsUid, raw } = useResolvedParams()
+  // Git-linked databases whose content wasn't reconstituted → card badge (+ retry
+  // in server mode, a link to the repo in client-only).
+  const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(wsUid)
+  /** Repo page for a database whose content is missing and can't be cloned here. */
+  const dbRepoUrl = (id: string, url: string | undefined): string | null => cardRepoUrl({
+    serverMode: isServerMode(),
+    status: contentStatuses.get(`databases:${id}`),
+    url,
+  })
   const navigate = useNavigate()
   const canWrite = useMyWorkspaceRole().can('databases:write')
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -449,7 +461,28 @@ export function AppDatabasesPage() {
             <DatabaseCard
               key={ds.id}
               source={ds}
-              onClick={() => navigate(paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds))}
+              contentBadge={
+                wsUid && ds.gitRemoteConfig?.url && contentStatuses.get(`databases:${ds.id}`) ? (
+                  <GitContentStatusBadge
+                    workspaceId={wsUid}
+                    scope="databases"
+                    type="database"
+                    id={ds.id}
+                    name={localized(ds.name, i18n.language) || ds.id}
+                    gitRemote={ds.gitRemoteConfig}
+                    status={contentStatuses.get(`databases:${ds.id}`)}
+                    onResolved={refetchContentStatuses}
+                  />
+                ) : null
+              }
+              onClick={() => {
+                // Nothing behind this card in client-only: open the repo holding
+                // the content rather than an empty database page.
+                const repo = dbRepoUrl(ds.id, ds.gitRemoteConfig?.url)
+                if (repo) { window.open(repo, '_blank', 'noopener,noreferrer'); return }
+                navigate(paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds))
+              }}
+              deleteOnly={!!dbRepoUrl(ds.id, ds.gitRemoteConfig?.url)}
               onOpenLicense={() => navigate(`${paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds)}?tab=license`)}
               onOpenDocs={(tab) => navigate(`${paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds)}?tab=${tab}`)}
               onOpenVersioning={() => navigate(`${paths.warehouseDatabase(wsUid ?? '', ds.id, siblingIds)}?tab=versioning`)}

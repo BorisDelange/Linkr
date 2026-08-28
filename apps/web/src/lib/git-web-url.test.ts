@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { webRepoUrl } from '@/lib/git-web-url'
+import { cardRepoUrl, webRepoUrl } from '@/lib/git-web-url'
 
 describe('webRepoUrl', () => {
   it('passes a plain https remote through — the form the app stores', () => {
@@ -52,5 +52,31 @@ describe('webRepoUrl', () => {
     expect(webRepoUrl('')).toBeNull()
     expect(webRepoUrl(undefined)).toBeNull()
     expect(webRepoUrl(null)).toBeNull()
+  })
+})
+
+describe('cardRepoUrl', () => {
+  const URL_ = 'https://framagit.org/g/repo.git'
+
+  // Client-only cannot clone, so the entity behind the card is empty — the repo
+  // is the only place the content exists.
+  it('sends a client-only card with missing content to the repo', () => {
+    expect(cardRepoUrl({ serverMode: false, status: 'failed', url: URL_ }))
+      .toBe('https://framagit.org/g/repo')
+  })
+
+  // In server mode the badge offers a retry that fills the entity in place, so
+  // the card must keep opening the entity.
+  it('keeps navigating in server mode', () => {
+    expect(cardRepoUrl({ serverMode: true, status: 'failed', url: URL_ })).toBeNull()
+  })
+
+  it('keeps navigating when the content is present', () => {
+    expect(cardRepoUrl({ serverMode: false, status: undefined, url: URL_ })).toBeNull()
+  })
+
+  it('keeps navigating when the remote is not a browsable page', () => {
+    expect(cardRepoUrl({ serverMode: false, status: 'failed', url: undefined })).toBeNull()
+    expect(cardRepoUrl({ serverMode: false, status: 'failed', url: 'file:///srv/r.git' })).toBeNull()
   })
 })

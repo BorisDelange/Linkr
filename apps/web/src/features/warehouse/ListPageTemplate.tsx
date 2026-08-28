@@ -14,6 +14,8 @@ import { shortenIdAmong } from '@/lib/short-id'
 import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
 import { useGitContentStatuses } from '@/components/versioning/use-git-content-statuses'
 import { linkedTypeForScope, type GitScope } from '@/lib/api/git'
+import { cardRepoUrl } from '@/lib/git-web-url'
+import { isServerMode } from '@/lib/api-client'
 import type { GitLinkedEntity } from '@/lib/entity-io'
 import type { GitRemoteConfig, LocalizedString, OrganizationInfo } from '@/types'
 import type { AuthorDetails } from '@/types/author'
@@ -158,6 +160,14 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(activeWorkspaceId)
   const linkedType = syncScope ? linkedTypeForScope[syncScope] : undefined
 
+  /** Where a card with missing content sends the user instead of navigating: in
+   *  client-only there is nothing behind it, so the whole card opens the repo. */
+  const repoUrlFor = (item: T): string | null => cardRepoUrl({
+    serverMode: isServerMode(),
+    status: syncScope ? contentStatuses.get(`${syncScope}:${item.id}`) : undefined,
+    url: getGitRemote?.(item)?.url,
+  })
+
   /** The "content not imported" badge for a card, or null when it doesn't apply.
    *  Rendered in the footer's trailing slot, pinned right of the meta chips. */
   const contentBadge = (item: T): React.ReactNode => {
@@ -259,6 +269,10 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                 )}
                 onClick={(e) => {
                   if (selection.onCardClick(e, item.id)) return
+                  // Content missing and no way to fetch it: the entity page would
+                  // be empty, so send the user to the repo that holds it.
+                  const repo = repoUrlFor(item)
+                  if (repo) { window.open(repo, '_blank', 'noopener,noreferrer'); return }
                   onNavigate(shortenIdAmong(item.id, items.map((i) => i.id)))
                 }}
               >
@@ -284,6 +298,10 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                         deleteConfirmDescriptionKey={deleteConfirmDescriptionKey}
                         canEdit={canEdit}
                         canDelete={canDelete}
+                        // Nothing was imported behind this card: editing,
+                        // exporting or duplicating an empty shell does nothing
+                        // useful. Only removing it still means something.
+                        deleteOnly={!!contentBadge(item)}
                       />,
                     )}
                   </div>
@@ -296,10 +314,10 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                     organization={item.organization}
                     createdAt={item.createdAt}
                     updatedAt={item.updatedAt}
-                    // Author + date + licence + the badge overflows one row, so the
-                    // dates move into the author tooltip — same trade the catalog
-                    // cards make when their row is full.
-                    datesInAuthorTooltip={!!contentBadge(item)}
+                    // With the badge, the row is the author and the badge only:
+                    // the licence of an entity whose content is missing is fine
+                    // print about something that isn't there yet.
+                    compact={!!contentBadge(item)}
                     license={docs ? docs.getLicense(item) : undefined}
                     onOpenLicense={
                       onOpenDocs

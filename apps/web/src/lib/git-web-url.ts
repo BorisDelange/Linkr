@@ -14,6 +14,25 @@
  * and putting that in an `href` would leak it into the browser's history, the
  * referrer and any shoulder-surfer's view of the status bar.
  */
+/**
+ * The repo page a card should open INSTEAD of navigating into the entity, or
+ * null to navigate normally.
+ *
+ * A client-only build cannot clone, so an entity whose content wasn't
+ * reconstituted has nothing behind it — opening it lands on an empty page. The
+ * useful destination is the repository the pointer names, so the whole card
+ * becomes that link. In server mode the content can still be retried in place,
+ * so the card keeps navigating.
+ */
+export function cardRepoUrl(args: {
+  serverMode: boolean
+  status: string | undefined
+  url: string | undefined | null
+}): string | null {
+  if (args.serverMode || !args.status) return null
+  return webRepoUrl(args.url)
+}
+
 export function webRepoUrl(raw: string | undefined | null): string | null {
   const url = (raw ?? '').trim()
   if (!url) return null

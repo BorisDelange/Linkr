@@ -81,6 +81,10 @@ import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-do
 import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
+import { cardRepoUrl } from '@/lib/git-web-url'
+import { isServerMode } from '@/lib/api-client'
+import { useGitContentStatuses } from '@/components/versioning/use-git-content-statuses'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { SchemaERD } from './SchemaERD'
@@ -1003,6 +1007,7 @@ function SchemaCard({
   onCardClick,
   selected,
   actionsMenu,
+  contentBadge,
 }: {
   mapping: SchemaMapping
   createdAt?: string
@@ -1018,6 +1023,9 @@ function SchemaCard({
   onCardClick: (e: React.MouseEvent) => void
   selected: boolean
   actionsMenu: React.ReactNode
+  /** "Content not imported" badge for a git-linked preset whose repo wasn't
+   *  reconstituted. Sits in the footer, right of the meta chips. */
+  contentBadge?: React.ReactNode
 }) {
   const { t, i18n } = useTranslation()
 
@@ -1079,7 +1087,9 @@ function SchemaCard({
             {actionsMenu}
           </div>
         </div>
-        <CardMetaFooter className="mt-auto" createdAt={createdAt} updatedAt={updatedAt} createdBy={createdBy} createdByDetails={createdByDetails} createdById={createdById} organizationId={organizationId} organization={organization} license={license} onOpenLicense={onOpenLicense} />
+        {/* Dates fold into the author tooltip when the badge is present: author +
+            date + licence + badge overflows the row. */}
+        <CardMetaFooter className="mt-auto" createdAt={createdAt} updatedAt={updatedAt} createdBy={createdBy} createdByDetails={createdByDetails} createdById={createdById} organizationId={organizationId} organization={organization} license={license} onOpenLicense={onOpenLicense} compact={!!contentBadge} trailing={contentBadge} />
       </div>
     </Card>
   )
@@ -1769,6 +1779,15 @@ export function SchemaPresetsPage() {
   // Fallback attribution for a preset carrying no snapshot of its own — what its
   // export would inherit, so the card and the published entity.json agree.
   const workspaceOrgId = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === wsUid)?.organizationId)
+  // Git-linked presets whose content wasn't reconstituted → card badge (+ retry
+  // in server mode, a link to the repo in client-only).
+  const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(wsUid)
+  /** Repo page for a preset whose content is missing and can't be cloned here. */
+  const schemaRepoUrl = (id: string, url: string | undefined): string | null => cardRepoUrl({
+    serverMode: isServerMode(),
+    status: contentStatuses.get(`schema-presets:${id}`),
+    url,
+  })
   const loadPresets = useSchemaPresetStore((s) => s.loadPresets)
   const storeSave = useSchemaPresetStore((s) => s.savePreset)
   const storeDelete = useSchemaPresetStore((s) => s.deletePreset)
@@ -2115,16 +2134,36 @@ export function SchemaPresetsPage() {
                   organization={preset.organization}
                   license={preset.license}
                   onOpenLicense={() => navigateToSchemaTab(id, 'license')}
+                  contentBadge={
+                    wsUid && preset.gitRemoteConfig?.url && contentStatuses.get(`schema-presets:${id}`) ? (
+                      <GitContentStatusBadge
+                        workspaceId={wsUid}
+                        scope="schema-presets"
+                        type="schema-preset"
+                        id={id}
+                        name={localized(preset.name, language) || id}
+                        gitRemote={preset.gitRemoteConfig}
+                        status={contentStatuses.get(`schema-presets:${id}`)}
+                        onResolved={refetchContentStatuses}
+                      />
+                    ) : null
+                  }
                   onNavigate={() => navigateToSchema(id)}
                   selected={selection.isSelected(id)}
                   onCardClick={(e) => {
                     if (selection.onCardClick(e, id)) return
+                    // Nothing behind this card in client-only: open the repo that
+                    // holds the content instead of an empty schema page.
+                    const repo = schemaRepoUrl(id, preset.gitRemoteConfig?.url)
+                    if (repo) { window.open(repo, '_blank', 'noopener,noreferrer'); return }
                     navigateToSchema(id)
                   }}
                   actionsMenu={
                     <EntityActionsMenu
                       item={item}
                       {...schemaActions}
+                      // An empty pointer: only removing it does anything useful.
+                      deleteOnly={!!schemaRepoUrl(id, preset.gitRemoteConfig?.url)}
                       onOpenDocs={(_item, tab) => navigateToSchemaTab(id, tab)}
                       // The schema page owns these as tabs, so open it there
                       // rather than stacking a dialog over the list.

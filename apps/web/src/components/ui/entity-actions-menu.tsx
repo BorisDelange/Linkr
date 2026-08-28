@@ -76,6 +76,14 @@ export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedS
   canDelete?: boolean
   /** Extra menu items inserted before the delete separator (e.g. Duplicate). */
   extraItems?: ReactNode
+  /**
+   * Leaves only Delete in the menu.
+   *
+   * For an entity whose content was never imported: editing, exporting,
+   * duplicating or versioning a pointer with nothing behind it would act on an
+   * empty shell. Removing it is the one thing that still means something.
+   */
+  deleteOnly?: boolean
   /** When set, the versioning dialog's Git tab shows the push-only sync panel
    *  for this scope (server mode); the item's id is used as the sync id. */
   syncScope?: GitScope
@@ -129,6 +137,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   canEdit = true,
   canDelete = true,
   extraItems,
+  deleteOnly,
   syncScope,
 }: EntityActionsMenuProps<T>) {
   const { t } = useTranslation()
@@ -186,11 +195,13 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align={align}>
+          {!deleteOnly && (
           <DropdownMenuItem disabled={!canEdit} onClick={(e) => { e.stopPropagation(); setToEdit(item) }}>
             <Pencil size={14} />
             {t('common.edit')}
           </DropdownMenuItem>
-          {(onExport || onExportOverride) && (
+          )}
+          {!deleteOnly && (onExport || onExportOverride) && (
             <DropdownMenuItem onClick={(e) => {
               e.stopPropagation()
               if (onExportOverride) onExportOverride(item)
@@ -201,7 +212,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
               {t('common.export')}
             </DropdownMenuItem>
           )}
-          {(onVersioningOverride || versioningEnabled || gitOnly) && (
+          {!deleteOnly && (onVersioningOverride || versioningEnabled || gitOnly) && (
             <DropdownMenuItem onClick={(e) => {
               e.stopPropagation()
               if (onVersioningOverride) onVersioningOverride(item)
@@ -219,14 +230,14 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
               only what it alone can do. */}
           {/* Duplicate sits last before Delete, where the hand-rolled menus
               (projects, plugins) and the schema page's extraItems put it. */}
-          {onDuplicate && (
+          {!deleteOnly && onDuplicate && (
             <DropdownMenuItem disabled={!canEdit} onClick={(e) => { e.stopPropagation(); onDuplicate(item) }}>
               <Copy size={14} />
               {t('common.duplicate')}
             </DropdownMenuItem>
           )}
-          {extraItems}
-          <DropdownMenuSeparator />
+          {!deleteOnly && extraItems}
+          {!deleteOnly && <DropdownMenuSeparator />}
           <DropdownMenuItem
             disabled={!canDelete}
             onClick={(e) => { e.stopPropagation(); setToDelete(item) }}
