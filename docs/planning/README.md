@@ -91,7 +91,8 @@ server mode is essentially built, and the remaining work is A→D below.
 | ✅ | The `linkr-catalog` repo exists, with `entries/demo-workspace.json` (lineageId, author, org) | S |
 | ✅ | `workspaces/demo-workspace` published, right shape (`entity.json` + `organization.json` + `git-links.json` + pointer folders), lineage matching the catalog entry | S |
 | 🔜 | **A. Complete its child set** — it links 2 projects + 4 schemas; the 2 databases, the ETL pipeline and the mapping project are unlinked, and the DQ rule set + data catalog have no repo. Then install into an empty server instance and diff against the current seed. **Unblocks everything else** | S |
-| 🔜 | **B. `fetch-default-data.mjs`** + extract `seed-manifest.mjs` from the portal `build.sh` (+ unit tests) + CI wiring + clone cache keyed `<repo>@<ref>` | M |
+| ✅ | **B. `fetch-default-data.ts`** + `linkr-format/seed-manifest.ts` (16 tests, shared with the portal) + clone cache + `--offline` + `lean` profile; **the 33 MB of committed seed is deleted**, `public/data/` is now a build artefact | M |
+| 🔜 | B-bis. Wire it into CI (`data:fetch` before `vite build`, cache `.cache/default-data/`), and move `linkr-portal`'s `build.sh` onto the shared indexer — that is what actually retires the duplicated logic | S/M |
 | ✅ | **C. Setup-wizard step 3** — checkbox + one button, on the catalog's own install; `app_settings.default_data` records the decision (incl. "start empty"). The background job was dropped too: the install runs in the browser, so there is nothing to enqueue | S/M |
 | ✅ | **D. Gate the browser seed in server mode** — both phases + the seed-update diff; phase 2 was the worse one (gated on "a workspace exists", so it re-seeded over a fresh catalog install) | S |
 | 🔜 | **[TO TEST]** Wizard end to end on a *virgin* instance (`LINKR_DATA_DIR=/tmp/…`): install → children cloned → decision recorded → no browser re-seed on a second machine | S |

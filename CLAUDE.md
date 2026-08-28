@@ -33,10 +33,20 @@ alembic upgrade head
 
 # Monorepo root
 npm run dev:web / dev:api / dev:all / build
+npm run data:fetch # bake the default data into public/data/seed/ (needs network)
 
 # Docker
 docker compose -f docker/docker-compose.yml up
 ```
+
+**Default data is not in this repo.** It is one published workspace
+(`linkr-public-content/workspaces/demo-workspace`) whose children are git links.
+Server mode installs it through the catalog (setup wizard, step 3); a client-only
+build has no git client, so CI runs `npm run data:fetch` before `vite build` to clone
+it and bake it into `apps/web/public/data/seed/` — that whole folder is a build
+artefact and is gitignored. `npm run dev` does **not** fetch (no network required):
+run `data:fetch` once if you want the demo content locally. Details →
+`docs/planning/default-data-repos-plan.md`.
 
 ## Rules (apply to every task)
 

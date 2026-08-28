@@ -97,19 +97,32 @@ and push. Then **install it into an empty server-mode instance and diff the resu
 today's seed** — that single test validates the entire server-mode story, and is also what
 answers the open question in B about cross-entity links.
 
-**B. `scripts/fetch-default-data.mjs`** — M, the only genuinely new code. Given the
-catalog entry (or the URL directly): clone the workspace repo, read `git-links.json`,
-clone each child at its pinned ref (`git lfs pull` where `.gitattributes` says so), splice
-each child's tree into the workspace tree in place of its pointer, and write the result to
-`apps/web/public/data/seed/<folder>/` + a generated `manifest.json` + `seed.json`.
+**B. `scripts/fetch-default-data.ts`** — ✅ **shipped 2026-08-28**. Clones the workspace
+repo, reads `git-links.json`, clones each child at its pinned ref (`git lfs pull` where
+`.gitattributes` declares it), splices each child's tree over its pointer folder, then
+indexes the result into `apps/web/public/data/seed/<folder>/` + `manifest.json` +
+`seed.json`.
 
-**This is `linkr-portal/scripts/build.sh` §"Generate manifest.json" and
-`sync-git-links.sh`, minus the submodule bookkeeping** — the portal resolves git links to
-submodules because it tracks them; here they are transient clones. Do not write a third
-copy: extract the manifest generation into `scripts/seed-manifest.mjs` with unit tests (it
-is already on the backlog for exactly this reason) and have both call it. The portal's
-type→folder table (`project → projects/`, `mapping-project → mapping-projects/`, …) is the
-mapping to reuse.
+The indexing rule lives in **`packages/linkr-format/src/seed-manifest.ts`** (16 tests),
+not in the script: it is the same job `linkr-portal/scripts/build.sh` does in ~300 lines
+of bash, and one description of the format is the whole point of that package. Pure, over
+`EntityTree`, so it is testable without a filesystem. The portal should be moved onto it —
+that is what retires the duplicate-logic drift risk, and it is the one step of B left.
+
+**`parquetBase` and `tables` are derived from the tree**, not declared: the tables ARE the
+`data/*.parquet` files the repo ships, so the two cannot drift and adding a table needs no
+change here. The only thing a caller supplies is `linkToProject` — see the audit above.
+
+Written in TypeScript and run through `tsx` (`npm run data:fetch`) so it can import the
+shared module directly. Clones are cached under `.cache/default-data/` keyed `<repo>@<ref>`;
+`--offline` refuses the network and fails loudly rather than shipping an empty app, and
+`LINKR_BUILD_PROFILE=lean` bakes nothing.
+
+**The 33 MB of committed seed data is gone** (2026-08-28): `apps/web/public/data/` is now a
+build artefact and is gitignored in full. Note this leaves the client-only build with less
+content than before until the demo workspace links the rest — the OMOP database, the
+vocabulary, the ETL, the mapping project, the dataset and the dashboard were in the seed
+but are not yet published as linked repos. Deliberate, and tracked as A.
 
 **What the manifest must still supply** — audited against the export 2026-08-28, and it
 is far less than this plan assumed:

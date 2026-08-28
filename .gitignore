@@ -51,11 +51,11 @@ build/
 # contract needs its expected files (incl. .csv) tracked (see server-export-plan).
 !apps/web/src/lib/**/__fixtures__/**
 
-# Exception: bundled demo dataset (tracked via Git LFS)
-!apps/web/public/data/**/*.parquet
-
-# Temp data scripts
-apps/web/public/data/temp/
+# The default data is no longer committed: it is one published workspace
+# (`demo-workspace`), fetched and baked into the seed at build time by
+# `npm run data:fetch`. So this whole folder is a build artefact — including the
+# seed-hashes.json the vite plugin writes. See docs/planning/default-data-repos-plan.md.
+apps/web/public/data/
 
 # ETL test directory
 tests-etl/
@@ -75,3 +75,7 @@ config.local.json
 
 # Local design prototypes (not part of the build)
 .prototypes/
+
+# Clones made by scripts/fetch-default-data.ts, keyed <repo>@<ref>. A build cache:
+# pinned refs make it a perfect hit, and deleting it only costs one re-clone.
+.cache/
