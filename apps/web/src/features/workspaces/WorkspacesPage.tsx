@@ -161,8 +161,8 @@ export function WorkspacesPage() {
   ): Promise<void> => {
     const wsId = workspaceId ?? gitLinkedWsId
     if (!wsId) return
-    const { scopeForLinkedType, gitSetContentStatus, gitClearContentStatus } = await import('@/lib/api/git')
-    const scope = scopeForLinkedType[e.type]
+    const { contentScopeForLinkedType, gitSetContentStatus, gitClearContentStatus } = await import('@/lib/api/git')
+    const scope = contentScopeForLinkedType[e.type]
     if (!scope) return
     if (!isServerMode()) {
       const { setLocalGitContentStatus } = await import('@/components/versioning/use-git-content-statuses')

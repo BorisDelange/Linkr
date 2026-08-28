@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { type GitContentStatus, type GitScope } from '@/lib/api/git'
 import { retryGitContentClone } from '@/lib/git-content-retry'
+import { webRepoUrl } from '@/lib/git-web-url'
+import { cn } from '@/lib/utils'
 import type { GitLinkedEntity } from '@/lib/entity-io'
 
 interface Props {
@@ -43,14 +45,43 @@ export function GitContentStatusBadge({ workspaceId, scope, type, id, name, gitR
     }
   }
 
+  // Client-only has no git client, so there is nothing to retry — the one useful
+  // action is to go read the repo the pointer names. The badge becomes that link.
+  const repoUrl = !isServerMode() && gitRemote?.url ? webRepoUrl(gitRemote.url) : null
+
+  const badge = (
+    <Badge
+      variant="outline"
+      className={cn(
+        'gap-1 border-amber-400 text-amber-600 dark:text-amber-400',
+        repoUrl && 'cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-950/40',
+      )}
+    >
+      <AlertTriangle size={12} />
+      {t('versioning.content_not_imported')}
+      {repoUrl && <ExternalLink size={11} className="opacity-70" />}
+    </Badge>
+  )
+
   return (
     <div className="flex items-center gap-1.5">
       <Tooltip>
         <TooltipTrigger asChild>
-          <Badge variant="outline" className="gap-1 border-amber-400 text-amber-600 dark:text-amber-400">
-            <AlertTriangle size={12} />
-            {t('versioning.content_not_imported')}
-          </Badge>
+          {repoUrl ? (
+            <a
+              href={repoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              // The badge sits inside a clickable card; without this the card's
+              // own onClick navigates instead of the link opening.
+              onClick={(e) => e.stopPropagation()}
+              className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {badge}
+            </a>
+          ) : (
+            badge
+          )}
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">
           <p className="whitespace-pre-line">
@@ -58,6 +89,11 @@ export function GitContentStatusBadge({ workspaceId, scope, type, id, name, gitR
               ? t('versioning.content_not_imported_hint')
               : t('versioning.content_not_imported_hint_clientonly')}
           </p>
+          {repoUrl && (
+            <p className="mt-2 border-t border-border/50 pt-2 font-medium">
+              {t('versioning.content_open_repo')}
+            </p>
+          )}
           {retryError && (
             <div className="mt-2 border-t border-border/50 pt-2">
               <p className="mb-1 font-medium text-amber-500">{t('versioning.content_import_error_label')}</p>

@@ -158,6 +158,26 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(activeWorkspaceId)
   const linkedType = syncScope ? linkedTypeForScope[syncScope] : undefined
 
+  /** The "content not imported" badge for a card, or null when it doesn't apply.
+   *  Rendered in the footer's trailing slot, pinned right of the meta chips. */
+  const contentBadge = (item: T): React.ReactNode => {
+    const status = syncScope ? contentStatuses.get(`${syncScope}:${item.id}`) : undefined
+    const remote = getGitRemote?.(item)
+    if (!activeWorkspaceId || !syncScope || !linkedType || !remote || !status) return null
+    return (
+      <GitContentStatusBadge
+        workspaceId={activeWorkspaceId}
+        scope={syncScope}
+        type={linkedType as GitLinkedEntity['type']}
+        id={item.id}
+        name={typeof item.name === 'string' ? item.name : (item.name?.en ?? item.id)}
+        gitRemote={remote}
+        status={status}
+        onResolved={refetchContentStatuses}
+      />
+    )
+  }
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const selection = useCardSelection(items.map((i) => i.id))
@@ -267,20 +287,6 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                       />,
                     )}
                   </div>
-                  {activeWorkspaceId && syncScope && linkedType && getGitRemote?.(item) && contentStatuses.get(`${syncScope}:${item.id}`) && (
-                    <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-                      <GitContentStatusBadge
-                        workspaceId={activeWorkspaceId}
-                        scope={syncScope}
-                        type={linkedType as GitLinkedEntity['type']}
-                        id={item.id}
-                        name={typeof item.name === 'string' ? item.name : (item.name?.en ?? item.id)}
-                        gitRemote={getGitRemote(item)}
-                        status={contentStatuses.get(`${syncScope}:${item.id}`)}
-                        onResolved={refetchContentStatuses}
-                      />
-                    </div>
-                  )}
                   <CardMetaFooter
                     className="mt-auto"
                     createdById={item.createdById}
@@ -290,12 +296,17 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                     organization={item.organization}
                     createdAt={item.createdAt}
                     updatedAt={item.updatedAt}
+                    // Author + date + licence + the badge overflows one row, so the
+                    // dates move into the author tooltip — same trade the catalog
+                    // cards make when their row is full.
+                    datesInAuthorTooltip={!!contentBadge(item)}
                     license={docs ? docs.getLicense(item) : undefined}
                     onOpenLicense={
                       onOpenDocs
                         ? () => onOpenDocs(item, 'license')
                         : docs ? () => setLicenseTarget(item) : undefined
                     }
+                    trailing={contentBadge(item)}
                   />
                 </div>
               </Card>

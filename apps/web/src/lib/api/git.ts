@@ -17,6 +17,10 @@ export type GitScope =
   | 'data-catalogs'
   | 'dq-rule-sets'
   | 'schema-presets'
+  // Databases are not versionable (no git panel of their own), but they ARE
+  // git-linkable as a workspace child, so their content can be missing after an
+  // import — which is what the content-status rows record.
+  | 'databases'
   | 'user-plugins'
   // Account-level settings (organizations + users + roles), id "account". The
   // server builds the export tree; the panel drives which files to push.
@@ -360,9 +364,29 @@ export const scopeForLinkedType: Record<string, GitScope> = {
   'schema-preset': 'schema-presets',
 }
 
-/** Inverse of scopeForLinkedType: GitScope → the singular GitLinkedEntity type. */
+/**
+ * A linked type's scope for CONTENT-STATUS purposes only.
+ *
+ * Wider than `scopeForLinkedType`: a database is git-linkable inside a workspace
+ * and so its content can be missing after an import, but it has no versioning
+ * panel and no sync-state endpoint — anchoring one would POST to a route that
+ * does not exist. The two questions ("can I version this?" and "did this
+ * entity's content arrive?") have different answers, so they get different maps.
+ *
+ * Without the database entry `syncContentStatus` bailed on the unmapped type,
+ * and a git-linked database was the one linked entity that never showed the
+ * "content not imported" badge.
+ */
+export const contentScopeForLinkedType: Record<string, GitScope> = {
+  ...scopeForLinkedType,
+  'database': 'databases',
+}
+
+/** Inverse of contentScopeForLinkedType: GitScope → the singular GitLinkedEntity
+ *  type. Built from the wider map so a `databases` scope resolves back — this is
+ *  what the card badge uses to name the entity it offers to retry. */
 export const linkedTypeForScope: Partial<Record<GitScope, string>> = Object.fromEntries(
-  Object.entries(scopeForLinkedType).map(([type, scope]) => [scope, type]),
+  Object.entries(contentScopeForLinkedType).map(([type, scope]) => [scope, type]),
 )
 
 export async function gitContentStatusList(workspaceId: string): Promise<GitContentStatus[]> {

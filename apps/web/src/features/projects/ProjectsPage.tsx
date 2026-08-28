@@ -55,7 +55,7 @@ import { CreateProjectDialog } from './CreateProjectDialog'
 import { getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
 import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
-import type { Project } from '@/types'
+import type { GitRemoteConfig, LocalizedString, Project } from '@/types'
 
 export function ProjectsPage() {
   const { t, i18n } = useTranslation()
@@ -65,6 +65,27 @@ export function ProjectsPage() {
   const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject, loadProjects } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(activeWorkspaceId)
+  /** The "content not imported" badge for a project card, or null when it doesn't
+   *  apply. Sits in the footer's trailing slot, pinned right of the meta chips. */
+  const projectContentBadge = (
+    project: { uid: string; name: string | LocalizedString },
+    raw: { gitRemoteConfig?: GitRemoteConfig } | undefined,
+  ): React.ReactNode => {
+    const status = contentStatuses.get(`projects:${project.uid}`)
+    if (!activeWorkspaceId || !raw?.gitRemoteConfig?.url || !status) return null
+    return (
+      <GitContentStatusBadge
+        workspaceId={activeWorkspaceId}
+        scope="projects"
+        type="project"
+        id={project.uid}
+        name={typeof project.name === 'string' ? project.name : project.uid}
+        gitRemote={raw.gitRemoteConfig}
+        status={status}
+        onResolved={refetchContentStatuses}
+      />
+    )
+  }
   // A project shows its origin org: its own inlined snapshot (imports) when present,
   // else the workspace's org resolved live — same fallback as ListPageTemplate, so a
   // freshly-created project (no inline snapshot) still shows the workspace org.
@@ -507,20 +528,6 @@ export function ProjectsPage() {
                     </div>
                     <BadgeStrip badges={badges} className="mt-1.5 h-5" />
                    </div>
-                    {activeWorkspaceId && raw?.gitRemoteConfig?.url && contentStatuses.get(`projects:${project.uid}`) && (
-                      <div className="px-1" onClick={(e) => e.stopPropagation()}>
-                        <GitContentStatusBadge
-                          workspaceId={activeWorkspaceId}
-                          scope="projects"
-                          type="project"
-                          id={project.uid}
-                          name={typeof project.name === 'string' ? project.name : project.uid}
-                          gitRemote={raw.gitRemoteConfig}
-                          status={contentStatuses.get(`projects:${project.uid}`)}
-                          onResolved={refetchContentStatuses}
-                        />
-                      </div>
-                    )}
                     <CardMetaFooter
                       createdById={raw?.createdById}
                       createdBy={raw?.createdBy}
@@ -529,6 +536,10 @@ export function ProjectsPage() {
                       organization={raw?.organization}
                       createdAt={project.createdAt}
                       updatedAt={project.updatedAt}
+                      // Author + date + licence + the badge overflows one row, so
+                      // the dates move into the author tooltip.
+                      datesInAuthorTooltip={!!projectContentBadge(project, raw)}
+                      trailing={projectContentBadge(project, raw)}
                       license={raw?.license}
                       onOpenLicense={() => {
                         openProject(project.uid, localized(project.name, i18n.language))

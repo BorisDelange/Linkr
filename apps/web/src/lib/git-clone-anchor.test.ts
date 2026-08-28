@@ -43,6 +43,23 @@ describe('anchorClonedEntity', () => {
     expect(gitMocks.gitSetSyncState).not.toHaveBeenCalled()
   })
 
+  // Two questions, two maps: "can I version this?" (scopeForLinkedType, drives
+  // the anchoring above) and "did this entity's content arrive?"
+  // (contentScopeForLinkedType). A database answers no to the first and yes to
+  // the second — merging them would anchor it against a route that isn't there.
+  it('keeps the content-status map wider than the versionable one', async () => {
+    const { scopeForLinkedType, contentScopeForLinkedType, linkedTypeForScope } =
+      await import('@/lib/api/git')
+    expect(scopeForLinkedType['database']).toBeUndefined()
+    expect(contentScopeForLinkedType['database']).toBe('databases')
+    // Every versionable type still resolves through the wider map.
+    for (const [type, scope] of Object.entries(scopeForLinkedType)) {
+      expect(contentScopeForLinkedType[type]).toBe(scope)
+    }
+    // The badge resolves a scope back to the type it names.
+    expect(linkedTypeForScope['databases']).toBe('database')
+  })
+
   it('skips when the clone reported no oid', async () => {
     await anchorClonedEntity('project', 'p1', 'main', null)
     await anchorClonedEntity('project', 'p1', 'main', undefined)
