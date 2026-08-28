@@ -292,6 +292,11 @@ function ConnectionCard({ source }: { source: DataSource }) {
   // Where the data actually sits on the server, so it can be read from an
   // R/Python script outside Linkr. Server mode only: the browser build keeps its
   // data inside the WASM sandbox, where there is no path to give.
+  //
+  // Re-read on `status` too, not just on the row: rebuilding from the schema
+  // creates the file this describes without changing the id, so everything the
+  // server answered here — the path, the Parquet list, the blob size — was stale
+  // the moment it succeeded, and File location kept reading empty.
   useEffect(() => {
     if (!isServerMode()) {
       setConnInfo(null)
@@ -302,7 +307,7 @@ function ConnectionCard({ source }: { source: DataSource }) {
       .then((r) => { if (!cancelled) setConnInfo(r) })
       .catch(() => { if (!cancelled) setConnInfo(null) })
     return () => { cancelled = true }
-  }, [source.id])
+  }, [source.id, source.status])
 
   const parquetTables = connInfo?.kind === 'parquet-folder' ? connInfo.tables : []
   const filePath = connInfo?.kind === 'file' ? connInfo.path : null
