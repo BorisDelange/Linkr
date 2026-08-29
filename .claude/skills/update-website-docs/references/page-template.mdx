@@ -1,0 +1,43 @@
+---
+layout: "@/layouts/DocsLayout.astro"
+title: "Titre de la page"
+description: "Une phrase qui dit ce que la page couvre — reprise sous le titre et dans les résultats de recherche."
+section: "nom-de-la-section"
+slug: "slug-de-la-page"
+---
+import Callout from "@/components/ui/Callout.astro";
+import DeploymentBadges from "@/components/docs/DeploymentBadges.astro";
+
+{/* Bloc « En résumé » — toujours en premier, toujours bleu. EN : le libellé devient « Summary ». */}
+<div class="not-prose my-6 rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50/80 dark:bg-blue-950/30 p-5 sm:p-6">
+  <p class="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-2">En résumé</p>
+  <p class="text-[15px] leading-relaxed text-foreground/90">
+    Deux à quatre phrases qui posent le sujet, avec les <strong>notions clés</strong> en gras.
+  </p>
+</div>
+
+<DeploymentBadges client="available" backend="planned" />
+
+## Première section
+
+Le corps commence en `##` — le `h1` vient du `title` du frontmatter.
+
+<Callout type="note" title="Titre du callout">
+Une remarque, un renvoi vers une page voisine, une limite à connaître.
+</Callout>
+
+## Deuxième section
+
+- **Un terme** — son explication en une ligne.
+- **Un autre terme** — idem.
+
+### Sous-section
+
+Texte.
+
+## Pour aller plus loin
+
+<ul>
+  <li><a href="/docs/section/page">Titre de la page</a> — pourquoi la lire.</li>
+  <li><a href="/resources/article">Titre de la ressource</a> — pour approfondir la notion.</li>
+</ul>
