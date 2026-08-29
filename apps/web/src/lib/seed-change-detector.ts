@@ -234,15 +234,12 @@ export function isBaselineStale(stored: SeedHashesManifest | null): boolean {
  * one — the bundled default workspace being swapped for another, which reuses the same
  * `default/` folder.
  *
- * Requires an identity on BOTH sides: a baseline stored before the field existed has
- * none, and treating that absence as a change would announce a replacement on the first
- * run after upgrading, for every user. Unknown therefore means "not replaced", leaving
- * the hash comparison to speak.
+ * A baseline written before `workspaceIdentity` existed cannot reach this: it fails the
+ * schema-version check and is reset first (see SEED_HASHES_SCHEMA_VERSION). So an identity
+ * present on one side and absent on the other is a real difference, not a stale baseline.
  */
 function isReplacedWorkspace(oldWs: SeedEntityHashes, newWs: SeedEntityHashes): boolean {
-  const before = oldWs.workspaceIdentity
-  const after = newWs.workspaceIdentity
-  return !!before && !!after && before !== after
+  return oldWs.workspaceIdentity !== newWs.workspaceIdentity
 }
 
 /**

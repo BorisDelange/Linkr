@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { mergeSeedHashesFor, dropFromSeedHashes, diffSeedHashes, isBaselineStale } from './seed-change-detector'
 import type { SeedHashesManifest, SeedEntityHashes } from '../../vite-plugin-seed-hashes'
+// Tracked, not hardcoded: a baseline's schemaVersion has to follow the constant, or every
+// fixture goes stale — and reads as "no changes" — the next time the shape is bumped.
+import { SEED_HASHES_SCHEMA_VERSION } from './seed-schema-version'
 
 // mergeSeedHashesFor advances the stored baseline to `current` for ONLY the selected
 // entities. A wrong merge either re-notifies forever (didn't advance) or hides future
@@ -15,14 +18,14 @@ function emptyEntity(workspace = 'w0') {
 }
 
 const stored: SeedHashesManifest = {
-  schemaVersion: 2,
+  schemaVersion: SEED_HASHES_SCHEMA_VERSION,
   workspaces: {
     ricdc: { ...emptyEntity('w0'), projects: { neoclip: 'old1', other: 'old2' } },
   },
 }
 
 const current: SeedHashesManifest = {
-  schemaVersion: 2,
+  schemaVersion: SEED_HASHES_SCHEMA_VERSION,
   workspaces: {
     ricdc: { ...emptyEntity('w1'), projects: { neoclip: 'new1', other: 'new2' } },
   },
@@ -47,7 +50,7 @@ describe('mergeSeedHashesFor', () => {
 
   it('drops an entity from the baseline when it was removed from the seed', () => {
     const currentRemoved: SeedHashesManifest = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { ricdc: { ...emptyEntity('w0'), projects: { other: 'old2' } } },
     }
     const merged = mergeSeedHashesFor(stored, currentRemoved, [
@@ -58,7 +61,7 @@ describe('mergeSeedHashesFor', () => {
 
   it('copies a brand-new workspace wholesale', () => {
     const currentNew: SeedHashesManifest = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: {
         ricdc: stored.workspaces.ricdc,
         extra: { ...emptyEntity('we'), datasets: { d1: 'h1' } },
@@ -90,11 +93,11 @@ describe('mergeSeedHashesFor', () => {
   // "can't access property <id>, undefined" when applying a re-seed of that type.
   it('creates a missing entity-type map instead of throwing (stale baseline)', () => {
     const staleStored = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { ricdc: { workspace: 'w0', projects: { neoclip: 'old1' } } },
     } as unknown as SeedHashesManifest
     const currentWithEtl: SeedHashesManifest = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { ricdc: { ...emptyEntity('w0'), etlPipelines: { 'etl-7': 'h7' } } as SeedEntityHashes },
     }
     const merged = mergeSeedHashesFor(staleStored, currentWithEtl, [
@@ -135,7 +138,7 @@ describe('dropFromSeedHashes', () => {
 
   it('tolerates a stale baseline missing the entity-type map', () => {
     const staleStored = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { ricdc: { workspace: 'w0', projects: { neoclip: 'old1' } } },
     } as unknown as SeedHashesManifest
     const merged = dropFromSeedHashes(staleStored, [
@@ -181,25 +184,25 @@ describe('diffSeedHashes', () => {
     cs.map((c) => `${c.entityType}:${c.entityId}:${c.changeType}`).sort()
 
   it('reports no changes for identical baselines', () => {
-    const a: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ projects: { p1: 'h' } }) } }
+    const a: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: { w: ws({ projects: { p1: 'h' } }) } }
     expect(diffSeedHashes(a, a)).toEqual([])
   })
 
   it('detects a modified entity (hash changed)', () => {
-    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ projects: { p1: 'old' } }) } }
-    const c: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ projects: { p1: 'new' } }) } }
+    const s: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: { w: ws({ projects: { p1: 'old' } }) } }
+    const c: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: { w: ws({ projects: { p1: 'new' } }) } }
     expect(types(diffSeedHashes(s, c))).toEqual(['project:p1:modified'])
   })
 
   it('detects an added and a removed entity', () => {
-    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ datasets: { d1: 'h' } }) } }
-    const c: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ datasets: { d2: 'h' } }) } }
+    const s: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: { w: ws({ datasets: { d1: 'h' } }) } }
+    const c: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: { w: ws({ datasets: { d2: 'h' } }) } }
     expect(types(diffSeedHashes(s, c))).toEqual(['dataset:d1:removed', 'dataset:d2:added'])
   })
 
   it('flags workspace metadata changes (workspace hash)', () => {
-    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ workspace: 'm1' }) } }
-    const c: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ workspace: 'm2' }) } }
+    const s: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: { w: ws({ workspace: 'm1' }) } }
+    const c: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: { w: ws({ workspace: 'm2' }) } }
     expect(types(diffSeedHashes(s, c))).toEqual(['workspace:w:modified'])
   })
 
@@ -208,11 +211,11 @@ describe('diffSeedHashes', () => {
   // and created the new one beside it, leaving the old row orphaned with its children gone.
   it('reports a replaced workspace as removed + added, not modified', () => {
     const s: SeedHashesManifest = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { w: { ...ws({ workspace: 'm1' }), workspaceIdentity: 'old-id' } },
     }
     const c: SeedHashesManifest = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { w: { ...ws({ workspace: 'm2' }), workspaceIdentity: 'new-id' } },
     }
     expect(types(diffSeedHashes(s, c))).toEqual(['workspace:w:added', 'workspace:w:removed'])
@@ -220,31 +223,40 @@ describe('diffSeedHashes', () => {
 
   it('still reports a same-identity edit as modified', () => {
     const s: SeedHashesManifest = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { w: { ...ws({ workspace: 'm1' }), workspaceIdentity: 'same' } },
     }
     const c: SeedHashesManifest = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { w: { ...ws({ workspace: 'm2' }), workspaceIdentity: 'same' } },
     }
     expect(types(diffSeedHashes(s, c))).toEqual(['workspace:w:modified'])
   })
 
-  it('does not claim a replacement when the stored baseline predates identities', () => {
-    // Every existing user upgrades with an identity-less baseline; announcing a
-    // replacement there would wrongly offer to delete their default workspace.
-    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ workspace: 'm1' }) } }
+  it('treats an identity appearing where there was none as a replacement', () => {
+    // An identity-less baseline never reaches the diff — it fails the schema-version
+    // check and is reset first — so this asymmetry is a real difference, not a stale
+    // baseline to be tolerated.
+    const s: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: { w: ws({ workspace: 'm1' }) } }
     const c: SeedHashesManifest = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { w: { ...ws({ workspace: 'm2' }), workspaceIdentity: 'new-id' } },
     }
+    expect(types(diffSeedHashes(s, c))).toEqual(['workspace:w:added', 'workspace:w:removed'])
+  })
+
+  it('leaves an identity-less pair to the hash comparison', () => {
+    // Neither side declares one (a workspace export without id or lineageId): nothing
+    // to compare, so the metadata hash decides — never a spurious replacement.
+    const s: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: { w: ws({ workspace: 'm1' }) } }
+    const c: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: { w: ws({ workspace: 'm2' }) } }
     expect(types(diffSeedHashes(s, c))).toEqual(['workspace:w:modified'])
   })
 
   it('lists children when a whole workspace is added', () => {
-    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: {} }
+    const s: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: {} }
     const c: SeedHashesManifest = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { w: ws({ projects: { p1: 'h' }, datasets: { d1: 'h' } }) },
     }
     expect(types(diffSeedHashes(s, c))).toEqual(['dataset:d1:added', 'project:p1:added', 'workspace:w:added'])
@@ -252,10 +264,10 @@ describe('diffSeedHashes', () => {
 
   it('lists children when a whole workspace is removed', () => {
     const s: SeedHashesManifest = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { w: ws({ projects: { p1: 'h' }, dashboards: { db1: 'h' } }) },
     }
-    const c: SeedHashesManifest = { schemaVersion: 2, workspaces: {} }
+    const c: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: {} }
     expect(types(diffSeedHashes(s, c))).toEqual(['dashboard:db1:removed', 'project:p1:removed', 'workspace:w:removed'])
   })
 
@@ -264,9 +276,9 @@ describe('diffSeedHashes', () => {
       databases: {}, conceptMappings: {}, etlScripts: {}, datasets: {},
       dashboards: {}, projects: { p1: 'My Project' }, mappingProjects: {}, dqRuleSets: {}, catalogs: {},
     }
-    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: {} }
+    const s: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: {} }
     const c: SeedHashesManifest = {
-      schemaVersion: 2,
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
       workspaces: { w: { ...ws({ projects: { p1: 'h' } }), names } },
     }
     const proj = diffSeedHashes(s, c).find((x) => x.entityType === 'project')
