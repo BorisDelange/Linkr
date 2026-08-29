@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
+import { useSplitPreferredSize } from '@/hooks/use-split-preferred-size'
 import 'allotment/dist/style.css'
 import {
   usePatientChartStore,
@@ -31,8 +32,21 @@ import { PluginPicker } from '@/components/PluginPicker'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { ConceptSelectField } from './ConceptSelectField'
 import { SizedPatientWidgetPreview } from './PatientWidgetPreview'
-import { defaultPatientWidgetLayout } from './patient-grid'
 import type { Plugin, PluginConfigField } from '@/types/plugin'
+
+/**
+ * Starting size of the add-time preview, in grid cells.
+ *
+ * Deliberately NOT the footprint the widget will land on — at this stage there is no
+ * widget yet — and deliberately not the board's full width either: the preview only
+ * gets the right-hand pane, whose width the user sets by dragging the split. Sized to
+ * sit comfortably in it; drag the grip for anything else. The board still places the
+ * widget at its own default, whatever the preview shows.
+ */
+const ADD_PREVIEW_LAYOUT = { w: 26, h: 15 }
+
+/** Share of the split taken by the config pane, on open and on sash double-click. */
+const CONFIG_PANE_FRACTION = 0.4
 
 interface AddPatientWidgetDialogProps {
   open: boolean
@@ -141,6 +155,7 @@ export function AddPatientWidgetDialog({
   // Stable across the config step, so the previewed widget keeps its per-widget caches
   // instead of remounting on every config change.
   const [previewWidgetId] = useState(() => `preview-${crypto.randomUUID()}`)
+  const { containerRef: splitRef, preferredSize: configPaneSize } = useSplitPreferredSize(CONFIG_PANE_FRACTION)
 
   // Plugin config step — settings on the left, the widget itself on the right at the
   // footprint it will occupy, the same shape as the dashboard's add-widget dialog.
@@ -153,17 +168,18 @@ export function AddPatientWidgetDialog({
     return (
       <>
         <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
-          <DialogContent className="flex h-[80vh] max-h-[80vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
+          <DialogContent className="flex h-[80vh] max-h-[80vh] w-[80vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[80vw]">
             {/* pr-12 keeps the actions clear of the dialog's own close button, which is
                 absolutely positioned in the top-right corner. */}
             <div className="flex shrink-0 items-center gap-2 border-b py-3 pl-4 pr-12">
-              <Button
-                variant="ghost"
-                size="icon-xs"
+              {/* Same back affordance as the page header's. */}
+              <button
                 onClick={() => setConfigPlugin(null)}
+                className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                title={t('common.back')}
               >
-                <ArrowLeft size={14} />
-              </Button>
+                <ArrowLeft size={15} />
+              </button>
               <div className="min-w-0 flex-1">
                 <DialogTitle className="truncate text-sm font-semibold">{pluginName}</DialogTitle>
                 <DialogDescription className="text-xs">
@@ -178,9 +194,12 @@ export function AddPatientWidgetDialog({
               </Button>
             </div>
 
-            <div className="min-h-0 flex-1">
+            <div ref={splitRef} className="min-h-0 flex-1">
+              {/* Rendered only once the container is measured, so the split opens at its
+                  intended width and the sash double-click has a pixel size to restore. */}
+              {configPaneSize !== null && (
               <Allotment proportionalLayout={false}>
-                <Allotment.Pane preferredSize="40%" minSize={280}>
+                <Allotment.Pane preferredSize={configPaneSize} minSize={280}>
                   <ScrollArea className="h-full">
                     <div className="space-y-4 p-4">
                       <div className="space-y-2">
@@ -227,13 +246,14 @@ export function AddPatientWidgetDialog({
                       pluginId={configPlugin.manifest.id}
                       widgetId={previewWidgetId}
                       config={debouncedConfig}
-                      layout={defaultPatientWidgetLayout(configPlugin.manifest.id)}
+                      layout={ADD_PREVIEW_LAYOUT}
                       widgetSpacing={widgetSpacing}
                       fitToHeight={fitToHeight}
                     />
                   </div>
                 </Allotment.Pane>
               </Allotment>
+              )}
             </div>
           </DialogContent>
         </Dialog>

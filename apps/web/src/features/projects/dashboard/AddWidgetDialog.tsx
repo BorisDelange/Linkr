@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
+import { useSplitPreferredSize } from '@/hooks/use-split-preferred-size'
 import 'allotment/dist/style.css'
 import { ArrowLeft, Database, TriangleAlert } from 'lucide-react'
 import { PythonLogo, RLogo } from '@/components/ui/language-icon'
@@ -10,6 +11,7 @@ import { localized, toLocalized } from '@/lib/localized'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { measureFitRows } from './dashboard-grid'
+import { SizedPreview } from './SizedPreview'
 import { getLabPlugins } from '@/lib/plugins/registry'
 import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
 import { isServerMode } from '@/lib/api-client'
@@ -50,6 +52,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const LAST_DATASET_KEY = 'linkr-add-widget-last-dataset'
 
+/**
+ * Starting size of the add-time preview, in grid cells.
+ *
+ * Deliberately NOT the footprint the widget will land on — at this stage there is no
+ * widget yet — and deliberately not the board's full width either: the preview only
+ * gets the right-hand pane, whose width the user sets by dragging the split. Sized to
+ * sit comfortably in it; drag the grip for anything else. The board still places the
+ * widget at its own default, whatever the preview shows.
+ */
+const ADD_PREVIEW_LAYOUT = { w: 26, h: 15 }
+
+/** Share of the split taken by the config pane, on open and on sash double-click. */
+const CONFIG_PANE_FRACTION = 0.4
+
 interface AddWidgetDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -77,6 +93,12 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
   }
   const { files: datasetFiles, getFileRows, ensureServerMeta } = useDatasetStore()
 
+  // Spacing of the board this widget will land on, so the preview snaps to the same cells.
+  const widgetSpacing = useMemo(() => {
+    const dashboardId = tabs.find((tb) => tb.id === tabId)?.dashboardId
+    return dashboards.find((d) => d.id === dashboardId)?.widgetSpacing
+  }, [tabs, dashboards, tabId])
+
   const lang = i18n.language as 'en' | 'fr'
   // Existing widget names in this tab (active language, for uniqueness check)
   const tabWidgetNames = useMemo(
@@ -84,6 +106,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
     [widgets, tabId, lang]
   )
   const [activeTab, setActiveTab] = useState('plugin')
+  const { containerRef: splitRef, preferredSize: configPaneSize } = useSplitPreferredSize(CONFIG_PANE_FRACTION)
 
   // Restore last-used dataset for this project
   const [datasetFileId, setDatasetFileId] = useState<string | null>(null)
@@ -318,17 +341,18 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
 
     return (
       <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
-        <DialogContent className="sm:max-w-6xl h-[80vh] max-h-[80vh] overflow-hidden flex flex-col p-0 gap-0">
+        <DialogContent className="h-[80vh] max-h-[80vh] w-[80vw] overflow-hidden flex flex-col p-0 gap-0 sm:max-w-[80vw]">
           {/* Header. pr-12 keeps the actions clear of the dialog's own close
               button, which is absolutely positioned in the top-right corner. */}
           <div className="flex items-center gap-2 border-b py-3 pl-4 pr-12 shrink-0">
-            <Button
-              variant="ghost"
-              size="icon-xs"
+            {/* Same back affordance as the page header's. */}
+            <button
               onClick={() => setConfigPlugin(null)}
+              className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              title={t('common.back')}
             >
-              <ArrowLeft size={14} />
-            </Button>
+              <ArrowLeft size={15} />
+            </button>
             <div className="flex-1 min-w-0">
               <h2 className="text-sm font-semibold truncate">{pluginName}</h2>
               <p className="text-xs text-muted-foreground">{t('dashboard.plugin_configure_description')}</p>
@@ -342,10 +366,13 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
           </div>
 
           {/* Split: config (left) + preview (right) */}
-          <div className="flex-1 min-h-0">
+          <div ref={splitRef} className="flex-1 min-h-0">
+            {/* Rendered only once the container is measured, so the split opens at its
+                intended width and the sash double-click has a pixel size to restore. */}
+            {configPaneSize !== null && (
             <Allotment proportionalLayout={false}>
               {/* Left: config panel */}
-              <Allotment.Pane preferredSize="45%" minSize={280}>
+              <Allotment.Pane preferredSize={configPaneSize} minSize={280}>
                 <ScrollArea className="h-full">
                   <div className="space-y-4 p-4">
                     {nameInput}
@@ -382,30 +409,33 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
                 </ScrollArea>
               </Allotment.Pane>
 
-              {/* Right: live preview */}
-              <Allotment.Pane minSize={200}>
-                <div className="h-full overflow-auto border-l bg-muted/30">
-                  {PreviewComponent && isServerMode() && configPlugin.componentId && !componentSupportsServer(configPlugin.componentId) ? (
-                    <div className="flex h-full items-center justify-center p-3 text-center text-xs text-muted-foreground">
-                      {t('datasets.component_server_unavailable')}
-                    </div>
-                  ) : PreviewComponent ? (
-                    <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">…</div>}>
-                      <PreviewComponent
-                        config={debouncedConfig}
-                        columns={columns}
-                        rows={rows}
-                        datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
-                      />
-                    </Suspense>
-                  ) : (
-                    <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
-                      {t('dashboard.preview_not_available')}
-                    </div>
-                  )}
+              {/* Right: live preview, resizable like the widget editor's */}
+              <Allotment.Pane minSize={280}>
+                <div className="h-full border-l">
+                  <SizedPreview layout={ADD_PREVIEW_LAYOUT} widgetSpacing={widgetSpacing}>
+                    {PreviewComponent && isServerMode() && configPlugin.componentId && !componentSupportsServer(configPlugin.componentId) ? (
+                      <div className="flex h-full items-center justify-center p-3 text-center text-xs text-muted-foreground">
+                        {t('datasets.component_server_unavailable')}
+                      </div>
+                    ) : PreviewComponent ? (
+                      <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">…</div>}>
+                        <PreviewComponent
+                          config={debouncedConfig}
+                          columns={columns}
+                          rows={rows}
+                          datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
+                        />
+                      </Suspense>
+                    ) : (
+                      <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
+                        {t('dashboard.preview_not_available')}
+                      </div>
+                    )}
+                  </SizedPreview>
                 </div>
               </Allotment.Pane>
             </Allotment>
+            )}
           </div>
         </DialogContent>
       </Dialog>

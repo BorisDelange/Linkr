@@ -302,7 +302,11 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
         {/* Current-level tabs. Thin scrollbar; the row reserves a little extra height (py-1) so
             the scrollbar sits below the labels and the tabs stay vertically aligned with the
             breadcrumb instead of being pushed up. */}
-        <div className="flex min-w-0 flex-1 items-center overflow-x-auto py-1 [scrollbar-width:thin]">
+        {/* shrink, don't grow: with flex-1 the row filled the bar and pushed the
+            Add tab button to the far right instead of sitting after the last tab. It
+            must still be able to shrink (min-w-0) so many tabs scroll rather than
+            squeezing the button out. */}
+        <div className="flex min-w-0 shrink items-center overflow-x-auto py-1 [scrollbar-width:thin]">
           {/* One TooltipProvider around the whole row: the first tab's description tooltip waits 1s,
               then hovering the other tabs shows theirs immediately; leaving the row resets the delay. */}
           <TooltipProvider delayDuration={1000}>

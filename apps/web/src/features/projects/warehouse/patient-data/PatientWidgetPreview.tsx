@@ -82,13 +82,20 @@ export function SizedPatientWidgetPreview({
 }: SizedPatientWidgetPreviewProps) {
   const { t } = useTranslation()
 
-  const geometry = measurePatientGridGeometry(widgetSpacing, fitToHeight) ?? {
-    cols: 48,
-    containerWidth: FALLBACK_GRID_WIDTH,
-    rowHeight: FALLBACK_ROW_HEIGHT,
-    margin: [widgetSpacing ?? 8, widgetSpacing ?? 8] as [number, number],
-    containerPadding: [12, 12] as [number, number],
-  }
+  // Measured ONCE, not on every render. `fitToHeight` derives rowHeight from the
+  // board's viewport height — which this preview box is inside and grows — so
+  // re-measuring each render fed the box its own size back and ran the height up to
+  // millions of pixels. The board cannot change while this dialog is over it.
+  const [geometry] = useState(
+    () =>
+      measurePatientGridGeometry(widgetSpacing, fitToHeight) ?? {
+        cols: 48,
+        containerWidth: FALLBACK_GRID_WIDTH,
+        rowHeight: FALLBACK_ROW_HEIGHT,
+        margin: [widgetSpacing ?? 8, widgetSpacing ?? 8] as [number, number],
+        containerPadding: [12, 12] as [number, number],
+      },
+  )
 
   // Cell pitch of THIS grid: spaced cells, so a step is one cell plus its margin.
   const gap = geometry.margin[0]
