@@ -173,7 +173,9 @@ export const DEFAULT_SHORTCUTS: Record<
     id: 'rmd_run_chunk_stay',
     labelKey: 'shortcuts.nb_run_chunk_stay',
     scope: 'editor',
-    defaultBinding: NONE,
+    // Cmd+Enter, like the Jupyter preset: run without advancing. Left unbound it
+    // fell through to run_selection_or_line (same combo), which advances.
+    defaultBinding: kb('Enter'),
   },
   rmd_run_chunk_insert: {
     id: 'rmd_run_chunk_insert',
@@ -362,7 +364,7 @@ export const NOTEBOOK_PRESETS: NotebookPreset[] = [
     labelKey: 'shortcuts.preset_rstudio',
     bindings: {
       run_chunk: kb('Enter', { shift: true }),
-      run_chunk_stay: NONE,
+      run_chunk_stay: kb('Enter'),
       run_chunk_insert: NONE,
       run_all: kb('r', { alt: true }),
       run_above: kb('p', { alt: true }),

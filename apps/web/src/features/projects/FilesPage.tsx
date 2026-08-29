@@ -34,6 +34,11 @@ import {
   XCircle,
   Table2,
   Save,
+  CornerDownLeft,
+  StepForward,
+  ListEnd,
+  FileCode2,
+  Database,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DialogShell } from '@/components/ui/dialog-shell'
@@ -54,6 +59,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
@@ -101,6 +107,8 @@ import { ConnectionsPanel } from './files/ConnectionsPanel'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useShortcutStore } from '@/stores/shortcut-store'
+import { comboToString } from '@/lib/format-shortcut'
+import type { ShortcutActionId } from '@/types/shortcuts'
 
 const LazyRmdNotebook = lazy(() => import('./files/RmdNotebook').then(m => ({ default: m.RmdNotebook })))
 const LazyIpynbNotebook = lazy(() => import('./files/IpynbNotebook').then(m => ({ default: m.IpynbNotebook })))
@@ -916,6 +924,24 @@ export function FilesPage() {
     ])
   )
 
+  // Rmd/Qmd and ipynb bind the same notebook actions to different keys, so the
+  // menus read the set matching the open file (RunButton does this for scripts).
+  // Derived in a memo, not in the selector: a selector returning a fresh object
+  // fails Zustand's reference check and re-renders forever.
+  const shortcuts = useShortcutStore((s) => s.shortcuts)
+  const nbShortcuts = useMemo(() => {
+    const p = isIpynbFile ? 'ipynb' : 'rmd'
+    const key = (suffix: string) => comboToString(shortcuts[`${p}_${suffix}` as ShortcutActionId].binding)
+    return {
+      runChunk: key('run_chunk'),
+      runChunkStay: key('run_chunk_stay'),
+      runAll: key('run_all'),
+      runAbove: key('run_above'),
+      insertChunk: key('insert_chunk'),
+      render: key('render'),
+    }
+  }, [shortcuts, isIpynbFile])
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full overflow-hidden">
@@ -1138,17 +1164,26 @@ export function FilesPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => notebookRef.current?.runCellAndAdvance()}>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.runCellAndAdvance()} className="gap-2 text-xs">
+                              <StepForward size={13} className="text-muted-foreground" />
                               {t('shortcuts.nb_run_chunk')}
+                              {nbShortcuts.runChunk && <DropdownMenuShortcut>{nbShortcuts.runChunk}</DropdownMenuShortcut>}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => notebookRef.current?.runCell()}>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.runCell()} className="gap-2 text-xs">
+                              <CornerDownLeft size={13} className="text-muted-foreground" />
                               {t('shortcuts.nb_run_chunk_stay')}
+                              {nbShortcuts.runChunkStay && <DropdownMenuShortcut>{nbShortcuts.runChunkStay}</DropdownMenuShortcut>}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => notebookRef.current?.runAll()}>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => notebookRef.current?.runAll()} className="gap-2 text-xs">
+                              <Play size={13} className="text-muted-foreground" />
                               {t('shortcuts.nb_run_all')}
+                              {nbShortcuts.runAll && <DropdownMenuShortcut>{nbShortcuts.runAll}</DropdownMenuShortcut>}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => notebookRef.current?.runAbove()}>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.runAbove()} className="gap-2 text-xs">
+                              <ListEnd size={13} className="text-muted-foreground" />
                               {t('shortcuts.nb_run_above')}
+                              {nbShortcuts.runAbove && <DropdownMenuShortcut>{nbShortcuts.runAbove}</DropdownMenuShortcut>}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -1177,11 +1212,13 @@ export function FilesPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="start">
-                              <DropdownMenuItem onClick={() => (notebookRef.current as IpynbNotebookHandle)?.downloadNotebook(true)}>
-                                Download with outputs
+                              <DropdownMenuItem onClick={() => (notebookRef.current as IpynbNotebookHandle)?.downloadNotebook(true)} className="gap-2 text-xs">
+                                <Download size={13} className="text-muted-foreground" />
+                                {t('files.download_with_outputs')}
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => (notebookRef.current as IpynbNotebookHandle)?.downloadNotebook(false)}>
-                                Download without outputs
+                              <DropdownMenuItem onClick={() => (notebookRef.current as IpynbNotebookHandle)?.downloadNotebook(false)} className="gap-2 text-xs">
+                                <FileCode2 size={13} className="text-muted-foreground" />
+                                {t('files.download_without_outputs')}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -1208,12 +1245,15 @@ export function FilesPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="start">
-                              <DropdownMenuItem onClick={() => notebookRef.current?.renderPreview()}>
-                                Preview
+                              <DropdownMenuItem onClick={() => notebookRef.current?.renderPreview()} className="gap-2 text-xs">
+                                <Eye size={13} className="text-muted-foreground" />
+                                {t('files.render_preview')}
+                                {nbShortcuts.render && <DropdownMenuShortcut>{nbShortcuts.render}</DropdownMenuShortcut>}
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => notebookRef.current?.renderHtml()}>
-                                Download HTML
+                              <DropdownMenuItem onClick={() => notebookRef.current?.renderHtml()} className="gap-2 text-xs">
+                                <FileDown size={13} className="text-muted-foreground" />
+                                {t('files.render_download_html')}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -1242,22 +1282,28 @@ export function FilesPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'r')}>
-                              <Code size={14} /> R
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'r')} className="gap-2 text-xs">
+                              <Code size={13} className="text-muted-foreground" />
+                              R
+                              {nbShortcuts.insertChunk && <DropdownMenuShortcut>{nbShortcuts.insertChunk}</DropdownMenuShortcut>}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'python')}>
-                              <Code size={14} /> Python
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'python')} className="gap-2 text-xs">
+                              <Code size={13} className="text-muted-foreground" />
+                              Python
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'sql')}>
-                              <Code size={14} /> SQL
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'sql')} className="gap-2 text-xs">
+                              <Database size={13} className="text-muted-foreground" />
+                              SQL
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('markdown')}>
-                              <FileText size={14} /> Markdown
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('markdown')} className="gap-2 text-xs">
+                              <FileText size={13} className="text-muted-foreground" />
+                              Markdown
                             </DropdownMenuItem>
                             {!notebookRef.current?.hasYamlCell && (
-                              <DropdownMenuItem onClick={() => notebookRef.current?.addCell('yaml')}>
-                                <Settings2 size={14} /> YAML front-matter
+                              <DropdownMenuItem onClick={() => notebookRef.current?.addCell('yaml')} className="gap-2 text-xs">
+                                <Settings2 size={13} className="text-muted-foreground" />
+                                {t('files.yaml_front_matter')}
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
@@ -1882,11 +1928,11 @@ export function FilesPage() {
                         )}
                       </Allotment.Pane>
 
-                      {/* Notebook outline sidebar */}
+                      {/* Notebook outline sidebar — same default width as the file explorer */}
                       <Allotment.Pane
-                        preferredSize={180}
-                        minSize={120}
-                        maxSize={300}
+                        preferredSize={240}
+                        minSize={140}
+                        maxSize={400}
                         visible={outlineVisible && isNotebook}
                       >
                         <div className="h-full border-l bg-muted/20 overflow-y-auto">

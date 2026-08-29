@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { useShortcutStore } from './shortcut-store'
-import { DEFAULT_SHORTCUTS } from '@/types/shortcuts'
+import { DEFAULT_SHORTCUTS, NOTEBOOK_PRESETS } from '@/types/shortcuts'
 
 // Tests run in a Node environment by design (docs/conventions.md), so stub the
 // bit of Web Storage this module uses rather than pulling in jsdom.
@@ -69,6 +69,37 @@ describe('isCustomized', () => {
     })
 
     expect(useShortcutStore.getState().isCustomized('toggle_sidebar')).toBe(false)
+  })
+})
+
+/**
+ * "Run cell" and "run cell and advance" must stay distinct keys.
+ *
+ * The notebook key handlers fall through to `run_selection_or_line` (Cmd+Enter,
+ * which advances) whenever `<prefix>_run_chunk_stay` is unbound. Leaving the
+ * stay action on NONE therefore made Cmd+Enter behave exactly like
+ * Cmd+Shift+Enter, with no way to run a cell without moving off it.
+ */
+describe('run-cell bindings', () => {
+  const combo = (id: 'rmd_run_chunk_stay' | 'ipynb_run_chunk_stay' | 'rmd_run_chunk' | 'ipynb_run_chunk') =>
+    useShortcutStore.getState().getBinding(id)
+
+  it.each(['rmd', 'ipynb'] as const)('binds %s run-cell-stay to Cmd+Enter', (prefix) => {
+    expect(combo(`${prefix}_run_chunk_stay`)).toEqual({
+      key: 'Enter',
+      ctrlOrMeta: true,
+      shift: false,
+      alt: false,
+    })
+  })
+
+  it.each(['rmd', 'ipynb'] as const)('gives %s a different key for run-and-advance', (prefix) => {
+    expect(combo(`${prefix}_run_chunk_stay`)).not.toEqual(combo(`${prefix}_run_chunk`))
+  })
+
+  it.each(NOTEBOOK_PRESETS)('preset $id keeps run-cell-stay bound and distinct', (preset) => {
+    expect(preset.bindings.run_chunk_stay.key).not.toBe('')
+    expect(preset.bindings.run_chunk_stay).not.toEqual(preset.bindings.run_chunk)
   })
 })
 
