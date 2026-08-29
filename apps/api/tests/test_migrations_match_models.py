@@ -33,15 +33,24 @@ def migrated_db(tmp_path_factory, monkeypatch_module) -> sa.Engine:
 
     from app import config as app_config
 
+    # Rebind `app.config.settings` so alembic/env.py re-reads the URL above — and
+    # PUT THE ORIGINAL BACK afterwards. Every module holds its own reference from
+    # `from app.config import settings`, so leaving a new object here detaches
+    # them from the one conftest and the other tests monkeypatch: the upload cap
+    # was then set on an object no route reads, and test_uploads' two 413 cases
+    # failed in the full suite while passing on their own.
+    original_settings = app_config.settings
     app_config.settings = app_config.Settings()
+    try:
+        cfg = Config(str(API_ROOT / "alembic.ini"))
+        cfg.set_main_option("script_location", str(API_ROOT / "alembic"))
+        command.upgrade(cfg, "head")
 
-    cfg = Config(str(API_ROOT / "alembic.ini"))
-    cfg.set_main_option("script_location", str(API_ROOT / "alembic"))
-    command.upgrade(cfg, "head")
-
-    engine = sa.create_engine(f"sqlite:///{db_path}")
-    yield engine
-    engine.dispose()
+        engine = sa.create_engine(f"sqlite:///{db_path}")
+        yield engine
+        engine.dispose()
+    finally:
+        app_config.settings = original_settings
 
 
 @pytest.fixture(scope="module")

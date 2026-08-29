@@ -36,7 +36,7 @@ def mgr(monkeypatch):
     m = KernelManager()
     made: list[_FakeKernel] = []
 
-    def _fake_make(language, project_uid, environment=None):
+    def _fake_make(language, project_uid, environment=None, token=None):
         k = _FakeKernel()
         made.append(k)
         return k

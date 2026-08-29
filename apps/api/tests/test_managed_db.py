@@ -66,19 +66,10 @@ def test_foreign_key_constraints_are_skipped(data_dir):
     assert tables == {"person", "concept"}
 
 
-def test_path_rejects_an_id_that_is_not_a_uuid(data_dir):
-    with pytest.raises(ValueError):
-        managed_db.path_for("../../etc/passwd")
-    with pytest.raises(ValueError):
-        managed_db.path_for("not-a-uuid")
-
-
-def test_path_is_canonical_so_case_cannot_collide(data_dir):
-    """Two ids differing only in case must map to the same file (they are the same
-    UUID) rather than two files that clash on a case-insensitive filesystem."""
-    upper = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
-    lower = upper.lower()
-    assert managed_db.path_for(upper) == managed_db.path_for(lower)
+# What `path_for` accepts is covered by test_managed_db_path.py. It stopped
+# requiring a UUID (an imported database keeps the readable slug its repo
+# declares), so the two tests that lived here — "rejects a non-UUID" and "folds
+# case to one canonical file" — encoded a rule that no longer holds.
 
 
 def test_delete_removes_the_file(data_dir):
