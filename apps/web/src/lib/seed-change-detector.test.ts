@@ -128,6 +128,19 @@ describe('dropFromSeedHashes', () => {
     expect('ricdc' in merged.workspaces).toBe(false)
   })
 
+  it('keeps a replaced workspace folder, adopting the successor now living there', () => {
+    // Both workspaces share the folder. Dropping it wholesale threw away the baseline the
+    // re-seed had just written for the incoming one, so its whole content reappeared as
+    // "New" on the next load — the update looked like it had not been applied.
+    const merged = dropFromSeedHashes(
+      stored,
+      [{ workspaceFolder: 'ricdc', entityType: 'workspace', entityId: 'ricdc' }],
+      current,
+    )
+    expect('ricdc' in merged.workspaces).toBe(true)
+    expect(merged.workspaces.ricdc.projects).toEqual(current.workspaces.ricdc.projects)
+  })
+
   it('does not mutate the stored input', () => {
     const snapshot = JSON.parse(JSON.stringify(stored))
     dropFromSeedHashes(stored, [
@@ -219,6 +232,28 @@ describe('diffSeedHashes', () => {
       workspaces: { w: { ...ws({ workspace: 'm2' }), workspaceIdentity: 'new-id' } },
     }
     expect(types(diffSeedHashes(s, c))).toEqual(['workspace:w:added', 'workspace:w:removed'])
+  })
+
+  it("reports a replaced workspace's children as removed + added, id reuse and all", () => {
+    // Both workspaces ship a project under the same id. Diffing them pairwise called it
+    // "modified" — one entity edited — when they are two: one leaving with the old
+    // workspace, one arriving with the new.
+    const s: SeedHashesManifest = {
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
+      workspaces: {
+        w: { ...ws({ workspace: 'm1', projects: { p1: 'h1' } }), workspaceIdentity: 'old-id' },
+      },
+    }
+    const c: SeedHashesManifest = {
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
+      workspaces: {
+        w: { ...ws({ workspace: 'm2', projects: { p1: 'h2' } }), workspaceIdentity: 'new-id' },
+      },
+    }
+    expect(types(diffSeedHashes(s, c))).toEqual([
+      'project:p1:added', 'project:p1:removed',
+      'workspace:w:added', 'workspace:w:removed',
+    ])
   })
 
   it('still reports a same-identity edit as modified', () => {

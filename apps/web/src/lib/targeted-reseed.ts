@@ -333,7 +333,9 @@ export async function deleteRemovedSelection(changes: SeedChange[]): Promise<See
 
   // Drop the handled entities from the baseline so they stop being reported as 'removed'.
   // (They're gone from the current build, so there's nothing to advance to — just drop them.)
-  storeSeedHashes(dropFromSeedHashes(getStoredSeedHashes(), handled))
+  // The current build goes along so a folder still present in it — a replaced workspace,
+  // whose successor lives there — keeps its baseline instead of being dropped wholesale.
+  storeSeedHashes(dropFromSeedHashes(getStoredSeedHashes(), handled, await fetchSeedHashes()))
 
   return handled
 }

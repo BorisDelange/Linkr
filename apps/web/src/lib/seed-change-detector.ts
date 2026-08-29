@@ -127,6 +127,7 @@ export function mergeSeedHashesFor(
 export function dropFromSeedHashes(
   stored: SeedHashesManifest | null,
   entities: Array<{ workspaceFolder: string; entityType: SeedEntityType; entityId: string }>,
+  current?: SeedHashesManifest | null,
 ): SeedHashesManifest {
   const merged: SeedHashesManifest = stored
     ? JSON.parse(JSON.stringify(stored)) as SeedHashesManifest
@@ -140,7 +141,17 @@ export function dropFromSeedHashes(
     const mergedWs = merged.workspaces[workspaceFolder]
     if (!mergedWs) continue
     if (entityType === 'workspace') {
-      delete merged.workspaces[workspaceFolder]
+      // Only when the folder is gone from the build. On a replacement the successor
+      // occupies the same folder, and dropping the entry wholesale threw away the
+      // baseline the re-seed had just written for it — so its whole content came back
+      // as "New" on the very next load.
+      if (current?.workspaces[workspaceFolder]) {
+        merged.workspaces[workspaceFolder] = JSON.parse(
+          JSON.stringify(current.workspaces[workspaceFolder]),
+        ) as SeedEntityHashes
+      } else {
+        delete merged.workspaces[workspaceFolder]
+      }
       continue
     }
     const mapKey = keyForType.get(entityType)
@@ -286,20 +297,27 @@ export function diffSeedHashes(stored: SeedHashesManifest, current: SeedHashesMa
     // Diff each entity type, labelling entities with their readable name when available.
     // Either side may be undefined (a whole workspace added or removed) — diffHashMap and the
     // name merge below both treat a missing side as an empty map.
+    //
+    // On a replacement each side is diffed against nothing instead of against the other.
+    // The two workspaces reuse entity ids (both ship a project called
+    // `icu-activity-dashboard`), so comparing them pairwise reported "modified" for what
+    // are really two distinct entities: one leaving with the old workspace, one arriving
+    // with the new. Diffing per workspace makes them removed + added, matching what the
+    // update actually does.
+    const replaced = !!oldWs && !!newWs && isReplacedWorkspace(oldWs, newWs)
     for (const { key, type } of ENTITY_KEYS) {
       const nameKey = key as keyof SeedEntityNames
       // Merge stored + current names (current wins). Stored is the only source of a
       // name for a 'removed' entity — it no longer exists in the current build.
       const nameMap = { ...(oldWs?.names?.[nameKey] ?? {}), ...(newWs?.names?.[nameKey] ?? {}) }
-      diffHashMap(
-        oldWs?.[key] as Record<string, string> | undefined,
-        newWs?.[key] as Record<string, string> | undefined,
-        type,
-        folder,
-        wsName,
-        changes,
-        nameMap,
-      )
+      const oldMap = oldWs?.[key] as Record<string, string> | undefined
+      const newMap = newWs?.[key] as Record<string, string> | undefined
+      if (replaced) {
+        diffHashMap(oldMap, undefined, type, folder, oldWs!.workspaceName ?? folder, changes, nameMap)
+        diffHashMap(undefined, newMap, type, folder, wsName, changes, nameMap)
+      } else {
+        diffHashMap(oldMap, newMap, type, folder, wsName, changes, nameMap)
+      }
     }
   }
 

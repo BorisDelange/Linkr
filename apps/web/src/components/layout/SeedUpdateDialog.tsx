@@ -33,22 +33,35 @@ const changeBadgeVariant: Record<SeedChangeType, 'default' | 'secondary' | 'dest
 
 /** Stable per-change key for selection state. */
 function changeKey(c: SeedChange): string {
-  return `${c.workspaceFolder}:${c.entityType}:${c.entityId}`
+  // changeType is part of the key: a replaced workspace emits the same entity id as both
+  // removed (leaving with the old workspace) and added (arriving with the new one), and
+  // without it the two rows would share one checkbox.
+  return `${c.workspaceFolder}:${c.entityType}:${c.entityId}:${c.changeType}`
 }
 
-/** Read a workspace's human-readable name from its bundled workspace.json, by folder. */
+/** Read a workspace's human-readable name from its bundled tree, by folder.
+ *
+ * `entity.json` is where a workspace carries its name now that the seed is one exported
+ * tree per entity; `workspace.json` was the name before that, and a seed baked by an older
+ * build still uses it. Reading only the latter fell through to the manifest's cached name
+ * — right often enough to hide the miss, wrong for a workspace whose name has changed. */
 async function fetchWorkspaceName(folder: string, language: string): Promise<string | null> {
-  const url = `${import.meta.env.BASE_URL}data/seed/${folder}/workspace.json`.replace(/\/\//g, '/')
-  try {
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const ws = await res.json() as { name?: Record<string, string> }
-    const name = ws.name
-    if (!name) return null
-    return name[language] ?? name['en'] ?? Object.values(name)[0] ?? null
-  } catch {
-    return null
+  const base = `${import.meta.env.BASE_URL}data/seed/${folder}`.replace(/\/\//g, '/')
+  for (const file of ['entity.json', 'workspace.json']) {
+    try {
+      const res = await fetch(`${base}/${file}`)
+      if (!res.ok) continue
+      const ws = await res.json() as { name?: Record<string, string> | string }
+      const name = ws.name
+      if (!name) continue
+      if (typeof name === 'string') return name
+      const resolved = name[language] ?? name['en'] ?? Object.values(name)[0]
+      if (resolved) return resolved
+    } catch {
+      continue
+    }
   }
+  return null
 }
 
 interface SeedUpdateDialogProps {
@@ -175,9 +188,35 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
     return set
   }, [diff.changes])
 
-  /** A row is its own control unless it's a child of a wholly added/removed workspace. */
+  /**
+   * A row is its own control unless it's a child of a wholly added/removed workspace.
+   *
+   * Only on the ADDED side: seedWorkspaces() imports a workspace as a block, so picking
+   * some of its entities is not a thing the apply step can honour. Deletion runs entity by
+   * entity (deleteEntity), so a removed child is genuinely independent — locking it meant
+   * unticking the outgoing workspace also spared every one of its entities, with no way to
+   * drop them individually.
+   */
   const isChildOfWholeWorkspace = (c: SeedChange) =>
-    c.entityType !== 'workspace' && wholeWorkspaceFolders.has(c.workspaceFolder)
+    c.entityType !== 'workspace'
+    && c.changeType !== 'removed'
+    && wholeWorkspaceFolders.has(c.workspaceFolder)
+
+  // A folder holding BOTH a removed and an added workspace is a replacement: the bundled
+  // workspace was swapped for a different one, and the folder is merely where both live.
+  // Heading it with one of their names puts a workspace inside a workspace, and files the
+  // outgoing one under the incoming one's title — so the group heading is dropped and the
+  // two workspace rows serve as the headings they already are.
+  const replacedFolders = useMemo(() => {
+    const set = new Set<string>()
+    for (const folder of new Set(diff.changes.map((c) => c.workspaceFolder))) {
+      const rows = diff.changes.filter((c) => c.entityType === 'workspace' && c.workspaceFolder === folder)
+      if (rows.some((c) => c.changeType === 'added') && rows.some((c) => c.changeType === 'removed')) {
+        set.add(folder)
+      }
+    }
+    return set
+  }, [diff.changes])
 
   const toggle = (key: string) => {
     setSelected((prev) => {
@@ -243,6 +282,23 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
 
   // Group a workspace's changes by entity type (stable order), with removed entities
   // pushed to the end within each type so the actionable (new/updated) ones stay grouped.
+  /**
+   * Split a replaced folder into the incoming workspace and the outgoing one, each with
+   * the entities that arrive or leave with it. What is removed belonged to the workspace
+   * being replaced; everything else comes with the new one — including "modified" rows,
+   * which are entities the new seed brings under a name the old one also used.
+   */
+  const splitReplacement = (changes: SeedChange[]) => {
+    const workspaces = changes.filter((c) => c.entityType === 'workspace')
+    const children = changes.filter((c) => c.entityType !== 'workspace')
+    const added = workspaces.find((c) => c.changeType === 'added')
+    const removed = workspaces.find((c) => c.changeType === 'removed')
+    const out: Array<{ workspace: SeedChange; children: SeedChange[] }> = []
+    if (added) out.push({ workspace: added, children: children.filter((c) => c.changeType !== 'removed') })
+    if (removed) out.push({ workspace: removed, children: children.filter((c) => c.changeType === 'removed') })
+    return out
+  }
+
   const groupByType = (changes: SeedChange[]): Array<{ type: SeedEntityType; items: SeedChange[] }> => {
     const byType = new globalThis.Map<SeedEntityType, SeedChange[]>()
     for (const c of changes) {
@@ -272,8 +328,16 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
     const canCheck = ridesAlong || isKeptWorkspace ? false : isRemoved ? deletable.has(key) : true
     // A rides-along child mirrors its workspace row's checkbox (locked): checking the workspace
     // checks them all, unchecking clears them — so the UI matches what apply actually does.
-    const workspaceKey = `${change.workspaceFolder}:workspace:${change.workspaceFolder}`
-    const ridesAlongChecked = ridesAlong && selected.has(workspaceKey)
+    // Derived from the actual workspace row, not rebuilt by hand: a replaced folder holds
+    // two of them, and a child rides along with the one whose direction it shares.
+    const workspaceRow = diff.changes.find(
+      (c) => c.entityType === 'workspace'
+        && c.workspaceFolder === change.workspaceFolder
+        && c.changeType === change.changeType,
+    ) ?? diff.changes.find(
+      (c) => c.entityType === 'workspace' && c.workspaceFolder === change.workspaceFolder,
+    )
+    const ridesAlongChecked = ridesAlong && !!workspaceRow && selected.has(changeKey(workspaceRow))
 
     const checkboxSlot = ridesAlong ? (
       <Tooltip>
@@ -359,26 +423,52 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
           <div className={`space-y-5 pb-3 ${selectableKeys.length > 1 ? '' : 'pt-3'}`}>
             {[...byWorkspace.entries()].map(([wsFolder, changes]) => (
               <div key={wsFolder}>
-                <p className="text-sm font-semibold mb-3">
-                  {wsLabel(wsFolder)}
-                  {wholeWorkspaceFolders.has(wsFolder) && (
-                    <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                      {t('version_check.seed_whole_workspace_hint')}
-                    </span>
-                  )}
-                </p>
-                <div className="space-y-3 pl-1">
-                  {groupByType(changes).map(({ type, items }) => (
-                    <div key={type}>
-                      <SectionLabel as="p" className="mb-1 tracking-wide">
-                        {t(`version_check.seed_entity_${type}`)}
-                      </SectionLabel>
-                      <div className="space-y-1 pl-1">
-                        {items.map((change) => renderRow(change))}
+                {replacedFolders.has(wsFolder) ? (
+                  // A replacement: the incoming workspace, then the outgoing one with the
+                  // entities that leave alongside it. Grouping them under one heading put a
+                  // workspace inside a workspace and filed the old one's children under the
+                  // new one's name.
+                  splitReplacement(changes).map(({ workspace, children }) => (
+                    <div key={workspace.changeType} className="mb-4 last:mb-0">
+                      <div className="mb-2">{renderRow(workspace)}</div>
+                      <div className="space-y-3 pl-4">
+                        {groupByType(children).map(({ type, items }) => (
+                          <div key={type}>
+                            <SectionLabel as="p" className="mb-1 tracking-wide">
+                              {t(`version_check.seed_entity_${type}`)}
+                            </SectionLabel>
+                            <div className="space-y-1 pl-1">
+                              {items.map((change) => renderRow(change))}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
-                </div>
+                  ))
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold mb-3">
+                      {wsLabel(wsFolder)}
+                      {wholeWorkspaceFolders.has(wsFolder) && (
+                        <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                          {t('version_check.seed_whole_workspace_hint')}
+                        </span>
+                      )}
+                    </p>
+                    <div className="space-y-3 pl-1">
+                      {groupByType(changes).map(({ type, items }) => (
+                        <div key={type}>
+                          <SectionLabel as="p" className="mb-1 tracking-wide">
+                            {t(`version_check.seed_entity_${type}`)}
+                          </SectionLabel>
+                          <div className="space-y-1 pl-1">
+                            {items.map((change) => renderRow(change))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>
