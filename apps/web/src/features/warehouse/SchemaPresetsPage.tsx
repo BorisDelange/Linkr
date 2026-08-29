@@ -81,10 +81,7 @@ import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-do
 import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
-import { cardRepoUrl } from '@/lib/git-web-url'
-import { isServerMode } from '@/lib/api-client'
-import { useGitContentStatuses } from '@/components/versioning/use-git-content-statuses'
+import { useContentBadge } from '@/components/versioning/use-content-badge'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { SchemaERD } from './SchemaERD'
@@ -1781,13 +1778,7 @@ export function SchemaPresetsPage() {
   const workspaceOrgId = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === wsUid)?.organizationId)
   // Git-linked presets whose content wasn't reconstituted → card badge (+ retry
   // in server mode, a link to the repo in client-only).
-  const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(wsUid)
-  /** Repo page for a preset whose content is missing and can't be cloned here. */
-  const schemaRepoUrl = (id: string, url: string | undefined): string | null => cardRepoUrl({
-    serverMode: isServerMode(),
-    status: contentStatuses.get(`schema-presets:${id}`),
-    url,
-  })
+  const { badgeFor, repoUrlFor: schemaRepoUrl } = useContentBadge('schema-presets', wsUid)
   const loadPresets = useSchemaPresetStore((s) => s.loadPresets)
   const storeSave = useSchemaPresetStore((s) => s.savePreset)
   const storeDelete = useSchemaPresetStore((s) => s.deletePreset)
@@ -2134,20 +2125,13 @@ export function SchemaPresetsPage() {
                   organization={preset.organization}
                   license={preset.license}
                   onOpenLicense={() => navigateToSchemaTab(id, 'license')}
-                  contentBadge={
-                    wsUid && preset.gitRemoteConfig?.url && contentStatuses.get(`schema-presets:${id}`) ? (
-                      <GitContentStatusBadge
-                        workspaceId={wsUid}
-                        scope="schema-presets"
-                        type="schema-preset"
-                        id={id}
-                        name={localized(preset.name, language) || id}
-                        gitRemote={preset.gitRemoteConfig}
-                        status={contentStatuses.get(`schema-presets:${id}`)}
-                        onResolved={refetchContentStatuses}
-                      />
-                    ) : null
-                  }
+                  contentBadge={badgeFor({
+                    type: 'schema-preset',
+                    id,
+                    // A preset's display name lives in its mapping, not on the row.
+                    name: localized(mapping.presetLabel, language) || id,
+                    gitRemote: preset.gitRemoteConfig,
+                  })}
                   onNavigate={() => navigateToSchema(id)}
                   selected={selection.isSelected(id)}
                   onCardClick={(e) => {

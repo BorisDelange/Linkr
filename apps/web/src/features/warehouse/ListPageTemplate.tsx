@@ -11,11 +11,8 @@ import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { shortenIdAmong } from '@/lib/short-id'
-import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
-import { useGitContentStatuses } from '@/components/versioning/use-git-content-statuses'
+import { useContentBadge } from '@/components/versioning/use-content-badge'
 import { linkedTypeForScope, type GitScope } from '@/lib/api/git'
-import { cardRepoUrl } from '@/lib/git-web-url'
-import { isServerMode } from '@/lib/api-client'
 import type { GitLinkedEntity } from '@/lib/entity-io'
 import type { GitRemoteConfig, LocalizedString, OrganizationInfo } from '@/types'
 import type { AuthorDetails } from '@/types/author'
@@ -157,35 +154,24 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   )
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   // Git-linked entities whose content wasn't reconstituted → card badge + retry.
-  const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(activeWorkspaceId)
+  const { badgeFor, repoUrlFor: repoUrlForId } = useContentBadge(syncScope, activeWorkspaceId)
   const linkedType = syncScope ? linkedTypeForScope[syncScope] : undefined
 
   /** Where a card with missing content sends the user instead of navigating: in
    *  client-only there is nothing behind it, so the whole card opens the repo. */
-  const repoUrlFor = (item: T): string | null => cardRepoUrl({
-    serverMode: isServerMode(),
-    status: syncScope ? contentStatuses.get(`${syncScope}:${item.id}`) : undefined,
-    url: getGitRemote?.(item)?.url,
-  })
+  const repoUrlFor = (item: T): string | null =>
+    repoUrlForId(item.id, getGitRemote?.(item)?.url)
 
   /** The "content not imported" badge for a card, or null when it doesn't apply.
    *  Rendered in the footer's trailing slot, pinned right of the meta chips. */
   const contentBadge = (item: T): React.ReactNode => {
-    const status = syncScope ? contentStatuses.get(`${syncScope}:${item.id}`) : undefined
-    const remote = getGitRemote?.(item)
-    if (!activeWorkspaceId || !syncScope || !linkedType || !remote || !status) return null
-    return (
-      <GitContentStatusBadge
-        workspaceId={activeWorkspaceId}
-        scope={syncScope}
-        type={linkedType as GitLinkedEntity['type']}
-        id={item.id}
-        name={typeof item.name === 'string' ? item.name : (item.name?.en ?? item.id)}
-        gitRemote={remote}
-        status={status}
-        onResolved={refetchContentStatuses}
-      />
-    )
+    if (!linkedType) return null
+    return badgeFor({
+      type: linkedType as GitLinkedEntity['type'],
+      id: item.id,
+      name: typeof item.name === 'string' ? item.name : (item.name?.en ?? item.id),
+      gitRemote: getGitRemote?.(item),
+    })
   }
 
   const [dialogOpen, setDialogOpen] = useState(false)

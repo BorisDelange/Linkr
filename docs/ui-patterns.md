@@ -407,6 +407,26 @@ single-item confirm dialog calls — so both paths stay in sync. Cards living in
 their own component (`CohortCard`, `DatabaseCard`) take optional `selected` +
 click-interception props rather than being forked.
 
+### Git-linked cards: the "content not imported" badge
+
+A card for a git-linked entity whose content was not reconstituted needs two
+things, and they must agree — a card must never link to the repo while showing
+no badge, or badge without the link. Both come from one hook:
+
+```tsx
+const { badgeFor, repoUrlFor } = useContentBadge('databases', workspaceId)
+
+<Card contentBadge={badgeFor({ type: 'database', id, name, gitRemote })}
+      onClick={() => { const repo = repoUrlFor(id, gitRemote?.url); … }} />
+```
+
+`useContentBadge` (`components/versioning/use-content-badge.tsx`) wraps
+`useGitContentStatuses` + `GitContentStatusBadge` + `cardRepoUrl`, and handles
+the `workspaceId && gitRemote?.url && status` guard and the retry refetch itself.
+Do not rebuild that guard at a call site — it was open-coded four times before
+this hook existed. `repoUrlFor` returns null in server mode (the content can be
+retried in place, so the card keeps navigating).
+
 ### Page header
 
 Use **`PageHeader`** + **`PageContainer`** (`components/ui/page-header.tsx`):

@@ -23,9 +23,7 @@ import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-se
 import { Card } from '@/components/ui/card'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
-import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
-import { cardRepoUrl } from '@/lib/git-web-url'
-import { useGitContentStatuses } from '@/components/versioning/use-git-content-statuses'
+import { useContentBadge } from '@/components/versioning/use-content-badge'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import { localized } from '@/lib/localized'
@@ -65,34 +63,19 @@ export function ProjectsPage() {
   const { wsUid } = useResolvedParams()
   const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject, loadProjects } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(activeWorkspaceId)
+  const { badgeFor, repoUrlFor: projectRepoUrl, refetch: refetchContentStatuses } =
+    useContentBadge('projects', activeWorkspaceId)
   /** The "content not imported" badge for a project card, or null when it doesn't
    *  apply. Sits in the footer's trailing slot, pinned right of the meta chips. */
-  /** Repo page for a project whose content is missing and can't be cloned here. */
-  const projectRepoUrl = (uid: string, url: string | undefined): string | null => cardRepoUrl({
-    serverMode: isServerMode(),
-    status: contentStatuses.get(`projects:${uid}`),
-    url,
-  })
   const projectContentBadge = (
     project: { uid: string; name: string | LocalizedString },
     raw: { gitRemoteConfig?: GitRemoteConfig } | undefined,
-  ): React.ReactNode => {
-    const status = contentStatuses.get(`projects:${project.uid}`)
-    if (!activeWorkspaceId || !raw?.gitRemoteConfig?.url || !status) return null
-    return (
-      <GitContentStatusBadge
-        workspaceId={activeWorkspaceId}
-        scope="projects"
-        type="project"
-        id={project.uid}
-        name={typeof project.name === 'string' ? project.name : project.uid}
-        gitRemote={raw.gitRemoteConfig}
-        status={status}
-        onResolved={refetchContentStatuses}
-      />
-    )
-  }
+  ): React.ReactNode => badgeFor({
+    type: 'project',
+    id: project.uid,
+    name: typeof project.name === 'string' ? project.name : project.uid,
+    gitRemote: raw?.gitRemoteConfig,
+  })
   // A project shows its origin org: its own inlined snapshot (imports) when present,
   // else the workspace's org resolved live — same fallback as ListPageTemplate, so a
   // freshly-created project (no inline snapshot) still shows the workspace org.
