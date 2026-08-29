@@ -687,7 +687,18 @@ export async function importWorkspaceTree(
     // The manifest carries no local key, so `plugin.id` was undefined here: the
     // delete below was a no-op and every re-import piled up another copy.
     // Lineage is what recognises the row, as for every other workspace child.
-    const { id, replaces } = await resolveByLineage(() => storage.userPlugins.getAll(), plugin)
+    const byLineage = await resolveByLineage(() => storage.userPlugins.getAll(), plugin)
+    // A plugin created before lineage was stamped (or imported from a bare ZIP)
+    // has none, so the rule above cannot recognise it and would mint yet another
+    // copy on every re-import. Fall back to its slug within THIS workspace — the
+    // same landing rule databases use, and the same workspace boundary, so a
+    // sibling workspace's plugin of the same name is never touched.
+    const bySlug = byLineage.replaces || duplicate || !plugin.entityId
+      ? null
+      : (await storage.userPlugins.getAll().catch(() => []))
+        .find((p) => p.entityId === plugin.entityId && p.workspaceId === targetWsId) ?? null
+    const id = bySlug?.id ?? byLineage.id
+    const replaces = bySlug?.id ?? byLineage.replaces
     if (replaces) await storage.userPlugins.delete(replaces).catch(() => {})
     await storage.userPlugins.create({
       ...plugin, id, workspaceId: targetWsId, updatedAt: now,

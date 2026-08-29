@@ -576,7 +576,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     if (isBuiltIn) {
       // First save of a built-in plugin: create as user plugin
       const wsId = requireActiveWorkspace()
-      await storage.userPlugins.create({ id: editingPluginId, files: { ...files }, ...stampAuthored(), createdAt: now, updatedAt: now, workspaceId: wsId })
+      await storage.userPlugins.create({ id: editingPluginId, files: { ...files }, ...stampAuthored(), ...stampLineage(), createdAt: now, updatedAt: now, workspaceId: wsId })
       set({ isBuiltIn: false })
     } else {
       await storage.userPlugins.update(editingPluginId, {

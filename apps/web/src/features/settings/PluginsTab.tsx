@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { usePluginEditorStore, type PluginListItem } from '@/stores/plugin-editor-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { stampAuthored } from '@/stores/app-store'
+import { stampAuthored, stampLineage } from '@/stores/app-store'
 import type { AuthorDetails, OrganizationInfo } from '@/types'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { getStorage } from '@/lib/storage'
@@ -346,7 +346,10 @@ export function PluginsTab() {
     // not a plugin source file — pull it out and keep it from being stored as
     // content. Both names: a plugin repo published before the rename says
     // `_plugin.json`. The plugin's OWN `plugin.json` is functional and stays.
-    let meta: { createdBy?: string; createdByDetails?: AuthorDetails; organization?: OrganizationInfo } = {}
+    let meta: {
+      createdBy?: string; createdByDetails?: AuthorDetails; organization?: OrganizationInfo
+      lineageId?: string; parentLineageId?: string
+    } = {}
     for (const name of [ENTITY_MANIFEST, MANIFEST['user-plugin']]) {
       if (!updatedFiles[name]) continue
       try { meta = JSON.parse(updatedFiles[name]) } catch { /* ignore */ }
@@ -382,6 +385,13 @@ export function PluginsTab() {
       entityId: effectiveManifestId,
       files: updatedFiles,
       ...authored,
+      // Keep the published lineage when the ZIP carries one, else mint: without a
+      // lineage a plugin is unrecognisable on re-import, so a workspace re-import
+      // could not tell "the same plugin again" from "a new one" and piled up a copy
+      // every time.
+      ...(meta.lineageId
+        ? { lineageId: meta.lineageId, ...(meta.parentLineageId ? { parentLineageId: meta.parentLineageId } : {}) }
+        : stampLineage()),
       ...(meta.organization ? { organization: meta.organization } : {}),
       createdAt: nowIso,
       updatedAt: nowIso,
