@@ -203,6 +203,44 @@ describe('diffSeedHashes', () => {
     expect(types(diffSeedHashes(s, c))).toEqual(['workspace:w:modified'])
   })
 
+  // A folder is a location, not an identity. Swapping the bundled default workspace for
+  // another reuses `default/`; reading that as an edit updated the old workspace in place
+  // and created the new one beside it, leaving the old row orphaned with its children gone.
+  it('reports a replaced workspace as removed + added, not modified', () => {
+    const s: SeedHashesManifest = {
+      schemaVersion: 2,
+      workspaces: { w: { ...ws({ workspace: 'm1' }), workspaceIdentity: 'old-id' } },
+    }
+    const c: SeedHashesManifest = {
+      schemaVersion: 2,
+      workspaces: { w: { ...ws({ workspace: 'm2' }), workspaceIdentity: 'new-id' } },
+    }
+    expect(types(diffSeedHashes(s, c))).toEqual(['workspace:w:added', 'workspace:w:removed'])
+  })
+
+  it('still reports a same-identity edit as modified', () => {
+    const s: SeedHashesManifest = {
+      schemaVersion: 2,
+      workspaces: { w: { ...ws({ workspace: 'm1' }), workspaceIdentity: 'same' } },
+    }
+    const c: SeedHashesManifest = {
+      schemaVersion: 2,
+      workspaces: { w: { ...ws({ workspace: 'm2' }), workspaceIdentity: 'same' } },
+    }
+    expect(types(diffSeedHashes(s, c))).toEqual(['workspace:w:modified'])
+  })
+
+  it('does not claim a replacement when the stored baseline predates identities', () => {
+    // Every existing user upgrades with an identity-less baseline; announcing a
+    // replacement there would wrongly offer to delete their default workspace.
+    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ workspace: 'm1' }) } }
+    const c: SeedHashesManifest = {
+      schemaVersion: 2,
+      workspaces: { w: { ...ws({ workspace: 'm2' }), workspaceIdentity: 'new-id' } },
+    }
+    expect(types(diffSeedHashes(s, c))).toEqual(['workspace:w:modified'])
+  })
+
   it('lists children when a whole workspace is added', () => {
     const s: SeedHashesManifest = { schemaVersion: 2, workspaces: {} }
     const c: SeedHashesManifest = {

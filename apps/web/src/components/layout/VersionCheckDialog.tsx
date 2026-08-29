@@ -9,7 +9,7 @@ import {
   detectSeedChanges, storeSeedHashes, fetchSeedHashes, getStoredSeedHashes,
   type SeedChange, type SeedDiffResult,
 } from '@/lib/seed-change-detector'
-import { reseedSelection, deleteRemovedSelection, removedDisposition } from '@/lib/targeted-reseed'
+import { reseedSelection, deleteRemovedSelection, removedDisposition, isWorkspaceKept } from '@/lib/targeted-reseed'
 import { refreshStoresAfterReseed } from '@/lib/seed-store-refresh'
 import { SeedUpdateDialog } from './SeedUpdateDialog'
 
@@ -108,6 +108,7 @@ export function VersionCheckDialog() {
         onKeep={handleKeepData}
         onDismiss={handleDismiss}
         canDeleteRemoved={async (c) => (await removedDisposition(c)) !== 'user'}
+        workspaceKept={async (c) => isWorkspaceKept(c, seedDiff.changes.filter((x) => x.changeType === 'removed'))}
       />
     )
   }

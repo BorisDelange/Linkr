@@ -230,6 +230,22 @@ export function isBaselineStale(stored: SeedHashesManifest | null): boolean {
 }
 
 /**
+ * True when the folder holds a DIFFERENT workspace than it did, rather than an edited
+ * one — the bundled default workspace being swapped for another, which reuses the same
+ * `default/` folder.
+ *
+ * Requires an identity on BOTH sides: a baseline stored before the field existed has
+ * none, and treating that absence as a change would announce a replacement on the first
+ * run after upgrading, for every user. Unknown therefore means "not replaced", leaving
+ * the hash comparison to speak.
+ */
+function isReplacedWorkspace(oldWs: SeedEntityHashes, newWs: SeedEntityHashes): boolean {
+  const before = oldWs.workspaceIdentity
+  const after = newWs.workspaceIdentity
+  return !!before && !!after && before !== after
+}
+
+/**
  * Pure diff of two seed-hash baselines into a change list. No I/O — `detectSeedChanges` wraps it
  * with fetch/localStorage. Either workspace side may be missing (a whole workspace added/removed),
  * in which case its children are still listed (diffHashMap treats a missing side as empty).
@@ -241,6 +257,7 @@ export function diffSeedHashes(stored: SeedHashesManifest, current: SeedHashesMa
     ...Object.keys(stored.workspaces),
     ...Object.keys(current.workspaces),
   ])
+
 
   for (const folder of allFolders) {
     const oldWs = stored.workspaces[folder]
@@ -255,6 +272,16 @@ export function diffSeedHashes(stored: SeedHashesManifest, current: SeedHashesMa
       changes.push({ workspaceFolder: folder, workspaceName: wsName, entityType: 'workspace', entityId: folder, entityLabel: wsName, changeType: 'added' })
     } else if (oldWs && !newWs) {
       changes.push({ workspaceFolder: folder, workspaceName: wsName, entityType: 'workspace', entityId: folder, entityLabel: wsName, changeType: 'removed' })
+    } else if (isReplacedWorkspace(oldWs!, newWs!)) {
+      // Same folder, different workspace: a replacement, not an edit. Emitted as
+      // removed + added so the old one goes with its children instead of being
+      // updated in place — which left it orphaned and empty beside the new one.
+      changes.push({
+        workspaceFolder: folder, workspaceName: oldWs!.workspaceName ?? folder,
+        entityType: 'workspace', entityId: folder,
+        entityLabel: oldWs!.workspaceName ?? folder, changeType: 'removed',
+      })
+      changes.push({ workspaceFolder: folder, workspaceName: wsName, entityType: 'workspace', entityId: folder, entityLabel: wsName, changeType: 'added' })
     } else if (oldWs!.workspace !== newWs!.workspace) {
       changes.push({ workspaceFolder: folder, workspaceName: wsName, entityType: 'workspace', entityId: folder, entityLabel: wsName, changeType: 'modified' })
     }

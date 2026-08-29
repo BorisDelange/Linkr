@@ -67,9 +67,15 @@ interface SeedUpdateDialogProps {
    * User-created content (or pre-origin-field data) returns false and stays read-only.
    */
   canDeleteRemoved: (change: SeedChange) => Promise<boolean>
+  /**
+   * Whether a removed workspace is kept because it still holds content of its own.
+   * Its row is then read-only and says so, rather than appearing deletable and
+   * quietly surviving the update.
+   */
+  workspaceKept: (change: SeedChange) => Promise<boolean>
 }
 
-export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRemoved }: SeedUpdateDialogProps) {
+export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRemoved, workspaceKept }: SeedUpdateDialogProps) {
   const { t, i18n } = useTranslation()
 
   // Re-importable changes (added/modified) vs removed-from-seed.
@@ -85,6 +91,7 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
   // Which removed entities are safe to delete (seed-origin). Resolved async; until then a
   // removed row stays read-only. User content is never offered for deletion.
   const [deletable, setDeletable] = useState<Set<string>>(() => new Set())
+  const [keptWorkspaces, setKeptWorkspaces] = useState<Set<string>>(() => new Set())
   useEffect(() => {
     let cancelled = false
     Promise.all(removed.map(async (c) => [changeKey(c), await canDeleteRemoved(c)] as const))
@@ -102,13 +109,24 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
           if (hasDeletableChild) set.add(changeKey(c))
         }
         setDeletable(set)
+        // A workspace still holding content the user put there is kept whatever its
+        // children say, and shown as such — otherwise it silently survives the update
+        // and the user meets a second workspace with no idea why.
+        Promise.all(
+          removed
+            .filter((c) => c.entityType === 'workspace')
+            .map(async (c) => [changeKey(c), await workspaceKept(c)] as const),
+        ).then((kept) => {
+          if (cancelled) return
+          setKeptWorkspaces(new Set(kept.filter(([, k]) => k).map(([k]) => k)))
+        })
         // Tick the removals now rather than at mount: which ones are safe is only
         // knowable once this resolves, and pre-ticking a row that turns out to hold
         // user content would offer to delete work the seed never created.
         setSelected((prev) => new Set([...prev, ...set]))
       })
     return () => { cancelled = true }
-  }, [removed, canDeleteRemoved])
+  }, [removed, canDeleteRemoved, workspaceKept])
 
   const byWorkspace = useMemo(() => {
     const map = new globalThis.Map<string, SeedChange[]>()
@@ -248,7 +266,10 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
     // checked-but-locked box with a tooltip. A removed row is checkable only once confirmed
     // seed-origin (safe to delete); other non-seed removed rows stay read-only.
     const ridesAlong = isChildOfWholeWorkspace(change)
-    const canCheck = ridesAlong ? false : isRemoved ? deletable.has(key) : true
+    // A workspace the user has put content into is kept whatever its seed children say,
+    // so its row must not offer a deletion that will not happen.
+    const isKeptWorkspace = keptWorkspaces.has(key)
+    const canCheck = ridesAlong || isKeptWorkspace ? false : isRemoved ? deletable.has(key) : true
     // A rides-along child mirrors its workspace row's checkbox (locked): checking the workspace
     // checks them all, unchecking clears them — so the UI matches what apply actually does.
     const workspaceKey = `${change.workspaceFolder}:workspace:${change.workspaceFolder}`
@@ -281,13 +302,24 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
       >
         {checkboxSlot}
         <span className="truncate font-medium">{change.entityLabel}</span>
-        <Badge
-          variant={changeBadgeVariant[change.changeType]}
-          className="ml-auto shrink-0 gap-0.5 px-1.5 py-0.5 leading-none [&>svg]:size-2.5"
-        >
-          <ChangeIcon className="shrink-0" />
-          {t(`version_check.seed_change_${change.changeType}`)}
-        </Badge>
+        {isKeptWorkspace ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="secondary" className="ml-auto shrink-0 cursor-help px-1.5 py-0.5 leading-none">
+                {t('version_check.seed_workspace_kept')}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>{t('version_check.seed_workspace_kept_tooltip')}</TooltipContent>
+          </Tooltip>
+        ) : (
+          <Badge
+            variant={changeBadgeVariant[change.changeType]}
+            className="ml-auto shrink-0 gap-0.5 px-1.5 py-0.5 leading-none [&>svg]:size-2.5"
+          >
+            <ChangeIcon className="shrink-0" />
+            {t(`version_check.seed_change_${change.changeType}`)}
+          </Badge>
+        )}
       </label>
     )
   }

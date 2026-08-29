@@ -3077,6 +3077,8 @@
     "seed_change_added": "New",
     "seed_change_modified": "Updated",
     "seed_change_removed": "Removed",
+    "seed_workspace_kept": "Kept",
+    "seed_workspace_kept_tooltip": "This workspace is no longer part of the default data, but it still holds your own content, so it is kept. Delete it yourself once you no longer need it.",
     "seed_entity_workspace": "Workspace",
     "seed_entity_database": "Database",
     "seed_entity_conceptMapping": "Concept mapping",

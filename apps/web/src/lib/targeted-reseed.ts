@@ -149,6 +149,68 @@ export function classifyDisposition(row: { origin?: string } | undefined | null)
   return row.origin === 'seed' ? 'seed' : 'user'
 }
 
+/**
+ * Whether a workspace still holds anything at all — of any origin.
+ *
+ * Deleting the shell of a replaced workspace is only safe once it is genuinely empty.
+ * The seed diff alone cannot answer that: it lists what the SEED removed, so content
+ * the user created inside the bundled workspace (a project of their own) never appears
+ * in it and would be destroyed as collateral. Whatever is left here, the user put there
+ * or chose to keep, so the workspace stays and it is their call to remove it.
+ */
+export async function workspaceHasContent(workspaceId: string): Promise<boolean> {
+  const storage = getStorage()
+  const projects = await storage.projects.getAll()
+  if (projects.some((p) => p.workspaceId === workspaceId && !isSeedOrigin(p))) return true
+
+  const stores = [
+    storage.dataSources, storage.mappingProjects, storage.etlPipelines,
+    storage.dqRuleSets, storage.dataCatalogs, storage.schemaPresets,
+    storage.conceptSets, storage.sqlScriptCollections,
+  ]
+  for (const store of stores) {
+    try {
+      const rows = await store.getByWorkspace(workspaceId)
+      if (rows.some((row) => !isSeedOrigin(row))) return true
+    } catch {
+      // A store that cannot answer must not make an occupied workspace look empty.
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Seed-origin rows are excluded from the emptiness check: they are what the update is
+ * about to delete, so counting them would report every workspace as occupied — and this
+ * is also asked BEFORE the deletion runs, when they are all still there.
+ */
+function isSeedOrigin(row: object): boolean {
+  return (row as { origin?: string }).origin === 'seed'
+}
+
+/**
+ * Whether a removed workspace row will be kept rather than deleted, because content of
+ * the user's own remains in it. Mirrors the rule `deleteRemovedSelection` applies, so
+ * the dialog cannot promise a deletion that will not happen.
+ */
+export async function isWorkspaceKept(
+  change: SeedChange, allRemoved: SeedChange[],
+): Promise<boolean> {
+  if (change.entityType !== 'workspace') return false
+  const storage = getStorage()
+  for (const child of allRemoved) {
+    if (child.entityType === 'workspace') continue
+    if (child.workspaceFolder !== change.workspaceFolder) continue
+    const wsId = await resolveWorkspaceIdOf(child)
+    if (!wsId) continue
+    const local = await storage.workspaces.getById(wsId)
+    if (!local) return false
+    return local.origin !== 'seed' || await workspaceHasContent(wsId)
+  }
+  return false
+}
+
 export async function removedDisposition(change: SeedChange): Promise<RemovedDisposition> {
   const storage = getStorage()
   const { entityType, entityId } = change
@@ -254,7 +316,15 @@ export async function deleteRemovedSelection(changes: SeedChange[]): Promise<See
     const wsId = wsIdByFolder.get(ws.workspaceFolder)
     if (wsId) {
       const local = await storage.workspaces.getById(wsId)
-      if (local?.origin === 'seed') await storage.workspaces.delete(wsId).catch(() => {})
+      // Empty-check as well as seed-origin: a replaced workspace's folder is reused by
+      // its successor, so its children are listed as removed and cleared — but anything
+      // the user added inside it was never in the seed, never listed, and would go with
+      // the shell. Keep the workspace (and its baseline row) whenever something remains.
+      if (local?.origin === 'seed' && !(await workspaceHasContent(wsId))) {
+        await storage.workspaces.delete(wsId).catch(() => {})
+      } else if (local) {
+        continue
+      }
     }
     handled.push(ws)
   }

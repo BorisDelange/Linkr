@@ -3077,6 +3077,8 @@
     "seed_change_added": "Nouveau",
     "seed_change_modified": "Modifié",
     "seed_change_removed": "Supprimé",
+    "seed_workspace_kept": "Conservé",
+    "seed_workspace_kept_tooltip": "Cet espace de travail ne fait plus partie des données par défaut, mais il contient encore vos propres contenus : il est donc conservé. Supprimez-le vous-même lorsque vous n'en aurez plus besoin.",
     "seed_entity_workspace": "Espace de travail",
     "seed_entity_database": "Base de données",
     "seed_entity_conceptMapping": "Alignement de concepts",

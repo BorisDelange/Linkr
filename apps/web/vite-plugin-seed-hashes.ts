@@ -76,6 +76,17 @@ export interface SeedEntityHashes {
   names?: SeedEntityNames
   /** Readable workspace name (the workspace hash is opaque). */
   workspaceName?: string
+  /**
+   * Stable identity of the workspace occupying this folder (its lineageId, else its
+   * id). A folder is a location, not an identity: replacing the bundled workspace
+   * with a different one reuses `default/`, and comparing hashes alone read that as
+   * "the same workspace changed" — so the old one was updated in place, never
+   * removed, and its now-orphaned row sat beside the newly created one.
+   *
+   * Optional: a baseline stored before this field existed has none, and a workspace
+   * that declares neither id yields none, so the diff falls back to hash comparison.
+   */
+  workspaceIdentity?: string
 }
 
 export interface SeedEntityNames {
@@ -134,6 +145,23 @@ function nameFromFile(absPath: string, get: (o: Record<string, unknown>) => unkn
   try {
     const o = JSON.parse(readFileOrEmpty(absPath)) as Record<string, unknown>
     return readableName(get(o))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The workspace's stable identity: `lineageId` (which survives export/reimport across
+ * instances) if present, else its `id`. Null when it declares neither.
+ */
+function workspaceIdentity(absPath: string): string | null {
+  try {
+    const o = JSON.parse(readFileOrEmpty(absPath)) as Record<string, unknown>
+    for (const key of ['lineageId', 'id', 'uid']) {
+      const value = o[key]
+      if (typeof value === 'string' && value) return value
+    }
+    return null
   } catch {
     return null
   }
@@ -271,11 +299,19 @@ function generateSeedHashes(publicDir: string): SeedHashesManifest | null {
       names,
     }
 
-    // Workspace metadata: workspace.json + the manifest itself (so internals/org edits show up).
-    const wsJson = readFileOrEmpty(join(wsDir, 'workspace.json'))
+    // Workspace metadata: its own file + the manifest (so internals/org edits show up).
+    // entity.json is where a workspace lives now that the seed is one exported tree per
+    // entity; workspace.json was the name before that, and a seed baked by an older
+    // build still uses it. Reading only the latter hashed an empty string here and made
+    // every workspace fall back to its folder name.
+    const wsPath = existsSync(join(wsDir, 'entity.json'))
+      ? join(wsDir, 'entity.json')
+      : join(wsDir, 'workspace.json')
+    const wsJson = readFileOrEmpty(wsPath)
     const manifestJson = readFileOrEmpty(manifestPath)
     entityHashes.workspace = sha256(wsJson + manifestJson)
-    entityHashes.workspaceName = nameFromFile(join(wsDir, 'workspace.json'), (o) => o.name) ?? folder
+    entityHashes.workspaceName = nameFromFile(wsPath, (o) => o.name) ?? folder
+    entityHashes.workspaceIdentity = workspaceIdentity(wsPath) ?? undefined
 
     for (const entity of manifest.entities ?? []) {
       const key = KIND_TO_KEY[entity.type]
