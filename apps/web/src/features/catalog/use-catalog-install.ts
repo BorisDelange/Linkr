@@ -108,8 +108,16 @@ export function useCatalogInstall(
         )
         // Installed, but not whole: a workspace whose children could not be cloned
         // arrives as a set of empty entities, and saying nothing read as success.
-        if (result.warning) {
-          setFailure({ entry: prepared.entry, detail: result.warning, partial: true })
+        // The skipped organization joins the same notice — the workspace page
+        // reports it too, and dropping it here lost the publisher in silence.
+        const notices = [
+          ...(result.skippedOrgName
+            ? [t('workspaces.import_org_skipped_body', { name: result.skippedOrgName })]
+            : []),
+          ...(result.warning ? [result.warning] : []),
+        ]
+        if (notices.length) {
+          setFailure({ entry: prepared.entry, detail: notices.join('\n\n'), partial: true })
         }
         onInstalled(result.id)
       } catch (err) {

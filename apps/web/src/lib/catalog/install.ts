@@ -52,6 +52,12 @@ export interface InstallResult {
   error?: string
   /** The install succeeded, but part of it did not arrive — shown, not swallowed. */
   warning?: string
+  /**
+   * Name of the publishing organization the import had to skip (no
+   * `organizations:write`), so the caller can say so in its own language. Raw
+   * rather than folded into `warning`, which is pre-rendered text.
+   */
+  skippedOrgName?: string
 }
 
 /**
@@ -435,12 +441,19 @@ async function createShell(
 }
 
 /**
- * Materialise a prepared install.
+ * Whether a local workspace already carries this lineage.
  *
- * `duplicate: true` mints a fresh id, leaving the existing entity untouched (an
- * independent copy); `false` reuses the repo's id, replacing what's there. Same two
- * options the per-page ZIP importers offer.
+ * The question `existingName` answers is a different one: it looks the repo id up
+ * as a primary key, while `importWorkspaceTree` lands by lineage. The two diverge
+ * (a workspace imported earlier holds a local uuid, not the repo's id), so the
+ * landing decision has to ask the same way the import does.
  */
+export async function workspaceLineageExists(lineageId: string | undefined): Promise<boolean> {
+  if (!lineageId) return false
+  const rows = await getStorage().workspaces.getAll().catch(() => [])
+  return rows.some((w) => w.lineageId === lineageId)
+}
+
 /**
  * Install a workspace entry by running the workspace import on the cloned tree.
  *
@@ -450,19 +463,24 @@ async function createShell(
  * children and renames a duplicate, so none of the per-entity machinery above
  * (shell row, rename, overwrite) applies.
  *
- * Never `duplicate`, which is not the same thing as "no overwrite": duplicate
- * mints a fresh lineage and appends "(copy)" WHETHER OR NOT anything is there,
- * so a first install of a workspace that did not exist landed as
- * "Demo workspace (copy)" with a new identity, losing the lineage the repo
- * publishes. Resolution by lineage does the right thing on its own — update the
- * matching workspace, create one when there is no match — and nothing is ever
- * deleted, which is what "no overwrite" actually meant.
+ * `duplicate` is forwarded, but only once something is actually there to keep:
+ * duplicate mints a fresh lineage and appends "(copy)" WHETHER OR NOT anything
+ * exists, so passing it unconditionally made a FIRST install of a workspace land
+ * as "Demo workspace (copy)" with a new identity, losing the lineage the repo
+ * publishes. Hence `duplicate && (await workspaceLineageExists(...))`.
+ *
+ * It must not be dropped either. `importWorkspaceTree` with `duplicate: false`
+ * resolves the target by lineage and then DELETES that workspace's projects
+ * (`deleteProjectData` + `projects.delete`) to rebuild them from the tree — so
+ * hardcoding it turned the re-install dialog's only non-cancel button, "keep
+ * both", into an overwrite of the user's copy.
  */
 async function installWorkspaceEntry(
   prepared: PreparedInstall,
   language: string,
   git: GitRemoteConfig,
   oid: string | null,
+  duplicate: boolean,
 ): Promise<InstallResult> {
   const { entry, blob } = prepared
   const file = new File([blob], `${entry.id}.zip`, { type: 'application/zip' })
@@ -480,7 +498,11 @@ async function installWorkspaceEntry(
   parsed.workspace.gitRemoteConfig = git
 
   try {
-    const { targetWsId, idMap } = await importWorkspaceTree(parsed, { duplicate: false, language })
+    const { targetWsId, idMap, skippedOrgName } = await importWorkspaceTree(parsed, {
+      // Only a real lineage match makes "keep both" meaningful — see the note above.
+      duplicate: duplicate && (await workspaceLineageExists(parsed.workspace.lineageId)),
+      language,
+    })
     // The children are metadata-only pointers until their own repos are cloned;
     // without this a "demo workspace" entry installs as a shell of empty entities.
     // Best-effort, exactly like the page's loop: a child whose repo needs a token
@@ -501,6 +523,7 @@ async function installWorkspaceEntry(
       ...(failed.length
         ? { warning: failed.map((f) => `${f.name}: ${f.reason}`).join('\n') }
         : {}),
+      ...(skippedOrgName ? { skippedOrgName } : {}),
     }
   } catch (err) {
     return { ok: false, failure: 'apply-failed', error: err instanceof Error ? err.message : String(err) }
@@ -583,6 +606,13 @@ export function resolveInstallIdentity(
   return { reuseId, renameAsCopy: !reuseId && sideBySide }
 }
 
+/**
+ * Materialise a prepared install.
+ *
+ * `duplicate: true` mints a fresh id, leaving the existing entity untouched (an
+ * independent copy); `false` reuses the repo's id, replacing what's there. Same two
+ * options the per-page ZIP importers offer.
+ */
 export async function commitCatalogInstall(
   prepared: PreparedInstall,
   workspaceId: string,
@@ -601,7 +631,7 @@ export async function commitCatalogInstall(
   // container, so its children (and their own git links) have to come in the way a
   // ZIP or git import brings them, not through applyClonedEntity.
   if (entry.type === 'workspace') {
-    return installWorkspaceEntry(prepared, language, git, oid)
+    return installWorkspaceEntry(prepared, language, git, oid, duplicate)
   }
 
   // Overwrite: drop the existing row first so the shell insert below doesn't collide.
