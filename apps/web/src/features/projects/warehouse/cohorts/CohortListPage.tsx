@@ -123,6 +123,10 @@ export function CohortListPage() {
               <p className="mt-1 max-w-xs text-center text-xs text-muted-foreground">
                 {t('cohorts.no_cohorts_description')}
               </p>
+              <GatedButton allowed={can('cohorts:write')} notAllowedReason={t('common.insufficient_permissions')} onClick={() => setDialogOpen(true)} className="mt-4 gap-2">
+                <Plus size={16} />
+                {t('cohorts.create')}
+              </GatedButton>
             </div>
           </Card>
         ) : filteredCohorts.length === 0 ? (
