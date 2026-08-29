@@ -344,6 +344,13 @@ export function buildTimelineQuery(
     const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
     if (!patientIdCol) continue
 
+    // `'none'` marks a table that names its concept inline: the column holds
+    // "Vancomycin", not an id. Matching it against numeric ids cannot select
+    // anything, and DuckDB casts the whole column to compare, failing on the first
+    // non-numeric row. Every branch shares one UNION ALL, so that single error
+    // empties the widget: skip the table rather than emit SQL that throws.
+    if (et.conceptDictionaryKey === 'none') continue
+
     const dict = getDictionaryForEvent(mapping, et)
     const conceptMatch = buildConceptInCondition('e', et, idList)
     const visitFilter = buildVisitFilter(mapping, visitId, 'e')

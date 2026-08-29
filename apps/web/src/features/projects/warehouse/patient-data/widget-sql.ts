@@ -73,6 +73,8 @@ export function buildWidgetQueries({
           id: 'timeline',
           label: { en: 'Measurements', fr: 'Mesures' },
           sql,
+          // With concepts selected and no SQL, every event table was skipped:
+          // none of them keys its concepts by id, so no id filter can apply.
           missing: sql
             ? undefined
             : conceptIds.length === 0

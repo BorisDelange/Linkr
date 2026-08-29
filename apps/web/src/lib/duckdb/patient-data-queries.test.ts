@@ -4,6 +4,7 @@ import {
   buildPatientSummaryQuery,
   buildPatientListQuery,
   buildPatientCountQuery,
+  buildTimelineQuery,
 } from './patient-data-queries'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
@@ -156,5 +157,87 @@ describe('patient id search', () => {
     expect(sql).toContain('ILIKE')
     expect(sql).toContain("gender = '8507'")
     expect(sql).toContain(' AND ')
+  })
+})
+
+// A timeline filters event tables by numeric concept ids. A table that names its
+// concept inline (`conceptDictionaryKey: 'none'`) holds text there — "Insulin",
+// not 220045 — so DuckDB casts the column to compare and throws on the first
+// non-numeric row. Every table shares one UNION ALL, so that single error empties
+// the whole widget: the branch must not be emitted at all.
+
+const timelineMapping = {
+  patientTable: { table: 'patients', idColumn: 'subject_id' },
+  conceptTables: [
+    { key: 'd_items', table: 'd_items', idColumn: 'itemid', nameColumn: 'label' },
+  ],
+  eventTables: {
+    Measurements: {
+      table: 'chartevents',
+      conceptIdColumn: 'itemid',
+      valueColumn: 'valuenum',
+      dateColumn: 'charttime',
+      patientIdColumn: 'subject_id',
+      conceptDictionaryKey: 'd_items',
+    },
+    Prescriptions: {
+      table: 'prescriptions',
+      conceptIdColumn: 'drug',
+      valueColumn: 'dose_val_rx',
+      dateColumn: 'starttime',
+      patientIdColumn: 'subject_id',
+      conceptDictionaryKey: 'none',
+    },
+  },
+} as unknown as SchemaMapping
+
+describe('timeline query', () => {
+  const sql = () => buildTimelineQuery(timelineMapping, [220045, 220210], '10002495', null)
+
+  it('keeps the tables whose concepts are ids', () => {
+    expect(sql()).toContain('"chartevents"')
+    expect(sql()).toContain('IN (220045, 220210)')
+  })
+
+  it('drops a table that names its concept inline, rather than casting text to int', () => {
+    // The bug: this branch made the whole UNION fail, so a patient with 310 rows
+    // of heart rate showed "no data".
+    expect(sql()).not.toContain('"prescriptions"')
+    expect(sql()).not.toContain('drug')
+  })
+
+  it('still returns a query when only the id-keyed tables survive', () => {
+    expect(sql()).toContain('ORDER BY event_date')
+  })
+
+  it('returns null when no table can be filtered by concept id', () => {
+    const inlineOnly = {
+      ...timelineMapping,
+      eventTables: { Prescriptions: timelineMapping.eventTables!.Prescriptions },
+    } as SchemaMapping
+    // Null is the honest answer: the widget reports a mapping problem instead of
+    // rendering an error, which is what `missing` in buildWidgetQueries is for.
+    expect(buildTimelineQuery(inlineOnly, [220045], '10002495', null)).toBeNull()
+  })
+
+  it('keeps an id-keyed table that simply has no dictionary to join', () => {
+    // Only the inline opt-out is dropped. A concept id column with no dictionary
+    // is still an id column — OMOP `measurement_concept_id` with no vocabulary
+    // loaded filters fine, it just labels the series with the raw id.
+    const noDict = {
+      patientTable: { table: 'person', idColumn: 'person_id' },
+      eventTables: {
+        measurement: {
+          table: 'measurement',
+          conceptIdColumn: 'measurement_concept_id',
+          patientIdColumn: 'person_id',
+          dateColumn: 'measurement_datetime',
+          valueColumn: 'value_as_number',
+        },
+      },
+    } as unknown as SchemaMapping
+    const sql = buildTimelineQuery(noDict, [3027018], '123', null)
+    expect(sql).toContain('"measurement"')
+    expect(sql).toContain('IN (3027018)')
   })
 })

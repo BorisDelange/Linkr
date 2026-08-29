@@ -1337,7 +1337,9 @@ function BooleanField({
         // label above it — the extra height read as padding around the row.
         // Kept full height inside a `row` group so it still aligns with the
         // input it sits beside.
-        className={cn('flex items-center gap-2 text-xs', field.row ? 'h-8' : 'h-6')}
+        // Same size and weight as a <Label>: a checkbox's text IS its field label,
+        // so a lighter weight made it read as smaller than the ones above it.
+        className={cn('flex items-center gap-2 text-xs font-medium', field.row ? 'h-8' : 'h-6')}
       >
         <div
           className={cn(

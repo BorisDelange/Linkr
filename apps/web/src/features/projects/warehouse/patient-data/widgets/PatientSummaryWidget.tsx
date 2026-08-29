@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { User, Calendar, Bed, Heart, HeartOff, List, GanttChart, ZoomIn, ZoomOut, Maximize2, ExternalLink } from 'lucide-react'
+import { User, Calendar, Bed, Heart, HeartOff, List, GanttChart, ZoomIn, ZoomOut, Maximize2, ExternalLink, Cake, Hourglass, Building2, VenusAndMars } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -608,8 +609,10 @@ function TextTimeline({ visitRows, detailsByVisit, formatDate, formatDateShort, 
                           ({t('patient_data.days_short', { count: los })})
                         </span>
                       )}
+                      {/* Reads as part of the admission it names, so it follows the
+                          dates instead of being pushed to the far right. */}
                       {v.visit_type && (
-                        <span className="text-muted-foreground ml-auto shrink-0">
+                        <span className="shrink-0 rounded bg-muted px-1.5 py-px text-[10px] text-muted-foreground">
                           {v.visit_type}
                         </span>
                       )}
@@ -676,6 +679,48 @@ function TextTimeline({ visitRows, detailsByVisit, formatDate, formatDateShort, 
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// KPI tile
+// ---------------------------------------------------------------------------
+
+/**
+ * Tone classes per tile. Written out rather than interpolated because Tailwind
+ * scans for whole class names — a `bg-${tone}-500/10` would be purged from the
+ * build and the tiles would render colourless.
+ *
+ * Each pairs a tinted icon chip with a readable foreground in both themes; the
+ * card itself stays neutral so a row of tiles reads as one row, not six badges.
+ */
+const KPI_TONES = {
+  violet: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
+  sky: 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
+  emerald: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  red: 'bg-red-500/10 text-red-600 dark:text-red-400',
+  amber: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  teal: 'bg-teal-500/10 text-teal-600 dark:text-teal-400',
+} as const
+
+interface KpiTileProps {
+  icon: React.ComponentType<{ size?: number; className?: string }>
+  tone: keyof typeof KPI_TONES
+  label: string
+  value: React.ReactNode
+}
+
+function KpiTile({ icon: Icon, tone, label, value }: KpiTileProps) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-lg border bg-card px-2 py-1.5">
+      <div className={cn('flex size-6 shrink-0 items-center justify-center rounded-md', KPI_TONES[tone])}>
+        <Icon size={12} />
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-[10px] leading-tight text-muted-foreground">{label}</p>
+        <p className="truncate text-xs font-semibold leading-tight">{value}</p>
+      </div>
     </div>
   )
 }
@@ -818,56 +863,57 @@ export function PatientSummaryWidget() {
 
       {/* Stats row: Gender, Age first, Age last */}
       <div className="grid grid-cols-3 gap-1.5 shrink-0">
-        <div className="rounded-md bg-muted/50 px-2 py-1">
-          <p className="text-[9px] text-muted-foreground leading-tight">{t('patient_data.gender_label')}</p>
-          <p className="text-xs font-semibold">
-            {formatGender(summary.gender != null ? String(summary.gender) : undefined)}
-          </p>
-        </div>
-        <div className="rounded-md bg-muted/50 px-2 py-1">
-          <p className="text-[9px] text-muted-foreground leading-tight">{t('patient_data.age_first_visit')}</p>
-          <p className="text-xs font-semibold">
-            {summary.age_first_visit != null
+        <KpiTile
+          icon={VenusAndMars}
+          tone="violet"
+          label={t('patient_data.gender_label')}
+          value={formatGender(summary.gender != null ? String(summary.gender) : undefined)}
+        />
+        <KpiTile
+          icon={Cake}
+          tone="sky"
+          label={t('patient_data.age_first_visit')}
+          value={
+            summary.age_first_visit != null
               ? `${Math.round(Number(summary.age_first_visit))} ${t('patient_data.years')}`
-              : '—'}
-          </p>
-        </div>
-        <div className="rounded-md bg-muted/50 px-2 py-1">
-          <p className="text-[9px] text-muted-foreground leading-tight">{t('patient_data.age_last_visit')}</p>
-          <p className="text-xs font-semibold">
-            {summary.age_last_visit != null
+              : '—'
+          }
+        />
+        <KpiTile
+          icon={Hourglass}
+          tone="sky"
+          label={t('patient_data.age_last_visit')}
+          value={
+            summary.age_last_visit != null
               ? `${Math.round(Number(summary.age_last_visit))} ${t('patient_data.years')}`
-              : '—'}
-          </p>
-        </div>
+              : '—'
+          }
+        />
       </div>
 
       {/* Summary row: Death, Hospitalizations, Unit stays */}
       <div className="grid grid-cols-3 gap-1.5 shrink-0">
-        <div className="rounded-md bg-muted/50 px-2 py-1">
-          <p className="text-[9px] text-muted-foreground leading-tight">{t('patient_data.death')}</p>
-          <div className="flex items-center gap-1">
-            {isDead ? (
-              <HeartOff size={10} className="text-red-500 shrink-0" />
-            ) : (
-              <Heart size={10} className="text-green-500 shrink-0" />
-            )}
-            <p className="text-xs font-semibold">
-              {isDead
-                ? formatDate(summary.death_date)
-                : t('patient_data.death_no')}
-            </p>
-          </div>
-        </div>
-        <div className="rounded-md bg-muted/50 px-2 py-1">
-          <p className="text-[9px] text-muted-foreground leading-tight">{t('patient_data.visit_count')}</p>
-          <p className="text-xs font-semibold">{visitCount}</p>
-        </div>
+        {/* The one tile whose colour carries meaning rather than category: red
+            states the patient died, green that the record shows no death. */}
+        <KpiTile
+          icon={isDead ? HeartOff : Heart}
+          tone={isDead ? 'red' : 'emerald'}
+          label={t('patient_data.death')}
+          value={isDead ? formatDate(summary.death_date) : t('patient_data.death_no')}
+        />
+        <KpiTile
+          icon={Building2}
+          tone="amber"
+          label={t('patient_data.visit_count')}
+          value={visitCount}
+        />
         {visitDetailCount > 0 && (
-          <div className="rounded-md bg-muted/50 px-2 py-1">
-            <p className="text-[9px] text-muted-foreground leading-tight">{t('patient_data.unit_stays')}</p>
-            <p className="text-xs font-semibold">{visitDetailCount}</p>
-          </div>
+          <KpiTile
+            icon={Bed}
+            tone="teal"
+            label={t('patient_data.unit_stays')}
+            value={visitDetailCount}
+          />
         )}
       </div>
 
