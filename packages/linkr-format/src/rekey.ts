@@ -403,6 +403,8 @@ function rewriteColumnRefs(
   doc: DashboardDocument,
   datasetFileId: string,
   changes: Map<string, string>,
+  /** New column id → new display name, for the `columnName` a filter also stores. */
+  namesById: Map<string, string>,
 ): DashboardDocument {
   if (!changes.size) return doc
 
@@ -427,7 +429,13 @@ function rewriteColumnRefs(
     const f = filter as FilterRecord & { datasetFileId?: string; columnId?: string; columnName?: string }
     if (f.datasetFileId !== datasetFileId) return filter
     const next = changes.get(String(f.columnId))
-    return next ? { ...filter, columnId: next } : filter
+    if (!next) return filter
+    // `columnName` travels beside `columnId` and is NOT redundant: the sidebar
+    // resolves the live column by name FIRST and only falls back to the id
+    // (DashboardFilterSidebar's `fetchColId`), and cross-dataset matching keys off
+    // it too. Leaving it stale meant the rewritten id was never the branch taken.
+    const name = namesById.get(next)
+    return { ...filter, columnId: next, ...(name ? { columnName: name } : {}) }
   })
 
   return {
@@ -491,16 +499,31 @@ export function renameDatasetColumns(
   const names = columns.map((c) => newNameById.get(c.id) ?? c.name)
   const ids = buildColumnIds(names)
 
+  // A rename that slugs onto an untouched column's id would push that column's own
+  // id down a `_2` suffix — silently repointing every widget and filter that named
+  // it. `buildColumnIds` dedupes positionally and cannot see that, so refuse here
+  // rather than corrupt the tree: renaming `age`→`sex` beside a real `sex` gave
+  // two columns both displaying "sex", the bystander now under `col_sex_2`.
+  columns.forEach((column, i) => {
+    if (newNameById.has(column.id) || ids[i] === column.id) return
+    throw new Error(
+      `A rename collides with column "${column.name}", which is not being renamed `
+      + `(its id "${column.id}" would move to "${ids[i]}"). Pick another name, or `
+      + 'rename that column in the same call.',
+    )
+  })
+
   const changes = new Map<string, string>()
   const nextColumns = columns.map((column, i) => {
     if (column.id !== ids[i]) changes.set(column.id, ids[i])
     return { ...column, id: ids[i], name: names[i] }
   })
+  const namesById = new Map(nextColumns.map((c) => [c.id, c.name]))
 
   const fileId = String(dataset.id ?? dataset.name ?? '')
   const nextDashboards = new Map<string, DashboardDocument>()
   for (const [path, doc] of dashboards) {
-    nextDashboards.set(path, rewriteColumnRefs(doc, fileId, changes))
+    nextDashboards.set(path, rewriteColumnRefs(doc, fileId, changes, namesById))
   }
 
   return {

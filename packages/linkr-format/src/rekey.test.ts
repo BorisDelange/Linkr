@@ -296,4 +296,28 @@ describe('renameDatasetColumns', () => {
     expect(() => renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_age', to: '  ' }]))
       .toThrow(/needs a name/)
   })
+
+  it('repoints the filter\'s columnName, not just its columnId', () => {
+    // The sidebar resolves the live column by NAME first and only falls back to
+    // the id, so a rewritten id beside a stale name is the branch never taken.
+    const out = renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_age', to: 'age_years' }])
+    expect(out.dashboards.get('dashboards/overview.json')!.dashboard?.filterConfig?.[0])
+      .toMatchObject({ columnId: 'col_age_years', columnName: 'age_years' })
+  })
+
+  it('refuses a rename that would take an untouched column\'s id', () => {
+    // Otherwise `sex` keeps its name but slides to col_sex_2, and every widget
+    // and filter pointing at the original col_sex silently follows the renamed
+    // column instead.
+    expect(() => renameDatasetColumns(dataset(), dashboards(), [{ from: 'col_age', to: 'sex' }]))
+      .toThrow(/collides with column "sex"/)
+  })
+
+  it('allows two columns to swap names in one call', () => {
+    // Both are in the rename set, so nothing is displaced behind the user's back.
+    const out = renameDatasetColumns(dataset(), dashboards(), [
+      { from: 'col_age', to: 'sex' }, { from: 'col_sex', to: 'age' },
+    ])
+    expect(out.dataset.columns?.map((c) => c.id)).toEqual(['col_sex', 'col_age'])
+  })
 })
