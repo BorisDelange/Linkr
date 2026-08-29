@@ -80,12 +80,30 @@ export function readDashboard(file: DashboardFile): DashboardSpec {
   const widgetsIn = file.widgets ?? []
 
   // key → English name, so a widget's `tabKey` and a tab's `parentKey` resolve to
-  // the names a spec uses. Two tabs may share a name; the key is what disambiguates
-  // them in the file, and a spec cannot express that — recorded as a caveat below.
+  // the names a spec uses.
   const nameByKey = new Map<string, string>()
   for (const tab of tabsIn) {
     const label = nameOf(tab.name).en ?? ''
     if (typeof tab.key === 'string') nameByKey.set(tab.key, label)
+  }
+
+  // A spec addresses a tab by name, so two siblings sharing an English name are
+  // inexpressible: both would serialize back to ONE key, `resolveDashboardBundle`
+  // would derive one id from it, and the second tab would overwrite the first,
+  // taking its widgets. Refuse rather than hand back a spec that silently loses a
+  // tab — the file itself stays valid, it just cannot be round-tripped.
+  const siblings = new Set<string>()
+  for (const tab of tabsIn) {
+    const parentKey = typeof tab.parentKey === 'string' ? tab.parentKey : ''
+    const label = nameOf(tab.name).en ?? ''
+    const seat = `${parentKey}\u0000${label}`
+    if (siblings.has(seat)) {
+      throw new Error(
+        `Two tabs named "${label}" share a parent. A dashboard spec addresses tabs `
+        + 'by name, so they cannot be told apart — rename one before reading it.',
+      )
+    }
+    siblings.add(seat)
   }
 
   const tabs: TabSpec[] = tabsIn.map((tab) => {

@@ -145,4 +145,33 @@ describe('readDashboard', () => {
     expect(spec.extra).toBeUndefined()
     expect(spec.tabs[0].extra).toBeUndefined()
   })
+
+  it('refuses two sibling tabs that share an English name', () => {
+    // A spec addresses tabs by name, so both would serialize back to one key and
+    // the second would overwrite the first on import, taking its widgets.
+    expect(() => readDashboard({
+      dashboard: { name: { en: 'D' } },
+      tabs: [
+        { name: { en: 'T' }, key: 'd/t', parentKey: null, displayOrder: 0 },
+        { name: { en: 'T' }, key: 'd/t#1', parentKey: null, displayOrder: 1 },
+      ],
+      widgets: [],
+    })).toThrow(/Two tabs named "T"/)
+  })
+
+  it('allows the same tab name under different parents', () => {
+    // Only siblings are ambiguous: the parent qualifies the key, and a spec names
+    // the parent too, so these round-trip fine.
+    const spec = readDashboard({
+      dashboard: { name: { en: 'D' } },
+      tabs: [
+        { name: { en: 'Parent' }, key: 'd/parent', parentKey: null, displayOrder: 0 },
+        { name: { en: 'T' }, key: 'd/t', parentKey: null, displayOrder: 1 },
+        { name: { en: 'T' }, key: 'd/parent/t', parentKey: 'd/parent', displayOrder: 2 },
+      ],
+      widgets: [],
+    })
+    expect(spec.tabs).toHaveLength(3)
+    expect(spec.tabs[2].parent).toBe('Parent')
+  })
 })
