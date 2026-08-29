@@ -33,6 +33,15 @@ pages:
   script:
     - mkdir -p public
     - cp -r apps/web/dist/* public/
+    # The app routes client-side (BrowserRouter), so a deep link like
+    # /workspaces/<id>/home has no file behind it and Pages answers 404 before any
+    # JS runs — only the root ever loaded. Pages serves 404.html for an unknown
+    # path, so making it the app lets React read the URL and render the right page,
+    # which is what allows a link into a specific project to be shared or
+    # documented. The status stays 404 (crawlers see it, users do not) — the cost of
+    # BrowserRouter on static hosting. Assets are absolute (--base /), so they
+    # resolve from any depth.
+    - cp public/index.html public/404.html
     # Headers for SharedArrayBuffer (required by DuckDB-WASM, Pyodide, webR)
     - |
       cat > public/_headers <<'EOF'
