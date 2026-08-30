@@ -161,6 +161,23 @@ export function windowFromRangeJump(
   return clampWindow({ lo: centre - span / 2, hi: centre + span / 2 }, bounds)
 }
 
+/**
+ * Whether two extents describe the same record.
+ *
+ * A widget reloads whenever its tab becomes visible again, and reframing the
+ * chart there would throw away the window the user had zoomed to. Comparing the
+ * extents tells a genuine change of record — another patient, another visit —
+ * from the same one arriving a second time.
+ *
+ * Exact equality: both sides are computed the same way from the same rows, so
+ * an identical record yields identical numbers, and a tolerance would risk
+ * calling two genuinely close records the same.
+ */
+export function sameBounds(a: TimeWindow | null, b: TimeWindow | null): boolean {
+  if (!a || !b) return false
+  return a.lo === b.lo && a.hi === b.hi
+}
+
 /** Whether a window covers its whole bounds — used to hide the "reset" affordance. */
 export function isFullWindow(view: TimeWindow, bounds: TimeWindow): boolean {
   return view.lo <= bounds.lo && view.hi >= bounds.hi

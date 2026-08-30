@@ -10,6 +10,7 @@ import {
   getTimelineRange,
   syncChannel,
 } from '../timeline-sync'
+import { sameBounds } from './timeline-view'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import {
   buildOverviewInventoryQuery,
@@ -146,6 +147,9 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const [units, setUnits] = useState<UnitStay[]>([])
   const [death, setDeath] = useState<number | null>(null)
   const [bounds, setBounds] = useState<{ lo: number; hi: number } | null>(null)
+  /** The bounds of the record currently loaded, read during the load itself —
+   *  where the `bounds` state is still the previous render's value. */
+  const boundsRef = useRef<{ lo: number; hi: number } | null>(null)
   const [view, setViewRaw] = useState<{ lo: number; hi: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -273,6 +277,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       setConcepts([])
       setUnits([])
       setDeath(null)
+      boundsRef.current = null
       setBounds(null)
       return
     }
@@ -395,13 +400,22 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         if (Number.isFinite(lo) && Number.isFinite(hi)) {
           const pad = (hi - lo) * 0.01 || 86_400_000
           const b = { lo: lo - pad, hi: hi + pad }
+          const sameRecord = sameBounds(boundsRef.current, b)
+          boundsRef.current = b
           setBounds(b)
-          // setViewRaw, not setView: this is the widget framing its own freshly
-          // loaded record, not a gesture. Broadcasting it would yank every synced
-          // peer back to full extent each time this one reloads.
-          setViewRaw(b)
+          // Frame the record only when the window does not already belong to it.
+          // This effect re-runs whenever the tab becomes visible again, and
+          // reframing there threw away whatever the user had zoomed to. Bounds
+          // identify the record: a different patient or visit gives different
+          // ones and still resets.
+          //
+          // setViewRaw, not setView: this is the widget framing itself, not a
+          // gesture. Broadcasting it would yank every synced peer back to full
+          // extent each time this one reloads.
+          setViewRaw((prev) => (prev && sameRecord ? prev : b))
           void loadOverviewDensity(b, rows)
         } else {
+          boundsRef.current = null
           setBounds(null)
           setViewRaw(null)
           setOverview(null)

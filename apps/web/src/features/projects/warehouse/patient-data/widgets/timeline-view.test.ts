@@ -7,6 +7,7 @@ import {
   windowFromRangeGrab,
   windowFromRangeJump,
   isFullWindow,
+  sameBounds,
   axisTicks,
   MIN_SPAN_MS,
 } from './timeline-view'
@@ -192,6 +193,25 @@ describe('windowFromRangeJump', () => {
     const r = windowFromRangeJump(GEOM, 0, WIN, BOUNDS)
     expect(r.lo).toBe(BOUNDS.lo)
     expect(r.hi - r.lo).toBe(WIN.hi - WIN.lo)
+  })
+})
+
+describe('sameBounds', () => {
+  it('recognises the same record arriving again', () => {
+    // The case that matters: a tab becoming visible reloads the widget, and
+    // reframing there would throw away the window the user had zoomed to.
+    expect(sameBounds({ lo: 10, hi: 90 }, { lo: 10, hi: 90 })).toBe(true)
+  })
+
+  it('recognises a different record, which SHOULD reframe', () => {
+    expect(sameBounds({ lo: 10, hi: 90 }, { lo: 10, hi: 91 })).toBe(false)
+    expect(sameBounds({ lo: 11, hi: 90 }, { lo: 10, hi: 90 })).toBe(false)
+  })
+
+  it('treats a missing side as different, so the first load always frames', () => {
+    expect(sameBounds(null, { lo: 10, hi: 90 })).toBe(false)
+    expect(sameBounds({ lo: 10, hi: 90 }, null)).toBe(false)
+    expect(sameBounds(null, null)).toBe(false)
   })
 })
 
