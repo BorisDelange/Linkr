@@ -19,8 +19,18 @@ build:
     paths:
       - node_modules/
       - apps/web/node_modules/
+      # The cloned default-data repos. Re-fetching them every pipeline means
+      # re-pulling the LFS Parquet too; the script reuses this checkout when it
+      # is present and only fetches the pinned refs it is missing.
+      - .cache/default-data/
   script:
+    # The default data is NOT in this repo (see CLAUDE.md): a WASM build has no
+    # git client, so the seed has to be baked in at build time. The alpine image
+    # ships neither git nor git-lfs, and without them this step fails loudly
+    # rather than publishing a site with no default content.
+    - apk add --no-cache git git-lfs
     - npm ci
+    - npm run data:fetch
     - cd apps/web && npx vite build --base /
   artifacts:
     paths:
