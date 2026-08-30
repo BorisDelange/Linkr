@@ -1,16 +1,17 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { FileText, Search, Plus, Trash2, ChevronDown } from 'lucide-react'
+import { FileText, Highlighter, ChevronDown, Settings2 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Input } from '@/components/ui/input'
 import { SearchInput } from '@/components/ui/search-input'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { cn } from '@/lib/utils'
 import { usePatientChartContext } from '../PatientChartContext'
 import { useTabVisible } from '../TabVisibilityContext'
 import { usePatientChartStore, type NotesConfig } from '@/stores/patient-chart-store'
@@ -21,6 +22,15 @@ import { formatDate as fmtDate } from '@/lib/format-helpers'
 import { SortPopover } from '@/components/ui/sort-popover'
 import type { SortState } from '@/components/ui/list-page-toolbar'
 import { sortNotes, noteAtOffset, NOTES_SORT_KEYS } from './notes-sort'
+import {
+  readWordSets,
+  appliedSets,
+  highlightWords,
+  toggleSet,
+  type WordSet,
+} from './word-sets'
+import { WORD_SET_COLORS, SEARCH_COLOR_INDEX, getWordSetColorIndex } from './word-set-colors'
+import { WordSetsDialog } from './WordSetsDialog'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,33 +43,6 @@ interface NoteRow {
   note_text: string
   note_type: string
   visit_id: number | null
-}
-
-interface WordSet {
-  label: string
-  words: string[]
-}
-
-// ---------------------------------------------------------------------------
-// Highlight color palette (for word sets)
-// ---------------------------------------------------------------------------
-
-/** Each word set gets a distinct highlight color. Index by set position. */
-const WORD_SET_COLORS = [
-  { bg: 'bg-yellow-200 dark:bg-yellow-500/30', css: 'background:rgb(254 240 138);', cssDark: 'background:rgba(234 179 8 / 0.3);' },
-  { bg: 'bg-cyan-200 dark:bg-cyan-500/30', css: 'background:rgb(165 243 252);', cssDark: 'background:rgba(6 182 212 / 0.3);' },
-  { bg: 'bg-pink-200 dark:bg-pink-500/30', css: 'background:rgb(251 207 232);', cssDark: 'background:rgba(236 72 153 / 0.3);' },
-  { bg: 'bg-lime-200 dark:bg-lime-500/30', css: 'background:rgb(217 249 157);', cssDark: 'background:rgba(132 204 22 / 0.3);' },
-  { bg: 'bg-orange-200 dark:bg-orange-500/30', css: 'background:rgb(254 215 170);', cssDark: 'background:rgba(249 115 22 / 0.3);' },
-  { bg: 'bg-violet-200 dark:bg-violet-500/30', css: 'background:rgb(221 214 254);', cssDark: 'background:rgba(139 92 246 / 0.3);' },
-]
-
-/** Text search always uses the first color (yellow). */
-const SEARCH_COLOR_INDEX = 0
-
-function getWordSetColorIndex(setIndex: number): number {
-  // Offset by 1 so text search (yellow) and first word set don't collide
-  return (setIndex + 1) % WORD_SET_COLORS.length
 }
 
 // ---------------------------------------------------------------------------
@@ -161,108 +144,90 @@ function NoteTypeBadge({ type, colorClass }: { type: string; colorClass: string 
 // Word Sets Popover
 // ---------------------------------------------------------------------------
 
+/**
+ * Applying word sets: one checkbox per set, several at once.
+ *
+ * Applying is all this does. Creating and rewording live in the editor dialog,
+ * because a popover that also authored its own content left no room to do
+ * either job properly — sets could not be edited at all, only deleted.
+ */
 function WordSetsPopover({
   wordSets,
-  activeWords,
-  onToggleWord,
-  onAddSet,
-  onRemoveSet,
+  appliedIds,
+  onToggleSet,
+  onClear,
+  onEdit,
 }: {
   wordSets: WordSet[]
-  activeWords: Set<string>
-  onToggleWord: (word: string, setIndex: number) => void
-  onAddSet: (label: string, words: string[]) => void
-  onRemoveSet: (index: number) => void
+  appliedIds: string[]
+  onToggleSet: (id: string) => void
+  onClear: () => void
+  onEdit: () => void
 }) {
   const { t } = useTranslation()
-  const [newLabel, setNewLabel] = useState('')
-  const [newWords, setNewWords] = useState('')
-
-  const handleAdd = () => {
-    const label = newLabel.trim()
-    const words = newWords
-      .split(',')
-      .map((w) => w.trim())
-      .filter(Boolean)
-    if (label && words.length > 0) {
-      onAddSet(label, words)
-      setNewLabel('')
-      setNewWords('')
-    }
-  }
+  const appliedCount = appliedSets(wordSets, appliedIds).length
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm-tight" className="px-2">
-          <Search size={12} />
+        {/* Filled once something is applied, like the sort control: the widget
+            header is the only place that says highlighting is on. */}
+        <Button variant={appliedCount > 0 ? 'secondary' : 'ghost'} size="sm-tight" className="px-2">
+          <Highlighter size={12} />
           {t('patient_data.notes_word_sets')}
+          {appliedCount > 0 && <span className="tabular-nums">{appliedCount}</span>}
           <ChevronDown size={12} />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 p-3" align="start">
-        <div className="space-y-3">
-          <p className="text-xs font-medium">{t('patient_data.notes_word_sets')}</p>
-
-          {wordSets.map((ws, i) => {
-            const ci = getWordSetColorIndex(i)
-            const colorCls = WORD_SET_COLORS[ci].bg
-            return (
-              <div key={i} className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`inline-block h-2.5 w-2.5 rounded-sm ${colorCls}`} />
-                    <span className="text-xs font-medium">{ws.label}</span>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 w-5 p-0"
-                    onClick={() => onRemoveSet(i)}
-                  >
-                    <Trash2 size={10} />
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {ws.words.map((word) => (
-                    <button
-                      key={word}
-                      onClick={() => onToggleWord(word, i)}
-                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                        activeWords.has(word.toLowerCase())
-                          ? `${colorCls} text-foreground`
-                          : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                      }`}
-                    >
-                      {word}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-
-          {/* Add new set */}
-          <div className="space-y-1.5 border-t pt-2">
-            <p className="text-[10px] text-muted-foreground">{t('patient_data.notes_add_word_set')}</p>
-            <Input
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              placeholder={t('patient_data.notes_set_name')}
-              className="h-7 text-xs"
-            />
-            <Input
-              value={newWords}
-              onChange={(e) => setNewWords(e.target.value)}
-              placeholder={t('patient_data.notes_set_words_placeholder')}
-              className="h-7 text-xs"
-            />
-            <Button size="sm-tight" className="w-full" onClick={handleAdd}>
-              <Plus size={12} className="mr-1" />
-              {t('common.add')}
-            </Button>
-          </div>
+      <PopoverContent className="w-64 p-2" align="start">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <p className="truncate text-xs font-medium text-muted-foreground">
+            {t('patient_data.notes_word_sets')}
+          </p>
+          {appliedCount > 0 && (
+            <button
+              type="button"
+              onClick={onClear}
+              className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {t('common.clear')}
+            </button>
+          )}
         </div>
+
+        {wordSets.length === 0 ? (
+          <p className="px-1.5 py-3 text-center text-xs text-muted-foreground">
+            {t('patient_data.notes_no_word_sets')}
+          </p>
+        ) : (
+          <div className="space-y-0.5">
+            {wordSets.map((set, i) => {
+              const applied = appliedIds.includes(set.id)
+              return (
+                <label
+                  key={set.id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs transition-colors hover:bg-accent/30"
+                >
+                  <Checkbox checked={applied} onCheckedChange={() => onToggleSet(set.id)} />
+                  <span
+                    className={cn('size-2.5 shrink-0 rounded-sm', WORD_SET_COLORS[getWordSetColorIndex(i)].bg)}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-medium">{set.label}</span>
+                  {/* The word count is what tells two similarly named sets apart
+                      without opening the editor. */}
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {set.words.length}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+
+        <Button variant="ghost" size="sm-tight" className="mt-1 w-full justify-start" onClick={onEdit}>
+          <Settings2 size={12} />
+          {t('patient_data.notes_manage_word_sets')}
+        </Button>
       </PopoverContent>
     </Popover>
   )
@@ -302,11 +267,13 @@ export function NotesWidget({
   // null keeps the query's own order (newest first), which is what a clinician
   // expects to land on.
   const [sort, setSort] = useState<SortState | null>(null)
-  // Map: lowercase word → { setIndex } for color tracking
-  const [activeHighlightWords, setActiveHighlightWords] = useState<
-    Map<string, { setIndex: number }>
-  >(new Map())
+  const [editingWordSets, setEditingWordSets] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
+
+  const wordSets = useMemo(() => readWordSets(config.wordSets), [config.wordSets])
+  // Applied sets live in the config, so a board reopens highlighting what it
+  // was highlighting — the sets themselves would be pointless otherwise.
+  const appliedIds = useMemo(() => config.appliedWordSetIds ?? [], [config.appliedWordSetIds])
 
   // Dynamic badge color map: type string → palette class
   const badgeColorMap = useMemo(() => {
@@ -431,62 +398,36 @@ export function NotesWidget({
         if (token) words.push({ word: token, colorIndex: SEARCH_COLOR_INDEX })
       }
     }
-    // Active word set words → their set color
-    for (const [word, { setIndex }] of activeHighlightWords) {
+    // Every word of every applied set, in that set's colour.
+    for (const { word, setIndex } of highlightWords(wordSets, appliedIds)) {
       words.push({ word, colorIndex: getWordSetColorIndex(setIndex) })
     }
     return words
-  }, [textSearch, activeHighlightWords])
+  }, [textSearch, wordSets, appliedIds])
 
-  const handleToggleWord = useCallback((word: string, setIndex: number) => {
-    setActiveHighlightWords((prev) => {
-      const next = new Map(prev)
-      const lower = word.toLowerCase()
-      if (next.has(lower)) {
-        next.delete(lower)
-      } else {
-        next.set(lower, { setIndex })
-      }
-      return next
-    })
-  }, [])
-
-  // For the popover: build a Set<string> of active lowercase words
-  const activeWordsSet = useMemo(
-    () => new Set(activeHighlightWords.keys()),
-    [activeHighlightWords],
+  const handleToggleSet = useCallback(
+    (id: string) => {
+      updateWidgetConfig(widgetId, { ...config, appliedWordSetIds: toggleSet(appliedIds, id) })
+    },
+    [widgetId, config, appliedIds, updateWidgetConfig],
   )
 
-  const handleAddWordSet = useCallback(
-    (label: string, words: string[]) => {
-      const current = config.wordSets ?? []
-      updateWidgetConfig(widgetId, {
-        ...config,
-        wordSets: [...current, { label, words }],
-      })
-    },
-    [widgetId, config, updateWidgetConfig],
-  )
+  const handleClearSets = useCallback(() => {
+    updateWidgetConfig(widgetId, { ...config, appliedWordSetIds: [] })
+  }, [widgetId, config, updateWidgetConfig])
 
-  const handleRemoveWordSet = useCallback(
-    (index: number) => {
-      const current = config.wordSets ?? []
-      const removed = current[index]
-      if (removed) {
-        setActiveHighlightWords((prev) => {
-          const next = new Map(prev)
-          for (const w of removed.words) {
-            next.delete(w.toLowerCase())
-          }
-          return next
-        })
-      }
+  const handleSaveWordSets = useCallback(
+    (next: WordSet[]) => {
+      // Deleting a set has to un-apply it too, or its id would sit in the config
+      // for ever and reappear the day a new set happened to reuse it.
+      const alive = new Set(next.map((s) => s.id))
       updateWidgetConfig(widgetId, {
         ...config,
-        wordSets: current.filter((_, i) => i !== index),
+        wordSets: next,
+        appliedWordSetIds: appliedIds.filter((id) => alive.has(id)),
       })
     },
-    [widgetId, config, updateWidgetConfig],
+    [widgetId, config, appliedIds, updateWidgetConfig],
   )
 
   const formatDate = (d: string) => fmtDate(d, i18n.language)
@@ -560,11 +501,11 @@ export function NotesWidget({
           className="flex-1"
         />
         <WordSetsPopover
-          wordSets={config.wordSets ?? []}
-          activeWords={activeWordsSet}
-          onToggleWord={handleToggleWord}
-          onAddSet={handleAddWordSet}
-          onRemoveSet={handleRemoveWordSet}
+          wordSets={wordSets}
+          appliedIds={appliedIds}
+          onToggleSet={handleToggleSet}
+          onClear={handleClearSets}
+          onEdit={() => setEditingWordSets(true)}
         />
         <span className="text-[10px] text-muted-foreground tabular-nums">
           {displayNotes.length}/{notes.length}
@@ -656,6 +597,15 @@ export function NotesWidget({
           </Allotment.Pane>
         </Allotment>
       </div>
+
+      {editingWordSets && (
+        <WordSetsDialog
+          open
+          onOpenChange={setEditingWordSets}
+          sets={wordSets}
+          onSave={handleSaveWordSets}
+        />
+      )}
     </div>
   )
 }

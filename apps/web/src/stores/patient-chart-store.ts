@@ -22,8 +22,16 @@ import { fitTabLayouts } from '@/features/projects/dashboard/dashboard-grid'
 export type PatientWidgetType = 'patient_summary' | 'notes' | 'timeline' | 'plugin'
 
 export interface NotesConfig {
-  /** Saved search word sets: { label: string, words: string[] }[] */
-  wordSets?: Array<{ label: string; words: string[] }>
+  /**
+   * Named groups of words to highlight. `id` is absent on sets saved before it
+   * existed; `readWordSets` keys those by label instead.
+   */
+  wordSets?: Array<{ id?: string; label: string; words: string[] }>
+  /**
+   * Which sets are currently applied. Held here rather than in component state
+   * so a board reopens highlighting what it was highlighting.
+   */
+  appliedWordSetIds?: string[]
 }
 
 export interface TimelineConfig {
