@@ -37,6 +37,10 @@ interface TimelineRow {
   value: number
   /** Set for a categorical observation, which has no number to plot. */
   value_string?: string | null
+  /** Unit of measure, when the schema maps one. */
+  unit?: string | null
+  /** Administration route, when mapped — what tells a drip from a bolus. */
+  route?: string | null
   event_date: unknown // DuckDB-WASM returns Date, BigInt, or string
   /** Set for an event that lasts, which draws as a block rather than a point. */
   end_date?: unknown
@@ -258,12 +262,21 @@ export function TimelineWidget({
     conceptNames.forEach((name, i) => {
       const id = conceptIdByName[name]
       if (id != null) {
-        byConcept.set(id, { conceptId: id, name, colour: colours[i], events: [] })
+        byConcept.set(id, { conceptId: id, name, colour: colours[i], unit: null, events: [] })
       }
     })
+    // Units seen per concept: a value carries its unit, but a concept charted in
+    // two of them (mg and mL, kg and lb) must show neither rather than whichever
+    // row happened to come first.
+    const unitsByConcept = new Map<number, Set<string>>()
     for (const row of data) {
       const s = byConcept.get(row.concept_id)
       if (!s) continue
+      if (row.unit) {
+        const seen = unitsByConcept.get(row.concept_id) ?? new Set<string>()
+        seen.add(row.unit)
+        unitsByConcept.set(row.concept_id, seen)
+      }
       const value = row.value == null ? null : Number(row.value)
       s.events.push({
         start: dateKey(row.event_date),
@@ -271,8 +284,12 @@ export function TimelineWidget({
         value: value != null && Number.isFinite(value) ? value : null,
         text: row.value_string ?? null,
         conceptId: String(row.concept_id),
-        route: null,
+        route: row.route ?? null,
       })
+    }
+    for (const [id, seen] of unitsByConcept) {
+      const s = byConcept.get(id)
+      if (s && seen.size === 1) s.unit = [...seen][0]
     }
     return [...byConcept.values()].filter((s) => s.events.length > 0)
   }, [data, conceptNames, conceptIdByName, conceptColors, conceptIds])

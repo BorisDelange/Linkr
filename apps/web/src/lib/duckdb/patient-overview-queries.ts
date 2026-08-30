@@ -403,7 +403,7 @@ export function overviewSupportsClasses(mapping: SchemaMapping): boolean {
 }
 
 /** A unit-of-measure column on the event table, when the model has one. */
-function pickUnitColumn(et: EventTable): string | undefined {
+export function pickUnitColumn(et: EventTable): string | undefined {
   // `unitColumn` on an event table is a legacy spelling; on visitDetailTable the
   // same name means a hospital ward, which is why the unit of measure needed one
   // of its own.

@@ -266,6 +266,31 @@ describe('timeline query', () => {
     expect(sql).toContain('NULL AS value')
   })
 
+  it('selects the unit and route, without which a figure says nothing', () => {
+    // "2.47" is not a dose. The unit makes it one, and the route is what tells a
+    // drip from a single shot.
+    const withUnits = {
+      ...timelineMapping,
+      eventTables: {
+        Inputs: {
+          ...timelineMapping.eventTables!.Measurements,
+          table: 'inputevents',
+          valueUnitColumn: 'amountuom',
+          routeColumn: 'route',
+        },
+      },
+    } as SchemaMapping
+    const sql = buildTimelineQuery(withUnits, [220045], '10002495', null)!
+    expect(sql).toContain('"amountuom" AS unit')
+    expect(sql).toContain('"route" AS route')
+  })
+
+  it('names both columns even when the table maps neither, so the UNION lines up', () => {
+    const sql = buildTimelineQuery(timelineMapping, [220045], '10002495', null)!
+    expect(sql).toContain('NULL AS unit')
+    expect(sql).toContain('NULL AS route')
+  })
+
   it('keeps an id-keyed table that simply has no dictionary to join', () => {
     // Only the inline opt-out is dropped. A concept id column with no dictionary
     // is still an id column — OMOP `measurement_concept_id` with no vocabulary

@@ -31,6 +31,7 @@ import {
 } from './overview-layout'
 import { toMs } from '@/lib/duckdb/value-coercion'
 import { drawEventRow, shade, type OverviewEvent, type Mark as EventMark } from './event-marks'
+import { fmtValue, fmtDuration as fmtDur, fmtStamp } from './event-format'
 
 interface PatientOverviewWidgetProps {
   widgetId: string
@@ -1597,23 +1598,6 @@ function describeHit(
   return null
 }
 
-const fmtStamp = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ')
-
-function fmtValue(v: number): string {
-  const a = Math.abs(v)
-  if (a !== 0 && (a < 0.01 || a >= 1e6)) return v.toExponential(2)
-  return String(Math.round(v * 100) / 100)
-}
-
-/** Coarse on purpose: the tooltip wants a sense of scale, not precision. */
-function fmtDur(ms: number): string {
-  const m = ms / 60_000
-  if (m < 1) return '<1 min'
-  if (m < 60) return `${Math.round(m)} min`
-  const h = m / 60
-  if (h < 48) return `${h.toFixed(h < 10 ? 1 : 0)} h`
-  return `${(h / 24).toFixed(1)} d`
-}
 
 /** ISO string for a timestamp, or null when it isn't a usable date. */
 function isoOrNull(ms: number): string | null {

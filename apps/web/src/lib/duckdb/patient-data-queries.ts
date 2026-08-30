@@ -2,6 +2,7 @@ import type { Cohort } from '@/types'
 import type { SchemaMapping, EventTable } from '@/types/schema-mapping'
 import { buildCohortQueryParts, escapeLikeTerm, escPatternLiteral } from './cohort-query'
 import { getDictionaryForEvent, buildConceptJoinCondition } from '@/lib/schema-helpers'
+import { pickUnitColumn } from '@/lib/duckdb/patient-overview-queries'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 
 // ---------------------------------------------------------------------------
@@ -364,6 +365,38 @@ export function buildTimelineQuery(
     const valueExpr = et.valueColumn ? `e."${et.valueColumn}"` : 'NULL'
     const valueStringExpr = et.valueStringColumn ? `e."${et.valueStringColumn}"` : 'NULL'
     const endExpr = et.endDateColumn ? `e."${et.endDateColumn}"` : 'NULL'
+
+    // Unit and route, resolved the way the overview does it — a bare figure says
+    // nothing without its unit, and the route is what tells a drip from a bolus
+    // where the standard vocabulary calls both "Intravenous". Source text is
+    // preferred over the standard concept: "mmHg" reads better than "millimeter
+    // mercury column", and it keeps distinctions the vocabulary drops.
+    const srcUnitCol = pickUnitColumn(et)
+    const unitJoin =
+      et.valueUnitConceptIdColumn && dict
+        ? `\nLEFT JOIN "${dict.table}" uc ON uc."${dict.idColumn}" = e."${et.valueUnitConceptIdColumn}"`
+        : ''
+    const unitExpr =
+      srcUnitCol && unitJoin
+        ? `COALESCE(e."${srcUnitCol}", uc."${dict!.nameColumn}")`
+        : srcUnitCol
+          ? `e."${srcUnitCol}"`
+          : unitJoin
+            ? `uc."${dict!.nameColumn}"`
+            : 'NULL'
+
+    const routeJoin =
+      et.routeConceptIdColumn && dict
+        ? `\nLEFT JOIN "${dict.table}" rc ON rc."${dict.idColumn}" = e."${et.routeConceptIdColumn}"`
+        : ''
+    const routeExpr =
+      et.routeColumn && routeJoin
+        ? `COALESCE(e."${et.routeColumn}", rc."${dict!.nameColumn}")`
+        : et.routeColumn
+          ? `e."${et.routeColumn}"`
+          : routeJoin
+            ? `rc."${dict!.nameColumn}"`
+            : 'NULL'
     // Keep a row when EITHER value is present: dropping on the numeric column
     // alone would discard every categorical event the string column carries.
     const presence = [
@@ -380,9 +413,11 @@ export function buildTimelineQuery(
   ${nameExpr} AS concept_name,
   ${valueExpr} AS value,
   ${valueStringExpr} AS value_string,
+  ${unitExpr} AS unit,
+  ${routeExpr} AS route,
   e."${et.dateColumn}" AS event_date,
   ${endExpr} AS end_date
-FROM "${et.table}" e${join}
+FROM "${et.table}" e${join}${unitJoin}${routeJoin}
 WHERE e."${patientIdCol}" = '${escSql(patientId)}'
   AND (${conceptMatch})
   AND (${presence})${visitFilter}`)

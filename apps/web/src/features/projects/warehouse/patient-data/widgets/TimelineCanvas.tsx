@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { drawEventRow, shade, type OverviewEvent, type Mark } from './event-marks'
+import { drawEventRow, type OverviewEvent, type Mark } from './event-marks'
+import { fmtEventValue, fmtEventWhen } from './event-format'
+import { looksLikeDrugName, shortenDrugName } from './overview-layout'
 import {
   axisTicks,
   isFullWindow,
@@ -15,6 +17,12 @@ export interface TimelineSeries {
   conceptId: number
   name: string
   colour: string
+  /**
+   * Unit of measure, when the concept was charted in exactly one. Null when the
+   * schema maps none OR when the concept mixes units — a drug recorded in both
+   * mg and mL — where showing either would be confidently wrong.
+   */
+  unit: string | null
   events: OverviewEvent[]
 }
 
@@ -57,7 +65,14 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const marksRef = useRef<{ row: number; marks: Mark[] }[]>([])
-  const [hover, setHover] = useState<{ x: number; y: number; title: string; lines: string[] } | null>(null)
+  const [hover, setHover] = useState<{
+    x: number
+    y: number
+    title: string
+    /** The figure, given its own line so it reads as the answer. */
+    value: string | null
+    lines: string[]
+  } | null>(null)
 
   useEffect(() => {
     const el = wrapRef.current
@@ -130,11 +145,16 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
       ctx.textAlign = 'left'
       ctx.fillStyle = textColour
       ctx.font = '11px Inter, system-ui'
-      let label = s.name
-      while (label.length > 1 && ctx.measureText(label).width > GUTTER - 14) {
+      // An RxNorm-style name leads with the dose — "1000 ML sodium chloride 9
+      // MG/ML Injection" — and the gutter truncates from the right, so the one
+      // word that identifies the row is the first thing lost. Lead with the
+      // substance instead, as the overview does.
+      const full = looksLikeDrugName(s.name) ? shortenDrugName(s.name) : s.name
+      let label = full
+      while (label.length > 1 && ctx.measureText(`${label}…`).width > GUTTER - 14) {
         label = label.slice(0, -1)
       }
-      if (label !== s.name) label += '…'
+      if (label !== full) label += '…'
       ctx.fillText(label, 6, y + rowH / 2)
 
       // A swatch ties the row to its colour, as the legend used to.
@@ -165,28 +185,52 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
     ctx.restore()
     marksRef.current = nextMarks
 
-    // Range selector: the whole record, with the visible window lit.
+    // Range selector, drawn like the overview's: a density histogram of the whole
+    // record so the strip shows WHERE the data is — an empty frame gives nothing
+    // to aim the window at — then the window itself, tinted with a handle at each
+    // edge.
     const ry = size.h - RANGE_H + 6
     const rh = RANGE_H - 14
-    ctx.fillStyle = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'
-    ctx.fillRect(plotL, ry, plotW, rh)
     const full = bounds.hi - bounds.lo || 1
-    // Every series at once, so the strip shows where the record has data.
+    ctx.fillStyle = 'rgba(148,163,184,0.10)'
+    ctx.fillRect(plotL, ry, plotW, rh)
+    ctx.strokeStyle = dark ? 'rgba(255,255,255,0.15)' : '#e2e8f0'
+    ctx.lineWidth = 1
+    ctx.strokeRect(plotL + 0.5, ry + 0.5, plotW - 1, rh - 1)
+
+    const buckets = Math.max(1, Math.floor(plotW / 3))
+    const counts = new Array<number>(buckets).fill(0)
     for (const s of series) {
-      ctx.fillStyle = shade(s.colour, 0.5)
       for (const e of s.events) {
-        const x = plotL + ((e.start - bounds.lo) / full) * plotW
-        ctx.fillRect(x, ry, 1, rh)
+        const b = Math.min(buckets - 1, Math.max(0, Math.floor(((e.start - bounds.lo) / full) * buckets)))
+        counts[b]++
       }
     }
+    const maxCount = counts.reduce((m, n) => (n > m ? n : m), 0)
+    if (maxCount > 0) {
+      const bw = plotW / buckets
+      ctx.fillStyle = dark ? 'rgba(255,255,255,0.25)' : '#cbd5e1'
+      for (let b = 0; b < buckets; b++) {
+        const n = counts[b]
+        if (!n) continue
+        // Square root, not linear: one busy hour would otherwise flatten the
+        // whole rest of the record to nothing.
+        const bh = Math.max(1, (rh - 4) * Math.sqrt(n / maxCount))
+        ctx.fillRect(plotL + b * bw, ry + rh - 2 - bh, Math.max(1, bw), bh)
+      }
+    }
+
     const wx0 = plotL + ((view.lo - bounds.lo) / full) * plotW
     const wx1 = plotL + ((view.hi - bounds.lo) / full) * plotW
-    ctx.fillStyle = dark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.55)'
+    ctx.fillStyle = 'rgba(15,23,42,.10)'
     ctx.fillRect(plotL, ry, Math.max(0, wx0 - plotL), rh)
-    ctx.fillRect(wx1, ry, Math.max(0, plotL + plotW - wx1), rh)
-    ctx.strokeStyle = dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.35)'
-    ctx.lineWidth = 1
-    ctx.strokeRect(wx0 + 0.5, ry + 0.5, Math.max(1, wx1 - wx0 - 1), rh - 1)
+    ctx.fillRect(Math.min(wx1, plotL + plotW), ry, Math.max(0, plotL + plotW - wx1), rh)
+    ctx.fillStyle = 'rgba(37,99,235,.08)'
+    ctx.fillRect(wx0, ry, Math.max(1, wx1 - wx0), rh)
+    ctx.strokeStyle = '#2563eb'
+    ctx.strokeRect(wx0 + 0.5, ry + 0.5, Math.max(1, wx1 - wx0) - 1, rh - 1)
+    ctx.fillStyle = '#2563eb'
+    for (const hx of [wx0, wx1]) ctx.fillRect(hx - 1.5, ry + rh / 2 - 7, 3, 14)
   }, [series, size, view, bounds, rowH, chartH, plotL, plotW, xFor, locale])
 
   // --- Gestures -----------------------------------------------------------
@@ -274,18 +318,21 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
         setHover(null)
         return
       }
-      const when = new Date(ev.start).toLocaleString(locale)
-      const lines = [when]
+      // Same shape as the overview's tooltip: the figure with its unit (and the
+      // average rate when something was infused), then when it happened, then
+      // the route — which is what tells a drip from a single shot.
+      const value = fmtEventValue(ev.value, ev.text, s.unit, ev.start, ev.end)
+      const lines = [fmtEventWhen(ev.start, ev.end)]
+      if (ev.route) lines.push(ev.route)
       // The labels are bare nouns, so the count is composed here — as the
       // overview does it.
       const count = best.merged?.length ?? 1
-      if (count > 1) lines.push(`${count} ${t('patient_data.overview_events')}`)
-      setHover({
-        x,
-        y,
-        title: s.name,
-        lines: [ev.value != null ? String(ev.value) : (ev.text ?? ''), ...lines].filter(Boolean),
-      })
+      if (count > 1) {
+        lines.push(
+          `${count} ${t(count === 1 ? 'patient_data.overview_events_one' : 'patient_data.overview_events')}`,
+        )
+      }
+      setHover({ x, y, title: s.name, value, lines })
     },
     [bounds, plotW, onViewChange, rowH, chartH, series, locale, t],
   )
@@ -359,6 +406,7 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
           }}
         >
           <p className="font-medium">{hover.title}</p>
+          {hover.value && <p className="tabular-nums">{hover.value}</p>}
           {hover.lines.map((line, i) => (
             <p key={i} className="text-muted-foreground">{line}</p>
           ))}
