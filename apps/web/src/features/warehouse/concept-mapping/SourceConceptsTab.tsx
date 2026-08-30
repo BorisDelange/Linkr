@@ -266,10 +266,12 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   const locked = running || (!!saved && !done)
 
   return (
-    // Tooltips explain the options rather than merely labelling them, so they
-    // need a beat before the first one appears — otherwise moving across the
-    // panel flashes them — but none between one row and the next, since reading
-    // down a list is a single act of comparison.
+    // These delays govern the OPTION ROWS. Their tooltips explain the options
+    // rather than merely labelling them, so they need a beat before the first
+    // one appears — otherwise moving across the panel flashes them — but none
+    // between one row and the next, since reading down a list is a single act of
+    // comparison. The info icons opt out with delayDuration={0}: a small target
+    // hovered on purpose has already asked the question.
     //
     // The skip window is short on purpose: it is global to the provider, so a
     // long one also covers leaving the dropdown entirely, and coming back would
@@ -279,7 +281,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       <Card className="flex flex-col gap-4 p-5">
         <div className="flex items-center gap-1.5">
           <SectionLabel as="h3">{t('concept_mapping.extract_title')}</SectionLabel>
-          <Tooltip>
+          <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
               <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="Info">
                 <Info size={12} />
@@ -486,7 +488,9 @@ function LabelWithHint({
   return (
     <div className="flex items-center gap-1.5">
       <Label htmlFor={htmlFor}>{label}</Label>
-      <Tooltip>
+      {/* No delay: an info icon is aimed at deliberately, unlike the option rows
+          whose tooltips need a beat so crossing the list does not flash them. */}
+      <Tooltip delayDuration={0}>
         <TooltipTrigger asChild>
           <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="Info">
             <Info size={12} />
