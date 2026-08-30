@@ -108,7 +108,7 @@ export function CatalogExportTab({ catalog, cache }: Props) {
   }, [catalog, cache, schemaMapping, baseName])
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-3xl space-y-4">
       {/* Export options */}
       <Card className="p-4">
         <div className="flex items-center gap-2">

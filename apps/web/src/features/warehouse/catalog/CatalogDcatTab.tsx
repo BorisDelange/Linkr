@@ -299,7 +299,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
   })
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-3xl space-y-4">
       {/* Header with release info + auto-fill + completion */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

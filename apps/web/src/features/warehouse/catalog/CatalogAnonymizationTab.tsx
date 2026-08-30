@@ -80,7 +80,10 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
   }
 
   return (
-    <div className="space-y-4">
+    // Capped like the Configuration and Publish tabs: these are forms, and a
+    // full-bleed one on a wide screen leaves its fields stranded from their
+    // labels. The Data tab is the exception — it is a table, and wants the room.
+    <div className="mx-auto w-full max-w-3xl space-y-4">
       {/* Threshold + Mode control */}
       <Card className="p-4">
         <div className="flex items-center gap-2">

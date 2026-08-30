@@ -20,13 +20,6 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { EntitySecondaryTabsTrigger } from '@/components/ui/entity-secondary-tabs'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
@@ -41,6 +34,7 @@ import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useCatalogActions } from './use-catalog-actions'
+import { CreateCatalogDialog } from './CreateCatalogDialog'
 import { CatalogConfigTab } from './CatalogConfigTab'
 import { CatalogDataTab } from './CatalogDataTab'
 import { CatalogAnonymizationTab } from './CatalogAnonymizationTab'
@@ -82,6 +76,8 @@ export function CatalogDetailPage({ catalogId }: Props) {
   // Cleared on the way out, or reaching the tab through its own trigger later
   // would land in the editor unasked.
   const [readmeEditing, setReadmeEditing] = useState(false)
+  // Opens the entity dialog straight at its Source tab, from the overview card.
+  const [editingSource, setEditingSource] = useState(false)
   // Cleared only once the Readme tab has actually been left. Checking
   // `activeTab !== 'readme'` during render would fire immediately instead:
   // setActiveTab writes the URL, so activeTab is still the previous tab on the
@@ -167,6 +163,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
               catalog={catalog}
               onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
               onSeeLicense={() => setActiveTab('license')}
+              onEditSource={() => setEditingSource(true)}
             />
           </div>
         </TabsContent>
@@ -259,6 +256,15 @@ export function CatalogDetailPage({ catalogId }: Props) {
           )}
         </TabsContent>
       </Tabs>
+
+      {editingSource && (
+        <CreateCatalogDialog
+          open
+          onOpenChange={(o) => setEditingSource(o)}
+          editingCatalog={catalog}
+          initialTab="source"
+        />
+      )}
     </div>
   )
 }
@@ -271,10 +277,12 @@ function CatalogOverviewTab({
   catalog,
   onEditReadme,
   onSeeLicense,
+  onEditSource,
 }: {
   catalog: DataCatalog
   onEditReadme: () => void
   onSeeLicense: () => void
+  onEditSource: () => void
 }) {
   const { i18n } = useTranslation()
   const { resolveAttachmentUrls } = useReadmeAttachments(
@@ -296,7 +304,7 @@ function CatalogOverviewTab({
           onEdit={onEditReadme}
         />
         <div className="flex flex-col gap-4 self-start">
-          <CatalogSourceCard catalog={catalog} />
+          <CatalogSourceCard catalog={catalog} onEditSource={onEditSource} />
           <CatalogIdentityCard catalog={catalog} onSeeLicense={onSeeLicense} />
         </div>
       </div>
@@ -357,50 +365,62 @@ function CatalogReadmePreview({
 }
 
 /**
- * The database the catalog is computed from, changeable in place.
+ * The database the catalog is computed from, and a way to change it.
  *
- * Switching it invalidates whatever was computed against the old one, so the
- * card says as much rather than silently leaving stale counts on screen.
+ * Worth its own card because it is the one thing about a catalog that cannot be
+ * read off the page: a catalog whose database went missing on import looks like
+ * nothing at all until a compute fails. Editing goes through the entity dialog's
+ * Source tab rather than an inline select, so picking a database also stamps the
+ * portable pointer the export needs — the two must never diverge.
  */
-function CatalogSourceCard({ catalog }: { catalog: DataCatalog }) {
+function CatalogSourceCard({
+  catalog,
+  onEditSource,
+}: {
+  catalog: DataCatalog
+  onEditSource: () => void
+}) {
   const { t, i18n } = useTranslation()
-  const canWrite = useMyWorkspaceRole().can('catalog:write')
-  const updateCatalog = useCatalogStore((s) => s.updateCatalog)
   const dbSources = useDatabaseOptions(catalog.workspaceId)
+  const dataSource = dbSources.find((ds) => ds.id === catalog.dataSourceId)
+  // Points at a database not installed here — usually an import that found no
+  // local match for the pointer.
+  const missingDatabase = !dataSource
   const hasResults = catalog.status === 'success' || catalog.status === 'error'
+
+  const title = dataSource
+    ? localized(dataSource.name, i18n.language) || dataSource.id
+    : catalog.dataSourceId
+      ? t('data_catalog.overview_source_missing')
+      : t('data_catalog.overview_source_none')
 
   return (
     <div className="flex min-w-0 shrink-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm">
-      <div className="flex items-center gap-2">
-        <Database size={14} className="text-muted-foreground" />
-        <h3 className="text-sm font-semibold">{t('data_catalog.source_database')}</h3>
+      {/* `-my-1` keeps the row the height of its title: the button is taller
+          than the text, so without it the header sits lower than every other
+          card's and the two stop lining up. */}
+      <div className="-my-1 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <Database size={14} className="shrink-0 text-muted-foreground" />
+          <h3 className="truncate text-sm font-semibold">{t('data_catalog.source_database')}</h3>
+        </div>
+        <Button variant="ghost" size="xs" className="shrink-0" onClick={onEditSource}>
+          <Pencil />
+          {t('common.edit')}
+        </Button>
       </div>
-
-      <Select
-        value={catalog.dataSourceId}
-        disabled={!canWrite}
-        onValueChange={(id) => {
-          if (id === catalog.dataSourceId) return
-          void updateCatalog(catalog.id, { dataSourceId: id })
-        }}
-      >
-        <SelectTrigger className="h-8 w-full text-xs">
-          <SelectValue placeholder={t('data_catalog.select_database')} />
-        </SelectTrigger>
-        <SelectContent>
-          {dbSources.map((ds) => (
-            <SelectItem key={ds.id} value={ds.id}>
-              {localized(ds.name, i18n.language) || ds.id}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {canWrite && hasResults && (
-        <p className="text-[10px] text-muted-foreground">
-          {t('data_catalog.source_change_hint')}
+      <div className="min-w-0">
+        <p className={`truncate text-xs font-medium ${missingDatabase ? 'text-destructive' : ''}`}>
+          {title}
         </p>
-      )}
+        <p className="mt-0.5 text-[10px] text-muted-foreground">
+          {missingDatabase
+            ? t('data_catalog.overview_source_missing_detail')
+            : hasResults
+              ? t('data_catalog.source_change_hint')
+              : t('data_catalog.overview_source_detail')}
+        </p>
+      </div>
     </div>
   )
 }

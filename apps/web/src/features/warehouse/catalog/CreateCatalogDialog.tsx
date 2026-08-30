@@ -21,20 +21,26 @@ import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { useSaveForm } from '@/hooks/use-save-form'
+import { buildPointer } from '@/lib/import-identity'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { getDefaultDimensions } from '@/types'
 import type { DataCatalog, ProjectBadge } from '@/types'
 
+/** The tabs this dialog can be opened straight at. */
+type MainTab = 'general' | 'source' | 'metadata' | 'attribution'
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   editingCatalog?: DataCatalog | null
   onCreated?: (catalogId: string) => void
+  /** Tab to land on. Lets the overview's Source card open straight at it. */
+  initialTab?: MainTab
 }
 
-export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCreated }: Props) {
+export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCreated, initialTab }: Props) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const { activeWorkspaceId } = useWorkspaceStore()
@@ -48,6 +54,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [version, setVersion] = useState('0.1.0')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
+  const [mainTab, setMainTab] = useState<MainTab>('general')
 
   const isEdit = !!editingCatalog
   const { catalogs } = useCatalogStore()
@@ -64,6 +71,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
       setBadges(editingCatalog.badges ?? [])
       setVersion(editingCatalog.version ?? '0.1.0')
       setAuthoring({})
+      setMainTab(initialTab ?? 'general')
     } else {
       setName('')
       setEntityId('')
@@ -72,8 +80,9 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
       setBadges([])
       setVersion('0.1.0')
       setAuthoring({})
+      setMainTab(initialTab ?? 'general')
     }
-  }, [editingCatalog, open])
+  }, [editingCatalog, open, initialTab])
 
   const canSubmit = !!name.trim() && (isEdit || isEntityIdValid(entityId, existingIds))
 
@@ -85,6 +94,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         name: setLocalized(editingCatalog.name, language, name.trim()),
         description: setLocalized(editingCatalog.description, language, description.trim()),
         dataSourceId,
+        dataSourceRef: buildPointer(dbSources, dataSourceId),
         badges,
         version: version.trim() || '0.1.0',
         ...authoring,
@@ -100,6 +110,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         name: setLocalized(undefined, language, name.trim()),
         description: setLocalized(undefined, language, description.trim()),
         dataSourceId,
+        dataSourceRef: buildPointer(dbSources, dataSourceId),
         badges,
         dimensions: getDefaultDimensions(),
         periodConfig: { granularity: 'month', serviceLevel: 'visit_detail' },
@@ -145,6 +156,8 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
       dirtyTracked={isEdit}
     >
       <EntityDialogTabs
+        value={mainTab}
+        onValueChange={(v) => setMainTab(v as MainTab)}
         general={
           <>
             <div className="space-y-2">
@@ -174,8 +187,14 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
                 placeholder={t('data_catalog.field_description_placeholder')}
               />
             </div>
+          </>
+        }
+        extraTabs={[{
+          value: 'source',
+          label: t('data_catalog.tab_source'),
+          content: (
             <div className="space-y-2">
-              <Label>{t('data_catalog.database')}</Label>
+              <Label>{t('data_catalog.select_database')}</Label>
               <Select value={dataSourceId} onValueChange={setDataSourceId}>
                 <SelectTrigger>
                   <SelectValue placeholder={t('data_catalog.select_database')} />
@@ -189,8 +208,8 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
                 </SelectContent>
               </Select>
             </div>
-          </>
-        }
+          ),
+        }]}
         metadata={
           <>
             <BadgeEditor value={badges} onChange={setBadges} categories={badgeCategories} suggestions={badgeSuggestions} />
