@@ -4435,7 +4435,7 @@
     "extract_restart_description": "Everything extracted so far is discarded and the concepts are profiled again from the beginning. The mappings you have already made are not affected.",
     "extract_paused": "Paused at {{date}}",
     "extract_complete": "Completed on {{date}}",
-    "extract_done_hint": "The source concepts are ready. The Mapping Editor now reads them, and they travel with the project on export and git sync.",
+    "extract_done_hint": "The source concepts are ready — the Mapping Editor now reads them.",
     "overview_source": "Source",
     "overview_source_file_detail": "Imported file · {{count}} concepts",
     "overview_source_database_detail": "Database. Concepts are extracted from it in the Source concepts tab.",
@@ -4454,7 +4454,8 @@
     "extract_section_categorical_desc": "The most frequent text values with their counts — for concepts holding categories (positive/negative) rather than numbers.",
     "extract_section_frequency_desc": "Typical delay between two records for the same patient: continuous monitoring, hourly, daily.",
     "extract_section_temporal_desc": "Date range covered, and the share of records per year. Shows when a concept started or stopped being collected.",
-    "extract_section_hospitalUnits_desc": "The wards where the concept is recorded, as a share of records. A ward of the hospital, not a unit of measure."
+    "extract_section_hospitalUnits_desc": "The wards where the concept is recorded, as a share of records. A ward of the hospital, not a unit of measure.",
+    "extract_done_hint_travels": "They travel with the project on export and git sync."
   },
   "data_catalog": {
     "title": "Data Catalog",

@@ -436,12 +436,17 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
               </Button>
             )}
             {running && <Loader2 size={16} className="animate-spin text-muted-foreground" />}
-            {done && (
-              <span className="ml-auto text-[10px] text-muted-foreground">
-                {t('concept_mapping.extract_done_hint')}
-              </span>
-            )}
           </div>
+
+          {/* Two sentences, two lines: the first says the work is done, the
+              second what that now makes possible. Run together on the button
+              row they read as one long aside and got skipped. */}
+          {done && (
+            <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+              <span>{t('concept_mapping.extract_done_hint')}</span>
+              <span>{t('concept_mapping.extract_done_hint_travels')}</span>
+            </div>
+          )}
         </div>
       </Card>
 

@@ -4435,7 +4435,7 @@
     "extract_restart_description": "Tout ce qui a été extrait jusqu'ici est abandonné et les concepts sont profilés à nouveau depuis le début. Les alignements déjà réalisés ne sont pas touchés.",
     "extract_paused": "Interrompue le {{date}}",
     "extract_complete": "Terminée le {{date}}",
-    "extract_done_hint": "Les concepts sources sont prêts. L'éditeur d'alignement les lit désormais, et ils voyagent avec le projet à l'export et lors de la synchronisation git.",
+    "extract_done_hint": "Les concepts sources sont prêts — l'éditeur d'alignement les lit désormais.",
     "overview_source": "Source",
     "overview_source_file_detail": "Fichier importé · {{count}} concepts",
     "overview_source_database_detail": "Base de données. Les concepts en sont extraits depuis l'onglet Concepts sources.",
@@ -4454,7 +4454,8 @@
     "extract_section_categorical_desc": "Les valeurs textuelles les plus fréquentes et leurs effectifs — pour les concepts porteurs de catégories (positif/négatif) plutôt que de nombres.",
     "extract_section_frequency_desc": "Délai typique entre deux enregistrements pour un même patient : monitorage continu, horaire, quotidien.",
     "extract_section_temporal_desc": "Période couverte et part des enregistrements par année. Montre quand un concept a commencé ou cessé d'être recueilli.",
-    "extract_section_hospitalUnits_desc": "Les unités de soins où le concept est enregistré, en part des enregistrements. Un service de l'hôpital, pas une unité de mesure."
+    "extract_section_hospitalUnits_desc": "Les unités de soins où le concept est enregistré, en part des enregistrements. Un service de l'hôpital, pas une unité de mesure.",
+    "extract_done_hint_travels": "Ils voyagent avec le projet à l'export et lors de la synchronisation git."
   },
   "data_catalog": {
     "title": "Catalogue de données",
