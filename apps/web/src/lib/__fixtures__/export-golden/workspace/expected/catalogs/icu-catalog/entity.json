@@ -9,7 +9,11 @@
     "en": "Published metadata.",
     "fr": "Métadonnées publiées."
   },
-  "dataSourceId": "ds1",
+  "dataSourceId": "",
+  "dataSourceRef": {
+    "lineageId": "lin-ds1",
+    "entityId": "warehouse"
+  },
   "dimensions": [
     {
       "id": "d1",

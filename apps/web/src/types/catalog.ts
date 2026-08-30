@@ -1,5 +1,6 @@
 import type { Seedable, LocalizedString, GitRemoteConfig, OrganizationInfo, EntityLicense } from './index'
 import type { Authored, Lineaged } from './author'
+import type { DataSourceRef } from './concept-mapping'
 
 // --- Catalog Status ---
 
@@ -139,6 +140,16 @@ export interface DataCatalog extends Seedable, Authored, Lineaged {
   /** Badges for grouping/tagging (e.g. hospital center name). */
   badges?: import('./index').ProjectBadge[]
   dataSourceId: string
+  /**
+   * Portable identity of the database above, for export/import.
+   *
+   * `dataSourceId` is this instance's local UUID and addresses nothing anywhere
+   * else, so a reimported catalog would point at a row that does not exist. This
+   * pointer is what survives: it is stamped when the database is picked (not
+   * derived at export time, so the server-side export carries it too) and
+   * resolved back to a local id on import. Same rule as a mapping project's.
+   */
+  dataSourceRef?: DataSourceRef
   dimensions: DimensionConfig[]
   anonymization: AnonymizationConfig
   /**
@@ -157,6 +168,14 @@ export interface DataCatalog extends Seedable, Authored, Lineaged {
   lastError?: string
   lastComputedAt?: string
   lastComputeDurationMs?: number
+  /**
+   * Period rows written so far by a paused run, so a resume picks up there.
+   *
+   * Absent means "no run in flight": either nothing has been computed, or the
+   * last one finished. Set only between save points — the walk is chunked on
+   * periods, so this is an index into the run's period plan.
+   */
+  computedPeriods?: number
   /** Health-DCAT-AP metadata stored as a JSON-LD object. */
   dcatApMetadata?: Record<string, unknown>
   readme?: LocalizedString

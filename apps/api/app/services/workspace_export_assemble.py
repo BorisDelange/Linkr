@@ -136,6 +136,26 @@ def _badged_dump(schema, row) -> dict:
     return data
 
 
+def _portable_catalog(data: dict) -> dict:
+    """A data catalog's metadata with its database link in portable form.
+
+    Mirrors ``buildDataCatalogFolder`` (entity-io.ts): ``dataSourceId`` is the
+    exporting instance's local UUID, so it is reset in place (reassigning an
+    existing key keeps its position, JS and py3.7+ alike) rather than removed —
+    the type requires it. ``dataSourceRef`` is the pointer that actually travels,
+    and is dropped when absent because ``JSON.stringify`` omits ``undefined``
+    while Pydantic emits an explicit null: leaving it would export one key more
+    server-side than client-side and break the golden byte-parity tests.
+    """
+    data["dataSourceId"] = ""
+    if data.get("dataSourceRef") is None:
+        data.pop("dataSourceRef", None)
+    # The offset of a run paused on THIS instance: exported, it would tell the
+    # importing one a computation is half-done that it has no results for.
+    data.pop("computedPeriods", None)
+    return data
+
+
 def _resolve_git_remote(cfg: dict | None) -> dict | None:
     """Port of ``resolveGitRemote`` (entity-io.ts:1374): a remote with a URL, else
     None. The legacy ``gitUrl`` field never reaches the server schemas, so only the
@@ -711,7 +731,7 @@ async def build_workspace_tree_from_db(
         for cat in await data_catalog_service.list_for_workspace(db, workspace.id):
             if options.exclude_entities.get(cat.id):
                 continue
-            cat_meta = _badged_dump(DataCatalogResponse, cat)
+            cat_meta = _portable_catalog(_badged_dump(DataCatalogResponse, cat))
             cat_git = _resolve_git_remote(cat.git_remote_config)
             cat_entry = {
                 "meta": strip_entity_docs(_strip_instance_fields(cat_meta)),
@@ -863,7 +883,7 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
 
 async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]:
     tree: dict[str, bytes] = {}
-    dumped = _badged_dump(DataCatalogResponse, catalog)
+    dumped = _portable_catalog(_badged_dump(DataCatalogResponse, catalog))
     tree[ENTITY_MANIFEST] = _json(
         with_entity_type(
             strip_entity_docs(_strip_instance_fields(dumped)), TYPE_DATA_CATALOG, APP_VERSION

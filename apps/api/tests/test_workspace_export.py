@@ -305,9 +305,12 @@ def _build_tree() -> dict[str, bytes]:
         }
         for rs in data["dqRuleSets"]
     ]
+    # `dataSourceId` is blanked in place, as the production assembler does
+    # (_portable_catalog): it is a local UUID, and `dataSourceRef` is the pointer
+    # that actually travels.
     catalogs = [
         {
-            "meta": _stripped(c),
+            "meta": {**_stripped(c), "dataSourceId": ""},
             "git": c.get("gitRemoteConfig"),
             **({} if c.get("gitRemoteConfig") else {"docs": entity_doc_files("", c)}),
         }

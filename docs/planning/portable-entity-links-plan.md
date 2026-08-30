@@ -25,7 +25,17 @@ Audited 2026-08-28 against the export and the import.
 | `targetDataSourceId` | `EtlPipeline` | yes, local PK | ❌ dead cross-instance |
 | `mappingProjectId` | `EtlPipeline` | yes, local PK | ❌ dead cross-instance |
 | `defaultDataSourceId` | `SqlScriptCollection` | yes, local PK | ❌ dead cross-instance |
+| `dataSourceId` | `DataCatalog` | no longer — blanked, `dataSourceRef` travels | ✅ **fixed 2026-08-30** |
 | `linkedDataSourceIds` | `Project` | **no** — in `INSTANCE_FIELDS` | ✅ fine: dropped on purpose, "databases stay unlinked" |
+
+> `DataCatalog.dataSourceId` was a fifth case this table originally missed. It was
+> the worst of them: the git-clone branch (`entity-io.ts`, `applyEntityRepo`) wrote
+> the repo's foreign id *over* a correct local link, so a clone could break a
+> catalog that had been working. It now follows the `dataSourceRef` pattern
+> end-to-end — stamped when the database is picked (dialog + overview card),
+> blanked on export both front and back, resolved by `resolvePointer` in the
+> workspace import, the clone branch and the seed post-pass. The remaining four
+> rows are still open and are what this plan is about.
 
 Evidence, on the real published tree
 (`linkr-content-private/etl-pipelines/mimic-iv-to-omop`):

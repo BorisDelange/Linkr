@@ -19,6 +19,8 @@ class DataCatalogCreate(CamelModel):
     # Defaults to "" so a git-linked catalog can be created from a minimal
     # workspace pointer; the clone re-applies the real data source id from the repo.
     data_source_id: str = ""
+    # Portable pointer to the database; the import resolves it to a local id.
+    data_source_ref: dict | None = None
     dimensions: list = []
     anonymization: dict = {}
     category_column: str | None = None
@@ -28,6 +30,8 @@ class DataCatalogCreate(CamelModel):
     last_error: str | None = None
     last_computed_at: str | None = None
     last_compute_duration_ms: int | None = None
+    # Period rows a paused computation has written, so a resume picks up there.
+    computed_periods: int | None = None
     dcat_ap_metadata: dict | None = None
     origin: str = "user"
     created_by_id: int | None = None
@@ -50,6 +54,7 @@ class DataCatalogUpdate(CamelModel):
     readme: dict | str | None = None
     license: dict | None = None
     data_source_id: str | None = None
+    data_source_ref: dict | None = None
     dimensions: list | None = None
     anonymization: dict | None = None
     category_column: str | None = None
@@ -59,6 +64,7 @@ class DataCatalogUpdate(CamelModel):
     last_error: str | None = None
     last_computed_at: str | None = None
     last_compute_duration_ms: int | None = None
+    computed_periods: int | None = None
     dcat_ap_metadata: dict | None = None
     # Editable authoring provenance (author re-attribution + org snapshot).
     created_by_id: int | None = None
@@ -84,6 +90,7 @@ class DataCatalogResponse(CamelModel):
     readme: dict | str | None = None
     license: dict | None = None
     data_source_id: str
+    data_source_ref: dict | None = None
     dimensions: list
     anonymization: dict
     category_column: str | None = None
@@ -93,6 +100,7 @@ class DataCatalogResponse(CamelModel):
     last_error: str | None = None
     last_computed_at: str | None = None
     last_compute_duration_ms: int | None = None
+    computed_periods: int | None = None
     dcat_ap_metadata: dict | None = None
     origin: str
     created_by_id: int | None = None

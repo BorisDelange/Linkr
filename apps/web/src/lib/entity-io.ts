@@ -44,6 +44,7 @@ import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { isServerMode } from '@/lib/api-client'
+import { resolvePointer } from '@/lib/import-identity'
 import { importDatasetOnServer } from '@/lib/api/datasets'
 
 
@@ -2619,14 +2620,25 @@ export async function buildEtlPipelineZip(
 
 /** Folder layout for one data catalog's git repo: just its config (stripped).
  *  Service mappings are workspace-level siblings, not owned by a single catalog,
- *  so they are not part of the catalog's own repo. */
+ *  so they are not part of the catalog's own repo.
+ *
+ *  `dataSourceId` is blanked the way a mapping project's is: it is the exporting
+ *  instance's local database UUID and addresses nothing anywhere else, so
+ *  shipping it would have the import land on a row that isn't there — or, worse,
+ *  overwrite a correct local link with a foreign id. `dataSourceRef` is what
+ *  travels, and the import resolves it back by lineage. */
 export async function buildDataCatalogFolder(
   zip: JSZip,
   prefix: string,
   catalog: DataCatalog,
   storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(stripInstanceFields(catalog) as DataCatalog), 'data-catalog')))
+  // `computedPeriods` is the offset of a run paused on THIS instance. Exported,
+  // it would tell the importing instance a computation is half-done that it has
+  // no results for, and the Configuration tab would offer to "resume" it.
+  const { computedPeriods: _paused, ...stripped } = stripInstanceFields(catalog) as DataCatalog
+  const portable = { ...stripped, dataSourceId: '' } as DataCatalog
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(portable), 'data-catalog')))
   await writeEntityDocs(zip, prefix, catalog, storage, 'data-catalog', catalog.id)
 }
 
@@ -3400,8 +3412,17 @@ export async function applyClonedEntity(
   if (type === 'data-catalog') {
     const catalog = await readManifest<DataCatalog>('data-catalog')
     if (!catalog) return false
-    const { id: _id, workspaceId: _ws, ...rest } = dropForeignAuthorId(catalog) as DataCatalog
-    const changes = await withEntityDocs(rest, 'data-catalog')
+    // `dataSourceId` never travels (the export blanks it), so the repo's value
+    // must not be written over the local link: this row already carries whichever
+    // database the workspace import resolved. Re-resolve from the portable
+    // pointer, and keep what is stored when nothing matches.
+    const { id: _id, workspaceId: _ws, dataSourceId: _dsid, ...rest } =
+      dropForeignAuthorId(catalog) as DataCatalog
+    const changes = await withEntityDocs(rest, 'data-catalog') as Partial<DataCatalog>
+    if (workspaceId && catalog.dataSourceRef) {
+      const database = resolvePointer(await storage.dataSources.getAll(), catalog.dataSourceRef, workspaceId)
+      if (database) changes.dataSourceId = database.id
+    }
     // Not swallowed: a rejected write must reach the caller, or the import
     // reports success for an entity the server never stored.
     await storage.dataCatalogs.update(targetId, changes)

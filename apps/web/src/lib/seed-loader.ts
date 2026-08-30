@@ -1476,13 +1476,13 @@ export async function seedDatabases(): Promise<void> {
 }
 
 /**
- * Point each seeded mapping project at its source database.
+ * Point each seeded mapping project and data catalog at its source database.
  *
- * Mapping projects are structural (phase 1) and databases are data (phase 2), so
- * at the moment a project is written there is no database to resolve its pointer
- * against. Run once here instead, when the databases of this workspace exist.
+ * Both are structural (phase 1) and databases are data (phase 2), so at the
+ * moment one is written there is no database to resolve its pointer against. Run
+ * once here instead, when the databases of this workspace exist.
  *
- * Only ever fills a blank: a project the user has since pointed somewhere else
+ * Only ever fills a blank: an entity the user has since pointed somewhere else
  * keeps that, and one whose database is not part of this seed stays sourceless.
  */
 async function attachMappingProjectDatabases(wsId: string): Promise<void> {
@@ -1490,7 +1490,9 @@ async function attachMappingProjectDatabases(wsId: string): Promise<void> {
   try {
     const projects = (await storage.mappingProjects.getAll())
       .filter((p) => p.workspaceId === wsId && !p.dataSourceId && p.dataSourceRef)
-    if (projects.length === 0) return
+    const catalogs = (await storage.dataCatalogs.getAll())
+      .filter((c) => c.workspaceId === wsId && !c.dataSourceId && c.dataSourceRef)
+    if (projects.length === 0 && catalogs.length === 0) return
     const databases = await storage.dataSources.getAll()
     for (const project of projects) {
       const database = resolvePointer(databases, project.dataSourceRef, wsId)
@@ -1498,7 +1500,13 @@ async function attachMappingProjectDatabases(wsId: string): Promise<void> {
         await storage.mappingProjects.update(project.id, { dataSourceId: database.id }).catch(() => {})
       }
     }
+    for (const catalog of catalogs) {
+      const database = resolvePointer(databases, catalog.dataSourceRef, wsId)
+      if (database) {
+        await storage.dataCatalogs.update(catalog.id, { dataSourceId: database.id }).catch(() => {})
+      }
+    }
   } catch (err) {
-    console.error('[seed-loader] Failed to attach mapping-project databases:', err)
+    console.error('[seed-loader] Failed to attach source databases:', err)
   }
 }

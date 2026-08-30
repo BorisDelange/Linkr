@@ -25,6 +25,10 @@ class DataCatalog(Base, TimestampMixin):
     # so it travels with the export (LICENSE.md) independently of the picker.
     license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     data_source_id: Mapped[str] = mapped_column(String(36))
+    # Portable identity of the database above ({lineageId?, entityId?, label?}).
+    # data_source_id is this instance's local UUID and means nothing elsewhere, so
+    # this is what the export carries and the import resolves back to a local row.
+    data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     dimensions: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
     anonymization: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     category_column: Mapped[str | None] = mapped_column(String(255))
@@ -34,6 +38,9 @@ class DataCatalog(Base, TimestampMixin):
     last_error: Mapped[str | None] = mapped_column(Text)
     last_computed_at: Mapped[str | None] = mapped_column(String(40))
     last_compute_duration_ms: Mapped[int | None] = mapped_column(Integer)
+    # Period rows a paused computation has written; a resume picks up there.
+    # NULL means no run is in flight (nothing computed, or the last one finished).
+    computed_periods: Mapped[int | None] = mapped_column(Integer)
     dcat_ap_metadata: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     # User-facing semver, portable across export/import (see Project.version).

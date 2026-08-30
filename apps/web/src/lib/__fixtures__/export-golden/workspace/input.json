@@ -814,6 +814,10 @@
     "fr": "Métadonnées publiées."
    },
    "dataSourceId": "ds1",
+   "dataSourceRef": {
+    "lineageId": "lin-ds1",
+    "entityId": "warehouse"
+   },
    "dimensions": [
     {
      "id": "d1",
