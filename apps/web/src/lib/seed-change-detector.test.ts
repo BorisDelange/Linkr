@@ -256,6 +256,31 @@ describe('diffSeedHashes', () => {
     ])
   })
 
+  // The replacement has to converge: applying it once must silence it. The workspace shell is
+  // kept when it holds user content, and the caller used to skip its baseline row along with the
+  // deletion — leaving the old identity in a folder the successor now owns, so the very same
+  // replacement was re-detected on every load and the dialog replayed forever.
+  it('goes quiet after a kept workspace has been dropped from the baseline', () => {
+    const s: SeedHashesManifest = {
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
+      workspaces: {
+        w: { ...ws({ workspace: 'm1', projects: { p1: 'h1' } }), workspaceIdentity: 'old-id' },
+      },
+    }
+    const c: SeedHashesManifest = {
+      schemaVersion: SEED_HASHES_SCHEMA_VERSION,
+      workspaces: {
+        w: { ...ws({ workspace: 'm2', projects: { p2: 'h2' } }), workspaceIdentity: 'new-id' },
+      },
+    }
+    const applied = dropFromSeedHashes(
+      s,
+      [{ workspaceFolder: 'w', entityType: 'workspace', entityId: 'w' }],
+      c,
+    )
+    expect(types(diffSeedHashes(applied, c))).toEqual([])
+  })
+
   it('still reports a same-identity edit as modified', () => {
     const s: SeedHashesManifest = {
       schemaVersion: SEED_HASHES_SCHEMA_VERSION,

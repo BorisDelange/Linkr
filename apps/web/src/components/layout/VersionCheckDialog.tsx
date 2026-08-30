@@ -90,8 +90,12 @@ export function VersionCheckDialog() {
     }
 
     const handleApply = async (reseed: SeedChange[], remove: SeedChange[]) => {
-      const reseeded = await reseedSelection(reseed)
+      // Delete BEFORE re-seeding. On a replacement both workspaces occupy the same seed folder
+      // and ship projects under the same slugs; a project is resolved by slug, so re-seeding
+      // first made the removal pass find the rows just created and delete them as if they were
+      // the outgoing ones — the new workspace arrived with no projects.
       const deleted = await deleteRemovedSelection(remove)
+      const reseeded = await reseedSelection(reseed)
       acknowledgeVersion()
       setSeedDiff(null)
       setStatus(null)

@@ -348,6 +348,15 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
         </TooltipTrigger>
         <TooltipContent>{t('version_check.seed_child_included_tooltip')}</TooltipContent>
       </Tooltip>
+    ) : isKeptWorkspace ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="shrink-0 cursor-help">
+            <Checkbox checked disabled className="pointer-events-none" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">{t('version_check.seed_workspace_kept_tooltip')}</TooltipContent>
+      </Tooltip>
     ) : canCheck ? (
       <Checkbox
         checked={selected.has(key)}
@@ -373,7 +382,7 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
                 {t('version_check.seed_workspace_kept')}
               </Badge>
             </TooltipTrigger>
-            <TooltipContent>{t('version_check.seed_workspace_kept_tooltip')}</TooltipContent>
+            <TooltipContent className="max-w-xs">{t('version_check.seed_workspace_kept_tooltip')}</TooltipContent>
           </Tooltip>
         ) : (
           <Badge
@@ -409,7 +418,7 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
               (ExportDashboardDialog, the filter sidebar, the analysis panels).
               Sticky so it stays reachable once the list scrolls. */}
           {selectableKeys.length > 1 && (
-            <div className="sticky top-0 z-10 flex justify-end gap-1.5 bg-background pb-1.5 pt-3 text-[10px] text-muted-foreground">
+            <div className="sticky top-0 z-10 flex gap-1.5 bg-background pb-1.5 pt-3 text-[10px] text-muted-foreground">
               <button type="button" disabled={busy} onClick={() => setSelected(new Set(selectableKeys))} className="hover:text-foreground">
                 {t('common.select_all')}
               </button>

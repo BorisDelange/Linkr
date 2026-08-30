@@ -285,8 +285,8 @@ export async function deleteRemovedSelection(changes: SeedChange[]): Promise<See
   // workspaceFolder → a local workspace id resolved from one of its children, captured before
   // the child is deleted so we can delete the workspace shell afterwards.
   const wsIdByFolder = new Map<string, string>()
-  // Folders with at least one user-origin child: their workspace shell must NOT be dropped from
-  // the baseline (it still holds that user content — we never touch it).
+  // Folders with at least one user-origin child: their workspace shell must NOT be deleted
+  // (it still holds that user content — we never touch it).
   const foldersWithUserContent = new Set<string>()
 
   // Non-workspace entities. 'seed' → delete the local row; 'gone' → already absent, just drop it
@@ -308,24 +308,26 @@ export async function deleteRemovedSelection(changes: SeedChange[]): Promise<See
   }
 
   // Whole-workspace row: its seed folder is gone, so resolve the local id from a child (if any).
-  // Delete the shell if it still exists and is seed-origin. Keep it in the baseline (don't push
-  // to handled) when it still holds user content, so that content is never silently forgotten.
+  // Delete the shell if it still exists, is seed-origin and holds nothing of the user's — but
+  // clear its baseline row either way (see below).
   for (const ws of removed) {
     if (ws.entityType !== 'workspace') continue
-    if (foldersWithUserContent.has(ws.workspaceFolder)) continue
-    const wsId = wsIdByFolder.get(ws.workspaceFolder)
+    const wsId = foldersWithUserContent.has(ws.workspaceFolder)
+      ? undefined
+      : wsIdByFolder.get(ws.workspaceFolder)
     if (wsId) {
       const local = await storage.workspaces.getById(wsId)
       // Empty-check as well as seed-origin: a replaced workspace's folder is reused by
       // its successor, so its children are listed as removed and cleared — but anything
       // the user added inside it was never in the seed, never listed, and would go with
-      // the shell. Keep the workspace (and its baseline row) whenever something remains.
+      // the shell. Keep the workspace whenever something remains.
       if (local?.origin === 'seed' && !(await workspaceHasContent(wsId))) {
         await storage.workspaces.delete(wsId).catch(() => {})
-      } else if (local) {
-        continue
       }
     }
+    // Handled either way. A kept shell still has to leave the baseline: its seed folder now
+    // belongs to the successor, so leaving the old identity there re-diffs as a replacement
+    // on every load and replays the dialog forever.
     handled.push(ws)
   }
 
