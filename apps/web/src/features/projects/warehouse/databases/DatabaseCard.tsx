@@ -18,6 +18,7 @@ import { TruncatedText } from '@/components/ui/truncated-text'
 import { selectedCardClass } from '@/components/ui/use-card-selection'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDatabaseActions } from './use-database-actions'
 
 interface DatabaseCardProps {
@@ -103,6 +104,12 @@ export const DatabaseCard = memo(function DatabaseCard({
 }: DatabaseCardProps) {
   const { t, i18n } = useTranslation()
   const actions = useDatabaseActions()
+  // Same two-step the schema cards use: a database imported from elsewhere carries
+  // its own frozen provenance, while a locally-created one belongs to whichever
+  // organization owns its workspace and is resolved live from there.
+  const workspaceOrgId = useWorkspaceStore(
+    (s) => s._workspacesRaw.find((w) => w.id === source.workspaceId)?.organizationId,
+  )
 
   const summary = getSourceSummary(source, i18n.language)
   const config = source.connectionConfig as DatabaseConnectionConfig
@@ -221,6 +228,8 @@ export const DatabaseCard = memo(function DatabaseCard({
           createdById={source.createdById}
           createdBy={source.createdBy}
           createdByDetails={source.createdByDetails}
+          organizationId={source.organization ? undefined : workspaceOrgId}
+          organization={source.organization}
           createdAt={source.createdAt}
           updatedAt={source.updatedAt}
           license={source.license}

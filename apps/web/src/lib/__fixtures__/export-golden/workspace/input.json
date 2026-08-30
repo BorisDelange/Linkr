@@ -275,6 +275,19 @@
    "updatedAt": "2026-02-02T00:00:00.000Z"
   }
  ],
+ "dataSourceFiles": {
+  "ds2": [
+   {
+    "fileName": "patients.parquet"
+   },
+   {
+    "fileName": "admissions.parquet"
+   },
+   {
+    "fileName": "notes.txt"
+   }
+  ]
+ },
  "mappingProjects": [
   {
    "id": "mp1",

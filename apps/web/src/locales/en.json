@@ -1933,7 +1933,7 @@
     "sync_computing": "Computing changes…",
     "sync_clean": "Nothing to commit — working tree matches the remote.",
     "sync_auth_blocked_title": "Repository access token required",
-    "sync_auth_blocked_body": "This repository could not be read — it is private and you have no access token stored, or the stored token is invalid. Add your token above (Add token) to see and sync its changes.",
+    "sync_auth_blocked_body": "This repository is private and no access token is stored for its host. Add one from Config to see and sync its changes.",
     "sync_message": "Commit message",
     "sync_message_ph": "Describe your changes",
     "sync_pushed": "Pushed",
@@ -2149,7 +2149,9 @@
     "pull_db_warn": "Local data is replaced by the repository’s. This cannot be undone.",
     "pull_db_warn_empty": "The repository declares tables but ships no data file: pulling replaces the local data with nothing.",
     "pull_db_all_or_nothing": "All or nothing: a database is taken whole.",
-    "pull_db_take": "Replace with the remote"
+    "pull_db_take": "Replace with the remote",
+    "sync_auth_rejected_title": "Access token refused",
+    "sync_auth_rejected_body": "A token is stored for this host, but the repository refused it. It may be for another account, expired, or lack read/write access to this repository — replace it from Config."
   },
   "summary": {
     "tab_overview": "Overview",

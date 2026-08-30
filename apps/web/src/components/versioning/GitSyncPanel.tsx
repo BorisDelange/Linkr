@@ -204,14 +204,54 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   ) : null
 
   // Shown in place of the file view when the remote couldn't be read for auth
-  // reasons — so the user adds a token rather than pushing over what looks like
-  // an empty repo. Same amber treatment as the token badge in GitRepositoryTab.
+  // reasons — so the user fixes their token rather than pushing over what looks
+  // like an empty repo.
+  //
+  // The two codes are different problems: `auth_required` means no token is
+  // stored, `auth_failed` means one is and the host refused it — telling someone
+  // to add a token they already added sends them looking in the wrong place.
+  //
+  // One box, not two: git's own answer names the real cause (wrong token,
+  // expired, missing scope) but it is a wall of remote: output, so it hangs off
+  // the info icon instead of being a second error beneath the first.
   const authBlock = authBlocked ? (
-    <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-xs text-amber-700 dark:text-amber-400">
-      <KeyRound size={15} className="mt-0.5 shrink-0" />
-      <div className="space-y-1">
-        <p className="font-medium">{t('versioning.sync_auth_blocked_title')}</p>
-        <p className="leading-relaxed">{t('versioning.sync_auth_blocked_body')}</p>
+    <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3 text-xs text-destructive">
+      <div className="flex items-start gap-2">
+        <KeyRound size={15} className="mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="font-medium">
+            {t(error?.code === 'auth_failed'
+              ? 'versioning.sync_auth_rejected_title'
+              : 'versioning.sync_auth_blocked_title')}
+          </p>
+          <p className="leading-relaxed">
+            {t(error?.code === 'auth_failed'
+              ? 'versioning.sync_auth_rejected_body'
+              : 'versioning.sync_auth_blocked_body')}
+          </p>
+        </div>
+        {error?.raw && (
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t('versioning.git_error_details')}
+                  className="shrink-0 text-destructive/70 hover:text-destructive"
+                >
+                  <Info size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-sm">
+                {/* break-all, not break-words: git's answer carries long unbroken
+                    URLs that `break-word` leaves intact, running out of the box. */}
+                <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-relaxed">
+                  {error.raw}
+                </pre>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </div>
     </div>
   ) : null

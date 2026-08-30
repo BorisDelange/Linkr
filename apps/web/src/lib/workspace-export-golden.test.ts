@@ -68,6 +68,9 @@ interface GoldenInput {
   wikiPages: Record<string, unknown>[]
   wikiAttachments: (Record<string, unknown> & { dataBase64: string })[]
   dataSources: Record<string, unknown>[]
+  /** Stored files per data source id — the export reads these to list a
+   *  database's tables. */
+  dataSourceFiles?: Record<string, { fileName: string }[]>
   mappingProjects: Record<string, unknown>[]
   sourceCsvBase64: string
   mappings: Record<string, unknown>[]
@@ -139,6 +142,9 @@ const storage = {
   },
   schemaPresets: { getByWorkspace: async () => input.schemaPresets },
   dataSources: { getByWorkspace: async () => input.dataSources },
+  // Backs a database's `tables` list, which the export derives from the files
+  // actually stored for the source (nothing else records it).
+  files: { getByDataSource: async (id: string) => input.dataSourceFiles?.[id] ?? [] },
   sqlScriptCollections: { getByWorkspace: async () => input.sqlCollections },
   sqlScriptFiles: { getByCollection: async (id: string) => input.sqlScriptFiles[id] ?? [] },
   etlPipelines: { getByWorkspace: async () => input.etlPipelines },

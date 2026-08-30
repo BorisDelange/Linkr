@@ -1933,7 +1933,7 @@
     "sync_computing": "Calcul des modifications…",
     "sync_clean": "Rien à valider — l'arborescence correspond au dépôt distant.",
     "sync_auth_blocked_title": "Jeton d'accès au dépôt requis",
-    "sync_auth_blocked_body": "Ce dépôt n'a pas pu être lu — il est privé et vous n'avez aucun jeton d'accès enregistré, ou le jeton enregistré est invalide. Ajoutez votre jeton ci-dessus (Ajouter un jeton) pour voir et synchroniser ses modifications.",
+    "sync_auth_blocked_body": "Ce dépôt est privé et aucun jeton d'accès n'est enregistré pour son hôte. Ajoutez-en un depuis Configuration pour voir et synchroniser ses modifications.",
     "sync_message": "Message de commit",
     "sync_message_ph": "Décrivez vos modifications",
     "sync_pushed": "Poussé",
@@ -2149,7 +2149,9 @@
     "pull_db_warn": "Les données locales sont remplacées par celles du dépôt. Cette action est irréversible.",
     "pull_db_warn_empty": "Le dépôt déclare des tables mais ne fournit aucun fichier de données : la récupération remplace les données locales par rien.",
     "pull_db_all_or_nothing": "Tout ou rien : une base est reprise en entier.",
-    "pull_db_take": "Remplacer par la version distante"
+    "pull_db_take": "Remplacer par la version distante",
+    "sync_auth_rejected_title": "Jeton d'accès refusé",
+    "sync_auth_rejected_body": "Un jeton est enregistré pour cet hôte, mais le dépôt l'a refusé. Il peut appartenir à un autre compte, avoir expiré, ou ne pas donner accès à ce dépôt — remplacez-le depuis Configuration."
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",

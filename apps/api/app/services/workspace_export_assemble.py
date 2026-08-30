@@ -1028,6 +1028,16 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
             _sanitize_connection_config(connection_config) if connection_config else None
         ),
     }
+    # `tables` is what an importer reads to find data/<table>.parquet, so an export
+    # that drops it turns a repo carrying rows into one that imports empty. Derived
+    # from the files actually backing the source, since nothing stores the list.
+    tables = sorted(
+        f.file_name.rsplit(".", 1)[0]
+        for f in await data_source_service.list_files(db, source.id)
+        if f.file_name.lower().endswith((".parquet", ".pq"))
+    )
+    if tables:
+        meta["tables"] = tables
     tree: dict[str, bytes] = {
         ENTITY_MANIFEST: _json(with_entity_type(meta, TYPE_DATABASE, APP_VERSION))
     }
@@ -1040,6 +1050,11 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
         tree[SCHEMA_PRESET_MAPPING_FILE] = _json(_canonical_schema_mapping(mapping))
         if isinstance(ddl, str) and ddl:
             tree[SCHEMA_PRESET_DDL_FILE] = ddl.encode()
+    # `organization` is stripped as an instance field, and every other entity puts
+    # its provenance snapshot back. A database did not, so each re-export silently
+    # dropped the publishing organization from the repo — the same bug schema
+    # presets had.
+    await _attach_org(db, tree, ENTITY_MANIFEST, source)
     tree.update(await _entity_docs(db, "", dumped, "data-source", source.id))
     return tree
 

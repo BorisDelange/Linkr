@@ -63,6 +63,11 @@ class DataSourceUpdate(CamelModel):
     organization: dict | None = None
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
+    # Same branch, same reason as created_at below: a re-import of a git-linked
+    # database must be able to restore the author its repo publishes, or the pull
+    # silently keeps whoever imported it first.
+    created_by: str | None = None
+    created_by_details: dict | None = None
     # The branch a re-import actually takes when the row already exists: without
     # this the clone's createdAt was silently dropped and the stored date stood.
     created_at: datetime | None = None

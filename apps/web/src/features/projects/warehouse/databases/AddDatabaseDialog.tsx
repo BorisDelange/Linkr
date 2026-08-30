@@ -50,6 +50,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BadgeEditor } from '@/components/ui/badge-editor'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { VersionField } from '@/components/ui/version-field'
+import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -60,7 +61,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-type DbTab = 'general' | 'connection' | 'metadata'
+type DbTab = 'general' | 'connection' | 'metadata' | 'attribution'
 
 interface AddDatabaseDialogProps {
   open: boolean
@@ -171,6 +172,9 @@ export function AddDatabaseDialog({
   )
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [version, setVersion] = useState('0.1.0')
+  // Only what the user re-attributed: an untouched field stays absent so the
+  // save leaves the entity's own provenance alone.
+  const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
   const [selectedType, setSelectedType] = useState<DataSourceType | null>(null)
   const [uploading, setUploading] = useState(false)
   /** Why the save failed — shown above the footer instead of failing silently. */
@@ -199,6 +203,7 @@ export function AddDatabaseDialog({
       setName(localizedRaw(editingSource.name, language))
       setBadges(editingSource.badges ?? [])
       setVersion(editingSource.version ?? '0.1.0')
+      setAuthoring({})
       setAlias(editingSource.alias ?? '')
       setAliasManuallyEdited(true)
       setDescription(localizedRaw(editingSource.description, language))
@@ -265,6 +270,7 @@ export function AddDatabaseDialog({
     setDbTab('general')
     setBadges([])
     setVersion('0.1.0')
+    setAuthoring({})
     setSelectedType(null)
     setUploading(false)
     setName('')
@@ -345,6 +351,9 @@ export function AddDatabaseDialog({
             createdBy: editingSource.createdBy,
             createdByDetails: editingSource.createdByDetails,
             organization: editingSource.organization,
+            // A re-attribution made in the same edit wins over what the replaced
+            // source carried — otherwise picking new files would silently undo it.
+            ...authoring,
             gitRemoteConfig: editingSource.gitRemoteConfig,
             readme: editingSource.readme,
             license: editingSource.license,
@@ -392,6 +401,9 @@ export function AddDatabaseDialog({
             schemaSource,
             badges,
             version: version.trim() || '0.1.0',
+            // Spread last and only what was re-attributed: an untouched
+            // Attribution tab leaves the entity's own provenance in place.
+            ...authoring,
           }
           const isExternal =
             selectedType === 'database' && !isFileEngine(dbEngine)
@@ -710,6 +722,13 @@ export function AddDatabaseDialog({
                 <TabsTrigger value="metadata" className="flex-1">
                   {t('common.tab_metadata')}
                 </TabsTrigger>
+                {/* Editing only: a new database is authored by whoever creates it,
+                    so there is nothing to re-attribute yet. */}
+                {isEditMode && (
+                  <TabsTrigger value="attribution" className="flex-1">
+                    {t('common.tab_attribution')}
+                  </TabsTrigger>
+                )}
               </TabsList>
 
               <TabsContent value="general" className="space-y-4 pt-3">
@@ -951,6 +970,20 @@ export function AddDatabaseDialog({
                 />
                 <VersionField value={version} onChange={setVersion} />
               </TabsContent>
+
+              {isEditMode && editingSource && (
+                <TabsContent value="attribution" className="space-y-4 pt-3">
+                  <AuthoringFields
+                    value={{
+                      createdById: 'createdById' in authoring ? authoring.createdById : editingSource.createdById,
+                      createdBy: authoring.createdBy ?? editingSource.createdBy,
+                      createdByDetails: authoring.createdByDetails ?? editingSource.createdByDetails,
+                      organization: authoring.organization ?? editingSource.organization,
+                    }}
+                    onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+                  />
+                </TabsContent>
+              )}
             </Tabs>
           </div>
         )}

@@ -16,8 +16,31 @@
     "engine": "duckdb",
     "inMemory": true
   },
+  "tables": [
+    "admissions",
+    "patients"
+  ],
   "createdAt": "2026-01-02T00:00:00.000Z",
   "createdBy": "Boris Delange",
+  "organization": {
+    "id": "org1",
+    "name": {
+      "en": "CHU Rennes"
+    },
+    "type": "hospital",
+    "location": {
+      "en": "Rennes"
+    },
+    "country": {
+      "en": "France"
+    },
+    "website": "https://chu-rennes.fr",
+    "email": null,
+    "customType": null,
+    "referenceId": null,
+    "customFields": null,
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  },
   "version": "1.2.0",
   "license": {
     "id": "ODbL-1.0"

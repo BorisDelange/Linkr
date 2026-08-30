@@ -35,7 +35,7 @@ import type {
   GitRemoteConfig,
   LocalizedString, TodoItem,
   Organization, OrganizationInfo,
-  AuthorDetails,
+  AuthorDetails, ProjectBadge,
 } from '@/types'
 import * as engine from '@/lib/duckdb/engine'
 import { getSchemaPreset } from '@/lib/schema-presets'
@@ -2408,12 +2408,22 @@ export async function buildDataSourceFolder(
 ): Promise<void> {
   const { connectionConfig, schemaMapping, ...rest } = stripInstanceFields(source) as unknown as Record<string, unknown>
   for (const field of DATA_SOURCE_LOCAL_FIELDS) delete rest[field]
-  const meta = {
+  const meta: Record<string, unknown> = {
     ...stripEntityDocs(rest as unknown as DataSource),
     connectionConfig: connectionConfig
       ? sanitizeConnectionConfig(connectionConfig as Record<string, unknown>)
       : undefined,
   }
+  // `tables` is what an importer reads to find data/<table>.parquet, so an export
+  // that drops it turns a repo carrying rows into one that imports empty. Derived
+  // from the files backing the source, since nothing stores the list.
+  const sourceFiles = await storage.files?.getByDataSource(source.id).catch(() => []) ?? []
+  const tables = sourceFiles
+    .map((f) => f.fileName)
+    .filter((n) => /\.(parquet|pq)$/i.test(n))
+    .map((n) => n.replace(/\.[^.]+$/, ''))
+    .sort()
+  if (tables.length) meta.tables = tables
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(meta, 'database')))
   // The mapping and its DDL live beside the manifest, exactly as a schema preset
   // writes them: identity and provenance in `entity.json`, payload in files a
@@ -2425,6 +2435,10 @@ export async function buildDataSourceFolder(
     zip.file(`${prefix}${SCHEMA_PRESET_MAPPING_FILE}`, json(canonicalSchemaMapping(mapping)))
     if (typeof ddl === 'string' && ddl) zip.file(`${prefix}${SCHEMA_PRESET_DDL_FILE}`, ddl)
   }
+  // `organization` is stripped as an instance field, and every other entity puts
+  // its provenance snapshot back. A database did not, so each re-export silently
+  // dropped the publishing organization from the repo.
+  await attachEntityOrganization(zip, `${prefix}${ENTITY_MANIFEST}`, source, storage)
   await writeEntityDocs(zip, prefix, source, storage, 'data-source', source.id)
 }
 
@@ -2920,6 +2934,7 @@ export function attachTreeIds<T extends object>(
 /** `_database.json` as a database repo publishes it (see @linkr/format serializeDatabase). */
 interface DatabaseRepoMeta {
   id?: string
+  entityId?: string
   alias?: string
   name?: LocalizedString | string
   description?: LocalizedString | string
@@ -2930,6 +2945,16 @@ interface DatabaseRepoMeta {
   isVocabularyReference?: boolean
   version?: string
   createdAt?: string
+  // Provenance, published like every other entity's: it names who authored the
+  // database and identifies it across instances. Read here so a clone keeps it —
+  // rebuilding the row without these fields silently re-attributed the database
+  // to whoever imported it, and left it unrecognisable to `findInstalled`.
+  createdBy?: string
+  createdByDetails?: AuthorDetails
+  organization?: OrganizationInfo
+  lineageId?: string
+  parentLineageId?: string
+  badges?: ProjectBadge[]
 }
 
 /**
@@ -3031,6 +3056,21 @@ async function applyClonedDatabase(
     ...(meta.version ? { version: meta.version } : {}),
     ...(workspaceId ? { workspaceId } : {}),
     ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
+    // Published provenance travels with the repo, as it does for every other
+    // entity: the author who wrote the database, the organization that published
+    // it, and the badges describing it. A re-clone keeps what is already stored
+    // when the repo carries none, so a pull never blanks a local attribution.
+    createdBy: meta.createdBy ?? existing?.createdBy,
+    createdByDetails: meta.createdByDetails ?? existing?.createdByDetails,
+    organization: meta.organization ?? existing?.organization,
+    ...(meta.badges?.length ? { badges: meta.badges } : {}),
+    // `entityId` is the published slug (what the repo folder is named for);
+    // `lineageId` is the cross-instance identity every other type preserves the
+    // same way. Minted on first clone of a repo published before lineage existed,
+    // so the database is recognisable to `findInstalled` from the start.
+    entityId: existing?.entityId ?? meta.entityId ?? meta.id ?? targetId,
+    lineageId: existing?.lineageId ?? meta.lineageId ?? crypto.randomUUID(),
+    ...(meta.parentLineageId ? { parentLineageId: meta.parentLineageId } : {}),
     // The repo's own date first: deleting the workspace and re-cloning left no
     // local row to recover it from, so every re-import read as brand new.
     createdAt: meta.createdAt ?? existing?.createdAt ?? now,

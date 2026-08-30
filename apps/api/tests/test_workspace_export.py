@@ -332,11 +332,27 @@ def _build_tree() -> dict[str, bytes]:
                 else None
             ),
         }
-        tree = {
-            ENTITY_MANIFEST: _json_bytes(
-                with_entity_type(meta, TYPE_DATABASE, APP_VERSION)
-            )
-        }
+        # `tables` is what an importer reads to find data/<table>.parquet, derived
+        # from the files backing the source since nothing stores the list.
+        tables = sorted(
+            f["fileName"].rsplit(".", 1)[0]
+            for f in data.get("dataSourceFiles", {}).get(ds["id"], [])
+            if f["fileName"].lower().endswith((".parquet", ".pq"))
+        )
+        if tables:
+            meta["tables"] = tables
+        meta = with_entity_type(meta, TYPE_DATABASE, APP_VERSION)
+        # attach_entity_organization re-orders rather than appends, so the snapshot
+        # lands beside the author it belongs with, with appVersion still last. The
+        # database carries no snapshot of its own, so the org resolves from the
+        # parent workspace — the first export freezes it into the repo.
+        app_version = meta.pop("appVersion", None)
+        meta = order_provenance(
+            {**meta, "organization": _org_snapshot(data["organization"])}
+        )
+        if app_version is not None:
+            meta["appVersion"] = app_version
+        tree = {ENTITY_MANIFEST: _json_bytes(meta)}
         if schema_mapping:
             mapping = dict(schema_mapping)
             ddl = mapping.pop("ddl", None)
