@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DialogShell } from '@/components/ui/dialog-shell'
+import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { RequiredMark } from '@/components/ui/required-mark'
 import { Textarea } from '@/components/ui/textarea'
 import { localized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
@@ -61,27 +60,31 @@ export function ConceptListEditDialog({
       onConfirm={handleSave}
       confirmLabel={t('common.save')}
       confirmDisabled={!canSave}
-      contentClassName="space-y-3"
+      contentClassName="space-y-3 py-2"
     >
-      <div className="space-y-1">
-        <Label>{t('concepts.column_name')}<RequiredMark /></Label>
-        <Input
-          autoFocus
-          className="h-8 text-sm"
-          placeholder={t('concepts.list_name_placeholder')}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </div>
-      <div className="space-y-1">
-        <Label>{t('common.description')}</Label>
-        <Textarea
-          className="min-h-[72px] text-sm"
-          placeholder={t('concepts.list_description_placeholder')}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      </div>
+      <FormField label={t('concepts.column_name')} required>
+        {({ id }) => (
+          <Input
+            id={id}
+            autoFocus
+            className="h-8 text-sm"
+            placeholder={t('concepts.list_name_placeholder')}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        )}
+      </FormField>
+      <FormField label={t('common.description')}>
+        {({ id }) => (
+          <Textarea
+            id={id}
+            className="min-h-[72px] text-sm"
+            placeholder={t('concepts.list_description_placeholder')}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        )}
+      </FormField>
     </DialogShell>
   )
 }

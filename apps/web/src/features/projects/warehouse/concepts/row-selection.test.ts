@@ -104,6 +104,43 @@ describe('shift click', () => {
   })
 })
 
+// Clicking a row plainly highlights it and drives the detail panel, but leaves
+// the multi-selection empty. Ctrl-clicking a second row then has to carry the
+// first one in: the user sees one row selected and expects to end up with two.
+describe('extending a single selection', () => {
+  it('keeps the plainly-clicked row when ctrl-clicking a second', () => {
+    const r = resolveRowSelection(click({ conceptId: 30, singleSelected: 10, toggle: true }))
+    expect(ids(r.selected)).toEqual([10, 30])
+  })
+
+  it('reports only the newly added row', () => {
+    // The seeded row was already the user's selection; it is not "added".
+    const r = resolveRowSelection(click({ conceptId: 30, singleSelected: 10, toggle: true }))
+    expect(r.added).toEqual([30])
+  })
+
+  it('ctrl-clicking the highlighted row itself deselects it', () => {
+    // Seeding it and then toggling it off would be a no-op that looks stuck.
+    const r = resolveRowSelection(click({ conceptId: 10, singleSelected: 10, toggle: true }))
+    expect(ids(r.selected)).toEqual([])
+  })
+
+  it('does not seed once a real multi-selection exists', () => {
+    // The stale single-selected row must not creep back in after it was cleared.
+    const r = resolveRowSelection(
+      click({ conceptId: 30, singleSelected: 10, selected: new Set([20]), toggle: true }),
+    )
+    expect(ids(r.selected)).toEqual([20, 30])
+  })
+
+  it('carries the highlighted row into a shift range that starts from it', () => {
+    const r = resolveRowSelection(
+      click({ conceptId: 30, singleSelected: 10, anchor: 10, range: true }),
+    )
+    expect(ids(r.selected)).toEqual([10, 20, 30])
+  })
+})
+
 describe('pick mode', () => {
   it('toggles on a plain click, since the set is the result', () => {
     const r = resolveRowSelection(click({ conceptId: 30, pickMode: true }))

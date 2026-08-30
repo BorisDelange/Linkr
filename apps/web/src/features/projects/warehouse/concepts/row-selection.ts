@@ -13,6 +13,13 @@ export interface RowSelectionInput {
   order: number[]
   /** Currently selected ids. */
   selected: ReadonlySet<number>
+  /**
+   * The single-selected row — the one driving the detail panel — when the
+   * multi-selection is empty. Ctrl or Shift clicking starts from it, so the row
+   * already highlighted is carried INTO the selection rather than dropped: the
+   * user sees one row selected, and expects Ctrl-clicking a second to give two.
+   */
+  singleSelected?: number | null
   /** The last row clicked without Shift, or null. */
   anchor: number | null
   /** Cmd (mac) or Ctrl held. */
@@ -45,10 +52,19 @@ export interface RowSelectionResult {
  * which is what a file explorer does.
  */
 export function resolveRowSelection(input: RowSelectionInput): RowSelectionResult {
-  const { conceptId, order, selected, anchor, range, pickMode } = input
+  const { conceptId, order, anchor, range, pickMode } = input
   // Pick mode has no single-selection mode to fall back to, so every plain
   // click is a toggle — the same rule the table applied inline.
   const toggle = input.toggle || pickMode
+
+  // Seed from the single-selected row when nothing is multi-selected yet: that
+  // row IS the user's current selection, so extending it must keep it. Seeding
+  // the clicked row too, rather than excluding it, is what lets Ctrl-clicking
+  // the highlighted row deselect it instead of re-adding what is already there.
+  const selected =
+    input.selected.size === 0 && input.singleSelected != null
+      ? new Set([input.singleSelected])
+      : input.selected
 
   if (range && anchor != null) {
     const from = order.indexOf(anchor)

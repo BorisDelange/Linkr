@@ -523,6 +523,7 @@ Check this table before writing any form field.
 
 | Component | Use for |
 |---|---|
+| `FormField` | Any labelled field: label above, control below, optional hint. Owns the label/control gap (two spacings had drifted apart across ~33 hand-written copies) and wires `htmlFor` to the control, so clicking the label focuses it. |
 | `EntityIdField` | The id field on every entity create/edit dialog (slug rules, uniqueness, locked-after-create). |
 | `VersionField` | The version input on those same dialogs. |
 | `AuthoringFields` | Author + organization on an entity dialog. Both start locked showing the originals; unlocking re-attributes and writes a frozen snapshot. Don't roll your own attribution UI. |

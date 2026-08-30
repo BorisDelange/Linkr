@@ -278,6 +278,7 @@ export function ConceptTable({
       conceptId: row.concept_id,
       order: concepts.map((r) => r.concept_id),
       selected: selectedConceptIds,
+      singleSelected: selectedConceptId,
       anchor: selectionAnchorRef.current,
       toggle: e.metaKey || e.ctrlKey,
       range: e.shiftKey,
