@@ -3,8 +3,10 @@
  *
  * Identity is `lineageId` — the cross-instance id an export carries verbatim, so the same
  * published work stays recognizable even though its local PK was regenerated on import.
- * Entries published before lineage stamping (or by a non-Linkr exporter) fall back to the
- * git remote URL, which is what the install path stores in `gitRemoteConfig`.
+ * The git remote URL is the fallback, tried whenever lineage matched nothing: an entry
+ * published before lineage stamping carries none, and a repo can publish none while the
+ * catalog entry does — the install then mints a local lineage that matches no one, and
+ * only the URL identifies what it came from.
  *
  * Staleness compares the entry's published `version` against the installed entity's own
  * `version`. When either side declares none it is treated as up to date: the cloned
@@ -113,11 +115,16 @@ export async function findInstalled(
   for (const entry of entries) {
     const rows = byType.get(entry.type) ?? []
     const entryUrl = normalizeGitUrl(entry.git.url)
-    const match = rows.find((r) =>
-      entry.lineageId && r.lineageId
-        ? r.lineageId === entry.lineageId
-        : !!entryUrl && normalizeGitUrl(r.gitRemoteConfig?.url) === entryUrl,
-    )
+    // Lineage first, then the remote URL — not one OR the other. When both sides
+    // carry a lineage they used to be compared and that was the end of it, so an
+    // entity whose REPO publishes no lineage (the app then mints a local one)
+    // never matched its own catalog entry, even though both name the same
+    // remote: the entry stayed "Install" no matter how many times it was
+    // installed. The URL is the weaker identity — a fork shares it — so it only
+    // gets a say once lineage has failed to answer.
+    const match =
+      rows.find((r) => !!entry.lineageId && !!r.lineageId && r.lineageId === entry.lineageId) ??
+      rows.find((r) => !!entryUrl && normalizeGitUrl(r.gitRemoteConfig?.url) === entryUrl)
     if (!match) continue
     const local: InstalledEntity = {
       id: pkOf(match),

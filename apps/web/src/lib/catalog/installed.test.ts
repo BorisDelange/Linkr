@@ -82,6 +82,36 @@ describe('findInstalled', () => {
     expect(found.e1).toMatchObject({ id: 'local-1', state: 'installed' })
   })
 
+  it('falls back to the git url when BOTH lineages exist but differ', async () => {
+    // The MIMIC-IV demo case: the catalog entry publishes a lineage, its repo
+    // does not, so the install minted a local one. Both sides then had a lineage
+    // and the comparison ended there — the entry stayed "Install" forever even
+    // though the two name the same remote.
+    const storage = storageWith({
+      sqlScriptCollections: [{
+        id: 'local-1',
+        workspaceId: 'ws1',
+        lineageId: 'locally-minted',
+        gitRemoteConfig: { url: 'https://framagit.org/g/repo' },
+      }],
+    })
+    const found = await findInstalled([entry({ lineageId: 'lin-1' })], 'ws1', storage)
+    expect(found.e1).toMatchObject({ id: 'local-1', state: 'installed' })
+  })
+
+  it('prefers the lineage match over a url match on a different row', async () => {
+    // The fallback must not outrank lineage: a fork shares the remote URL, so
+    // whichever row carries the published lineage is the real installed copy.
+    const storage = storageWith({
+      sqlScriptCollections: [
+        { id: 'fork', workspaceId: 'ws1', gitRemoteConfig: { url: 'https://framagit.org/g/repo' } },
+        { id: 'real', workspaceId: 'ws1', lineageId: 'lin-1' },
+      ],
+    })
+    const found = await findInstalled([entry({ lineageId: 'lin-1' })], 'ws1', storage)
+    expect(found.e1).toMatchObject({ id: 'real' })
+  })
+
   it('ignores copies living in another workspace', async () => {
     const storage = storageWith({
       sqlScriptCollections: [{ id: 'local-1', workspaceId: 'ws2', lineageId: 'lin-1' }],

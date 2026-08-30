@@ -3069,16 +3069,12 @@ async function applyClonedDatabase(
     ...(meta.badges?.length ? { badges: meta.badges } : {}),
     // `entityId` is the published slug (what the repo folder is named for);
     // `lineageId` is the cross-instance identity every other type preserves the
-    // same way. Minted on first clone of a repo published before lineage existed,
-    // so the database is recognisable to `findInstalled` from the start.
+    // same way.
     entityId: existing?.entityId ?? meta.entityId ?? meta.id ?? targetId,
-    // The repo's lineage WINS over a stored one, unlike every other field here.
-    // A database usually arrives as a workspace pointer first, and those publish
-    // no lineage — the pointer row therefore holds a locally minted uuid, which
-    // is not an identity anyone else shares. Deferring to it left the catalog
-    // unable to recognise its own entry as installed. Only a published lineage
-    // outranks the local one; with none, whatever is stored stands.
-    lineageId: meta.lineageId ?? existing?.lineageId ?? crypto.randomUUID(),
+    // A stored lineage stands, as everywhere else: re-cloning must not change the
+    // identity of a row other instances may already know. Minted when neither
+    // side has one, so the database is identifiable from its first clone.
+    lineageId: existing?.lineageId ?? meta.lineageId ?? crypto.randomUUID(),
     ...(meta.parentLineageId ? { parentLineageId: meta.parentLineageId } : {}),
     // The repo's own date first: deleting the workspace and re-cloning left no
     // local row to recover it from, so every re-import read as brand new.
