@@ -80,7 +80,7 @@ function rangeOverlaps(ranges: RangeRow[], exclude: string, start: number, end: 
 const rangeCache = new Map<string, RangeRow[]>()
 
 export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -271,21 +271,24 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
               const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
               for (const row of rows) {
                 const code = String(row.concept_code ?? '')
-                const vocab = String(row.vocabulary_id ?? proj.name)
+                // 'en', not the UI language: this falls into the assignment key,
+                // which identifies the source concept for good — it must not
+                // depend on who ran the assignment, or in which language.
+                const vocab = String(row.vocabulary_id ?? localized(proj.name, 'en'))
                 if (code) pairsToAssign.add(sourceConceptPairKey(vocab, code))
               }
             } catch (err) {
               // Named, not swallowed: a project whose source cannot be read
               // assigns nothing, and a silent skip is indistinguishable from a
               // project that genuinely has no concepts.
-              unreadable.push({ name: proj.name, error: err instanceof Error ? err.message : String(err) })
+              unreadable.push({ name: localized(proj.name, i18n.language), error: err instanceof Error ? err.message : String(err) })
             }
           }
         } else {
           // Database project: query all source concepts
           const ds = dataSources.find((s) => s.id === proj.dataSourceId)
           if (!ds?.schemaMapping) {
-            unreadable.push({ name: proj.name, error: t('concept_mapping.source_id_assign_no_source') })
+            unreadable.push({ name: localized(proj.name, i18n.language), error: t('concept_mapping.source_id_assign_no_source') })
             continue
           }
           try {
@@ -299,7 +302,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
               if (code) pairsToAssign.add(sourceConceptPairKey(vocab, code))
             }
           } catch (err) {
-            unreadable.push({ name: proj.name, error: err instanceof Error ? err.message : String(err) })
+            unreadable.push({ name: localized(proj.name, i18n.language), error: err instanceof Error ? err.message : String(err) })
           }
         }
       }

@@ -15,7 +15,10 @@ import {
 } from './source-extraction'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
-const OMOP: SchemaMapping = {
+// `satisfies`, not a type annotation: it checks the fixture against SchemaMapping
+// while keeping the literal's own type, so the tests below can reach into
+// `eventTables` — optional on the interface, always there on this fixture.
+const OMOP = {
   presetId: 'omop-5.4',
   presetLabel: { en: 'OMOP CDM 5.4' },
   patientTable: { table: 'person', idColumn: 'person_id' },
@@ -36,7 +39,7 @@ const OMOP: SchemaMapping = {
       dateColumn: 'measurement_datetime',
     },
   },
-}
+} satisfies SchemaMapping
 
 function source(mapping: SchemaMapping = OMOP, key = 'concept'): ProfileSource {
   const resolved = resolveProfileSource(mapping, key)

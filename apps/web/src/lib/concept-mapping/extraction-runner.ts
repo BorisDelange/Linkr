@@ -215,6 +215,8 @@ export function startRun(input: StartRunInput): void {
       // NOT inherit the previous run's total — that is the stale "1066 of 5636"
       // a restart used to sit on while it counted.
       total: input.resumeFrom?.total || null,
+      // Nothing is being profiled yet — the run is still counting.
+      current: null,
       error: null,
     },
     controller,
@@ -347,9 +349,14 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     // drop the live counts so the view falls back to the persisted ones — which
     // by now describe this run, since every save point wrote them.
     const error = run?.snapshot.error ?? null
-    emit(projectId, { running: false, phase: null, extracted: null, total: null })
+    // `current` goes with them: it names the concept being profiled, and leaving
+    // the last one there would have the tooltip still pointing at it once the
+    // run has stopped.
+    emit(projectId, { running: false, phase: null, extracted: null, total: null, current: null })
     if (run) {
-      run.snapshot = { running: false, phase: null, extracted: null, total: null, error }
+      run.snapshot = {
+        running: false, phase: null, extracted: null, total: null, current: null, error,
+      }
       if (run.watchers.size === 0 && !error) runs.delete(projectId)
     }
   }
