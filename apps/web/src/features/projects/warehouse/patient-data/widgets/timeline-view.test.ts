@@ -11,7 +11,7 @@ import {
   axisTicks,
   TIMELINE_GUTTER,
   TIMELINE_PAD_R,
-  DYGRAPH_AXIS_LABEL_WIDTH,
+  dygraphAxisLabelWidth,
   MIN_SPAN_MS,
 } from './timeline-view'
 
@@ -207,12 +207,18 @@ describe('plot geometry', () => {
 
   it('puts the Dygraph plot exactly where the canvas plot starts', () => {
     // Dygraph reserves axisLabelWidth + 2 * axisTickSize (plugins/axes.js).
-    expect(DYGRAPH_AXIS_LABEL_WIDTH + 2 * DYGRAPH_TICK_SIZE).toBe(TIMELINE_GUTTER)
+    expect(dygraphAxisLabelWidth(TIMELINE_GUTTER) + 2 * DYGRAPH_TICK_SIZE).toBe(TIMELINE_GUTTER)
+  })
+
+  it('follows a wider gutter, for when a data overview leads one', () => {
+    // A synced overview sizes its gutter to its own labels; the timeline widens
+    // to match so the two share a time axis.
+    expect(dygraphAxisLabelWidth(260) + 2 * DYGRAPH_TICK_SIZE).toBe(260)
   })
 
   it('leaves room for the y-axis numbers Dygraph still has to draw', () => {
     // Dygraph's own default is 50; widening must never go the other way.
-    expect(DYGRAPH_AXIS_LABEL_WIDTH).toBeGreaterThanOrEqual(50)
+    expect(dygraphAxisLabelWidth(TIMELINE_GUTTER)).toBeGreaterThanOrEqual(50)
   })
 
   it('leaves the canvas gutter wide enough for a concept name', () => {

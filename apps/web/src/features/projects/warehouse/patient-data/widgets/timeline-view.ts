@@ -27,12 +27,14 @@ export const TIMELINE_PAD_R = 10
 const DYGRAPH_TICK_SIZE = 3
 
 /**
- * The `axisLabelWidth` that puts Dygraph's plot at `TIMELINE_GUTTER`.
+ * The `axisLabelWidth` that puts Dygraph's plot at a given gutter.
  *
  * Dygraph reserves `axisLabelWidth + 2 * axisTickSize` on the left — see
  * `plugins/axes.js` — so the label column is the gutter less those ticks.
  */
-export const DYGRAPH_AXIS_LABEL_WIDTH = TIMELINE_GUTTER - 2 * DYGRAPH_TICK_SIZE
+export function dygraphAxisLabelWidth(gutter: number): number {
+  return gutter - 2 * DYGRAPH_TICK_SIZE
+}
 
 /** Smallest window the user can zoom into: one second. Below that the axis
  *  labels all collapse to the same instant and panning feels broken. */
@@ -199,6 +201,31 @@ export function windowFromRangeJump(
 export function sameBounds(a: TimeWindow | null, b: TimeWindow | null): boolean {
   if (!a || !b) return false
   return a.lo === b.lo && a.hi === b.hi
+}
+
+/**
+ * Format a time-axis tick: a clock time when the window is short, a date
+ * otherwise.
+ *
+ * Goes through `toLocale*` so the clock follows the reader's language — 8 PM in
+ * English, 20:00 in French. Dygraph's own formatter is 24-hour whatever the
+ * locale, which is what made two stacked timelines disagree about the same
+ * instant, so it is pointed at this instead.
+ */
+export function formatAxisTick(ms: number, withClock: boolean, locale: string): string {
+  const d = new Date(ms)
+  return withClock
+    ? d.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })
+    : d.toLocaleDateString(locale, { day: '2-digit', month: 'short' })
+}
+
+/**
+ * Whether a window that many hours wide should be labelled with clock times.
+ *
+ * Past a few days the hour stops telling the reader anything the date does not.
+ */
+export function tickShowsClock(spanMs: number): boolean {
+  return spanMs / 3600_000 <= 72
 }
 
 /** Whether a window covers its whole bounds — used to hide the "reset" affordance. */

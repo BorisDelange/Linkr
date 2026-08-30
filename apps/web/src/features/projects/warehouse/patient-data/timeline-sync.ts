@@ -81,3 +81,53 @@ export function broadcastTimelineRange(
 export function getTimelineRange(channel: string): TimelineRange | null {
   return lastRange.get(channel) ?? null
 }
+
+// --- Shared gutter ---------------------------------------------------------
+
+/**
+ * The left gutter a data overview measured for itself, published so synced
+ * timelines on the same tab can adopt it and share its time axis.
+ *
+ * Keyed by TAB, not by the range channel: a board syncing across tabs must
+ * still not let a long label in one tab reshape a chart in another, where the
+ * two are never seen side by side.
+ *
+ * The overview leads because its gutter is content-sized — nested table, class
+ * and concept names plus event counts — while a timeline's is a fixed width it
+ * can simply widen to match. Doing it the other way round would truncate the
+ * overview's labels on every board, timelines present or not.
+ */
+const tabGutter = new Map<string, number>()
+type GutterListener = (gutter: number | null) => void
+const gutterChannels = new Map<string, Set<GutterListener>>()
+
+export function publishGutter(tabId: string, gutter: number): void {
+  if (!tabId || tabGutter.get(tabId) === gutter) return
+  tabGutter.set(tabId, gutter)
+  for (const listener of gutterChannels.get(tabId) ?? []) listener(gutter)
+}
+
+/** Stop leading: the overview left the tab, or its sync was turned off. */
+export function retractGutter(tabId: string): void {
+  if (!tabId || !tabGutter.has(tabId)) return
+  tabGutter.delete(tabId)
+  for (const listener of gutterChannels.get(tabId) ?? []) listener(null)
+}
+
+/** The gutter to follow on a tab, or null when nothing is leading one. */
+export function getGutter(tabId: string): number | null {
+  return tabGutter.get(tabId) ?? null
+}
+
+export function subscribeGutter(tabId: string, listener: GutterListener): () => void {
+  let set = gutterChannels.get(tabId)
+  if (!set) {
+    set = new Set()
+    gutterChannels.set(tabId, set)
+  }
+  set.add(listener)
+  return () => {
+    set?.delete(listener)
+    if (set && set.size === 0) gutterChannels.delete(tabId)
+  }
+}

@@ -14,6 +14,8 @@ import {
   MIN_DRAG_PX,
   TIMELINE_GUTTER,
   TIMELINE_PAD_R,
+  formatAxisTick,
+  tickShowsClock,
   type RangeGeom,
   type RangeHit,
   type TimeWindow,
@@ -41,9 +43,14 @@ interface TimelineCanvasProps {
   onViewChange: (next: TimeWindow) => void
   /** Locale for the axis labels. */
   locale: string
+  /**
+   * Left gutter, in px. Overridden when a synced data overview on the same tab
+   * is leading one, so the two charts share a time axis; otherwise the shared
+   * default, which is what keeps two timelines aligned with each other.
+   */
+  gutter?: number
 }
 
-const GUTTER = TIMELINE_GUTTER
 const AXIS_H = 18
 const RANGE_H = 34
 const ROW_MIN = 22
@@ -59,14 +66,6 @@ const CURSORS: Record<string, string> = {
   plot: 'crosshair',
 }
 
-/** Format an axis tick: a clock time when the window is short, a date otherwise. */
-function formatTick(ms: number, withClock: boolean, locale: string): string {
-  const d = new Date(ms)
-  return withClock
-    ? d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleDateString(locale, { day: '2-digit', month: 'short' })
-}
-
 /**
  * The mixed-shape timeline: one row per concept, drawn with the overview's own
  * marks — a line for a measurement, dots for a categorical series, blocks for
@@ -76,7 +75,8 @@ function formatTick(ms: number, withClock: boolean, locale: string): string {
  * draw. It has to bring its own zoom, pan and range selector, since those are
  * the things Dygraph was giving for free.
  */
-export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: TimelineCanvasProps) {
+export function TimelineCanvas({ series, bounds, view, onViewChange, locale, gutter }: TimelineCanvasProps) {
+  const GUTTER = gutter ?? TIMELINE_GUTTER
   const { t } = useTranslation()
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -138,7 +138,7 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
     const textColour = dark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)'
 
     // Axis ticks, drawn behind the rows.
-    const spanHours = (view.hi - view.lo) / 3600_000
+    const withClock = tickShowsClock(view.hi - view.lo)
     const ticks = axisTicks(view, Math.max(2, Math.floor(plotW / 90)))
     ctx.font = '10px Inter, system-ui'
     ctx.textBaseline = 'middle'
@@ -152,7 +152,7 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
       ctx.lineTo(Math.round(x) + 0.5, chartH)
       ctx.stroke()
       ctx.fillStyle = textColour
-      ctx.fillText(formatTick(tick, spanHours <= 72, locale), x, chartH + AXIS_H / 2)
+      ctx.fillText(formatAxisTick(tick, withClock, locale), x, chartH + AXIS_H / 2)
     }
 
     // Rows: label in the gutter, marks in the plot.
@@ -253,7 +253,7 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
     // Hit-testing reads what was actually painted, so the grab zones can never
     // drift from the handles the user is aiming at.
     rangeRef.current = { x0: plotL, x1: plotL + plotW, y0: ry, y1: ry + rh, win: { x0: wx0, x1: wx1 } }
-  }, [series, size, view, bounds, rowH, chartH, plotL, plotW, xFor, locale])
+  }, [series, size, view, bounds, rowH, chartH, plotL, plotW, GUTTER, xFor, locale])
 
   // --- Gestures -----------------------------------------------------------
 

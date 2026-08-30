@@ -19,12 +19,17 @@ import {
   getTimelineRange,
   forgetTimelineRange,
   syncChannel,
+  getGutter,
+  subscribeGutter,
 } from '../timeline-sync'
 import { TimelineCanvas, type TimelineSeries } from './TimelineCanvas'
 import { classifySeries, resolveRenderer } from './timeline-shape'
 import {
-  DYGRAPH_AXIS_LABEL_WIDTH,
+  dygraphAxisLabelWidth,
+  TIMELINE_GUTTER,
   TIMELINE_PAD_R,
+  formatAxisTick,
+  tickShowsClock,
   type TimeWindow,
 } from './timeline-view'
 
@@ -143,6 +148,23 @@ export function TimelineWidget({
   const yAxisFromZero = config.yAxisFromZero ?? false
   const syncTimeRange = config.syncTimeRange ?? false
   const channel = syncChannel(tabId, boardId, syncAcrossTabs)
+
+  /**
+   * The gutter a synced data overview on this tab is using, so the two share a
+   * time axis. Null when there is none to follow, and the timeline keeps its
+   * own fixed width — which is also what keeps two timelines aligned with each
+   * other when no overview is present.
+   */
+  const [sharedGutter, setSharedGutter] = useState<number | null>(null)
+  useEffect(() => {
+    if (!syncTimeRange || !tabId) {
+      setSharedGutter(null)
+      return
+    }
+    setSharedGutter(getGutter(tabId))
+    return subscribeGutter(tabId, setSharedGutter)
+  }, [syncTimeRange, tabId])
+  const gutter = sharedGutter ?? TIMELINE_GUTTER
   const stepPlot = config.stepPlot ?? false
   const showPoints = config.showPoints ?? true
   // strokeWidth comes from a schema `select` (string) but older configs may hold a number.
@@ -449,13 +471,24 @@ export function TimelineWidget({
         x: {
           axisLabelFontSize: 10,
           drawGrid: true,
+          // Dygraph's own formatter is 24-hour whatever the language, so the
+          // same instant read "20:00" here and "8 PM" on a mixed-shape timeline
+          // stacked above it. Both go through the shared formatter instead.
+          axisLabelFormatter: ((value: number | Date, _granularity: number, _opts: unknown, g?: Dygraph) => {
+            const ms = value instanceof Date ? value.getTime() : value
+            // The graph is absent on the very first format pass; a short window
+            // is the safer guess there, since it is what a fresh chart shows.
+            const range = g?.xAxisRange?.()
+            const span = range ? range[1] - range[0] : 0
+            return formatAxisTick(ms, tickShowsClock(span), i18n.language)
+          }) as unknown as dygraphs.Options['axisLabelFormatter'],
         },
         y: {
           axisLabelFontSize: 10,
           drawGrid: true,
           // Puts the plot exactly where the canvas renderer's starts, so two
           // stacked timelines line up in time whichever engine draws them.
-          axisLabelWidth: DYGRAPH_AXIS_LABEL_WIDTH,
+          axisLabelWidth: dygraphAxisLabelWidth(gutter),
           ...(yAxisFromZero ? { includeZero: true } : {}),
         },
       },
@@ -531,8 +564,13 @@ export function TimelineWidget({
       const r = wrap.getBoundingClientRect()
       if (r.width > 0 && r.height > 0) g.resize(Math.floor(r.width), Math.floor(r.height) - RANGE_SELECTOR_RESERVE)
     })
+    // `gutter`: Dygraph must re-lay-out when an overview starts or stops
+    // leading one, or the alignment breaks exactly when it is wanted.
+    // `i18n.language`: the axis formatter reads it, so the labels have to be
+    // rebuilt on a language switch — 8 PM becomes 20:00.
+    // conceptColors / conceptIds are covered by their serialized keys.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [renderer, chartData, conceptNames, conceptIdByName, getThemeColors, yAxisFromZero, stepPlot, showPoints, strokeWidth, syncTimeRange, conceptColorsKey, channel, widgetId])
+  }, [renderer, chartData, conceptNames, conceptIdByName, getThemeColors, yAxisFromZero, stepPlot, showPoints, strokeWidth, syncTimeRange, conceptColorsKey, channel, gutter, i18n.language, widgetId])
 
   // Sync: when another timeline on this channel broadcasts a range, adopt it.
   useEffect(() => {
@@ -670,6 +708,7 @@ export function TimelineWidget({
             view={view}
             onViewChange={onCanvasViewChange}
             locale={i18n.language}
+            gutter={gutter}
           />
         </div>
       )}

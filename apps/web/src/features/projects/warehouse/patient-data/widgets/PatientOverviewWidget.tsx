@@ -9,6 +9,8 @@ import {
   broadcastTimelineRange,
   getTimelineRange,
   syncChannel,
+  publishGutter,
+  retractGutter,
 } from '../timeline-sync'
 import { sameBounds } from './timeline-view'
 import { queryDataSource } from '@/lib/duckdb/engine'
@@ -190,6 +192,14 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     },
     [widgetId],
   )
+
+  // Stop leading the gutter when this overview goes away or turns sync off, so
+  // the timelines fall back to their own width instead of following a chart
+  // that is no longer on screen.
+  useEffect(() => {
+    if (!syncTimeRange || !tabId) return
+    return () => retractGutter(tabId)
+  }, [syncTimeRange, tabId])
 
   useEffect(() => {
     if (!syncTimeRange || !tabId) return
@@ -664,6 +674,10 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     const truncateTo = Math.max(40, gutter - 8 - GAP - countW - GAP)
     const plotL = gutter
     const plotW = Math.max(40, w - plotL - 10)
+    // Published so synced timelines on this tab can widen to the same origin.
+    // Only while synced: a lone overview has no reason to reshape anything, and
+    // this gutter follows its own labels, which change as rows fold and unfold.
+    if (syncTimeRange) publishGutter(tabId, plotL)
     const lo = view.lo
     const span = view.hi - view.lo || 1
     const x = (ms: number) => plotL + ((ms - lo) / span) * plotW
