@@ -614,8 +614,12 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
             </div>
             {/* The picker sits WITH the description rather than above the button,
                 so the card's footer is a lone button like every other one and the
-                grid rows line up. */}
-            <div className="space-y-2 px-4 py-3">
+                grid rows line up.
+
+                Tighter vertical padding than a sibling card's body: this one
+                carries a select the others do not, and matching their py-3 made
+                the card visibly taller than the row it sits in. */}
+            <div className="space-y-1.5 px-4 pb-2 pt-1.5">
               <Select value={ohdsiFormat} onValueChange={(v) => setOhdsiFormat(v as OhdsiFormat)}>
                 <SelectTrigger className="h-7 text-xs">
                   <SelectValue />

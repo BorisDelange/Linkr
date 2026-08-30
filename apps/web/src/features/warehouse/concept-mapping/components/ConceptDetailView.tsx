@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, Code2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line } from 'recharts'
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { BoxPlot } from '@/components/charts/box-plot'
 import { niceTicks, tightHistogramScale } from '@/lib/chart-ticks'
+import { cn } from '@/lib/utils'
 import type { SourceConceptRow } from '../MappingEditorTab'
 
 interface ConceptDetailViewProps {
@@ -238,8 +239,7 @@ function BarSection({ section }: { section: BarChartSection }) {
     const fmt = (v: number) =>
       `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}${section.valueSuffix ?? ''}`
     return (
-      <Card className="p-3">
-        <p className="mb-2 text-xs font-medium">{section.title}</p>
+      <SectionCard title={section.title}>
         <ResponsiveContainer width="100%" height={height}>
           <BarChart data={section.data} layout="vertical" margin={{ left: 5, right: 12, top: 2, bottom: 2 }}>
             <XAxis type="number" tick={{ fontSize: 10 }} domain={[0, 'auto']} tickFormatter={fmt} />
@@ -255,7 +255,7 @@ function BarSection({ section }: { section: BarChartSection }) {
             <Bar dataKey="value" fill="#60a5fa" radius={[0, 3, 3, 0]} />
           </BarChart>
         </ResponsiveContainer>
-      </Card>
+      </SectionCard>
     )
   }
   // Numeric labels (histogram bins) get a clean linear axis with "nice" round ticks
@@ -272,10 +272,10 @@ function BarSection({ section }: { section: BarChartSection }) {
     const chartData = section.data.map((d) => ({ x: Number(d.label), value: d.value }))
     const formatTick = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 })
     return (
-      <Card className="p-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <p className="text-xs font-medium">{section.title}</p>
-          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+      <SectionCard
+        title={section.title}
+        action={(
+          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[10px] text-muted-foreground">
             <Checkbox
               checked={startAtZero}
               onCheckedChange={(v) => setStartAtZero(v === true)}
@@ -283,7 +283,8 @@ function BarSection({ section }: { section: BarChartSection }) {
             />
             {t('concept_mapping.detail_starts_at_zero')}
           </label>
-        </div>
+        )}
+      >
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={chartData} margin={{ left: 5, right: 5, bottom: 5 }}>
             <XAxis
@@ -306,13 +307,12 @@ function BarSection({ section }: { section: BarChartSection }) {
             <Bar dataKey="value" fill="#60a5fa" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
-      </Card>
+      </SectionCard>
     )
   }
 
   return (
-    <Card className="p-3">
-      <p className="mb-2 text-xs font-medium">{section.title}</p>
+    <SectionCard title={section.title}>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={section.data} margin={{ left: 5, right: 5, bottom: bottomMargin }}>
           <XAxis
@@ -330,6 +330,37 @@ function BarSection({ section }: { section: BarChartSection }) {
           <Bar dataKey="value" fill="#60a5fa" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
+    </SectionCard>
+  )
+}
+
+/**
+ * A profile block: a title, then its content.
+ *
+ * Card is `flex flex-col gap-6`, so a title and a body as two children sat 24px
+ * apart on top of the title's own margin — a heading floating well clear of what
+ * it names. Killing the gap here puts the spacing back under the title's control.
+ */
+function SectionCard({
+  title,
+  action,
+  children,
+  className,
+}: {
+  title?: string
+  action?: ReactNode
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <Card className={cn('gap-0 p-3', className)}>
+      {(title || action) && (
+        <div className="mb-1.5 flex min-h-4 items-center justify-between gap-2">
+          {title && <p className="text-xs font-medium">{title}</p>}
+          {action}
+        </div>
+      )}
+      {children}
     </Card>
   )
 }
@@ -337,8 +368,7 @@ function BarSection({ section }: { section: BarChartSection }) {
 export function SectionRenderer({ section }: { section: Section }) {
   if (section.type === 'fields' && section.rows.length > 0) {
     return (
-      <Card className="p-3">
-        <p className="mb-2 text-xs font-medium">{section.title}</p>
+      <SectionCard title={section.title}>
         <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
           {section.rows.map((row) => (
             <div key={row.label} className="flex items-baseline justify-between gap-3 text-xs">
@@ -347,14 +377,13 @@ export function SectionRenderer({ section }: { section: Section }) {
             </div>
           ))}
         </div>
-      </Card>
+      </SectionCard>
     )
   }
 
   if (section.type === 'stats') {
     return (
-      <Card className="p-3">
-        {section.title && <p className="mb-2 text-xs font-medium">{section.title}</p>}
+      <SectionCard title={section.title}>
         <div className="flex flex-wrap gap-x-4 gap-y-1">
           {section.items.map((item) => (
             <div key={item.label} className="flex items-baseline gap-1.5 text-xs">
@@ -368,7 +397,7 @@ export function SectionRenderer({ section }: { section: Section }) {
             <BoxPlot {...section.boxplot} height={44} />
           </div>
         )}
-      </Card>
+      </SectionCard>
     )
   }
 
@@ -378,8 +407,7 @@ export function SectionRenderer({ section }: { section: Section }) {
 
   if (section.type === 'line' && section.data.length > 0) {
     return (
-      <Card className="p-3">
-        <p className="mb-2 text-xs font-medium">{section.title}</p>
+      <SectionCard title={section.title}>
         <ResponsiveContainer width="100%" height={180}>
           <LineChart data={section.data} margin={{ left: 5, right: 5, bottom: 5 }}>
             <XAxis dataKey="label" tick={{ fontSize: 10 }} />
@@ -388,14 +416,13 @@ export function SectionRenderer({ section }: { section: Section }) {
             <Line type="monotone" dataKey="value" stroke="#60a5fa" strokeWidth={2} dot={{ r: 3 }} />
           </LineChart>
         </ResponsiveContainer>
-      </Card>
+      </SectionCard>
     )
   }
 
   if (section.type === 'pie' && section.data.length > 0) {
     return (
-      <Card className="p-3">
-        <p className="mb-2 text-xs font-medium">{section.title}</p>
+      <SectionCard title={section.title}>
         <ResponsiveContainer width="100%" height={200}>
           <PieChart>
             <Pie
@@ -416,14 +443,13 @@ export function SectionRenderer({ section }: { section: Section }) {
             <Legend layout="vertical" align="right" verticalAlign="middle" iconSize={8} wrapperStyle={{ fontSize: 10 }} />
           </PieChart>
         </ResponsiveContainer>
-      </Card>
+      </SectionCard>
     )
   }
 
   if (section.type === 'table' && section.rows.length > 0) {
     return (
-      <Card className="p-3">
-        <p className="mb-2 text-xs font-medium">{section.title}</p>
+      <SectionCard title={section.title}>
         <div className="max-h-[200px] overflow-auto">
           <table className="w-full text-xs">
             <tbody>
@@ -436,14 +462,13 @@ export function SectionRenderer({ section }: { section: Section }) {
             </tbody>
           </table>
         </div>
-      </Card>
+      </SectionCard>
     )
   }
 
   if (section.type === 'columns_table' && section.rows.length > 0) {
     return (
-      <Card className="p-3">
-        <p className="mb-2 text-xs font-medium">{section.title}</p>
+      <SectionCard title={section.title}>
         <div className="max-h-[200px] overflow-auto">
           <table className="w-full text-xs">
             <thead>
@@ -472,7 +497,7 @@ export function SectionRenderer({ section }: { section: Section }) {
             </tbody>
           </table>
         </div>
-      </Card>
+      </SectionCard>
     )
   }
 
@@ -630,8 +655,10 @@ function extractIdentitySection(
     rows.push({ label, value: typeof value === 'number' ? fmtNum(value) : String(value) })
   }
 
-  push(t('concept_mapping.detail_field_concept_name'), concept?.concept_name ?? info.full_name)
+  // Vocabulary first: it is what a code and a name are read RELATIVE to, so it
+  // frames the rows under it rather than trailing them.
   push(t('concept_mapping.detail_field_vocabulary'), concept?.terminology_name ?? concept?.vocabulary_id)
+  push(t('concept_mapping.detail_field_concept_name'), concept?.concept_name ?? info.full_name)
   push(t('concept_mapping.detail_field_concept_id'), concept?.concept_id)
   push(t('concept_mapping.detail_field_concept_code'), concept?.concept_code)
   push(t('concept_mapping.detail_field_data_source'), info.data_source)
@@ -690,10 +717,23 @@ function extractVolumeSection(
     if (obj) push(t('concept_mapping.detail_field_typical_interval'), obj.typical_interval)
   }
 
-  push(t('concept_mapping.detail_field_missing_rate'), info.missing_rate, '%')
+  // French puts a narrow no-break space before the percent sign; English does
+  // not. Non-breaking either way, so the number never wraps away from its unit.
+  push(t('concept_mapping.detail_field_missing_rate'), info.missing_rate, percentSuffix(t))
 
   if (rows.length === 0) return null
   return { type: 'fields', title: t('concept_mapping.detail_volume'), rows }
+}
+
+/**
+ * The percent sign with whatever space the locale puts before it.
+ *
+ * French sets a narrow no-break space between a number and `%`; English sets
+ * none. The key carries the space so translators own the typography, and it is
+ * no-break so a value never wraps away from its unit.
+ */
+function percentSuffix(t: TFunction): string {
+  return t('common.percent_suffix')
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {

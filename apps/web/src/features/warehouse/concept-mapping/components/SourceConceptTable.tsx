@@ -445,7 +445,14 @@ export function SourceConceptTable({
           )
 
           if (status === 'mapped' && projectMappings) {
-            const local = projectMappings.filter((m) => m.sourceConceptId === cid)
+            // Matched on vocabulary + code, the same identity the green dot is
+            // decided by. `sourceConceptId` is per-instance registry state — the
+            // export strips it — so a project whose mappings came from git never
+            // matched on it: the dot went green and the tooltip stayed empty.
+            const local = projectMappings.filter((m) =>
+              m.sourceConceptId === cid ||
+              (m.sourceVocabularyId === (row.original.vocabulary_id ?? '') &&
+               m.sourceConceptCode === (row.original.concept_code ?? '')))
             if (local.length > 0) {
               tooltipContent = (
                 <div className="max-w-xs space-y-1.5">
