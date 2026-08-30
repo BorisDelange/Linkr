@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, Database, Info, Loader2, Pause, Play, RotateCcw } from 'lucide-react'
+import { AlertCircle, Database, Info, Loader2, Pause, Play, RotateCcw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -167,6 +167,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   // reports — including a run this component never started.
   const [snapshot, setSnapshot] = useState<RunSnapshot>(() => getRunSnapshot(project.id))
   const [confirmRestart, setConfirmRestart] = useState(false)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
   const { running, error, phase } = snapshot
   // Live position during a run. The persisted `extracted` only moves between
   // save points, so without this the bar would sit still for hundreds of concepts.
@@ -304,6 +305,33 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   ])
 
   const stop = useCallback(() => pauseRun(project.id), [project.id])
+
+  /**
+   * Throw the extraction away, unlocking the settings.
+   *
+   * The dictionaries and the sort are locked while a run exists because a resume
+   * is an offset into the order that run started in — changing either mid-way
+   * would skip some concepts and profile others twice. Discarding is the honest
+   * way back: it drops the concepts, so the choice is a real one rather than a
+   * setting that silently corrupts a half-finished run.
+   *
+   * Sent as explicit nulls: JSON.stringify drops `undefined`, and the API's
+   * exclude_unset would then read the key as "no change" and keep the old value.
+   */
+  const discard = useCallback(async () => {
+    setConfirmDiscard(false)
+    clearRunError(project.id)
+    await updateMappingProject(project.id, {
+      sourceExtraction: null,
+      fileSourceData: null,
+      // Server-only field, and it has to go with the rest: the export reads the
+      // blob by this sha alone, so leaving it set would keep shipping the CSV of
+      // an extraction the project no longer claims to have. Nulling it also
+      // releases the blob (mapping_project_service.update).
+      rawFileSha: null,
+    } as unknown as Partial<MappingProject>)
+    setSnapshot(getRunSnapshot(project.id))
+  }, [project.id, updateMappingProject])
 
   if (!dataSource || !mapping) {
     return <EmptyState message={t('concept_mapping.extract_no_database')} />
@@ -559,6 +587,21 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
                 {t('concept_mapping.extract_restart')}
               </Button>
             )}
+            {/* Start over re-runs with the settings locked to the run it is
+                replacing. Discarding is the way back to an unlocked panel: it
+                throws away the extracted concepts, so it is destructive and says
+                so, and it is the only way to change the dictionaries. */}
+            {!!saved && !running && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => setConfirmDiscard(true)}
+              >
+                <Trash2 size={14} />
+                {t('concept_mapping.extract_discard')}
+              </Button>
+            )}
             {running && <Loader2 size={16} className="animate-spin text-muted-foreground" />}
           </div>
 
@@ -586,6 +629,29 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={() => { setConfirmRestart(false); void run(true) }}>
               {t('concept_mapping.extract_restart')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('concept_mapping.extract_discard_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('concept_mapping.extract_discard_description', {
+                count: extracted,
+                formattedCount: extracted.toLocaleString(i18n.language),
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => void discard()}
+            >
+              {t('concept_mapping.extract_discard')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

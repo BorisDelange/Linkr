@@ -172,6 +172,17 @@ export function buildConceptCountsQuery(source: ProfileSource): string {
   GROUP BY ${key}`
 }
 
+/**
+ * Every concept id in the dictionary, so a ranking can cover all of them.
+ *
+ * The counting pass only sees concepts the event table mentions; this is what
+ * tells the ranking about the rest.
+ */
+export function buildDictionaryIdsQuery(source: ProfileSource): string {
+  const idExpr = conceptIdExpr(source)
+  return `SELECT ${idExpr} AS concept_id FROM "${source.dictionary.table}" d`
+}
+
 /** One concept's counts, as the counting pass returns them. */
 export interface ConceptCounts {
   concept_id: number
@@ -185,24 +196,34 @@ export interface ConceptCounts {
  * Returned as an explicit list rather than an ORDER BY because the counts live
  * in the event table, not the dictionary: the ranking is computed here, once,
  * and the pages then follow it.
+ *
+ * `allIds` is the whole dictionary. Every one of its concepts is ranked, not
+ * just the ones the event table mentions: a concept with no records is still a
+ * source concept and belongs in the CSV with a zero count. Ranking only the
+ * counted ones silently dropped them — on MIMIC's demo that turned a 5,636
+ * concept dictionary into 1,816.
  */
 export function rankConceptIds(
   counts: ConceptCounts[],
   sort: ExtractionSort,
+  allIds?: number[],
 ): number[] {
   const column = sort.key === 'patients' ? 'patient_count' : 'record_count'
   const sign = sort.direction === 'desc' ? -1 : 1
-  return [...counts]
-    .sort((a, b) => {
-      const av = Number(a[column] ?? 0)
-      const bv = Number(b[column] ?? 0)
-      // Ties broken by id so the order is total: LIMIT/OFFSET over a partial
-      // order would swap concepts between pages, extracting one twice and
-      // another never.
-      if (av !== bv) return sign * (av - bv)
-      return Number(a.concept_id) - Number(b.concept_id)
-    })
-    .map((row) => Number(row.concept_id))
+  const byId = new Map<number, number>()
+  for (const row of counts) byId.set(Number(row.concept_id), Number(row[column] ?? 0))
+
+  const ids = allIds ?? counts.map((row) => Number(row.concept_id))
+  return [...ids].sort((a, b) => {
+    const av = byId.get(a) ?? 0
+    const bv = byId.get(b) ?? 0
+    // Ties broken by id so the order is total: LIMIT/OFFSET over a partial
+    // order would swap concepts between pages, extracting one twice and
+    // another never. Record-less concepts all tie at 0, so they land together
+    // at whichever end the direction puts them — last, when sorting desc.
+    if (av !== bv) return sign * (av - bv)
+    return a - b
+  })
 }
 
 /**

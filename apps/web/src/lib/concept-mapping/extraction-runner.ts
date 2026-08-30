@@ -28,6 +28,7 @@ import {
   DEFAULT_EXTRACTION_SORT,
   buildConceptCountsQuery,
   buildDictionaryCountQuery,
+  buildDictionaryIdsQuery,
   extractBatch,
   extractionCsvHeader,
   extractionCsvRows,
@@ -213,12 +214,19 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
       rankings = []
       for (const [i, source] of sources.entries()) {
         if (controller.signal.aborted) return
-        const rows = await query(buildConceptCountsQuery(source))
-        const ranked = rankConceptIds(rows as unknown as ConceptCounts[], sort)
+        const [counts, ids] = await Promise.all([
+          query(buildConceptCountsQuery(source)),
+          query(buildDictionaryIdsQuery(source)),
+        ])
+        // Ranked over the WHOLE dictionary, not just the concepts the event
+        // table mentions: one with no records still belongs in the CSV, with a
+        // zero count. It simply sorts last.
+        const ranked = rankConceptIds(
+          counts as unknown as ConceptCounts[],
+          sort,
+          ids.map((r) => Number(r.concept_id)),
+        )
         rankings.push(ranked)
-        // A concept absent from the event table has no records to profile, so it
-        // is not walked at all — the run is shorter than the dictionary, and the
-        // progress total must say so rather than stopping short of its own end.
         sizes[i] = ranked.length
       }
     }

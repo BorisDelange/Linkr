@@ -286,6 +286,18 @@ describe('extraction ordering', () => {
     expect(rankConceptIds(counts, { key: 'patients', direction: 'desc' })).toEqual([2, 3, 1])
   })
 
+  it('ranks the whole dictionary, not just the concepts with records', () => {
+    // A concept absent from the event table is still a source concept and
+    // belongs in the CSV with a zero count. Ranking only the counted ones turned
+    // MIMIC's 5,636-concept dictionary into 1,816.
+    const counts = [{ concept_id: 2, record_count: 40, patient_count: 4 }]
+    const all = [1, 2, 3]
+    // Busiest first, then the record-less ones together at the end, by id.
+    expect(rankConceptIds(counts, { key: 'records', direction: 'desc' }, all)).toEqual([2, 1, 3])
+    // Ascending puts the empty ones first — they are the smallest counts.
+    expect(rankConceptIds(counts, { key: 'records', direction: 'asc' }, all)).toEqual([1, 3, 2])
+  })
+
   it('fetches a ranked page in the ranking order, not the id order', () => {
     // An IN list does not preserve order, so the ranking would be lost exactly
     // where it matters: the first page would not hold the busiest concepts.
