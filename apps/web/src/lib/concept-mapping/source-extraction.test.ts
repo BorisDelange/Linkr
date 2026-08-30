@@ -4,10 +4,13 @@ import { DEFAULT_PROFILE_OPTIONS, resolveProfileSource, type ProfileSource } fro
 import {
   EXTRACTION_COLUMNS,
   EXTRACTION_COLUMN_MAPPING,
+  buildConceptCountsQuery,
   buildDictionaryPageQuery,
   extractBatch,
   extractionCsvHeader,
   extractionCsvRows,
+  rankConceptIds,
+  sortNeedsCounts,
   type ExtractedConcept,
 } from './source-extraction'
 import type { SchemaMapping } from '@/types/schema-mapping'
@@ -238,5 +241,74 @@ describe('extractBatch', () => {
     const seen: number[] = []
     await extractBatch(OMOP, source(), opts, 500, 10, 9000, query, undefined, (n) => seen.push(n))
     expect(seen).toEqual([501, 502, 503])
+  })
+})
+
+describe('extraction ordering', () => {
+  it('only asks for the counting pass when the sort needs it', () => {
+    // The pass is a full scan of the event table. Ordering by code costs
+    // nothing, and making every extraction wait for a scan would be a poor trade.
+    expect(sortNeedsCounts({ key: 'records', direction: 'desc' })).toBe(true)
+    expect(sortNeedsCounts({ key: 'patients', direction: 'asc' })).toBe(true)
+    expect(sortNeedsCounts({ key: 'code', direction: 'asc' })).toBe(false)
+    expect(sortNeedsCounts({ key: 'name', direction: 'asc' })).toBe(false)
+    expect(sortNeedsCounts({ key: 'id', direction: 'asc' })).toBe(false)
+  })
+
+  it('counts a concept once even when two columns can name it', () => {
+    // An OMOP row reached through measurement_concept_id OR
+    // measurement_source_concept_id is ONE record; grouping both separately
+    // would double the counts the ranking is built on.
+    const withSource: SchemaMapping = {
+      ...OMOP,
+      eventTables: {
+        Measurements: {
+          ...OMOP.eventTables.Measurements,
+          sourceConceptIdColumn: 'measurement_source_concept_id',
+        },
+      },
+    }
+    const sql = buildConceptCountsQuery(source(withSource))
+    expect(sql).toContain('COALESCE(e."measurement_concept_id", e."measurement_source_concept_id")')
+    expect(sql).toContain('COUNT(DISTINCT e."person_id")')
+  })
+
+  it('ranks by the chosen column, breaking ties on the id', () => {
+    // The order must be TOTAL: LIMIT/OFFSET over a partial order swaps concepts
+    // between pages, extracting one twice and another never.
+    const counts = [
+      { concept_id: 3, record_count: 10, patient_count: 5 },
+      { concept_id: 1, record_count: 90, patient_count: 2 },
+      { concept_id: 2, record_count: 10, patient_count: 9 },
+    ]
+    expect(rankConceptIds(counts, { key: 'records', direction: 'desc' })).toEqual([1, 2, 3])
+    expect(rankConceptIds(counts, { key: 'records', direction: 'asc' })).toEqual([2, 3, 1])
+    expect(rankConceptIds(counts, { key: 'patients', direction: 'desc' })).toEqual([2, 3, 1])
+  })
+
+  it('fetches a ranked page in the ranking order, not the id order', () => {
+    // An IN list does not preserve order, so the ranking would be lost exactly
+    // where it matters: the first page would not hold the busiest concepts.
+    const sql = buildDictionaryPageQuery(
+      source(), 2, 0, { key: 'records', direction: 'desc' }, [70, 20, 90],
+    )
+    expect(sql).toContain('IN (70, 20)')
+    expect(sql).toContain('WHEN 70 THEN 0')
+    expect(sql).toContain('WHEN 20 THEN 1')
+    expect(sql).not.toContain('90')
+  })
+
+  it('returns no query once the ranking is exhausted', () => {
+    // An empty slice must not fall through to an unfiltered query — that would
+    // re-extract the whole dictionary at the end of every ranked run.
+    expect(buildDictionaryPageQuery(
+      source(), 10, 5, { key: 'records', direction: 'desc' }, [1, 2],
+    )).toBe('')
+  })
+
+  it('ends every dictionary order on the key, so paging is stable', () => {
+    // Two concepts sharing a name would otherwise swap between pages.
+    const sql = buildDictionaryPageQuery(source(), 10, 0, { key: 'name', direction: 'asc' })
+    expect(sql).toContain('ORDER BY d."concept_name" ASC, d."concept_id" ASC')
   })
 })

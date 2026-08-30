@@ -25,10 +25,16 @@ import {
   type ProfileSource,
 } from './concept-profile'
 import {
+  DEFAULT_EXTRACTION_SORT,
+  buildConceptCountsQuery,
   buildDictionaryCountQuery,
   extractBatch,
   extractionCsvHeader,
   extractionCsvRows,
+  rankConceptIds,
+  sortNeedsCounts,
+  type ConceptCounts,
+  type ExtractionSort,
 } from './source-extraction'
 
 /**
@@ -41,14 +47,18 @@ import {
 const SAVE_EVERY = 500
 
 /**
- * Where a run is: sizing the dictionaries, or walking them.
+ * Where a run is: sizing the dictionaries, ranking them, or walking them.
  *
  * `counting` is its own phase because it takes long enough to be seen. It is one
  * COUNT per dictionary against a clinical database, before which neither the
  * offset nor the total is known — and a restart that shows the previous run's
  * numbers while it waits looks like a button that did nothing.
+ *
+ * `ranking` only happens for a sort by volume, and is the longer wait of the
+ * two: a GROUP BY over the whole event table. It is named separately so the user
+ * knows the extraction is paying for the priority they asked for.
  */
-export type RunPhase = 'counting' | 'extracting'
+export type RunPhase = 'counting' | 'ranking' | 'extracting'
 
 /** What a watcher needs to render, whether or not it started the run. */
 export interface RunSnapshot {
@@ -63,11 +73,13 @@ export interface RunSnapshot {
    * back to it: this is what the view shows instead while counting.
    */
   total: number | null
+  /** The concept being profiled right now, for a "what is it on" tooltip. */
+  current: { conceptCode: string; conceptName: string } | null
   error: string | null
 }
 
 const IDLE: RunSnapshot = {
-  running: false, phase: null, extracted: null, total: null, error: null,
+  running: false, phase: null, extracted: null, total: null, current: null, error: null,
 }
 
 interface Run {
@@ -128,6 +140,8 @@ export interface StartRunInput {
   mapping: SchemaMapping
   sources: ProfileSource[]
   options: ProfileOptions
+  /** Which end of each dictionary to walk from. */
+  sort: ExtractionSort
   /** Where a resume picks up, and what it is counting towards. */
   resumeFrom: { extracted: number; total: number } | null
   /** The CSV built so far, or null to start a fresh one. */
@@ -181,12 +195,34 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     let offset = input.resumeFrom?.extracted ?? 0
     let runTotal = input.resumeFrom?.total ?? 0
 
+    const sort = input.sort ?? DEFAULT_EXTRACTION_SORT
+
     // Per-dictionary sizes, so a global offset can be mapped onto the right one.
     const sizes: number[] = []
     for (const source of sources) {
       const rows = await query(buildDictionaryCountQuery(source))
       sizes.push(Number(rows[0]?.total ?? 0))
     }
+
+    // A volume sort needs the counts before anything can be profiled: one
+    // GROUP BY per dictionary over its event table. Skipped entirely for the
+    // sorts the dictionary can order by on its own.
+    let rankings: (number[] | undefined)[] = sources.map(() => undefined)
+    if (sortNeedsCounts(sort)) {
+      emit(projectId, { phase: 'ranking' })
+      rankings = []
+      for (const [i, source] of sources.entries()) {
+        if (controller.signal.aborted) return
+        const rows = await query(buildConceptCountsQuery(source))
+        const ranked = rankConceptIds(rows as unknown as ConceptCounts[], sort)
+        rankings.push(ranked)
+        // A concept absent from the event table has no records to profile, so it
+        // is not walked at all — the run is shorter than the dictionary, and the
+        // progress total must say so rather than stopping short of its own end.
+        sizes[i] = ranked.length
+      }
+    }
+
     if (runTotal === 0) runTotal = sizes.reduce((a, b) => a + b, 0)
 
     let csv = input.existingCsv ?? extractionCsvHeader()
@@ -217,7 +253,8 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         // its own columns, and mixing them into one page would misread them.
         Math.min(SAVE_EVERY, sizes[index] - local),
         runTotal, query, controller.signal,
-        (n) => emit(projectId, { extracted: base + n }),
+        (n, _total, concept) => emit(projectId, { extracted: base + n, current: concept }),
+        sort, rankings[index],
       )
       if (batch.rows.length > 0) csv += `\n${extractionCsvRows(batch.rows)}`
       // A batch that yields nothing and is not done would spin forever.
@@ -227,7 +264,8 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
       await persist(
         {
           dictionaryKeys: keys, extracted: offset, total: runTotal,
-          options: { ...options, sections }, updatedAt: new Date().toISOString(),
+          options: { ...options, sections }, sort,
+          updatedAt: new Date().toISOString(),
         },
         csv, offset,
       )

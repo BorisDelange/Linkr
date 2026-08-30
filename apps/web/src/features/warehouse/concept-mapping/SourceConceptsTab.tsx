@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertCircle, Database, Info, Loader2, Pause, Play, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { SectionLabel } from '@/components/ui/section-label'
 import { MULTI_SELECT_FORM_TRIGGER, MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -25,9 +26,13 @@ import {
   type ProfileSections,
 } from '@/lib/concept-mapping/concept-profile'
 import {
+  DEFAULT_EXTRACTION_SORT,
   EXTRACTION_COLUMNS,
   EXTRACTION_COLUMN_MAPPING,
   extractionCsvHeader,
+  sortNeedsCounts,
+  type ExtractionSort,
+  type ExtractionSortKey,
 } from '@/lib/concept-mapping/source-extraction'
 import {
   clearRunError,
@@ -66,6 +71,16 @@ const SECTION_KEYS: (keyof ProfileSections)[] = [
   'temporal',
   'hospitalUnits',
 ]
+
+/**
+ * The orders a dictionary can be walked in, busiest first.
+ *
+ * `records` leads because it is the answer most of the time: an extraction runs
+ * for hours, and the concepts a mapping project lives on are the ones the
+ * warehouse actually holds data for. The dictionary orders itself by the last
+ * three at no cost; the first two need the counting pass.
+ */
+const SORT_KEYS: ExtractionSortKey[] = ['records', 'patients', 'name', 'code', 'id']
 
 /**
  * Which block of the concept detail view each option ends up in.
@@ -118,6 +133,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     saved?.dictionaryKeys ?? dictionaries.map((d) => d.key),
   )
   const [options, setOptions] = useState<ProfileOptions>(saved?.options ?? DEFAULT_PROFILE_OPTIONS)
+  const [sort, setSort] = useState<ExtractionSort>(saved?.sort ?? DEFAULT_EXTRACTION_SORT)
 
   // Re-adopt the stored settings whenever a different run turns up: the state
   // above is seeded once at mount, so a project that finished loading after the
@@ -133,6 +149,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     adoptedRef.current = runKey
     setDictionaryKeys(saved.dictionaryKeys)
     setOptions(saved.options)
+    setSort(saved.sort ?? DEFAULT_EXTRACTION_SORT)
   }, [saved])
 
   // The default above is computed at mount, when the schema may not have loaded
@@ -155,6 +172,9 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   // save points, so without this the bar would sit still for hundreds of concepts.
   const liveExtracted = snapshot.extracted
   const counting = phase === 'counting'
+  const ranking = phase === 'ranking'
+  // Neither phase has an offset to show: both precede the first concept.
+  const preparing = counting || ranking
 
   /** The dictionaries to walk, in a fixed order, with their event tables resolved. */
   const sources = useMemo(() => {
@@ -236,6 +256,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           extracted: 0,
           total: 0,
           options,
+          sort,
           updatedAt: new Date().toISOString(),
         },
         extractionCsvHeader(), 0,
@@ -247,6 +268,10 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       mapping,
       sources,
       options,
+      // A resume must walk the order its run was started in, not whatever the
+      // dropdown shows now: the offset is an index into that order. A restart —
+      // or a first run — takes the current choice.
+      sort: !restart && saved ? (saved.sort ?? DEFAULT_EXTRACTION_SORT) : sort,
       // A restart re-counts: the dictionaries may have grown since the last run,
       // and resuming against a stale total would stop short of the new rows.
       resumeFrom: restart ? null : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0 },
@@ -286,6 +311,9 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     .map((o) => o.value)
     .filter((key) => options.sections[key as keyof ProfileSections])
   const locked = running || (!!saved && !done)
+  // "Largest first" reads better than "descending" for a count; "A to Z" better
+  // than "ascending" for a name. Same control, named for what it orders.
+  const sortIsNumeric = sort.key === 'records' || sort.key === 'patients' || sort.key === 'id'
 
   return (
     // These delays govern the OPTION ROWS. Their tooltips explain the options
@@ -361,6 +389,62 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           </div>
         </div>
 
+        {/* What to screen first, and from which end */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-1.5">
+            <LabelWithHint
+              htmlFor="extract-sort"
+              label={t('concept_mapping.extract_sort')}
+              hint={t('concept_mapping.extract_sort_hint')}
+            />
+            <Select
+              value={sort.key}
+              disabled={locked}
+              onValueChange={(key) => setSort((s) => ({ ...s, key: key as ExtractionSortKey }))}
+            >
+              <SelectTrigger id="extract-sort" className="text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_KEYS.map((key) => (
+                  <SelectItem key={key} value={key} className="text-xs">
+                    {t(`concept_mapping.extract_sort_${key}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="extract-sort-direction">{t('concept_mapping.extract_sort_direction')}</Label>
+            <Select
+              value={sort.direction}
+              disabled={locked}
+              onValueChange={(d) => setSort((s) => ({ ...s, direction: d as 'asc' | 'desc' }))}
+            >
+              <SelectTrigger id="extract-sort-direction" className="text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Named for what they mean per key — "largest first" reads
+                    better than "descending" for a record count, and the same
+                    control also orders names. */}
+                <SelectItem value="desc" className="text-xs">
+                  {t(`concept_mapping.extract_sort_desc_${sortIsNumeric ? 'numeric' : 'text'}`)}
+                </SelectItem>
+                <SelectItem value="asc" className="text-xs">
+                  {t(`concept_mapping.extract_sort_asc_${sortIsNumeric ? 'numeric' : 'text'}`)}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {sortNeedsCounts(sort) && !locked && (
+          <p className="-mt-2 text-[10px] text-muted-foreground">
+            {t('concept_mapping.extract_sort_counts_warning')}
+          </p>
+        )}
+
         {/* The two confidentiality thresholds */}
         <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-1.5">
@@ -409,23 +493,27 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
                   says so: silence here reads as a button that did nothing. */}
               {counting
                 ? t('concept_mapping.extract_counting')
+                : ranking
+                ? t('concept_mapping.extract_ranking')
                 : saved?.updatedAt && !running
                   ? (done
                     ? t('concept_mapping.extract_complete', { date: new Date(saved.updatedAt).toLocaleString(i18n.language) })
                     : t('concept_mapping.extract_paused', { date: new Date(saved.updatedAt).toLocaleString(i18n.language) }))
                   : t('concept_mapping.extract_progress')}
             </span>
-            {total > 0 && !counting && (
-              <span className="text-xs tabular-nums text-muted-foreground">
-                {t('concept_mapping.extract_progress_count', {
-                  extracted: extracted.toLocaleString(i18n.language),
-                  total: total.toLocaleString(i18n.language),
-                })}
-              </span>
+            {total > 0 && !preparing && (
+              <CurrentConceptTooltip concept={running ? snapshot.current : null}>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {t('concept_mapping.extract_progress_count', {
+                    extracted: extracted.toLocaleString(i18n.language),
+                    total: total.toLocaleString(i18n.language),
+                  })}
+                </span>
+              </CurrentConceptTooltip>
             )}
           </div>
 
-          <Progress value={counting ? 0 : percent} />
+          <Progress value={preparing ? 0 : percent} />
 
           {error && (
             <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-2 text-xs text-destructive">
@@ -502,6 +590,58 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
  * hover rather than under every field — a column of permanent hint text made
  * the panel scroll for no lasting benefit.
  */
+/**
+ * What the run is profiling right now, after a deliberate pause on the counter.
+ *
+ * Three seconds, not the usual beat: at fifty concepts a second the counter is a
+ * blur, and someone whose pointer crosses it on the way to the Pause button has
+ * not asked what concept is in flight. Someone who stops on it has.
+ *
+ * The concept is frozen when the tooltip opens rather than tracked live — a
+ * label rewriting itself fifty times a second cannot be read, and the question
+ * being asked is "what is it on", which one answer settles.
+ */
+function CurrentConceptTooltip({
+  concept,
+  children,
+}: {
+  concept: { conceptCode: string; conceptName: string } | null
+  children: ReactNode
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [frozen, setFrozen] = useState<typeof concept>(null)
+
+  if (!concept) return <>{children}</>
+
+  return (
+    // Its own provider: the panel's skip window would let this open instantly
+    // right after another tooltip closed, defeating the deliberate three-second
+    // pause this control is gated on.
+    <TooltipProvider delayDuration={3000} skipDelayDuration={0}>
+    <Tooltip
+      open={open}
+      delayDuration={3000}
+      onOpenChange={(next) => {
+        if (next) setFrozen(concept)
+        setOpen(next)
+      }}
+    >
+      <TooltipTrigger asChild>
+        <span>{children}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="end" className="max-w-xs text-xs">
+        <p className="text-[10px] uppercase tracking-wide opacity-70">
+          {t('concept_mapping.extract_current_concept')}
+        </p>
+        <p className="font-mono">{frozen?.conceptCode}</p>
+        <p className="break-words">{frozen?.conceptName}</p>
+      </TooltipContent>
+    </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 function LabelWithHint({
   htmlFor,
   label,

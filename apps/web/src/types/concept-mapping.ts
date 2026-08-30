@@ -238,6 +238,15 @@ export interface SourceExtraction {
   total: number
   /** Which profile blocks this run computes, and how. */
   options: import('@/lib/concept-mapping/concept-profile').ProfileOptions
+  /**
+   * The order the concepts are being walked in.
+   *
+   * Persisted because a resume is an OFFSET into that order: resuming a run
+   * sorted by record count under a different sort would skip some concepts and
+   * profile others twice. Absent on runs started before sorting existed, which
+   * read as the key order they used.
+   */
+  sort?: import('@/lib/concept-mapping/source-extraction').ExtractionSort
   /** ISO 8601, when the last batch finished. */
   updatedAt: string
   /** Set when the last batch failed, so the UI can say why it stopped. */
