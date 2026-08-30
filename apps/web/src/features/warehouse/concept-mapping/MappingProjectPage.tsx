@@ -92,6 +92,14 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   useEffect(() => {
     if (activeTab === 'editor') editorEverOpened.current = true
   }, [activeTab])
+  // Same for the mappings table, for a different reason: its filters, sort and
+  // page are local state, so unmounting threw away a review in progress. Coming
+  // back to a table reset to page 1 with the filters cleared loses the user's
+  // place in a list of thousands of rows.
+  const mappingsEverOpened = useRef(false)
+  useEffect(() => {
+    if (activeTab === 'mappings') mappingsEverOpened.current = true
+  }, [activeTab])
   const {
     mappingProjects, mappingProjectsLoaded, loadMappingProjects,
     conceptSetsLoaded, loadConceptSets,
@@ -221,8 +229,11 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
             <MappingEditorTab project={project} dataSource={dataSource} onGoToConceptSets={() => setActiveTab('concept-sets')} />
           )}
         </TabsContent>
-        <TabsContent value="mappings" className="flex-1 overflow-hidden">
-          {activeTab === 'mappings' && <MappingsTab project={project} dataSource={dataSource} />}
+        <TabsContent value="mappings" forceMount className={`flex-1 overflow-hidden ${activeTab === 'mappings' ? '' : 'hidden'}`}>
+          {/* eslint-disable-next-line react-hooks/refs -- monotonic "sticky mount" latch: once true it never flips back, and it is set in an activeTab effect that already re-renders this component, so reading it here keeps the table mounted without going stale */}
+          {(activeTab === 'mappings' || mappingsEverOpened.current) && (
+            <MappingsTab project={project} dataSource={dataSource} />
+          )}
         </TabsContent>
         <TabsContent value="export" className="flex-1 overflow-hidden">
           {activeTab === 'export' && <ExportTab project={project} dataSource={dataSource} />}
