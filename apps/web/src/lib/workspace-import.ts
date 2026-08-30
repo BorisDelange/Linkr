@@ -43,6 +43,29 @@ function isFileBackedDatabase(ds: Partial<DataSource>): boolean {
   return engine === 'duckdb' || engine === 'sqlite'
 }
 
+/**
+ * The lineage fields an imported database lands with.
+ *
+ * Like every other child type it mints one when the manifest carries none — but
+ * NOT while a clone is on its way. A git-linked pointer publishes no lineage of
+ * its own (the repo holds the identity), and the clone keeps whatever is already
+ * stored: minting here would win that race and pin an id no other instance
+ * shares, which is what left the catalog unable to recognise its own entry as
+ * installed. With no remote there is no clone to wait for, so the mint stands.
+ *
+ * A duplicate always mints — it IS a new entity — and records what it came from.
+ */
+export function importedDatabaseLineage(
+  ds: { lineageId?: string | null; gitRemoteConfig?: { url?: string } | null },
+  duplicate: boolean,
+): { lineageId?: string; parentLineageId?: string } {
+  if (duplicate) {
+    return { lineageId: crypto.randomUUID(), parentLineageId: ds.lineageId ?? undefined }
+  }
+  if (ds.lineageId) return { lineageId: ds.lineageId }
+  return ds.gitRemoteConfig?.url ? {} : { lineageId: crypto.randomUUID() }
+}
+
 export interface WorkspaceImportOptions {
   duplicate: boolean
   /** Progress reporting; the page passes its setState, a headless caller a no-op. */
@@ -404,14 +427,7 @@ export async function importWorkspaceTree(
       connectionConfig: { engine: 'duckdb', fileIds: [], fileNames: [] },
       ...ds,
       id,
-      // Every other child type mints a lineage when its manifest carries none;
-      // a database did not, so a pointer published with `lineageId: null` landed
-      // a row with no cross-instance identity — and the clone that follows keeps
-      // what is stored, so it stayed null. The catalog then never recognised the
-      // database as installed and offered Install forever.
-      ...(duplicate
-        ? { lineageId: crypto.randomUUID(), parentLineageId: ds.lineageId ?? undefined }
-        : { lineageId: ds.lineageId ?? crypto.randomUUID() }),
+      ...importedDatabaseLineage(ds, duplicate),
       workspaceId: targetWsId,
       status: 'disconnected',
       // Say WHY it is disconnected, as the standalone import does: a workspace

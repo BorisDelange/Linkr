@@ -143,6 +143,13 @@ async def update(
     git_secret.apply_to_entity(source, changes)
     for key, value in changes.items():
         setattr(source, key, value)
+    # A database is created from the workspace pointer, which publishes no author,
+    # so the create stamped the importing user. The clone then writes the repo's
+    # real author a moment later — without re-resolving the id, the UI kept
+    # re-hydrating the importer's name over the snapshot it just stored.
+    # After the setattr loop, like the other services: it must overwrite whatever
+    # created_by_id the changes carried, not be overwritten by it.
+    await author_provenance.relink_creator_on_update(db, source, changes)
     await db.commit()
     await db.refresh(source)
     # A changed host/credential/file must not keep being served through a warm

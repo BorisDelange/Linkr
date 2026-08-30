@@ -117,6 +117,42 @@ async def test_import_preserves_created_at(client):
     assert r.json()["createdAt"] == created
 
 
+async def test_clone_update_relinks_author_from_snapshot(client, db):
+    """A git-linked database is created from a workspace pointer that publishes no
+    author, so stamp_creator attributes the importing user. The clone then PATCHes
+    the repo's own author over it. Rewriting the snapshot without an explicit
+    createdById must re-resolve the id (ORCID/email match, else NULL): the UI
+    re-hydrates the author live from createdById, so a stale importer id showed
+    "admin" over a row that stored "Boris Delange"."""
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    r = await client.post(
+        f"{API}/data-sources",
+        headers=headers,
+        json={"workspaceId": ws, "alias": "mimic", "name": {"en": "MIMIC-IV Demo"}},
+    )
+    ds = r.json()
+    assert ds["createdBy"] == "admin"  # pointer create → importer stamped
+
+    r = await client.patch(
+        f"{API}/data-sources/{ds['id']}",
+        headers=headers,
+        json={
+            "createdBy": "Boris Delange",
+            "createdByDetails": {
+                "firstName": "Boris",
+                "lastName": "Delange",
+                "orcid": "0009-0002-6055-6935",
+            },
+        },
+    )
+    assert r.status_code == 200
+    updated = r.json()
+    assert updated["createdBy"] == "Boris Delange"
+    # The importer's id is cleared, so the frozen snapshot is what displays.
+    assert updated["createdById"] is None
+
+
 async def test_password_encrypted_at_rest_and_recoverable(client, db):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)
