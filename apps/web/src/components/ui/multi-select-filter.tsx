@@ -189,7 +189,10 @@ export function MultiSelectFilter({
               <button
                 key={opt.value}
                 type="button"
-                title={opt.label}
+                // The native tooltip only repeats a label the row may have
+                // truncated. A caller rendering its own row usually puts a real
+                // tooltip there, and two tooltips for one row is one too many.
+                title={renderOption ? undefined : opt.label}
                 onClick={() => toggle(opt.value)}
                 className={cn(
                   'flex w-full items-center gap-2 px-2 py-1.5 text-xs transition-colors text-left',

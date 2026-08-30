@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { SectionLabel } from '@/components/ui/section-label'
 import { MULTI_SELECT_FORM_TRIGGER, MultiSelectFilter } from '@/components/ui/multi-select-filter'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -49,10 +49,23 @@ interface SourceConceptsTabProps {
  */
 const SAVE_EVERY = 500
 
-/** The profile blocks, in the order they are offered. */
+/**
+ * The profile blocks, in the order they are offered.
+ *
+ * Ordered the way you read a concept you have never seen: first how much of it
+ * there is (completeness), then what its values ARE — numbers described, then
+ * drawn, then their unit; then the same for text values — and finally the
+ * context that says where the records came from rather than what they hold.
+ */
 const SECTION_KEYS: (keyof ProfileSections)[] = [
-  'numeric', 'histogram', 'categorical', 'unit',
-  'frequency', 'temporal', 'hospitalUnits', 'missingRate',
+  'missingRate',
+  'numeric',
+  'histogram',
+  'unit',
+  'categorical',
+  'frequency',
+  'temporal',
+  'hospitalUnits',
 ]
 
 /**
@@ -262,11 +275,16 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   const locked = running || (!!saved && !done)
 
   return (
+    // Tooltips explain the options rather than merely labelling them, so they
+    // need a beat before the first one appears — otherwise moving across the
+    // panel flashes them — but none between one row and the next, since reading
+    // down a list is a single act of comparison.
+    <TooltipProvider delayDuration={500} skipDelayDuration={1000}>
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-3 overflow-auto px-6 py-4">
       <Card className="flex flex-col gap-4 p-5">
         <div className="flex items-center gap-1.5">
           <SectionLabel as="h3">{t('concept_mapping.extract_title')}</SectionLabel>
-          <Tooltip delayDuration={200}>
+          <Tooltip>
             <TooltipTrigger asChild>
               <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="Info">
                 <Info size={12} />
@@ -303,6 +321,19 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
                 for (const key of SECTION_KEYS) sections[key] = next.includes(key)
                 return { ...o, sections }
               })}
+              // The labels alone cannot separate "descriptive statistics" from
+              // "value distribution", nor a measurement's unit from a hospital
+              // ward. The explanation belongs on the row it explains.
+              renderOption={(opt) => (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="truncate">{opt.label}</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs text-xs">
+                    {t(`concept_mapping.extract_section_${opt.value}_desc`)}
+                  </TooltipContent>
+                </Tooltip>
+              )}
               showChevron
               popoverWidthClass="w-72"
               triggerClass={cn(MULTI_SELECT_FORM_TRIGGER, running && 'pointer-events-none opacity-50')}
@@ -431,6 +462,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    </TooltipProvider>
   )
 }
 
@@ -453,7 +485,7 @@ function LabelWithHint({
   return (
     <div className="flex items-center gap-1.5">
       <Label htmlFor={htmlFor}>{label}</Label>
-      <Tooltip delayDuration={200}>
+      <Tooltip>
         <TooltipTrigger asChild>
           <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="Info">
             <Info size={12} />
