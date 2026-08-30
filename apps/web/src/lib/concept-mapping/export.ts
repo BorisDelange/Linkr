@@ -721,8 +721,9 @@ function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
  * JSON-serialized (the source lives in source-concepts.csv). dataSourceId and
  * vocabularyDataSourceId are local data-source UUIDs meaningless elsewhere, so
  * dataSourceId is reset to '' (required by the type) and vocabularyDataSourceId
- * removed. A git-linked workspace entity re-adds its gitRemoteConfig pointer on
- * top of this (the one field the caller keeps).
+ * removed. What DOES travel is `dataSourceRef`, the portable pointer the import
+ * resolves back to a local database. A git-linked workspace entity re-adds its
+ * gitRemoteConfig pointer on top of this (the one field the caller keeps).
  */
 export function cleanMappingProjectMeta(project: MappingProject): Record<string, unknown> {
   const { conceptSetIds: _, importBatches: _ib, fileSourceData, vocabularyDataSourceId: _vds, readme: _readme, license, ...projectRest } = project

@@ -181,3 +181,76 @@ export function resolveChildId(
   if (duplicate) return mint()
   return existing && existing.workspaceId !== targetWorkspaceId ? mint() : originalId
 }
+
+/** A stored row a portable pointer can resolve to. */
+export interface PointerTarget {
+  id: string
+  entityId?: string
+  lineageId?: string
+  workspaceId?: string
+}
+
+/** The portable identity an exported cross-entity reference carries. */
+export interface PointerRef {
+  lineageId?: string
+  entityId?: string
+}
+
+/**
+ * The portable pointer for a referenced entity, or undefined when there is none
+ * to point at (no reference, or one whose target is no longer installed).
+ *
+ * Stamped when the reference is SET rather than derived at export time, so it
+ * also travels through the server-side export, which builds the manifest from
+ * the stored row alone and cannot look the database up.
+ */
+export function buildPointer<T extends PointerTarget & { name?: L }, L>(
+  rows: T[],
+  id: string | undefined,
+): { lineageId?: string; entityId?: string; label?: L } | undefined {
+  if (!id) return undefined
+  const row = rows.find((r) => r.id === id)
+  if (!row) return undefined
+  if (!row.lineageId && !row.entityId) return undefined
+  return {
+    ...(row.lineageId ? { lineageId: row.lineageId } : {}),
+    ...(row.entityId ? { entityId: row.entityId } : {}),
+    ...(row.name !== undefined ? { label: row.name } : {}),
+  }
+}
+
+/**
+ * Resolve a portable pointer to another entity against the rows now stored.
+ *
+ * A cross-entity reference (a mapping project's database, say) is exported as
+ * this pair rather than as the writing instance's UUID, which identifies nothing
+ * elsewhere. `lineageId` is the real identity and wins; `entityId` is the
+ * readable slug, used only as a fallback for rows written before lineage existed
+ * — and only when it is unambiguous, since a slug is unique within a workspace
+ * but not across them.
+ *
+ * Scoped to `targetWorkspaceId` like every other import rule: pointing at
+ * another workspace's database would reach across a boundary the rest of the
+ * import refuses to cross.
+ *
+ * Returns undefined when nothing matches, which is a normal outcome — the
+ * referenced entity may simply not be installed here, and the caller leaves the
+ * reference empty rather than guessing.
+ */
+export function resolvePointer<T extends PointerTarget>(
+  rows: T[],
+  ref: PointerRef | undefined,
+  targetWorkspaceId: string,
+): T | undefined {
+  if (!ref) return undefined
+  const inWorkspace = rows.filter((r) => r.workspaceId === targetWorkspaceId)
+  if (ref.lineageId) {
+    const byLineage = inWorkspace.find((r) => r.lineageId === ref.lineageId)
+    if (byLineage) return byLineage
+  }
+  if (ref.entityId) {
+    const bySlug = inWorkspace.filter((r) => r.entityId === ref.entityId)
+    if (bySlug.length === 1) return bySlug[0]
+  }
+  return undefined
+}

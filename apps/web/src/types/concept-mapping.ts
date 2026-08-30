@@ -197,6 +197,22 @@ export interface FileSourceData {
   preUploadedSha?: string
 }
 
+/**
+ * A portable pointer to a database, for a reference that must survive export.
+ *
+ * `dataSourceId` is a local UUID that means nothing on another instance, so the
+ * export carries this instead and the import resolves it back to whatever local
+ * id now holds that database. Same split as `SchemaSource`: `lineageId` is the
+ * cross-instance identity, `entityId` the readable slug it falls back to (a
+ * database exported before lineage existed has only that), and `label` keeps the
+ * reference nameable in the UI when the database is not installed here.
+ */
+export interface DataSourceRef {
+  lineageId?: string
+  entityId?: string
+  label?: LocalizedString
+}
+
 export type MappingProjectStatus = 'in_progress' | 'on_hold' | 'completed'
 
 /** A workspace-level mapping project linked to a database or file. */
@@ -215,6 +231,16 @@ export interface MappingProject extends Seedable, Authored, Lineaged {
   sourceType: MappingProjectSourceType
   /** Database to map source concepts from (clinical data). Only used when sourceType = 'database'. */
   dataSourceId: string
+  /**
+   * Portable form of `dataSourceId`, written on export and resolved on import.
+   *
+   * Kept on the row (not derived at export time) so it also travels through the
+   * server-side export, which builds project.json from the stored project alone.
+   * Stamped whenever `dataSourceId` is set; stale entries are harmless — the
+   * import prefers a live local match and leaves the project sourceless when
+   * there is none.
+   */
+  dataSourceRef?: DataSourceRef
   /** Optional vocabulary reference database (ATHENA import). When set, target concept
    *  searches and concept set resolution use this DB instead of the source DB. */
   vocabularyDataSourceId?: string

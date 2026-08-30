@@ -37,7 +37,9 @@ from app.services.org_snapshot import org_snapshot
 # NOT dropped (stable creation-date provenance, kept like createdBy); only
 # ``updatedAt`` is (it moves on every edit and is re-stamped on import).
 # ``dataSourceId`` is not here either: TS resets it to '' in place rather than
-# removing it (required by type).
+# removing it (required by type). ``dataSourceRef`` — its portable form — is
+# deliberately NOT stripped: that pointer is the whole point, and the import
+# resolves it back to a local database.
 _INSTANCE_FIELDS = (
     "ownerId",
     "createdById",
@@ -140,6 +142,11 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
             "readme",
             "license",
         ):
+            continue
+        # An absent pointer is ``undefined`` on the TS side, which JSON.stringify
+        # omits; the response schema makes it an explicit None here, so drop it or
+        # a file-source project exports one key more server-side than client-side.
+        if k == "dataSourceRef" and v is None:
             continue
         # Reset in place: reassigning an existing key keeps its position (JS + py3.7+).
         out[k] = "" if k == "dataSourceId" else v

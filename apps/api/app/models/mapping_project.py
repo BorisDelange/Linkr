@@ -27,6 +27,11 @@ class MappingProject(Base, TimestampMixin):
     license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     source_type: Mapped[str] = mapped_column(String(20))  # 'database' | 'file'
     data_source_id: Mapped[str | None] = mapped_column(String(36))
+    # Portable form of data_source_id ({lineageId?, entityId?, label?}), stamped
+    # when the database is picked. data_source_id is a local UUID that addresses
+    # nothing on another instance, so this is what the export carries and the
+    # import resolves back to a local database.
+    data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     vocabulary_data_source_id: Mapped[str | None] = mapped_column(String(36))
     # Parsed-file metadata WITHOUT the raw bytes (columns/columnMapping/parseOptions/
     # totalRowCount/fileName). The bytes are the blob referenced below.

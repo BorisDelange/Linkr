@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   type ImportTarget,
+  buildPointer,
   entityKey,
   findLineageMatch,
   resolveByLineage,
   resolveChildId,
+  resolvePointer,
   resolveSlugLanding,
   resolveWorkspaceId,
 } from '@/lib/import-identity'
@@ -210,5 +212,75 @@ describe('entityKey', () => {
   it('is stable — the same tree always yields the same key', () => {
     const meta = { entityId: 'icu-demo' }
     expect(entityKey(meta, 'f')).toBe(entityKey(meta, 'f'))
+  })
+})
+
+describe('buildPointer', () => {
+  const rows = [
+    { id: 'local-1', entityId: 'mimic-iv', lineageId: 'lin-1', workspaceId: WS, name: { en: 'MIMIC-IV' } },
+  ]
+
+  it('carries the identity that survives, not the local key', () => {
+    expect(buildPointer(rows, 'local-1')).toEqual({
+      lineageId: 'lin-1', entityId: 'mimic-iv', label: { en: 'MIMIC-IV' },
+    })
+  })
+
+  it('yields nothing for a reference that points at nothing', () => {
+    expect(buildPointer(rows, undefined)).toBeUndefined()
+    expect(buildPointer(rows, '')).toBeUndefined()
+    // A database deleted since it was picked: better no pointer than a wrong one.
+    expect(buildPointer(rows, 'local-gone')).toBeUndefined()
+  })
+
+  it('yields nothing for a row with no portable identity at all', () => {
+    expect(buildPointer([{ id: 'local-2', workspaceId: WS }], 'local-2')).toBeUndefined()
+  })
+})
+
+describe('resolvePointer', () => {
+  const rows = [
+    { id: 'local-1', entityId: 'mimic-iv', lineageId: 'lin-1', workspaceId: WS },
+    { id: 'local-2', entityId: 'eicu', lineageId: 'lin-2', workspaceId: WS },
+  ]
+
+  // The bug this exists for: a mapping project's dataSourceId is a UUID from the
+  // exporting instance, so a re-import left every database-source project blank.
+  it('finds the database the export was written against, by lineage', () => {
+    expect(resolvePointer(rows, { lineageId: 'lin-2' }, WS)?.id).toBe('local-2')
+  })
+
+  it('prefers lineage over the slug when both are present', () => {
+    // The slug says one row, the lineage another — lineage is the real identity.
+    expect(resolvePointer(rows, { lineageId: 'lin-1', entityId: 'eicu' }, WS)?.id).toBe('local-1')
+  })
+
+  it('falls back to the slug for a row exported before lineage existed', () => {
+    expect(resolvePointer(rows, { entityId: 'eicu' }, WS)?.id).toBe('local-2')
+  })
+
+  it('refuses an ambiguous slug rather than picking one', () => {
+    // A slug is unique within a workspace, but nothing stops two rows sharing one
+    // in a malformed store; guessing would silently wire up the wrong database.
+    const dupes = [
+      { id: 'a', entityId: 'mimic-iv', workspaceId: WS },
+      { id: 'b', entityId: 'mimic-iv', workspaceId: WS },
+    ]
+    expect(resolvePointer(dupes, { entityId: 'mimic-iv' }, WS)).toBeUndefined()
+  })
+
+  it('never reaches into another workspace', () => {
+    // The boundary every other import rule enforces: matching across it would
+    // point this workspace's project at a database it may not even be allowed to read.
+    expect(resolvePointer(rows, { lineageId: 'lin-1' }, 'ws-other')).toBeUndefined()
+    expect(resolvePointer(rows, { entityId: 'mimic-iv' }, 'ws-other')).toBeUndefined()
+  })
+
+  it('yields nothing when the target is not installed here', () => {
+    // A normal outcome, not an error: the caller leaves the project sourceless
+    // and the user picks a database, rather than keeping a dangling id.
+    expect(resolvePointer(rows, { lineageId: 'lin-absent' }, WS)).toBeUndefined()
+    expect(resolvePointer(rows, undefined, WS)).toBeUndefined()
+    expect(resolvePointer(rows, {}, WS)).toBeUndefined()
   })
 })

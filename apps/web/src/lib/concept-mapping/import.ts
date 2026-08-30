@@ -15,6 +15,7 @@ import type { ConceptMapping, GitRemoteConfig, LocalizedString, MappingProject, 
 import type { Storage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { readImportedManifest, readLicense } from '@/lib/entity-io'
+import { resolvePointer } from '@/lib/import-identity'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { restoreFileSourceDataFromCsv } from './export'
 import { parseSourceConceptIdEntries } from './source-concept-ids-io'
@@ -131,10 +132,18 @@ export async function importMappingProjectContent(
     ? readLicense(project.license, licenseText)
     : project.license
 
+  // The manifest carries a portable pointer, never the writing instance's
+  // data-source UUID. No local match leaves the project sourceless — the user
+  // re-picks the database — rather than keeping an id that addresses nothing.
+  const database = project.dataSourceRef
+    ? resolvePointer(await storage.dataSources.getAll(), project.dataSourceRef, workspaceId)
+    : undefined
+
   const entity: MappingProject = {
     ...project,
     id: targetId,
     workspaceId,
+    dataSourceId: database?.id ?? '',
     ...(Object.keys(readmeByLang).length ? { readme: readmeByLang } : {}),
     ...(license ? { license } : {}),
     conceptSetIds: project.conceptSetIds ?? [],

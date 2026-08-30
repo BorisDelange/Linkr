@@ -47,6 +47,7 @@ import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { localized, setLocalized } from '@/lib/localized'
 import { useSaveForm } from '@/hooks/use-save-form'
+import { buildPointer } from '@/lib/import-identity'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { isServerMode } from '@/lib/api-client'
@@ -180,9 +181,19 @@ export function CreateMappingProjectDialog({
       setVersion(editingProject.version ?? '0.1.0')
       setSourceType(editingProject.sourceType ?? 'database')
       setDataSourceId(editingProject.dataSourceId ?? '')
-      if (editingProject.fileSourceData?.columnMapping) {
-        setColumnMapping(editingProject.fileSourceData.columnMapping)
-      }
+      // Clear whatever a previous open left behind, or the dirty baseline is
+      // compared against another project's file state.
+      setFile(null)
+      setRawFileBuffer(null)
+      setPreUploadedSha(null)
+      setParsedColumns([])
+      setParsedRows([])
+      setPreviewRows([])
+      setTotalRows(editingProject.fileSourceData?.totalRowCount ?? 0)
+      setFileError(null)
+      setFileLoading(false)
+      setColumnMapping(editingProject.fileSourceData?.columnMapping ?? {})
+      setPage('main')
       setAuthoring({})
       setMainTab('general')
     } else if (open) {
@@ -644,11 +655,13 @@ export function CreateMappingProjectDialog({
       }
       if (sourceType === 'database') {
         changes.dataSourceId = dataSourceId
+        changes.dataSourceRef = buildPointer(workspaceDatabases, dataSourceId)
         changes.fileSourceData = undefined
       } else if (!isFileValid && !hasExistingFileData) {
         // Switched to a file source but nothing imported yet — leave the project
         // sourceless rather than writing an empty fileSourceData shell.
         changes.dataSourceId = ''
+        changes.dataSourceRef = undefined
         changes.fileSourceData = undefined
       } else {
         const newFileData = {
@@ -662,6 +675,7 @@ export function CreateMappingProjectDialog({
           preUploadedSha: preUploadedSha ?? undefined,
         }
         changes.dataSourceId = ''
+        changes.dataSourceRef = undefined
         changes.fileSourceData = newFileData
 
         // If a new file was uploaded, reconcile existing mappings to new row positions
@@ -689,6 +703,9 @@ export function CreateMappingProjectDialog({
         badges,
         sourceType,
         dataSourceId: sourceType === 'database' ? dataSourceId : '',
+        ...(sourceType === 'database'
+          ? { dataSourceRef: buildPointer(workspaceDatabases, dataSourceId) }
+          : {}),
         conceptSetIds: [],
         version: version.trim() || '0.1.0',
         ...stampAuthored(),
@@ -744,9 +761,20 @@ export function CreateMappingProjectDialog({
   // Editing greys Save until something actually changed; creating keeps the
   // "filled in enough" rule. Badges compare as JSON — a fresh array each render
   // would read as dirty on every keystroke.
+  // The source counts as a change too: picking a database, switching source type,
+  // or importing a new file (name + column mapping) all have to un-grey Save.
   const { canSaveNow } = useSaveForm({
     current: isEdit
-      ? { name: name.trim(), description: description.trim(), status, version: version.trim(), badges: JSON.stringify(badges), authoring: JSON.stringify(authoring) }
+      ? {
+          name: name.trim(), description: description.trim(), status, version: version.trim(),
+          badges: JSON.stringify(badges), authoring: JSON.stringify(authoring),
+          sourceType,
+          dataSourceId: sourceType === 'database' ? dataSourceId : '',
+          fileName: sourceType === 'file' ? (file?.name ?? editingProject?.fileSourceData?.fileName ?? '') : '',
+          columnMapping: sourceType === 'file' ? JSON.stringify(columnMapping) : '',
+          // A re-picked file with the same name and mapping is still a new import.
+          fileReimported: !!file,
+        }
       : { dirty: canSubmit },
     baseline: isEdit
       ? {
@@ -756,6 +784,13 @@ export function CreateMappingProjectDialog({
           version: editingProject?.version ?? '0.1.0',
           badges: JSON.stringify(editingProject?.badges ?? []),
           authoring: '{}',
+          sourceType: editingProject?.sourceType ?? 'database',
+          dataSourceId: editingProject?.sourceType === 'database' ? (editingProject?.dataSourceId ?? '') : '',
+          fileName: editingProject?.sourceType === 'file' ? (editingProject?.fileSourceData?.fileName ?? '') : '',
+          columnMapping: editingProject?.sourceType === 'file'
+            ? JSON.stringify(editingProject?.fileSourceData?.columnMapping ?? {})
+            : '',
+          fileReimported: false,
         }
       : { dirty: false },
     onSave: handleSubmit,
@@ -1195,7 +1230,7 @@ export function CreateMappingProjectDialog({
             {/* Database source */}
             {sourceType === 'database' && (
               <div className="grid gap-2">
-                <Label>{t('concept_mapping.select_database')}<RequiredMark /></Label>
+                <Label>{t('concept_mapping.select_database')}</Label>
                 <Select value={dataSourceId} onValueChange={setDataSourceId}>
                   <SelectTrigger>
                     <SelectValue placeholder={t('concept_mapping.select_database')} />

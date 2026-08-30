@@ -15,6 +15,7 @@ import {
   resolveByLineage as resolveByLineageRule,
   resolveChildId as resolveChildIdRule,
   entityKey,
+  resolvePointer,
   resolveSlugLanding,
   resolveWorkspaceId,
 } from '@/lib/import-identity'
@@ -588,6 +589,10 @@ export async function importWorkspaceTree(
     await yieldToBrowser()
     let mappingIdx = 0
     const reportEvery = Math.max(1, Math.floor(totalMappings / 100)) // ~100 UI updates max
+    // Databases landed above, so their local ids are final: re-point every
+    // database-source project at whichever row now holds the database it was
+    // exported against. Read once — the list does not change in this loop.
+    const storedDatabases = await storage.dataSources.getAll()
     for (const { project: mp, mappings, scoresFile } of parsed.mappingProjects) {
       const { id, replaces } = await resolveByLineage(() => storage.mappingProjects.getAll(), mp)
       // Keyed on the identity the manifest actually carries. A git-linked
@@ -603,8 +608,14 @@ export async function importWorkspaceTree(
         await storage.conceptMappings.deleteByProject(replaces).catch(() => {})
         await storage.mappingProjects.delete(replaces).catch(() => {})
       }
+      // The exported manifest carries a portable pointer, never the writing
+      // instance's data-source UUID (which would address nothing here). No local
+      // match leaves the project sourceless — the user re-picks the database —
+      // rather than keeping a dangling id.
+      const database = resolvePointer(storedDatabases, mp.dataSourceRef, targetWsId)
       await storage.mappingProjects.create({
         ...mp, id, workspaceId: targetWsId, updatedAt: now,
+        dataSourceId: database?.id ?? '',
         ...(duplicate
           ? { name: copyLocalizedName(mp.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: mp.lineageId }
           : { lineageId: mp.lineageId ?? crypto.randomUUID() }),

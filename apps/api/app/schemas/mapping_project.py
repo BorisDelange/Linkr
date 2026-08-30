@@ -21,6 +21,7 @@ class MappingProjectCreate(CamelModel):
     # real sourceType from the linked repo's project.json.
     source_type: str = "file"
     data_source_id: str | None = None
+    data_source_ref: dict | None = None
     vocabulary_data_source_id: str | None = None
     file_source_data: dict | None = None
     raw_file_sha: str | None = None
@@ -60,6 +61,7 @@ class MappingProjectUpdate(CamelModel):
     license: dict | None = None
     source_type: str | None = None
     data_source_id: str | None = None
+    data_source_ref: dict | None = None
     vocabulary_data_source_id: str | None = None
     file_source_data: dict | None = None
     raw_file_sha: str | None = None
@@ -88,6 +90,7 @@ class MappingProjectResponse(CamelModel):
     license: dict | None = None
     source_type: str
     data_source_id: str | None = None
+    data_source_ref: dict | None = None
     vocabulary_data_source_id: str | None = None
     file_source_data: dict | None = None
     raw_file_sha: str | None = None
