@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight, X, Plus, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -60,24 +61,25 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
   return (
     <div className="space-y-3">
       {/* Event table selector */}
-      <div className="space-y-1">
-        <Label>{t('cohorts.concept_event_table')}</Label>
-        <Select
-          value={config.eventTableLabel}
-          onValueChange={(value) => onChange({ ...config, eventTableLabel: value })}
-        >
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {eventTableLabels.map((label) => (
-              <SelectItem key={label} value={label} className="text-xs">
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <FormField label={t('cohorts.concept_event_table')}>
+        {() => (
+          <Select
+            value={config.eventTableLabel}
+            onValueChange={(value) => onChange({ ...config, eventTableLabel: value })}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {eventTableLabels.map((label) => (
+                <SelectItem key={label} value={label} className="text-xs">
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </FormField>
 
       {/* Selected concepts + picker button */}
       <div className="space-y-1">

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { ChevronsUpDown, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Label } from '@/components/ui/label'
+import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import {
   Popover,
@@ -92,8 +92,8 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
 
   return (
     <div className="space-y-2">
-      <div className="space-y-1">
-        <Label>{t('cohorts.care_site_level')}</Label>
+      <FormField label={t('cohorts.care_site_level')}>
+        {() => (
         <Select
           value={config.careSiteLevel}
           onValueChange={(v) => onChange({ ...config, careSiteLevel: v as 'visit' | 'visit_detail', values: [] })}
@@ -110,9 +110,11 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
             </SelectItem>
           </SelectContent>
         </Select>
-      </div>
-      <div className="space-y-1">
-        <Label>{t('cohorts.care_site_values')}</Label>
+        )}
+      </FormField>
+      <FormField label={t('cohorts.care_site_values')}>
+        {() => (
+        <>
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -193,7 +195,9 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
             ))}
           </div>
         )}
-      </div>
+        </>
+        )}
+      </FormField>
     </div>
   )
 }

@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { RequiredMark } from '@/components/ui/required-mark'
+import { FormField } from '@/components/ui/form-field'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { useSaveForm } from '@/hooks/use-save-form'
 
@@ -55,24 +54,26 @@ export function CreateCohortDialog({ open, onOpenChange, onSubmit, editing }: Cr
       confirmLabel={isEditing ? t('common.save') : t('common.create')}
       confirmDisabled={!name.trim()}
     >
-      <div className="space-y-1.5">
-        <Label>{t('cohorts.field_name')}<RequiredMark /></Label>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={t('cohorts.field_name_placeholder')}
-          autoFocus
-        />
-      </div>
+      <FormField label={t('cohorts.field_name')} required>
+        {({ id }) => (
+          <Input id={id}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t('cohorts.field_name_placeholder')}
+            autoFocus
+          />
+        )}
+      </FormField>
 
-      <div className="space-y-1.5">
-        <Label>{t('cohorts.field_description')}</Label>
-        <Input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder={t('cohorts.field_description_placeholder')}
-        />
-      </div>
+      <FormField label={t('cohorts.field_description')}>
+        {({ id }) => (
+          <Input id={id}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={t('cohorts.field_description_placeholder')}
+          />
+        )}
+      </FormField>
     </DialogShell>
   )
 }

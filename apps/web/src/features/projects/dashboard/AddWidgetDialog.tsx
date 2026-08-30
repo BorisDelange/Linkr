@@ -22,6 +22,7 @@ import { PluginPicker } from '@/components/PluginPicker'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import {
@@ -298,28 +299,29 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
 
   // Dataset selector shared between views
   const datasetSelector = (
-    <div className="space-y-1">
-      <Label>{t('dashboard.widget_dataset')}</Label>
-      <Select
-        value={datasetFileId ?? '__none__'}
-        onValueChange={(v) => handleSetDatasetFileId(v === '__none__' ? null : v)}
-      >
-        <SelectTrigger>
-          <SelectValue placeholder={t('dashboard.widget_dataset_placeholder')} />
-        </SelectTrigger>
-        <SelectContent position="popper" sideOffset={4}>
-          <SelectItem value="__none__">{t('dashboard.widget_dataset_none')}</SelectItem>
-          {projectDatasetFiles.map((f) => (
-            <SelectItem key={f.id} value={f.id}>
-              <div className="flex items-center gap-2">
-                <Database size={12} className="text-muted-foreground" />
-                {f.name}
-              </div>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+    <FormField label={t('dashboard.widget_dataset')}>
+      {() => (
+        <Select
+          value={datasetFileId ?? '__none__'}
+          onValueChange={(v) => handleSetDatasetFileId(v === '__none__' ? null : v)}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={t('dashboard.widget_dataset_placeholder')} />
+          </SelectTrigger>
+          <SelectContent position="popper" sideOffset={4}>
+            <SelectItem value="__none__">{t('dashboard.widget_dataset_none')}</SelectItem>
+            {projectDatasetFiles.map((f) => (
+              <SelectItem key={f.id} value={f.id}>
+                <div className="flex items-center gap-2">
+                  <Database size={12} className="text-muted-foreground" />
+                  {f.name}
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </FormField>
   )
 
   // Debounced config for preview — avoids re-rendering chart on every keystroke
@@ -379,18 +381,19 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
                     {datasetSelector}
 
                     {configHasBothLangs && (
-                      <div className="space-y-1">
-                        <Label>{t('common.language')}</Label>
-                        <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
-                          <SelectTrigger className="h-8 w-40 text-sm">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent position="popper" sideOffset={4}>
-                            <SelectItem value="python">Python</SelectItem>
-                            <SelectItem value="r">R</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      <FormField label={t('common.language')}>
+                        {() => (
+                          <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
+                            <SelectTrigger className="h-8 w-40 text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent position="popper" sideOffset={4}>
+                              <SelectItem value="python">Python</SelectItem>
+                              <SelectItem value="r">R</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </FormField>
                     )}
 
                     {hasConfigSchema && (

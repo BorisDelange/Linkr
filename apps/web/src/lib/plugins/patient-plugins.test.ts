@@ -47,6 +47,7 @@ describe('built-in patient-data plugins', () => {
     const schema = getPlugin('linkr-widget-timeline')!.manifest.configSchema!
     expect(Object.keys(schema).sort()).toEqual([
       'conceptIds',
+      'engine',
       'showPoints',
       'stepPlot',
       'strokeWidth',

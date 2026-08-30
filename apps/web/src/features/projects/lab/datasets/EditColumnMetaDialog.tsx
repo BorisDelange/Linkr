@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { FormField } from '@/components/ui/form-field'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { fetchColumnDistinct } from '@/lib/api/datasets'
@@ -117,35 +117,39 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
       confirmDisabled={!dirty}
       dirtyTracked
     >
-          <div className="space-y-1.5">
-            <Label htmlFor="col-label" className="text-xs">{t('datasets.col_meta_label')}</Label>
-            <Input
-              id="col-label"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder={column.name}
-            />
-          </div>
+          <FormField label={t('datasets.col_meta_label')}>
+            {({ id }) => (
+              <Input
+                id={id}
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder={column.name}
+              />
+            )}
+          </FormField>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="col-description" className="text-xs">{t('datasets.col_meta_description')}</Label>
-            <Textarea
-              id="col-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-            />
-          </div>
+          <FormField label={t('datasets.col_meta_description')}>
+            {({ id }) => (
+              <Textarea
+                id={id}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+              />
+            )}
+          </FormField>
 
           {categorical && codes.length > 0 && (
-            <div className="space-y-1.5">
-              <Label>{t('datasets.col_meta_value_labels')}</Label>
-              <p className="text-xs text-muted-foreground">{t('datasets.col_meta_value_labels_hint')}</p>
+            <FormField
+              label={t('datasets.col_meta_value_labels')}
+              hint={t('datasets.col_meta_value_labels_hint')}
+            >
               {/* An explicit height, not max-h: ScrollArea's viewport is h-full,
                   so a max-height on the root never bounds it and the list
                   overflows the dialog instead of scrolling. Sized to the rows
                   it holds, capped at 14rem — a short list should not leave a
                   gaping empty box. */}
+              {() => (
               <ScrollArea
                 className="rounded-md border"
                 style={{ height: Math.min(codes.length * 34 + 2, 224) }}
@@ -166,7 +170,8 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
                   ))}
                 </div>
               </ScrollArea>
-            </div>
+              )}
+            </FormField>
           )}
     </DialogShell>
   )

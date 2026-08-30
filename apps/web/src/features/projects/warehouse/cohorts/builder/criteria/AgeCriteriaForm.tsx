@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
+import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -32,8 +32,8 @@ export function AgeCriteriaForm({ config, onChange, schemaMapping }: AgeCriteria
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <Label>{t('cohorts.age_reference')}</Label>
+      <FormField label={t('cohorts.age_reference')}>
+        {() => (
         <div className="flex gap-2">
           {referenceOptions.map((opt) => {
             const selected = config.ageReference === opt.value
@@ -53,13 +53,15 @@ export function AgeCriteriaForm({ config, onChange, schemaMapping }: AgeCriteria
             )
           })}
         </div>
-      </div>
+        )}
+      </FormField>
       {/* No placeholders on the bounds: a greyed "0"/"120" reads as an entered
           value, and an unset bound means "no limit", not zero. */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="space-y-1">
-          <Label>{t('cohorts.age_min')}</Label>
+        <FormField label={t('cohorts.age_min')}>
+          {({ id }) => (
           <Input
+            id={id}
             type="number"
             value={config.min ?? ''}
             onChange={(e) =>
@@ -67,10 +69,12 @@ export function AgeCriteriaForm({ config, onChange, schemaMapping }: AgeCriteria
             }
             className="h-8 text-xs"
           />
-        </div>
-        <div className="space-y-1">
-          <Label>{t('cohorts.age_max')}</Label>
+          )}
+        </FormField>
+        <FormField label={t('cohorts.age_max')}>
+          {({ id }) => (
           <Input
+            id={id}
             type="number"
             value={config.max ?? ''}
             onChange={(e) =>
@@ -78,9 +82,10 @@ export function AgeCriteriaForm({ config, onChange, schemaMapping }: AgeCriteria
             }
             className="h-8 text-xs"
           />
-        </div>
-        <div className="space-y-1">
-          <Label>{t('cohorts.age_unit')}</Label>
+          )}
+        </FormField>
+        <FormField label={t('cohorts.age_unit')}>
+          {() => (
           <Select
             value={config.ageUnit ?? 'years'}
             onValueChange={(v) => onChange({ ...config, ageUnit: v as AgeUnit })}
@@ -96,7 +101,8 @@ export function AgeCriteriaForm({ config, onChange, schemaMapping }: AgeCriteria
               ))}
             </SelectContent>
           </Select>
-        </div>
+          )}
+        </FormField>
       </div>
       {unsatisfiable && (
         <p className="flex items-start gap-1.5 text-[10px] text-amber-600 dark:text-amber-500">

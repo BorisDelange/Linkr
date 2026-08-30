@@ -4,7 +4,7 @@ import { BookOpen, FileCode, Loader2, AlertCircle, Check, Table2 } from 'lucide-
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Label } from '@/components/ui/label'
+import { FormField } from '@/components/ui/form-field'
 import {
   Select,
   SelectContent,
@@ -666,15 +666,16 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
             Generate button down to the left column's bottom edge. */}
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>{t('etl.vocab_from_project')}</Label>
-              <SearchableSelect
-                value={selectedProjectId}
-                options={projectOptions}
-                placeholder={t('etl.vocab_select_project')}
-                onChange={handleProjectChange}
-              />
-            </div>
+            <FormField label={t('etl.vocab_from_project')}>
+              {() => (
+                <SearchableSelect
+                  value={selectedProjectId}
+                  options={projectOptions}
+                  placeholder={t('etl.vocab_select_project')}
+                  onChange={handleProjectChange}
+                />
+              )}
+            </FormField>
 
             {selectedProjectId && projectMappings.length > 0 && (
               <div className="space-y-2 rounded-md border bg-muted/30 p-3">
@@ -733,19 +734,20 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
               file worth keeping, while the CSV beside it is gitignored derived
               data rebuilt after every clone. */}
           <div className="flex flex-col gap-3">
-            <div className="space-y-1.5">
-              <Label>{t('etl.vocab_mode')}</Label>
-              <Select value={mode} onValueChange={(v) => setMode(v as VocabularyMode)} disabled={creating || !canWrite}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ccr">{t('etl.vocab_mode_ccr')}</SelectItem>
-                  <SelectItem value="ccr+stcm">{t('etl.vocab_mode_ccr_stcm')}</SelectItem>
-                  <SelectItem value="stcm">{t('etl.vocab_mode_stcm')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <FormField label={t('etl.vocab_mode')}>
+              {() => (
+                <Select value={mode} onValueChange={(v) => setMode(v as VocabularyMode)} disabled={creating || !canWrite}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ccr">{t('etl.vocab_mode_ccr')}</SelectItem>
+                    <SelectItem value="ccr+stcm">{t('etl.vocab_mode_ccr_stcm')}</SelectItem>
+                    <SelectItem value="stcm">{t('etl.vocab_mode_stcm')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
 
             <div className="space-y-1.5 rounded-md border bg-muted/30 p-3">
               <p className="text-xs font-medium">{t('etl.vocab_artefacts')}</p>

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Check, Database, Info } from 'lucide-react'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { localized } from '@/lib/localized'
+import { FormField } from '@/components/ui/form-field'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -220,9 +221,11 @@ export function DashboardSettingsDialog({
           </TabsContent>
 
           <TabsContent value="dataset" className="space-y-5 pt-3">
-          <div className="space-y-1.5">
-            <Label>{t('dashboard.default_dataset')}</Label>
-            <p className="text-[11px] text-muted-foreground">{t('dashboard.default_dataset_hint')}</p>
+          <FormField
+            label={t('dashboard.default_dataset')}
+            hint={t('dashboard.default_dataset_hint')}
+          >
+            {() => (
             <Select
               value={defaultDatasetFileId ?? '__none__'}
               onValueChange={v => {
@@ -245,11 +248,15 @@ export function DashboardSettingsDialog({
                 ))}
               </SelectContent>
             </Select>
-          </div>
+            )}
+          </FormField>
           {defaultDatasetFileId && (
-            <div className="space-y-1.5">
-              <Label>{t('dashboard.assign_dataset')}</Label>
-              <p className="text-[11px] text-muted-foreground">{t('dashboard.assign_dataset_hint')}</p>
+            <FormField
+              label={t('dashboard.assign_dataset')}
+              hint={t('dashboard.assign_dataset_hint')}
+            >
+              {() => (
+              <>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -274,7 +281,9 @@ export function DashboardSettingsDialog({
                   {t('dashboard.assign_done', { count: bulkAssigned })}
                 </p>
               )}
-            </div>
+              </>
+              )}
+            </FormField>
           )}
           </TabsContent>
           </div>

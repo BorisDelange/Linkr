@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Download, Loader2, Check, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
 import {
   Dialog,
@@ -185,47 +186,50 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-4 py-1">
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>{t('dashboard.export_scope', 'Scope')}</Label>
-              <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('dashboard.export_scope_all', 'All tabs')}</SelectItem>
-                  <SelectItem value="current">{t('dashboard.export_scope_current', 'Current tab')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t('dashboard.export_format', 'Format')}</Label>
-              <Select value={format} onValueChange={(v) => setFormat(v as ExportFormat)}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="png">PNG</SelectItem>
-                  <SelectItem value="svg">SVG</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <FormField label={t('dashboard.export_scope', 'Scope')}>
+              {() => (
+                <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('dashboard.export_scope_all', 'All tabs')}</SelectItem>
+                    <SelectItem value="current">{t('dashboard.export_scope_current', 'Current tab')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
+            <FormField label={t('dashboard.export_format', 'Format')}>
+              {() => (
+                <Select value={format} onValueChange={(v) => setFormat(v as ExportFormat)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="png">PNG</SelectItem>
+                    <SelectItem value="svg">SVG</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
           </div>
 
           {format === 'png' && (
-            <div className="space-y-1.5">
-              <Label>{t('dashboard.export_resolution', 'Resolution')}</Label>
-              <Select value={String(dpi)} onValueChange={(v) => setDpi(Number(v))}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="96">96 DPI · {t('dashboard.export_dpi_screen', 'Screen')}</SelectItem>
-                  <SelectItem value="192">192 DPI · {t('dashboard.export_dpi_high', 'High (2×)')}</SelectItem>
-                  <SelectItem value="288">288 DPI · {t('dashboard.export_dpi_print', 'Print (3×)')}</SelectItem>
-                  <SelectItem value="384">384 DPI · {t('dashboard.export_dpi_max', 'Max (4×)')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <FormField label={t('dashboard.export_resolution', 'Resolution')}>
+              {() => (
+                <Select value={String(dpi)} onValueChange={(v) => setDpi(Number(v))}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="96">96 DPI · {t('dashboard.export_dpi_screen', 'Screen')}</SelectItem>
+                    <SelectItem value="192">192 DPI · {t('dashboard.export_dpi_high', 'High (2×)')}</SelectItem>
+                    <SelectItem value="288">288 DPI · {t('dashboard.export_dpi_print', 'Print (3×)')}</SelectItem>
+                    <SelectItem value="384">384 DPI · {t('dashboard.export_dpi_max', 'Max (4×)')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
           )}
 
           <div className="flex min-h-0 flex-1 flex-col space-y-1.5">

@@ -7,7 +7,10 @@ interface FormFieldProps {
   label: React.ReactNode
   /** Adds the required asterisk. */
   required?: boolean
-  /** Help text under the control. */
+  /**
+   * Help text explaining the field, between the label and the control — where
+   * it is read before the answer is given rather than after.
+   */
   hint?: React.ReactNode
   className?: string
   /** The control. Given the generated id so the label points at it. */
@@ -17,10 +20,10 @@ interface FormFieldProps {
 /**
  * One labelled form field: label above, control below, optional hint.
  *
- * Exists because the same five lines were hand-written in ~33 dialogs, which is
- * how two spacings drifted apart — some fields sat at `space-y-1`, others at
- * `space-y-1.5`, and the labels ended up visibly closer to their inputs in some
- * dialogs than others. The gap is a property of the form, not of each dialog.
+ * Exists because the same five lines were hand-written in 22 files, which is how
+ * two spacings drifted apart — 42 fields sat at `space-y-1`, 17 at `space-y-1.5`
+ * — and the labels ended up visibly closer to their inputs on some screens than
+ * others. The gap is a property of the form, not of each dialog.
  *
  * Renders the control through a function so the field can hand it a generated
  * id: a bare <Label> next to an <Input> looks right but is not associated with
@@ -34,8 +37,8 @@ export function FormField({ label, required, hint, className, children }: FormFi
         {label}
         {required && <RequiredMark />}
       </Label>
-      {children({ id })}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {children({ id })}
     </div>
   )
 }

@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { RequiredMark } from '@/components/ui/required-mark'
+import { FormField } from '@/components/ui/form-field'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { localized, setLocalized } from '@/lib/localized'
@@ -54,24 +53,26 @@ export function PatientBoardEditDialog({
       dirtyTracked
       contentClassName="space-y-3 py-2"
     >
-          <div className="space-y-1">
-            <Label>{t('common.name')}<RequiredMark /></Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="h-8 text-sm"
-              autoFocus
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>{t('common.description')}</Label>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="text-sm"
-              placeholder={t('patient_data.board_description_placeholder')}
-            />
-          </div>
+          <FormField label={t('common.name')} required>
+            {({ id }) => (
+              <Input id={id}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="h-8 text-sm"
+                autoFocus
+              />
+            )}
+          </FormField>
+          <FormField label={t('common.description')}>
+            {({ id }) => (
+              <Input id={id}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="text-sm"
+                placeholder={t('patient_data.board_description_placeholder')}
+              />
+            )}
+          </FormField>
     </DialogShell>
   )
 }

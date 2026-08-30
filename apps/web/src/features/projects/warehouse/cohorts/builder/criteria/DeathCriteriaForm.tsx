@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Label } from '@/components/ui/label'
+import { FormField } from '@/components/ui/form-field'
 import {
   Select,
   SelectContent,
@@ -43,8 +43,8 @@ export function DeathCriteriaForm({ config, onChange }: DeathCriteriaFormProps) 
           )
         })}
       </div>
-      <div className="space-y-1">
-        <Label>{t('cohorts.death_reference')}</Label>
+      <FormField label={t('cohorts.death_reference')}>
+        {() => (
         <Select
           value={config.deathReference ?? 'any'}
           onValueChange={(v) =>
@@ -66,7 +66,8 @@ export function DeathCriteriaForm({ config, onChange }: DeathCriteriaFormProps) 
             </SelectItem>
           </SelectContent>
         </Select>
-      </div>
+        )}
+      </FormField>
     </div>
   )
 }

@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { Info, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DebouncedInput } from '@/components/ui/debounced-input'
-import { Label } from '@/components/ui/label'
+import { FormField } from '@/components/ui/form-field'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -62,18 +62,21 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <Label>{t('cohorts.text_label')}</Label>
-        {/* Debounced: this writes through to the cohort tree, so a raw onChange
-            persisted the whole cohort on every keystroke. */}
-        <DebouncedInput
-          value={config.label ?? ''}
-          onChange={(label) => update({ label })}
-          placeholder={t('cohorts.text_label_placeholder')}
-          className={INPUT_CLASS}
-        />
-        <p className="text-[10px] text-muted-foreground">{t('cohorts.text_label_hint')}</p>
-      </div>
+      <FormField label={t('cohorts.text_label')}>
+        {() => (
+          <>
+            {/* Debounced: this writes through to the cohort tree, so a raw onChange
+                persisted the whole cohort on every keystroke. */}
+            <DebouncedInput
+              value={config.label ?? ''}
+              onChange={(label) => update({ label })}
+              placeholder={t('cohorts.text_label_placeholder')}
+              className={INPUT_CLASS}
+            />
+            <p className="text-[10px] text-muted-foreground">{t('cohorts.text_label_hint')}</p>
+          </>
+        )}
+      </FormField>
 
       {!hasNotes && (
         <p className="rounded-md border border-dashed px-2 py-1.5 text-[10px] text-muted-foreground">
@@ -212,15 +215,17 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
         <p className="text-[10px] text-muted-foreground">{t('cohorts.text_fields_anded')}</p>
       )}
 
-      <div className="space-y-1">
-        <Label>{t('cohorts.text_note')}</Label>
-        <Textarea
-          value={config.description ?? ''}
-          onChange={(e) => update({ description: e.target.value })}
-          rows={2}
-          className="resize-none text-xs"
-        />
-      </div>
+      <FormField label={t('cohorts.text_note')}>
+        {({ id }) => (
+          <Textarea
+            id={id}
+            value={config.description ?? ''}
+            onChange={(e) => update({ description: e.target.value })}
+            rows={2}
+            className="resize-none text-xs"
+          />
+        )}
+      </FormField>
     </div>
   )
 }

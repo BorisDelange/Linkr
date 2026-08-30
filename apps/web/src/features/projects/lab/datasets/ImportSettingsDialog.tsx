@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { FormField } from '@/components/ui/form-field'
 import {
   Select,
   SelectContent,
@@ -353,56 +353,60 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
               {/* Parse options (CSV/TSV) */}
               {showCSVOptions && (
                 <div className="grid grid-cols-4 gap-3">
-                  <div className="space-y-1">
-                    <Label>{t('datasets.upload_delimiter')}</Label>
-                    <Select value={delimiter} onValueChange={(v) => setDelimiter(v as Delimiter)}>
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">{t('datasets.upload_delimiter_auto')}</SelectItem>
-                        <SelectItem value=",">{t('datasets.upload_delimiter_comma')}</SelectItem>
-                        <SelectItem value="	">{t('datasets.upload_delimiter_tab')}</SelectItem>
-                        <SelectItem value=";">{t('datasets.upload_delimiter_semicolon')}</SelectItem>
-                        <SelectItem value="|">{t('datasets.upload_delimiter_pipe')}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t('datasets.upload_encoding')}</Label>
-                    <Select value={encoding} onValueChange={(v) => setEncoding(v as Encoding)}>
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="UTF-8">UTF-8</SelectItem>
-                        <SelectItem value="ISO-8859-1">ISO-8859-1 (Latin-1)</SelectItem>
-                        <SelectItem value="Windows-1252">Windows-1252</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t('datasets.upload_skip_rows')}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={skipRows}
-                      onChange={(e) => setSkipRows(Math.max(0, parseInt(e.target.value) || 0))}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t('datasets.upload_header')}</Label>
-                    <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="yes">{t('datasets.upload_header_yes')}</SelectItem>
-                        <SelectItem value="no">{t('datasets.upload_header_no')}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <FormField label={t('datasets.upload_delimiter')}>
+                    {() => (
+                      <Select value={delimiter} onValueChange={(v) => setDelimiter(v as Delimiter)}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">{t('datasets.upload_delimiter_auto')}</SelectItem>
+                          <SelectItem value=",">{t('datasets.upload_delimiter_comma')}</SelectItem>
+                          <SelectItem value="	">{t('datasets.upload_delimiter_tab')}</SelectItem>
+                          <SelectItem value=";">{t('datasets.upload_delimiter_semicolon')}</SelectItem>
+                          <SelectItem value="|">{t('datasets.upload_delimiter_pipe')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </FormField>
+                  <FormField label={t('datasets.upload_encoding')}>
+                    {() => (
+                      <Select value={encoding} onValueChange={(v) => setEncoding(v as Encoding)}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="UTF-8">UTF-8</SelectItem>
+                          <SelectItem value="ISO-8859-1">ISO-8859-1 (Latin-1)</SelectItem>
+                          <SelectItem value="Windows-1252">Windows-1252</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </FormField>
+                  <FormField label={t('datasets.upload_skip_rows')}>
+                    {({ id }) => (
+                      <Input id={id}
+                        type="number"
+                        min={0}
+                        value={skipRows}
+                        onChange={(e) => setSkipRows(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="h-8 text-xs"
+                      />
+                    )}
+                  </FormField>
+                  <FormField label={t('datasets.upload_header')}>
+                    {() => (
+                      <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="yes">{t('datasets.upload_header_yes')}</SelectItem>
+                          <SelectItem value="no">{t('datasets.upload_header_no')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </FormField>
                 </div>
               )}
 
@@ -410,42 +414,45 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
               {showExcelOptions && (
                 <div className="grid grid-cols-3 gap-3">
                   {sheetNames.length > 1 && (
-                    <div className="space-y-1">
-                      <Label>{t('datasets.upload_sheet')}</Label>
-                      <Select value={selectedSheet} onValueChange={setSelectedSheet}>
+                    <FormField label={t('datasets.upload_sheet')}>
+                      {() => (
+                        <Select value={selectedSheet} onValueChange={setSelectedSheet}>
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sheetNames.map((name) => (
+                              <SelectItem key={name} value={name}>{name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </FormField>
+                  )}
+                  <FormField label={t('datasets.upload_skip_rows')}>
+                    {({ id }) => (
+                      <Input id={id}
+                        type="number"
+                        min={0}
+                        value={skipRows}
+                        onChange={(e) => setSkipRows(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="h-8 text-xs"
+                      />
+                    )}
+                  </FormField>
+                  <FormField label={t('datasets.upload_header')}>
+                    {() => (
+                      <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
                         <SelectTrigger className="h-8 text-xs">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {sheetNames.map((name) => (
-                            <SelectItem key={name} value={name}>{name}</SelectItem>
-                          ))}
+                          <SelectItem value="yes">{t('datasets.upload_header_yes')}</SelectItem>
+                          <SelectItem value="no">{t('datasets.upload_header_no')}</SelectItem>
                         </SelectContent>
                       </Select>
-                    </div>
-                  )}
-                  <div className="space-y-1">
-                    <Label>{t('datasets.upload_skip_rows')}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={skipRows}
-                      onChange={(e) => setSkipRows(Math.max(0, parseInt(e.target.value) || 0))}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t('datasets.upload_header')}</Label>
-                    <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="yes">{t('datasets.upload_header_yes')}</SelectItem>
-                        <SelectItem value="no">{t('datasets.upload_header_no')}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                    )}
+                  </FormField>
                 </div>
               )}
 

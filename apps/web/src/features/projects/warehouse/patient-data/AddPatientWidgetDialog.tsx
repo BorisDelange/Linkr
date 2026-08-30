@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -213,18 +214,19 @@ export function AddPatientWidgetDialog({
                       </div>
 
                       {configHasBothLangs && (
-                        <div className="space-y-1">
-                          <Label>{t('common.language')}</Label>
-                          <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
-                            <SelectTrigger className="h-8 w-40 text-sm">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent position="popper" sideOffset={4}>
-                              <SelectItem value="python">Python</SelectItem>
-                              <SelectItem value="r">R</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        <FormField label={t('common.language')}>
+                          {() => (
+                            <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
+                              <SelectTrigger className="h-8 w-40 text-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent position="popper" sideOffset={4}>
+                                <SelectItem value="python">Python</SelectItem>
+                                <SelectItem value="r">R</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </FormField>
                       )}
 
                       {hasConfigSchema && (

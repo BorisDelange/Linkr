@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Database } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { FormField } from '@/components/ui/form-field'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Select,
@@ -139,75 +139,77 @@ export function FilterConfigDialog({
       confirmDisabled={!draft.datasetFileId || !draft.columnId}
     >
       <div className="space-y-4">
-        <div className="space-y-1.5">
-          <Label>{t('dashboard.filter_select_dataset')}</Label>
-          <Select
-            value={draft.datasetFileId ?? ''}
-            // Changing dataset invalidates the column, so clear it.
-            onValueChange={(v) => setDraft((d) => ({ ...d, datasetFileId: v, columnId: null }))}
-            // The dataset is fixed once the filter exists: re-pointing it at another
-            // dataset would silently orphan the column and any active value.
-            disabled={isEdit}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder={t('dashboard.filter_select_dataset')} />
-            </SelectTrigger>
-            <SelectContent position="popper" sideOffset={4}>
-              {(isEdit ? datasetFiles : availableDatasets).map((f) => (
-                <SelectItem key={f.id} value={f.id}>
-                  <div className="flex items-center gap-2">
-                    <Database size={11} className="text-muted-foreground" />
-                    {f.name}
+        <FormField label={t('dashboard.filter_select_dataset')}>
+          {() => (
+            <Select
+              value={draft.datasetFileId ?? ''}
+              // Changing dataset invalidates the column, so clear it.
+              onValueChange={(v) => setDraft((d) => ({ ...d, datasetFileId: v, columnId: null }))}
+              // The dataset is fixed once the filter exists: re-pointing it at another
+              // dataset would silently orphan the column and any active value.
+              disabled={isEdit}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder={t('dashboard.filter_select_dataset')} />
+              </SelectTrigger>
+              <SelectContent position="popper" sideOffset={4}>
+                {(isEdit ? datasetFiles : availableDatasets).map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    <div className="flex items-center gap-2">
+                      <Database size={11} className="text-muted-foreground" />
+                      {f.name}
+                    </div>
+                  </SelectItem>
+                ))}
+                {!isEdit && availableDatasets.length === 0 && (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    {t('dashboard.filter_no_datasets')}
                   </div>
-                </SelectItem>
-              ))}
-              {!isEdit && availableDatasets.length === 0 && (
-                <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                  {t('dashboard.filter_no_datasets')}
-                </div>
-              )}
-            </SelectContent>
-          </Select>
-        </div>
+                )}
+              </SelectContent>
+            </Select>
+          )}
+        </FormField>
 
         {draft.datasetFileId && (
-          <div className="space-y-1.5">
-            <Label>{t('dashboard.filter_select_column')}</Label>
-            {renderColumnPicker(columns, draft.columnId, handleColumnChange)}
-          </div>
+          <FormField label={t('dashboard.filter_select_column')}>
+            {() => renderColumnPicker(columns, draft.columnId, handleColumnChange)}
+          </FormField>
         )}
 
         {draft.columnId && (
           <>
-            <div className="space-y-1.5">
-              <Label>{t('dashboard.filter_label')}</Label>
-              <Input
-                value={draft.label}
-                placeholder={selectedColumn?.name ?? ''}
-                onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
-                className="h-8 text-xs"
-              />
-            </div>
+            <FormField label={t('dashboard.filter_label')}>
+              {({ id }) => (
+                <Input id={id}
+                  value={draft.label}
+                  placeholder={selectedColumn?.name ?? ''}
+                  onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
+                  className="h-8 text-xs"
+                />
+              )}
+            </FormField>
 
             {inputTypeOptions.length > 1 && (
-              <div className="space-y-1.5">
-                <Label>{t('dashboard.filter_input_type')}</Label>
-                <Select
-                  value={draft.inputType}
-                  onValueChange={(v) => setDraft((d) => ({ ...d, inputType: v as DashboardFilter['inputType'] }))}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent position="popper" sideOffset={4}>
-                    {inputTypeOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <FormField label={t('dashboard.filter_input_type')}>
+                {() => (
+                  <Select
+                    value={draft.inputType}
+                    onValueChange={(v) => setDraft((d) => ({ ...d, inputType: v as DashboardFilter['inputType'] }))}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent position="popper" sideOffset={4}>
+                      {inputTypeOptions.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </FormField>
             )}
 
             {renderScope(draft.scope, (scope) => setDraft((d) => ({ ...d, scope })))}

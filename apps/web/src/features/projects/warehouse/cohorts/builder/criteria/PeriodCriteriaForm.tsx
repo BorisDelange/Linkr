@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Label } from '@/components/ui/label'
+import { FormField } from '@/components/ui/form-field'
 import { DatePickerField, fromIsoDay } from '@/components/ui/date-picker-field'
 import type { PeriodCriteriaConfig } from '@/types'
 
@@ -17,15 +17,16 @@ function DateField({
 }) {
   const { t } = useTranslation()
   return (
-    <div className="space-y-1">
-      <Label>{label}</Label>
-      <DatePickerField
-        value={value}
-        onChange={onChange}
-        defaultMonth={defaultMonth}
-        placeholder={t('cohorts.period_pick')}
-      />
-    </div>
+    <FormField label={label}>
+      {() => (
+        <DatePickerField
+          value={value}
+          onChange={onChange}
+          defaultMonth={defaultMonth}
+          placeholder={t('cohorts.period_pick')}
+        />
+      )}
+    </FormField>
   )
 }
 

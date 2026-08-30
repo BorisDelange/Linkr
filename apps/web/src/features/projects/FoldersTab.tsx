@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { FolderCog, FolderInput, Loader2 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
+import { FormField } from '@/components/ui/form-field'
 import {
   Dialog,
   DialogContent,
@@ -120,9 +120,8 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
     const current = currentOf(which)
     const defaultHint = t(meta.def)
     return (
-    <div className="space-y-1.5">
-      <Label>{t(meta.label)}</Label>
-      <p className="text-xs text-muted-foreground">{t(meta.desc)}</p>
+    <FormField label={t(meta.label)} hint={t(meta.desc)}>
+      {() => (
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1 truncate rounded-md border bg-muted/40 px-3 py-2 text-xs font-mono" title={current || defaultHint}>
           {current || <span className="text-muted-foreground">{defaultHint}</span>}
@@ -139,7 +138,8 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
           </Button>
         )}
       </div>
-    </div>
+      )}
+    </FormField>
     )
   }
 
@@ -190,17 +190,18 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
               <div className="mt-1 text-muted-foreground">{t('project_folders.copy_to')}</div>
               <div className="break-all">{pending?.newPath}</div>
             </div>
-            <div className="space-y-1.5">
-              <Label>{t('project_folders.on_conflict')}</Label>
-              <Select value={conflict} onValueChange={(v) => setConflict(v as FsConflictStrategy)}>
-                <SelectTrigger className="h-8 text-xs [&>span]:truncate"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="keep_both">{t('project_folders.conflict_keep_both')}</SelectItem>
-                  <SelectItem value="ignore">{t('project_folders.conflict_ignore')}</SelectItem>
-                  <SelectItem value="overwrite">{t('project_folders.conflict_overwrite')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <FormField label={t('project_folders.on_conflict')}>
+              {() => (
+                <Select value={conflict} onValueChange={(v) => setConflict(v as FsConflictStrategy)}>
+                  <SelectTrigger className="h-8 text-xs [&>span]:truncate"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="keep_both">{t('project_folders.conflict_keep_both')}</SelectItem>
+                    <SelectItem value="ignore">{t('project_folders.conflict_ignore')}</SelectItem>
+                    <SelectItem value="overwrite">{t('project_folders.conflict_overwrite')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPending(null)} disabled={copying}>

@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
 import { PythonLogo, RLogo } from '@/components/ui/language-icon'
 import { RequiredMark } from '@/components/ui/required-mark'
@@ -215,16 +216,17 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
                   <div className="space-y-4 p-4">
                     {nameInput}
                     {configHasBothLangs && (
-                      <div className="space-y-1">
-                        <Label>{t('common.language')}</Label>
-                        <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
-                          <SelectTrigger className="h-8 w-40 text-sm"><SelectValue /></SelectTrigger>
-                          <SelectContent position="popper" sideOffset={4}>
-                            <SelectItem value="python">Python</SelectItem>
-                            <SelectItem value="r">R</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      <FormField label={t('common.language')}>
+                        {() => (
+                          <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
+                            <SelectTrigger className="h-8 w-40 text-sm"><SelectValue /></SelectTrigger>
+                            <SelectContent position="popper" sideOffset={4}>
+                              <SelectItem value="python">Python</SelectItem>
+                              <SelectItem value="r">R</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </FormField>
                     )}
                     {hasConfigSchema && (
                       <div className="-mx-3 -mt-1">

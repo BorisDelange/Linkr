@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { FormField } from '@/components/ui/form-field'
 import {
   Select,
   SelectContent,
@@ -22,8 +22,8 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label>{t('cohorts.duration_level')}</Label>
+        <FormField label={t('cohorts.duration_level')}>
+          {() => (
           <Select
             value={config.durationLevel ?? 'visit'}
             onValueChange={(v) => onChange({ ...config, durationLevel: v as 'visit' | 'visit_detail' })}
@@ -40,9 +40,10 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
               </SelectItem>
             </SelectContent>
           </Select>
-        </div>
-        <div className="space-y-1">
-          <Label>{t('cohorts.duration_unit')}</Label>
+          )}
+        </FormField>
+        <FormField label={t('cohorts.duration_unit')}>
+          {() => (
           <Select
             value={unit}
             onValueChange={(v) => onChange({ ...config, durationUnit: v as DurationUnit })}
@@ -62,14 +63,14 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
               </SelectItem>
             </SelectContent>
           </Select>
-        </div>
+          )}
+        </FormField>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label>
-            {t('cohorts.duration_min', { unit: t(`cohorts.duration_${unit}`) })}
-          </Label>
+        <FormField label={t('cohorts.duration_min', { unit: t(`cohorts.duration_${unit}`) })}>
+          {({ id }) => (
           <Input
+            id={id}
             type="number"
             value={config.minDays ?? ''}
             onChange={(e) =>
@@ -77,12 +78,12 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
             }
             className="h-8 text-xs"
           />
-        </div>
-        <div className="space-y-1">
-          <Label>
-            {t('cohorts.duration_max', { unit: t(`cohorts.duration_${unit}`) })}
-          </Label>
+          )}
+        </FormField>
+        <FormField label={t('cohorts.duration_max', { unit: t(`cohorts.duration_${unit}`) })}>
+          {({ id }) => (
           <Input
+            id={id}
             type="number"
             value={config.maxDays ?? ''}
             onChange={(e) =>
@@ -90,7 +91,8 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
             }
             className="h-8 text-xs"
           />
-        </div>
+          )}
+        </FormField>
       </div>
     </div>
   )
