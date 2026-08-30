@@ -6,6 +6,7 @@ import {
   assembleProfileJson,
   availableSections,
   buildCategoricalQuery,
+  buildCombinedScalarQuery,
   buildConceptProfile,
   buildHistogramQuery,
   buildHospitalUnitsQuery,
@@ -229,6 +230,30 @@ describe('query builders', () => {
     expect(sql).toContain('MAX(n) AS max')
   })
 
+  it('folds every single-row block into one query', () => {
+    // Six round trips per concept was the dominant cost of a run and what
+    // stalled the browser tab; these are all aggregates over the same rows.
+    const sql = buildCombinedScalarQuery(OMOP, source(), 42, DEFAULT_PROFILE_SECTIONS)
+    expect(sql).toContain('COUNT(*) AS rows_count')
+    expect(sql).toContain('AS patients_count')
+    expect(sql).toContain('AS missing_rate')
+    expect(sql).toContain('PERCENTILE_CONT(0.01)')
+    expect(sql).toContain('AS per_patient_median')
+    expect(sql).toContain('AS median_hours')
+  })
+
+  it('leaves out the blocks the caller turned off', () => {
+    // Scanning less, not scanning the same and asking once.
+    const sql = buildCombinedScalarQuery(OMOP, source(), 42, {
+      ...DEFAULT_PROFILE_SECTIONS, missingRate: false, perPatient: false, frequency: false,
+    })
+    expect(sql).not.toContain('AS missing_rate')
+    expect(sql).not.toContain('per_patient')
+    expect(sql).not.toContain('median_hours')
+    // The counts are unconditional — the caller always needs them.
+    expect(sql).toContain('COUNT(*) AS rows_count')
+  })
+
   it('returns nothing for a block the schema cannot back', () => {
     // An empty string, not broken SQL: the caller skips it.
     const bare: SchemaMapping = {
@@ -393,9 +418,19 @@ describe('buildConceptProfile', () => {
   }
 
   it('assembles a profile from the executed blocks', async () => {
-    const { query } = engine([
-      { match: 'rows_count', rows: [{ rows_count: 1000, patients_count: 200 }] },
-      { match: 'PERCENTILE_CONT(0.01)', rows: [{ p1: 1, p25: 10, median: 20, p75: 30, p99: 99, numeric_count: 500 }] },
+    const { query, seen } = engine([
+      // Counts, percentiles, missing rate, unit, frequency and per-patient all
+      // come back in ONE row: they are single-row aggregates over the same
+      // scope, and asking them separately was six round trips per concept.
+      {
+        match: 'rows_count',
+        rows: [{
+          rows_count: 1000, patients_count: 200,
+          p1: 1, p25: 10, median: 20, p75: 30, p99: 99, numeric_count: 500,
+          missing_rate: 2.5, unit: 'mmHg', median_hours: 6,
+          per_patient_mean: 5, per_patient_median: 4, per_patient_min: 1, per_patient_max: 90,
+        }],
+      },
       { match: 'STDDEV', rows: [{ min: 1, max: 60, mean: 20, median: 20, sd: 5 }] },
       { match: 'bin_width', rows: [{ x: 5, count: 100 }] },
     ])
@@ -404,6 +439,15 @@ describe('buildConceptProfile', () => {
     expect(result.patientsCount).toBe(200)
     expect(result.json?.numeric_data).toMatchObject({ min: 1, max: 60 })
     expect(result.json?.histogram).toEqual([{ x: 5, count: 100 }])
+    // Everything the combined row carried lands without its own query.
+    expect(result.json?.missing_rate).toBe(2.5)
+    expect(result.json?.unit).toBe('mmHg')
+    expect(result.json?.measurement_frequency).toEqual({ typical_interval: 'every 6 hours' })
+    expect(result.json?.records_per_patient).toEqual({ mean: 5, median: 4, min: 1, max: 90 })
+    // Four queries for a full profile, not eleven: the combined row, the trimmed
+    // stats it makes possible, the histogram, then the multi-row blocks.
+    expect(seen.filter((s) => s.includes('rows_count'))).toHaveLength(1)
+    expect(seen.length).toBeLessThanOrEqual(6)
   })
 
   it('stops before the expensive blocks when the concept is too rare', async () => {

@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 import shutil
+import uuid
 from pathlib import Path
 
 from app.config import settings
@@ -112,6 +113,42 @@ def _store_bytes_sync(data: bytes) -> tuple[str, int]:
 async def store_bytes(data: bytes) -> tuple[str, int]:
     """Store an in-memory byte string. Returns (sha, size)."""
     return await asyncio.to_thread(_store_bytes_sync, data)
+
+
+def _append_bytes_sync(sha: str | None, data: bytes) -> tuple[str, int]:
+    """Copy the blob, append, store under the new content's sha.
+
+    Streamed rather than read-then-concatenate: the source-concept extraction
+    grows one CSV to tens of megabytes over a run, and holding two copies of it
+    per save point is the kind of cost that shows up as a stalled server.
+    """
+    tmp = _files_dir() / f"append-{uuid.uuid4().hex}.tmp"
+    digest = hashlib.sha256()
+    try:
+        with tmp.open("wb") as out:
+            if sha:
+                src = path_for(sha)
+                with src.open("rb") as existing:
+                    while chunk := existing.read(_CHUNK):
+                        digest.update(chunk)
+                        out.write(chunk)
+            digest.update(data)
+            out.write(data)
+        new_sha = digest.hexdigest()
+        dest = path_for(new_sha)
+        if dest.exists():
+            tmp.unlink(missing_ok=True)
+        else:
+            tmp.replace(dest)
+        _mark_stored(dest)
+        return new_sha, dest.stat().st_size
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+async def append_bytes(sha: str | None, data: bytes) -> tuple[str, int]:
+    """Return a blob holding `sha`'s content followed by `data`. (sha, size)."""
+    return await asyncio.to_thread(_append_bytes_sync, sha, data)
 
 
 async def read_bytes(sha: str) -> bytes:

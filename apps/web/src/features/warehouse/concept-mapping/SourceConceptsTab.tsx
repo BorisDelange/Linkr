@@ -102,6 +102,28 @@ const SECTION_GROUPS: Record<keyof ProfileSections, string> = {
 }
 
 /**
+ * The client-only build's growing CSV, per project.
+ *
+ * Module scope, not a component ref: the run outlives the tab, so a buffer held
+ * in the component would be replaced by a fresh empty one on remount while the
+ * still-running loop kept appending to the old — two divergent copies of the
+ * same file. Keyed like the run itself, so both survive leaving the tab.
+ *
+ * Server mode never touches this: there the rows are appended to the stored
+ * blob and neither side holds the whole file.
+ */
+const localCsvBuffers = new Map<string, { current: string | null }>()
+
+function localCsvFor(projectId: string): { current: string | null } {
+  let buffer = localCsvBuffers.get(projectId)
+  if (!buffer) {
+    buffer = { current: null }
+    localCsvBuffers.set(projectId, buffer)
+  }
+  return buffer
+}
+
+/**
  * Extract a database project's source concepts, resumably.
  *
  * Only shown for a database source. Reading a clinical database's dictionary is
@@ -168,6 +190,9 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   const [snapshot, setSnapshot] = useState<RunSnapshot>(() => getRunSnapshot(project.id))
   const [confirmRestart, setConfirmRestart] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  // Client-only mode has no blob store to append to, so the growing CSV lives
+  // in the browser. Server mode never fills it — the bytes stay on the server.
+  const localCsv = localCsvFor(project.id)
   const { running, error, phase } = snapshot
   // Live position during a run. The persisted `extracted` only moves between
   // save points, so without this the bar would sit still for hundreds of concepts.
@@ -219,8 +244,44 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   const done = !running && total > 0 && extracted >= total
   const percent = total > 0 ? Math.min(100, Math.round((extracted / total) * 100)) : 0
 
-  /** Persist progress after each batch, so a reload resumes rather than restarts. */
-  const persist = useCallback(async (state: SourceExtraction, csv: string, rowCount: number) => {
+  /**
+   * Persist progress after each batch, so a reload resumes rather than restarts.
+   *
+   * Only the new rows are written. In server mode they are appended to the
+   * stored blob, so neither side ever holds the whole CSV — it reaches tens of
+   * megabytes over a run, and re-encoding and re-uploading it at every save
+   * point was quadratic and froze the tab.
+   *
+   * The client-only path has no blob store, so it keeps the browser-side buffer
+   * and grows it here. That build has no server round trip to pay for, and its
+   * files are the small ones.
+   */
+  const persist = useCallback(async (
+    state: SourceExtraction,
+    csvChunk: string,
+    rowCount: number,
+    reset: boolean,
+  ) => {
+    const { isServerMode } = await import('@/lib/api-client')
+    if (isServerMode()) {
+      const { appendRawFileOnServer } = await import('@/lib/api/mapping-projects')
+      if (csvChunk) await appendRawFileOnServer(project.id, csvChunk, reset)
+      await updateMappingProject(project.id, {
+        sourceExtraction: state,
+        fileSourceData: {
+          fileName: 'source-concepts.csv',
+          rows: [],
+          columns: [...EXTRACTION_COLUMNS],
+          columnMapping: EXTRACTION_COLUMN_MAPPING,
+          totalRowCount: rowCount,
+        },
+      })
+      return
+    }
+
+    const previous = reset ? '' : (localCsv.current ?? '')
+    const next = previous + csvChunk
+    localCsv.current = next
     await updateMappingProject(project.id, {
       sourceExtraction: state,
       fileSourceData: {
@@ -228,7 +289,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
         rows: [],
         columns: [...EXTRACTION_COLUMNS],
         columnMapping: EXTRACTION_COLUMN_MAPPING,
-        rawFileBuffer: new TextEncoder().encode(csv),
+        rawFileBuffer: new TextEncoder().encode(next),
         totalRowCount: rowCount,
       },
     })
@@ -246,15 +307,20 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       return
     }
 
-    // Fetched before anything else on a resume: appending to a file we failed to
-    // read would silently drop every concept extracted before now. Better to
-    // refuse the resume and say so than to write a truncated CSV.
-    let existingCsv: string | null = null
+    // Server mode appends to the stored blob, so a resume needs nothing read
+    // back. The client-only build has no blob store and grows the CSV in memory,
+    // so THAT path still has to recover it — and must refuse rather than append
+    // to a file it could not read, which would silently drop everything already
+    // extracted.
     if (!restart && saved && saved.extracted > 0) {
-      existingCsv = await readExistingCsv(project)
-      if (!existingCsv) {
-        setSnapshot((s) => ({ ...s, error: t('concept_mapping.extract_resume_unavailable') }))
-        return
+      const { isServerMode } = await import('@/lib/api-client')
+      if (!isServerMode() && localCsv.current == null) {
+        const recovered = await readExistingCsv(project)
+        if (!recovered) {
+          setSnapshot((s) => ({ ...s, error: t('concept_mapping.extract_resume_unavailable') }))
+          return
+        }
+        localCsv.current = recovered
       }
     }
 
@@ -263,6 +329,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     // fresh record rather than cleared — an absent key is dropped by
     // JSON.stringify, and the API's exclude_unset would never see the change.
     if (restart && saved) {
+      localCsv.current = null
       await persist(
         {
           dictionaryKeys: sources.map((s) => s.dictionary.key),
@@ -272,7 +339,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           sort,
           updatedAt: new Date().toISOString(),
         },
-        extractionCsvHeader(), 0,
+        extractionCsvHeader(), 0, true,
       )
     }
 
@@ -288,8 +355,6 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       // A restart re-counts: the dictionaries may have grown since the last run,
       // and resuming against a stale total would stop short of the new rows.
       resumeFrom: restart ? null : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0 },
-      // Resuming appends to what is already there; restarting starts a new file.
-      existingCsv: restart ? null : existingCsv,
       query: (sql) => queryDataSource(dataSource.id, sql),
       persist,
       persistError: async (message) => {
@@ -321,6 +386,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   const discard = useCallback(async () => {
     setConfirmDiscard(false)
     clearRunError(project.id)
+    localCsv.current = null
     await updateMappingProject(project.id, {
       sourceExtraction: null,
       fileSourceData: null,

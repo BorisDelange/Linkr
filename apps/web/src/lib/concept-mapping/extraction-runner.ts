@@ -87,15 +87,46 @@ interface Run {
   snapshot: RunSnapshot
   controller: AbortController
   watchers: Set<(snapshot: RunSnapshot) => void>
+  /** When the watchers were last told, for the progress throttle below. */
+  lastNotifiedAt: number
 }
 
 const runs = new Map<string, Run>()
 
+/**
+ * Shortest gap between two progress notifications, in milliseconds.
+ *
+ * A concept can be profiled in under 20ms, and every one of them re-rendered the
+ * panel: a progress bar and a reformatted localized count, thousands of times
+ * over a run, all on the tab's one thread. Ten updates a second is past what
+ * anyone can read and costs nothing.
+ */
+const PROGRESS_THROTTLE_MS = 100
+
+/**
+ * Tell the watchers, unless this is only progress and one just went out.
+ *
+ * Anything other than a bare position change — a phase, an error, the run
+ * stopping — is delivered immediately: those are states the UI must not lag
+ * behind, and they are rare.
+ */
 function emit(projectId: string, patch: Partial<RunSnapshot>): void {
   const run = runs.get(projectId)
   if (!run) return
   run.snapshot = { ...run.snapshot, ...patch }
+
+  const onlyProgress = Object.keys(patch).every((k) => k === 'extracted' || k === 'current')
+  const now = Date.now()
+  if (onlyProgress && now - run.lastNotifiedAt < PROGRESS_THROTTLE_MS) return
+  run.lastNotifiedAt = now
   for (const watcher of run.watchers) watcher(run.snapshot)
+}
+
+/** Deliver now, whatever the throttle would have said. */
+function emitNow(projectId: string, patch: Partial<RunSnapshot>): void {
+  const run = runs.get(projectId)
+  if (run) run.lastNotifiedAt = 0
+  emit(projectId, patch)
 }
 
 /** Current state of a project's run, for a first render. */
@@ -145,11 +176,21 @@ export interface StartRunInput {
   sort: ExtractionSort
   /** Where a resume picks up, and what it is counting towards. */
   resumeFrom: { extracted: number; total: number } | null
-  /** The CSV built so far, or null to start a fresh one. */
-  existingCsv: string | null
   query: (sql: string) => Promise<Record<string, unknown>[]>
-  /** Write progress and the CSV back to the project. */
-  persist: (state: SourceExtraction, csv: string, rowCount: number) => Promise<void>
+  /**
+   * Write progress and the newly extracted rows back to the project.
+   *
+   * Only the NEW rows: the run no longer keeps the whole CSV in memory, because
+   * re-encoding and re-uploading tens of megabytes at every save point was
+   * quadratic and froze the tab. `reset` marks the first write of a run, which
+   * carries the header and replaces whatever was there.
+   */
+  persist: (
+    state: SourceExtraction,
+    csvChunk: string,
+    rowCount: number,
+    reset: boolean,
+  ) => Promise<void>
   /** Record a failure on the stored run, so a reload shows it. */
   persistError: (message: string) => Promise<void>
 }
@@ -180,6 +221,7 @@ export function startRun(input: StartRunInput): void {
     // Carry over the watchers already following this project: they subscribed to
     // the previous run's entry, and a restart must not orphan them.
     watchers: runs.get(projectId)?.watchers ?? pending.get(projectId) ?? new Set(),
+    lastNotifiedAt: 0,
   }
   pending.delete(projectId)
   runs.set(projectId, run)
@@ -233,7 +275,10 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
 
     if (runTotal === 0) runTotal = sizes.reduce((a, b) => a + b, 0)
 
-    let csv = input.existingCsv ?? extractionCsvHeader()
+    // A fresh run writes the header and replaces the file; a resume appends to
+    // what is already stored. The rows themselves are never held here — only the
+    // chunk about to be written.
+    let firstWrite = offset === 0
     const keys = sources.map((s) => s.dictionary.key)
 
     emit(projectId, { phase: 'extracting', extracted: offset, total: runTotal })
@@ -264,10 +309,16 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         (n, _total, concept) => emit(projectId, { extracted: base + n, current: concept }),
         sort, rankings[index],
       )
-      if (batch.rows.length > 0) csv += `\n${extractionCsvRows(batch.rows)}`
       // A batch that yields nothing and is not done would spin forever.
       if (batch.rows.length === 0 && !batch.done) break
       offset += batch.rows.length
+
+      // Only this batch's rows travel. A fresh run leads with the header and
+      // replaces the file; every later write appends.
+      const rows = extractionCsvRows(batch.rows)
+      const chunk = firstWrite
+        ? (rows ? `${extractionCsvHeader()}\n${rows}` : extractionCsvHeader())
+        : (rows ? `\n${rows}` : '')
 
       await persist(
         {
@@ -275,9 +326,12 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
           options: { ...options, sections }, sort,
           updatedAt: new Date().toISOString(),
         },
-        csv, offset,
+        chunk, offset, firstWrite,
       )
-      emit(projectId, { extracted: offset })
+      firstWrite = false
+      // Past the throttle: a save point is a real checkpoint, and letting the
+      // bar sit short of it until the next tick would misreport what is stored.
+      emitNow(projectId, { extracted: offset })
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

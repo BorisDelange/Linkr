@@ -307,6 +307,40 @@ async def set_raw_file(
     )
 
 
+class RawFileAppend(CamelModel):
+    text: str
+    """When true, replace the file with `text` instead of appending to it —
+    the first write of a run, which carries the CSV header."""
+    reset: bool = False
+
+
+@router.post(_PROJ + "/{project_id}/raw-file/append", response_model=MappingProjectResponse)
+async def append_raw_file(
+    project_id: str,
+    body: RawFileAppend,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Append rows to the project's source CSV, server-side.
+
+    The source-concept extraction writes one growing CSV over a run that can
+    reach tens of megabytes. Re-uploading the whole file at every save point made
+    the cost quadratic and froze the browser tab: the client had to hold the
+    entire string, re-encode it to UTF-8 synchronously, and push it all again to
+    add a few hundred rows. It now sends only the new rows.
+    """
+    project = await _load_project(db, project_id, user, "concept-mapping:write")
+    base = None if body.reset else project.raw_file_sha
+    if base and not blob_store.exists(base):
+        base = None
+    sha, _size = await blob_store.append_bytes(base, body.text.encode("utf-8"))
+    return await svc.update(
+        db,
+        project,
+        MappingProjectUpdate(raw_file_sha=sha, raw_file_name="source-concepts.csv"),
+    )
+
+
 class FileSourceQuery(CamelModel):
     sql: str
 

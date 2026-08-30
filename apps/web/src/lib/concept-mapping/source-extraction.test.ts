@@ -142,8 +142,15 @@ describe('extractBatch', () => {
   it('turns a dictionary page into rows carrying their profile', async () => {
     const { query } = engine([
       { match: 'LIMIT 10 OFFSET 0', rows: page(2) },
-      { match: 'COUNT(*) AS rows_count', rows: [{ rows_count: 500, patients_count: 42 }] },
-      { match: 'PERCENTILE_CONT(0.01)', rows: [{ p1: 1, p25: 10, median: 20, p75: 30, p99: 99, numeric_count: 100 }] },
+      // Counts and percentiles arrive together: they are single-row aggregates
+      // over the same scope, so they travel as one query rather than six.
+      {
+        match: 'COUNT(*) AS rows_count',
+        rows: [{
+          rows_count: 500, patients_count: 42,
+          p1: 1, p25: 10, median: 20, p75: 30, p99: 99, numeric_count: 100,
+        }],
+      },
       { match: 'STDDEV', rows: [{ min: 1, max: 60, mean: 20, median: 20, sd: 5 }] },
     ])
     const result = await extractBatch(OMOP, source(), opts, 0, 10, 2, query)

@@ -28,6 +28,26 @@ export function queryFileSourceOnServer(
 /** Download a file-source project's raw source file (CSV/Parquet/Excel) from the
  * blob store. In server mode the bytes never live in the browser, so export must
  * fetch them here to include source-concepts.csv. Returns null if there's no file. */
+/**
+ * Append rows to a project's source CSV without re-sending the whole file.
+ *
+ * The extraction's CSV grows to tens of megabytes over a run. Re-uploading it at
+ * every save point was quadratic and froze the tab — the client had to hold the
+ * whole string and re-encode it synchronously to add a few hundred rows.
+ *
+ * `reset` replaces the file instead, for the first write of a run (the header).
+ */
+export async function appendRawFileOnServer(
+  projectId: string,
+  text: string,
+  reset = false,
+): Promise<void> {
+  await apiRequest(`${PROJ}/${projectId}/raw-file/append`, {
+    method: 'POST',
+    body: JSON.stringify({ text, reset }),
+  })
+}
+
 export async function fetchRawFileFromServer(projectId: string): Promise<Uint8Array | null> {
   const res = await apiFetch(`/api/v1${PROJ}/${projectId}/raw-file`)
   if (!res.ok) return null

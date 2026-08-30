@@ -320,6 +320,93 @@ export function buildPercentileQuery(
   ${eventScope(et, conceptId)} AND e."${et.valueColumn}" IS NOT NULL`
 }
 
+/**
+ * Everything about one concept that fits in a single row, in one query.
+ *
+ * Six blocks — counts, missing rate, percentiles, records per patient, the modal
+ * unit and the measurement interval — are all aggregates over the same rows.
+ * Asked one at a time they were six round trips per concept, and over a 5,600
+ * concept dictionary that is tens of thousands of requests driven from one
+ * browser tab: the dominant cost of a run, and the reason the tab stalled.
+ *
+ * The blocks that CANNOT join this are the ones that return many rows
+ * (histogram, categories, temporal, wards) or that depend on this one's result
+ * (the trimmed numeric stats need the fences these percentiles give).
+ *
+ * Sections the caller did not ask for are left out rather than computed and
+ * discarded — the point is to scan less, not to scan the same and ask once.
+ */
+export function buildCombinedScalarQuery(
+  mapping: SchemaMapping,
+  source: ProfileSource,
+  conceptId: number,
+  sections: ProfileSections,
+): string {
+  const et = source.eventTable
+  const patientCol = resolvePatientColumn(mapping, et)
+  const parts: string[] = ['COUNT(*) AS rows_count']
+
+  parts.push(patientCol
+    ? `COUNT(DISTINCT e."${patientCol}") AS patients_count`
+    : 'NULL AS patients_count')
+
+  if (sections.missingRate) {
+    const empty: string[] = []
+    if (et.valueColumn) empty.push(`e."${et.valueColumn}" IS NULL`)
+    if (et.valueStringColumn) {
+      empty.push(`(e."${et.valueStringColumn}" IS NULL OR TRIM(CAST(e."${et.valueStringColumn}" AS VARCHAR)) = '')`)
+    }
+    if (empty.length > 0) {
+      parts.push(`ROUND(SUM(CASE WHEN ${empty.join(' AND ')} THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 1) AS missing_rate`)
+    }
+  }
+
+  if (sections.numeric && et.valueColumn) {
+    const v = `e."${et.valueColumn}"`
+    // FILTER, not a WHERE: the other aggregates here count all rows, and
+    // restricting the scan would silently change what they report.
+    const within = `FILTER (WHERE ${v} IS NOT NULL)`
+    parts.push(
+      `PERCENTILE_CONT(0.01) WITHIN GROUP (ORDER BY ${v}) AS p1`,
+      `PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ${v}) AS p25`,
+      `PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ${v}) AS median`,
+      `PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ${v}) AS p75`,
+      `PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY ${v}) AS p99`,
+      `COUNT(${v}) ${within} AS numeric_count`,
+    )
+  }
+
+  if (sections.unit && et.valueUnitColumn) {
+    const u = `CAST(e."${et.valueUnitColumn}" AS VARCHAR)`
+    // The most frequent unit. mode() reads the same rows the aggregates above
+    // already visit, where the standalone query needed its own GROUP BY pass.
+    parts.push(`mode(${u}) FILTER (WHERE ${u} IS NOT NULL AND TRIM(${u}) <> '') AS unit`)
+  }
+
+  const scope = eventScope(et, conceptId)
+
+  // Per-patient counts and inter-record delays are aggregates over GROUPS, so
+  // they cannot sit beside the row-level ones — they ride as scalar subqueries
+  // over the same scope, which still costs one round trip rather than three.
+  const subqueries: string[] = []
+  if (sections.perPatient && patientCol) {
+    subqueries.push(`(SELECT ROUND(AVG(n), 1) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e."${patientCol}")) AS per_patient_mean`)
+    subqueries.push(`(SELECT MEDIAN(n) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e."${patientCol}")) AS per_patient_median`)
+    subqueries.push(`(SELECT MIN(n) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e."${patientCol}")) AS per_patient_min`)
+    subqueries.push(`(SELECT MAX(n) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e."${patientCol}")) AS per_patient_max`)
+  }
+  if (sections.frequency && et.dateColumn && patientCol) {
+    subqueries.push(`(SELECT MEDIAN(hours) FROM (
+      SELECT EXTRACT(EPOCH FROM (ts - LAG(ts) OVER (PARTITION BY patient_id ORDER BY ts))) / 3600.0 AS hours
+      FROM (SELECT e."${patientCol}" AS patient_id, CAST(e."${et.dateColumn}" AS TIMESTAMP) AS ts
+            ${scope} AND e."${et.dateColumn}" IS NOT NULL)
+    ) WHERE hours > 0) AS median_hours`)
+  }
+
+  return `SELECT ${[...parts, ...subqueries].join(',\n    ')}
+  ${scope}`
+}
+
 /** The percentiles the fences are derived from. */
 export interface PercentileRow {
   p1: number | null
@@ -747,33 +834,58 @@ export async function buildConceptProfile(
     }
   }
 
-  const baseRows = await run(buildProfileBaseQuery(mapping, source, concept.conceptId))
+  // One query for every block that fits in a single row. See
+  // buildCombinedScalarQuery: this is what took a concept from six round trips
+  // to one, and a whole run from tens of thousands of requests to a few.
+  const scalarRows = await run(buildCombinedScalarQuery(mapping, source, concept.conceptId, sections))
+  const scalar = (scalarRows[0] ?? {}) as Record<string, unknown>
+  const num = (key: string): number | null =>
+    scalar[key] == null ? null : Number(scalar[key])
+
   const base = {
-    rows_count: Number(baseRows[0]?.rows_count ?? 0),
-    patients_count: baseRows[0]?.patients_count == null ? null : Number(baseRows[0].patients_count),
+    rows_count: Number(scalar.rows_count ?? 0),
+    patients_count: num('patients_count'),
   }
   const results: ProfileQueryResults = { base }
 
   // Below the threshold nothing else is computed: the JSON would be withheld
-  // anyway, and these are the expensive queries.
+  // anyway, and everything still to come is the expensive part.
   if (base.patients_count != null && base.patients_count < options.minPatients) {
     return { json: null, rowsCount: base.rows_count, patientsCount: base.patients_count }
   }
 
-  if (sections.missingRate) {
-    const rows = await run(buildMissingRateQuery(source, concept.conceptId))
-    if (rows[0]) results.missingRate = { missing_rate: rows[0].missing_rate as number | null }
+  if (sections.missingRate && 'missing_rate' in scalar) {
+    results.missingRate = { missing_rate: num('missing_rate') }
+  }
+  if (sections.unit && scalar.unit != null) {
+    results.unit = { unit: String(scalar.unit) }
+  }
+  if (sections.frequency && 'median_hours' in scalar) {
+    results.frequency = { median_hours: num('median_hours') }
+  }
+  if (sections.perPatient && 'per_patient_mean' in scalar) {
+    results.perPatient = {
+      mean: num('per_patient_mean'),
+      median: num('per_patient_median'),
+      min: num('per_patient_min'),
+      max: num('per_patient_max'),
+    }
   }
 
   let bounds: OutlierBounds | null = null
   let numericCount = 0
-  if (sections.numeric) {
-    const pct = await run(buildPercentileQuery(source, concept.conceptId))
-    if (pct[0]) {
-      const row = pct[0] as unknown as PercentileRow
-      numericCount = Number(row.numeric_count ?? 0)
-      bounds = outlierBounds({ ...row, numeric_count: numericCount }, options.outlierMethod, options.outlierCoef)
-    }
+  if (sections.numeric && 'numeric_count' in scalar) {
+    numericCount = Number(scalar.numeric_count ?? 0)
+    bounds = outlierBounds(
+      {
+        p1: num('p1'), p25: num('p25'), median: num('median'),
+        p75: num('p75'), p99: num('p99'), numeric_count: numericCount,
+      },
+      options.outlierMethod,
+      options.outlierCoef,
+    )
+    // Still its own query: these describe the TRIMMED distribution, so they
+    // cannot be computed before the fences above are known.
     const stats = await run(buildNumericStatsQuery(source, concept.conceptId, bounds))
     if (stats[0]) results.numeric = stats[0] as Record<string, number | null>
   }
@@ -789,15 +901,8 @@ export async function buildConceptProfile(
     if (rows.length) results.categorical = rows as unknown as ProfileQueryResults['categorical']
   }
 
-  if (sections.unit) {
-    const rows = await run(buildUnitQuery(source, concept.conceptId))
-    if (rows[0]) results.unit = { unit: String(rows[0].unit) }
-  }
-
-  if (sections.frequency) {
-    const rows = await run(buildFrequencyQuery(mapping, source, concept.conceptId))
-    if (rows[0]) results.frequency = { median_hours: rows[0].median_hours as number | null }
-  }
+  // unit, frequency, missing rate and per-patient came from the combined query
+  // above — they are single-row aggregates over the same scope.
 
   if (sections.temporal) {
     const rows = await run(buildTemporalQuery(source, concept.conceptId))
@@ -807,11 +912,6 @@ export async function buildConceptProfile(
   if (sections.hospitalUnits) {
     const rows = await run(buildHospitalUnitsQuery(mapping, source, concept.conceptId, options.topN))
     if (rows.length) results.hospitalUnits = rows as unknown as ProfileQueryResults['hospitalUnits']
-  }
-
-  if (sections.perPatient) {
-    const rows = await run(buildPerPatientQuery(mapping, source, concept.conceptId))
-    if (rows[0]) results.perPatient = rows[0] as unknown as ProfileQueryResults['perPatient']
   }
 
   const json = assembleProfileJson(
