@@ -1155,7 +1155,9 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
   it('leaves a database\'s live connection state out of its export', async () => {
     // `status` and `errorMessage` describe whether THIS instance can reach the
     // database right now, so exporting them flipped connected/disconnected on
-    // every round trip. `stats` stays: it describes the data, not the connection.
+    // every round trip. `stats` goes for the same reason one level down: it counts
+    // the rows of this copy and is recomputed on mount, so an instance holding the
+    // repo without its Parquet exports different numbers than one that has them.
     const zip = await exportZip({
       dataSources: [{
         id: 'ds-real', workspaceId: 'w1', name: 'My Postgres', sourceType: 'database',
@@ -1166,7 +1168,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     const meta = JSON.parse(await zip.files['databases/my-postgres/entity.json'].async('string'))
     expect(meta.status).toBeUndefined()
     expect(meta.errorMessage).toBeUndefined()
-    expect(meta.stats).toEqual({ patientCount: 42 })
+    expect(meta.stats).toBeUndefined()
   })
 
   it('writes a folder marker + git-links entry for a linked data-catalog', async () => {

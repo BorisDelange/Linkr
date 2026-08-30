@@ -784,7 +784,9 @@
     "stats_not_computed": "Statistics have not been computed yet",
     "stats_not_computed_hint": "The counts below read \"—\" until you load them. On large databases this can be slow, so they are only computed on request.",
     "creating_may_take_a_while": "Creating the database — this may take a moment…",
-    "created_from_schema_note": "This database was created from a schema — its tables are managed by Linkr, there is no file to upload or connection to configure."
+    "created_from_schema_note": "This database was created from a schema — its tables are managed by Linkr, there is no file to upload or connection to configure.",
+    "stats_table_name": "Table",
+    "stats_row_count": "Rows"
   },
   "reports": {
     "title": "Reports",

@@ -1020,6 +1020,10 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
     # of DATA_SOURCE_LOCAL_FIELDS in entity-io.ts.
     stripped.pop("status", None)
     stripped.pop("errorMessage", None)
+    # Row counts of THIS instance's copy, recomputed on every mount: an instance
+    # holding the repo without its Parquet reports different numbers than one
+    # that has them. Twin of DATA_SOURCE_LOCAL_FIELDS in entity-io.ts.
+    stripped.pop("stats", None)
     connection_config = stripped.pop("connectionConfig", None)
     schema_mapping = stripped.pop("schemaMapping", None)
     meta = {

@@ -322,6 +322,8 @@ def _build_tree() -> dict[str, bytes]:
         # Live connection state, dropped like the production helper does.
         stripped.pop("status", None)
         stripped.pop("errorMessage", None)
+        # Row counts of this instance's copy, recomputed on every mount.
+        stripped.pop("stats", None)
         connection_config = stripped.pop("connectionConfig", None)
         schema_mapping = stripped.pop("schemaMapping", None)
         meta = {

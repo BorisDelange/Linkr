@@ -404,6 +404,14 @@ export async function importWorkspaceTree(
       connectionConfig: { engine: 'duckdb', fileIds: [], fileNames: [] },
       ...ds,
       id,
+      // Every other child type mints a lineage when its manifest carries none;
+      // a database did not, so a pointer published with `lineageId: null` landed
+      // a row with no cross-instance identity — and the clone that follows keeps
+      // what is stored, so it stayed null. The catalog then never recognised the
+      // database as installed and offered Install forever.
+      ...(duplicate
+        ? { lineageId: crypto.randomUUID(), parentLineageId: ds.lineageId ?? undefined }
+        : { lineageId: ds.lineageId ?? crypto.randomUUID() }),
       workspaceId: targetWsId,
       status: 'disconnected',
       // Say WHY it is disconnected, as the standalone import does: a workspace

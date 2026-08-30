@@ -784,7 +784,9 @@
     "stats_not_computed": "Les statistiques n'ont pas encore été calculées",
     "stats_not_computed_hint": "Les compteurs ci-dessous affichent « — » tant qu'elles ne sont pas chargées. Sur de grosses bases cela peut être lent : elles ne sont donc calculées qu'à la demande.",
     "creating_may_take_a_while": "Création de la base en cours — cela peut prendre un moment…",
-    "created_from_schema_note": "Cette base a été créée à partir d'un schéma — ses tables sont gérées par Linkr, il n'y a ni fichier à importer ni connexion à configurer."
+    "created_from_schema_note": "Cette base a été créée à partir d'un schéma — ses tables sont gérées par Linkr, il n'y a ni fichier à importer ni connexion à configurer.",
+    "stats_table_name": "Table",
+    "stats_row_count": "Lignes"
   },
   "reports": {
     "title": "Rapports",

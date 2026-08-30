@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useCallback, useRef } from 'react'
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, Users, Activity, BarChart3, Table } from 'lucide-react'
 import {
@@ -6,6 +6,7 @@ import {
   LineChart, Line, CartesianGrid, PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
+import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
@@ -13,7 +14,7 @@ import { computeDatabaseStats, streamTableCounts } from '@/lib/duckdb/database-s
 import { useDataSourceStore } from '@/stores/data-source-store'
 import type {
   DatabaseStatsCache, AgePyramidBucket, AdmissionTimelineBucket,
-  DescriptiveStats, GenderDistribution, SchemaMapping,
+  DescriptiveStats, GenderDistribution, SchemaMapping, TableRowCount,
 } from '@/types'
 
 interface DatabaseStatsDashboardProps {
@@ -274,22 +275,54 @@ export function DatabaseStatsDashboard({
       {cache && cache.tableCounts.length > 0 && (
         <section>
           <SectionHeader icon={Table} title={t('databases.stats_table_overview')} />
-          <div className="mt-4 space-y-1">
-            {cache.tableCounts.map(({ tableName, rowCount }) => (
-              <div
-                key={tableName}
-                className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-1.5"
-              >
-                <span className="text-xs font-mono">{tableName}</span>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {rowCount.toLocaleString()}
-                </span>
-              </div>
-            ))}
+          <div className="mt-4">
+            <TableCountsTable rows={cache.tableCounts} />
           </div>
         </section>
       )}
     </div>
+  )
+}
+
+/**
+ * Row counts per table, as a real table: named headers, a search box under the
+ * table name and sorting on both columns. A database can hold dozens of tables
+ * (MIMIC-IV demo has 34), which is past what a bare list is read through.
+ *
+ * Row counts sort numerically because `accessor` returns the number; the cell
+ * renders it grouped, which as a string would sort "9" after "1,000".
+ */
+function TableCountsTable({ rows }: { rows: TableRowCount[] }) {
+  const { t, i18n } = useTranslation()
+  const columns = useMemo<ConceptColumn<TableRowCount>[]>(() => [
+    {
+      id: 'tableName',
+      header: t('databases.stats_table_name'),
+      accessor: (r) => r.tableName,
+      filter: 'text',
+      cell: (r) => <span className="font-mono">{r.tableName}</span>,
+    },
+    {
+      id: 'rowCount',
+      header: t('databases.stats_row_count'),
+      accessor: (r) => r.rowCount,
+      filter: 'number',
+      cell: (r) => (
+        <span className="tabular-nums">{r.rowCount.toLocaleString(i18n.language)}</span>
+      ),
+    },
+  ], [t, i18n.language])
+
+  return (
+    <ConceptDataTable
+      data={rows}
+      columns={columns}
+      rowKey={(r) => r.tableName}
+      pageSize={100}
+      initialSorting={{ columnId: 'rowCount', desc: true }}
+      density="compact"
+      emptyMessage={t('common.no_results')}
+    />
   )
 }
 

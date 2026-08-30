@@ -936,7 +936,10 @@ const INSTANCE_FIELDS = [
 // on every round trip. Not in INSTANCE_FIELDS: `status` is deliberate content on
 // a project, an ETL pipeline and a DQ rule set. `stats` is NOT stripped either —
 // patient and table counts describe the data, not the connection.
-const DATA_SOURCE_LOCAL_FIELDS = ['status', 'errorMessage'] as const
+// `stats` counts the rows of THIS instance's copy and is recomputed whenever the
+// data is mounted, so an instance holding the repo without its Parquet exports a
+// different number than one that has them — a diff neither side can settle.
+const DATA_SOURCE_LOCAL_FIELDS = ['status', 'errorMessage', 'stats'] as const
 
 /** Return a copy of an entity's metadata without instance-specific fields.
  *  Accepts any object (interfaces without an index signature included). */
@@ -3069,7 +3072,13 @@ async function applyClonedDatabase(
     // same way. Minted on first clone of a repo published before lineage existed,
     // so the database is recognisable to `findInstalled` from the start.
     entityId: existing?.entityId ?? meta.entityId ?? meta.id ?? targetId,
-    lineageId: existing?.lineageId ?? meta.lineageId ?? crypto.randomUUID(),
+    // The repo's lineage WINS over a stored one, unlike every other field here.
+    // A database usually arrives as a workspace pointer first, and those publish
+    // no lineage — the pointer row therefore holds a locally minted uuid, which
+    // is not an identity anyone else shares. Deferring to it left the catalog
+    // unable to recognise its own entry as installed. Only a published lineage
+    // outranks the local one; with none, whatever is stored stands.
+    lineageId: meta.lineageId ?? existing?.lineageId ?? crypto.randomUUID(),
     ...(meta.parentLineageId ? { parentLineageId: meta.parentLineageId } : {}),
     // The repo's own date first: deleting the workspace and re-cloning left no
     // local row to recover it from, so every re-import read as brand new.
