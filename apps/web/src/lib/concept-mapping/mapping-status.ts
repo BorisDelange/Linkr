@@ -32,7 +32,17 @@ export function readsFromFlatSource(
  * project. A database project with nothing extracted yet has neither, so it
  * keeps whatever was persisted and is refreshed when the project is opened.
  */
-export function getTotalSourceConcepts(project: Pick<MappingProject, 'stats' | 'sourceType' | 'fileSourceData'>): number {
+export function getTotalSourceConcepts(
+  project: Pick<MappingProject, 'stats' | 'sourceType' | 'fileSourceData' | 'sourceExtraction'>,
+): number {
+  // An extraction counts what it wrote, concept by concept, and is the one
+  // number that cannot go stale: `totalRowCount` is re-derived asynchronously
+  // after each save and a late reply can overwrite a newer one. Only trusted
+  // once the run has finished, since mid-run it describes a partial file.
+  const extraction = project.sourceExtraction
+  if (extraction && extraction.total > 0 && extraction.extracted >= extraction.total) {
+    return extraction.extracted
+  }
   const fromStats = project.stats?.totalSourceConcepts ?? 0
   if (fromStats > 0) return fromStats
   if (readsFromFlatSource(project) && project.fileSourceData) {

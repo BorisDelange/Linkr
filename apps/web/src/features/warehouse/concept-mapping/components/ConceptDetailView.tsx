@@ -355,7 +355,7 @@ function SectionCard({
   return (
     <Card className={cn('gap-0 p-3', className)}>
       {(title || action) && (
-        <div className="mb-1.5 flex min-h-4 items-center justify-between gap-2">
+        <div className="mb-2.5 flex min-h-4 items-center justify-between gap-2">
           {title && <p className="text-xs font-medium">{title}</p>}
           {action}
         </div>

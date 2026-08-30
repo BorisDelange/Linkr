@@ -4456,6 +4456,7 @@
     "extract_counting": "Décompte des concepts à extraire…",
     "extract_ranking": "Classement des concepts par volume…",
     "extract_current_concept": "Concept en cours",
+    "extract_resume_unavailable": "Les concepts déjà extraits n'ont pas pu être relus : reprendre les perdrait. Recommencez depuis le début pour reconstruire le fichier.",
     "extract_sort": "Examiner en priorité",
     "extract_sort_hint": "L'ordre dans lequel les concepts sont extraits. Une extraction dure des heures et peut être mise en pause à tout moment : cela détermine donc ce que vous pourrez relire aujourd'hui, et pas seulement ce qui sortira à la fin.",
     "extract_sort_records": "Concepts avec le plus d'enregistrements",

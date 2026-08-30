@@ -245,6 +245,18 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       return
     }
 
+    // Fetched before anything else on a resume: appending to a file we failed to
+    // read would silently drop every concept extracted before now. Better to
+    // refuse the resume and say so than to write a truncated CSV.
+    let existingCsv: string | null = null
+    if (!restart && saved && saved.extracted > 0) {
+      existingCsv = await readExistingCsv(project)
+      if (!existingCsv) {
+        setSnapshot((s) => ({ ...s, error: t('concept_mapping.extract_resume_unavailable') }))
+        return
+      }
+    }
+
     // Zero the stored run before the new one starts counting: a reload during
     // that window would otherwise resume the run being replaced. Written as a
     // fresh record rather than cleared — an absent key is dropped by
@@ -276,7 +288,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       // and resuming against a stale total would stop short of the new rows.
       resumeFrom: restart ? null : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0 },
       // Resuming appends to what is already there; restarting starts a new file.
-      existingCsv: restart ? null : readExistingCsv(project),
+      existingCsv: restart ? null : existingCsv,
       query: (sql) => queryDataSource(dataSource.id, sql),
       persist,
       persistError: async (message) => {
@@ -671,10 +683,25 @@ function LabelWithHint({
 }
 
 /** The CSV written so far, so a resumed run appends instead of replacing. */
-function readExistingCsv(project: MappingProject): string | null {
+async function readExistingCsv(project: MappingProject): Promise<string | null> {
   const buffer = project.fileSourceData?.rawFileBuffer
-  if (!buffer?.byteLength) return null
-  return new TextDecoder().decode(buffer)
+  if (buffer?.byteLength) return new TextDecoder().decode(buffer)
+
+  // Server mode never sends the bytes back down — the upload strips them and the
+  // project only carries metadata afterwards. Without this the buffer read as
+  // absent on every resume, so the run started a fresh header and the CSV was
+  // truncated to whatever was extracted since: a finished 5,636-concept run left
+  // a file holding only the last 1,622.
+  if (!project.fileSourceData) return null
+  try {
+    const { isServerMode } = await import('@/lib/api-client')
+    if (!isServerMode()) return null
+    const { fetchRawFileFromServer } = await import('@/lib/api/mapping-projects')
+    const fetched = await fetchRawFileFromServer(project.id)
+    return fetched?.byteLength ? new TextDecoder().decode(fetched) : null
+  } catch {
+    return null
+  }
 }
 
 function EmptyState({ message }: { message: string }) {

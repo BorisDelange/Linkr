@@ -4456,6 +4456,7 @@
     "extract_counting": "Counting the concepts to extract…",
     "extract_ranking": "Ranking the concepts by volume…",
     "extract_current_concept": "Currently profiling",
+    "extract_resume_unavailable": "The concepts already extracted could not be read back, so resuming would lose them. Start over to rebuild the file.",
     "extract_sort": "Screen first",
     "extract_sort_hint": "The order concepts are extracted in. An extraction runs for hours and can be paused at any point, so this decides what you can review today — not just what comes out at the end.",
     "extract_sort_records": "Concepts with the most records",

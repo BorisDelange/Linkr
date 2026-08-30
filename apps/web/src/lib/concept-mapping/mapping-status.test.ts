@@ -60,6 +60,27 @@ describe('getTotalSourceConcepts', () => {
   const fileProject = (fileSourceData: Record<string, unknown>, stats?: Record<string, unknown>) =>
     ({ sourceType: 'file', fileSourceData, stats } as unknown as Parameters<typeof getTotalSourceConcepts>[0])
 
+  it('trusts a finished extraction over every cached count', () => {
+    // totalRowCount is re-derived asynchronously after each save, so a late
+    // reply can overwrite a newer one: a finished 5,636-concept run reported
+    // 1,622 rows and the editor showed that. The run's own tally cannot drift.
+    const extracted = {
+      sourceType: 'database',
+      fileSourceData: { totalRowCount: 1622, rows: [] },
+      sourceExtraction: { extracted: 5636, total: 5636 },
+    } as unknown as Parameters<typeof getTotalSourceConcepts>[0]
+    expect(getTotalSourceConcepts(extracted)).toBe(5636)
+  })
+
+  it('ignores a run still in flight, whose file is only partly written', () => {
+    const midRun = {
+      sourceType: 'database',
+      fileSourceData: { totalRowCount: 1622, rows: [] },
+      sourceExtraction: { extracted: 900, total: 5636 },
+    } as unknown as Parameters<typeof getTotalSourceConcepts>[0]
+    expect(getTotalSourceConcepts(midRun)).toBe(1622)
+  })
+
   it('prefers the persisted stat when it is populated', () => {
     expect(getTotalSourceConcepts(fileProject({ totalRowCount: 10, rows: [] }, { totalSourceConcepts: 9912 }))).toBe(9912)
   })
