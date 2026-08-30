@@ -18,6 +18,9 @@ import {
   broadcastTimelineRange,
   getTimelineRange,
 } from '../timeline-sync'
+import { TimelineCanvas, type TimelineSeries } from './TimelineCanvas'
+import { classifySeries, resolveRenderer } from './timeline-shape'
+import type { TimeWindow } from './timeline-view'
 
 interface TimelineWidgetProps {
   widgetId: string
@@ -32,7 +35,11 @@ interface TimelineRow {
   concept_id: number
   concept_name: string
   value: number
+  /** Set for a categorical observation, which has no number to plot. */
+  value_string?: string | null
   event_date: unknown // DuckDB-WASM returns Date, BigInt, or string
+  /** Set for an event that lasts, which draws as a block rather than a point. */
+  end_date?: unknown
 }
 
 /** Px reserved at the bottom so the range selector stays inside the card. */
@@ -102,7 +109,7 @@ export function TimelineWidget({
   config: configProp,
   onConfigureConcepts,
 }: TimelineWidgetProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
   const visible = useTabVisible()
   // Narrow selectors: a bare usePatientChartStore() re-renders every timeline on
@@ -242,6 +249,66 @@ export function TimelineWidget({
     return { chartData: rows, conceptNames: names, conceptIdByName: idByName }
   }, [data])
 
+  // One series per concept, for the mixed-shape renderer. Built from the same
+  // rows as chartData, which flattens them onto a shared time axis instead.
+  const series = useMemo<TimelineSeries[]>(() => {
+    if (data.length === 0) return []
+    const byConcept = new Map<number, TimelineSeries>()
+    const colours = getSeriesColors(conceptNames, conceptIdByName, conceptColors, conceptIds)
+    conceptNames.forEach((name, i) => {
+      const id = conceptIdByName[name]
+      if (id != null) {
+        byConcept.set(id, { conceptId: id, name, colour: colours[i], events: [] })
+      }
+    })
+    for (const row of data) {
+      const s = byConcept.get(row.concept_id)
+      if (!s) continue
+      const value = row.value == null ? null : Number(row.value)
+      s.events.push({
+        start: dateKey(row.event_date),
+        end: row.end_date == null ? null : dateKey(row.end_date),
+        value: value != null && Number.isFinite(value) ? value : null,
+        text: row.value_string ?? null,
+        conceptId: String(row.concept_id),
+        route: null,
+      })
+    }
+    return [...byConcept.values()].filter((s) => s.events.length > 0)
+  }, [data, conceptNames, conceptIdByName, conceptColors, conceptIds])
+
+  // Which renderer draws this widget. Dygraph plots continuous numeric series and
+  // nothing else, so `auto` uses it exactly while it is capable.
+  const renderer = useMemo(() => {
+    const shapes = series.map((s) =>
+      classifySeries({
+        conceptId: s.conceptId,
+        values: s.events.map((e) => (e.value != null ? e.value : e.text)),
+        timestamps: s.events.map((e) => e.start),
+        durational: s.events.some((e) => e.end != null),
+      }),
+    )
+    return resolveRenderer(config.engine, shapes)
+  }, [series, config.engine])
+
+  // Full extent of the record, and the window currently shown.
+  const bounds = useMemo<TimeWindow>(() => {
+    let lo = Infinity
+    let hi = -Infinity
+    for (const s of series) {
+      for (const e of s.events) {
+        if (e.start < lo) lo = e.start
+        const end = e.end ?? e.start
+        if (end > hi) hi = end
+      }
+    }
+    return lo <= hi ? { lo, hi } : { lo: 0, hi: 1 }
+  }, [series])
+  const [canvasView, setCanvasView] = useState<TimeWindow | null>(null)
+  // Reset the window whenever the record changes underneath it.
+  useEffect(() => { setCanvasView(null) }, [bounds.lo, bounds.hi])
+  const view = canvasView ?? bounds
+
   // Resolve theme-aware colors for canvas-drawn elements
   const getThemeColors = useCallback(() => {
     const isDark = document.documentElement.classList.contains('dark')
@@ -262,8 +329,8 @@ export function TimelineWidget({
     const container = chartContainerRef.current
     if (!container) return
 
-    // If no data, destroy existing chart
-    if (!chartData || chartData.length === 0 || conceptNames.length === 0) {
+    // If no data — or the canvas renderer is drawing instead — destroy the chart.
+    if (renderer !== 'dygraphs' || !chartData || chartData.length === 0 || conceptNames.length === 0) {
       if (dygraphRef.current) {
         dygraphRef.current.destroy()
         dygraphRef.current = null
@@ -392,7 +459,7 @@ export function TimelineWidget({
       if (r.width > 0 && r.height > 0) g.resize(Math.floor(r.width), Math.floor(r.height) - RANGE_SELECTOR_RESERVE)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chartData, conceptNames, conceptIdByName, getThemeColors, yAxisFromZero, stepPlot, showPoints, strokeWidth, syncTimeRange, conceptColorsKey, tabId, widgetId])
+  }, [renderer, chartData, conceptNames, conceptIdByName, getThemeColors, yAxisFromZero, stepPlot, showPoints, strokeWidth, syncTimeRange, conceptColorsKey, tabId, widgetId])
 
   // Sync: when another timeline in this tab broadcasts a range, adopt it.
   useEffect(() => {
@@ -514,10 +581,25 @@ export function TimelineWidget({
       <div
         ref={chartContainerRef}
         className="absolute inset-0"
-        style={{ visibility: overlayMessage ? 'hidden' : 'visible' }}
+        style={{
+          visibility: overlayMessage || renderer !== 'dygraphs' ? 'hidden' : 'visible',
+        }}
         onMouseDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
       />
+      {/* The mixed-shape renderer, for a selection Dygraph cannot draw. Mounted
+          only in that mode so its ResizeObserver doesn't run behind a dygraph. */}
+      {!overlayMessage && renderer === 'overview' && (
+        <div className="absolute inset-0">
+          <TimelineCanvas
+            series={series}
+            bounds={bounds}
+            view={view}
+            onViewChange={setCanvasView}
+            locale={i18n.language}
+          />
+        </div>
+      )}
       {/* Overlay for empty/loading states */}
       {overlayMessage && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">

@@ -1569,6 +1569,7 @@
     "notes_add_word_set": "Add a new word set",
     "notes_set_name": "Set name",
     "notes_set_words_placeholder": "Words (comma-separated)",
+    "timeline_reset_zoom": "Reset zoom",
     "notes_sort_date": "Date",
     "notes_sort_name": "Name",
     "filters_title": "Patient filters",

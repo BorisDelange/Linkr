@@ -1569,6 +1569,7 @@
     "notes_add_word_set": "Ajouter un set de mots",
     "notes_set_name": "Nom du set",
     "notes_set_words_placeholder": "Mots (séparés par des virgules)",
+    "timeline_reset_zoom": "Réinitialiser le zoom",
     "notes_sort_date": "Date",
     "notes_sort_name": "Nom",
     "filters_title": "Filtres patients",

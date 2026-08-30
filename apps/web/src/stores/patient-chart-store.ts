@@ -40,6 +40,15 @@ export interface TimelineConfig {
   strokeWidth?: number | string
   /** Per-concept line color (concept_id → palette name or hex). */
   conceptColors?: Record<string, string>
+  /**
+   * Which renderer draws the widget.
+   *
+   * `auto` (the default, and what an older config holds) picks from the data:
+   * Dygraph while every series is a continuous measurement, the mixed-shape
+   * renderer as soon as one is categorical or lasts. The explicit values are the
+   * escape hatch for a schema where that guess reads wrong.
+   */
+  engine?: 'auto' | 'dygraphs' | 'overview'
 }
 
 // ---------------------------------------------------------------------------

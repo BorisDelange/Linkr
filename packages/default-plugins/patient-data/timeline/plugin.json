@@ -35,6 +35,45 @@
         "fr": "Données"
       }
     },
+    "engine": {
+      "type": "select",
+      "label": {
+        "en": "Renderer",
+        "fr": "Moteur de rendu"
+      },
+      "default": "auto",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "description": {
+        "en": "Automatic uses curves while every selected concept is a continuous measurement, and switches to mixed shapes as soon as one is categorical or lasts over time.",
+        "fr": "Automatique trace des courbes tant que chaque concept sélectionné est une mesure continue, et bascule vers les formes mixtes dès que l'un est catégoriel ou s'étend dans le temps."
+      },
+      "options": [
+        {
+          "value": "auto",
+          "label": {
+            "en": "Automatic",
+            "fr": "Automatique"
+          }
+        },
+        {
+          "value": "dygraphs",
+          "label": {
+            "en": "Curves",
+            "fr": "Courbes"
+          }
+        },
+        {
+          "value": "overview",
+          "label": {
+            "en": "Mixed shapes",
+            "fr": "Formes mixtes"
+          }
+        }
+      ]
+    },
     "yAxisFromZero": {
       "type": "boolean",
       "label": {
