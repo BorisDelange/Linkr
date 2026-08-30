@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { BadgeChip } from '@/components/ui/badge-strip'
 import { cn } from '@/lib/utils'
 import {
   AlertDialog,
@@ -34,7 +35,7 @@ import {
   sourceConceptPairKey,
   splitSourceConceptPairKey,
 } from '@/lib/concept-mapping/source-concept-ids-io'
-import type { MappingProject, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
+import type { MappingProject, ProjectBadge, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
 
 const DEFAULT_RANGE_SIZE = 1_000_000
 
@@ -95,10 +96,17 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null) // badgeLabel
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // Distinct badge labels across all projects
-  const allBadgeLabels: string[] = Array.from(
-    new Set(projects.flatMap((p) => (p.badges ?? []).map((b) => localized(b.label, 'en')).filter(Boolean))),
-  ).sort()
+  // Distinct badge labels across all projects. A range is keyed by the ENGLISH
+  // label, so the badge it came from is kept alongside: the chip needs its colour
+  // and category, which the key alone cannot carry.
+  const badgeByLabel = new Map<string, ProjectBadge>()
+  for (const project of projects) {
+    for (const badge of project.badges ?? []) {
+      const label = localized(badge.label, 'en')
+      if (label && !badgeByLabel.has(label)) badgeByLabel.set(label, badge)
+    }
+  }
+  const allBadgeLabels: string[] = Array.from(badgeByLabel.keys()).sort()
 
   const load = useCallback(async () => {
     if (!rangeCache.has(workspaceId)) setLoading(true)
@@ -483,7 +491,15 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                     <div className="flex items-start gap-3">
                       <div className="min-w-0 flex-1 space-y-2">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{range.badgeLabel}</span>
+                          {(() => {
+                            const badge = badgeByLabel.get(range.badgeLabel)
+                            // A range outlives the badge it was created from — a
+                            // project can be deleted or its badge renamed — so the
+                            // stored label still has to render on its own.
+                            return badge
+                              ? <BadgeChip badge={badge} workspaceId={workspaceId} />
+                              : <span className="text-sm font-medium">{range.badgeLabel}</span>
+                          })()}
                           <Badge variant="secondary" >
                             {range.assignedCount.toLocaleString()} {t('concept_mapping.source_id_assigned')}
                           </Badge>
@@ -630,16 +646,19 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
           <Card className="p-4">
             <p className="mb-2 text-xs font-medium text-muted-foreground">{t('concept_mapping.source_id_add_badge')}</p>
             <div className="flex flex-wrap gap-2">
-              {unregisteredBadges.map((label) => (
-                <button
-                  key={label}
-                  className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-                  onClick={() => addBadge(label)}
-                >
-                  <Plus size={11} />
-                  {label}
-                </button>
-              ))}
+              {unregisteredBadges.map((label) => {
+                const badge = badgeByLabel.get(label)
+                return (
+                  <button
+                    key={label}
+                    className="flex items-center gap-1.5 rounded-full border border-dashed py-1 pl-2 pr-2.5 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                    onClick={() => addBadge(label)}
+                  >
+                    <Plus size={11} />
+                    {badge ? <BadgeChip badge={badge} workspaceId={workspaceId} /> : label}
+                  </button>
+                )
+              })}
             </div>
           </Card>
         )}

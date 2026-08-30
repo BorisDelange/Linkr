@@ -77,6 +77,29 @@ function VisibleBadge({
 }
 
 /**
+ * A single badge chip, drawn exactly as the strip draws it — two-tone when its
+ * prefix names a declared category, a plain filled chip otherwise.
+ *
+ * For the places that show one badge outside a card row and would otherwise
+ * print the raw `Source::MIMIC-IV` label as text.
+ */
+export function BadgeChip({ badge, workspaceId }: { badge: ProjectBadge; workspaceId?: string }) {
+  const { i18n } = useTranslation()
+  const categories = useBadgeCategories(workspaceId)
+  const category = categoryOf(badge, categories, i18n.language)
+
+  return (
+    <VisibleBadge
+      badge={badge}
+      label={localized(badge.label, i18n.language)}
+      value={valueOf(badge, categories, i18n.language)}
+      category={category}
+      categoryName={category ? localized(category.name, i18n.language) : ''}
+    />
+  )
+}
+
+/**
  * One-line badge row that adapts to the container width. Every badge is measured
  * at its natural (capped) width; we then keep as many as fit — always reserving
  * room for the grey "+N" chip when any overflow remains — and stop at the first
