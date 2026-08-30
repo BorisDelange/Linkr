@@ -24,6 +24,7 @@ class MappingProjectCreate(CamelModel):
     data_source_ref: dict | None = None
     vocabulary_data_source_id: str | None = None
     file_source_data: dict | None = None
+    source_extraction: dict | None = None
     raw_file_sha: str | None = None
     raw_file_name: str | None = None
     scores_file_sha: str | None = None
@@ -64,6 +65,7 @@ class MappingProjectUpdate(CamelModel):
     data_source_ref: dict | None = None
     vocabulary_data_source_id: str | None = None
     file_source_data: dict | None = None
+    source_extraction: dict | None = None
     raw_file_sha: str | None = None
     raw_file_name: str | None = None
     scores_file_sha: str | None = None
@@ -93,6 +95,7 @@ class MappingProjectResponse(CamelModel):
     data_source_ref: dict | None = None
     vocabulary_data_source_id: str | None = None
     file_source_data: dict | None = None
+    source_extraction: dict | None = None
     raw_file_sha: str | None = None
     raw_file_name: str | None = None
     scores_file_sha: str | None = None

@@ -36,6 +36,10 @@ class MappingProject(Base, TimestampMixin):
     # Parsed-file metadata WITHOUT the raw bytes (columns/columnMapping/parseOptions/
     # totalRowCount/fileName). The bytes are the blob referenced below.
     file_source_data: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # How far a database project's source-concept extraction has got, so a run
+    # interrupted by a reload (or left for three days) resumes where it stopped
+    # rather than re-profiling the whole dictionary.
+    source_extraction: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     raw_file_sha: Mapped[str | None] = mapped_column(String(64))
     raw_file_name: Mapped[str | None] = mapped_column(String(255))
     # Suggestion-scores parquet (precomputed match scores), same blob pattern as

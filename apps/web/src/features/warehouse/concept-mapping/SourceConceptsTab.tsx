@@ -76,6 +76,23 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   const [batchSize, setBatchSize] = useState(saved?.batchSize ?? 500)
   const [options, setOptions] = useState<ProfileOptions>(saved?.options ?? DEFAULT_PROFILE_OPTIONS)
 
+  // Re-adopt the stored settings whenever a different run turns up: the state
+  // above is seeded once at mount, so a project that finished loading after the
+  // tab rendered — or an extraction started from another tab — would otherwise
+  // leave the controls showing defaults while the progress bar shows the real
+  // run. Keyed on the run's own start, so it does not fight the user's edits
+  // between batches.
+  const adoptedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!saved) return
+    const runKey = `${saved.dictionaryKeys.join(',')}|${saved.total}`
+    if (adoptedRef.current === runKey) return
+    adoptedRef.current = runKey
+    setDictionaryKeys(saved.dictionaryKeys)
+    setBatchSize(saved.batchSize)
+    setOptions(saved.options)
+  }, [saved])
+
   const [running, setRunning] = useState(false)
   // Live position during a run. The persisted `extracted` only moves between
   // batches, so without this the bar would sit still for a whole batch.
