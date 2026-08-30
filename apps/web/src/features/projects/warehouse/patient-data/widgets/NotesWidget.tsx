@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { FileText, Search, Plus, Trash2, ChevronDown, ArrowDownUp } from 'lucide-react'
+import { FileText, Search, Plus, Trash2, ChevronDown } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { SearchInput } from '@/components/ui/search-input'
@@ -18,6 +18,9 @@ import { queryDataSource } from '@/lib/duckdb/engine'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { buildNotesQuery } from '@/lib/duckdb/patient-data-queries'
 import { formatDate as fmtDate } from '@/lib/format-helpers'
+import { SortPopover } from '@/components/ui/sort-popover'
+import type { SortState } from '@/components/ui/list-page-toolbar'
+import { sortNotes, noteAtOffset, NOTES_SORT_KEYS } from './notes-sort'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -296,7 +299,9 @@ export function NotesWidget({
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null)
   const [nameFilter, setNameFilter] = useState('')
   const [textSearch, setTextSearch] = useState('')
-  const [sortNewestFirst, setSortNewestFirst] = useState(false)
+  // null keeps the query's own order (newest first), which is what a clinician
+  // expects to land on.
+  const [sort, setSort] = useState<SortState | null>(null)
   // Map: lowercase word → { setIndex } for color tracking
   const [activeHighlightWords, setActiveHighlightWords] = useState<
     Map<string, { setIndex: number }>
@@ -378,11 +383,44 @@ export function NotesWidget({
     if (textSearch.trim()) {
       result = result.filter((n) => fuzzyMatch(n.note_text, textSearch))
     }
-    // The SQL returns DESC by default; reverse if user wants oldest first
-    return sortNewestFirst ? result : [...result].reverse()
-  }, [filteredNotes, textSearch, sortNewestFirst])
+    return sortNotes(result, sort)
+  }, [filteredNotes, textSearch, sort])
 
   const selectedNote = notes.find((n) => n.note_id === selectedNoteId) ?? null
+
+  const sortFields = useMemo(
+    () => [
+      { key: NOTES_SORT_KEYS.date, label: t('patient_data.notes_sort_date') },
+      { key: NOTES_SORT_KEYS.name, label: t('patient_data.notes_sort_name') },
+    ],
+    [t],
+  )
+
+  // Focus follows the selection so the NEXT arrow starts from the row the user
+  // just moved to, and the row is scrolled into view when it is off-screen.
+  const selectedRowRef = useRef<HTMLButtonElement>(null)
+  const keyboardMoveRef = useRef(false)
+  useEffect(() => {
+    if (!keyboardMoveRef.current) return
+    keyboardMoveRef.current = false
+    selectedRowRef.current?.focus({ preventScroll: true })
+    selectedRowRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [selectedNoteId])
+
+  /** Up/down move through the list, the way a mail client's message list does. */
+  const handleListKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+      const next = noteAtOffset(displayNotes, selectedNoteId, e.key === 'ArrowDown' ? 1 : -1)
+      if (!next) return
+      // Only once a move actually happens: at either end the keypress belongs to
+      // the scroll container, so the list can still be scrolled past its edge.
+      e.preventDefault()
+      keyboardMoveRef.current = true
+      setSelectedNoteId(next.note_id)
+    },
+    [displayNotes, selectedNoteId],
+  )
 
   // Build colored word list for highlighting
   const coloredWords = useMemo<ColoredWord[]>(() => {
@@ -501,6 +539,12 @@ export function NotesWidget({
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-2 py-1.5">
+        <SortPopover
+          options={sortFields}
+          value={sort}
+          onChange={setSort}
+          label={t('common.sort_by')}
+        />
         <SearchInput
           value={nameFilter}
           onChange={setNameFilter}
@@ -508,14 +552,6 @@ export function NotesWidget({
           size="dense"
           className="flex-1"
         />
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => setSortNewestFirst(!sortNewestFirst)}
-          title={sortNewestFirst ? t('patient_data.notes_sort_oldest') : t('patient_data.notes_sort_newest')}
-        >
-          <ArrowDownUp size={12} />
-        </Button>
         <SearchInput
           value={textSearch}
           onChange={setTextSearch}
@@ -541,10 +577,13 @@ export function NotesWidget({
           {/* Sidebar */}
           <Allotment.Pane minSize={120} maxSize={400}>
             <ScrollArea className="h-full">
-              <div className="p-1">
+              {/* Arrows are handled here rather than per row: the keypress lands on
+                  whichever note has focus, and the list stays one tab stop. */}
+              <div className="p-1" onKeyDown={handleListKeyDown}>
                 {displayNotes.map((note) => (
                   <button
                     key={note.note_id}
+                    ref={selectedNoteId === note.note_id ? selectedRowRef : undefined}
                     onClick={() => setSelectedNoteId(note.note_id)}
                     className={`flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors ${
                       selectedNoteId === note.note_id
