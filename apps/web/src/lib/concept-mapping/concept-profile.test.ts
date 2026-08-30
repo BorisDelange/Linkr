@@ -10,6 +10,7 @@ import {
   buildHistogramQuery,
   buildHospitalUnitsQuery,
   buildNumericStatsQuery,
+  buildPerPatientQuery,
   buildProfileBaseQuery,
   effectiveSections,
   frequencyLabel,
@@ -97,6 +98,9 @@ describe('availableSections', () => {
     expect(availableSections(bare, source(bare))).toEqual({
       numeric: false, histogram: false, categorical: false, unit: false,
       frequency: false, temporal: false, hospitalUnits: false, missingRate: false,
+      // Counting records per patient needs no value and no date — the patient
+      // table's own key is enough, so this survives where everything else falls.
+      perPatient: true,
     })
   })
 })
@@ -216,6 +220,15 @@ describe('query builders', () => {
     expect(sql).not.toContain('care_site_name')
   })
 
+  it('counts records per patient by grouping on the patient, not the rows', () => {
+    // The distribution is over patients: a plain COUNT(*) would answer "how many
+    // records" again, which the base query already reports.
+    const sql = buildPerPatientQuery(OMOP, source(), 42)
+    expect(sql).toContain('GROUP BY e."person_id"')
+    expect(sql).toContain('MIN(n) AS min')
+    expect(sql).toContain('MAX(n) AS max')
+  })
+
   it('returns nothing for a block the schema cannot back', () => {
     // An empty string, not broken SQL: the caller skips it.
     const bare: SchemaMapping = {
@@ -304,6 +317,47 @@ describe('assembleProfileJson', () => {
       ],
     }, {}, DEFAULT_PROFILE_OPTIONS)
     expect(json?.categorical_data).toEqual([{ category: 'POS', count: 40, percentage: 40 }])
+  })
+
+  it('drops categories that are only the numeric values as text', () => {
+    // MIMIC's chartevents keeps a measurement twice — `valuenum` and `value`,
+    // the latter the former as a string — so a heart rate would report a numeric
+    // distribution AND a category list of "80", "81", "82": the same data twice.
+    const json = assembleProfileJson({
+      base,
+      numeric: { min: 60, max: 100, median: 80 },
+      categorical: [
+        { category: '80', count: 60, percentage: 60 },
+        { category: '81', count: 40, percentage: 40 },
+      ],
+    }, {}, DEFAULT_PROFILE_OPTIONS)
+    expect(json?.categorical_data).toBeUndefined()
+    expect(json?.data_types).toBe('numeric')
+  })
+
+  it('keeps numeric-looking categories when there is no numeric block', () => {
+    // A genuinely categorical concept coded 0/1 has nothing to duplicate, so the
+    // suppression above must not reach it.
+    const json = assembleProfileJson({
+      base,
+      categorical: [
+        { category: '0', count: 60, percentage: 60 },
+        { category: '1', count: 40, percentage: 40 },
+      ],
+    }, {}, DEFAULT_PROFILE_OPTIONS)
+    expect(json?.categorical_data).toHaveLength(2)
+    expect(json?.data_types).toBe('categorical')
+  })
+
+  it('reports how many records one patient has', () => {
+    // Records and patients alone cannot separate a once-per-stay concept from a
+    // per-minute one: 1000 rows over 200 patients is a different variable
+    // depending on whether the rows are spread evenly or piled on one patient.
+    const json = assembleProfileJson({
+      base,
+      perPatient: { mean: 5, median: 4, min: 1, max: 90 },
+    }, {}, DEFAULT_PROFILE_OPTIONS)
+    expect(json?.records_per_patient).toEqual({ mean: 5, median: 4, min: 1, max: 90 })
   })
 
   it('omits absent keys rather than emitting nulls', () => {

@@ -63,7 +63,7 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
   const info = (rawInfo && typeof rawInfo === 'object' && !Array.isArray(rawInfo)) ? rawInfo : null
   const [jsonModalOpen, setJsonModalOpen] = useState(false)
 
-  const sections = info ? extractSections(info, t) : []
+  const sections = info ? extractSections(info, t, concept) : []
   const textFields = info ? extractTextFields(info) : []
 
   return (
@@ -104,7 +104,12 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
       {/* Content */}
       <div className="flex-1 overflow-auto p-4">
         <div className="space-y-4">
-          {/* Text fields */}
+          {/* Sections — identity and volume lead, then the charts. */}
+          {sections.map((section, i) => (
+            <SectionRenderer key={i} section={section} />
+          ))}
+
+          {/* Whatever the profile carried that no block claimed. */}
           {textFields.length > 0 && (
             <Card className="p-3">
               <table className="w-full text-xs">
@@ -119,11 +124,6 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
               </table>
             </Card>
           )}
-
-          {/* Sections */}
-          {sections.map((section, i) => (
-            <SectionRenderer key={i} section={section} />
-          ))}
 
           {/* No info */}
           {!info && (
@@ -172,6 +172,16 @@ export interface BarChartSection {
   title: string
   data: { label: string; value: number }[]
   longLabels?: boolean
+  /**
+   * Lay the bars left-to-right, categories down the Y axis.
+   *
+   * For names rather than numbers — a ward is "Medical Intensive Care Unit",
+   * which on a vertical axis has to be rotated and truncated to about a dozen
+   * characters. Along Y it gets the full width of the panel.
+   */
+  horizontal?: boolean
+  /** Append a unit to the value in the tooltip and along the axis. */
+  valueSuffix?: string
 }
 
 export interface PieChartSection {
@@ -192,6 +202,19 @@ export interface TableSection {
   rows: { label: string; value: string }[]
 }
 
+/**
+ * A titled block of label/value pairs laid out in two columns.
+ *
+ * The identity and the per-patient summary are both read as a reference table
+ * rather than scanned as a stats strip, and a single column of ten short rows
+ * wastes the width the panel already has.
+ */
+export interface FieldsSection {
+  type: 'fields'
+  title: string
+  rows: { label: string; value: string }[]
+}
+
 export interface ColumnsTableSection {
   type: 'columns_table'
   title: string
@@ -199,7 +222,7 @@ export interface ColumnsTableSection {
   rows: Record<string, unknown>[]
 }
 
-export type Section = StatsSection | BarChartSection | PieChartSection | LineChartSection | TableSection | ColumnsTableSection
+export type Section = StatsSection | BarChartSection | PieChartSection | LineChartSection | TableSection | ColumnsTableSection | FieldsSection
 
 function BarSection({ section }: { section: BarChartSection }) {
   const { t } = useTranslation()
@@ -207,6 +230,34 @@ function BarSection({ section }: { section: BarChartSection }) {
 
   const longLabels = section.longLabels || section.data.some((d) => d.label.length > 6)
   const bottomMargin = longLabels ? 70 : 25
+
+  if (section.horizontal) {
+    // Grow with the number of bars instead of squeezing them into a fixed box:
+    // twenty wards in 200px are unreadable stripes.
+    const height = Math.max(120, section.data.length * 26 + 30)
+    const fmt = (v: number) =>
+      `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}${section.valueSuffix ?? ''}`
+    return (
+      <Card className="p-3">
+        <p className="mb-2 text-xs font-medium">{section.title}</p>
+        <ResponsiveContainer width="100%" height={height}>
+          <BarChart data={section.data} layout="vertical" margin={{ left: 5, right: 12, top: 2, bottom: 2 }}>
+            <XAxis type="number" tick={{ fontSize: 10 }} domain={[0, 'auto']} tickFormatter={fmt} />
+            <YAxis
+              type="category"
+              dataKey="label"
+              tick={{ fontSize: 10 }}
+              width={140}
+              interval={0}
+              tickFormatter={(v: string) => (v.length > 22 ? `${v.slice(0, 22)}…` : v)}
+            />
+            <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'var(--color-accent)' }} formatter={(v) => fmt(Number(v))} />
+            <Bar dataKey="value" fill="#60a5fa" radius={[0, 3, 3, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
+    )
+  }
   // Numeric labels (histogram bins) get a clean linear axis with "nice" round ticks
   // shared with the rest of the app (chart-ticks). Categorical bars stay as-is.
   const numericLabels = section.data.every((d) => d.label !== '' && !isNaN(Number(d.label)))
@@ -284,6 +335,22 @@ function BarSection({ section }: { section: BarChartSection }) {
 }
 
 export function SectionRenderer({ section }: { section: Section }) {
+  if (section.type === 'fields' && section.rows.length > 0) {
+    return (
+      <Card className="p-3">
+        <p className="mb-2 text-xs font-medium">{section.title}</p>
+        <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
+          {section.rows.map((row) => (
+            <div key={row.label} className="flex items-baseline justify-between gap-3 text-xs">
+              <span className="shrink-0 text-muted-foreground">{row.label}</span>
+              <span className="min-w-0 truncate text-right font-medium" title={row.value}>{row.value}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    )
+  }
+
   if (section.type === 'stats') {
     return (
       <Card className="p-3">
@@ -443,8 +510,21 @@ const SECTION_KEYS = new Set([
   'histogram', 'distribution', 'categories', 'values',
   'numeric_data', 'temporal_distribution', 'hospital_units',
   'by_year', 'measurement_frequency', 'categorical_data',
+  'records_per_patient',
   // Normalized format keys
   'metadata', 'statistics', 'distributions', 'properties',
+])
+
+/**
+ * Keys the identity and volume blocks render under a heading.
+ *
+ * They used to appear as an untitled table above the charts, which said what the
+ * concept is without ever saying so. Now that both blocks are titled and laid
+ * out in two columns, these must not also fall through to the leftover text
+ * fields — an unknown key still does, which is the point of keeping that path.
+ */
+const IDENTITY_KEYS = new Set([
+  'full_name', 'data_source', 'unit', 'data_types', 'missing_rate',
 ])
 
 /** Keys known to be percentages (display with %). */
@@ -491,14 +571,13 @@ export function extractTextFields(info: Record<string, unknown>): { label: strin
   for (const [key, val] of Object.entries(info)) {
     if (SECTION_KEYS.has(key)) continue
     if (statsKeys.has(key)) continue
+    // The identity and volume blocks render these under a heading; leaving them
+    // here too would print each one twice.
+    if (IDENTITY_KEYS.has(key)) continue
     if (val == null) continue
     if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
       items.push({ label: formatLabel(key), value: formatValue(key, val) })
     }
-  }
-  // measurement_frequency as string (new format) — show as text field
-  if (typeof info.measurement_frequency === 'string') {
-    items.push({ label: formatLabel('measurement_frequency'), value: info.measurement_frequency })
   }
   return items
 }
@@ -521,12 +600,123 @@ function tryBuildBoxplot(nd: Record<string, unknown>): StatsSection['boxplot'] |
   return { min, p25, median, p75, max, mean }
 }
 
+/** Identity of the row being profiled, for the keys the JSON does not carry. */
+export interface ConceptIdentity {
+  concept_id?: number
+  concept_code?: string
+  concept_name?: string
+  vocabulary_id?: string
+  terminology_name?: string
+  record_count?: number
+  patient_count?: number
+}
+
+/**
+ * The block that says what this concept IS: its identity in the source
+ * vocabulary, its unit, and how much of it there is.
+ *
+ * Built from the row and the JSON together — `concept_id` and the counts live on
+ * the row, `unit` and `data_source` in the profile — because a reader asking
+ * "what am I looking at" does not care which of the two it came from.
+ */
+function extractIdentitySection(
+  info: Record<string, unknown>,
+  concept: ConceptIdentity | undefined,
+  t: TFunction,
+): FieldsSection | null {
+  const rows: { label: string; value: string }[] = []
+  const push = (label: string, value: unknown) => {
+    if (value == null || value === '') return
+    rows.push({ label, value: typeof value === 'number' ? fmtNum(value) : String(value) })
+  }
+
+  push(t('concept_mapping.detail_field_concept_name'), concept?.concept_name ?? info.full_name)
+  push(t('concept_mapping.detail_field_vocabulary'), concept?.terminology_name ?? concept?.vocabulary_id)
+  push(t('concept_mapping.detail_field_concept_id'), concept?.concept_id)
+  push(t('concept_mapping.detail_field_concept_code'), concept?.concept_code)
+  push(t('concept_mapping.detail_field_data_source'), info.data_source)
+  push(t('concept_mapping.detail_field_unit'), info.unit)
+  push(
+    t('concept_mapping.detail_field_data_types'),
+    Array.isArray(info.data_types) ? info.data_types.join(', ') : info.data_types,
+  )
+
+  if (rows.length === 0) return null
+  return { type: 'fields', title: t('concept_mapping.detail_identity'), rows }
+}
+
+/**
+ * The block that says how MUCH of this concept there is, and how it is spread
+ * over patients and time.
+ *
+ * Records, patients, records-per-patient, the typical interval and the missing
+ * rate all answer the same question — is this variable dense or sparse, and can
+ * it be trusted — so they read better together than as five separate rows and
+ * two one-line cards.
+ */
+function extractVolumeSection(
+  info: Record<string, unknown>,
+  concept: ConceptIdentity | undefined,
+  t: TFunction,
+): FieldsSection | null {
+  const rows: { label: string; value: string }[] = []
+  const push = (label: string, value: unknown, suffix = '') => {
+    if (value == null || value === '') return
+    const text = typeof value === 'number' ? fmtNum(value) : String(value)
+    rows.push({ label, value: `${text}${suffix}` })
+  }
+
+  push(t('concept_mapping.detail_field_records'), concept?.record_count)
+  push(t('concept_mapping.detail_field_patients'), concept?.patient_count)
+
+  const perPatient = asObject(info.records_per_patient)
+  if (perPatient) {
+    push(t('concept_mapping.detail_field_per_patient_mean'), perPatient.mean)
+    push(t('concept_mapping.detail_field_per_patient_median'), perPatient.median)
+    if (perPatient.min != null && perPatient.max != null) {
+      push(
+        t('concept_mapping.detail_field_per_patient_range'),
+        `${fmtNum(Number(perPatient.min))} – ${fmtNum(Number(perPatient.max))}`,
+      )
+    }
+  }
+
+  // The typical interval was a whole card holding one row; it belongs with the
+  // other density facts, next to the counts it qualifies.
+  const mf = info.measurement_frequency
+  if (typeof mf === 'string') push(t('concept_mapping.detail_field_typical_interval'), mf)
+  else {
+    const obj = asObject(mf)
+    if (obj) push(t('concept_mapping.detail_field_typical_interval'), obj.typical_interval)
+  }
+
+  push(t('concept_mapping.detail_field_missing_rate'), info.missing_rate, '%')
+
+  if (rows.length === 0) return null
+  return { type: 'fields', title: t('concept_mapping.detail_volume'), rows }
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
 /** Extract all visualizable sections from the JSON. */
-export function extractSections(info: Record<string, unknown>, t: TFunction): Section[] {
+export function extractSections(
+  info: Record<string, unknown>,
+  t: TFunction,
+  concept?: ConceptIdentity,
+): Section[] {
   // Use normalized parser if detected
   if (isNormalizedFormat(info)) return extractNormalizedSections(info, t)
 
   const sections: Section[] = []
+
+  const identity = extractIdentitySection(info, concept, t)
+  if (identity) sections.push(identity)
+  const volume = extractVolumeSection(info, concept, t)
+  if (volume) sections.push(volume)
 
   // 1. numeric_data object → compact stats row + boxplot
   if (info.numeric_data && typeof info.numeric_data === 'object' && !Array.isArray(info.numeric_data)) {
@@ -608,13 +798,14 @@ export function extractSections(info: Record<string, unknown>, t: TFunction): Se
     }
   }
 
-  // 4b. categorical_data array → table with named columns + pie/bar chart
+  // 4b. categorical_data array → table with named columns + pie/bar chart.
+  // Both render the same numbers, so they must not share one title: two cards
+  // headed "Categories" read as the same block drawn twice by mistake.
   if (Array.isArray(info.categorical_data) && info.categorical_data.length > 0) {
     const items = info.categorical_data as Record<string, unknown>[]
-    // Table with columns
     sections.push({
       type: 'columns_table',
-      title: t('concept_mapping.detail_categories'),
+      title: t('concept_mapping.detail_categories_table'),
       columns: [
         { key: 'category', label: t('concept_mapping.detail_col_value'), align: 'left' },
         { key: 'count', label: t('concept_mapping.detail_col_count'), align: 'right' },
@@ -622,10 +813,11 @@ export function extractSections(info: Record<string, unknown>, t: TFunction): Se
       ],
       rows: items,
     })
-    // Also add a pie (≤8) or bar chart
     sections.push({
       type: items.length <= 8 ? 'pie' : 'bar',
-      title: t('concept_mapping.detail_categories'),
+      title: items.length <= 8
+        ? t('concept_mapping.detail_categories_chart')
+        : t('concept_mapping.detail_categories_histogram'),
       data: items.map((item) => ({
         label: String(item.category ?? item.label ?? item.name ?? ''),
         value: Number(item.count ?? item.value ?? 0),
@@ -660,47 +852,25 @@ export function extractSections(info: Record<string, unknown>, t: TFunction): Se
     }
   }
 
-  // 7. hospital_units → pie (≤8) or bar with long labels
+  // 7. hospital_units → horizontal bars. Ward names are long, and on a vertical
+  // axis they end up rotated and cut to a dozen characters; along Y they get the
+  // panel's full width and stay readable.
   if (Array.isArray(info.hospital_units) && info.hospital_units.length > 0) {
     const units = info.hospital_units as Record<string, unknown>[]
-    if (units.length <= 8) {
-      sections.push({
-        type: 'pie',
-        title: t('concept_mapping.detail_hospital_units'),
-        data: units.map((item) => ({
-          label: String(item.unit ?? item.name ?? item.label ?? ''),
-          value: Number(item.percentage ?? item.count ?? item.value ?? 0),
-        })),
-      })
-    } else {
-      sections.push({
-        type: 'bar',
-        title: t('concept_mapping.detail_hospital_units'),
-        longLabels: true,
-        data: units.map((item) => ({
-          label: String(item.unit ?? item.name ?? item.label ?? ''),
-          value: Number(item.percentage ?? item.count ?? item.value ?? 0),
-        })),
-      })
-    }
+    sections.push({
+      type: 'bar',
+      title: t('concept_mapping.detail_hospital_units'),
+      horizontal: true,
+      valueSuffix: units.some((item) => item.percentage != null) ? '%' : '',
+      data: units.map((item) => ({
+        label: String(item.unit ?? item.name ?? item.label ?? ''),
+        value: Number(item.percentage ?? item.count ?? item.value ?? 0),
+      })),
+    })
   }
 
-  // 8. measurement_frequency → string (new format) or table (legacy object format)
-  if (info.measurement_frequency != null) {
-    if (typeof info.measurement_frequency === 'string') {
-      // New format: direct string value — handled as text field below (removed from SECTION_KEYS would show it)
-      // We don't need a section for it, it will appear in textFields
-    } else if (typeof info.measurement_frequency === 'object') {
-      const mf = info.measurement_frequency as Record<string, unknown>
-      const rows: { label: string; value: string }[] = []
-      for (const [key, val] of Object.entries(mf)) {
-        if (val != null) rows.push({ label: formatLabel(key), value: String(val) })
-      }
-      if (rows.length > 0) {
-        sections.push({ type: 'table', title: t('concept_mapping.detail_measurement_frequency'), rows })
-      }
-    }
-  }
+  // measurement_frequency is folded into the volume block above — a card holding
+  // one "typical interval" row was a heading with nothing under it.
 
   // 9. Any remaining arrays of objects → table
   for (const [key, val] of Object.entries(info)) {
@@ -738,7 +908,7 @@ function extractTopLevelStats(info: Record<string, unknown>): StatsSection['item
     { key: 'nullCount', label: 'Nulls' },
     { key: 'recordCount', label: 'Records' },
     { key: 'patientCount', label: 'Patients' },
-    { key: 'missing_rate', label: 'Missing rate' },
+    // missing_rate is reported by the volume block, with the counts it qualifies.
     { key: 'missingness', label: 'Missingness' },
   ]
   for (const def of defs) {

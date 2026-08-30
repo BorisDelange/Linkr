@@ -6,14 +6,12 @@ import {
   ArrowRightLeft,
   BarChart3,
   ChevronRight,
-  Database,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { applySort, visitSortFields } from '@/lib/list-sort'
@@ -87,7 +85,6 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   // import/create refresh — reading only getWorkspaceProjects (a stable fn) left
   // the widgets stale until a full reload.
   const allMappingProjects = useConceptMappingStore((s) => s.mappingProjects)
-  const dataSources = useDataSourceStore((s) => s.dataSources)
   const mappingActions = useMappingProjectActions()
 
   useEffect(() => {
@@ -101,9 +98,6 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   // Stats are persisted in MappingProject.stats and refreshed on every mapping mutation
   // (via createMapping / updateMapping / deleteMapping in the store). No need to recompute
   // them on every list-page mount.
-  const getSourceName = (sourceId: string) =>
-    localized(dataSources.find((ds) => ds.id === sourceId)?.name, language) || t('concept_mapping.unknown_source')
-
   // Search + filter state (only used in the projects list sub-view)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
@@ -524,13 +518,9 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
                     <TruncatedText text={localized(project.description, language)} className="text-xs text-muted-foreground" />
                   )}
                 </div>
-                {/* Source row — only for database-backed projects (file source hidden) */}
-                {project.sourceType !== 'file' && (
-                  <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Database size={12} className="shrink-0" />
-                    <span className="truncate">{getSourceName(project.dataSourceId)}</span>
-                  </div>
-                )}
+                {/* The source — database or file — is on the project's Overview,
+                    where there is room to name it. On a card competing with the
+                    badges and the progress bar it cost a row and said little. */}
                 {/* Badges + approved count (right) */}
                 <div className="mt-2 flex h-5 items-center gap-1.5">
                   <BadgeStrip badges={project.badges ?? []} className="min-w-0 flex-1" />

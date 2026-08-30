@@ -20,7 +20,6 @@ import { cn } from '@/lib/utils'
 import {
   DEFAULT_PROFILE_OPTIONS,
   availableSections,
-  effectiveSections,
   resolveProfileSource,
   type ProfileOptions,
   type ProfileSections,
@@ -28,11 +27,15 @@ import {
 import {
   EXTRACTION_COLUMNS,
   EXTRACTION_COLUMN_MAPPING,
-  buildDictionaryCountQuery,
-  extractBatch,
-  extractionCsvHeader,
-  extractionCsvRows,
 } from '@/lib/concept-mapping/source-extraction'
+import {
+  clearRunError,
+  getRunSnapshot,
+  pauseRun,
+  startRun,
+  watchRun,
+  type RunSnapshot,
+} from '@/lib/concept-mapping/extraction-runner'
 import type { DataSource, MappingProject, SourceExtraction } from '@/types'
 
 interface SourceConceptsTabProps {
@@ -41,32 +44,46 @@ interface SourceConceptsTabProps {
 }
 
 /**
- * Concepts profiled between two writes of the CSV.
- *
- * Not a user setting: progress is counted and resumed in concepts, so this only
- * trades how much work a crash could lose against how often a large CSV is
- * re-encoded. 500 keeps both small.
- */
-const SAVE_EVERY = 500
-
-/**
  * The profile blocks, in the order they are offered.
  *
  * Ordered the way you read a concept you have never seen: first how much of it
- * there is (completeness), then what its values ARE — numbers described, then
- * drawn, then their unit; then the same for text values — and finally the
- * context that says where the records came from rather than what they hold.
+ * there is, then what its values ARE, and finally where the records came from.
+ * Grouped contiguously, because the dropdown heads each run with the name of the
+ * detail-view block it feeds — see SECTION_GROUPS.
  */
 const SECTION_KEYS: (keyof ProfileSections)[] = [
+  // Volume and coverage — how much of this concept there is.
   'missingRate',
+  'perPatient',
+  'frequency',
+  // Values — what the records actually hold.
   'numeric',
   'histogram',
   'unit',
   'categorical',
-  'frequency',
+  // Context — where and when the records came from.
   'temporal',
   'hospitalUnits',
 ]
+
+/**
+ * Which block of the concept detail view each option ends up in.
+ *
+ * The same three headings the profile is READ under, so the choice of what to
+ * compute and the result it produces are described in one vocabulary. The keys
+ * are i18n suffixes, resolved against `concept_mapping.extract_group_*`.
+ */
+const SECTION_GROUPS: Record<keyof ProfileSections, string> = {
+  missingRate: 'volume',
+  perPatient: 'volume',
+  frequency: 'volume',
+  numeric: 'values',
+  histogram: 'values',
+  unit: 'values',
+  categorical: 'values',
+  temporal: 'context',
+  hospitalUnits: 'context',
+}
 
 /**
  * Extract a database project's source concepts, resumably.
@@ -93,8 +110,11 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   const dictionaries = useMemo(() => mapping?.conceptTables ?? [], [mapping])
 
   const saved = project.sourceExtraction
+  // Every dictionary by default: a project's source concepts are all of them,
+  // and starting on one meant a full extraction took as many manual runs as the
+  // schema has dictionaries.
   const [dictionaryKeys, setDictionaryKeys] = useState<string[]>(
-    saved?.dictionaryKeys ?? (dictionaries[0] ? [dictionaries[0].key] : []),
+    saved?.dictionaryKeys ?? dictionaries.map((d) => d.key),
   )
   const [options, setOptions] = useState<ProfileOptions>(saved?.options ?? DEFAULT_PROFILE_OPTIONS)
 
@@ -114,13 +134,25 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     setOptions(saved.options)
   }, [saved])
 
-  const [running, setRunning] = useState(false)
-  // Live position during a run. The persisted `extracted` only moves between
-  // batches, so without this the bar would sit still for a whole batch.
-  const [liveExtracted, setLiveExtracted] = useState<number | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // The default above is computed at mount, when the schema may not have loaded
+  // yet and there is nothing to select. Fill it in once the dictionaries arrive,
+  // but only while the user has made no choice of their own.
+  const seededRef = useRef(false)
+  useEffect(() => {
+    if (saved || seededRef.current || dictionaries.length === 0) return
+    seededRef.current = true
+    setDictionaryKeys((keys) => (keys.length > 0 ? keys : dictionaries.map((d) => d.key)))
+  }, [saved, dictionaries])
+
+  // The run itself lives in the module-level registry, not here: leaving the tab
+  // must not stop an extraction that takes hours. This only mirrors what the run
+  // reports — including a run this component never started.
+  const [snapshot, setSnapshot] = useState<RunSnapshot>(() => getRunSnapshot(project.id))
   const [confirmRestart, setConfirmRestart] = useState(false)
-  const abortRef = useRef<AbortController | null>(null)
+  const { running, error } = snapshot
+  // Live position during a run. The persisted `extracted` only moves between
+  // save points, so without this the bar would sit still for hundreds of concepts.
+  const liveExtracted = snapshot.extracted
 
   /** The dictionaries to walk, in a fixed order, with their event tables resolved. */
   const sources = useMemo(() => {
@@ -149,9 +181,12 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     }, null)
   }, [mapping, sources])
 
-  // Stop the run when the tab goes away: its batches write to the project, and a
-  // run outliving the view would keep doing so behind the user's back.
-  useEffect(() => () => abortRef.current?.abort(), [])
+  // Follow the project's run for as long as this view is mounted. Unsubscribing
+  // deliberately does NOT stop it — a tab that was left is not a cancellation.
+  useEffect(() => {
+    setSnapshot(getRunSnapshot(project.id))
+    return watchRun(project.id, setSnapshot)
+  }, [project.id])
 
   const extracted = liveExtracted ?? saved?.extracted ?? 0
   const total = saved?.total ?? 0
@@ -175,89 +210,41 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
 
   const run = useCallback(async (restart: boolean) => {
     if (!mapping || sources.length === 0 || !dataSource) return
-    const controller = new AbortController()
-    abortRef.current = controller
-    setRunning(true)
-    setError(null)
-
+    clearRunError(project.id)
     try {
+      // Mounting can fail (a moved file, a dropped connection), and it is the one
+      // step that must finish before the run can be handed over.
       await ensureMounted(dataSource.id)
-      const query = (sql: string) => queryDataSource(dataSource.id, sql)
+    } catch (err) {
+      setSnapshot((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }))
+      return
+    }
 
+    startRun({
+      projectId: project.id,
+      mapping,
+      sources,
+      options,
       // A restart re-counts: the dictionaries may have grown since the last run,
       // and resuming against a stale total would stop short of the new rows.
-      let offset = restart ? 0 : (saved?.extracted ?? 0)
-      let runTotal = restart ? 0 : (saved?.total ?? 0)
-      // Per-dictionary sizes, so a global offset can be mapped onto the right one.
-      const sizes: number[] = []
-      for (const s of sources) {
-        const rows = await query(buildDictionaryCountQuery(s))
-        sizes.push(Number(rows[0]?.total ?? 0))
-      }
-      if (runTotal === 0) runTotal = sizes.reduce((a, b) => a + b, 0)
-
+      resumeFrom: restart ? null : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0 },
       // Resuming appends to what is already there; restarting starts a new file.
-      let csv = restart ? extractionCsvHeader() : readExistingCsv(project) ?? extractionCsvHeader()
-      const keys = sources.map((s) => s.dictionary.key)
-
-      setLiveExtracted(offset)
-      // Runs until paused or finished. Concepts are the unit of progress — the
-      // offset counts them, and a resume picks up at the next one — so the batch
-      // below is only how often the CSV is written back, never something the run
-      // stops on.
-      while (!controller.signal.aborted && offset < runTotal) {
-        // Which dictionary the global offset falls in, and where inside it.
-        let index = 0
-        let local = offset
-        while (index < sizes.length && local >= sizes[index]) {
-          local -= sizes[index]
-          index++
-        }
-        if (index >= sources.length) break
-
-        const source = sources[index]
-        const sections = effectiveSections(options.sections, availableSections(mapping, source))
-        const batch = await extractBatch(
-          mapping, source, { ...options, sections }, local,
-          // Never read past this dictionary's end in one batch: the next one has
-          // its own columns, and mixing them into one page would misread them.
-          Math.min(SAVE_EVERY, sizes[index] - local),
-          runTotal, query, controller.signal,
-          (n) => setLiveExtracted(offset - local + n),
-        )
-        if (batch.rows.length > 0) csv += `\n${extractionCsvRows(batch.rows)}`
-        // A batch that yields nothing and is not done would spin forever.
-        if (batch.rows.length === 0 && !batch.done) break
-        offset += batch.rows.length
-
-        await persist(
-          {
-            dictionaryKeys: keys, extracted: offset, total: runTotal,
-            options: { ...options, sections }, updatedAt: new Date().toISOString(),
-          },
-          csv, offset,
-        )
-      }
-      setLiveExtracted(null)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      setError(message)
-      setLiveExtracted(null)
-      if (saved) {
+      existingCsv: restart ? null : readExistingCsv(project),
+      query: (sql) => queryDataSource(dataSource.id, sql),
+      persist,
+      persistError: async (message) => {
+        if (!saved) return
         await updateMappingProject(project.id, {
           sourceExtraction: { ...saved, error: message, updatedAt: new Date().toISOString() },
         })
-      }
-    } finally {
-      setRunning(false)
-      abortRef.current = null
-    }
+      },
+    })
   }, [
     mapping, sources, dataSource, ensureMounted, saved, project, options,
     persist, updateMappingProject,
   ])
 
-  const stop = useCallback(() => abortRef.current?.abort(), [])
+  const stop = useCallback(() => pauseRun(project.id), [project.id])
 
   if (!dataSource || !mapping) {
     return <EmptyState message={t('concept_mapping.extract_no_database')} />
@@ -268,7 +255,11 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
 
   const sectionOptions = SECTION_KEYS
     .filter((key) => available?.[key])
-    .map((key) => ({ value: key, label: t(`concept_mapping.extract_section_${key}`) }))
+    .map((key) => ({
+      value: key,
+      label: t(`concept_mapping.extract_section_${key}`),
+      group: t(`concept_mapping.extract_group_${SECTION_GROUPS[key]}`),
+    }))
   const selectedSections = sectionOptions
     .map((o) => o.value)
     .filter((key) => options.sections[key as keyof ProfileSections])
@@ -279,7 +270,11 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     // need a beat before the first one appears — otherwise moving across the
     // panel flashes them — but none between one row and the next, since reading
     // down a list is a single act of comparison.
-    <TooltipProvider delayDuration={500} skipDelayDuration={1000}>
+    //
+    // The skip window is short on purpose: it is global to the provider, so a
+    // long one also covers leaving the dropdown entirely, and coming back would
+    // fire a tooltip instantly. 300ms spans a row-to-row move and little else.
+    <TooltipProvider delayDuration={500} skipDelayDuration={300}>
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-3 overflow-auto px-6 py-4">
       <Card className="flex flex-col gap-4 p-5">
         <div className="flex items-center gap-1.5">
@@ -334,6 +329,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
                   </TooltipContent>
                 </Tooltip>
               )}
+              groupOptions
               showChevron
               popoverWidthClass="w-72"
               triggerClass={cn(MULTI_SELECT_FORM_TRIGGER, running && 'pointer-events-none opacity-50')}
@@ -442,7 +438,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
               second what that now makes possible. Run together on the button
               row they read as one long aside and got skipped. */}
           {done && (
-            <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+            <div className="flex flex-col gap-0.5 pt-1 text-[10px] text-muted-foreground">
               <span>{t('concept_mapping.extract_done_hint')}</span>
               <span>{t('concept_mapping.extract_done_hint_travels')}</span>
             </div>

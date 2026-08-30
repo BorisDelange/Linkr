@@ -9,8 +9,8 @@ import { cn } from '@/lib/utils'
  *  any value via the search box. Small lists (the common case) never hit this. */
 const RENDER_CAP = 200
 
-/** Generic option shape. */
-export type MultiSelectOption = string | { value: string; label: string }
+/** Generic option shape. `group` is the heading the row is filed under. */
+export type MultiSelectOption = string | { value: string; label: string; group?: string }
 
 interface MultiSelectFilterProps {
   /** Currently selected values. Empty array = no filter (matches everything). */
@@ -30,6 +30,9 @@ interface MultiSelectFilterProps {
   /** Optional custom renderer for an option's content (e.g. a type badge before the label).
    *  When omitted, the label text is shown. */
   renderOption?: (option: { value: string; label: string }) => ReactNode
+  /** Show each option's `group` as a heading above its rows. Options keep the
+   *  order they were given; a group heading is emitted when the group changes. */
+  groupOptions?: boolean
   /** Show a chevron so the closed control reads as a normal form select rather
    *  than an inline table filter. For selects sitting in a form, not in a header. */
   showChevron?: boolean
@@ -68,6 +71,7 @@ export function MultiSelectFilter({
   selectAllRespectsSearch = true,
   renderOption,
   showChevron = false,
+  groupOptions = false,
 }: MultiSelectFilterProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -183,11 +187,21 @@ export function MultiSelectFilter({
           style={{ maxHeight: 'min(420px, var(--radix-popover-content-available-height, 420px))' }}
           onWheel={(e) => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
         >
-          {visible.map((opt) => {
+          {visible.map((opt, i) => {
             const isSelected = valueSet.has(opt.value)
+            // A heading whenever the group changes, so the list reads as the
+            // same sections the data itself is presented in.
+            const heading = groupOptions && opt.group && opt.group !== visible[i - 1]?.group
+              ? opt.group
+              : null
             return (
+              <div key={opt.value} className={cn(heading && i > 0 && 'border-t')}>
+              {heading && (
+                <p className="bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {heading}
+                </p>
+              )}
               <button
-                key={opt.value}
                 type="button"
                 // The native tooltip only repeats a label the row may have
                 // truncated. A caller rendering its own row usually puts a real
@@ -209,6 +223,7 @@ export function MultiSelectFilter({
                 </div>
                 {renderOption ? renderOption(opt) : <span className="truncate">{opt.label}</span>}
               </button>
+              </div>
             )
           })}
           {searchFiltered.length === 0 && (

@@ -50,6 +50,8 @@ export interface ProfileSections {
   hospitalUnits: boolean
   /** `missing_rate` — share of records whose value columns are all empty. */
   missingRate: boolean
+  /** `per_patient` — how many records one patient has: mean/median/min/max. */
+  perPatient: boolean
 }
 
 export const DEFAULT_PROFILE_SECTIONS: ProfileSections = {
@@ -61,6 +63,7 @@ export const DEFAULT_PROFILE_SECTIONS: ProfileSections = {
   temporal: true,
   hospitalUnits: true,
   missingRate: true,
+  perPatient: true,
 }
 
 /** How the profile is computed. Mirrors ehop-tools' `profile_concept()` args. */
@@ -170,6 +173,7 @@ export function availableSections(
     temporal: hasDate,
     hospitalUnits: !!resolveWardExpr(mapping, et),
     missingRate: !!(et.valueColumn || et.valueStringColumn),
+    perPatient: !!resolvePatientColumn(mapping, et),
   }
 }
 
@@ -496,6 +500,31 @@ export function buildFrequencyQuery(
   SELECT MEDIAN(hours) AS median_hours FROM intervals WHERE hours > 0`
 }
 
+/**
+ * How many records one patient has for this concept.
+ *
+ * Tells apart a concept measured once per stay from one sampled every minute,
+ * which the record and patient totals alone cannot: 10 000 records over 100
+ * patients is a different variable depending on whether every patient has 100 or
+ * one patient has 9 901.
+ */
+export function buildPerPatientQuery(
+  mapping: SchemaMapping,
+  source: ProfileSource,
+  conceptId: number,
+): string {
+  const et = source.eventTable
+  const patientCol = resolvePatientColumn(mapping, et)
+  if (!patientCol) return ''
+  return `WITH per_patient AS (
+    SELECT COUNT(*) AS n
+    ${eventScope(et, conceptId)}
+    GROUP BY e."${patientCol}"
+  )
+  SELECT ROUND(AVG(n), 1) AS mean, MEDIAN(n) AS median, MIN(n) AS min, MAX(n) AS max
+  FROM per_patient`
+}
+
 /** Date range plus the per-year share of records. */
 export function buildTemporalQuery(source: ProfileSource, conceptId: number): string {
   const et = source.eventTable
@@ -546,6 +575,7 @@ export interface ProfileQueryResults {
   frequency?: { median_hours: number | null }
   temporal?: { year: number; percentage: number; start_date: string; end_date: string }[]
   hospitalUnits?: { unit: string; percentage: number }[]
+  perPatient?: { mean: number | null; median: number | null; min: number | null; max: number | null }
 }
 
 /** Identity of the concept being profiled, for the descriptive keys. */
@@ -577,6 +607,29 @@ function maskLongValue(value: string, maxLength: number): string | null {
 }
 
 /**
+ * Whether the "categories" are just the numeric values written as text.
+ *
+ * Some schemas keep a measurement twice in one row — MIMIC's chartevents has
+ * both `valuenum` and `value`, the latter being the former as a string. Profiled
+ * naively, a heart rate then reports a numeric distribution AND a category list
+ * of "80", "81", "82", which is the same data shown twice and reads as a bug.
+ *
+ * Only claimed when the concept has numeric data too: a genuinely categorical
+ * concept whose codes happen to be numbers ("0"/"1") keeps its categories, since
+ * without a numeric block there is nothing for them to duplicate.
+ */
+function categoriesMirrorNumbers(
+  categories: { category: string }[],
+  hasNumeric: boolean,
+): boolean {
+  if (!hasNumeric || categories.length === 0) return false
+  return categories.every((row) => {
+    const trimmed = row.category.trim()
+    return trimmed !== '' && Number.isFinite(Number(trimmed))
+  })
+}
+
+/**
  * Assemble the profile JSON from the executed queries.
  *
  * Absent keys are omitted rather than emitted as null: the detail view renders
@@ -599,9 +652,10 @@ export function assembleProfileJson(
   if (concept.dataSource) out.data_source = concept.dataSource
 
   const hasNumeric = !!results.numeric && results.numeric.min != null
-  const categorical = (results.categorical ?? [])
+  const masked = (results.categorical ?? [])
     .map((row) => ({ ...row, category: maskLongValue(row.category, options.maxCategoryLength) }))
     .filter((row): row is typeof row & { category: string } => row.category !== null)
+  const categorical = categoriesMirrorNumbers(masked, hasNumeric) ? [] : masked
   const hasCategorical = categorical.length > 0
 
   // `data_types` drives nothing in the renderer but tells a reviewer at a glance
@@ -624,6 +678,11 @@ export function assembleProfileJson(
   if (interval) out.measurement_frequency = { typical_interval: interval }
 
   if (results.missingRate?.missing_rate != null) out.missing_rate = results.missingRate.missing_rate
+
+  if (results.perPatient) {
+    const perPatient = pickDefined(results.perPatient, ['mean', 'median', 'min', 'max'])
+    if (Object.keys(perPatient).length > 0) out.records_per_patient = perPatient
+  }
 
   const temporal = results.temporal ?? []
   if (temporal.length > 0) {
@@ -748,6 +807,11 @@ export async function buildConceptProfile(
   if (sections.hospitalUnits) {
     const rows = await run(buildHospitalUnitsQuery(mapping, source, concept.conceptId, options.topN))
     if (rows.length) results.hospitalUnits = rows as unknown as ProfileQueryResults['hospitalUnits']
+  }
+
+  if (sections.perPatient) {
+    const rows = await run(buildPerPatientQuery(mapping, source, concept.conceptId))
+    if (rows[0]) results.perPatient = rows[0] as unknown as ProfileQueryResults['perPatient']
   }
 
   const json = assembleProfileJson(
