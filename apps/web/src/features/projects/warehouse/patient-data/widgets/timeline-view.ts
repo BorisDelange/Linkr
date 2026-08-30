@@ -47,18 +47,34 @@ export function zoomWindow(
   return clampWindow({ lo, hi: lo + nextSpan }, bounds)
 }
 
-/** Shift a window by a pixel drag, given the plot width it was drawn at. */
-export function panWindow(
+/** Smallest drag, in pixels, that counts as a deliberate selection rather than a click. */
+export const MIN_DRAG_PX = 3
+
+/**
+ * The window a rubber-band selection over the PLOT zooms to, from two x
+ * positions in it.
+ *
+ * Returns null for a drag too short to be deliberate, so a plain click on the
+ * chart leaves the view alone instead of zooming it to nothing.
+ */
+export function windowFromPlotDrag(
+  x0: number,
+  x1: number,
+  plotL: number,
+  plotW: number,
   view: TimeWindow,
   bounds: TimeWindow,
-  dxPx: number,
-  plotW: number,
-): TimeWindow {
-  if (plotW <= 0) return view
+): TimeWindow | null {
+  if (plotW <= 0) return null
+  const a = Math.min(x0, x1)
+  const b = Math.max(x0, x1)
+  if (b - a < MIN_DRAG_PX) return null
+  // Unlike the strip, the plot shows the CURRENT window, so a selection reads
+  // against `view` — this is what lets the user zoom in repeatedly.
   const span = view.hi - view.lo
-  const dt = (dxPx / plotW) * span
-  // Dragging right moves the window back in time, like pulling a sheet of paper.
-  return clampWindow({ lo: view.lo - dt, hi: view.hi - dt }, bounds)
+  const lo = view.lo + ((a - plotL) / plotW) * span
+  const hi = view.lo + ((b - plotL) / plotW) * span
+  return clampWindow({ lo, hi }, bounds)
 }
 
 /** Geometry of the range strip, as the painter laid it out. */

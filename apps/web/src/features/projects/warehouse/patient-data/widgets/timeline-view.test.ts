@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   clampWindow,
   zoomWindow,
-  panWindow,
+  windowFromPlotDrag,
   hitRange,
   windowFromRangeGrab,
   windowFromRangeJump,
@@ -74,26 +74,36 @@ describe('zoomWindow', () => {
   })
 })
 
-describe('panWindow', () => {
-  it('drags the window back in time when pulled right', () => {
-    // 100px of 200px wide, over a 20s window → 10s back.
-    const next = panWindow({ lo: 40_000, hi: 60_000 }, BOUNDS, 100, 200)
-    expect(next).toEqual({ lo: 30_000, hi: 50_000 })
+describe('windowFromPlotDrag', () => {
+  // The plot, x=0..200, showing the whole record.
+  const FULL = { lo: 0, hi: 100_000 }
+
+  it('selects the dragged span', () => {
+    expect(windowFromPlotDrag(50, 100, 0, 200, FULL, BOUNDS)).toEqual({ lo: 25_000, hi: 50_000 })
   })
 
-  it('drags forward when pulled left', () => {
-    const next = panWindow({ lo: 40_000, hi: 60_000 }, BOUNDS, -100, 200)
-    expect(next).toEqual({ lo: 50_000, hi: 70_000 })
+  it('works when dragged right to left', () => {
+    expect(windowFromPlotDrag(100, 50, 0, 200, FULL, BOUNDS)).toEqual({ lo: 25_000, hi: 50_000 })
   })
 
-  it('stops at the edge keeping the span', () => {
-    const next = panWindow({ lo: 0, hi: 20_000 }, BOUNDS, 500, 200)
-    expect(next).toEqual({ lo: 0, hi: 20_000 })
+  it('reads against the current window, so zooming in twice keeps working', () => {
+    // Already zoomed to 40s..60s: the same pixels now mean a much shorter span.
+    const zoomed = { lo: 40_000, hi: 60_000 }
+    expect(windowFromPlotDrag(50, 100, 0, 200, zoomed, BOUNDS)).toEqual({ lo: 45_000, hi: 50_000 })
   })
 
-  it('ignores a pan before the plot has been measured', () => {
-    const view = { lo: 0, hi: 20_000 }
-    expect(panWindow(view, BOUNDS, 50, 0)).toBe(view)
+  it('ignores a click, which would zoom to nothing', () => {
+    expect(windowFromPlotDrag(100, 101, 0, 200, FULL, BOUNDS)).toBeNull()
+  })
+
+  it('clamps a drag that runs off the plot', () => {
+    const r = windowFromPlotDrag(-50, 250, 0, 200, FULL, BOUNDS)!
+    expect(r.lo).toBeGreaterThanOrEqual(BOUNDS.lo)
+    expect(r.hi).toBeLessThanOrEqual(BOUNDS.hi)
+  })
+
+  it('ignores a drag before the plot has been measured', () => {
+    expect(windowFromPlotDrag(50, 100, 0, 0, FULL, BOUNDS)).toBeNull()
   })
 })
 

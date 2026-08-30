@@ -7,10 +7,11 @@ import {
   axisTicks,
   hitRange,
   isFullWindow,
-  panWindow,
+  windowFromPlotDrag,
   windowFromRangeGrab,
   windowFromRangeJump,
   zoomWindow,
+  MIN_DRAG_PX,
   type RangeGeom,
   type RangeHit,
   type TimeWindow,
@@ -52,7 +53,7 @@ const CURSORS: Record<string, string> = {
   hi: 'ew-resize',
   move: 'grab',
   jump: 'pointer',
-  grabbing: 'grabbing',
+  // The plot, where a press-drag selects a span.
   plot: 'crosshair',
 }
 
@@ -255,7 +256,7 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
   // --- Gestures -----------------------------------------------------------
 
   const dragRef = useRef<
-    | { kind: 'pan'; x: number; view: TimeWindow }
+    | { kind: 'select'; x0: number; x1: number }
     | { kind: 'range'; mode: 'move' | 'lo' | 'hi'; grab: number }
     | null
   >(null)
@@ -263,7 +264,9 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
    * What the pointer is over, mirrored into state purely to drive the cursor:
    * a ref cannot be read during render. Null when nothing actionable is under it.
    */
-  const [cursor, setCursor] = useState<'grabbing' | RangeHit>(null)
+  const [cursor, setCursor] = useState<RangeHit>(null)
+  /** The band being dragged over the plot, mirrored for the overlay. */
+  const [band, setBand] = useState<{ x0: number; x1: number } | null>(null)
 
   const localPoint = (e: React.PointerEvent | React.WheelEvent) => {
     const r = canvasRef.current?.getBoundingClientRect()
@@ -302,10 +305,17 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
         setCursor(hit === 'jump' ? 'move' : hit)
         return
       }
-      dragRef.current = { kind: 'pan', x, view }
-      setCursor('grabbing')
+      // Over the plot — and only there — a press-drag rubber-bands a span to
+      // zoom into. Gated on the rows rather than on "not the strip": the strip's
+      // own margins fall outside its hit box too, and a selection started in
+      // them would be a gesture the user never aimed at.
+      if (y <= chartH && x >= plotL) {
+        dragRef.current = { kind: 'select', x0: x, x1: x }
+        setBand({ x0: x, x1: x })
+        setHover(null)
+      }
     },
-    [view, bounds, onViewChange],
+    [view, bounds, onViewChange, chartH, plotL],
   )
 
   const onPointerMove = useCallback(
@@ -313,8 +323,11 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
       const { x, y } = localPoint(e)
       const drag = dragRef.current
 
-      if (drag?.kind === 'pan') {
-        onViewChange(panWindow(drag.view, bounds, x - drag.x, plotW))
+      if (drag?.kind === 'select') {
+        // Held inside the plot: dragging off the end extends the selection to
+        // the edge rather than painting the band over the gutter of labels.
+        drag.x1 = Math.max(plotL, Math.min(plotL + plotW, x))
+        setBand({ x0: drag.x0, x1: drag.x1 })
         return
       }
       if (drag?.kind === 'range' && rangeRef.current) {
@@ -374,14 +387,25 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
       }
       setHover({ x, y, title: s.name, value, lines })
     },
-    [view, bounds, plotW, onViewChange, rowH, chartH, series, t],
+    [view, bounds, onViewChange, rowH, chartH, plotL, plotW, series, t],
   )
 
-  const onPointerUp = useCallback((e: React.PointerEvent) => {
-    dragRef.current = null
-    setCursor(null)
-    ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
-  }, [])
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      const drag = dragRef.current
+      dragRef.current = null
+      setCursor(null)
+      ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+      if (drag?.kind === 'select') {
+        setBand(null)
+        // Null for a click rather than a drag: the view is then left alone,
+        // since zooming to a zero-width span would blank the chart.
+        const next = windowFromPlotDrag(drag.x0, drag.x1, plotL, plotW, view, bounds)
+        if (next) onViewChange(next)
+      }
+    },
+    [plotL, plotW, view, bounds, onViewChange],
+  )
 
   const zoomed = !isFullWindow(view, bounds)
 
@@ -400,6 +424,16 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
         onMouseDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
       />
+      {band && Math.abs(band.x1 - band.x0) >= MIN_DRAG_PX && (
+        <div
+          className="pointer-events-none absolute top-0 border-x border-primary/60 bg-primary/15"
+          style={{
+            left: Math.min(band.x0, band.x1),
+            width: Math.abs(band.x1 - band.x0),
+            height: chartH,
+          }}
+        />
+      )}
       {zoomed && (
         <button
           onClick={() => onViewChange(bounds)}
