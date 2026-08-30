@@ -80,7 +80,7 @@ import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFile
 import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, MappingEquivalence, EffectiveMappingStatus, DataSource } from '@/types'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
-import { effectiveMappingStatus, isMappingLocked, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
+import { effectiveMappingStatus, isMappingLocked, readsFromFlatSource, resolveDisplayedSourceConceptId } from '@/lib/concept-mapping/mapping-status'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { EquivalenceMenuItems } from './components/EquivalenceMenuItems'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
@@ -1013,13 +1013,17 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
    *  artificial row-number index, not a real OMOP concept_id. The registry is authoritative. */
   const useRegistryForId = isFileSource && !project.fileSourceData?.columnMapping?.conceptIdColumn
 
-  /** The source concept id as displayed: registry-assigned, or the row's own. */
+  /** The source concept id as displayed: registry-assigned, or the row's own.
+   *  Shares `resolveDisplayedSourceConceptId` with the Mapping editor so the two
+   *  tabs cannot drift — they showed different ids for the same concept. */
   const resolveSourceConceptId = useCallback((m: ConceptMapping): number | null => {
-    const fromRegistry = sourceConceptIdMap.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`) ?? null
-    if (useRegistryForId) return fromRegistry
-    if (m.sourceConceptId && m.sourceConceptId !== 0) return m.sourceConceptId
-    return fromRegistry
-  }, [sourceConceptIdMap, useRegistryForId])
+    if (useRegistryForId) {
+      return sourceConceptIdMap.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`) ?? null
+    }
+    return resolveDisplayedSourceConceptId(
+      project, sourceConceptIdMap, m.sourceVocabularyId, m.sourceConceptCode, m.sourceConceptId,
+    )
+  }, [project, sourceConceptIdMap, useRegistryForId])
 
   /** Parse a raw info_json value (string or object) into a Record. */
   const parseInfoJson = (raw: unknown): Record<string, unknown> | null => {

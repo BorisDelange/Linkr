@@ -24,6 +24,46 @@ export function readsFromFlatSource(
 }
 
 /**
+ * Whether a project's native source concept id is a real OMOP concept id.
+ *
+ * Only an imported file whose author mapped a column of OMOP concept ids gives
+ * one. A database project's native id is that database's own key — a MIMIC
+ * `d_items.itemid`, say — which is meaningful locally and nowhere else; the
+ * extraction copies it into `concept_id`, so the presence of a `conceptIdColumn`
+ * says nothing on its own. A file with no such column carries an artificial
+ * row-number index. In both of those cases the badge registry is authoritative.
+ */
+export function hasNativeOmopConceptId(
+  project: Pick<MappingProject, 'sourceType' | 'fileSourceData'>,
+): boolean {
+  return project.sourceType === 'file' && !!project.fileSourceData?.columnMapping?.conceptIdColumn
+}
+
+/**
+ * The source concept id to display: the id assigned from a workspace badge when
+ * one exists, else the project's native id.
+ *
+ * The registry wins because an assigned id is always a valid custom OMOP id in
+ * the badge's band, and it is what identifies the originating site once rows
+ * from several centres land in one warehouse. A native id is preferred only
+ * where it is genuinely an OMOP concept id.
+ */
+export function resolveDisplayedSourceConceptId(
+  project: Pick<MappingProject, 'sourceType' | 'fileSourceData'>,
+  registry: Map<string, number> | undefined,
+  vocabularyId: string | null | undefined,
+  conceptCode: string | null | undefined,
+  nativeId: number | null | undefined,
+): number | null {
+  const assigned = registry?.get(`${vocabularyId ?? ''}__${conceptCode ?? ''}`) ?? null
+  if (assigned != null) return assigned
+  if (hasNativeOmopConceptId(project) && nativeId != null && nativeId !== 0) return nativeId
+  // No assignment yet: showing the native id is still better than a dash, since
+  // it is what the Source concepts tab shows and what the code column echoes.
+  return nativeId != null && nativeId !== 0 ? nativeId : null
+}
+
+/**
  * Total source concepts: the persisted stat when populated, else the row count
  * of the flat source.
  *

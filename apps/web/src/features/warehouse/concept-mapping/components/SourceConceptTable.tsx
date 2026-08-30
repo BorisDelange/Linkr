@@ -97,6 +97,9 @@ interface SourceConceptTableProps {
    *  In that case, the displayed source_concept_id is the registry-assigned one (or '—'),
    *  not the artificial row-number `concept_id`. */
   isFileSourceWithoutConceptId?: boolean
+  /** True when the row's own `concept_id` is a real OMOP concept id. False for a
+   *  database project, whose native id is that database's own key (a MIMIC itemid). */
+  hasNativeOmopConceptId?: boolean
   mappingStatusFilter: MappingStatusFilter
   selectedConceptId: number | null
   /** Multi-selection set (Ctrl/Cmd/Shift click) — feeds the "add to copy list" button. */
@@ -165,6 +168,7 @@ export function SourceConceptTable({
   externalMappingsByKey,
   sourceConceptIdMap,
   isFileSourceWithoutConceptId,
+  hasNativeOmopConceptId,
   mappingStatusFilter,
   selectedConceptId,
   selectedConceptIds,
@@ -638,28 +642,35 @@ export function SourceConceptTable({
       })
     }
 
-    // Concept ID column.
-    // - Database source: native concept_id from the source table.
-    // - File source with `conceptIdColumn` mapped: native concept_id from the file.
-    // - File source without conceptIdColumn: resolve via the workspace badge registry
-    //   (assigned source_concept_id), or '—' if not yet assigned.
+    // Concept ID column — the id assigned from a workspace badge wins wherever
+    // one exists, since that is the id the warehouse sees. The native id shows
+    // only until then, or where it is a real OMOP concept id (a file whose
+    // author mapped a column of them). A database project's native id is that
+    // database's own key — a MIMIC `itemid` — never an OMOP concept id.
+    const resolveId = (row: SourceConceptRow): number | null => {
+      const assigned = sourceConceptIdMap?.get(`${row.vocabulary_id ?? ''}__${row.concept_code ?? ''}`) ?? null
+      if (assigned != null) return assigned
+      // A file with no conceptIdColumn has a row-number index, not an id: a dash
+      // is honest there, where echoing the index would read as an assignment.
+      if (isFileSourceWithoutConceptId) return null
+      return row.concept_id ?? null
+    }
     cols.push({
       id: 'concept_id',
       header: () => t('concept_mapping.col_source_concept_id'),
-      accessorFn: (row) => {
-        if (isFileSourceWithoutConceptId && sourceConceptIdMap) {
-          const key = `${row.vocabulary_id ?? ''}__${row.concept_code ?? ''}`
-          return sourceConceptIdMap.get(key) ?? null
-        }
-        return row.concept_id
-      },
+      accessorFn: (row) => resolveId(row),
       cell: ({ row }) => {
-        if (isFileSourceWithoutConceptId) {
-          const key = `${row.original.vocabulary_id ?? ''}__${row.original.concept_code ?? ''}`
-          const assigned = sourceConceptIdMap?.get(key)
-          return <span className="font-mono">{assigned ?? <span className="text-muted-foreground/60">—</span>}</span>
-        }
-        return <span className="font-mono">{row.original.concept_id}</span>
+        const id = resolveId(row.original)
+        if (id == null) return <span className="font-mono text-muted-foreground/60">—</span>
+        const assigned = !hasNativeOmopConceptId && id !== row.original.concept_id
+        return (
+          <span
+            className="font-mono"
+            title={assigned ? t('concept_mapping.col_source_concept_id_assigned') : undefined}
+          >
+            {id}
+          </span>
+        )
       },
       size: 90,
       minSize: 50,
@@ -764,7 +775,7 @@ export function SourceConceptTable({
     }
 
     return cols
-  }, [t, mappingStatusMap, mappedElsewhereIds, ignoredConceptIds, projectMappings, externalMappingsByKey, sourceConceptIdMap, isFileSourceWithoutConceptId, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail, onImportExternal, importingInfoIds])
+  }, [t, mappingStatusMap, mappedElsewhereIds, ignoredConceptIds, projectMappings, externalMappingsByKey, sourceConceptIdMap, isFileSourceWithoutConceptId, hasNativeOmopConceptId, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail, onImportExternal, importingInfoIds])
 
   // The mapping-status filter is now applied SQL-side by the parent. The rows
   // arriving here are already filtered, so we can hand them straight to TanStack.
@@ -1039,8 +1050,9 @@ export function SourceConceptTable({
                       // TanStack caches what it returned, so a row rendered before
                       // the ids arrived keeps reporting null for the rest of the
                       // session even though the cell itself shows the id.
-                      const raw = cell.column.id === 'concept_id' && isFileSourceWithoutConceptId
-                        ? sourceConceptIdMap?.get(`${row.original.vocabulary_id ?? ''}__${row.original.concept_code ?? ''}`) ?? null
+                      const raw = cell.column.id === 'concept_id'
+                        ? sourceConceptIdMap?.get(`${row.original.vocabulary_id ?? ''}__${row.original.concept_code ?? ''}`)
+                          ?? (isFileSourceWithoutConceptId ? null : row.original.concept_id ?? null)
                         : cell.getValue()
                       // Every value-bearing column gets the tooltip, shown whether
                       // or not the text is cut: it carries the copy button, and

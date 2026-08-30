@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { getTotalSourceConcepts, isMappingLocked } from './mapping-status'
+import {
+  getTotalSourceConcepts,
+  hasNativeOmopConceptId,
+  isMappingLocked,
+  resolveDisplayedSourceConceptId,
+} from './mapping-status'
 import type { MappingComment, MappingReview } from '@/types'
 
 const comment = (authorId: string): MappingComment => ({
@@ -98,5 +103,50 @@ describe('getTotalSourceConcepts', () => {
 
   it('returns 0 for a database project with no stat, leaving it to the DuckDB query', () => {
     expect(getTotalSourceConcepts({ sourceType: 'database' } as unknown as Parameters<typeof getTotalSourceConcepts>[0])).toBe(0)
+  })
+})
+
+describe('hasNativeOmopConceptId', () => {
+  type Project = Parameters<typeof hasNativeOmopConceptId>[0]
+  const project = (sourceType: string, conceptIdColumn?: string) =>
+    ({ sourceType, fileSourceData: { columnMapping: { conceptIdColumn } } } as unknown as Project)
+
+  it('accepts an imported file whose author mapped a concept id column', () => {
+    expect(hasNativeOmopConceptId(project('file', 'concept_id'))).toBe(true)
+  })
+
+  it('rejects a file with no concept id column — the id is a row-number index', () => {
+    expect(hasNativeOmopConceptId(project('file'))).toBe(false)
+  })
+
+  it('rejects an extracted database project, whose concept_id is the source key', () => {
+    // The extraction copies d_items.itemid into `concept_id` and sets
+    // conceptIdColumn, so the column's presence alone said "real OMOP id" and
+    // suppressed the assigned id everywhere.
+    expect(hasNativeOmopConceptId(project('database', 'concept_id'))).toBe(false)
+  })
+})
+
+describe('resolveDisplayedSourceConceptId', () => {
+  type Project = Parameters<typeof resolveDisplayedSourceConceptId>[0]
+  const db = { sourceType: 'database', fileSourceData: { columnMapping: { conceptIdColumn: 'concept_id' } } } as unknown as Project
+  const file = { sourceType: 'file', fileSourceData: { columnMapping: { conceptIdColumn: 'concept_id' } } } as unknown as Project
+  const registry = new Map([['MIMIC__220045', 2_000_000_001]])
+
+  it('prefers the assigned id over a database project native key', () => {
+    expect(resolveDisplayedSourceConceptId(db, registry, 'MIMIC', '220045', 220045)).toBe(2_000_000_001)
+  })
+
+  it('shows the native key until an id is assigned', () => {
+    expect(resolveDisplayedSourceConceptId(db, registry, 'MIMIC', '220046', 220046)).toBe(220046)
+  })
+
+  it('prefers the assigned id even over a real OMOP id, which is the warehouse id', () => {
+    expect(resolveDisplayedSourceConceptId(file, registry, 'MIMIC', '220045', 8867)).toBe(2_000_000_001)
+  })
+
+  it('reports nothing rather than a zero id', () => {
+    expect(resolveDisplayedSourceConceptId(db, undefined, 'MIMIC', '999', 0)).toBeNull()
+    expect(resolveDisplayedSourceConceptId(db, undefined, 'MIMIC', '999', null)).toBeNull()
   })
 })

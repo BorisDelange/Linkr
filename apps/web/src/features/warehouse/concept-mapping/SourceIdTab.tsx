@@ -35,6 +35,7 @@ import {
   sourceConceptPairKey,
   splitSourceConceptPairKey,
 } from '@/lib/concept-mapping/source-concept-ids-io'
+import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import type { MappingProject, ProjectBadge, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
 
 const DEFAULT_RANGE_SIZE = 1_000_000
@@ -89,7 +90,16 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const [loading, setLoading] = useState(() => !rangeCache.has(workspaceId))
   const [edits, setEdits] = useState<Record<string, RangeEdit>>({})
   const [assignLoading, setAssignLoading] = useState<string | null>(null)
-  const [assignResult, setAssignResult] = useState<{ badge: string; newlyAssigned: number; total: number; exhausted: boolean } | null>(null)
+  const [assignResult, setAssignResult] = useState<{
+    badge: string
+    newlyAssigned: number
+    total: number
+    exhausted: boolean
+    /** Projects whose source concepts could not be read — each one assigned nothing. */
+    unreadable?: { name: string; error: string }[]
+    /** The run itself threw; nothing was assigned. */
+    failure?: string
+  } | null>(null)
   // Live progress during a large assignment: { done, total } saved so far.
   const [assignProgress, setAssignProgress] = useState<{ badge: string; done: number; total: number } | null>(null)
   const [resetConfirm, setResetConfirm] = useState<string | null>(null) // badgeLabel or 'all'
@@ -236,12 +246,16 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
 
       // Unique (vocabularyId, conceptCode) pairs — exclude file projects with a real conceptIdColumn
       const pairsToAssign = new Set<string>()
+      const unreadable: { name: string; error: string }[] = []
 
       for (const proj of projectsWithBadge) {
-        const isFile = proj.sourceType === 'file' || !!proj.fileSourceData
-        if (isFile) {
-          // File project with real concept IDs: skip (real IDs are used directly)
-          if (proj.fileSourceData?.columnMapping?.conceptIdColumn) continue
+        if (readsFromFlatSource(proj)) {
+          // An imported file whose author mapped a column of real OMOP concept
+          // ids needs none of ours. A database project that extracted its
+          // dictionary also carries a `conceptIdColumn`, but it holds the
+          // SOURCE database's own ids (a MIMIC itemid), which is exactly what
+          // a custom source concept id exists to stand in for.
+          if (proj.sourceType === 'file' && proj.fileSourceData?.columnMapping?.conceptIdColumn) continue
           // Mount file source into DuckDB if needed, then query
           if (proj.fileSourceData) {
             try {
@@ -260,14 +274,20 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                 const vocab = String(row.vocabulary_id ?? proj.name)
                 if (code) pairsToAssign.add(sourceConceptPairKey(vocab, code))
               }
-            } catch {
-              // If mount/query fails, skip silently
+            } catch (err) {
+              // Named, not swallowed: a project whose source cannot be read
+              // assigns nothing, and a silent skip is indistinguishable from a
+              // project that genuinely has no concepts.
+              unreadable.push({ name: proj.name, error: err instanceof Error ? err.message : String(err) })
             }
           }
         } else {
           // Database project: query all source concepts
           const ds = dataSources.find((s) => s.id === proj.dataSourceId)
-          if (!ds?.schemaMapping) continue
+          if (!ds?.schemaMapping) {
+            unreadable.push({ name: proj.name, error: t('concept_mapping.source_id_assign_no_source') })
+            continue
+          }
           try {
             await ensureMounted(ds.id)
             const sql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
@@ -278,8 +298,8 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
               const vocab = String(row.vocabulary_id ?? ds.id)
               if (code) pairsToAssign.add(sourceConceptPairKey(vocab, code))
             }
-          } catch {
-            // If DB unavailable, skip silently
+          } catch (err) {
+            unreadable.push({ name: proj.name, error: err instanceof Error ? err.message : String(err) })
           }
         }
       }
@@ -370,7 +390,14 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       }
 
       await load()
-      setAssignResult({ badge: badgeLabel, newlyAssigned, total: pairsToAssign.size, exhausted })
+      setAssignResult({ badge: badgeLabel, newlyAssigned, total: pairsToAssign.size, exhausted, unreadable })
+    } catch (err) {
+      // Without this the `finally` cleared the spinner and the click looked like
+      // it had done nothing at all.
+      setAssignResult({
+        badge: badgeLabel, newlyAssigned: 0, total: 0, exhausted: false,
+        failure: err instanceof Error ? err.message : String(err),
+      })
     } finally {
       setAssignProgress(null)
       setAssignLoading(null)
@@ -598,15 +625,24 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                           </p>
                         )}
                         {!assignProgress && assignResult && assignResult.badge === range.badgeLabel && (
-                          <p className={`text-[11px] ${assignResult.exhausted ? 'text-amber-600 dark:text-amber-400' : assignResult.newlyAssigned > 0 ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
-                            {assignResult.exhausted
-                              ? t('concept_mapping.source_id_assign_exhausted', { count: assignResult.newlyAssigned.toLocaleString(), total: assignResult.total.toLocaleString() } as Record<string, string>)
-                              : assignResult.total === 0
-                                ? t('concept_mapping.source_id_assign_no_concepts')
-                                : assignResult.newlyAssigned === 0
-                                  ? t('concept_mapping.source_id_assign_all_done', { total: assignResult.total.toLocaleString() })
-                                  : t('concept_mapping.source_id_assign_result', { count: assignResult.newlyAssigned.toLocaleString(), total: assignResult.total.toLocaleString() } as Record<string, string>)}
-                          </p>
+                          <div className="space-y-0.5">
+                            <p className={`text-[11px] ${assignResult.failure ? 'text-destructive' : assignResult.exhausted ? 'text-amber-600 dark:text-amber-400' : assignResult.newlyAssigned > 0 ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                              {assignResult.failure
+                                ? t('concept_mapping.source_id_assign_failed', { error: assignResult.failure })
+                                : assignResult.exhausted
+                                  ? t('concept_mapping.source_id_assign_exhausted', { count: assignResult.newlyAssigned.toLocaleString(), total: assignResult.total.toLocaleString() } as Record<string, string>)
+                                  : assignResult.total === 0
+                                    ? t('concept_mapping.source_id_assign_no_concepts')
+                                    : assignResult.newlyAssigned === 0
+                                      ? t('concept_mapping.source_id_assign_all_done', { total: assignResult.total.toLocaleString() })
+                                      : t('concept_mapping.source_id_assign_result', { count: assignResult.newlyAssigned.toLocaleString(), total: assignResult.total.toLocaleString() } as Record<string, string>)}
+                            </p>
+                            {assignResult.unreadable?.map((u) => (
+                              <p key={u.name} className="text-[11px] text-amber-600 dark:text-amber-400">
+                                {t('concept_mapping.source_id_assign_unreadable', { project: u.name, error: u.error })}
+                              </p>
+                            ))}
+                          </div>
                         )}
                       </div>
 

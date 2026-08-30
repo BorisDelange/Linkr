@@ -19,7 +19,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 import { useMappingEditorFiltersStore } from '@/stores/mapping-editor-filters-store'
 import { getStorage } from '@/lib/storage'
-import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
+import { hasNativeOmopConceptId, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { localized } from '@/lib/localized'
 import { SourceConceptTable, type MappingStatusFilter } from './components/SourceConceptTable'
 import { TargetConceptPanel } from './components/TargetConceptPanel'
@@ -715,6 +715,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
             externalMappingsByKey={otherProjectsMappings}
             sourceConceptIdMap={sourceConceptIdMap}
             isFileSourceWithoutConceptId={isFileSourceWithoutConceptId}
+            hasNativeOmopConceptId={hasNativeOmopConceptId(project)}
             mappingStatusFilter={mappingStatusFilter}
             selectedConceptId={selectedSourceConceptId}
             selectedConceptIds={selectedConceptIds}
