@@ -730,11 +730,11 @@ strings through `t()` into both locale files.
   be redistributed.)
 - License: **ODbL 1.0**. It permits sharing, modification and redistribution, including
   commercially, under attribution + share-alike + keep-notices-intact.
-- Our [LICENCE-data](../../LICENCE-data) already does the required work: names the
-  source and download date, states ODbL 1.0 with its URI, discloses the modifications
-  (person/visit id renumbering), carries the citations, and enumerates the terminology
-  licenses (CMS, RxNorm, UCUM, LOINC, SNOMED GPS, OHDSI/Apache-2.0). That is a
-  conformant ODbL notice.
+- The ODbL notice must name the source and download date, state ODbL 1.0 with its URI,
+  disclose the modifications, carry the citations, and enumerate the terminology licenses
+  (CMS, RxNorm, UCUM, LOINC, SNOMED GPS, OHDSI/Apache-2.0). This repo used to carry that
+  as `LICENCE-data`; now that it ships no data, the notice lives in each data repo
+  instead — see `LICENSE.md` in `linkr-public-content/databases/*`.
 
 One point worth being precise about: renumbering ids and converting CSV→Parquet makes
 our copy a **Derivative Database** under ODbL §1.0, not merely a Produced Work. So the
@@ -751,7 +751,7 @@ separate from the data. Requirements, all mechanical:
 2. At the repo root, non-negotiable:
    - `LICENSE` — the **full ODbL 1.0 text** (a URI is permitted, but shipping the text is
      safer and costs 30 KB);
-   - `NOTICE.md` — today's `LICENCE-data` content: origin URL, download date, ODbL
+   - `NOTICE.md` — the ODbL notice: origin URL, download date, ODbL
      statement, **the list of modifications** (renumbered ids, CSV→Parquet conversion),
      citations, terminology licenses with their required attribution strings (UCUM's
      Regenstrief copyright line, NLM's RxNorm disclaimer, the LOINC citation, the SNOMED
@@ -761,8 +761,10 @@ separate from the data. Requirements, all mechanical:
      (`10.13026/p1f5-7x35`), sha256 of the upstream ZIP, the conversion script/commit.
      ODbL only requires "all of the alterations made"; a reproducible conversion script
      is the strongest form of that.
-3. **Keep `LICENCE-data` in this repo too**, trimmed to point at the data repos. Users
-   land here first; the notice must be findable from here.
+3. ~~Keep `LICENCE-data` in this repo too, trimmed to point at the data repos.~~ Done
+   differently: the file was deleted outright once this repo stopped shipping data. ODbL
+   binds whoever distributes the database, and that is now each data repo, which carries
+   its own `LICENSE.md`.
 4. Repos must be **public and free to fetch** — ODbL requires the derivative (or the
    alterations) be available at no charge over the internet. Public GitLab satisfies it.
 5. **Do not** relicense, and do not slap the app's license on the data repos. The data
@@ -856,7 +858,7 @@ already been fixed once. Move the generation into this repo as a Node module
 | Setup wizard + `setup.py` | default-data step, `GET /setup/default-data`, background install job |
 | `instance_settings` | new — shared baseline replacing per-browser `localStorage` |
 | `ImportSourceDialog` | ✅ third tab + i18n (en + fr) — server mode; client-only half waits on §3 |
-| `LICENCE-data` | trimmed to a pointer; full notices move into each data repo |
+| `LICENCE-data` | ✅ deleted — this repo ships no data; each data repo carries its own notice |
 | `update-default-data` skill | rewrite: the workflow becomes "edit the data repo, tag, bump the registry ref" |
 | `linkr-portal` | `build.sh` calls the shared manifest generator |
 | Tests | `seed-manifest.mjs` (pure, critical) + registry validation get unit tests per `docs/conventions.md` |
