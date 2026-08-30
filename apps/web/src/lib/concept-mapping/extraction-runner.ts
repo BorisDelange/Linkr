@@ -40,15 +40,35 @@ import {
  */
 const SAVE_EVERY = 500
 
+/**
+ * Where a run is: sizing the dictionaries, or walking them.
+ *
+ * `counting` is its own phase because it takes long enough to be seen. It is one
+ * COUNT per dictionary against a clinical database, before which neither the
+ * offset nor the total is known — and a restart that shows the previous run's
+ * numbers while it waits looks like a button that did nothing.
+ */
+export type RunPhase = 'counting' | 'extracting'
+
 /** What a watcher needs to render, whether or not it started the run. */
 export interface RunSnapshot {
   running: boolean
+  phase: RunPhase | null
   /** Live concept offset, or null when no run is in flight. */
   extracted: number | null
+  /**
+   * Concepts this run is walking towards, or null until they are counted.
+   *
+   * The persisted total describes the PREVIOUS run, so a restart must not fall
+   * back to it: this is what the view shows instead while counting.
+   */
+  total: number | null
   error: string | null
 }
 
-const IDLE: RunSnapshot = { running: false, extracted: null, error: null }
+const IDLE: RunSnapshot = {
+  running: false, phase: null, extracted: null, total: null, error: null,
+}
 
 interface Run {
   snapshot: RunSnapshot
@@ -131,9 +151,20 @@ export function startRun(input: StartRunInput): void {
 
   const controller = new AbortController()
   const run: Run = {
-    snapshot: { running: true, extracted: input.resumeFrom?.extracted ?? 0, error: null },
+    snapshot: {
+      running: true,
+      phase: 'counting',
+      extracted: input.resumeFrom?.extracted ?? 0,
+      // Unknown until the dictionaries are counted. A restart in particular must
+      // NOT inherit the previous run's total — that is the stale "1066 of 5636"
+      // a restart used to sit on while it counted.
+      total: input.resumeFrom?.total || null,
+      error: null,
+    },
     controller,
-    watchers: pending.get(projectId) ?? new Set(),
+    // Carry over the watchers already following this project: they subscribed to
+    // the previous run's entry, and a restart must not orphan them.
+    watchers: runs.get(projectId)?.watchers ?? pending.get(projectId) ?? new Set(),
   }
   pending.delete(projectId)
   runs.set(projectId, run)
@@ -161,7 +192,7 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     let csv = input.existingCsv ?? extractionCsvHeader()
     const keys = sources.map((s) => s.dictionary.key)
 
-    emit(projectId, { extracted: offset })
+    emit(projectId, { phase: 'extracting', extracted: offset, total: runTotal })
 
     // Runs until paused or finished. Concepts are the unit of progress — the
     // offset counts them, and a resume picks up at the next one — so the batch
@@ -213,11 +244,12 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
   } finally {
     const run = runs.get(projectId)
     // Keep the error visible to a watcher that mounts after the failure, but
-    // drop the live offset so the view falls back to the persisted count.
+    // drop the live counts so the view falls back to the persisted ones — which
+    // by now describe this run, since every save point wrote them.
     const error = run?.snapshot.error ?? null
-    emit(projectId, { running: false, extracted: null })
+    emit(projectId, { running: false, phase: null, extracted: null, total: null })
     if (run) {
-      run.snapshot = { running: false, extracted: null, error }
+      run.snapshot = { running: false, phase: null, extracted: null, total: null, error }
       if (run.watchers.size === 0 && !error) runs.delete(projectId)
     }
   }

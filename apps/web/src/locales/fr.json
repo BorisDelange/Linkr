@@ -4452,6 +4452,7 @@
     "extract_min_category": "Occurrences minimum par valeur",
     "extract_min_category_hint": "Les valeurs catégorielles plus rares que ce seuil sont écartées.",
     "extract_progress": "Progression",
+    "extract_counting": "Décompte des concepts à extraire…",
     "extract_progress_count": "{{extracted}} concepts sur {{total}}",
     "extract_restart": "Tout recommencer",
     "extract_restart_title": "Recommencer l'extraction ?",

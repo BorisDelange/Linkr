@@ -4452,6 +4452,7 @@
     "extract_min_category": "Minimum occurrences per value",
     "extract_min_category_hint": "Categorical values rarer than this are left out.",
     "extract_progress": "Progress",
+    "extract_counting": "Counting the concepts to extract…",
     "extract_progress_count": "{{extracted}} of {{total}} concepts",
     "extract_restart": "Start over",
     "extract_restart_title": "Start the extraction over?",

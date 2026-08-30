@@ -27,6 +27,7 @@ import {
 import {
   EXTRACTION_COLUMNS,
   EXTRACTION_COLUMN_MAPPING,
+  extractionCsvHeader,
 } from '@/lib/concept-mapping/source-extraction'
 import {
   clearRunError,
@@ -149,10 +150,11 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   // reports — including a run this component never started.
   const [snapshot, setSnapshot] = useState<RunSnapshot>(() => getRunSnapshot(project.id))
   const [confirmRestart, setConfirmRestart] = useState(false)
-  const { running, error } = snapshot
+  const { running, error, phase } = snapshot
   // Live position during a run. The persisted `extracted` only moves between
   // save points, so without this the bar would sit still for hundreds of concepts.
   const liveExtracted = snapshot.extracted
+  const counting = phase === 'counting'
 
   /** The dictionaries to walk, in a fixed order, with their event tables resolved. */
   const sources = useMemo(() => {
@@ -189,8 +191,11 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   }, [project.id])
 
   const extracted = liveExtracted ?? saved?.extracted ?? 0
-  const total = saved?.total ?? 0
-  const done = total > 0 && extracted >= total
+  // A run in flight is the authority on its own total: the persisted one still
+  // describes the previous run until the first save point, which is what left a
+  // restart showing the old "1,066 of 5,636" while it re-counted.
+  const total = (running ? snapshot.total : null) ?? saved?.total ?? 0
+  const done = !running && total > 0 && extracted >= total
   const percent = total > 0 ? Math.min(100, Math.round((extracted / total) * 100)) : 0
 
   /** Persist progress after each batch, so a reload resumes rather than restarts. */
@@ -218,6 +223,23 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     } catch (err) {
       setSnapshot((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }))
       return
+    }
+
+    // Zero the stored run before the new one starts counting: a reload during
+    // that window would otherwise resume the run being replaced. Written as a
+    // fresh record rather than cleared — an absent key is dropped by
+    // JSON.stringify, and the API's exclude_unset would never see the change.
+    if (restart && saved) {
+      await persist(
+        {
+          dictionaryKeys: sources.map((s) => s.dictionary.key),
+          extracted: 0,
+          total: 0,
+          options,
+          updatedAt: new Date().toISOString(),
+        },
+        extractionCsvHeader(), 0,
+      )
     }
 
     startRun({
@@ -383,13 +405,17 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
         <div className="flex flex-col gap-2 border-t pt-4">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">
-              {saved?.updatedAt && !running
-                ? (done
-                  ? t('concept_mapping.extract_complete', { date: new Date(saved.updatedAt).toLocaleString(i18n.language) })
-                  : t('concept_mapping.extract_paused', { date: new Date(saved.updatedAt).toLocaleString(i18n.language) }))
-                : t('concept_mapping.extract_progress')}
+              {/* Counting is one COUNT per dictionary against the database, and
+                  says so: silence here reads as a button that did nothing. */}
+              {counting
+                ? t('concept_mapping.extract_counting')
+                : saved?.updatedAt && !running
+                  ? (done
+                    ? t('concept_mapping.extract_complete', { date: new Date(saved.updatedAt).toLocaleString(i18n.language) })
+                    : t('concept_mapping.extract_paused', { date: new Date(saved.updatedAt).toLocaleString(i18n.language) }))
+                  : t('concept_mapping.extract_progress')}
             </span>
-            {total > 0 && (
+            {total > 0 && !counting && (
               <span className="text-xs tabular-nums text-muted-foreground">
                 {t('concept_mapping.extract_progress_count', {
                   extracted: extracted.toLocaleString(i18n.language),
@@ -399,7 +425,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             )}
           </div>
 
-          <Progress value={percent} />
+          <Progress value={counting ? 0 : percent} />
 
           {error && (
             <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-2 text-xs text-destructive">
