@@ -877,7 +877,9 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     ctx.textBaseline = 'top'
     const ticks = Math.max(2, Math.min(7, Math.floor(plotW / 110)))
     const withClock = span < 3 * 86_400_000
-    const locale = i18n.language?.startsWith('fr') ? 'fr-FR' : 'en-GB'
+    // The reader's own language, NOT a hardcoded region: en-GB is a 24-hour
+    // locale, so it showed 22:34 where the timelines beside it showed 10:34 PM.
+    const locale = i18n.language
     for (let k = 0; k <= ticks; k++) {
       const ms = lo + (span * k) / ticks
       ctx.textAlign = k === 0 ? 'left' : k === ticks ? 'right' : 'center'

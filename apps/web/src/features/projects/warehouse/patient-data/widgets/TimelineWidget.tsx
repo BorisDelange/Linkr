@@ -189,6 +189,9 @@ export function TimelineWidget({
   // Last x-range we broadcast, so drawCallback (which fires on every redraw)
   // only broadcasts when the visible window actually changed.
   const lastBroadcastRef = useRef<[number, number] | null>(null)
+  /** The gutter the live dygraph was BUILT with, to tell an in-place update
+   *  from a rebuild — see the create/update effect. */
+  const gutterRef = useRef<number | null>(null)
   const [data, setData] = useState<TimelineRow[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -425,6 +428,7 @@ export function TimelineWidget({
       if (dygraphRef.current) {
         dygraphRef.current.destroy()
         dygraphRef.current = null
+        gutterRef.current = null
       }
       return
     }
@@ -534,6 +538,16 @@ export function TimelineWidget({
       rect.width > 0 && rect.height > 0
         ? { ...opts, width: Math.floor(rect.width), height: Math.floor(rect.height) - RANGE_SELECTOR_RESERVE }
         : opts
+
+    // A changed gutter has to be rebuilt, not updated in place: `axisLabelWidth`
+    // sizes the axis label divs dygraphs created, and updateOptions leaves the
+    // old ones behind — the chart then shows both widths at once, one drawn over
+    // the other.
+    if (dygraphRef.current && gutterRef.current !== gutter) {
+      dygraphRef.current.destroy()
+      dygraphRef.current = null
+    }
+    gutterRef.current = gutter
 
     if (dygraphRef.current) {
       dygraphRef.current.updateOptions({
