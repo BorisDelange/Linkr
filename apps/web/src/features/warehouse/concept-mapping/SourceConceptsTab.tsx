@@ -662,23 +662,26 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
 }
 
 /**
- * A field label with its explanation behind an info icon.
+ * How long a pointer must rest on the counter before it answers.
  *
- * The explanations here are worth reading once and never again, so they sit on
- * hover rather than under every field — a column of permanent hint text made
- * the panel scroll for no lasting benefit.
+ * Long enough that crossing the row on the way to Pause never triggers it,
+ * short enough that someone who stopped to ask is not left waiting.
  */
+const CURRENT_CONCEPT_DELAY = 1800
+
 /**
  * What the run is profiling right now, after a deliberate pause on the counter.
  *
- * Three seconds, not the usual beat: at fifty concepts a second the counter is a
- * blur, and someone whose pointer crosses it on the way to the Pause button has
- * not asked what concept is in flight. Someone who stops on it has.
+ * Deliberately slower than the usual beat: at fifty concepts a second the
+ * counter is a blur, and someone whose pointer crosses it on the way to the
+ * Pause button has not asked what concept is in flight. Someone who stops on it
+ * has.
  *
  * The concept is frozen when the tooltip opens rather than tracked live — a
  * label rewriting itself fifty times a second cannot be read, and the question
  * being asked is "what is it on", which one answer settles.
  */
+
 function CurrentConceptTooltip({
   concept,
   children,
@@ -694,12 +697,12 @@ function CurrentConceptTooltip({
 
   return (
     // Its own provider: the panel's skip window would let this open instantly
-    // right after another tooltip closed, defeating the deliberate three-second
-    // pause this control is gated on.
-    <TooltipProvider delayDuration={3000} skipDelayDuration={0}>
+    // right after another tooltip closed, defeating the deliberate pause this
+    // control is gated on.
+    <TooltipProvider delayDuration={CURRENT_CONCEPT_DELAY} skipDelayDuration={0}>
     <Tooltip
       open={open}
-      delayDuration={3000}
+      delayDuration={CURRENT_CONCEPT_DELAY}
       onOpenChange={(next) => {
         if (next) setFrozen(concept)
         setOpen(next)
@@ -720,6 +723,13 @@ function CurrentConceptTooltip({
   )
 }
 
+/**
+ * A field label with its explanation behind an info icon.
+ *
+ * The explanations here are worth reading once and never again, so they sit on
+ * hover rather than under every field — a column of permanent hint text made
+ * the panel scroll for no lasting benefit.
+ */
 function LabelWithHint({
   htmlFor,
   label,
