@@ -134,6 +134,24 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       excludeForeign: true,
     },
   ],
+  // Metadata only, and no "Sync all" — the one scope where the full change set
+  // routinely includes deletions of `data/` files the app never exports. Sweeping
+  // those into a one-click push would drop a repo's tables on a button whose
+  // label says "sync"; dropping them stays possible, from Details, per file.
+  databases: [
+    {
+      labelKey: 'versioning.quick_sync_metadata',
+      descriptionKey: 'versioning.quick_desc_metadata_database',
+      messageKey: 'versioning.quick_msg_metadata_database',
+      patterns: [/^(entity|_database)\.json$/, /^mapping\.json$/, /^schema\.ddl$/],
+    },
+    {
+      labelKey: 'versioning.quick_sync_docs',
+      descriptionKey: 'versioning.quick_desc_docs_database',
+      messageKey: 'versioning.quick_msg_docs_database',
+      patterns: [/^README(\.[a-z-]+)?\.md$/i, /^LICENSE\.md$/i, /^attachments\//],
+    },
+  ],
   'user-plugins': [
     {
       labelKey: 'versioning.quick_sync_all',

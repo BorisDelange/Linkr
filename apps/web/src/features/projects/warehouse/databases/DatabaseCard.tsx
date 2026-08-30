@@ -181,6 +181,7 @@ export const DatabaseCard = memo(function DatabaseCard({
         <EntityActionsMenu
           item={source}
           {...actions}
+          syncScope="databases"
           deleteOnly={deleteOnly}
           canEdit={canEdit}
           canDelete={canEdit}

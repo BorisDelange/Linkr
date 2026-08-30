@@ -1044,6 +1044,7 @@ def _entity_id(entity):
 def _register_all_entity_git_routes() -> None:
     from app.services import (
         data_catalog_service,
+        data_source_service,
         dq_rule_set_service,
         etl_pipeline_service,
         schema_preset_service,
@@ -1051,6 +1052,7 @@ def _register_all_entity_git_routes() -> None:
     )
     from app.services.workspace_export_assemble import (
         assemble_data_catalog_zip,
+        assemble_database_zip,
         assemble_dq_rule_set_zip,
         assemble_etl_pipeline_zip,
         assemble_schema_preset_zip,
@@ -1101,6 +1103,15 @@ def _register_all_entity_git_routes() -> None:
         write_perm="schemas:write",
         not_found="Schema preset not found",
         assemble_fn=assemble_schema_preset_zip,
+    )
+    _register_entity_git_routes(
+        prefix="databases",
+        get_fn=data_source_service.get,
+        repo_getter=git_service.data_source_repo_getter,
+        read_perm="databases:read",
+        write_perm="databases:write",
+        not_found="Database not found",
+        assemble_fn=assemble_database_zip,
     )
 
 

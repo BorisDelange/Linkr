@@ -52,6 +52,7 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
 } from '@/components/ui/dropdown-menu'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
+import { DatabasePull } from '@/components/versioning/DatabasePull'
 import { useDatabaseActions } from './use-database-actions'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -96,6 +97,7 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
   const { t } = useTranslation()
   const dbActions = useDatabaseActions()
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
+  const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
   const [activeTab, setActiveTab] = useUrlTab<DatabaseTabId>({
     key: `database:${source?.id ?? 'none'}`,
     tabs: DATABASE_TAB_IDS,
@@ -246,11 +248,25 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
 
         <TabsContent value="versioning" className="m-0 min-h-0 flex-1 p-0">
           <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col px-6 py-6">
-            {/* Git link only: there is no `data-source` GitScope yet, so no
-                push/pull panel. Export is a menu action, so no export UI here. */}
+            {/* Export is a menu action, so no export UI here — the tab is the
+                push/pull panel alone. */}
             <GitRepositoryTab
               gitRemote={source.gitRemoteConfig ?? null}
               onSave={(cfg) => updateDataSource(source.id, { gitRemoteConfig: cfg ?? undefined })}
+              syncScope="databases"
+              syncId={source.id}
+              renderInlinePull={({ branch, remoteHead, onPulled }) => (
+                <DatabasePull
+                  sourceId={source.id}
+                  branch={branch}
+                  remoteHead={remoteHead}
+                  onPulled={onPulled}
+                />
+              )}
+              // A pull replaces the row and its files wholesale, behind the store
+              // the page reads — without this the tabs keep describing the
+              // database that was there before it.
+              onAfterPull={() => loadDataSources()}
             />
           </div>
         </TabsContent>

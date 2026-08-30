@@ -12,8 +12,8 @@ import type { CatalogEntryType } from '@/lib/catalog/types'
  * actually applied to the database (see git_service.sync_state).
  *
  * Best-effort by design: a failure leaves the entity unanchored, which costs a
- * banner, not data. Types with no GitScope of their own (`database`, and
- * `workspace`, which its installer anchors directly) are skipped.
+ * banner, not data. Types with no GitScope of their own are skipped — today only
+ * `workspace`, which its installer anchors directly.
  */
 export async function anchorClonedEntity(
   type: CatalogEntryType,

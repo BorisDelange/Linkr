@@ -12,16 +12,11 @@
 import type { GitScope } from '@/lib/api/git'
 import type { CatalogEntryType } from './types'
 
-/**
- * Catalog types with no git scope: installable, never pushed.
- *
- * `database` is the only one, and deliberately: a database repo carries data, and
- * the app never writes a row (`buildDataSourceFolder` publishes metadata only), so
- * that it can never be the path by which patient data leaves a hospital. Installing
- * one runs the other way and is safe. Giving it a scope would put a push button on
- * the one entity that must not have one.
- */
-export const INSTALL_ONLY_TYPES: readonly CatalogEntryType[] = ['database']
+/** Catalog types installable but never pushed. Empty since databases gained a
+ *  push panel — one that still publishes metadata only, so the guarantee that
+ *  the app is never the path patient data leaves by rests on the export tree
+ *  (`buildDataSourceFolder`), not on withholding the scope. */
+export const INSTALL_ONLY_TYPES: readonly CatalogEntryType[] = []
 
 const BY_SCOPE: Partial<Record<GitScope, CatalogEntryType>> = {
   'workspaces': 'workspace',
@@ -32,6 +27,7 @@ const BY_SCOPE: Partial<Record<GitScope, CatalogEntryType>> = {
   'data-catalogs': 'data-catalog',
   'dq-rule-sets': 'dq-rule-set',
   'schema-presets': 'schema-preset',
+  'databases': 'database',
 }
 
 export function catalogTypeForScope(scope: GitScope | undefined): CatalogEntryType | undefined {

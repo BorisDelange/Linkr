@@ -30,29 +30,28 @@ describe('anchorClonedEntity', () => {
     ['data-catalog', 'data-catalogs'],
     ['dq-rule-set', 'dq-rule-sets'],
     ['schema-preset', 'schema-presets'],
+    // A database anchors like the rest since it gained a versioning panel: without
+    // a baseline its all-or-nothing pull would never learn the remote moved.
+    ['database', 'databases'],
   ] as const)('anchors a %s against scope %s', async (type, scope) => {
     await anchorClonedEntity(type, 'e1', 'main', OID)
     expect(gitMocks.gitSetSyncState).toHaveBeenCalledExactlyOnceWith(scope, 'e1', 'main', OID)
   })
 
   it('skips types with no git scope of their own', async () => {
-    // `database` is git-linkable in a workspace manifest but has no sync-state
-    // endpoint; `workspace` is anchored by its installer, not through this helper.
-    await anchorClonedEntity('database', 'db1', 'main', OID)
+    // A workspace is anchored by its installer, not through this helper.
     await anchorClonedEntity('workspace', 'ws1', 'main', OID)
     expect(gitMocks.gitSetSyncState).not.toHaveBeenCalled()
   })
 
-  // Two questions, two maps: "can I version this?" (scopeForLinkedType, drives
-  // the anchoring above) and "did this entity's content arrive?"
-  // (contentScopeForLinkedType). A database answers no to the first and yes to
-  // the second — merging them would anchor it against a route that isn't there.
-  it('keeps the content-status map wider than the versionable one', async () => {
+  // The two maps once differed: a database could report its content missing but
+  // not be versioned. Now every linkable type answers yes to both, so the maps
+  // coincide — asserted so a type added to one but not the other is caught.
+  it('resolves every linkable type through both maps', async () => {
     const { scopeForLinkedType, contentScopeForLinkedType, linkedTypeForScope } =
       await import('@/lib/api/git')
-    expect(scopeForLinkedType['database']).toBeUndefined()
+    expect(scopeForLinkedType['database']).toBe('databases')
     expect(contentScopeForLinkedType['database']).toBe('databases')
-    // Every versionable type still resolves through the wider map.
     for (const [type, scope] of Object.entries(scopeForLinkedType)) {
       expect(contentScopeForLinkedType[type]).toBe(scope)
     }

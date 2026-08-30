@@ -1105,5 +1105,20 @@ async def assemble_schema_preset_zip(db: AsyncSession, preset) -> bytes:
     return await asyncio.to_thread(_zip_tree, await build_schema_preset_tree(db, preset))
 
 
+async def build_database_tree(db: AsyncSession, source) -> dict[str, bytes]:
+    """Standalone export tree for one database, for its own git repo.
+
+    Same tree as inside a workspace export — metadata only, never a row. A
+    database repo authored outside Linkr may ship `data/*.parquet` (that is how
+    the public MIMIC demo carries its tables, and `applyClonedDatabase` reads
+    them on pull); the app pushes no such folder, so those files surface as
+    deletions in the push status, to keep or drop per file like any other."""
+    return await _data_source_sub_tree(db, source, _dump(DataSourceResponse, source))
+
+
+async def assemble_database_zip(db: AsyncSession, source) -> bytes:
+    return await asyncio.to_thread(_zip_tree, await build_database_tree(db, source))
+
+
 async def assemble_user_plugin_zip(db: AsyncSession, plugin) -> bytes:
     return await asyncio.to_thread(_zip_tree, await build_user_plugin_tree(db, plugin))

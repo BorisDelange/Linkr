@@ -191,6 +191,20 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     ATTACHMENTS_RULE,
     ATTRS_RULE,
   ],
+  databases: [
+    { test: /^(entity|_database)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_db_json' },
+    { test: /^mapping\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_preset_mapping' },
+    { test: /^schema\.ddl$/, category: 'scripts', order: CAT.scripts, descriptionKey: 'versioning.file_desc_schema_ddl' },
+    // A repo authored outside Linkr ships its tables here; the app publishes
+    // metadata only, so these show up as deletions in every push status. Owning
+    // the category is what checks them by default (isDefaultSelected) — dropping
+    // the rows is the offer, and untick is how the remote keeps its data.
+    { test: /^data\//, category: 'datasets', order: CAT.datasets, descriptionKey: 'versioning.file_desc_db_data' },
+    README_RULE,
+    LICENSE_RULE,
+    ATTACHMENTS_RULE,
+    ATTRS_RULE,
+  ],
   settings: [
     { test: /^organizations\.json$/, category: 'organizations', order: CAT.organizations, descriptionKey: 'versioning.file_desc_settings_organizations' },
     { test: /^users\.json$/, category: 'users', order: CAT.users, descriptionKey: 'versioning.file_desc_settings_users' },
