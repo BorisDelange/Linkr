@@ -1,6 +1,15 @@
 # Health-DCAT-AP — Summary for Linkr
 
-> Based on [Health-DCAT-AP Release 6](https://healthdataeu.pages.code.europa.eu/healthdcat-ap/releases/release-6/index.html) — the EU metadata standard for describing health datasets under the EHDS Regulation (EU 2025/327).
+> Based on [Health-DCAT-AP **Release 7**](https://healthdataeu.pages.code.europa.eu/healthdcat-ap/releases/latest/) (May 2026) — the EU metadata
+> standard for describing health datasets under the EHDS Regulation (EU 2025/327).
+> Reviewed 2026-08-30; Release 7 is the current one (there is no Release 8 yet).
+>
+> **Where the spec lives.** It moved off GitHub: the normative home is the
+> Commission's [code.europa.eu/healthdataeu/healthdcat-ap](https://code.europa.eu/healthdataeu/healthdcat-ap).
+> `healthdcat-ap.github.io` is now only a migration notice and `SEMICeu/HealthDCAT-AP`
+> does not exist — do not cite either. Link `/releases/latest/` rather than a
+> numbered release: the cadence is roughly four-monthly (R6 Nov 2025, R7 May 2026)
+> and will keep moving until the platform goes live in 2029.
 
 ## What is Health-DCAT-AP?
 
@@ -228,9 +237,74 @@ The [EU Health Data Portal](https://ehds.healthdataportal.eu/) currently lists ~
 
 ## Differences from Our Current Implementation
 
-Our `schema.ts` was based on an older draft. Key changes in Release 6:
+Audited 2026-08-30 against `lib/dcat-ap/jsonld.ts`. The Release 6 alignment
+landed; what is open is the delta introduced by **Release 7**.
 
-| Aspect | Our current | Release 6 |
+### Already aligned
+
+The namespace is right (`jsonld.ts:27` emits `http://healthdataportal.eu/ns/health#`),
+`applicableLegislation`, the HDAB (as `healthdcatap:hdab` — the spec's token, not
+`healthDataAccessBody`), the custodian, CSVW table/column descriptions, the CPSV
+contact point, and the Art. 51 category values are all in place.
+
+### Open against Release 7
+
+| Gap | Where | Why it matters |
+|---|---|---|
+| `healthdcatap:hasStructuredData` not emitted | `jsonld.ts` | **Mandatory 1..1** on Dataset in R7 — a conformance failure, not a nicety |
+| Variables hang off the Distribution | `jsonld.ts:251, 273, 426, 470` (`csvw:tableGroup`) | R7 moved them to the Dataset via `healthdcatap:hasVariables` (0..\*), mandatory once `hasStructuredData` is true. Mostly a re-parenting — the CSVW itself is already built |
+| Coding systems mapped onto `dct:conformsTo` | `jsonld.ts:174` | R7 splits the two: `dct:conformsTo` = the **data model** (OMOP CDM), `healthdcatap:hasCodingSystem` = the **terminologies** (SNOMED CT, LOINC, ICD-10). Both are catalogue filters, so this one mis-mapping costs discoverability |
+
+Two vocabularies were added in R7 and now resolve, so these can be bound to real
+URIs instead of free text: `…/resource/authority/standard` and
+`…/resource/authority/coding-system` (same host as `healthcategories`).
+
+### Validating the output
+
+The EU publishes a **public SHACL validator** — no login, accepts JSON-LD, three
+profiles (PUBLIC / NON-PUBLIC / RESTRICTED):
+[health-data-itb-rdf-validator.acceptance.data.health.europa.eu/shacl/ehds/upload](https://health-data-itb-rdf-validator.acceptance.data.health.europa.eu/shacl/ehds/upload).
+NON-PUBLIC is the realistic profile for a hospital warehouse. This is the cheapest
+way to check the three gaps above once they are closed.
+
+---
+
+## Is this still the right approach? (reviewed 2026-08-30)
+
+**Yes — and the EU catalogue is moving toward what Linkr already computes.**
+
+The TEHDAS2 guideline for data users navigating the catalogue (21 April 2026)
+names **"Variable-Level Insight"** a core discovery pillar: *data dictionaries and
+proxy datasets, to assess the feasibility of a research hypothesis without access
+to primary health data*. Its documented filters are the Art. 51 categories, coding
+systems **and data models** (it names "OMOP Common Data Model" explicitly),
+population size and age range — i.e. concepts, counts, age range, temporal
+coverage. That is this feature's output.
+
+Worth knowing about the neighbours:
+
+- **OHDSI has no metadata standard for describing a CDM instance.** `CDM_SOURCE`
+  is ~11 fields; the `METADATA` table's "phase 2 — concept-level standardization"
+  never shipped. EHDEN's catalogue records only coarse per-source metadata and
+  mentions neither DCAT nor EHDS. Bridging OMOP's concept-level richness to the
+  EU's discovery standard is the differentiator here, not a duplicated effort.
+- **FHIR is not a competitor for this.** EHDS splits the layers deliberately —
+  FHIR/DICOM for *exchange*, OMOP for *semantics*, DCAT-AP for *discovery*. No
+  FHIR resource is an analogue of `dcat:Dataset`. Do not pivot the catalog to it.
+- **DCAT-AP 3.0 / DCAT 3 are stable.** DCAT 3 has been a W3C Recommendation since
+  August 2024; there is no DCAT 4 and no DCAT-AP 4. Nothing to chase.
+- Optional reach, if it is ever wanted: a **schema.org `Dataset`** block alongside
+  the JSON-LD (a standard crosswalk) buys Google Dataset Search visibility.
+
+**Nothing is legally binding yet.** The obligation to describe datasets is EHDS
+**Article 77** (not Art. 51, which defines the data *categories*), and it bites at
+**26 March 2029**; the implementing act that makes the metadata model binding is
+due **26 March 2027**. HealthDCAT-AP is still formally a draft. So: fix the three
+R7 gaps, but there is no need to track every release.
+
+### For reference — what Release 6 had changed
+
+| Aspect | Older draft | Release 6 |
 |--------|------------|-----------|
 | Namespace | `http://healthdcat-ap.eu/ns#` | `http://healthdataportal.eu/ns/health#` |
 | `applicableLegislation` | Missing | **Mandatory** on Catalog, Dataset, Distribution |
@@ -247,8 +321,10 @@ Our `schema.ts` was based on an older draft. Key changes in Release 6:
 
 ## Sources
 
-- [Health-DCAT-AP Release 6 (official spec)](https://healthdataeu.pages.code.europa.eu/healthdcat-ap/releases/release-6/index.html)
+- [Health-DCAT-AP — latest release](https://healthdataeu.pages.code.europa.eu/healthdcat-ap/releases/latest/) (R7, May 2026) · [R7 changelog](https://healthdataeu.pages.code.europa.eu/healthdcat-ap/releases/release-7/changelog/)
+- [Spec repository (normative home)](https://code.europa.eu/healthdataeu/healthdcat-ap)
+- [EU SHACL validator](https://health-data-itb-rdf-validator.acceptance.data.health.europa.eu/shacl/ehds/upload) — validate our JSON-LD, no login
 - [EU Health Data Portal](https://ehds.healthdataportal.eu/)
-- [EHDS Regulation (EU) 2025/327](http://data.europa.eu/eli/reg/2025/327)
-- [DCAT-AP 3.0](https://semiceu.github.io/DCAT-AP/releases/3.0.0/)
-- [HealthDCAT-AP GitHub (redirects to EU infra)](https://healthdcat-ap.github.io/)
+- [EHDS Regulation (EU) 2025/327](http://data.europa.eu/eli/reg/2025/327) · [EC timeline](https://health.ec.europa.eu/ehealth-digital-health-and-care/european-health-data-space-regulation-ehds_en)
+- [TEHDAS2 — guideline for data users navigating the catalogue](https://tehdas.eu/wp-content/uploads/2026/05/draft-guideline-for-data-users-navigating-the-catalogue.pdf) (21 Apr 2026)
+- [W3C DCAT 3](https://www.w3.org/TR/vocab-dcat-3/) · [DCAT-AP 3.0](https://semiceu.github.io/DCAT-AP/releases/3.0.0/)
