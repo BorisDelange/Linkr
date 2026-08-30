@@ -88,7 +88,13 @@ export function ConceptDetail({
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
             {vocabularyId && <span>{vocabularyId}</span>}
-            {dictKey && <span>· {dictKey}</span>}
+            {/* The dictionary a concept came from is a category, like the code
+                badge above it — not a continuation of the vocabulary name. */}
+            {dictKey && (
+              <Badge variant="outline" className="font-mono">
+                {dictKey}
+              </Badge>
+            )}
           </div>
         </div>
 
