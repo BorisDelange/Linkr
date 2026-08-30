@@ -268,7 +268,7 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
   /** The band being dragged over the plot, mirrored for the overlay. */
   const [band, setBand] = useState<{ x0: number; x1: number } | null>(null)
 
-  const localPoint = (e: React.PointerEvent | React.WheelEvent) => {
+  const localPoint = (e: React.PointerEvent | React.WheelEvent | React.MouseEvent) => {
     const r = canvasRef.current?.getBoundingClientRect()
     return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) }
   }
@@ -390,6 +390,18 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
     [view, bounds, onViewChange, rowH, chartH, plotL, plotW, series, t],
   )
 
+  /** Double-click the plot to go back to the whole record, as the overview does. */
+  const onDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const { x, y } = localPoint(e)
+      // Not from the strip: a double-click on the window there is two grabs, and
+      // resetting under the second one would fight the gesture being made.
+      if (y > chartH || x < plotL) return
+      onViewChange(bounds)
+    },
+    [chartH, plotL, bounds, onViewChange],
+  )
+
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
       const drag = dragRef.current
@@ -419,6 +431,7 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onDoubleClick={onDoubleClick}
         onPointerLeave={() => setHover(null)}
         // react-grid-layout would otherwise capture the drag and move the widget.
         onMouseDown={(e) => e.stopPropagation()}
