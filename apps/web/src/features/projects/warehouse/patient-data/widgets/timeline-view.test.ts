@@ -9,6 +9,9 @@ import {
   isFullWindow,
   sameBounds,
   axisTicks,
+  TIMELINE_GUTTER,
+  TIMELINE_PAD_R,
+  DYGRAPH_AXIS_LABEL_WIDTH,
   MIN_SPAN_MS,
 } from './timeline-view'
 
@@ -193,6 +196,31 @@ describe('windowFromRangeJump', () => {
     const r = windowFromRangeJump(GEOM, 0, WIN, BOUNDS)
     expect(r.lo).toBe(BOUNDS.lo)
     expect(r.hi - r.lo).toBe(WIN.hi - WIN.lo)
+  })
+})
+
+describe('plot geometry', () => {
+  // Two timelines stacked on a board must line up in time whichever engine
+  // draws them. Nothing at runtime notices when they stop lining up — the
+  // charts simply look wrong — so the arithmetic is pinned here.
+  const DYGRAPH_TICK_SIZE = 3
+
+  it('puts the Dygraph plot exactly where the canvas plot starts', () => {
+    // Dygraph reserves axisLabelWidth + 2 * axisTickSize (plugins/axes.js).
+    expect(DYGRAPH_AXIS_LABEL_WIDTH + 2 * DYGRAPH_TICK_SIZE).toBe(TIMELINE_GUTTER)
+  })
+
+  it('leaves room for the y-axis numbers Dygraph still has to draw', () => {
+    // Dygraph's own default is 50; widening must never go the other way.
+    expect(DYGRAPH_AXIS_LABEL_WIDTH).toBeGreaterThanOrEqual(50)
+  })
+
+  it('leaves the canvas gutter wide enough for a concept name', () => {
+    expect(TIMELINE_GUTTER).toBeGreaterThan(60)
+  })
+
+  it('keeps a right-hand gap, so the last point is not flush with the edge', () => {
+    expect(TIMELINE_PAD_R).toBeGreaterThan(0)
   })
 })
 

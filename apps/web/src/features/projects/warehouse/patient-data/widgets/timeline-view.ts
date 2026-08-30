@@ -11,6 +11,29 @@ export interface TimeWindow {
   hi: number
 }
 
+/**
+ * Where a timeline's plot starts and stops, shared by BOTH renderers.
+ *
+ * Two timelines stacked on a board must line up in time whatever draws them,
+ * and they only do that if their plots begin and end at the same x. The gutter
+ * is sized for the canvas renderer's concept names; Dygraph needs only ~50px
+ * for its y-axis numbers, but it is the one with room to spare, so it widens
+ * to match rather than the names being truncated to meet it.
+ */
+export const TIMELINE_GUTTER = 128
+export const TIMELINE_PAD_R = 10
+
+/** Dygraph's default `axisTickSize`; it reserves two of these beside the labels. */
+const DYGRAPH_TICK_SIZE = 3
+
+/**
+ * The `axisLabelWidth` that puts Dygraph's plot at `TIMELINE_GUTTER`.
+ *
+ * Dygraph reserves `axisLabelWidth + 2 * axisTickSize` on the left — see
+ * `plugins/axes.js` — so the label column is the gutter less those ticks.
+ */
+export const DYGRAPH_AXIS_LABEL_WIDTH = TIMELINE_GUTTER - 2 * DYGRAPH_TICK_SIZE
+
 /** Smallest window the user can zoom into: one second. Below that the axis
  *  labels all collapse to the same instant and panning feels broken. */
 export const MIN_SPAN_MS = 1000

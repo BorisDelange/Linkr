@@ -12,6 +12,8 @@ import {
   windowFromRangeJump,
   zoomWindow,
   MIN_DRAG_PX,
+  TIMELINE_GUTTER,
+  TIMELINE_PAD_R,
   type RangeGeom,
   type RangeHit,
   type TimeWindow,
@@ -41,11 +43,11 @@ interface TimelineCanvasProps {
   locale: string
 }
 
-const GUTTER = 128
+const GUTTER = TIMELINE_GUTTER
 const AXIS_H = 18
 const RANGE_H = 34
 const ROW_MIN = 22
-const PAD_R = 10
+const PAD_R = TIMELINE_PAD_R
 
 /** What the pointer looks like over each part of the chart. */
 const CURSORS: Record<string, string> = {

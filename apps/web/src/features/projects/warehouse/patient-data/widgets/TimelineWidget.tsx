@@ -22,7 +22,11 @@ import {
 } from '../timeline-sync'
 import { TimelineCanvas, type TimelineSeries } from './TimelineCanvas'
 import { classifySeries, resolveRenderer } from './timeline-shape'
-import type { TimeWindow } from './timeline-view'
+import {
+  DYGRAPH_AXIS_LABEL_WIDTH,
+  TIMELINE_PAD_R,
+  type TimeWindow,
+} from './timeline-view'
 
 interface TimelineWidgetProps {
   widgetId: string
@@ -449,10 +453,14 @@ export function TimelineWidget({
         y: {
           axisLabelFontSize: 10,
           drawGrid: true,
-          axisLabelWidth: 50,
+          // Puts the plot exactly where the canvas renderer's starts, so two
+          // stacked timelines line up in time whichever engine draws them.
+          axisLabelWidth: DYGRAPH_AXIS_LABEL_WIDTH,
           ...(yAxisFromZero ? { includeZero: true } : {}),
         },
       },
+      // The matching blank on the right, so the two plots also END together.
+      rightGap: TIMELINE_PAD_R,
 
       // Sync: broadcast our visible x-range on every redraw — drawCallback (not
       // zoomCallback) is the only hook that also fires when the range selector
