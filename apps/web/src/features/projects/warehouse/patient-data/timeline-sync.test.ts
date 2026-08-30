@@ -86,6 +86,19 @@ describe('pub/sub', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 
+  it('carries a range between two different widget kinds', () => {
+    // The channel knows nothing about plugins: a data-overview widget and a
+    // timeline on the same channel hear each other. This is what was broken —
+    // sync only ever existed between timelines.
+    const overview = vi.fn()
+    const offA = subscribeTimelineSync('board:b1', overview)
+    const offB = subscribeTimelineSync('board:b1', vi.fn())
+    broadcastTimelineRange('board:b1', 'timeline-w', { min: 10, max: 20 })
+    expect(overview).toHaveBeenCalledWith({ min: 10, max: 20 }, 'timeline-w')
+    offA()
+    offB()
+  })
+
   it('names the source, so a timeline can ignore its own broadcast', () => {
     const listener = vi.fn()
     const off = subscribeTimelineSync('c-src', listener)

@@ -95,6 +95,22 @@
         { "value": "36", "label": { "en": "Large", "fr": "Grand" } }
       ]
     },
+    "syncTimeRange": {
+      "type": "boolean",
+      "label": {
+        "en": "Sync time range",
+        "fr": "Synchroniser la plage temporelle"
+      },
+      "default": false,
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "description": {
+        "en": "Share the visible time window with the other synced widgets on the board — timelines and data overviews alike. Board settings decide whether that sharing stops at this tab or spans them all.",
+        "fr": "Partage la fenêtre temporelle visible avec les autres widgets synchronisés du tableau, timelines comme vues d'ensemble. Les paramètres du tableau décident si ce partage s'arrête à cet onglet ou couvre tous les onglets."
+      }
+    },
     "showRangeSelector": {
       "type": "boolean",
       "label": {

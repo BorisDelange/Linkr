@@ -93,8 +93,8 @@
     "syncTimeRange": {
       "type": "boolean",
       "label": {
-        "en": "Synchronize timelines",
-        "fr": "Synchroniser les chronologies"
+        "en": "Sync time range",
+        "fr": "Synchroniser la plage temporelle"
       },
       "default": false,
       "section": {
@@ -102,8 +102,8 @@
         "fr": "Graphique"
       },
       "description": {
-        "en": "Share the visible time window with other synced timelines in this tab.",
-        "fr": "Partage la fenêtre temporelle visible avec les autres chronologies synchronisées de cet onglet."
+        "en": "Share the visible time window with the other synced widgets on the board — timelines and data overviews alike. Board settings decide whether that sharing stops at this tab or spans them all.",
+        "fr": "Partage la fenêtre temporelle visible avec les autres widgets synchronisés du tableau, timelines comme vues d'ensemble. Les paramètres du tableau décident si ce partage s'arrête à cet onglet ou couvre tous les onglets."
       }
     },
     "stepPlot": {

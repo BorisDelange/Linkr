@@ -4,6 +4,12 @@ import { useTranslation } from 'react-i18next'
 import { usePatientChartContext } from '../PatientChartContext'
 import { useTabVisible } from '../TabVisibilityContext'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
+import {
+  subscribeTimelineSync,
+  broadcastTimelineRange,
+  getTimelineRange,
+  syncChannel,
+} from '../timeline-sync'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import {
   buildOverviewInventoryQuery,
@@ -114,7 +120,18 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const showUnitStays = cfg.showUnitStays !== false
   const showDeath = cfg.showDeath !== false
   const showRange = cfg.showRangeSelector !== false
+  const syncTimeRange = cfg.syncTimeRange === true
   const rowH = Number(cfg.rowHeight ?? 22) || 22
+
+  const tabId = widget?.tabId ?? ''
+  // The board owns the cross-tab setting; the tab is what ties this widget to it.
+  const boardId = usePatientChartStore(
+    (s) => s.tabs.find((tb) => tb.id === tabId)?.patientDashboardId,
+  )
+  const syncAcrossTabs = usePatientChartStore(
+    (s) => s.dashboards.find((d) => d.id === boardId)?.syncTimelinesAcrossTabs ?? false,
+  )
+  const channel = syncChannel(tabId, boardId, syncAcrossTabs)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -129,7 +146,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const [units, setUnits] = useState<UnitStay[]>([])
   const [death, setDeath] = useState<number | null>(null)
   const [bounds, setBounds] = useState<{ lo: number; hi: number } | null>(null)
-  const [view, setView] = useState<{ lo: number; hi: number } | null>(null)
+  const [view, setViewRaw] = useState<{ lo: number; hi: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [overview, setOverview] = useState<OverviewDensity | null>(null)
@@ -140,6 +157,50 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const [copyMenu, setCopyMenu] = useState<
     { concept: OverviewConceptRow; x: number; y: number } | null
   >(null)
+
+  /**
+   * Every window change goes out on the sync channel.
+   *
+   * Wrapping the setter rather than editing each of the eight places that move
+   * the view — zoom, pan, range drag, double-click, keyboard — is what keeps a
+   * new gesture from silently forgetting to broadcast.
+   *
+   * `applyingSyncRef` stops the ping-pong: a window adopted from a peer must
+   * not be sent straight back to it.
+   */
+  const applyingSyncRef = useRef(false)
+  // Read through a ref so `setView` keeps ONE identity for the life of the
+  // widget, the way the raw setter did. The gesture handlers below are
+  // useCallbacks that capture it; rebuilding it whenever the channel changed
+  // would leave them broadcasting on the channel the widget used to be on.
+  const syncRef = useRef({ syncTimeRange, channel })
+  useEffect(() => {
+    syncRef.current = { syncTimeRange, channel }
+  }, [syncTimeRange, channel])
+  const setView = useCallback(
+    (next: { lo: number; hi: number } | null) => {
+      setViewRaw(next)
+      const { syncTimeRange: on, channel: ch } = syncRef.current
+      if (!on || applyingSyncRef.current) return
+      broadcastTimelineRange(ch, widgetId, next ? { min: next.lo, max: next.hi } : null)
+    },
+    [widgetId],
+  )
+
+  useEffect(() => {
+    if (!syncTimeRange || !tabId) return
+    const current = getTimelineRange(channel)
+    if (current) setViewRaw({ lo: current.min, hi: current.max ?? current.min })
+    return subscribeTimelineSync(channel, (range, sourceId) => {
+      if (sourceId === widgetId) return
+      applyingSyncRef.current = true
+      try {
+        setViewRaw(range ? { lo: range.min, hi: range.max ?? range.min } : null)
+      } finally {
+        applyingSyncRef.current = false
+      }
+    })
+  }, [syncTimeRange, tabId, channel, widgetId])
 
   // Interaction state lives in refs: it changes on every mouse move and must not
   // re-render React, only repaint the canvas.
@@ -335,11 +396,14 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           const pad = (hi - lo) * 0.01 || 86_400_000
           const b = { lo: lo - pad, hi: hi + pad }
           setBounds(b)
-          setView(b)
+          // setViewRaw, not setView: this is the widget framing its own freshly
+          // loaded record, not a gesture. Broadcasting it would yank every synced
+          // peer back to full extent each time this one reloads.
+          setViewRaw(b)
           void loadOverviewDensity(b, rows)
         } else {
           setBounds(null)
-          setView(null)
+          setViewRaw(null)
           setOverview(null)
         }
       } catch (e) {
@@ -839,7 +903,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       const lo = clamp(view.lo + step, bounds.lo, bounds.hi - span)
       setView({ lo, hi: lo + span })
     },
-    [view, bounds],
+    [view, bounds, setView],
   )
 
   const zoomBy = useCallback(
@@ -853,7 +917,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       if (hi > bounds.hi) { hi = bounds.hi; lo = hi - s }
       setView({ lo, hi })
     },
-    [view, bounds],
+    [view, bounds, setView],
   )
 
   const hitRange = useCallback((px: number, py: number) => {
@@ -946,7 +1010,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       if (!l.length || px < l[0].plotL) return
       dragRef.current = { kind: 'zoom', x0: px, x1: px, moved: false }
     },
-    [hitRange, view, bounds, rebuild],
+    [hitRange, view, bounds, rebuild, setView],
   )
 
   const onMouseMove = useCallback(
@@ -1014,7 +1078,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       const content = describeHit(hit, px, py, inGutter, view, t, conceptsById)
       setTip(content ? { ...content, x: e.clientX, y: e.clientY } : null)
     },
-    [view, bounds, hitRange, repaint, rebuild, t, conceptsById],
+    [view, bounds, hitRange, repaint, rebuild, t, conceptsById, setView],
   )
 
   const onMouseUp = useCallback(() => {
@@ -1026,7 +1090,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       if (a != null && b != null && b - a > 1000) setView({ lo: a, hi: b })
     }
     repaint()
-  }, [msAt, repaint])
+  }, [msAt, repaint, setView])
 
   const onClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1091,7 +1155,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       if (l.length && px < l[0].plotL) return
       if (bounds) setView(bounds)
     },
-    [bounds],
+    [bounds, setView],
   )
 
   const onKeyDown = useCallback(
@@ -1109,7 +1173,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         zoomBy(1.25, (view.lo + view.hi) / 2)
       }
     },
-    [panBy, zoomBy, bounds, view],
+    [panBy, zoomBy, bounds, view, setView],
   )
 
   // --- Render ---------------------------------------------------------------
