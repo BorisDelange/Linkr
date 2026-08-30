@@ -80,7 +80,7 @@ import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFile
 import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, MappingEquivalence, EffectiveMappingStatus, DataSource } from '@/types'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
-import { effectiveMappingStatus, isMappingLocked } from '@/lib/concept-mapping/mapping-status'
+import { effectiveMappingStatus, isMappingLocked, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { EquivalenceMenuItems } from './components/EquivalenceMenuItems'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
@@ -1006,7 +1006,9 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const countsCache = useRef<Map<number, SourceCounts>>(new Map())
   const countsCacheDs = useRef<string | null>(null)
 
-  const isFileSource = project.sourceType === 'file'
+  // "Read from the flat table", not "was imported from a file": an extracted
+  // database project has one too, and is read exactly the same way.
+  const isFileSource = readsFromFlatSource(project)
   /** True when source is a file with no conceptIdColumn — `m.sourceConceptId` is then an
    *  artificial row-number index, not a real OMOP concept_id. The registry is authoritative. */
   const useRegistryForId = isFileSource && !project.fileSourceData?.columnMapping?.conceptIdColumn

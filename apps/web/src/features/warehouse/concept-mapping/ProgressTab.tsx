@@ -16,7 +16,7 @@ import {
   buildFileSourceConceptsGroupCountQuery,
   type BreakdownDimension,
 } from '@/lib/concept-mapping/mapping-queries'
-import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
+import { effectiveMappingStatus, readsFromFlatSource, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { STATUS_COLORS, UNMAPPED_COLOR, STATUS_FALLBACK_COLOR } from '@/lib/concept-mapping/status-colors'
 import { StatusBar, type StatusSegment } from './components/StatusBar'
 import type { MappingProject, MappingStatus, EffectiveMappingStatus, DataSource } from '@/types'
@@ -53,7 +53,9 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
   const { mappings } = useConceptMappingStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
-  const isFileSource = project.sourceType === 'file'
+  // "Read from the flat table", not "was imported from a file": an extracted
+  // database project has one too, and is read exactly the same way.
+  const isFileSource = readsFromFlatSource(project)
 
   // Breakdown card state. `breakdownDim` is the urgent value (tab highlight, painted
   // instantly); `deferredDim` drives the potentially heavy row recompute/render and is

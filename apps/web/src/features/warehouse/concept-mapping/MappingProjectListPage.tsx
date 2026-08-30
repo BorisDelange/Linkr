@@ -36,7 +36,7 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateMappingProjectDialog } from './CreateMappingProjectDialog'
 import { useMappingProjectActions } from './use-mapping-project-actions'
 import type { MappingProject, MappingProjectStatus } from '@/types'
-import { getTotalSourceConcepts } from '@/lib/concept-mapping/mapping-status'
+import { getTotalSourceConcepts, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { useState } from 'react'
 
 const ALL_STATUSES: MappingProjectStatus[] = ['in_progress', 'on_hold', 'completed']
@@ -320,7 +320,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based
     // project). The file is kept verbatim; duplicate source concepts are dropped
     // (and counted) later, in the DuckDB source_concepts view.
-    if (project.sourceType === 'file' && project.fileSourceData) {
+    if (readsFromFlatSource(project) && project.fileSourceData) {
       const sourceCsv = parsed['source-concepts.csv']
       if (typeof sourceCsv === 'string' && sourceCsv.length > 0) {
         restoreFileSourceDataFromCsv(project, sourceCsv)

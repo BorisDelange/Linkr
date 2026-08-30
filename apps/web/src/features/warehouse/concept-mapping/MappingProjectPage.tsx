@@ -6,6 +6,7 @@ import {
   Pencil,
   BarChart3,
   ChevronDown,
+  Database,
   Download,
   FileText,
   GitBranch,
@@ -33,7 +34,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { localized } from '@/lib/localized'
 import { getTotalSourceConcepts } from '@/lib/concept-mapping/mapping-status'
-import type { MappingProject } from '@/types'
+import type { DataSource, MappingProject } from '@/types'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
@@ -42,6 +43,8 @@ import { useVisitStore } from '@/stores/visit-store'
 import { unmountFileSource } from '@/lib/duckdb/engine'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { ConceptSetsTab } from './ConceptSetsTab'
+import { CreateMappingProjectDialog } from './CreateMappingProjectDialog'
+import { SourceConceptsTab } from './SourceConceptsTab'
 import { MappingEditorTab } from './MappingEditorTab'
 import { MappingsTab } from './MappingsTab'
 import { ProgressTab } from './ProgressTab'
@@ -51,7 +54,7 @@ interface MappingProjectPageProps {
   projectId: string
 }
 
-const TABS = ['overview', 'progress', 'concept-sets', 'editor', 'mappings', 'export', 'readme', 'license', 'versioning'] as const
+const TABS = ['overview', 'progress', 'source-concepts', 'concept-sets', 'editor', 'mappings', 'export', 'readme', 'license', 'versioning'] as const
 type TabId = (typeof TABS)[number]
 
 export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
@@ -66,6 +69,9 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   // Cleared on the way out, or reaching the tab through its own trigger later
   // would land in the editor unasked.
   const [readmeEditing, setReadmeEditing] = useState(false)
+  // The edit dialog, opened from the overview's Source card straight at its
+  // Source tab — the card is about the source, so it should land on it.
+  const [editingSource, setEditingSource] = useState(false)
   // Cleared only once the Readme tab has actually been left. Checking
   // `activeTab !== 'readme'` during render would fire immediately instead:
   // setActiveTab writes the URL, so activeTab is still the previous tab on the
@@ -118,8 +124,12 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   }, [projectId])
 
   const project = mappingProjects.find((p) => p.id === projectId)
-  const isFileSource = project?.sourceType === 'file'
-  const dataSource = project && !isFileSource ? dataSources.find((ds) => ds.id === project.dataSourceId) : undefined
+  // A database project keeps its database even once extracted — the extraction
+  // is a snapshot of it, and re-running needs the connection back.
+  const isDatabaseSource = project?.sourceType === 'database'
+  const dataSource = project && isDatabaseSource
+    ? dataSources.find((ds) => ds.id === project.dataSourceId)
+    : undefined
 
   if (!mappingProjectsLoaded) return null
 
@@ -145,6 +155,14 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
               <BarChart3 size={14} />
               {t('concept_mapping.tab_progress')}
             </TabsTrigger>
+            {/* Database projects only: a file source arrives already extracted,
+                so there is nothing here for it to do. */}
+            {isDatabaseSource && (
+              <TabsTrigger value="source-concepts">
+                <Database size={14} />
+                {t('concept_mapping.tab_source_concepts')}
+              </TabsTrigger>
+            )}
             <TabsTrigger value="concept-sets">
               <Library size={14} />
               {t('concept_mapping.tab_concept_sets')}
@@ -177,15 +195,22 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
             <div className="flex h-full flex-col px-6 pb-1.5">
               <MappingProjectOverviewTab
                 project={project}
+                dataSource={dataSource}
                 onSeeProgress={() => setActiveTab('progress')}
                 onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
                 onSeeLicense={() => setActiveTab('license')}
+                onEditSource={() => setEditingSource(true)}
               />
             </div>
           )}
         </TabsContent>
         <TabsContent value="progress" className="flex-1 overflow-hidden">
           {activeTab === 'progress' && <ProgressTab project={project} dataSource={dataSource} />}
+        </TabsContent>
+        <TabsContent value="source-concepts" className="flex-1 overflow-hidden">
+          {activeTab === 'source-concepts' && isDatabaseSource && (
+            <SourceConceptsTab project={project} dataSource={dataSource} />
+          )}
         </TabsContent>
         <TabsContent value="concept-sets" className="flex-1 overflow-hidden">
           {activeTab === 'concept-sets' && <ConceptSetsTab project={project} dataSource={dataSource} />}
@@ -231,6 +256,15 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
           )}
         </TabsContent>
       </Tabs>
+
+      {editingSource && (
+        <CreateMappingProjectDialog
+          open
+          onOpenChange={(o) => setEditingSource(o)}
+          editingProject={project}
+          initialTab="source"
+        />
+      )}
     </div>
   )
 }
@@ -360,14 +394,18 @@ function MappingProjectLicenseTab({ project }: { project: MappingProject }) {
 
 function MappingProjectOverviewTab({
   project,
+  dataSource,
   onSeeProgress,
   onEditReadme,
   onSeeLicense,
+  onEditSource,
 }: {
   project: MappingProject
+  dataSource?: DataSource
   onSeeProgress: () => void
   onEditReadme: () => void
   onSeeLicense: () => void
+  onEditSource: () => void
 }) {
   const { i18n } = useTranslation()
   const { resolveAttachmentUrls } = useReadmeAttachments(
@@ -390,6 +428,7 @@ function MappingProjectOverviewTab({
         />
         <div className="flex flex-col gap-4 self-start">
           <MappingProjectIdentityCard project={project} onSeeLicense={onSeeLicense} />
+          <MappingProjectSourceCard project={project} dataSource={dataSource} onEditSource={onEditSource} />
           <MappingProjectProgressCard project={project} onSeeProgress={onSeeProgress} />
         </div>
       </div>
@@ -499,6 +538,68 @@ function MappingProjectIdentityCard({
         showLicenseWhenEmpty
         onOpenLicense={onSeeLicense}
       />
+    </div>
+  )
+}
+
+/**
+ * Where this project's source concepts come from — an imported file or a
+ * database — and a way to change it.
+ *
+ * Worth its own card because it is the one thing about a mapping project that
+ * cannot be read off the page: a database project whose extraction has run looks
+ * exactly like an imported one from the editor onwards, and a project whose
+ * database went missing on import looks like nothing at all until you go
+ * looking.
+ */
+function MappingProjectSourceCard({
+  project,
+  dataSource,
+  onEditSource,
+}: {
+  project: MappingProject
+  dataSource?: DataSource
+  onEditSource: () => void
+}) {
+  const { t, i18n } = useTranslation()
+  const isFile = project.sourceType === 'file'
+  // A database project points at a database that is not installed here — the
+  // usual cause is an import that found no local match for the pointer.
+  const missingDatabase = !isFile && !dataSource
+
+  const Icon = isFile ? FileText : Database
+  const title = isFile
+    ? project.fileSourceData?.fileName || t('concept_mapping.source_file')
+    : dataSource
+      ? localized(dataSource.name, i18n.language)
+      : t('concept_mapping.overview_source_missing')
+
+  const detail = isFile
+    ? t('concept_mapping.overview_source_file_detail', {
+      count: getTotalSourceConcepts(project),
+    })
+    : missingDatabase
+      ? t('concept_mapping.overview_source_missing_detail')
+      : t('concept_mapping.overview_source_database_detail')
+
+  return (
+    <div className="flex min-w-0 shrink-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <Icon size={14} className="shrink-0 text-muted-foreground" />
+          <h3 className="truncate text-sm font-semibold">{t('concept_mapping.overview_source')}</h3>
+        </div>
+        <Button variant="ghost" size="sm" className="h-6 shrink-0 gap-1 px-2 text-xs" onClick={onEditSource}>
+          <Pencil size={12} />
+          {t('common.edit')}
+        </Button>
+      </div>
+      <div className="min-w-0">
+        <p className={`truncate text-xs font-medium ${missingDatabase ? 'text-destructive' : ''}`}>
+          {title}
+        </p>
+        <p className="mt-0.5 text-[10px] text-muted-foreground">{detail}</p>
+      </div>
     </div>
   )
 }

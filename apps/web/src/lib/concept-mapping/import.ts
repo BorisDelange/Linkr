@@ -19,7 +19,7 @@ import { resolvePointer } from '@/lib/import-identity'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { restoreFileSourceDataFromCsv } from './export'
 import { parseSourceConceptIdEntries } from './source-concept-ids-io'
-import { getTotalSourceConcepts } from './mapping-status'
+import { getTotalSourceConcepts, readsFromFlatSource } from './mapping-status'
 
 export interface MappingProjectImportInput {
   /** Parsed export/repo contents (parseImportZip output): path → JSON|string. */
@@ -111,7 +111,7 @@ export async function importMappingProjectContent(
 
   // Restore the source CSV → fileSourceData (+ rawFileBuffer) BEFORE create, so
   // the persisted project carries the source concepts the table renders.
-  if (project.sourceType === 'file' && project.fileSourceData) {
+  if (readsFromFlatSource(project) && project.fileSourceData) {
     const sourceCsv = files['source-concepts.csv']
     if (typeof sourceCsv === 'string' && sourceCsv.length > 0) {
       restoreFileSourceDataFromCsv(project, sourceCsv)

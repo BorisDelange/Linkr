@@ -59,6 +59,8 @@ interface CreateMappingProjectDialogProps {
   onOpenChange: (open: boolean) => void
   onCreated?: (projectId: string) => void
   editingProject?: MappingProject | null
+  /** Tab to land on. Lets a caller open the dialog straight at the source. */
+  initialTab?: MainTab
 }
 
 type MainTab = 'general' | 'source' | 'metadata' | 'attribution'
@@ -89,6 +91,7 @@ export function CreateMappingProjectDialog({
   onOpenChange,
   onCreated,
   editingProject,
+  initialTab,
 }: CreateMappingProjectDialogProps) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -195,7 +198,7 @@ export function CreateMappingProjectDialog({
       setColumnMapping(editingProject.fileSourceData?.columnMapping ?? {})
       setPage('main')
       setAuthoring({})
-      setMainTab('general')
+      setMainTab(initialTab ?? 'general')
     } else if (open) {
       setName('')
       setEntityId('')
@@ -221,9 +224,9 @@ export function CreateMappingProjectDialog({
       setColumnMapping({})
       setPage('main')
       setAuthoring({})
-      setMainTab('general')
+      setMainTab(initialTab ?? 'general')
     }
-  }, [editingProject, open, language])
+  }, [editingProject, open, language, initialTab])
 
   // Focus the name input on open. autoFocus is unreliable inside a Radix
   // Dialog + Tabs (the tab/focus-trap steals it), so focus imperatively.

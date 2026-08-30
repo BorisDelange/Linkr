@@ -1,6 +1,7 @@
 import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
 import { ENTITY_MANIFEST } from '@linkr/format'
 import { APP_VERSION } from '@/lib/version'
+import { readsFromFlatSource } from './mapping-status'
 import { localized } from '@/lib/localized'
 import { stripInstanceFields, attachEntityOrganization, licenseMeta, orderProvenance, writeReadmeFiles, writeLicenseFile, writeAttachmentFiles } from '@/lib/entity-io'
 import { mappingKey } from '@/lib/concept-mapping/merge'
@@ -78,7 +79,10 @@ export function csvEscape(value: string | number | undefined | null): string {
  * raw-vs-deduped view sizes there.
  */
 export function restoreFileSourceDataFromCsv(project: MappingProject, csvText: string): void {
-  if (!project.fileSourceData || project.sourceType !== 'file') return
+  // Not gated on `sourceType === 'file'`: a database project that extracted its
+  // dictionary exports the same CSV, and refusing to restore it here would give
+  // the re-imported project no source concepts at all.
+  if (!project.fileSourceData) return
   // An unresolved Git LFS pointer (server clone couldn't smudge it, e.g. private
   // LFS endpoint auth failed) is a 3-line stub, not the CSV. Importing it would
   // silently yield zero source concepts — better to skip so the file stays absent
@@ -781,8 +785,10 @@ export async function buildMappingProjectFolder(
   // were dropped from the project ZIP to keep it lean. Use the dedicated buttons in
   // the Export tab when the user actually wants those formatted files.
 
-  // Source concepts (file-based or DB-based)
-  if (!options.skipSourceConcepts && project.sourceType === 'file' && project.fileSourceData) {
+  // Source concepts. Keyed on having a flat source rather than on sourceType: a
+  // database project whose Source concepts tab has run carries the same CSV, and
+  // it must travel or the re-imported project has no concepts at all.
+  if (!options.skipSourceConcepts && readsFromFlatSource(project) && project.fileSourceData) {
     if (project.fileSourceData.rawFileBuffer && project.fileSourceData.rawFileBuffer.byteLength > 0) {
       const buf = project.fileSourceData.rawFileBuffer instanceof Uint8Array
         ? project.fileSourceData.rawFileBuffer

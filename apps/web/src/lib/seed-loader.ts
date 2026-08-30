@@ -27,6 +27,7 @@ import {
 } from '@/lib/entity-io'
 import { fromPathTree, readPathTree, storablePathNode } from '@/lib/entity-tree'
 import { entityKey, resolvePointer } from '@/lib/import-identity'
+import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { mergeSourceConceptIdRegistry, type SourceConceptIdGroup } from '@/lib/concept-mapping/source-concept-ids-io'
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
 import type {
@@ -644,8 +645,9 @@ async function loadStructuralEntity(
       // Same as the project branch: an export carries no primary key, and every
       // child row below is written against this one (`projectId: project.id`).
       project.id = entityKey(project, mpFolder)
-      // Restore source concepts from CSV (file-based projects)
-      if (project.sourceType === 'file' && project.fileSourceData) {
+      // Restore source concepts from CSV. Not only file projects: a database
+      // project that extracted its dictionary carries the same CSV.
+      if (readsFromFlatSource(project) && project.fileSourceData) {
         const csvText = await fetchText(`${base}/mapping-projects/${mpFolder}/source-concepts.csv`)
         if (csvText) restoreFileSourceDataFromCsv(project, csvText)
       }

@@ -213,6 +213,39 @@ export interface DataSourceRef {
   label?: LocalizedString
 }
 
+/**
+ * How far the source-concept extraction of a database project has got.
+ *
+ * A database source is not read into the editor directly: profiling a concept
+ * scans the event tables, so doing it for a whole dictionary on page load could
+ * take hours. The user runs it instead, in batches, and this is what lets a run
+ * stop and pick up where it left off.
+ *
+ * Once complete the project carries a `fileSourceData` exactly like an imported
+ * CSV, so everything downstream — editor, export, git — takes the file path and
+ * the two kinds of project stop differing.
+ */
+export interface SourceExtraction {
+  /**
+   * Which concept dictionaries of the schema are being extracted, in the order
+   * they are walked — a resumed run maps its offset onto them by that order, so
+   * reordering the list mid-run would resume in the wrong place.
+   */
+  dictionaryKeys: string[]
+  /** Concepts written so far. The offset a resumed run starts from. */
+  extracted: number
+  /** Concepts the dictionary holds, as counted when the run started. */
+  total: number
+  /** Concepts per batch, chosen by the user. */
+  batchSize: number
+  /** Which profile blocks this run computes, and how. */
+  options: import('@/lib/concept-mapping/concept-profile').ProfileOptions
+  /** ISO 8601, when the last batch finished. */
+  updatedAt: string
+  /** Set when the last batch failed, so the UI can say why it stopped. */
+  error?: string
+}
+
 export type MappingProjectStatus = 'in_progress' | 'on_hold' | 'completed'
 
 /** A workspace-level mapping project linked to a database or file. */
@@ -244,8 +277,17 @@ export interface MappingProject extends Seedable, Authored, Lineaged {
   /** Optional vocabulary reference database (ATHENA import). When set, target concept
    *  searches and concept set resolution use this DB instead of the source DB. */
   vocabularyDataSourceId?: string
-  /** File source data. Only used when sourceType = 'file'. */
+  /**
+   * The source concepts as a flat table.
+   *
+   * Named for the file import that first produced it, but a database project
+   * fills it too — its Source concepts tab extracts the dictionary into the same
+   * shape. That is the point: from here on the two kinds of project are read,
+   * exported and versioned by one code path.
+   */
   fileSourceData?: FileSourceData
+  /** Progress of a database project's source-concept extraction. */
+  sourceExtraction?: SourceExtraction
   /** Concept sets used in this project (workspace-scoped IDs). */
   conceptSetIds: string[]
   /** Cached progress stats. */

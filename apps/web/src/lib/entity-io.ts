@@ -42,6 +42,7 @@ import { getSchemaPreset } from '@/lib/schema-presets'
 import { localized, toLocalized } from '@/lib/localized'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
+import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { isServerMode } from '@/lib/api-client'
 import { importDatasetOnServer } from '@/lib/api/datasets'
 
@@ -4484,7 +4485,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
 
     // Restore rawFileBuffer + columnMapping from source-concepts.csv (file-based projects)
     const sourceCsvEntry = zipData.files[`${prefix}source-concepts.csv`]
-    if (sourceCsvEntry && project.sourceType === 'file' && project.fileSourceData) {
+    if (sourceCsvEntry && readsFromFlatSource(project) && project.fileSourceData) {
       const csvText = await sourceCsvEntry.async('string')
       if (csvText) {
         restoreFileSourceDataFromCsv(project, csvText)

@@ -19,6 +19,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 import { useMappingEditorFiltersStore } from '@/stores/mapping-editor-filters-store'
 import { getStorage } from '@/lib/storage'
+import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { localized } from '@/lib/localized'
 import { SourceConceptTable, type MappingStatusFilter } from './components/SourceConceptTable'
 import { TargetConceptPanel } from './components/TargetConceptPanel'
@@ -98,7 +99,9 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     return () => { cancelled = true }
   }, [project.workspaceId, project.badges])
 
-  const isFileSource = project.sourceType === 'file'
+  // "Read from the flat table", not "was imported from a file": an extracted
+  // database project has one too, and is read exactly the same way.
+  const isFileSource = readsFromFlatSource(project)
   /** The displayed source concept id comes from the badge registry, not the data. */
   const isFileSourceWithoutConceptId = isFileSource && !project.fileSourceData?.columnMapping?.conceptIdColumn
 

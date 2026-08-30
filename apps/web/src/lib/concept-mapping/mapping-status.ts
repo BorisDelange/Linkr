@@ -7,18 +7,35 @@ export function sourceKey(m: Pick<ConceptMapping, 'sourceVocabularyId' | 'source
 }
 
 /**
- * Total source concepts: the persisted stat when populated, else the file row
- * count for file-based projects.
+ * Whether a project's source concepts are read from a flat table rather than
+ * queried from a clinical database.
+ *
+ * True for an imported file, and equally for a database project whose Source
+ * concepts tab has extracted its dictionary: the extraction writes the same
+ * `fileSourceData`, so from that point the two are read by one code path. Ask
+ * this rather than testing `sourceType === 'file'`, which answers where the
+ * concepts originally came from — a different question, and the wrong one for
+ * deciding how to read them.
+ */
+export function readsFromFlatSource(
+  project: Pick<MappingProject, 'sourceType' | 'fileSourceData'>,
+): boolean {
+  return project.sourceType === 'file' || !!project.fileSourceData
+}
+
+/**
+ * Total source concepts: the persisted stat when populated, else the row count
+ * of the flat source.
  *
  * The fallback matters because an export empties `fileSourceData.rows` and keeps
  * only `totalRowCount` — reading `rows.length` alone yields 0 on every git-linked
- * project. A database project's total needs a DuckDB query, so it keeps whatever
- * was persisted and is refreshed when the project is opened.
+ * project. A database project with nothing extracted yet has neither, so it
+ * keeps whatever was persisted and is refreshed when the project is opened.
  */
 export function getTotalSourceConcepts(project: Pick<MappingProject, 'stats' | 'sourceType' | 'fileSourceData'>): number {
   const fromStats = project.stats?.totalSourceConcepts ?? 0
   if (fromStats > 0) return fromStats
-  if (project.sourceType === 'file' && project.fileSourceData) {
+  if (readsFromFlatSource(project) && project.fileSourceData) {
     return project.fileSourceData.totalRowCount ?? project.fileSourceData.rows?.length ?? 0
   }
   return 0
