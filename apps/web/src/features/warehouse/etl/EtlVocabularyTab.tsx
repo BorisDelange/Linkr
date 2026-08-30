@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SearchableSelect } from '@/components/ui/searchable-select'
 import { useEtlStore } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
@@ -24,7 +23,13 @@ import {
   buildPruneVocabularyScript,
   type VocabularyMode,
 } from './build-vocabulary-script'
-import { buildCcrCsvs, stcmFromCcr } from '@/lib/concept-mapping/ccr-export'
+import { buildCcrCsvs, stcmFromCcr, syntheticMappingsForUnmapped, SYNTHETIC_MAPPING_ID } from '@/lib/concept-mapping/ccr-export'
+import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
+import {
+  loadAllSourceConcepts,
+  countAllSourceConcepts,
+  type SourceConceptRow,
+} from '@/lib/concept-mapping/source-concepts-loader'
 import {
   MAPPING_DIR,
   MAPPING_REF_PREFIX,
@@ -34,7 +39,7 @@ import {
   mappingExportPath,
 } from '@/lib/duckdb/mapping-source'
 import { vocabularyReadiness } from './vocabulary-readiness'
-import type { ConceptMapping, EtlFile, EtlVocabularyConfig, MappingStatus } from '@/types'
+import type { ConceptMapping, EffectiveMappingStatus, EtlFile, EtlVocabularyConfig } from '@/types'
 
 const VOCAB_SCRIPT_NAME = '00_vocabulary.sql'
 const PRUNE_SCRIPT_NAME = '99_prune_vocabulary.sql'
@@ -63,7 +68,7 @@ type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
 /** The artefacts the Vocabulary tab can write — see `generate` below. */
 type Artefact = 'csv' | 'script' | 'prune'
 
-const STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked']
+const STATUSES: EffectiveMappingStatus[] = ['approved', 'rejected', 'flagged', 'disputed', 'unchecked', 'ignored']
 
 interface Props {
   pipelineId: string
@@ -175,31 +180,43 @@ function buildMappingExports(
 }
 
 /**
- * Filter mappings by status checkboxes + approval sub-rules (same logic as ExportTab).
+ * Filter mappings by status checkboxes + approval sub-rules.
+ *
+ * Same rules as the mapping project's Export tab, and deliberately the same
+ * REVIEW-AWARE reading of a status: the two tabs answer "which mappings count as
+ * approved" about one project, and reading `m.status` here while Export reads
+ * the effective one made a reviewed mapping approved in the download and
+ * unchecked in the pipeline.
  */
 function filterMappings(
   mappings: ConceptMapping[],
-  includedStatuses: Set<MappingStatus>,
+  includedStatuses: Set<EffectiveMappingStatus>,
   approvalRule: ApprovalRule,
 ): ConceptMapping[] {
-  let result = mappings.filter((m) => includedStatuses.has(m.status))
+  let result = mappings.filter((m) => includedStatuses.has(effectiveMappingStatus(m)))
 
   if (includedStatuses.has('approved') && approvalRule !== 'at_least_one') {
-    const sourceConceptStatuses = new Map<number, MappingStatus[]>()
+    // Votes are tallied per SOURCE CONCEPT (vocabulary + code), not per mapping:
+    // the rules compare the targets competing for one local code.
+    const sourceConceptVotes = new Map<string, { approved: number; rejected: number }>()
     for (const m of mappings) {
-      const arr = sourceConceptStatuses.get(m.sourceConceptId) ?? []
-      arr.push(m.status)
-      sourceConceptStatuses.set(m.sourceConceptId, arr)
+      const key = sourceKey(m)
+      const tally = sourceConceptVotes.get(key) ?? { approved: 0, rejected: 0 }
+      const reviews = m.reviews ?? []
+      tally.approved += reviews.filter((r) => r.status === 'approved').length
+      tally.rejected += reviews.filter((r) => r.status === 'rejected').length
+      if (reviews.length === 0) {
+        if (m.status === 'approved') tally.approved += 1
+        else if (m.status === 'rejected') tally.rejected += 1
+      }
+      sourceConceptVotes.set(key, tally)
     }
 
     result = result.filter((m) => {
-      if (m.status !== 'approved') return true
-      const statuses = sourceConceptStatuses.get(m.sourceConceptId) ?? []
-      const approvedCount = statuses.filter((s) => s === 'approved').length
-      const rejectedCount = statuses.filter((s) => s === 'rejected').length
-
-      if (approvalRule === 'majority') return approvedCount > rejectedCount
-      if (approvalRule === 'no_rejections') return rejectedCount === 0
+      if (effectiveMappingStatus(m) !== 'approved') return true
+      const tally = sourceConceptVotes.get(sourceKey(m)) ?? { approved: 0, rejected: 0 }
+      if (approvalRule === 'majority') return tally.approved > tally.rejected
+      if (approvalRule === 'no_rejections') return tally.rejected === 0
       return true
     })
   }
@@ -213,6 +230,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
   const { etlPipelines, updatePipeline, files, filesLoaded, activePipelineId, deleteFile } = useEtlStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects, loadProjectMappings, mappings, updateMapping } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
 
@@ -311,11 +329,21 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     })
   }, [selected, saveVocabConfig])
 
-  // Status filter (same pattern as ExportTab), persisted alongside the rest.
+  /**
+   * Status filter (same pattern as ExportTab), persisted alongside the rest.
+   *
+   * Everything is in by default, unlike the Export tab's "approved only": a
+   * download is a snapshot someone reads, while this feeds the vocabulary the
+   * pipeline LOADS — and a code left out of it has no source_concept_id to write
+   * into the CDM, so the omission surfaces as unmapped clinical rows much later.
+   * Narrowing it is a deliberate act; silently shipping a partial dictionary
+   * should not be.
+   */
   const includedStatuses = useMemo(
-    () => new Set<MappingStatus>(vocabConfig?.statuses ?? ['approved']),
+    () => new Set<EffectiveMappingStatus>(vocabConfig?.statuses ?? STATUSES),
     [vocabConfig?.statuses],
   )
+  const includeAllSourceConcepts = vocabConfig?.includeAllSourceConcepts ?? true
   const approvalRule: ApprovalRule = vocabConfig?.approvalRule ?? 'at_least_one'
   const setApprovalRule = useCallback(
     (rule: ApprovalRule) => saveVocabConfig({ approvalRule: rule }),
@@ -373,12 +401,19 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     }
   }, [mode, saveVocabConfig, files, pipelineId, deleteFile])
 
-  const toggleStatus = (status: MappingStatus) => {
+  const toggleStatus = (status: EffectiveMappingStatus) => {
     const next = new Set(includedStatuses)
     if (next.has(status)) next.delete(status)
     else next.add(status)
     saveVocabConfig({ statuses: [...next] })
   }
+
+  const selectAllOptions = () => saveVocabConfig({
+    statuses: [...STATUSES], includeAllSourceConcepts: true,
+  })
+  const selectNoneOptions = () => saveVocabConfig({
+    statuses: [], includeAllSourceConcepts: false,
+  })
 
   // Load mappings when a project is selected
   useEffect(() => {
@@ -391,11 +426,12 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     [mappings, selectedProjectId],
   )
 
-  // Status counts
+  // Status counts, review-aware like the filter above them.
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const m of projectMappings) {
-      counts[m.status] = (counts[m.status] ?? 0) + 1
+      const effective = effectiveMappingStatus(m)
+      counts[effective] = (counts[effective] ?? 0) + 1
     }
     return counts
   }, [projectMappings])
@@ -405,6 +441,92 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     () => filterMappings(projectMappings, includedStatuses, approvalRule),
     [projectMappings, includedStatuses, approvalRule],
   )
+
+  const selectedProject = useMemo(
+    () => mappingProjects.find((p) => p.id === selectedProjectId),
+    [mappingProjects, selectedProjectId],
+  )
+  /** The clinical database a database-sourced project reads its dictionary from.
+   *  A file project has none — its concepts come from the imported file. */
+  const sourceDataSource = useMemo(
+    () => (selectedProject?.sourceType === 'database'
+      ? dataSources.find((ds) => ds.id === selectedProject.dataSourceId)
+      : undefined),
+    [dataSources, selectedProject?.sourceType, selectedProject?.dataSourceId],
+  )
+
+  /**
+   * The project's whole dictionary, loaded only when "include all source
+   * concepts" is on — it is a full table scan, and the option is off by default.
+   */
+  const [allSourceConcepts, setAllSourceConcepts] = useState<SourceConceptRow[] | null>(null)
+  const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!selectedProject) {
+      setTotalSourceConcepts(null)
+      return
+    }
+    let cancelled = false
+    countAllSourceConcepts(selectedProject, sourceDataSource, ensureMounted).then((total) => {
+      if (!cancelled) setTotalSourceConcepts(total)
+    })
+    return () => { cancelled = true }
+  }, [selectedProject, sourceDataSource, ensureMounted])
+
+  useEffect(() => {
+    if (!selectedProject || !includeAllSourceConcepts) {
+      setAllSourceConcepts(null)
+      return
+    }
+    let cancelled = false
+    loadAllSourceConcepts(selectedProject, sourceDataSource, ensureMounted).then((rows) => {
+      if (!cancelled) setAllSourceConcepts(rows)
+    })
+    return () => { cancelled = true }
+  }, [selectedProject, sourceDataSource, ensureMounted, includeAllSourceConcepts])
+
+  /** "Include all" is on but the dictionary has yet to arrive: every artefact
+   *  comparison below would judge a partial set, so they wait. */
+  const sourceConceptsPending = includeAllSourceConcepts && allSourceConcepts === null
+
+  /**
+   * What the artefacts are actually built from: the mappings the status filter
+   * kept, plus a target-less mapping per source concept none of them covers.
+   *
+   * The two are one list on purpose — the ids have to be allocated over the
+   * whole set, or an unmapped concept could be handed an id a filtered-out
+   * mapping already owns.
+   */
+  const exportedMappings = useMemo(() => {
+    if (!includeAllSourceConcepts || !allSourceConcepts || !selectedProjectId) return filteredMappings
+    return [
+      ...filteredMappings,
+      ...syntheticMappingsForUnmapped(allSourceConcepts, filteredMappings, selectedProjectId),
+    ]
+  }, [includeAllSourceConcepts, allSourceConcepts, filteredMappings, selectedProjectId])
+
+  /** Ids are allocated across every mapping the project has, plus the synthetic
+   *  ones — see `exportedMappings`. */
+  const idAllocationPool = useMemo(
+    () => (exportedMappings === filteredMappings
+      ? projectMappings
+      : [...projectMappings, ...exportedMappings.filter((m) => m.id === SYNTHETIC_MAPPING_ID)]),
+    [exportedMappings, filteredMappings, projectMappings],
+  )
+
+  // What ticking "include all" would add: the dictionary minus the source
+  // concepts the selected mappings already cover. Counted from the totals rather
+  // than from the loaded rows, so the number is there before the option is on.
+  const filteredSourceKeys = useMemo(
+    () => new Set(filteredMappings.map(sourceKey)),
+    [filteredMappings],
+  )
+  const unmappedSourceCount = totalSourceConcepts !== null
+    ? Math.max(0, totalSourceConcepts - filteredSourceKeys.size)
+    : null
+  const totalExportCount = filteredMappings.length
+    + (includeAllSourceConcepts && unmappedSourceCount !== null ? unmappedSourceCount : 0)
 
   /**
    * Exports the pipeline's scripts read but do not have.
@@ -479,24 +601,25 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
       edited.add('prune')
     }
 
-    // The other two are built from the mappings; with none selected there is
-    // nothing to compare against, so leave those boxes alone.
-    if (filteredMappings.length > 0) {
+    // The other two are built from the mappings; with none selected, or with the
+    // dictionary still loading, there is nothing to compare against, so leave
+    // those boxes alone.
+    if (exportedMappings.length > 0 && !sourceConceptsPending) {
       if (storedArtefacts.csv !== undefined
-        && storedArtefacts.csv !== buildMappingExports(filteredMappings, projectMappings, mode)
+        && storedArtefacts.csv !== buildMappingExports(exportedMappings, idAllocationPool, mode)
           .map((e) => e.csv).join('\n')) {
         edited.add('csv')
       }
       // The vocabulary script also needs the reference to be generated at all.
       if (storedArtefacts.script !== undefined && vocabSchema) {
         const { sql } = buildVocabularyScriptWithIds(
-          filteredMappings, undefined, vocabTables, projectMappings, mode,
+          exportedMappings, undefined, vocabTables, idAllocationPool, mode,
         )
         if (storedArtefacts.script !== sql) edited.add('script')
       }
     }
     return edited
-  }, [storedArtefacts, vocabSchema, filteredMappings, vocabTables, projectMappings, mode])
+  }, [storedArtefacts, vocabSchema, exportedMappings, sourceConceptsPending, vocabTables, idAllocationPool, mode])
 
   /**
    * Artefacts already in the pipeline with exactly the content that would be
@@ -511,12 +634,12 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     const fresh = new Set<Artefact>()
     const compared = (a: Artefact) =>
       a === 'prune' ? true
-        : filteredMappings.length > 0 && (a === 'csv' || !!vocabSchema)
+        : exportedMappings.length > 0 && !sourceConceptsPending && (a === 'csv' || !!vocabSchema)
     for (const a of ['csv', 'script', 'prune'] as const) {
       if (storedArtefacts[a] !== undefined && compared(a) && !editedScripts.has(a)) fresh.add(a)
     }
     return fresh
-  }, [storedArtefacts, editedScripts, filteredMappings, vocabSchema])
+  }, [storedArtefacts, editedScripts, exportedMappings, sourceConceptsPending, vocabSchema])
 
   /**
    * What actually gets written: artefacts already up to date, and edited ones
@@ -552,7 +675,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
    * rather than renumbering.
    */
   const generate = useCallback(async () => {
-    if (!selectedProjectId || filteredMappings.length === 0 || effectiveSelected.size === 0) return
+    if (!selectedProjectId || exportedMappings.length === 0 || effectiveSelected.size === 0) return
     // Only the vocabulary script reads the reference; the CSV is built purely
     // from the mappings and the prune script only reads the target, so both must
     // stay available when no ATHENA import exists.
@@ -572,19 +695,24 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
       // The script says `vocab.` rather than the resolved schema, so it stays
       // valid after an export/reimport (resolved at run time).
       const { sql, idsToPersist } = buildVocabularyScriptWithIds(
-        filteredMappings, undefined, vocabTables, projectMappings, mode,
+        exportedMappings, undefined, vocabTables, idAllocationPool, mode,
       )
       // Store the source-concept ids this run settled on, so the next generation
       // reuses them instead of allocating new ones. Done before writing anything:
       // if it fails, no artefact references an unsaved id. Needed for the CSV
       // alone too — it carries the same ids.
+      //
+      // The synthetic mappings standing in for unmapped source concepts are
+      // skipped: their id belongs to a source concept the project has no row
+      // for, and they all share the same empty mapping id.
       for (const [mappingId, sourceConceptId] of idsToPersist) {
+        if (mappingId === SYNTHETIC_MAPPING_ID) continue
         await updateMapping(mappingId, { sourceConceptId })
       }
       // The export carries the rows the script reads; write it first so the
       // script is never the newer of the two.
       if (effectiveSelected.has('csv')) {
-        for (const { name, csv } of buildMappingExports(filteredMappings, projectMappings, mode)) {
+        for (const { name, csv } of buildMappingExports(exportedMappings, idAllocationPool, mode)) {
           await upsertMappingExport(pipelineId, name, csv)
         }
       }
@@ -596,18 +724,20 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
           pipelineId, PRUNE_SCRIPT_NAME, buildPruneVocabularyScript(), PRUNE_SCRIPT_ORDER,
         )
       }
-      setResult({ success: true, count: filteredMappings.length, written: [...effectiveSelected] })
+      setResult({ success: true, count: exportedMappings.length, written: [...effectiveSelected] })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setResult({ success: false, count: 0, error: msg })
     } finally {
       setCreating(false)
     }
-  }, [selectedProjectId, filteredMappings, projectMappings, pipelineId, vocabSchema, vocabTables, effectiveSelected, updateMapping, mode, t])
+  }, [selectedProjectId, exportedMappings, idAllocationPool, pipelineId, vocabSchema, vocabTables, effectiveSelected, updateMapping, mode, t])
 
   // The CSV and the prune script need no vocabulary reference; only the
-  // vocabulary script does, and it adds its own condition.
-  const cannotGenerate = !selectedProjectId || filteredMappings.length === 0 || !canWrite
+  // vocabulary script does, and it adds its own condition. Generating while the
+  // dictionary is still loading would write the mapped part only.
+  const cannotGenerate = !selectedProjectId || exportedMappings.length === 0
+    || sourceConceptsPending || !canWrite
 
   /** The amber notices, gathered so they stack once at the top rather than
    *  pushing the form down one by one. */
@@ -668,18 +798,41 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
           <div className="space-y-3">
             <FormField label={t('etl.vocab_from_project')}>
               {() => (
-                <SearchableSelect
-                  value={selectedProjectId}
-                  options={projectOptions}
-                  placeholder={t('etl.vocab_select_project')}
-                  onChange={handleProjectChange}
-                />
+                <Select value={selectedProjectId} onValueChange={handleProjectChange} disabled={creating || !canWrite}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder={t('etl.vocab_select_project')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {projectOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             </FormField>
 
             {selectedProjectId && projectMappings.length > 0 && (
               <div className="space-y-2 rounded-md border bg-muted/30 p-3">
-                <p className="text-xs font-medium">{t('concept_mapping.export_filter_title')}</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium">{t('concept_mapping.export_filter_title')}</p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={selectAllOptions}
+                      className="text-[10px] text-muted-foreground hover:text-foreground"
+                    >
+                      {t('common.select_all')}
+                    </button>
+                    <span className="text-[10px] text-muted-foreground">/</span>
+                    <button
+                      type="button"
+                      onClick={selectNoneOptions}
+                      className="text-[10px] text-muted-foreground hover:text-foreground"
+                    >
+                      {t('common.select_none')}
+                    </button>
+                  </div>
+                </div>
                 <div className="space-y-1.5">
                   {STATUSES.map((status) => {
                     const count = statusCounts[status] ?? 0
@@ -709,7 +862,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                                   onChange={() => setApprovalRule(rule)}
                                   className="size-3 accent-primary"
                                 />
-                                <span className="text-[11px] text-muted-foreground">
+                                <span className="text-[10px] text-muted-foreground">
                                   {t(`concept_mapping.export_rule_${rule}`)}
                                 </span>
                               </label>
@@ -720,9 +873,29 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                     )
                   })}
                 </div>
+                <label className="flex cursor-pointer items-start gap-2 border-t pt-2">
+                  <input
+                    type="checkbox"
+                    checked={includeAllSourceConcepts}
+                    onChange={() => saveVocabConfig({ includeAllSourceConcepts: !includeAllSourceConcepts })}
+                    className="mt-0.5 size-3.5 rounded border-border accent-primary"
+                  />
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2">
+                      <span className="text-xs">{t('concept_mapping.export_include_all_source_concepts')}</span>
+                      {unmappedSourceCount !== null && unmappedSourceCount > 0 && (
+                        <Badge variant="secondary" >{unmappedSourceCount}</Badge>
+                      )}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                      {t('etl.vocab_include_all_source_concepts_desc')}
+                    </span>
+                  </span>
+                </label>
+
                 <div className="border-t pt-2">
-                  <p className="text-[11px] text-muted-foreground">
-                    {t('concept_mapping.export_total')}: <strong>{filteredMappings.length}</strong> {t('concept_mapping.export_mappings_count')}
+                  <p className="text-[10px] text-muted-foreground">
+                    {t('concept_mapping.export_total')}: <strong>{totalExportCount}</strong> {t('concept_mapping.export_mappings_count')}
                   </p>
                 </div>
               </div>

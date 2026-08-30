@@ -3677,6 +3677,7 @@
     "vocab_export_empty_other": "{{files}} hold no rows. The scripts will run but write no mappings. Check the status filter, then regenerate.",
     "attention_vocab_export_missing": "The mapping export is missing",
     "vocab_artefacts": "Files to write",
+    "vocab_include_all_source_concepts_desc": "Also loads the source concepts no selected mapping covers, as concepts with no 'Maps to'. Without them an unmapped local code has no source_concept_id to write into the CDM.",
     "readme_empty_hint": "No readme yet — write one to say what this pipeline transforms."
   },
   "sql_scripts": {

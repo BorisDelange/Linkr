@@ -11,7 +11,7 @@ import { getScoresFile } from '@/lib/concept-mapping/scores-storage'
 import { isServerMode } from '@/lib/api-client'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { queryDataSource, queryDataSourceAll, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
+import { queryDataSource, queryDataSourceAll } from '@/lib/duckdb/engine'
 import {
   exportToUsagiCsv,
   exportToSourceToConceptMap,
@@ -41,7 +41,7 @@ import {
 } from '@/components/ui/select'
 import { downloadBlob, slugify, attachEntityOrganization } from '@/lib/entity-io'
 import { localized } from '@/lib/localized'
-import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
+import { loadAllSourceConcepts, countAllSourceConcepts } from '@/lib/concept-mapping/source-concepts-loader'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getStorage } from '@/lib/storage'
 import type { MappingProject, EffectiveMappingStatus, DataSource } from '@/types'
@@ -82,24 +82,12 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
 
   useEffect(() => {
-    if (project.sourceType === 'file') {
-      setTotalSourceConcepts(project.fileSourceData?.totalRowCount ?? project.fileSourceData?.rows.length ?? 0)
-      return
-    }
-    if (!dataSource?.id || !dataSource.schemaMapping) return
     let cancelled = false
-    const load = async () => {
-      try {
-        await ensureMounted(dataSource.id)
-        const sql = buildSourceConceptsCountQuery(dataSource.schemaMapping!, {})
-        if (!sql) return
-        const [row] = await queryDataSource(dataSource.id, sql)
-        if (!cancelled) setTotalSourceConcepts(Number(row?.total ?? 0))
-      } catch { /* silently fail */ }
-    }
-    load()
+    countAllSourceConcepts(project, dataSource, ensureMounted).then((total) => {
+      if (!cancelled && total !== null) setTotalSourceConcepts(total)
+    })
     return () => { cancelled = true }
-  }, [project.sourceType, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
+  }, [project, dataSource, ensureMounted])
 
   const toggleStatus = (status: EffectiveMappingStatus) => {
     setIncludedStatuses((prev) => {
@@ -170,68 +158,6 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
 
   const slug = localized(project.name, 'en').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
-  /** Load every source concept for this project.
-   *  - File source: query DuckDB (rows[] is deprecated when rawFileBuffer is used).
-   *    Falls back to in-memory rows for legacy projects without rawFileBuffer.
-   *  - Database source: query the source table via DuckDB. */
-  const loadAllSourceConcepts = useCallback(async (): Promise<{ vocabularyId: string; conceptCode: string; conceptName: string }[]> => {
-    if (project.sourceType === 'file') {
-      if (!project.fileSourceData) return []
-      // Try DuckDB first (newer projects use rawFileBuffer + DuckDB-mounted source_concepts).
-      try {
-        if (!isFileSourceMounted(project.id)) {
-          await mountFileSourceIntoDuckDB(
-            project.id,
-            project.fileSourceData.rows,
-            project.fileSourceData.columnMapping,
-            project.fileSourceData.rawFileBuffer,
-          )
-        }
-        const dsId = fileSourceDataSourceId(project.id)
-        // queryDataSourceAll (not queryDataSource): server mode caps a single
-        // response at MAX_QUERY_ROWS (~10k), silently truncating large source
-        // concept sets in the export. Page through to get every row.
-        const rows = await queryDataSourceAll(dsId, 'SELECT vocabulary_id, concept_code, concept_name FROM source_concepts')
-        const out = rows.map((r: Record<string, unknown>) => ({
-          vocabularyId: String(r.vocabulary_id ?? localized(project.name, 'en')),
-          conceptCode: String(r.concept_code ?? ''),
-          conceptName: String(r.concept_name ?? ''),
-        })).filter((c) => c.conceptCode)
-        if (out.length > 0) return out
-      } catch { /* fall through to legacy rows[] */ }
-
-      // Legacy fallback: in-memory rows[] (older projects, no rawFileBuffer).
-      const rows = project.fileSourceData.rows ?? []
-      const colMapping = project.fileSourceData.columnMapping
-      const codeCol = colMapping?.conceptCodeColumn
-      const vocabCol = colMapping?.terminologyColumn
-      const nameCol = colMapping?.conceptNameColumn
-      const out: { vocabularyId: string; conceptCode: string; conceptName: string }[] = []
-      for (const row of rows) {
-        const code = codeCol ? String(row[codeCol] ?? '') : ''
-        const vocab = vocabCol ? String(row[vocabCol] ?? '') : localized(project.name, 'en')
-        const name = nameCol ? String(row[nameCol] ?? '') : code
-        if (code) out.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
-      }
-      return out
-    }
-    if (dataSource?.schemaMapping) {
-      try {
-        await ensureMounted(dataSource.id)
-        const sql = buildSourceConceptsAllQuery(dataSource.schemaMapping, {})
-        if (sql) {
-          const rows = await queryDataSourceAll(dataSource.id, sql)
-          return rows.map((r) => ({
-            vocabularyId: String(r.vocabulary_id ?? dataSource.id),
-            conceptCode: String(r.concept_code ?? ''),
-            conceptName: String(r.concept_name ?? ''),
-          })).filter((c) => c.conceptCode)
-        }
-      } catch { /* skip if unavailable */ }
-    }
-    return []
-  }, [project, dataSource, ensureMounted])
-
   /** Build the set of (vocab, code) keys that should NOT be appended as source-only rows.
    *  Excludes any code already present in the filtered output. */
   const buildExcludeKeys = useCallback((): Set<string> => {
@@ -245,7 +171,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     extraIsCsvWithHeader = false,
   ): Promise<string> => {
     if (!includeAllSourceConcepts) return mappedContent
-    const allSourceConcepts = await loadAllSourceConcepts()
+    const allSourceConcepts = await loadAllSourceConcepts(project, dataSource, ensureMounted)
     const excludeKeys = buildExcludeKeys()
     const extra = appendFn(allSourceConcepts, excludeKeys)
     if (!mappedContent) return extra
@@ -253,7 +179,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     // STCM extra has its own header line — strip it before appending.
     const extraBody = extraIsCsvWithHeader ? extra.split('\n').slice(1).join('\n') : extra
     return extraBody ? `${mappedContent}\n${extraBody}` : mappedContent
-  }, [includeAllSourceConcepts, loadAllSourceConcepts, buildExcludeKeys])
+  }, [includeAllSourceConcepts, project, dataSource, ensureMounted, buildExcludeKeys])
 
   const formats = [
     {

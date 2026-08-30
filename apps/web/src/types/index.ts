@@ -2,7 +2,7 @@
 export type { SchemaMapping, SchemaPresetId, ConceptDictionary, EventTable, CustomSchemaPreset, ErdGroup } from './schema-mapping'
 export type { ConceptList, ConceptListItem, ConceptSet, ConceptSetItem, ConceptSetTranslation, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectSourceType, MappingProjectStatus, MappingProjectStats, FileColumnMapping, FileSourceData, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, MappingEquivalence, MappingType, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore, ScoresIndex, SuggestionCategory } from './concept-mapping'
 export { SUGGESTION_CATEGORIES } from './concept-mapping'
-import type { MappingStatus } from './concept-mapping'
+import type { EffectiveMappingStatus } from './concept-mapping'
 export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogResultCache, PeriodConfig, CatalogPeriodRow } from './catalog'
 export { getDefaultDimensions } from './catalog'
 export type { AuthorDetails, Authored, Lineaged } from './author'
@@ -1058,10 +1058,17 @@ export interface EtlPipelineConfig extends EntityFilesConfig {
 export interface EtlVocabularyConfig {
   /** Artefacts to write: 'csv' | 'script' | 'prune'. */
   artefacts?: string[]
-  /** Mapping statuses fed to the generated artefacts. */
-  statuses?: MappingStatus[]
+  /** Mapping statuses fed to the generated artefacts, read review-aware. */
+  statuses?: EffectiveMappingStatus[]
   /** How to resolve several mappings competing for one source concept. */
   approvalRule?: 'at_least_one' | 'majority' | 'no_rejections'
+  /**
+   * Also emit the source concepts no selected mapping covers, as concepts with
+   * no `Maps to`. Without it the vocabulary the pipeline loads knows only the
+   * mapped part of the dictionary, and an unmapped local code has no
+   * source_concept_id to write into the CDM.
+   */
+  includeAllSourceConcepts?: boolean
   /**
    * Which vocabulary representation the script fills — see VocabularyMode in
    * features/warehouse/etl/build-vocabulary-script. Absent means 'stcm', so a

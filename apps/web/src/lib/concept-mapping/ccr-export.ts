@@ -87,6 +87,60 @@ function hasTarget(m: ConceptMapping): boolean {
   return m.targetConceptId != null && m.targetConceptId !== 0
 }
 
+/**
+ * Marks a mapping this module synthesised for an unmapped source concept, so
+ * the caller can keep its allocated id out of `idsToPersist` — the id belongs
+ * to a source concept, not to any row of the mapping project.
+ */
+export const SYNTHETIC_MAPPING_ID = ''
+
+/**
+ * Turn the source concepts NOT covered by `mappings` into target-less mappings.
+ *
+ * This is how "include all source concepts" reaches the C/CR and STCM builders:
+ * they already emit a concept with no `Maps to` for a target-less mapping, which
+ * is exactly what an unmapped local code is in OMOP v5. Going through them —
+ * rather than appending hand-built CSV lines — is what earns the unmapped
+ * concepts a real 2-billion id from `assignSourceConceptIds` instead of the
+ * `concept_id = 0` a download can afford but a loaded vocabulary cannot.
+ */
+export function syntheticMappingsForUnmapped(
+  allSourceConcepts: { vocabularyId: string; conceptCode: string; conceptName: string }[],
+  covered: ConceptMapping[],
+  projectId: string,
+): ConceptMapping[] {
+  const coveredKeys = new Set(covered.map(sourceConceptKey))
+  const out: ConceptMapping[] = []
+  const seen = new Set<string>()
+  for (const c of allSourceConcepts) {
+    const key = sourceConceptKey({
+      sourceVocabularyId: c.vocabularyId,
+      sourceConceptCode: c.conceptCode,
+    })
+    if (coveredKeys.has(key) || seen.has(key)) continue
+    seen.add(key)
+    out.push({
+      id: SYNTHETIC_MAPPING_ID,
+      projectId,
+      sourceConceptId: 0,
+      sourceConceptName: c.conceptName,
+      sourceVocabularyId: c.vocabularyId,
+      sourceDomainId: '',
+      sourceConceptCode: c.conceptCode,
+      targetConceptId: 0,
+      targetConceptName: '',
+      targetVocabularyId: '',
+      targetDomainId: '',
+      targetConceptCode: '',
+      equivalence: 'skos:exactMatch',
+      status: 'unchecked',
+      createdAt: '',
+      updatedAt: '',
+    })
+  }
+  return out
+}
+
 export interface CcrCsvs {
   /** One row per distinct source concept, mapped or not. */
   conceptCsv: string

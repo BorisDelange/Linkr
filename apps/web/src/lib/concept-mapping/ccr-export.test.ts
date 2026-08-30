@@ -3,9 +3,12 @@ import {
   buildCcrCsvs,
   conceptClassOf,
   stcmFromCcr,
+  syntheticMappingsForUnmapped,
+  SYNTHETIC_MAPPING_ID,
   CONCEPT_COLUMNS,
   CONCEPT_RELATIONSHIP_COLUMNS,
 } from './ccr-export'
+import { SOURCE_CONCEPT_ID_BASE } from './source-concept-ids'
 import { buildStcmCsv } from './stcm-export'
 import type { ConceptMapping } from '@/types'
 
@@ -240,5 +243,60 @@ describe('stcmFromCcr — the projection that keeps STCM available', () => {
     const stcmId = rows(stcmFromCcr(input).csv)[1].split(',')[1]
     const conceptId = field(rows(buildCcrCsvs(input).conceptCsv)[1], 'concept_id')
     expect(stcmId).toBe(conceptId)
+  })
+})
+
+describe('syntheticMappingsForUnmapped', () => {
+  const dictionary = [
+    { vocabularyId: 'mimic_chartevents', conceptCode: '220045', conceptName: 'Heart Rate' },
+    { vocabularyId: 'mimic_chartevents', conceptCode: '220050', conceptName: 'Arterial BP' },
+    { vocabularyId: 'mimic_labevents', conceptCode: '50912', conceptName: 'Creatinine' },
+  ]
+
+  it('keeps only the source concepts no mapping covers', () => {
+    const out = syntheticMappingsForUnmapped(dictionary, [m({ id: 'a' })], 'p1')
+    expect(out.map((s) => s.sourceConceptCode)).toEqual(['220050', '50912'])
+  })
+
+  it('matches on vocabulary AND code, not code alone', () => {
+    const covered = [m({ id: 'a', sourceVocabularyId: 'other', sourceConceptCode: '220045' })]
+    const out = syntheticMappingsForUnmapped(dictionary, covered, 'p1')
+    expect(out.map((s) => s.sourceConceptCode)).toContain('220045')
+  })
+
+  it('emits one mapping per source concept even when the dictionary repeats it', () => {
+    const out = syntheticMappingsForUnmapped([...dictionary, ...dictionary], [], 'p1')
+    expect(out).toHaveLength(3)
+  })
+
+  it('produces target-less mappings, so C/CR gives them a concept and no relationship', () => {
+    const out = syntheticMappingsForUnmapped(dictionary, [m({ id: 'a' })], 'p1')
+    const { conceptRowCount, relationshipRowCount } = buildCcrCsvs(out)
+    expect(conceptRowCount).toBe(2)
+    expect(relationshipRowCount).toBe(0)
+  })
+
+  it('earns each unmapped concept a real 2-billion id, never concept_id = 0', () => {
+    // 0 is OMOP's "No matching concept": writing it into `concept` would collide
+    // every unmapped code onto one row and break every source_concept_id join.
+    const out = syntheticMappingsForUnmapped(dictionary, [], 'p1')
+    const ids = rows(buildCcrCsvs(out).conceptCsv).slice(1)
+      .map((line) => Number(field(line, 'concept_id')))
+    expect(ids.every((id) => id >= SOURCE_CONCEPT_ID_BASE)).toBe(true)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('never takes an id a real mapping already owns', () => {
+    const owned = m({ id: 'a', sourceConceptId: 2_000_000_000 })
+    const synthetic = syntheticMappingsForUnmapped(dictionary, [owned], 'p1')
+    const ids = rows(buildCcrCsvs([owned, ...synthetic]).conceptCsv).slice(1)
+      .map((line) => Number(field(line, 'concept_id')))
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(ids).toContain(2_000_000_000)
+  })
+
+  it('marks its rows so their ids are never written back to the project', () => {
+    const out = syntheticMappingsForUnmapped(dictionary, [], 'p1')
+    expect(out.every((s) => s.id === SYNTHETIC_MAPPING_ID)).toBe(true)
   })
 })

@@ -3677,6 +3677,7 @@
     "vocab_export_empty_other": "{{files}} ne contiennent aucune ligne. Les scripts s'exécuteront mais n'écriront aucun alignement. Vérifiez le filtre de statuts, puis régénérez.",
     "attention_vocab_export_missing": "L'export des alignements est manquant",
     "vocab_artefacts": "Fichiers à écrire",
+    "vocab_include_all_source_concepts_desc": "Charge aussi les concepts sources qu'aucun mapping sélectionné ne couvre, comme des concepts sans « Maps to ». Sans eux, un code local non mappé n'a aucun source_concept_id à écrire dans le CDM.",
     "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire ce que ce pipeline transforme."
   },
   "sql_scripts": {
