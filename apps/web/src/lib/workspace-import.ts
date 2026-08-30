@@ -67,6 +67,37 @@ export function importedDatabaseLineage(
   return ds.gitRemoteConfig?.url ? {} : { lineageId: crypto.randomUUID() }
 }
 
+/**
+ * Which row an imported schema preset lands on.
+ *
+ * The same two-step every other child type uses, and for the same reason.
+ * Lineage first — the cross-instance identity, already scoped to this workspace
+ * by `resolveByLineage`. For a pointer that publishes none, the slug, but only
+ * while it is free or already held HERE (`resolveSlugLanding`).
+ *
+ * Neither step used to be taken: the key was claimed unconditionally and the
+ * slug deleted outright, so importing a second workspace publishing the same
+ * presets (MIMIC-IV, OMOP 5.4, …) deleted the first workspace's copies and
+ * dragged the rows across the boundary. The catalog installer never had the bug,
+ * which is why re-installing the presets put them back.
+ *
+ * `byLineage` is what `resolveByLineage` returned; `slugHolder` the row currently
+ * stored under `key`, if any. Both are resolved by the caller, which has storage.
+ */
+export function importedPresetLanding(
+  sp: { id?: string; lineageId?: string },
+  key: string,
+  byLineage: string,
+  slugHolder: { workspaceId?: string } | null | undefined,
+  targetWorkspaceId: string,
+  duplicate: boolean,
+  mint: () => string = () => crypto.randomUUID(),
+): string {
+  if (duplicate) return mint()
+  if (sp.lineageId) return byLineage
+  return resolveSlugLanding(key, slugHolder, targetWorkspaceId, mint)
+}
+
 export interface WorkspaceImportOptions {
   duplicate: boolean
   /** Progress reporting; the page passes its setState, a headless caller a no-op. */
@@ -336,11 +367,25 @@ export async function importWorkspaceTree(
     // name for it and is optional, so it cannot stand alone here.
     const sourceSlug = sp.entityId ?? sp.presetId ?? sp.id
     const presetId = duplicate ? mintEntityId() : sourceSlug
-    // The row's PK is `id` (minted below), not the slug — and that is what a
-    // later clone must address, since save() puts to /schema-presets/{id}.
-    const localId = duplicate ? crypto.randomUUID() : (sp.id ?? crypto.randomUUID())
+    // The row's PK is `id`, not the slug — and that is what a later clone must
+    // address, since save() puts to /schema-presets/{id}. The rule itself lives
+    // in importedPresetLanding (and is tested there); this only feeds it rows.
+    const key = sp.id ?? sourceSlug
+    const { id: byLineage } = await resolveByLineage(() => storage.schemaPresets.getAll(), sp)
+    const localId = importedPresetLanding(
+      sp,
+      key,
+      byLineage,
+      duplicate ? null : await storage.schemaPresets.getById(key).catch(() => null),
+      targetWsId,
+      duplicate,
+    )
     idMap.set(`schema-preset:${sourceSlug}`, localId)
-    if (!duplicate) await storage.schemaPresets.delete(sourceSlug).catch(() => {})
+    // Clear only the row being replaced, addressed by its primary key. Deleting
+    // by slug was the worse half of the cross-workspace bug: `schemaPresets.
+    // delete` falls back to scanning `presetId`, so it reached rows that did not
+    // even hold the key — another workspace's presets among them.
+    if (!duplicate) await storage.schemaPresets.delete(localId).catch(() => {})
     // `mapping.presetId` follows the entity id: a ZIP import reads it back as
     // the entity id and deletes whatever holds it, so letting the two drift
     // meant a later import deleted a different preset.
@@ -689,12 +734,20 @@ export async function importWorkspaceTree(
     reportPhase('workspaces.import_phase_catalogs', 0, parsed.catalogs.length)
     await yieldToBrowser()
   }
+  // Read once for the whole loop: the databases landed earlier in this import,
+  // so they are already stored and every catalog resolves against the same set.
+  const catalogDatabases = parsed.catalogs.length > 0 ? await storage.dataSources.getAll() : []
   for (const cat of parsed.catalogs) {
     const { id, replaces } = await resolveByLineage(() => storage.dataCatalogs.getAll(), cat)
     idMap.set(`data-catalog:${cat.entityId ?? cat.id}`, id)
     if (replaces) await storage.dataCatalogs.delete(replaces).catch(() => {})
+    // The manifest carries a portable pointer, never the writing instance's
+    // data-source UUID (which would address nothing here). No local match leaves
+    // the catalog sourceless — the user re-picks — rather than a dangling id.
+    const database = resolvePointer(catalogDatabases, cat.dataSourceRef, targetWsId)
     await storage.dataCatalogs.create({
       ...cat, id, workspaceId: targetWsId, updatedAt: now,
+      dataSourceId: database?.id ?? '',
       ...(duplicate ? { name: copyLocalizedName(cat.name), createdAt: now } : {}),
     })
   }

@@ -26,7 +26,7 @@ import {
   type CompactSourceConceptIdEntries, type DashboardBundle,
 } from '@/lib/entity-io'
 import { fromPathTree, readPathTree, storablePathNode } from '@/lib/entity-tree'
-import { entityKey, resolvePointer } from '@/lib/import-identity'
+import { entityKey, resolvePointer, resolveSlugLanding } from '@/lib/import-identity'
 import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { mergeSourceConceptIdRegistry, type SourceConceptIdGroup } from '@/lib/concept-mapping/source-concept-ids-io'
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
@@ -758,12 +758,23 @@ async function loadWorkspaceInternals(
     // A seed file predates id/entityId, so fill them in rather than storing a
     // row the rest of the app expects to carry them (see
     // docs/planning/schema-preset-identity-plan.md).
+    //
+    // NOT a fresh uuid: `save` is an upsert keyed on this, so minting one for an
+    // export (which carries no id) inserted a second copy of every preset on
+    // every re-seed instead of replacing the first. But the key is a slug, unique
+    // only WITHIN a workspace — so it is taken only while free or already held
+    // here, exactly as the workspace import and the databases block below do.
+    // Claiming it unconditionally would rewrite another workspace's preset with
+    // this workspace's id, silently moving it across the boundary.
+    const key = entityKey(sp, path.split('/').at(-2) ?? path)
+    const presetKey = resolveSlugLanding(
+      key,
+      await storage.schemaPresets.getById(key).catch(() => null),
+      wsId,
+    )
     await storage.schemaPresets.save({
       ...sp,
-      // NOT a fresh uuid: `save` is an upsert keyed on this, so minting one for
-      // an export (which carries no id) inserted a second copy of every preset on
-      // every re-seed instead of replacing the first.
-      id: entityKey(sp, path.split('/').at(-2) ?? path),
+      id: presetKey,
       entityId: sp.entityId ?? sp.presetId,
       // A git-linked preset is seeded as a POINTER: its name sits at the root and
       // there is no `mapping`, so the row would have no presetLabel — no name —

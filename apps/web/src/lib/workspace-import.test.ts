@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { importedDatabaseLineage } from './workspace-import'
+import { importedDatabaseLineage, importedPresetLanding } from './workspace-import'
 
 const REMOTE = { url: 'https://framagit.org/g/mimic-iv-demo', branch: 'main' }
 
@@ -36,5 +36,49 @@ describe('importedDatabaseLineage', () => {
     const out = importedDatabaseLineage({}, true)
     expect(out.lineageId).toMatch(/^[0-9a-f-]{36}$/)
     expect(out.parentLineageId).toBeUndefined()
+  })
+})
+
+describe('importedPresetLanding', () => {
+  const WS = 'ws-1'
+  /** Deterministic ids, so a test can tell a minted key from a reused one. */
+  const counter = () => { let n = 0; return () => `minted-${++n}` }
+
+  it('lands on the row its lineage already wrote in this workspace', () => {
+    // resolveByLineage did the scoping; a pointer WITH a lineage trusts it.
+    const id = importedPresetLanding(
+      { id: 'mimic-iv', lineageId: 'lin-1' }, 'mimic-iv', 'local-abc', null, WS, false, counter(),
+    )
+    expect(id).toBe('local-abc')
+  })
+
+  it('takes the key when no preset holds it', () => {
+    const id = importedPresetLanding({ id: 'mimic-iv' }, 'mimic-iv', 'ignored', null, WS, false, counter())
+    expect(id).toBe('mimic-iv')
+  })
+
+  it('reuses the row this workspace already has under that key', () => {
+    const id = importedPresetLanding(
+      { id: 'mimic-iv' }, 'mimic-iv', 'ignored', { workspaceId: WS }, WS, false, counter(),
+    )
+    expect(id).toBe('mimic-iv')
+  })
+
+  it('leaves another workspace\'s preset alone and mints instead', () => {
+    // The regression: importing a second workspace that publishes the same four
+    // presets (MIMIC-IV, OMOP 5.4, …) claimed the first workspace's keys, and the
+    // delete-then-save deleted its presets outright. Presets are workspace-scoped
+    // like every other child — two workspaces may each hold a `mimic-iv`.
+    const id = importedPresetLanding(
+      { id: 'mimic-iv' }, 'mimic-iv', 'ignored', { workspaceId: 'ws-2' }, WS, false, counter(),
+    )
+    expect(id).toBe('minted-1')
+  })
+
+  it('always mints on a duplicate', () => {
+    const id = importedPresetLanding(
+      { id: 'mimic-iv', lineageId: 'lin-1' }, 'mimic-iv', 'local-abc', { workspaceId: WS }, WS, true, counter(),
+    )
+    expect(id).toBe('minted-1')
   })
 })
