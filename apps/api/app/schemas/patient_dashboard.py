@@ -14,6 +14,7 @@ class PatientDashboardCreate(CamelModel):
     widget_spacing: int | None = None
     fit_to_height: bool | None = None
     reload_widgets_on_tab_switch: bool | None = None
+    sync_timelines_across_tabs: bool | None = None
     display_order: int = 0
     origin: str = "user"
     created_by_id: int | None = None
@@ -31,6 +32,7 @@ class PatientDashboardUpdate(CamelModel):
     widget_spacing: int | None = None
     fit_to_height: bool | None = None
     reload_widgets_on_tab_switch: bool | None = None
+    sync_timelines_across_tabs: bool | None = None
     display_order: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
@@ -49,6 +51,7 @@ class PatientDashboardResponse(CamelModel):
     widget_spacing: int | None = None
     fit_to_height: bool | None = None
     reload_widgets_on_tab_switch: bool | None = None
+    sync_timelines_across_tabs: bool | None = None
     display_order: int
     origin: str
     created_by_id: int | None = None

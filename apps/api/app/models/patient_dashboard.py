@@ -23,6 +23,7 @@ class PatientDashboard(Base, TimestampMixin):
     widget_spacing: Mapped[int | None] = mapped_column(Integer)
     fit_to_height: Mapped[bool | None] = mapped_column(Boolean)
     reload_widgets_on_tab_switch: Mapped[bool | None] = mapped_column(Boolean)
+    sync_timelines_across_tabs: Mapped[bool | None] = mapped_column(Boolean)
     display_order: Mapped[int] = mapped_column(Integer, default=0)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     # User-facing semver, portable across export/import (see Project.version).

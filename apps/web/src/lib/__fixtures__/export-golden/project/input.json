@@ -427,6 +427,7 @@
         "widgetSpacing": null,
         "fitToHeight": null,
         "reloadWidgetsOnTabSwitch": null,
+        "syncTimelinesAcrossTabs": true,
         "displayOrder": 0,
         "origin": "user",
         "createdById": null,
