@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, Database, Info, Loader2, Play, RotateCcw, Square } from 'lucide-react'
+import { AlertCircle, Database, Info, Loader2, Pause, Play, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -40,8 +40,14 @@ interface SourceConceptsTabProps {
   dataSource?: DataSource
 }
 
-/** Batch sizes offered. Small enough to stop quickly, large enough to be worth a run. */
-const BATCH_SIZES = [100, 500, 1000, 5000]
+/**
+ * Concepts profiled between two writes of the CSV.
+ *
+ * Not a user setting: progress is counted and resumed in concepts, so this only
+ * trades how much work a crash could lose against how often a large CSV is
+ * re-encoded. 500 keeps both small.
+ */
+const SAVE_EVERY = 500
 
 /** The profile blocks, in the order they are offered. */
 const SECTION_KEYS: (keyof ProfileSections)[] = [
@@ -50,12 +56,16 @@ const SECTION_KEYS: (keyof ProfileSections)[] = [
 ]
 
 /**
- * Extract a database project's source concepts, in batches the user controls.
+ * Extract a database project's source concepts, resumably.
  *
  * Only shown for a database source. Reading a clinical database's dictionary is
  * not like reading an imported CSV: profiling each concept scans the event
  * tables, which on a real warehouse is minutes to hours. So it is never done
- * implicitly — this tab is where it is started, watched, stopped and resumed.
+ * implicitly — this tab is where it is started, watched, paused and resumed.
+ *
+ * The unit of progress is the CONCEPT, not the batch: the stored offset counts
+ * concepts and a resume picks up at the next one, so pausing costs at most the
+ * handful profiled since the last save.
  *
  * What it produces is the same flat CSV an import would have given, which is
  * what lets the editor, the export and the git sync treat both kinds of project
@@ -73,7 +83,6 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   const [dictionaryKeys, setDictionaryKeys] = useState<string[]>(
     saved?.dictionaryKeys ?? (dictionaries[0] ? [dictionaries[0].key] : []),
   )
-  const [batchSize, setBatchSize] = useState(saved?.batchSize ?? 500)
   const [options, setOptions] = useState<ProfileOptions>(saved?.options ?? DEFAULT_PROFILE_OPTIONS)
 
   // Re-adopt the stored settings whenever a different run turns up: the state
@@ -89,7 +98,6 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     if (adoptedRef.current === runKey) return
     adoptedRef.current = runKey
     setDictionaryKeys(saved.dictionaryKeys)
-    setBatchSize(saved.batchSize)
     setOptions(saved.options)
   }, [saved])
 
@@ -180,6 +188,10 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       const keys = sources.map((s) => s.dictionary.key)
 
       setLiveExtracted(offset)
+      // Runs until paused or finished. Concepts are the unit of progress — the
+      // offset counts them, and a resume picks up at the next one — so the batch
+      // below is only how often the CSV is written back, never something the run
+      // stops on.
       while (!controller.signal.aborted && offset < runTotal) {
         // Which dictionary the global offset falls in, and where inside it.
         let index = 0
@@ -196,7 +208,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           mapping, source, { ...options, sections }, local,
           // Never read past this dictionary's end in one batch: the next one has
           // its own columns, and mixing them into one page would misread them.
-          Math.min(batchSize, sizes[index] - local),
+          Math.min(SAVE_EVERY, sizes[index] - local),
           runTotal, query, controller.signal,
           (n) => setLiveExtracted(offset - local + n),
         )
@@ -207,7 +219,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
 
         await persist(
           {
-            dictionaryKeys: keys, extracted: offset, total: runTotal, batchSize,
+            dictionaryKeys: keys, extracted: offset, total: runTotal,
             options: { ...options, sections }, updatedAt: new Date().toISOString(),
           },
           csv, offset,
@@ -229,7 +241,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     }
   }, [
     mapping, sources, dataSource, ensureMounted, saved, project, options,
-    batchSize, persist, updateMappingProject,
+    persist, updateMappingProject,
   ])
 
   const stop = useCallback(() => abortRef.current?.abort(), [])
@@ -266,7 +278,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           </Tooltip>
         </div>
 
-        {/* Scope: which dictionaries, how big a batch */}
+        {/* What to walk, and what to compute for each concept */}
         <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-1.5">
             <Label>{t('concept_mapping.extract_dictionary')}</Label>
@@ -281,41 +293,24 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             />
           </div>
           <div className="grid gap-1.5">
-            <Label>{t('concept_mapping.extract_batch_size')}</Label>
+            <Label>{t('concept_mapping.extract_sections')}</Label>
             <MultiSelectFilter
-              value={[String(batchSize)]}
-              options={BATCH_SIZES.map((n) => ({ value: String(n), label: n.toLocaleString(i18n.language) }))}
-              placeholder=""
-              // Single-valued: keep the last click rather than accumulating.
-              onChange={(next) => {
-                const picked = next.find((v) => v !== String(batchSize)) ?? next[0]
-                if (picked) setBatchSize(Number(picked))
-              }}
+              value={selectedSections}
+              options={sectionOptions}
+              placeholder={t('concept_mapping.extract_sections_placeholder')}
+              onChange={(next) => setOptions((o) => {
+                const sections = { ...o.sections }
+                for (const key of SECTION_KEYS) sections[key] = next.includes(key)
+                return { ...o, sections }
+              })}
               showChevron
-              popoverWidthClass="w-40"
+              popoverWidthClass="w-72"
               triggerClass={cn(MULTI_SELECT_FORM_TRIGGER, running && 'pointer-events-none opacity-50')}
             />
           </div>
         </div>
 
-        {/* What to compute, and the two confidentiality thresholds */}
-        <div className="grid gap-1.5">
-          <Label>{t('concept_mapping.extract_sections')}</Label>
-          <MultiSelectFilter
-            value={selectedSections}
-            options={sectionOptions}
-            placeholder={t('concept_mapping.extract_sections_placeholder')}
-            onChange={(next) => setOptions((o) => {
-              const sections = { ...o.sections }
-              for (const key of SECTION_KEYS) sections[key] = next.includes(key)
-              return { ...o, sections }
-            })}
-            showChevron
-            popoverWidthClass="w-72"
-            triggerClass={cn(MULTI_SELECT_FORM_TRIGGER, running && 'pointer-events-none opacity-50')}
-          />
-        </div>
-
+        {/* The two confidentiality thresholds */}
         <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-1.5">
             <LabelWithHint
@@ -387,8 +382,8 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           <div className="flex items-center gap-2">
             {running ? (
               <Button variant="outline" size="sm" className="gap-1.5" onClick={stop}>
-                <Square size={14} />
-                {t('concept_mapping.extract_stop')}
+                <Pause size={14} />
+                {t('concept_mapping.extract_pause')}
               </Button>
             ) : (
               <Button

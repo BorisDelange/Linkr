@@ -236,8 +236,6 @@ export interface SourceExtraction {
   extracted: number
   /** Concepts the dictionary holds, as counted when the run started. */
   total: number
-  /** Concepts per batch, chosen by the user. */
-  batchSize: number
   /** Which profile blocks this run computes, and how. */
   options: import('@/lib/concept-mapping/concept-profile').ProfileOptions
   /** ISO 8601, when the last batch finished. */
