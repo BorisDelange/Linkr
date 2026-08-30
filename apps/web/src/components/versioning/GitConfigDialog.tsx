@@ -63,8 +63,10 @@ export function GitConfigDialog({
           <div className="min-w-0 space-y-1.5">
             <Label>{t('versioning.remote_token')}</Label>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {/* h-6 on both, so the badge and the button share one height —
+                  sm-tight's h-7 stood 8px taller than the badge beside it. */}
               <span
-                className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${
+                className={`flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] ${
                   hasToken
                     ? 'bg-muted text-muted-foreground'
                     : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
@@ -73,23 +75,27 @@ export function GitConfigDialog({
                 <KeyRound size={10} />
                 {hasToken ? t('versioning.remote_token_set') : t('versioning.remote_no_token')}
               </span>
-              <Button variant="outline" size="sm-tight" className="shrink-0" onClick={onEditToken} disabled={saving}>
+              <Button variant="outline" size="sm-tight" className="h-6 shrink-0" onClick={onEditToken} disabled={saving}>
                 <KeyRound size={12} />
                 {/* Until the status resolves, keep the neutral "Edit"; only assert
                     "Add" once we know there is no token. */}
                 {hasToken === false ? t('versioning.remote_add_token') : t('versioning.remote_edit_token')}
               </Button>
             </div>
-            {/* The help lists provider menu paths, which can be long — let it
-                scroll rather than widen the dialog. */}
-            <div className="max-h-48 min-w-0 overflow-y-auto rounded-md border bg-muted/30 p-2 text-muted-foreground">
+            <div className="min-w-0 pt-0.5">
               <GitTokenHelp />
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 px-3 py-2">
-            <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-muted-foreground">
+          {/* No flex-wrap: the button stays on the right instead of dropping below
+              once the sentence needs its second line. */}
+          <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2">
+            {/* Two sentences, two lines — the break is fixed at "Your local…"
+                rather than left to wherever the width happens to wrap. */}
+            <p className="min-w-0 flex-1 basis-0 text-[10px] leading-relaxed text-muted-foreground">
               {t('versioning.config_disconnect_hint')}
+              <br />
+              {t('versioning.config_disconnect_hint_2')}
             </p>
             <Button
               variant="ghost"

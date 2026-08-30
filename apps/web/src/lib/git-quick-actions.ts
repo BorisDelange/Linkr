@@ -45,6 +45,10 @@ interface QuickActionDef {
    *  the user should push deliberately from Details. Also marks the preset as
    *  the "Sync all" one for the shared accent. */
   excludeForeign?: boolean
+  /** Extra paths this preset never commits, applied after every other rule.
+   *  For deletions Linkr's export can't distinguish from "the app simply doesn't
+   *  write this" — see the databases scope. */
+  exclude?: RegExp[]
 }
 
 // Per-scope presets, in display order (first is the primary/"all" action).
@@ -134,22 +138,19 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       excludeForeign: true,
     },
   ],
-  // Metadata only, and no "Sync all" — the one scope where the full change set
-  // routinely includes deletions of `data/` files the app never exports. Sweeping
-  // those into a one-click push would drop a repo's tables on a button whose
-  // label says "sync"; dropping them stays possible, from Details, per file.
+  // "Sync all" here excludes `data/` deletions, unlike every other scope. A repo
+  // authored outside Linkr ships its tables under data/, and the app publishes
+  // metadata only — so those files are absent from every export and show up as
+  // deletions in every push status, without the user having removed anything.
+  // Sweeping them in would drop a repo's tables on a button labelled "sync";
+  // dropping them stays possible, from Details, per file.
   databases: [
     {
-      labelKey: 'versioning.quick_sync_metadata',
-      descriptionKey: 'versioning.quick_desc_metadata_database',
-      messageKey: 'versioning.quick_msg_metadata_database',
-      patterns: [/^(entity|_database)\.json$/, /^mapping\.json$/, /^schema\.ddl$/],
-    },
-    {
-      labelKey: 'versioning.quick_sync_docs',
-      descriptionKey: 'versioning.quick_desc_docs_database',
-      messageKey: 'versioning.quick_msg_docs_database',
-      patterns: [/^README(\.[a-z-]+)?\.md$/i, /^LICENSE\.md$/i, /^attachments\//],
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all_database',
+      messageKey: 'versioning.quick_msg_all_database',
+      excludeForeign: true,
+      exclude: [/^data\//],
     },
   ],
   'user-plugins': [
@@ -205,6 +206,9 @@ export function buildQuickActions(
     ).map((c) => ({ path: c.path, changeType: c.changeType }))
     if (def.excludeForeign) {
       files = files.filter((f) => !isForeignPath(scope, f.path) && isDefaultSelected(scope, f))
+    }
+    if (def.exclude) {
+      files = files.filter((f) => !def.exclude!.some((re) => re.test(f.path)))
     }
     return {
       labelKey: def.labelKey,

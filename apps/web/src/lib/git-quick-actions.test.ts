@@ -72,7 +72,7 @@ describe('buildQuickActions', () => {
     const scopes: GitScope[] = [
       'projects', 'workspaces', 'mapping-projects', 'sql-script-collections',
       'etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets',
-      'user-plugins', 'settings',
+      'databases', 'user-plugins', 'settings',
     ]
     for (const scope of scopes) {
       const actions = buildQuickActions(scope, ch('_tree.json'))
@@ -84,9 +84,30 @@ describe('buildQuickActions', () => {
   })
 
   it('the single-entity scopes expose Sync all and nothing else', () => {
-    for (const scope of ['etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets', 'user-plugins'] as GitScope[]) {
+    for (const scope of ['etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets', 'databases', 'user-plugins'] as GitScope[]) {
       expect(buildQuickActions(scope, ch('_tree.json')), scope).toHaveLength(1)
     }
+  })
+
+  it('databases: Sync all takes metadata and docs together', () => {
+    const changed = ch('_database.json', 'mapping.json', 'schema.ddl', 'README.md', 'LICENSE.md', 'attachments/logo.png')
+    const [all] = buildQuickActions('databases', changed)
+    expect(all.labelKey).toBe('versioning.quick_sync_all')
+    expect(all.isSyncAll).toBe(true)
+    expect(paths(all)).toEqual([
+      '_database.json', 'mapping.json', 'schema.ddl', 'README.md', 'LICENSE.md', 'attachments/logo.png',
+    ])
+  })
+
+  it('databases: Sync all never touches data/, so a one-click push cannot drop the remote tables', () => {
+    // Linkr publishes metadata only, so a repo that ships its own tables reports
+    // every data/ file as deleted in each status — without the user having
+    // removed anything. Dropping them stays possible, per file, from Details.
+    const changed = ch(
+      ['_database.json', 'modified'], ['data/person.parquet', 'deleted'], ['data/visit.parquet', 'deleted'],
+    )
+    const [all] = buildQuickActions('databases', changed)
+    expect(paths(all)).toEqual(['_database.json'])
   })
 
   it('Sync all drops foreign files and modified repo config, keeps added config', () => {
