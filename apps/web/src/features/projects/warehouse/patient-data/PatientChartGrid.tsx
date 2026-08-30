@@ -13,6 +13,7 @@ import {
   PATIENT_DEFAULT_SPACING,
   PATIENT_GRID_COLS,
   PATIENT_GRID_PADDING,
+  PATIENT_GRID_ROWS,
   PATIENT_SCROLL_ROW_HEIGHT,
   patientRowHeight,
 } from './patient-grid'
@@ -150,6 +151,7 @@ export function PatientChartGrid({
   // Narrow selectors: a bare usePatientChartStore() re-renders every widget on the
   // grid whenever a patient or visit is selected.
   const updateWidgetLayout = usePatientChartStore((s) => s.updateWidgetLayout)
+  const fitTabToHeight = usePatientChartStore((s) => s.fitTabToHeight)
   const removeWidget = usePatientChartStore((s) => s.removeWidget)
   const renameWidget = usePatientChartStore((s) => s.renameWidget)
   const updateWidget = usePatientChartStore((s) => s.updateWidget)
@@ -159,6 +161,8 @@ export function PatientChartGrid({
   const measureRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
   const [viewportHeight, setViewportHeight] = useState(800)
+  // One grid renders one tab, so every widget here shares its id.
+  const tabId = widgets[0]?.tabId ?? null
 
   // Component widgets open the unified editor (config + SQL + preview); script
   // plugins keep their own sheet, which also hosts their code.
@@ -226,6 +230,12 @@ export function PatientChartGrid({
     ? patientRowHeight(viewportHeight, MARGIN[1])
     : SCROLL_ROW_HEIGHT
 
+  // Trim a board that arrives taller than the grid — one saved while the mode was
+  // off, or before this ran. Shrink-only, so a board that fits is left alone.
+  useEffect(() => {
+    if (fitToHeight && tabId) fitTabToHeight(tabId, PATIENT_GRID_ROWS, 'shrink-only')
+  }, [fitToHeight, tabId, fitTabToHeight])
+
   const layout: LayoutItem[] = useMemo(
     () =>
       widgets.map((w) => ({
@@ -259,8 +269,12 @@ export function PatientChartGrid({
           })
         }
       }
+      // Fit-to-height promises no scrolling, so a resize that pushes the stack
+      // past the bottom trims the others to make room — the dashboards grid does
+      // the same. Shrink-only: a change that still fits reflows nothing.
+      if (fitToHeight && tabId) fitTabToHeight(tabId, PATIENT_GRID_ROWS, 'shrink-only')
     },
-    [widgets, updateWidgetLayout],
+    [widgets, updateWidgetLayout, fitToHeight, tabId, fitTabToHeight],
   )
 
   // Same edit-mode backdrop as the dashboards grid, computed from THIS grid's geometry: patient

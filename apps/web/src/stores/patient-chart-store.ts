@@ -9,6 +9,9 @@ import { toLocalized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { getStorage } from '@/lib/storage'
+// The fitting rule is the dashboards', deliberately: both grids answer the same
+// question, and two implementations would drift apart.
+import { fitTabLayouts } from '@/features/projects/dashboard/dashboard-grid'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -109,6 +112,14 @@ interface PatientChartState {
     widgetId: string,
     layout: { x: number; y: number; w: number; h: number },
   ) => void
+  /**
+   * Trim a tab's widgets back inside `maxRows` so nothing needs scrolling.
+   *
+   * `shrink-only` (the default) leaves a tab that already fits exactly as the
+   * user arranged it and only trims a real overflow — re-stretching would undo
+   * a deliberately half-height widget on every reload.
+   */
+  fitTabToHeight: (tabId: string, maxRows: number, mode?: 'fill' | 'shrink-only') => void
   updateWidgetConfig: (widgetId: string, config: Record<string, unknown>) => void
   updateWidgetLanguage: (widgetId: string, language: 'python' | 'r') => void
   /** null clears the override, so the widget follows its generated query again. */
@@ -700,6 +711,33 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
         widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, layout } : w)),
       }
     }),
+
+  fitTabToHeight: (tabId, maxRows, mode = 'shrink-only') => {
+    if (maxRows < 1) return
+    const state = get()
+    const tabWidgets = state.widgets
+      .filter((w) => w.tabId === tabId)
+      .sort((a, b) => a.layout.y - b.layout.y || a.layout.x - b.layout.x)
+    if (tabWidgets.length === 0) return
+
+    const fitted = fitTabLayouts(tabWidgets, maxRows, mode)
+    const changed = new Map<string, { x: number; y: number; w: number; h: number }>()
+    for (const [id, layout] of fitted) {
+      // Only record real changes, so a post-resize re-fit — which calls this
+      // unconditionally — is a no-op once the tab fits and cannot loop.
+      const cur = tabWidgets.find((w) => w.id === id)?.layout
+      if (cur && cur.x === layout.x && cur.y === layout.y && cur.w === layout.w && cur.h === layout.h) continue
+      changed.set(id, layout)
+    }
+    if (changed.size === 0) return
+
+    set((s) => ({
+      widgets: s.widgets.map((w) => (changed.has(w.id) ? { ...w, layout: changed.get(w.id)! } : w)),
+    }))
+    for (const [id, layout] of changed) {
+      getStorage().patientDashboardWidgets.update(id, { layout }).catch(warn('fitTabToHeight'))
+    }
+  },
 
   updateWidgetConfig: (widgetId, config) =>
     set((s) => {
