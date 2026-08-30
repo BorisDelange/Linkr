@@ -36,6 +36,17 @@ interface MultiSelectFilterProps {
 }
 
 /**
+ * Trigger styling for a multi-select that sits in a FORM rather than a table
+ * header: matches `<SelectTrigger size="sm">` and the `h-8 text-xs` inputs
+ * beside it, so a row of controls reads as one row.
+ *
+ * The default trigger is the other case — dashed-border, `text-[10px]` inline
+ * filter chrome — which looks wrong next to a label and an Input.
+ */
+export const MULTI_SELECT_FORM_TRIGGER =
+  'flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 text-xs shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30 dark:hover:bg-input/50'
+
+/**
  * Compact multi-select dropdown for inline column filters.
  *
  * Pattern shared with `MultiColumnSelect` (analyses GenericConfigPanel):
@@ -44,6 +55,8 @@ interface MultiSelectFilterProps {
  * - Checkbox rows below
  *
  * Empty `value` → no filter applied.
+ *
+ * In a form, pass `showChevron` and `triggerClass={MULTI_SELECT_FORM_TRIGGER}`.
  */
 export function MultiSelectFilter({
   value,

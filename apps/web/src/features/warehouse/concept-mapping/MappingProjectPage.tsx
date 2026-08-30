@@ -584,13 +584,16 @@ function MappingProjectSourceCard({
 
   return (
     <div className="flex min-w-0 shrink-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm">
-      <div className="flex items-center justify-between gap-2">
+      {/* `-my-1` keeps the row the height of its title: the button is taller
+          than the text, so without it the header sits lower than every other
+          card's and the two stop lining up. */}
+      <div className="-my-1 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <Icon size={14} className="shrink-0 text-muted-foreground" />
           <h3 className="truncate text-sm font-semibold">{t('concept_mapping.overview_source')}</h3>
         </div>
-        <Button variant="ghost" size="sm" className="h-6 shrink-0 gap-1 px-2 text-xs" onClick={onEditSource}>
-          <Pencil size={12} />
+        <Button variant="ghost" size="xs" className="shrink-0" onClick={onEditSource}>
+          <Pencil />
           {t('common.edit')}
         </Button>
       </div>

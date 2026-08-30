@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { SectionLabel } from '@/components/ui/section-label'
-import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { MULTI_SELECT_FORM_TRIGGER, MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -16,6 +16,7 @@ import {
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
+import { cn } from '@/lib/utils'
 import {
   DEFAULT_PROFILE_OPTIONS,
   availableSections,
@@ -259,7 +260,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
               onChange={setDictionaryKeys}
               showChevron
               popoverWidthClass="w-64"
-              triggerClass={locked ? 'pointer-events-none opacity-50' : undefined}
+              triggerClass={cn(MULTI_SELECT_FORM_TRIGGER, locked && 'pointer-events-none opacity-50')}
             />
           </div>
           <div className="grid gap-1.5">
@@ -275,7 +276,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
               }}
               showChevron
               popoverWidthClass="w-40"
-              triggerClass={running ? 'pointer-events-none opacity-50' : undefined}
+              triggerClass={cn(MULTI_SELECT_FORM_TRIGGER, running && 'pointer-events-none opacity-50')}
             />
           </div>
         </div>
@@ -294,13 +295,17 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             })}
             showChevron
             popoverWidthClass="w-72"
-            triggerClass={running ? 'pointer-events-none opacity-50' : undefined}
+            triggerClass={cn(MULTI_SELECT_FORM_TRIGGER, running && 'pointer-events-none opacity-50')}
           />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-1.5">
-            <Label htmlFor="extract-min-patients">{t('concept_mapping.extract_min_patients')}</Label>
+            <LabelWithHint
+              htmlFor="extract-min-patients"
+              label={t('concept_mapping.extract_min_patients')}
+              hint={t('concept_mapping.extract_min_patients_hint')}
+            />
             <Input
               id="extract-min-patients"
               type="number"
@@ -312,12 +317,13 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
               }))}
               className="h-8 text-xs"
             />
-            <p className="text-[10px] text-muted-foreground">
-              {t('concept_mapping.extract_min_patients_hint')}
-            </p>
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="extract-min-category">{t('concept_mapping.extract_min_category')}</Label>
+            <LabelWithHint
+              htmlFor="extract-min-category"
+              label={t('concept_mapping.extract_min_category')}
+              hint={t('concept_mapping.extract_min_category_hint')}
+            />
             <Input
               id="extract-min-category"
               type="number"
@@ -329,9 +335,6 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
               }))}
               className="h-8 text-xs"
             />
-            <p className="text-[10px] text-muted-foreground">
-              {t('concept_mapping.extract_min_category_hint')}
-            </p>
           </div>
         </div>
 
@@ -415,6 +418,39 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  )
+}
+
+/**
+ * A field label with its explanation behind an info icon.
+ *
+ * The explanations here are worth reading once and never again, so they sit on
+ * hover rather than under every field — a column of permanent hint text made
+ * the panel scroll for no lasting benefit.
+ */
+function LabelWithHint({
+  htmlFor,
+  label,
+  hint,
+}: {
+  htmlFor: string
+  label: string
+  hint: string
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Label htmlFor={htmlFor}>{label}</Label>
+      <Tooltip delayDuration={200}>
+        <TooltipTrigger asChild>
+          <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="Info">
+            <Info size={12} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-w-xs text-xs">
+          {hint}
+        </TooltipContent>
+      </Tooltip>
     </div>
   )
 }
