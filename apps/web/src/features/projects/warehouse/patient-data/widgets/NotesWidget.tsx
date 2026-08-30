@@ -27,9 +27,10 @@ import {
   appliedSets,
   highlightWords,
   toggleSet,
+  matchesAppliedSets,
   type WordSet,
 } from './word-sets'
-import { WORD_SET_COLORS, SEARCH_COLOR_INDEX, getWordSetColorIndex } from './word-set-colors'
+import { WORD_SET_COLORS, SEARCH_COLOR_INDEX, wordSetColorIndex } from './word-set-colors'
 import { WordSetsDialog } from './WordSetsDialog'
 
 // ---------------------------------------------------------------------------
@@ -154,13 +155,17 @@ function NoteTypeBadge({ type, colorClass }: { type: string; colorClass: string 
 function WordSetsPopover({
   wordSets,
   appliedIds,
+  filterToApplied,
   onToggleSet,
+  onToggleFilter,
   onClear,
   onEdit,
 }: {
   wordSets: WordSet[]
   appliedIds: string[]
+  filterToApplied: boolean
   onToggleSet: (id: string) => void
+  onToggleFilter: () => void
   onClear: () => void
   onEdit: () => void
 }) {
@@ -210,7 +215,7 @@ function WordSetsPopover({
                 >
                   <Checkbox checked={applied} onCheckedChange={() => onToggleSet(set.id)} />
                   <span
-                    className={cn('size-2.5 shrink-0 rounded-sm', WORD_SET_COLORS[getWordSetColorIndex(i)].bg)}
+                    className={cn('size-2.5 shrink-0 rounded-sm', WORD_SET_COLORS[wordSetColorIndex(i, set.color)].bg)}
                   />
                   <span className="min-w-0 flex-1 truncate font-medium">{set.label}</span>
                   {/* The word count is what tells two similarly named sets apart
@@ -223,6 +228,14 @@ function WordSetsPopover({
             })}
           </div>
         )}
+
+        {/* Filtering is opt-in and separate from highlighting: a clinician often
+            wants every note on screen with the terms picked out, and only
+            sometimes wants the list cut down to the notes that carry them. */}
+        <label className="mt-1 flex cursor-pointer items-center gap-2 rounded border-t px-1.5 pb-1 pt-2 text-xs transition-colors hover:bg-accent/30">
+          <Checkbox checked={filterToApplied} onCheckedChange={() => onToggleFilter()} />
+          <span className="min-w-0 flex-1">{t('patient_data.notes_filter_to_word_sets')}</span>
+        </label>
 
         <Button variant="ghost" size="sm-tight" className="mt-1 w-full justify-start" onClick={onEdit}>
           <Settings2 size={12} />
@@ -274,6 +287,7 @@ export function NotesWidget({
   // Applied sets live in the config, so a board reopens highlighting what it
   // was highlighting — the sets themselves would be pointless otherwise.
   const appliedIds = useMemo(() => config.appliedWordSetIds ?? [], [config.appliedWordSetIds])
+  const filterToApplied = config.filterToWordSets ?? false
 
   // Dynamic badge color map: type string → palette class
   const badgeColorMap = useMemo(() => {
@@ -350,8 +364,11 @@ export function NotesWidget({
     if (textSearch.trim()) {
       result = result.filter((n) => fuzzyMatch(n.note_text, textSearch))
     }
+    if (filterToApplied) {
+      result = result.filter((n) => matchesAppliedSets(n.note_text, wordSets, appliedIds))
+    }
     return sortNotes(result, sort)
-  }, [filteredNotes, textSearch, sort])
+  }, [filteredNotes, textSearch, sort, filterToApplied, wordSets, appliedIds])
 
   const selectedNote = notes.find((n) => n.note_id === selectedNoteId) ?? null
 
@@ -398,9 +415,10 @@ export function NotesWidget({
         if (token) words.push({ word: token, colorIndex: SEARCH_COLOR_INDEX })
       }
     }
-    // Every word of every applied set, in that set's colour.
+    // Every word of every applied set, in that set's colour — the one it was
+    // given, or the one its position implies.
     for (const { word, setIndex } of highlightWords(wordSets, appliedIds)) {
-      words.push({ word, colorIndex: getWordSetColorIndex(setIndex) })
+      words.push({ word, colorIndex: wordSetColorIndex(setIndex, wordSets[setIndex]?.color) })
     }
     return words
   }, [textSearch, wordSets, appliedIds])
@@ -415,6 +433,10 @@ export function NotesWidget({
   const handleClearSets = useCallback(() => {
     updateWidgetConfig(widgetId, { ...config, appliedWordSetIds: [] })
   }, [widgetId, config, updateWidgetConfig])
+
+  const handleToggleFilter = useCallback(() => {
+    updateWidgetConfig(widgetId, { ...config, filterToWordSets: !filterToApplied })
+  }, [widgetId, config, filterToApplied, updateWidgetConfig])
 
   const handleSaveWordSets = useCallback(
     (next: WordSet[]) => {
@@ -503,7 +525,9 @@ export function NotesWidget({
         <WordSetsPopover
           wordSets={wordSets}
           appliedIds={appliedIds}
+          filterToApplied={filterToApplied}
           onToggleSet={handleToggleSet}
+          onToggleFilter={handleToggleFilter}
           onClear={handleClearSets}
           onEdit={() => setEditingWordSets(true)}
         />

@@ -18,6 +18,12 @@ export interface WordSet {
   id: string
   label: string
   words: string[]
+  /**
+   * Chosen highlight colour. Absent on sets that never had one picked, which
+   * fall back to their position in the list — the behaviour before the colour
+   * could be chosen at all.
+   */
+  color?: string
 }
 
 /** A set as it was stored before sets carried ids. */
@@ -46,6 +52,7 @@ export function readWordSets(stored: unknown): WordSet[] {
       id: typeof set.id === 'string' && set.id ? set.id : `label:${set.label}`,
       label: set.label,
       words,
+      ...(typeof set.color === 'string' && set.color ? { color: set.color } : {}),
     })
   }
   return out
@@ -127,6 +134,26 @@ export function highlightWords(sets: WordSet[], appliedIds: readonly string[]): 
     }
   })
   return out
+}
+
+/**
+ * Whether a document contains any word of the applied sets.
+ *
+ * ANY, not all: the sets are alternatives — a "sepsis" set holds the several
+ * words that each point at sepsis, and a note naming one of them is a hit.
+ *
+ * With nothing applied every document passes, so turning the filter on before
+ * picking a set does not blank the list.
+ */
+export function matchesAppliedSets(
+  text: string,
+  sets: WordSet[],
+  appliedIds: readonly string[],
+): boolean {
+  const words = highlightWords(sets, appliedIds)
+  if (words.length === 0) return true
+  const lower = text.toLowerCase()
+  return words.some((w) => lower.includes(w.word.toLowerCase()))
 }
 
 /** Toggle a whole set on or off, which is the only granularity offered. */

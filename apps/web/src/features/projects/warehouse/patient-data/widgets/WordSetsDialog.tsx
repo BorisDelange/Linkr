@@ -5,7 +5,6 @@ import { DialogShell } from '@/components/ui/dialog-shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { EditableBadge } from '@/components/ui/editable-badge'
-import { cn } from '@/lib/utils'
 import {
   addWord,
   hasWord,
@@ -14,7 +13,8 @@ import {
   renameWord,
   type WordSet,
 } from './word-sets'
-import { WORD_SET_COLORS, getWordSetColorIndex } from './word-set-colors'
+import { WORD_SET_COLORS, wordSetColorIndex } from './word-set-colors'
+import { WordSetColorButton } from './WordSetColorButton'
 
 interface WordSetsDialogProps {
   open: boolean
@@ -91,7 +91,7 @@ export function WordSetsDialog({ open, onOpenChange, sets, onSave }: WordSetsDia
         )}
 
         {draft.map((set, i) => {
-          const colour = WORD_SET_COLORS[getWordSetColorIndex(i)]
+          const colour = WORD_SET_COLORS[wordSetColorIndex(i, set.color)]
           const typed = newWords[set.id] ?? ''
           const duplicate = !!typed.trim() && hasWord(set.words, typed)
           const labelConflict = labelTaken(draft, set.label, set.id)
@@ -100,7 +100,11 @@ export function WordSetsDialog({ open, onOpenChange, sets, onSave }: WordSetsDia
               <div className="flex items-center gap-2">
                 {/* The swatch is the same colour the words take in the document,
                     so the set is recognisable there without reading its name. */}
-                <span className={cn('size-3 shrink-0 rounded-sm', colour.bg)} />
+                <WordSetColorButton
+                  setIndex={i}
+                  value={set.color}
+                  onChange={(color) => update(set.id, (s) => ({ ...s, color }))}
+                />
                 <Input
                   value={set.label}
                   onChange={(e) => update(set.id, (s) => ({ ...s, label: e.target.value }))}

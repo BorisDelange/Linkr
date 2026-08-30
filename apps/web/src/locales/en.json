@@ -1579,6 +1579,8 @@
     "notes_set_name_taken": "A set already has this name",
     "notes_set_no_words": "No word in this set",
     "notes_add_word": "Add a word",
+    "notes_set_color": "Highlight colour",
+    "notes_filter_to_word_sets": "Only notes containing these words",
     "notes_word_duplicate": "This word is already in the set",
     "timeline_reset_zoom": "Reset zoom",
     "notes_sort_date": "Date",

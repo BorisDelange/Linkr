@@ -8,6 +8,7 @@ import {
   appliedSets,
   highlightWords,
   toggleSet,
+  matchesAppliedSets,
   labelTaken,
   type WordSet,
 } from './word-sets'
@@ -158,6 +159,51 @@ describe('highlightWords', () => {
 
   it('returns nothing when no set is applied', () => {
     expect(highlightWords(SETS, [])).toEqual([])
+  })
+})
+
+describe('readWordSets colours', () => {
+  it('keeps a chosen colour', () => {
+    expect(readWordSets([{ id: 'a', label: 'S', words: [], color: 'rose' }])[0].color).toBe('rose')
+  })
+
+  it('leaves a set with no colour alone, so it falls back to its position', () => {
+    expect(readWordSets([{ id: 'a', label: 'S', words: [] }])[0].color).toBeUndefined()
+    // An empty string is not a colour either.
+    expect(readWordSets([{ id: 'a', label: 'S', words: [], color: '' }])[0].color).toBeUndefined()
+  })
+})
+
+describe('matchesAppliedSets', () => {
+  it('keeps a note containing any word of an applied set', () => {
+    // ANY, not all: the words of a set are alternatives that each point at it.
+    expect(matchesAppliedSets('patient had a fever overnight', SETS, ['a'])).toBe(true)
+    expect(matchesAppliedSets('only lactate here', SETS, ['a'])).toBe(true)
+  })
+
+  it('drops a note containing none of them', () => {
+    expect(matchesAppliedSets('routine review, nothing new', SETS, ['a'])).toBe(false)
+  })
+
+  it('matches across several applied sets', () => {
+    expect(matchesAppliedSets('major haemorrhage', SETS, ['a', 'b'])).toBe(true)
+  })
+
+  it('ignores case, as the highlighting does', () => {
+    expect(matchesAppliedSets('FEVER noted', SETS, ['a'])).toBe(true)
+  })
+
+  it('matches a word inside a longer one, as a text search would', () => {
+    expect(matchesAppliedSets('the patient is febrile, lactates rising', SETS, ['a'])).toBe(true)
+  })
+
+  it('keeps every note when no set is applied', () => {
+    // Turning the filter on before picking a set must not blank the list.
+    expect(matchesAppliedSets('anything at all', SETS, [])).toBe(true)
+  })
+
+  it('keeps every note when the applied sets hold no words', () => {
+    expect(matchesAppliedSets('anything', [{ id: 'e', label: 'Empty', words: [] }], ['e'])).toBe(true)
   })
 })
 

@@ -26,12 +26,14 @@ export interface NotesConfig {
    * Named groups of words to highlight. `id` is absent on sets saved before it
    * existed; `readWordSets` keys those by label instead.
    */
-  wordSets?: Array<{ id?: string; label: string; words: string[] }>
+  wordSets?: Array<{ id?: string; label: string; words: string[]; color?: string }>
   /**
    * Which sets are currently applied. Held here rather than in component state
    * so a board reopens highlighting what it was highlighting.
    */
   appliedWordSetIds?: string[]
+  /** Also cut the list down to the notes carrying an applied set's words. */
+  filterToWordSets?: boolean
 }
 
 export interface TimelineConfig {
