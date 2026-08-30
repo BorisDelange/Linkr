@@ -177,6 +177,14 @@ async function patchServerRowCount(
   fsd: MappingProject['fileSourceData'] | undefined,
 ): Promise<void> {
   if (!fsd) return
+  // The source-concept extraction writes this file once per save point and
+  // already knows how many rows it wrote. Asking the server to re-count would
+  // cost a round trip per save AND race the next one: the PATCH below carries
+  // the whole fileSourceData, so a stale count could overwrite a newer save's.
+  //
+  // A file import passes 0 here (the preview stopped counting client-side),
+  // which is why this tests for a real count rather than for the key.
+  if (fsd.totalRowCount) return
   try {
     const rows = await queryFileSourceOnServer(
       projectId,

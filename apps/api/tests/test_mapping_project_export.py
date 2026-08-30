@@ -131,3 +131,44 @@ def test_real_csv_source_passes_through_untouched():
 
     csv = b"terminology_code,concept_code\nccam,AAFA002"
     assert _as_csv_bytes(csv) == csv
+
+
+def test_database_project_with_an_extracted_csv_still_exports_it():
+    """A database project whose Source concepts tab has run carries the same flat
+    CSV a file import would have produced, and it must travel: gating on
+    sourceType == 'file' dropped it, so the re-imported project had no source
+    concepts at all. Twin of readsFromFlatSource (mapping-status.ts)."""
+    csv = b"terminology,concept_code\nd_items,220045"
+    tree = build_mapping_project_tree(
+        project={
+            "id": "p1",
+            "name": "MIMIC-IV demo",
+            "sourceType": "database",
+            "fileSourceData": {
+                "fileName": "source-concepts.csv",
+                "rows": [],
+                "columns": ["terminology", "concept_code"],
+                "totalRowCount": 1,
+            },
+        },
+        mappings=[],
+        ranges=[],
+        entries=[],
+        organization=None,
+        source_csv=csv,
+    )
+    assert tree["source-concepts.csv"] == csv
+
+
+def test_database_project_without_a_flat_source_exports_no_csv():
+    """The other side of the gate: a database project that never ran the
+    extraction has no flat source, so there is nothing to write."""
+    tree = build_mapping_project_tree(
+        project={"id": "p1", "name": "Live", "sourceType": "database"},
+        mappings=[],
+        ranges=[],
+        entries=[],
+        organization=None,
+        source_csv=None,
+    )
+    assert "source-concepts.csv" not in tree

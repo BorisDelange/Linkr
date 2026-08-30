@@ -109,10 +109,13 @@ async def build_mapping_project_tree_from_db(
     # what the export inlines; None → no organization key.
     organization = project.organization or None
 
+    # A stored blob is the only condition that matters: a database project whose
+    # Source concepts tab has run has uploaded exactly the same CSV, and gating
+    # on source_type meant its export silently carried no source concepts.
+    # Twin of ``readsFromFlatSource`` (mapping-status.ts).
     source_csv = None
     if (
         want_source_csv
-        and project.source_type == "file"
         and project.raw_file_sha
         and blob_store.exists(project.raw_file_sha)
     ):

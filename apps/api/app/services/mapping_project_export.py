@@ -250,7 +250,14 @@ def build_mapping_project_tree(
     tree.update(entity_doc_files("", project))
     tree["mappings.json"] = _serialize_mappings(mappings)
 
-    if project.get("sourceType") == "file" and source_csv:
+    # Keyed on HAVING a flat source, not on where it came from — the twin of
+    # ``readsFromFlatSource`` (mapping-status.ts). A database project whose
+    # Source concepts tab has run carries exactly the same CSV, and gating on
+    # sourceType dropped it from the export: the re-imported project then had no
+    # source concepts at all.
+    if source_csv and (
+        project.get("sourceType") == "file" or project.get("fileSourceData")
+    ):
         tree["source-concepts.csv"] = _as_csv_bytes(source_csv)
 
     # source-concept-ids/: written only when the project has assigned ids. The

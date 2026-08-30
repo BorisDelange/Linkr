@@ -290,12 +290,11 @@ async def _mapping_project_sub_tree(db: AsyncSession, project: MappingProject) -
     ]
     ranges, entries, all_badge_entries = await scoped_source_concept_ids(db, project)
 
+    # Not gated on source_type: a database project whose Source concepts tab has
+    # run stores the same CSV, and it must travel with the workspace too. Twin of
+    # ``readsFromFlatSource`` (mapping-status.ts).
     source_csv = None
-    if (
-        project.source_type == "file"
-        and project.raw_file_sha
-        and blob_store.exists(project.raw_file_sha)
-    ):
+    if project.raw_file_sha and blob_store.exists(project.raw_file_sha):
         source_csv = await blob_store.read_bytes(project.raw_file_sha)
 
     tree = build_mapping_project_tree(
