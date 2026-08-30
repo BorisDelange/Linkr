@@ -17,6 +17,8 @@ import {
   subscribeTimelineSync,
   broadcastTimelineRange,
   getTimelineRange,
+  forgetTimelineRange,
+  syncChannel,
 } from '../timeline-sync'
 import { TimelineCanvas, type TimelineSeries } from './TimelineCanvas'
 import { classifySeries, resolveRenderer } from './timeline-shape'
@@ -125,9 +127,18 @@ export function TimelineWidget({
   const config = (configProp ??
     widget?.config ?? { conceptIds: [] }) as unknown as TimelineConfig
   const tabId = widget?.tabId ?? ''
+  // The board owns the cross-tab setting, and the tab is what ties this widget
+  // to it. Selected narrowly so an unrelated board edit doesn't redraw us.
+  const boardId = usePatientChartStore(
+    (s) => s.tabs.find((tb) => tb.id === tabId)?.patientDashboardId,
+  )
+  const syncAcrossTabs = usePatientChartStore(
+    (s) => s.dashboards.find((d) => d.id === boardId)?.syncTimelinesAcrossTabs ?? false,
+  )
 
   const yAxisFromZero = config.yAxisFromZero ?? false
   const syncTimeRange = config.syncTimeRange ?? false
+  const channel = syncChannel(tabId, boardId, syncAcrossTabs)
   const stepPlot = config.stepPlot ?? false
   const showPoints = config.showPoints ?? true
   // strokeWidth comes from a schema `select` (string) but older configs may hold a number.
@@ -326,6 +337,43 @@ export function TimelineWidget({
   useEffect(() => { setCanvasView(null) }, [bounds.lo, bounds.hi])
   const view = canvasView ?? bounds
 
+  // A different patient means different dates entirely, so the window the
+  // channel remembers is meaningless now — adopting it would open every synced
+  // timeline on empty space.
+  //
+  // Only on an actual CHANGE, never on mount: a timeline mounting into a tab
+  // that peers are already synced on must adopt their window, not erase it.
+  const lastPatientRef = useRef(patientId)
+  useEffect(() => {
+    if (lastPatientRef.current === patientId) return
+    lastPatientRef.current = patientId
+    forgetTimelineRange(channel)
+  }, [patientId, channel])
+
+  // Sync, canvas side. Dygraph broadcasts from its own drawCallback; the canvas
+  // renderer has no such hook, so the two ends are wired here instead. Both
+  // speak the same channel, so a Dygraph timeline and a mixed-shape one stay in
+  // step with each other.
+  const onCanvasViewChange = useCallback(
+    (next: TimeWindow) => {
+      setCanvasView(next)
+      if (syncTimeRange) broadcastTimelineRange(channel, widgetId, { min: next.lo, max: next.hi })
+    },
+    [syncTimeRange, channel, widgetId],
+  )
+
+  useEffect(() => {
+    if (renderer !== 'overview' || !syncTimeRange || !tabId) return
+    const current = getTimelineRange(channel)
+    if (current) setCanvasView({ lo: current.min, hi: current.max ?? current.min })
+    // No ping-pong guard needed here: a peer's range lands through setCanvasView,
+    // which does not go back through onCanvasViewChange, so nothing re-broadcasts.
+    return subscribeTimelineSync(channel, (range, sourceId) => {
+      if (sourceId === widgetId) return
+      setCanvasView(range ? { lo: range.min, hi: range.max ?? range.min } : null)
+    })
+  }, [renderer, syncTimeRange, tabId, channel, widgetId])
+
   // Resolve theme-aware colors for canvas-drawn elements
   const getThemeColors = useCallback(() => {
     const isDark = document.documentElement.classList.contains('dark')
@@ -416,7 +464,7 @@ export function TimelineWidget({
         const last = lastBroadcastRef.current
         if (last && Math.abs(last[0] - min) < 1 && Math.abs(last[1] - max) < 1) return
         lastBroadcastRef.current = [min, max]
-        broadcastTimelineRange(tabId, widgetId, { min, max })
+        broadcastTimelineRange(channel, widgetId, { min, max })
       },
 
       // Range selector (mini timeline for navigation)
@@ -476,20 +524,20 @@ export function TimelineWidget({
       if (r.width > 0 && r.height > 0) g.resize(Math.floor(r.width), Math.floor(r.height) - RANGE_SELECTOR_RESERVE)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [renderer, chartData, conceptNames, conceptIdByName, getThemeColors, yAxisFromZero, stepPlot, showPoints, strokeWidth, syncTimeRange, conceptColorsKey, tabId, widgetId])
+  }, [renderer, chartData, conceptNames, conceptIdByName, getThemeColors, yAxisFromZero, stepPlot, showPoints, strokeWidth, syncTimeRange, conceptColorsKey, channel, widgetId])
 
-  // Sync: when another timeline in this tab broadcasts a range, adopt it.
+  // Sync: when another timeline on this channel broadcasts a range, adopt it.
   useEffect(() => {
     if (!syncTimeRange || !tabId) return
 
-    // Adopt the tab's current shared window once, when sync becomes active —
+    // Adopt the channel's current shared window once, when sync becomes active —
     // not on every data reload (which would snap a fresh chart to a stale one).
-    const current = getTimelineRange(tabId)
+    const current = getTimelineRange(channel)
     if (current && dygraphRef.current) {
       dygraphRef.current.updateOptions({ dateWindow: [current.min, current.max ?? current.min] })
     }
 
-    const unsubscribe = subscribeTimelineSync(tabId, (range, sourceId) => {
+    const unsubscribe = subscribeTimelineSync(channel, (range, sourceId) => {
       if (sourceId === widgetId) return
       const g = dygraphRef.current
       if (!g) return
@@ -513,7 +561,7 @@ export function TimelineWidget({
       }
     })
     return unsubscribe
-  }, [syncTimeRange, tabId, widgetId])
+  }, [syncTimeRange, tabId, channel, widgetId])
 
   // Resize when the container changes. Pass explicit pixel dimensions so
   // dygraphs lays the range selector out within the box — relying on the
@@ -612,7 +660,7 @@ export function TimelineWidget({
             series={series}
             bounds={bounds}
             view={view}
-            onViewChange={setCanvasView}
+            onViewChange={onCanvasViewChange}
             locale={i18n.language}
           />
         </div>

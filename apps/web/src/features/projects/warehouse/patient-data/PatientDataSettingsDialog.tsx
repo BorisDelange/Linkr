@@ -36,6 +36,7 @@ export function PatientDataSettingsDialog({
 
   const baseline = {
     reloadWidgetsOnTabSwitch: board?.reloadWidgetsOnTabSwitch ?? false,
+    syncTimelinesAcrossTabs: board?.syncTimelinesAcrossTabs ?? false,
     showWidgetTitles: board?.showWidgetTitles ?? true,
     fitToHeight: board?.fitToHeight ?? true,
     widgetSpacing: board?.widgetSpacing ?? DASHBOARD_GRID.margin[0],
@@ -53,6 +54,7 @@ export function PatientDataSettingsDialog({
     if (!board) return
     updateDashboard(dashboardId, {
       reloadWidgetsOnTabSwitch: draft.reloadWidgetsOnTabSwitch,
+      syncTimelinesAcrossTabs: draft.syncTimelinesAcrossTabs,
       showWidgetTitles: draft.showWidgetTitles,
       fitToHeight: draft.fitToHeight,
       widgetSpacing: draft.widgetSpacing,
@@ -118,6 +120,19 @@ export function PatientDataSettingsDialog({
               onCheckedChange={(v) =>
                 setDraft((d) => ({ ...d, reloadWidgetsOnTabSwitch: v }))
               }
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <Label>{t('patient_data.sync_timelines_across_tabs')}</Label>
+              <p className="text-[11px] text-muted-foreground">
+                {t('patient_data.sync_timelines_across_tabs_hint')}
+              </p>
+            </div>
+            <Switch
+              checked={draft.syncTimelinesAcrossTabs}
+              onCheckedChange={(v) => setDraft((d) => ({ ...d, syncTimelinesAcrossTabs: v }))}
             />
           </div>
           </TabsContent>

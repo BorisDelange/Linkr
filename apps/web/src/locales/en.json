@@ -1543,6 +1543,8 @@
     "clear_filters": "Clear filters",
     "settings_title": "Settings",
     "settings_description": "Configure display options for this patient board.",
+    "sync_timelines_across_tabs": "Sync timelines across tabs",
+    "sync_timelines_across_tabs_hint": "Synced timelines share one time window for the whole board instead of one per tab. Only affects timelines that have sync turned on.",
     "boards_description": "Patient boards let you assemble widgets to explore a patient's record.",
     "create_board": "New board",
     "create_board_title": "Create a patient board",

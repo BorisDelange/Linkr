@@ -1543,6 +1543,8 @@
     "clear_filters": "Effacer les filtres",
     "settings_title": "Paramètres",
     "settings_description": "Configurer les options d'affichage de ce tableau patient.",
+    "sync_timelines_across_tabs": "Synchroniser les timelines entre onglets",
+    "sync_timelines_across_tabs_hint": "Les timelines synchronisées partagent une seule fenêtre temporelle pour tout le tableau, au lieu d'une par onglet. N'affecte que les timelines dont la synchronisation est activée.",
     "boards_description": "Les tableaux patient permettent d'assembler des widgets pour explorer le dossier d'un patient.",
     "create_board": "Nouveau tableau",
     "create_board_title": "Créer un tableau patient",

@@ -702,6 +702,9 @@ export interface PatientDashboard extends Seedable, Authored {
   /** Turn keep-alive OFF: only the current tab stays mounted, so leaving a tab
    *  frees its DOM and returning recomputes it. Same lever as the dashboards. */
   reloadWidgetsOnTabSwitch?: boolean
+  /** Let synced timelines share one window across every tab of the board, rather
+   *  than one per tab. Only affects timelines that have sync turned on. */
+  syncTimelinesAcrossTabs?: boolean
   /** User-facing semver (default '0.1.0'). Portable across export/import. */
   version?: string
   displayOrder: number
