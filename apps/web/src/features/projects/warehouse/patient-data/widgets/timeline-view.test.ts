@@ -3,7 +3,9 @@ import {
   clampWindow,
   zoomWindow,
   panWindow,
-  windowFromRangeDrag,
+  hitRange,
+  windowFromRangeGrab,
+  windowFromRangeJump,
   isFullWindow,
   axisTicks,
   MIN_SPAN_MS,
@@ -95,24 +97,91 @@ describe('panWindow', () => {
   })
 })
 
-describe('windowFromRangeDrag', () => {
-  it('selects the dragged span', () => {
-    // Strip from x=0 to x=200 covering the full record.
-    expect(windowFromRangeDrag(50, 100, 0, 200, BOUNDS)).toEqual({ lo: 25_000, hi: 50_000 })
+// The range strip: x=0..200 covering the whole record, window over its middle
+// half (x=50..150 → 25s..75s).
+const GEOM = { x0: 0, x1: 200, y0: 100, y1: 120, win: { x0: 50, x1: 150 } }
+const WIN = { lo: 25_000, hi: 75_000 }
+
+describe('hitRange', () => {
+  it('names each part of the strip', () => {
+    expect(hitRange(GEOM, 50, 110)).toBe('lo')
+    expect(hitRange(GEOM, 150, 110)).toBe('hi')
+    expect(hitRange(GEOM, 100, 110)).toBe('move')
+    expect(hitRange(GEOM, 180, 110)).toBe('jump')
   })
 
-  it('works when dragged right to left', () => {
-    expect(windowFromRangeDrag(100, 50, 0, 200, BOUNDS)).toEqual({ lo: 25_000, hi: 50_000 })
+  it('gives the edges a grab zone wider than the drawn handle', () => {
+    // The handle is 3px; aiming 4px off must still catch it, or resizing means
+    // pixel-hunting.
+    expect(hitRange(GEOM, 54, 110)).toBe('lo')
+    expect(hitRange(GEOM, 146, 110)).toBe('hi')
   })
 
-  it('ignores a click, which would zoom to nothing', () => {
-    expect(windowFromRangeDrag(100, 101, 0, 200, BOUNDS)).toBeNull()
+  it('prefers an edge over the body where the two overlap', () => {
+    // Inside the window but within the edge zone: resizing wins, since dragging
+    // the body from its very edge is never what was meant.
+    expect(hitRange(GEOM, 52, 110)).toBe('lo')
   })
 
-  it('clamps a drag that runs off the strip', () => {
-    const r = windowFromRangeDrag(-50, 250, 0, 200, BOUNDS)!
-    expect(r.lo).toBeGreaterThanOrEqual(BOUNDS.lo)
-    expect(r.hi).toBeLessThanOrEqual(BOUNDS.hi)
+  it('ignores a pointer above or below the strip', () => {
+    expect(hitRange(GEOM, 100, 40)).toBeNull()
+    expect(hitRange(GEOM, 100, 200)).toBeNull()
+  })
+
+  it('still catches a window sitting flush against the strip edge', () => {
+    const flush = { ...GEOM, win: { x0: 0, x1: 100 } }
+    expect(hitRange(flush, -3, 110)).toBe('lo')
+  })
+
+  it('reports nothing before the strip has been painted', () => {
+    expect(hitRange(null, 100, 110)).toBeNull()
+  })
+})
+
+describe('windowFromRangeGrab', () => {
+  it('moves the window without changing its span', () => {
+    // Grabbed at its centre (50px in), dragged to x=125 → centred on 62.5s.
+    const r = windowFromRangeGrab('move', GEOM, 125, 50, WIN, BOUNDS)
+    expect(r.hi - r.lo).toBe(WIN.hi - WIN.lo)
+    expect(r).toEqual({ lo: 37_500, hi: 87_500 })
+  })
+
+  it('keeps the span when a moved window hits the edge, rather than squashing it', () => {
+    const r = windowFromRangeGrab('move', GEOM, 400, 50, WIN, BOUNDS)
+    expect(r.hi - r.lo).toBe(WIN.hi - WIN.lo)
+    expect(r.hi).toBe(BOUNDS.hi)
+  })
+
+  it('resizes one edge and leaves the other fixed', () => {
+    expect(windowFromRangeGrab('lo', GEOM, 20, 0, WIN, BOUNDS)).toEqual({ lo: 10_000, hi: 75_000 })
+    expect(windowFromRangeGrab('hi', GEOM, 180, 0, WIN, BOUNDS)).toEqual({ lo: 25_000, hi: 90_000 })
+  })
+
+  it('will not drag an edge past the other one', () => {
+    // Dragging `lo` beyond `hi` would invert the window and blank the chart.
+    const r = windowFromRangeGrab('lo', GEOM, 190, 0, WIN, BOUNDS)
+    expect(r.lo).toBeLessThan(r.hi)
+    expect(r.hi - r.lo).toBeGreaterThanOrEqual(MIN_SPAN_MS)
+  })
+
+  it('clamps a resize dragged off the strip', () => {
+    const r = windowFromRangeGrab('lo', GEOM, -80, 0, WIN, BOUNDS)
+    expect(r.lo).toBe(BOUNDS.lo)
+  })
+})
+
+describe('windowFromRangeJump', () => {
+  it('recentres the window on the click, keeping its span', () => {
+    // x=120 → 60s, far enough from either bound that no clamping applies.
+    const r = windowFromRangeJump(GEOM, 120, WIN, BOUNDS)
+    expect(r.hi - r.lo).toBe(WIN.hi - WIN.lo)
+    expect((r.lo + r.hi) / 2).toBe(60_000)
+  })
+
+  it('stops at the bounds instead of running past them', () => {
+    const r = windowFromRangeJump(GEOM, 0, WIN, BOUNDS)
+    expect(r.lo).toBe(BOUNDS.lo)
+    expect(r.hi - r.lo).toBe(WIN.hi - WIN.lo)
   })
 })
 

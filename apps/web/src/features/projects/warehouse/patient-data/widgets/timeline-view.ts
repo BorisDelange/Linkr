@@ -61,27 +61,88 @@ export function panWindow(
   return clampWindow({ lo: view.lo - dt, hi: view.hi - dt }, bounds)
 }
 
+/** Geometry of the range strip, as the painter laid it out. */
+export interface RangeGeom {
+  /** Left and right edge of the strip itself. */
+  x0: number
+  x1: number
+  /** Top and bottom edge, for hit-testing the pointer's y. */
+  y0: number
+  y1: number
+  /** Left and right edge of the highlighted window inside the strip. */
+  win: { x0: number; x1: number }
+}
+
 /**
- * The window a range-selector drag selects, from two x positions on the strip.
+ * What a pointer at (px, py) is over in the range strip.
  *
- * Returns null for a drag too short to be deliberate — a click on the strip
- * would otherwise zoom to a zero-width window and blank the chart.
+ * `lo`/`hi` are the window's edges, which resize it; `move` is its body, which
+ * drags it whole; `jump` is the strip outside the window, which recentres it.
+ * Null means the pointer is not on the strip at all.
  */
-export function windowFromRangeDrag(
-  x0: number,
-  x1: number,
-  plotL: number,
-  plotW: number,
+export type RangeHit = 'lo' | 'hi' | 'move' | 'jump' | null
+
+/** Half-width of an edge's grab zone: the drawn handle is 3px, this is reachable. */
+const EDGE_GRAB_PX = 5
+
+export function hitRange(r: RangeGeom | null, px: number, py: number): RangeHit {
+  if (!r) return null
+  // A few pixels of slack past each end, so the window can still be grabbed when
+  // it sits flush against the edge of the strip.
+  if (py < r.y0 || py > r.y1 || px < r.x0 - 6 || px > r.x1 + 6) return null
+  if (Math.abs(px - r.win.x0) <= EDGE_GRAB_PX) return 'lo'
+  if (Math.abs(px - r.win.x1) <= EDGE_GRAB_PX) return 'hi'
+  if (px > r.win.x0 && px < r.win.x1) return 'move'
+  return 'jump'
+}
+
+/** The timestamp a position on the range strip points at. */
+function timeOnStrip(r: RangeGeom, px: number, bounds: TimeWindow): number {
+  const frac = Math.min(1, Math.max(0, (px - r.x0) / (r.x1 - r.x0 || 1)))
+  return bounds.lo + frac * (bounds.hi - bounds.lo)
+}
+
+/**
+ * The window produced by dragging the range strip.
+ *
+ * `mode` is the hit the drag started on; `grab` is where inside the window the
+ * pointer took hold, so a moved window does not snap its left edge to the
+ * cursor. Resizing an edge keeps the other one fixed.
+ */
+export function windowFromRangeGrab(
+  mode: Exclude<RangeHit, null | 'jump'>,
+  r: RangeGeom,
+  px: number,
+  grab: number,
+  view: TimeWindow,
   bounds: TimeWindow,
-): TimeWindow | null {
-  if (plotW <= 0) return null
-  const a = Math.min(x0, x1)
-  const b = Math.max(x0, x1)
-  if (b - a < 3) return null
-  const full = bounds.hi - bounds.lo
-  const lo = bounds.lo + ((a - plotL) / plotW) * full
-  const hi = bounds.lo + ((b - plotL) / plotW) * full
-  return clampWindow({ lo, hi }, bounds)
+): TimeWindow {
+  if (mode === 'move') {
+    const span = view.hi - view.lo
+    const lo = timeOnStrip(r, px - grab, bounds)
+    return clampWindow({ lo, hi: lo + span }, bounds)
+  }
+  if (mode === 'lo') {
+    const lo = Math.min(timeOnStrip(r, px, bounds), view.hi - MIN_SPAN_MS)
+    return clampWindow({ lo: Math.max(lo, bounds.lo), hi: view.hi }, bounds)
+  }
+  const hi = Math.max(timeOnStrip(r, px, bounds), view.lo + MIN_SPAN_MS)
+  return clampWindow({ lo: view.lo, hi: Math.min(hi, bounds.hi) }, bounds)
+}
+
+/**
+ * The window after clicking the strip outside the current window: the span is
+ * kept and recentred on the click, the way the overview's does it.
+ */
+export function windowFromRangeJump(
+  r: RangeGeom,
+  px: number,
+  view: TimeWindow,
+  bounds: TimeWindow,
+): TimeWindow {
+  const span = view.hi - view.lo
+  const centre = timeOnStrip(r, px, bounds)
+  return clampWindow({ lo: centre - span / 2, hi: centre + span / 2 }, bounds)
 }
 
 /** Whether a window covers its whole bounds — used to hide the "reset" affordance. */

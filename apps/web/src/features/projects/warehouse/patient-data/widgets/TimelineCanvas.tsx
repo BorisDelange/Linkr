@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { drawEventRow, type OverviewEvent, type Mark } from './event-marks'
 import { fmtEventValue, fmtEventWhen } from './event-format'
 import { looksLikeDrugName, shortenDrugName } from './overview-layout'
 import {
   axisTicks,
+  hitRange,
   isFullWindow,
   panWindow,
-  windowFromRangeDrag,
+  windowFromRangeGrab,
+  windowFromRangeJump,
   zoomWindow,
+  type RangeGeom,
+  type RangeHit,
   type TimeWindow,
 } from './timeline-view'
 
@@ -42,6 +46,16 @@ const RANGE_H = 34
 const ROW_MIN = 22
 const PAD_R = 10
 
+/** What the pointer looks like over each part of the chart. */
+const CURSORS: Record<string, string> = {
+  lo: 'ew-resize',
+  hi: 'ew-resize',
+  move: 'grab',
+  jump: 'pointer',
+  grabbing: 'grabbing',
+  plot: 'crosshair',
+}
+
 /** Format an axis tick: a clock time when the window is short, a date otherwise. */
 function formatTick(ms: number, withClock: boolean, locale: string): string {
   const d = new Date(ms)
@@ -65,6 +79,7 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const marksRef = useRef<{ row: number; marks: Mark[] }[]>([])
+  const rangeRef = useRef<RangeGeom | null>(null)
   const [hover, setHover] = useState<{
     x: number
     y: number
@@ -231,18 +246,24 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
     ctx.strokeRect(wx0 + 0.5, ry + 0.5, Math.max(1, wx1 - wx0) - 1, rh - 1)
     ctx.fillStyle = '#2563eb'
     for (const hx of [wx0, wx1]) ctx.fillRect(hx - 1.5, ry + rh / 2 - 7, 3, 14)
+
+    // Hit-testing reads what was actually painted, so the grab zones can never
+    // drift from the handles the user is aiming at.
+    rangeRef.current = { x0: plotL, x1: plotL + plotW, y0: ry, y1: ry + rh, win: { x0: wx0, x1: wx1 } }
   }, [series, size, view, bounds, rowH, chartH, plotL, plotW, xFor, locale])
 
   // --- Gestures -----------------------------------------------------------
 
   const dragRef = useRef<
     | { kind: 'pan'; x: number; view: TimeWindow }
-    | { kind: 'range'; x0: number; x1: number }
+    | { kind: 'range'; mode: 'move' | 'lo' | 'hi'; grab: number }
     | null
   >(null)
-  const [rangeDrag, setRangeDrag] = useState<{ x0: number; x1: number } | null>(null)
-  // Mirrors dragRef for the cursor: a ref cannot be read while rendering.
-  const [panning, setPanning] = useState(false)
+  /**
+   * What the pointer is over, mirrored into state purely to drive the cursor:
+   * a ref cannot be read during render. Null when nothing actionable is under it.
+   */
+  const [cursor, setCursor] = useState<'grabbing' | RangeHit>(null)
 
   const localPoint = (e: React.PointerEvent | React.WheelEvent) => {
     const r = canvasRef.current?.getBoundingClientRect()
@@ -266,15 +287,25 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
     (e: React.PointerEvent) => {
       const { x, y } = localPoint(e)
       ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-      if (y >= size.h - RANGE_H) {
-        dragRef.current = { kind: 'range', x0: x, x1: x }
-        setRangeDrag({ x0: x, x1: x })
-      } else {
-        dragRef.current = { kind: 'pan', x, view }
-        setPanning(true)
+      const r = rangeRef.current
+      const hit = hitRange(r, x, y)
+      if (hit && r) {
+        // Clicking the strip beside the window recentres it there, then keeps
+        // dragging it — so a click that lands slightly off still ends up where
+        // the user meant, without letting go.
+        if (hit === 'jump') {
+          onViewChange(windowFromRangeJump(r, x, view, bounds))
+          dragRef.current = { kind: 'range', mode: 'move', grab: (r.win.x1 - r.win.x0) / 2 }
+        } else {
+          dragRef.current = { kind: 'range', mode: hit, grab: x - r.win.x0 }
+        }
+        setCursor(hit === 'jump' ? 'move' : hit)
+        return
       }
+      dragRef.current = { kind: 'pan', x, view }
+      setCursor('grabbing')
     },
-    [size.h, view],
+    [view, bounds, onViewChange],
   )
 
   const onPointerMove = useCallback(
@@ -286,11 +317,20 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
         onViewChange(panWindow(drag.view, bounds, x - drag.x, plotW))
         return
       }
-      if (drag?.kind === 'range') {
-        drag.x1 = x
-        setRangeDrag({ x0: drag.x0, x1: x })
+      if (drag?.kind === 'range' && rangeRef.current) {
+        onViewChange(windowFromRangeGrab(drag.mode, rangeRef.current, x, drag.grab, view, bounds))
         return
       }
+
+      // Over the strip the pointer names what it can do, so the window reads as
+      // draggable and its edges as resizable before anything is clicked.
+      const overRange = hitRange(rangeRef.current, x, y)
+      if (overRange) {
+        setCursor(overRange)
+        setHover(null)
+        return
+      }
+      setCursor(null)
 
       // Hover: name the mark under the pointer.
       const row = Math.floor(y / rowH)
@@ -334,41 +374,23 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
       }
       setHover({ x, y, title: s.name, value, lines })
     },
-    [bounds, plotW, onViewChange, rowH, chartH, series, locale, t],
+    [view, bounds, plotW, onViewChange, rowH, chartH, series, t],
   )
 
-  const onPointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      const drag = dragRef.current
-      dragRef.current = null
-      setPanning(false)
-      ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
-      if (drag?.kind === 'range') {
-        const next = windowFromRangeDrag(drag.x0, drag.x1, plotL, plotW, bounds)
-        // A click on the strip (too short to be a drag) resets to the full record
-        // rather than zooming to nothing.
-        onViewChange(next ?? bounds)
-        setRangeDrag(null)
-      }
-    },
-    [plotL, plotW, bounds, onViewChange],
-  )
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    dragRef.current = null
+    setCursor(null)
+    ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+  }, [])
 
   const zoomed = !isFullWindow(view, bounds)
-
-  const rangeOverlay = useMemo(() => {
-    if (!rangeDrag) return null
-    const left = Math.min(rangeDrag.x0, rangeDrag.x1)
-    const width = Math.abs(rangeDrag.x1 - rangeDrag.x0)
-    return { left, width }
-  }, [rangeDrag])
 
   return (
     <div ref={wrapRef} className="relative h-full w-full">
       <canvas
         ref={canvasRef}
         className="absolute inset-0 h-full w-full touch-none"
-        style={{ cursor: panning ? 'grabbing' : 'crosshair' }}
+        style={{ cursor: CURSORS[cursor ?? 'plot'] }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -378,17 +400,6 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale }: T
         onMouseDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
       />
-      {rangeOverlay && (
-        <div
-          className="pointer-events-none absolute bg-primary/20"
-          style={{
-            left: rangeOverlay.left,
-            width: rangeOverlay.width,
-            bottom: 8,
-            height: RANGE_H - 14,
-          }}
-        />
-      )}
       {zoomed && (
         <button
           onClick={() => onViewChange(bounds)}

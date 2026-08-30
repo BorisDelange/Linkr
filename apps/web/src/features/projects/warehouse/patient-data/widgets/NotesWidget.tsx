@@ -585,7 +585,9 @@ export function NotesWidget({
                     key={note.note_id}
                     ref={selectedNoteId === note.note_id ? selectedRowRef : undefined}
                     onClick={() => setSelectedNoteId(note.note_id)}
-                    className={`flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors ${
+                    // No focus ring: focus only ever lands here to follow the
+                    // selection, which bg-accent already shows.
+                    className={`flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors outline-none ${
                       selectedNoteId === note.note_id
                         ? 'bg-accent'
                         : 'hover:bg-muted/50'
