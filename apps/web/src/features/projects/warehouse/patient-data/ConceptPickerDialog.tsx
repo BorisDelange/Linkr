@@ -66,8 +66,9 @@ interface ConceptPickerDialogProps {
   onConfirm: (config: Record<string, unknown>) => void
 }
 
-/** Heavy OMOP detail the picker keeps one click away, on top of the page's own. */
-const PICKER_HIDDEN_COLUMNS = [...DEFAULT_HIDDEN_COLUMNS, 'domain_id', 'concept_class_id', '_dict_key']
+/** The Concepts page's own defaults: picking a concept here and browsing it there
+ *  are the same task, so the table starts with the same columns in both. */
+const PICKER_HIDDEN_COLUMNS = DEFAULT_HIDDEN_COLUMNS
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -362,7 +363,9 @@ export function ConceptPickerDialog({
             : 'max-w-[95vw] sm:max-w-[95vw]',
         )}
       >
-        <DialogHeader className="shrink-0 border-b px-6 py-3">
+        {/* px-4 like the tab bar below it: at px-6 the title sat 8px right of
+            everything else in the dialog. */}
+        <DialogHeader className="shrink-0 border-b px-4 py-3">
           <DialogTitle>{t('patient_data.configure_widget')}</DialogTitle>
         </DialogHeader>
 

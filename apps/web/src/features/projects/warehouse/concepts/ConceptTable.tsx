@@ -59,6 +59,7 @@ import {
   conceptCellContent,
 } from './concept-cells'
 import { columnLabel } from '@/lib/format-helpers'
+import { resolveRowSelection } from './row-selection'
 import type { ConceptRow } from './use-concepts'
 import type {
   ConceptFilters,
@@ -270,44 +271,26 @@ export function ConceptTable({
   const selectionAnchorRef = useRef<number | null>(null)
 
   /** File-explorer-style selection: plain / Ctrl-Cmd (toggle) / Shift (range).
-   *  In pick mode a plain click toggles too, since the set IS the result. */
+   *  The rules live in resolveRowSelection, which is unit-tested. */
   const handleRowClick = (row: ConceptRow, e: React.MouseEvent) => {
-    const conceptId = row.concept_id
-    const isToggle = e.metaKey || e.ctrlKey || pickMode
-    const isRange = e.shiftKey
+    const byId = new Map(concepts.map((r) => [r.concept_id, r]))
+    const result = resolveRowSelection({
+      conceptId: row.concept_id,
+      order: concepts.map((r) => r.concept_id),
+      selected: selectedConceptIds,
+      anchor: selectionAnchorRef.current,
+      toggle: e.metaKey || e.ctrlKey,
+      range: e.shiftKey,
+      pickMode,
+    })
 
-    if (isRange && selectionAnchorRef.current != null) {
-      const order = concepts.map((r) => r.concept_id)
-      const from = order.indexOf(selectionAnchorRef.current)
-      const to = order.indexOf(conceptId)
-      if (from !== -1 && to !== -1) {
-        const [lo, hi] = from <= to ? [from, to] : [to, from]
-        const next = isToggle ? new Set(selectedConceptIds) : new Set<number>()
-        for (const r of concepts.slice(lo, hi + 1)) {
-          next.add(r.concept_id)
-          onToggleConcept?.(r)
-        }
-        onSelectedConceptIdsChange(next)
-        return
-      }
+    if (result.anchor !== null) selectionAnchorRef.current = result.anchor
+    for (const id of result.added) {
+      const added = byId.get(id)
+      if (added) onToggleConcept?.(added)
     }
-
-    if (isToggle) {
-      const next = new Set(selectedConceptIds)
-      if (next.has(conceptId)) next.delete(conceptId)
-      else next.add(conceptId)
-      selectionAnchorRef.current = conceptId
-      onToggleConcept?.(row)
-      onSelectedConceptIdsChange(next)
-      return
-    }
-
-    // Plain click → single selection, which drives the detail panel. Only mint a
-    // new Set when there is something to clear: an empty one still counts as a
-    // new identity, and would re-render every row on each click.
-    selectionAnchorRef.current = conceptId
-    if (selectedConceptIds.size > 0) onSelectedConceptIdsChange(new Set())
-    onSelect(conceptId)
+    if (result.selected) onSelectedConceptIdsChange(result.selected)
+    if (result.single) onSelect(row.concept_id)
   }
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
   const [overColumnId, setOverColumnId] = useState<string | null>(null)

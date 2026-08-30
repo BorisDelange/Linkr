@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { Textarea } from '@/components/ui/textarea'
 import { localized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
@@ -62,20 +63,20 @@ export function ConceptListEditDialog({
       confirmDisabled={!canSave}
       contentClassName="space-y-3"
     >
-      <div className="space-y-1.5">
-        <Label className="text-xs">{t('concepts.column_name')}</Label>
+      <div className="space-y-1">
+        <Label>{t('concepts.column_name')}<RequiredMark /></Label>
         <Input
           autoFocus
-          className="h-8 text-xs"
+          className="h-8 text-sm"
           placeholder={t('concepts.list_name_placeholder')}
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
       </div>
-      <div className="space-y-1.5">
-        <Label className="text-xs">{t('common.description')}</Label>
+      <div className="space-y-1">
+        <Label>{t('common.description')}</Label>
         <Textarea
-          className="min-h-[72px] text-xs"
+          className="min-h-[72px] text-sm"
           placeholder={t('concepts.list_description_placeholder')}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
