@@ -120,7 +120,11 @@ function GanttTimeline({ visitRows, detailsByVisit, formatDateTime, lang, t, onN
   useEffect(() => {
     if (!containerRef.current) return
     const obs = new ResizeObserver((entries) => {
-      for (const entry of entries) setWidth(entry.contentRect.width)
+      // A hidden tab is display:none, so its widgets measure 0. Keeping the last
+      // real width means returning to the tab needs no re-layout.
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) setWidth(entry.contentRect.width)
+      }
     })
     obs.observe(containerRef.current)
     setWidth(containerRef.current.clientWidth)

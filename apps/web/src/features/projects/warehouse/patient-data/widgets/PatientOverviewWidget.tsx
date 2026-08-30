@@ -383,6 +383,9 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       const r = el.getBoundingClientRect()
       const w = Math.round(r.width)
       const h = Math.round(r.height)
+      // A hidden tab is display:none, so its widgets measure 0. Keeping the last
+      // real size means returning to the tab needs no re-measure and no repaint.
+      if (w === 0 || h === 0) return
       // Only set state on a real change: a ResizeObserver that re-sets an equal
       // size would re-render on every observed frame.
       setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))

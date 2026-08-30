@@ -265,10 +265,15 @@ export function PatientDataPage() {
                 mountedTabs.map((tab) => (
                   <div
                     key={tab.id}
+                    // `hidden`, not `invisible`: visibility is inherited but a
+                    // descendant can override it, and a Dygraph does — its legend
+                    // and range selector are positioned absolutely with a z-index,
+                    // so a timeline on a hidden tab stayed painted over the visible
+                    // one. display:none cannot be overridden from inside.
                     className={
                       tab.id === currentTabId
                         ? 'contents'
-                        : 'invisible absolute top-0 left-0 w-full'
+                        : 'hidden absolute top-0 left-0 w-full'
                     }
                     aria-hidden={tab.id !== currentTabId}
                   >
