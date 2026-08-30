@@ -220,6 +220,52 @@ describe('timeline query', () => {
     expect(buildTimelineQuery(inlineOnly, [220045], '10002495', null)).toBeNull()
   })
 
+  it('selects the categorical value and the end date, so more than curves can be drawn', () => {
+    // Without these the timeline can only ever plot numbers: a categorical
+    // observation has nothing to put on a y axis, and an infusion that lasts
+    // four hours would collapse to a dot at its start.
+    const withBoth = {
+      ...timelineMapping,
+      eventTables: {
+        Measurements: {
+          ...timelineMapping.eventTables!.Measurements,
+          valueStringColumn: 'value',
+          endDateColumn: 'endtime',
+        },
+      },
+    } as SchemaMapping
+    const sql = buildTimelineQuery(withBoth, [220045], '10002495', null)!
+    expect(sql).toContain('AS value_string')
+    expect(sql).toContain('AS end_date')
+  })
+
+  it('still names both columns when the table maps neither, so the UNION lines up', () => {
+    // Every branch must expose the same columns or DuckDB rejects the UNION.
+    const sql = buildTimelineQuery(timelineMapping, [220045], '10002495', null)!
+    expect(sql).toContain('NULL AS value_string')
+    expect(sql).toContain('NULL AS end_date')
+  })
+
+  it('keeps a row when only the categorical value is present', () => {
+    // Filtering on the numeric column alone dropped every categorical event.
+    const stringOnly = {
+      ...timelineMapping,
+      eventTables: {
+        Observations: {
+          table: 'chartevents',
+          conceptIdColumn: 'itemid',
+          valueStringColumn: 'value',
+          dateColumn: 'charttime',
+          patientIdColumn: 'subject_id',
+          conceptDictionaryKey: 'd_items',
+        },
+      },
+    } as unknown as SchemaMapping
+    const sql = buildTimelineQuery(stringOnly, [220048], '10002495', null)!
+    expect(sql).toContain('"value" IS NOT NULL')
+    expect(sql).toContain('NULL AS value')
+  })
+
   it('keeps an id-keyed table that simply has no dictionary to join', () => {
     // Only the inline opt-out is dropped. A concept id column with no dictionary
     // is still an id column — OMOP `measurement_concept_id` with no vocabulary

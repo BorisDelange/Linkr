@@ -324,9 +324,14 @@ ORDER BY start_date, row_type`
 // ---------------------------------------------------------------------------
 
 /**
- * Build query for timeline data — numeric values for selected concepts over time.
+ * Build query for timeline data — selected concepts over time.
  * Queries ALL event tables that have a value column and date column.
- * Returns: concept_id, concept_name, value, event_date.
+ * Returns: concept_id, concept_name, value, value_string, event_date, end_date.
+ *
+ * `value_string` and `end_date` are what let the timeline draw more than curves:
+ * a categorical observation has no number to plot, and an event with an end date
+ * is a span rather than a reading. Both are NULL for a table that maps neither,
+ * so every branch of the UNION stays column-compatible.
  */
 export function buildTimelineQuery(
   mapping: SchemaMapping,
@@ -340,9 +345,10 @@ export function buildTimelineQuery(
   const parts: string[] = []
 
   for (const [, et] of Object.entries(mapping.eventTables)) {
-    if (!et.valueColumn || !et.dateColumn) continue
     const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
-    if (!patientIdCol) continue
+    if (!patientIdCol || !et.dateColumn) continue
+    // A table with neither kind of value has nothing to put on a timeline.
+    if (!et.valueColumn && !et.valueStringColumn) continue
 
     // `'none'` marks a table that names its concept inline: the column holds
     // "Vancomycin", not an id. Matching it against numeric ids cannot select
@@ -355,27 +361,31 @@ export function buildTimelineQuery(
     const conceptMatch = buildConceptInCondition('e', et, idList)
     const visitFilter = buildVisitFilter(mapping, visitId, 'e')
 
-    if (dict) {
-      const joinCond = buildConceptJoinCondition('e', 'c', et, dict)
-      parts.push(`SELECT e."${et.conceptIdColumn}" AS concept_id,
-  c."${dict.nameColumn}" AS concept_name,
-  e."${et.valueColumn}" AS value,
-  e."${et.dateColumn}" AS event_date
-FROM "${et.table}" e
-INNER JOIN "${dict.table}" c ON ${joinCond}
+    const valueExpr = et.valueColumn ? `e."${et.valueColumn}"` : 'NULL'
+    const valueStringExpr = et.valueStringColumn ? `e."${et.valueStringColumn}"` : 'NULL'
+    const endExpr = et.endDateColumn ? `e."${et.endDateColumn}"` : 'NULL'
+    // Keep a row when EITHER value is present: dropping on the numeric column
+    // alone would discard every categorical event the string column carries.
+    const presence = [
+      et.valueColumn ? `e."${et.valueColumn}" IS NOT NULL` : null,
+      et.valueStringColumn ? `e."${et.valueStringColumn}" IS NOT NULL` : null,
+    ].filter(Boolean).join(' OR ')
+
+    const nameExpr = dict ? `c."${dict.nameColumn}"` : `CAST(e."${et.conceptIdColumn}" AS VARCHAR)`
+    const join = dict
+      ? `\nINNER JOIN "${dict.table}" c ON ${buildConceptJoinCondition('e', 'c', et, dict)}`
+      : ''
+
+    parts.push(`SELECT e."${et.conceptIdColumn}" AS concept_id,
+  ${nameExpr} AS concept_name,
+  ${valueExpr} AS value,
+  ${valueStringExpr} AS value_string,
+  e."${et.dateColumn}" AS event_date,
+  ${endExpr} AS end_date
+FROM "${et.table}" e${join}
 WHERE e."${patientIdCol}" = '${escSql(patientId)}'
   AND (${conceptMatch})
-  AND e."${et.valueColumn}" IS NOT NULL${visitFilter}`)
-    } else {
-      parts.push(`SELECT e."${et.conceptIdColumn}" AS concept_id,
-  CAST(e."${et.conceptIdColumn}" AS VARCHAR) AS concept_name,
-  e."${et.valueColumn}" AS value,
-  e."${et.dateColumn}" AS event_date
-FROM "${et.table}" e
-WHERE e."${patientIdCol}" = '${escSql(patientId)}'
-  AND (${conceptMatch})
-  AND e."${et.valueColumn}" IS NOT NULL${visitFilter}`)
-    }
+  AND (${presence})${visitFilter}`)
   }
 
   if (parts.length === 0) return null
