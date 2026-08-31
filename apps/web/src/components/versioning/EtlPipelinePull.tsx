@@ -4,7 +4,7 @@ import { AlertTriangle, Loader2 } from 'lucide-react'
 import { applyEtlPull, prepareEtlPull, type PreparedEtlPull } from '@/lib/etl-pull'
 import { buildEtlPipelinePullPlan, ETL_SETTINGS_FILE } from '@/lib/etl-pull-plan-builder'
 import { buildEtlPullDiff } from '@/lib/etl-pull-diff'
-import { wholeFileId, type PullDecision, type PullPlan } from '@/lib/pull-plan'
+import { planIsEmpty, wholeFileId, type PullDecision, type PullPlan } from '@/lib/pull-plan'
 import { PullPanel } from './PullPanel'
 import { PullDiffDialog } from './PullDiffDialog'
 
@@ -126,6 +126,21 @@ export function EtlPipelinePull({ pipelineId, branch, remoteHead, mode, onPulled
       setApplying(false)
     }
   }
+
+  // An empty plan still has to advance the cursors, or the pipeline stays
+  // "behind" forever: sync_state compares oids, so a remote commit that changes
+  // nothing we import still raises the banner — and PullPanel then shows
+  // "nothing to pull" with no button to press. The banner also gates the push,
+  // so the user cannot send their own work either. Same fix as ProjectPull.
+  const emptyPlan = !!plan && planIsEmpty(plan)
+  useEffect(() => {
+    if (!emptyPlan || applying) return
+    void handleFinalize()
+    // handleFinalize is redefined each render, so it cannot be a dependency
+    // without re-firing; `emptyPlan` plus the `applying` guard bound this to one
+    // run per computed plan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emptyPlan])
 
   if (loading) {
     return (

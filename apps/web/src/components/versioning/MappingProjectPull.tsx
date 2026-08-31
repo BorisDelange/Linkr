@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { prepareMappingProjectPull, applyMappingProjectPull, type PreparedPull } from '@/lib/concept-mapping/pull'
 import { buildMappingProjectPullPlan } from '@/lib/concept-mapping/pull-plan-builder'
-import { itemId, itemIdFor, wholeFileId, type PullDecision, type PullFile, type PullPlan } from '@/lib/pull-plan'
+import { itemId, itemIdFor, planIsEmpty, wholeFileId, type PullDecision, type PullFile, type PullPlan } from '@/lib/pull-plan'
 import type { MappingChange } from '@/lib/concept-mapping/merge'
 import { buildPullDiff } from '@/lib/concept-mapping/pull-diff'
 import { PullPanel } from './PullPanel'
@@ -120,6 +120,22 @@ export function MappingProjectPull({ projectId, branch, remoteHead, mode, onPull
       setApplying(false)
     }
   }
+
+  // An empty plan still has to advance the cursors, or the project stays "behind"
+  // forever: sync_state compares oids, so a remote commit that changes nothing we
+  // import still raises the banner — and PullPanel then shows "nothing to pull"
+  // with no button to press. The banner also gates the push. Finalizing as
+  // COMPLETE is the honest record: there was nothing to decline. Same fix as
+  // ProjectPull and EtlPipelinePull.
+  const emptyPlan = !!plan && planIsEmpty(plan)
+  useEffect(() => {
+    if (!emptyPlan || applying) return
+    void handleFinalize(true)
+    // handleFinalize is redefined each render, so it cannot be a dependency
+    // without re-firing; `emptyPlan` plus the `applying` guard bound this to one
+    // run per computed plan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emptyPlan])
 
   if (loading) {
     return (

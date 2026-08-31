@@ -385,5 +385,14 @@ describe('isCompleteEtlPull — did we take the whole commit?', () => {
     expect(isCompleteEtlPull(plan(), sel())).toBe(false)
     expect(isCompleteEtlPull(plan(), sel({ paths: new Set(['10_src.sql']) }))).toBe(true)
   })
+
+  it('is true for an EMPTY plan — the "nothing to pull" anchor depends on it', () => {
+    // sync_state reports "behind" from oids alone, so a remote commit that changes
+    // nothing we import still raises the banner while the plan comes out empty.
+    // EtlPipelinePull finalizes automatically there; this is what lets that
+    // finalize advance BOTH cursors instead of leaving the banner (and the push
+    // gate it drives) stuck forever.
+    expect(isCompleteEtlPull(buildEtlPullPlan([], [], false), sel())).toBe(true)
+  })
 })
 
