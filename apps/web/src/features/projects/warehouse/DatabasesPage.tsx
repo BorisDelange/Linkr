@@ -103,6 +103,7 @@ export function DatabasesPage() {
       <DatabaseDetailPage
         source={resolveByIdPrefix(sources, raw.dbId, (ds) => ds.id)}
         onBack={() => navigate(paths.databases(wsUid ?? '', uid ?? ''))}
+        readOnly
       />
     )
   }
@@ -174,16 +175,15 @@ export function DatabasesPage() {
                 key={ds.id}
                 source={ds}
                 onClick={() => navigate(paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds))}
-                onOpenLicense={() => navigate(`${paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds)}?tab=license`)}
-                onOpenDocs={(tab) => navigate(`${paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds)}?tab=${tab}`)}
-                onOpenVersioning={() => navigate(`${paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds)}?tab=versioning`)}
                 onTestConnection={() => testConnection(ds.id)}
                 onDisconnect={() => disconnectDataSource(ds.id)}
                 onReconnect={() => reconnectDataSource(ds.id)}
                 onRemove={() => uid && unlinkDataSource(uid, ds.id)}
-                // From a project the action unlinks — the database stays in the
-                // warehouse. Calling it "Delete" said it would be destroyed for
-                // every project using it.
+                // A project uses a database, it does not own it: editing, export
+                // and versioning belong to the workspace that does. `deleteOnly`
+                // leaves the single action a project actually has — unlink. The
+                // database stays in the warehouse, hence "Unlink", not "Delete".
+                deleteOnly
                 removeLabelKey="app_warehouse.unlink"
                 removeConfirmTitleKey="app_warehouse.unlink_confirm_title"
                 removeConfirmDescriptionKey="app_warehouse.unlink_confirm_description"

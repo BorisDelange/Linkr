@@ -696,6 +696,7 @@
     "no_vocabulary_hint": "Sélectionnez un modèle de schéma avec vocabulaire (ex. OMOP CDM 5.4) pour naviguer dans les concepts.",
     "detail_see_all_statistics": "Voir toutes les statistiques",
     "detail_about": "À propos",
+    "readme_empty": "Aucun readme.",
     "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire le contenu de cette base.",
     "detail_schema": "Schéma",
     "not_found": "Base de données introuvable",

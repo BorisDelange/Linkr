@@ -463,7 +463,13 @@ export function ConceptsPage() {
             workspaceId={wsUid}
             projectUid={uid}
             value={mappedSource?.id}
-            onChange={chooseDatabase}
+            onChange={(id) => {
+              // The bulk-selection panel lives on the page, outside the hook that
+              // resets the rest: left alone it would act on ids from the database
+              // we just left.
+              setSelectedConceptIds(new Set())
+              chooseDatabase(id)
+            }}
             size="xs"
             className="w-44 shrink-0"
           />

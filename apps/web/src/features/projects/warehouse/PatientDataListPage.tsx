@@ -1,13 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Plus, User, MoreHorizontal, Trash2, Pencil, TriangleAlert, Copy } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Plus, User, TriangleAlert } from 'lucide-react'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
-import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-selection'
+import { useCardSelection } from '@/components/ui/use-card-selection'
 import { Card } from '@/components/ui/card'
-import { CardMetaFooter } from '@/components/ui/card-meta-footer'
-import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,15 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { cardMenuTriggerClass, cn } from '@/lib/utils'
-import { ENTITY_COLORS } from '@/lib/entity-colors'
+import { cn } from '@/lib/utils'
 import { paths } from '@/lib/paths'
 import { localized } from '@/lib/localized'
 import { applySort, baseSortFields } from '@/lib/list-sort'
@@ -45,6 +34,7 @@ import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { DatabaseSelect } from '@/components/ui/database-select'
 import { buildPointer } from '@/lib/import-identity'
 import { PatientBoardEditDialog } from './patient-data/PatientBoardEditDialog'
+import { PatientBoardCard } from './patient-data/PatientBoardCard'
 import type { PatientDashboard } from '@/types'
 
 export function PatientDataListPage() {
@@ -221,80 +211,20 @@ export function PatientDataListPage() {
           </div>
         ) : (
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {filteredBoards.map((board) => {
-              const description = board.description ? localized(board.description, language) : ''
-              return (
-                <Card
-                  key={board.id}
-                  className={cn(
-                    'flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent',
-                    selection.isSelected(board.id) && selectedCardClass,
-                  )}
-                  onClick={(e) => {
-                    if (selection.onCardClick(e, board.id)) return
-                    navigate(paths.patientBoard(wsUid ?? '', projectUid, board.id))
-                  }}
-                >
-                  <div className="flex flex-1 flex-col px-4 pt-5">
-                    <div className="flex flex-1 flex-col justify-center">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS['patient-data'].bg)}>
-                            <User size={20} className={ENTITY_COLORS['patient-data'].icon} />
-                          </div>
-                          <span className="truncate text-sm font-medium text-card-foreground">
-                            {localized(board.name, language)}
-                          </span>
-                        </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              className={cn('-mt-1 shrink-0 self-start', cardMenuTriggerClass)}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <MoreHorizontal size={14} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                            <DropdownMenuItem disabled={!canEdit} onClick={() => setEditTarget(board)}>
-                              <Pencil size={14} />
-                              {t('common.edit')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem disabled={!canEdit} onClick={() => { void duplicateDashboard(board.id) }}>
-                              <Copy size={14} />
-                              {t('common.duplicate')}
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              disabled={!canDelete}
-                              variant="destructive"
-                              onClick={() => setDeleteTarget(board.id)}
-                            >
-                              <Trash2 size={14} />
-                              {t('common.delete')}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                      <div className="mt-2 h-4">
-                        {description && (
-                          <TruncatedText text={description} className="text-xs text-muted-foreground" />
-                        )}
-                      </div>
-                    </div>
-                    <CardMetaFooter
-                      createdById={board.createdById}
-                      createdBy={board.createdBy}
-                      createdByDetails={board.createdByDetails}
-                      createdAt={board.createdAt}
-                      updatedAt={board.updatedAt}
-                    />
-                  </div>
-                </Card>
-              )
-            })}
+            {filteredBoards.map((board) => (
+              <PatientBoardCard
+                key={board.id}
+                board={board}
+                href={paths.patientBoard(wsUid ?? '', projectUid, board.id)}
+                onEdit={() => setEditTarget(board)}
+                onDuplicate={() => { void duplicateDashboard(board.id) }}
+                onRemove={() => setDeleteTarget(board.id)}
+                canEdit={canEdit}
+                canDelete={canDelete}
+                selected={selection.isSelected(board.id)}
+                onSelectClick={(e) => selection.onCardClick(e, board.id)}
+              />
+            ))}
           </div>
         )}
       </div>

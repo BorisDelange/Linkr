@@ -168,6 +168,32 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
   }, [dataSourceId])
 
+  // Adopt the incoming database's state when it changes under a mounted hook.
+  // The useState initializers above run once, so switching database otherwise
+  // left the previous one's selection, filters and page in place — the detail
+  // sidebar kept showing a concept that does not exist in the new database.
+  // Skipped on the first render: the initializers already read the same cache.
+  const adoptedRef = useRef(dataSourceId)
+  useEffect(() => {
+    if (adoptedRef.current === dataSourceId) return
+    adoptedRef.current = dataSourceId
+
+    const next = dataSourceId ? stateCache.get(dataSourceId) : undefined
+    setFilters(next?.filters ?? EMPTY_FILTERS)
+    setDebouncedTextFilters(next?.filters ?? EMPTY_FILTERS)
+    setSorting(next?.sorting ?? { columnId: 'record_count', desc: true })
+    setPage(next?.page ?? 0)
+    setPageSize(next?.pageSize ?? 50)
+    setFilterOptions(next?.filterOptions ?? {})
+    setSelectedConceptId(next?.selectedConceptId ?? null)
+    // Derived from the selection; leaving them would keep the old concept's name
+    // and numbers on screen until the new query lands.
+    setSelectedConcept(null)
+    setConceptStats(null)
+    statsCache.current = next?.statsCache ?? new Map()
+    resultCache.current = next?.resultCache ?? new Map()
+  }, [dataSourceId])
+
   // Server mode: check whether the source already has a materialized cache, so
   // page queries can read it (and the "last refreshed" time is shown). Front-only
   // needs none of this.

@@ -696,6 +696,7 @@
     "no_vocabulary_hint": "Select a schema preset with vocabulary support (e.g. OMOP CDM 5.4) to browse concepts.",
     "detail_see_all_statistics": "See all statistics",
     "detail_about": "About",
+    "readme_empty": "No readme.",
     "readme_empty_hint": "No readme yet — write one to say what this database contains.",
     "detail_schema": "Schema",
     "not_found": "Database not found",

@@ -647,29 +647,50 @@ export function buildDomainCountQuery(
 // Value distribution & histogram (unchanged logic, generic interface)
 // ---------------------------------------------------------------------------
 
+/**
+ * The concept's values, gathered from EVERY event table of the dictionary that
+ * records one.
+ *
+ * A dictionary usually spans several tables (measurement, observation…), and
+ * which of them holds a given concept is a property of the data, not of the
+ * mapping. Reading only the first one that declares a `valueColumn` — the order
+ * `Object.entries` happens to yield — reported "0 non-null values" and empty
+ * min/max/mean for every concept living in another table.
+ */
+function valueSourceUnion(
+  mapping: SchemaMapping,
+  dictKey: string,
+  conceptId: number,
+): string | null {
+  const parts = getEventTablesForDictionary(mapping, dictKey)
+    .filter((e) => e.eventTable.valueColumn)
+    .map(({ eventTable: et }) => {
+      const matchCond = buildConceptMatchCondition(`"${et.table}"`, et, String(conceptId))
+      return `SELECT "${et.valueColumn}" AS v FROM "${et.table}" WHERE (${matchCond}) AND "${et.valueColumn}" IS NOT NULL`
+    })
+  return parts.length === 0 ? null : parts.join(' UNION ALL ')
+}
+
 export function buildValueDistributionQuery(
   mapping: SchemaMapping,
   dictKey: string,
   conceptId: number,
 ): string | null {
-  const eventEntries = getEventTablesForDictionary(mapping, dictKey)
-  // Find the first event table with a valueColumn
-  const entry = eventEntries.find((e) => e.eventTable.valueColumn)
-  if (!entry) return null
-  const et = entry.eventTable
+  const union = valueSourceUnion(mapping, dictKey, conceptId)
+  if (!union) return null
 
-  const matchCond = buildConceptMatchCondition(`"${et.table}"`, et, String(conceptId))
-
-  return `SELECT
+  return `WITH vals AS (
+  ${union}
+)
+SELECT
   COUNT(*)::INTEGER AS total_count,
-  COUNT("${et.valueColumn}")::INTEGER AS non_null_count,
-  ROUND(MIN("${et.valueColumn}")::NUMERIC, 2)::DOUBLE AS min_val,
-  ROUND(MAX("${et.valueColumn}")::NUMERIC, 2)::DOUBLE AS max_val,
-  ROUND(AVG("${et.valueColumn}")::NUMERIC, 2)::DOUBLE AS mean_val,
-  ROUND(MEDIAN("${et.valueColumn}")::NUMERIC, 2)::DOUBLE AS median_val,
-  ROUND(STDDEV("${et.valueColumn}")::NUMERIC, 2)::DOUBLE AS std_val
-FROM "${et.table}"
-WHERE (${matchCond}) AND "${et.valueColumn}" IS NOT NULL`
+  COUNT(v)::INTEGER AS non_null_count,
+  ROUND(MIN(v)::NUMERIC, 2)::DOUBLE AS min_val,
+  ROUND(MAX(v)::NUMERIC, 2)::DOUBLE AS max_val,
+  ROUND(AVG(v)::NUMERIC, 2)::DOUBLE AS mean_val,
+  ROUND(MEDIAN(v)::NUMERIC, 2)::DOUBLE AS median_val,
+  ROUND(STDDEV(v)::NUMERIC, 2)::DOUBLE AS std_val
+FROM vals`
 }
 
 export function buildValueHistogramQuery(
@@ -679,13 +700,8 @@ export function buildValueHistogramQuery(
   binCount = 20,
   excludeOutliers = true,
 ): string | null {
-  const eventEntries = getEventTablesForDictionary(mapping, dictKey)
-  const entry = eventEntries.find((e) => e.eventTable.valueColumn)
-  if (!entry) return null
-  const et = entry.eventTable
-
-  const matchCond = buildConceptMatchCondition(`"${et.table}"`, et, String(conceptId))
-  const baseWhere = `(${matchCond}) AND "${et.valueColumn}" IS NOT NULL`
+  const union = valueSourceUnion(mapping, dictKey, conceptId)
+  if (!union) return null
 
   // Bin edges derive from the min/max of the plotted range, so a single absurd
   // value (a respiratory rate of 100000) would collapse every real value into
@@ -693,32 +709,26 @@ export function buildValueHistogramQuery(
   // the bins over the real distribution. `excluded` reports what was dropped so
   // the panel can say so rather than silently hiding data.
   const stats = excludeOutliers
-    ? `SELECT
-    QUANTILE_CONT("${et.valueColumn}", 0.01) AS mn,
-    QUANTILE_CONT("${et.valueColumn}", 0.99) AS mx
-  FROM "${et.table}"
-  WHERE ${baseWhere}`
-    : `SELECT MIN("${et.valueColumn}") AS mn, MAX("${et.valueColumn}") AS mx
-  FROM "${et.table}"
-  WHERE ${baseWhere}`
+    ? `SELECT QUANTILE_CONT(v, 0.01) AS mn, QUANTILE_CONT(v, 0.99) AS mx FROM vals`
+    : `SELECT MIN(v) AS mn, MAX(v) AS mx FROM vals`
 
-  const rangeFilter = excludeOutliers
-    ? ` AND "${et.valueColumn}" BETWEEN stats.mn AND stats.mx`
-    : ''
+  const rangeFilter = excludeOutliers ? ' AND v BETWEEN stats.mn AND stats.mx' : ''
 
-  return `WITH stats AS (
+  return `WITH vals AS (
+  ${union}
+), stats AS (
   ${stats}
 ), excluded AS (
   SELECT COUNT(*)::INTEGER AS n
-  FROM "${et.table}", stats
-  WHERE ${baseWhere}${excludeOutliers ? ` AND ("${et.valueColumn}" < stats.mn OR "${et.valueColumn}" > stats.mx)` : ' AND FALSE'}
+  FROM vals, stats
+  WHERE ${excludeOutliers ? '(v < stats.mn OR v > stats.mx)' : 'FALSE'}
 )
 SELECT
-  ROUND((FLOOR(("${et.valueColumn}" - stats.mn) / NULLIF((stats.mx - stats.mn) / ${binCount}.0, 0)) * ((stats.mx - stats.mn) / ${binCount}.0) + stats.mn)::NUMERIC, 2)::DOUBLE AS bin_start,
+  ROUND((FLOOR((v - stats.mn) / NULLIF((stats.mx - stats.mn) / ${binCount}.0, 0)) * ((stats.mx - stats.mn) / ${binCount}.0) + stats.mn)::NUMERIC, 2)::DOUBLE AS bin_start,
   COUNT(*)::INTEGER AS count,
   ANY_VALUE(excluded.n) AS excluded_count
-FROM "${et.table}", stats, excluded
-WHERE ${baseWhere}${rangeFilter}
+FROM vals, stats, excluded
+WHERE TRUE${rangeFilter}
 GROUP BY 1
 ORDER BY 1`
 }

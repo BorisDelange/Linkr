@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { Database } from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -54,7 +55,8 @@ export function DatabaseSelect({
 
   return (
     <Select value={value ?? ''} onValueChange={onChange} disabled={disabled || empty}>
-      <SelectTrigger size={size} className={cn(className)}>
+      <SelectTrigger size={size} className={cn('gap-1.5', className)}>
+        <Database size={12} className="shrink-0 text-muted-foreground" />
         <SelectValue placeholder={empty ? emptyLabel : (placeholder ?? t('databases.select_database'))} />
       </SelectTrigger>
       <SelectContent>

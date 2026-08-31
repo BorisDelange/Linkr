@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import type { Cohort } from '@/types'
+import type { PatientDashboard } from '@/types'
 import {
-  UsersRound,
+  User,
   MoreHorizontal,
   Trash2,
   Pencil,
@@ -16,6 +16,8 @@ import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { EntityDatabaseLine } from '@/components/ui/entity-database-line'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { selectedCardClass } from '@/components/ui/use-card-selection'
+import { localized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,10 +26,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
-interface CohortCardProps {
-  cohort: Cohort
-  /** Target URL, built by the caller through `paths.cohort` so it carries the
-   *  same shortened ids the sidebar matches on. */
+interface PatientBoardCardProps {
+  board: PatientDashboard
+  /** Target URL, built by the caller through `paths.patientBoard` so it carries
+   *  the same shortened ids the sidebar matches on. */
   href: string
   onRemove: () => void
   onEdit: () => void
@@ -41,14 +43,8 @@ interface CohortCardProps {
   onSelectClick?: (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => boolean
 }
 
-const levelColors: Record<string, string> = {
-  patient: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-  visit: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300',
-  visit_detail: 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300',
-}
-
-export function CohortCard({
-  cohort,
+export function PatientBoardCard({
+  board,
   href,
   onRemove,
   onEdit,
@@ -57,12 +53,12 @@ export function CohortCard({
   canDelete = true,
   selected = false,
   onSelectClick,
-}: CohortCardProps) {
+}: PatientBoardCardProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const language = useAppStore((s) => s.language)
 
-  const levelLabel = t(`cohorts.level_${cohort.level}`)
-  const criteriaCount = countCriteria(cohort.criteriaTree)
+  const description = board.description ? localized(board.description, language) : ''
 
   const handleClick = () => {
     navigate(href)
@@ -87,15 +83,16 @@ export function CohortCard({
     >
       <div className="flex flex-1 flex-col px-4 pt-5">
        <div className="flex flex-1 flex-col justify-center">
-        {/* Row 1: icon + title + level pill + actions */}
+        {/* Row 1: icon + title + actions */}
         <div className="flex items-center gap-3">
-          <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS.cohorts.bg)}>
-            <UsersRound size={20} className={ENTITY_COLORS.cohorts.icon} />
+          <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS['patient-data'].bg)}>
+            <User size={20} className={ENTITY_COLORS['patient-data'].icon} />
           </div>
-          <TruncatedText text={cohort.name} readOnly className="min-w-0 flex-1 text-sm font-medium" />
-          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${levelColors[cohort.level] ?? ''}`}>
-            {levelLabel}
-          </span>
+          <TruncatedText
+            text={localized(board.name, language)}
+            readOnly
+            className="min-w-0 flex-1 text-sm font-medium"
+          />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -123,46 +120,27 @@ export function CohortCard({
                 className="text-destructive focus:text-destructive"
               >
                 <Trash2 size={14} className="text-destructive" />
-                {t('cohorts.remove')}
+                {t('common.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
         {/* Description */}
         <div className="mt-2 h-4">
-          {cohort.description && (
-            <TruncatedText text={cohort.description} className="text-xs text-muted-foreground" />
+          {description && (
+            <TruncatedText text={description} className="text-xs text-muted-foreground" />
           )}
         </div>
-        {/* Criteria + results */}
-        <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-          <span>{t('cohorts.card_criteria', { count: criteriaCount })}</span>
-          {cohort.resultCount != null && (
-            <span className="font-medium text-foreground">
-              {cohort.resultCount.toLocaleString()} {t('cohorts.results_count')}
-            </span>
-          )}
-        </div>
-        <EntityDatabaseLine projectUid={cohort.projectUid} dataSourceId={cohort.dataSourceId} />
+        <EntityDatabaseLine projectUid={board.projectUid} dataSourceId={board.dataSourceId} />
        </div>
         <CardMetaFooter
-          createdById={cohort.createdById}
-          createdBy={cohort.createdBy}
-          createdByDetails={cohort.createdByDetails}
-          createdAt={cohort.createdAt}
-          updatedAt={cohort.updatedAt}
+          createdById={board.createdById}
+          createdBy={board.createdBy}
+          createdByDetails={board.createdByDetails}
+          createdAt={board.createdAt}
+          updatedAt={board.updatedAt}
         />
       </div>
     </Card>
   )
-}
-
-/** Count total leaf criteria in the tree */
-function countCriteria(node: Cohort['criteriaTree']): number {
-  let count = 0
-  for (const child of node.children) {
-    if (child.kind === 'criterion') count++
-    else count += countCriteria(child)
-  }
-  return count
 }

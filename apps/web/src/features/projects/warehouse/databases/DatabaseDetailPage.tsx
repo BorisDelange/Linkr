@@ -71,6 +71,11 @@ import { useOrganizationStore } from '@/stores/organization-store'
 const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
 
+/** What a project may open. `resolveTab` falls back to the default for anything
+ *  outside this list, so a bookmarked `?tab=readme` lands on the overview rather
+ *  than on an empty body. */
+const PROJECT_TAB_IDS = ['overview', 'statistics', 'schema'] as const
+
 /** Stand-in for a source with no data model: every clinical table is unknown, so
  *  only the table row counts can be computed. */
 const EMPTY_MAPPING: SchemaMapping = { presetId: 'none', presetLabel: { en: '', fr: '' } }
@@ -93,6 +98,13 @@ function formatSourceType(source: DataSource, lang: string): string {
 interface DatabaseDetailPageProps {
   source: DataSource | undefined
   onBack: () => void
+  /**
+   * Opened from a project, where a database is something the project *uses*
+   * rather than owns. The readme, licence, export and versioning tabs — and the
+   * overview's edit affordance — describe the database itself, so they stay on
+   * the workspace page that owns it; a project only ever links or unlinks.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -103,14 +115,14 @@ interface DatabaseDetailPageProps {
  * export actions, live in the global header badge like every other entity —
  * hence no title here, only the tabs.
  */
-export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) {
+export function DatabaseDetailPage({ source, onBack, readOnly = false }: DatabaseDetailPageProps) {
   const { t } = useTranslation()
   const dbActions = useDatabaseActions()
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
   const [activeTab, setActiveTab] = useUrlTab<DatabaseTabId>({
     key: `database:${source?.id ?? 'none'}`,
-    tabs: DATABASE_TAB_IDS,
+    tabs: readOnly ? PROJECT_TAB_IDS : DATABASE_TAB_IDS,
     defaultTab: 'overview',
   })
 
@@ -178,11 +190,13 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
               <Table2 size={14} />
               {t('databases.detail_schema')}
             </TabsTrigger>
-            <EntitySecondaryTabsTrigger
-              activeTab={activeTab}
-              onSelect={setActiveTab}
-              onExport={() => void dbActions.onExport(source)}
-            />
+            {!readOnly && (
+              <EntitySecondaryTabsTrigger
+                activeTab={activeTab}
+                onSelect={setActiveTab}
+                onExport={() => void dbActions.onExport(source)}
+              />
+            )}
           </TabsList>
           {/* Balances the spacer so the tabs sit centred, as on the Schemas page.
               The status reads as one of the connection facts, so it lives in the
@@ -200,8 +214,8 @@ export function DatabaseDetailPage({ source, onBack }: DatabaseDetailPageProps) 
               statsMapping={statsMapping}
               hasMappedSchema={hasMappedSchema}
               onSeeStatistics={() => setActiveTab('statistics')}
-              onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
-              onSeeLicense={() => setActiveTab('license')}
+              onEditReadme={readOnly ? undefined : () => { setReadmeEditing(true); setActiveTab('readme') }}
+              onSeeLicense={readOnly ? undefined : () => setActiveTab('license')}
             />
           </div>
         </TabsContent>
@@ -488,8 +502,9 @@ function OverviewTab({
   statsMapping: SchemaMapping
   hasMappedSchema: boolean
   onSeeStatistics: () => void
-  onEditReadme: () => void
-  onSeeLicense: () => void
+  /** Absent from a project: the readme and licence tabs are the workspace's. */
+  onEditReadme?: () => void
+  onSeeLicense?: () => void
 }) {
   const { t, i18n } = useTranslation()
   const { resolveAttachmentUrls } = useReadmeAttachments('data-source', source.id, source.workspaceId)
@@ -835,7 +850,8 @@ function ReadmePreview({
 }: {
   readme: string
   resolveUrls: (md: string) => string
-  onEdit: () => void
+  /** Absent from a project, where the readme is the workspace's to edit. */
+  onEdit?: () => void
 }) {
   const { t } = useTranslation()
   // Rewrite attachments/<file> paths to blob URLs so images render, as the
@@ -849,10 +865,12 @@ function ReadmePreview({
           <FileText size={14} className="text-muted-foreground" />
           <h3 className="text-sm font-semibold">{t('common.readme')}</h3>
         </div>
-        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onEdit}>
-          <Pencil size={12} />
-          {t('common.edit')}
-        </Button>
+        {onEdit && (
+          <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onEdit}>
+            <Pencil size={12} />
+            {t('common.edit')}
+          </Button>
+        )}
       </div>
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
         {readme.trim() ? (
@@ -865,7 +883,7 @@ function ReadmePreview({
               {resolved}
             </ReactMarkdown>
           </div>
-        ) : (
+        ) : onEdit ? (
           <button
             type="button"
             onClick={onEdit}
@@ -873,6 +891,8 @@ function ReadmePreview({
           >
             {t('databases.readme_empty_hint')}
           </button>
+        ) : (
+          <p className="text-sm text-muted-foreground">{t('databases.readme_empty')}</p>
         )}
       </div>
     </div>
@@ -880,7 +900,7 @@ function ReadmePreview({
 }
 
 /** Who made this database, when, under what licence, and how it is tagged. */
-function IdentityCard({ source, onSeeLicense }: { source: DataSource; onSeeLicense: () => void }) {
+function IdentityCard({ source, onSeeLicense }: { source: DataSource; onSeeLicense?: () => void }) {
   const { t } = useTranslation()
   const workspace = useWorkspaceStore((s) =>
     s._workspacesRaw.find((w) => w.id === source.workspaceId),

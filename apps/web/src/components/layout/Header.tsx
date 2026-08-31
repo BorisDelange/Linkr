@@ -115,6 +115,7 @@ export function Header() {
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   const activeProjectRaw = useAppStore((s) => s._projectsRaw.find((p) => p.uid === s.activeProjectUid))
   const activeProjectNameRaw = activeProjectRaw?.name
+  const unlinkDataSource = useAppStore((s) => s.unlinkDataSource)
   const deleteProject = useAppStore((s) => s.deleteProject)
   const closeProject = useAppStore((s) => s.closeProject)
   const darkMode = useAppStore((s) => s.darkMode)
@@ -162,6 +163,9 @@ export function Header() {
   // A database detail page exists at both levels — the workspace warehouse and a
   // project's warehouse — and both show the same badge.
   const dbId = pathname.match(/\/warehouse\/databases\/([^/]+)$/)?.[1]
+  // Which of the two we are on. A project only links a database, so its badge
+  // offers unlink alone; everything else belongs to the workspace that owns it.
+  const dbInProject = /\/projects\/[^/]+\/warehouse\/databases\//.test(pathname)
 
   // Detail pages get a back arrow before the title that returns to their list view. Each list
   // path is the detail path with the trailing :id segment removed.
@@ -565,6 +569,17 @@ export function Header() {
       // Already on the database's page: switch tab rather than open the dialog.
       onOpenDocs={(_item, tab) => navigate(`${pathname}?tab=${tab}`, { replace: true })}
       onVersioningOverride={() => navigate(`${pathname}?tab=versioning`, { replace: true })}
+      // From a project the only action is unlink: the database belongs to the
+      // workspace, and `deleteOnly` drops edit / export / versioning with it.
+      {...(dbInProject && activeProjectUid
+        ? {
+            deleteOnly: true as const,
+            deleteLabelKey: 'app_warehouse.unlink',
+            deleteConfirmTitleKey: 'app_warehouse.unlink_confirm_title',
+            deleteConfirmDescriptionKey: 'app_warehouse.unlink_confirm_description',
+            onDelete: (id: string) => unlinkDataSource(activeProjectUid, id),
+          }
+        : {})}
       onDeleted={handleEntityDeleted}
       open={dbMenuOpen}
       onOpenChange={setDbMenuOpen}
