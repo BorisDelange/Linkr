@@ -168,13 +168,37 @@ describe('buildPruneVocabularyScript', () => {
     expect(sql).toContain('cr.concept_id_2')
   })
 
-  it('deletes from the vocabulary tables only', () => {
+  it('prunes the vocabulary tables only', () => {
     const deleted = [...sql.matchAll(/DELETE FROM target\.(\w+)/g)].map((m) => m[1])
-    expect(deleted).toContain('concept')
-    expect(deleted).toContain('concept_ancestor')
-    // A DELETE on a clinical table here would silently drop patient data.
+    // The big tables are pruned by rewriting them to what survives, which is far
+    // cheaper than deleting the majority that does not — so a table is pruned by
+    // one mechanism or the other, and both count here.
+    const rewritten = [...sql.matchAll(/CREATE OR REPLACE TABLE target\.(\w+) AS/g)].map((m) => m[1])
+    const pruned = [...deleted, ...rewritten]
+    expect(pruned).toContain('concept')
+    expect(pruned).toContain('concept_ancestor')
+    // Touching a clinical table here would silently drop patient data — by
+    // either mechanism: a rewrite that missed its filter empties one just as a
+    // DELETE would.
     for (const clinical of ['person', 'measurement', 'condition_occurrence', 'drug_exposure']) {
-      expect(deleted).not.toContain(clinical)
+      expect(pruned).not.toContain(clinical)
+    }
+  })
+
+  it('restores the NOT NULL constraints a rewrite drops', () => {
+    // CREATE OR REPLACE builds a fresh table that does NOT inherit them, so
+    // without the ALTERs the CDM ends up laxer than its own DDL, silently.
+    // DuckDB has no dynamic DDL — query() is a table function and rejects an
+    // ALTER — so they cannot be read back from the catalogue at run time.
+    for (const { table, notNull } of [
+      { table: 'concept_relationship', notNull: ['concept_id_1', 'relationship_id'] },
+      { table: 'concept_ancestor', notNull: ['ancestor_concept_id', 'min_levels_of_separation'] },
+      { table: 'concept_synonym', notNull: ['concept_id', 'concept_synonym_name'] },
+    ]) {
+      expect(sql).toContain(`CREATE OR REPLACE TABLE target.${table} AS`)
+      for (const col of notNull) {
+        expect(sql).toContain(`ALTER TABLE target.${table} ALTER COLUMN ${col} SET NOT NULL;`)
+      }
     }
   })
 
