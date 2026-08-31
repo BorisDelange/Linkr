@@ -227,7 +227,7 @@ export function buildAttritionQueries(
     }
     queries.push({
       nodeId: enabledChildren[i].id,
-      label: getNodeLabel(enabledChildren[i]),
+      label: getNodeLabel(enabledChildren[i], mapping),
       sql: lines.join('\n'),
     })
   }
@@ -1077,7 +1077,7 @@ function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTabl
 }
 
 /** Human-readable label for a criteria tree node (for attrition chart). */
-export function getNodeLabel(node: CriteriaTreeNode): string {
+export function getNodeLabel(node: CriteriaTreeNode, mapping?: SchemaMapping): string {
   if (node.kind === 'group') {
     return node.label ?? `Group (${node.operator})`
   }
@@ -1092,7 +1092,14 @@ export function getNodeLabel(node: CriteriaTreeNode): string {
     }
     case 'sex': {
       const c = node.config as SexCriteriaConfig
-      return `${prefix}Sex: ${c.values.join(', ')}`
+      // The stored values are gender concept ids, and which id means what is a
+      // property of the mapping (8532 is OMOP's female, another CDM's is not).
+      // The picker named them when they were chosen, so an attrition step must
+      // not read back "Sex: 8532".
+      const gv = mapping?.genderValues
+      const name = (v: string) =>
+        v === gv?.male ? 'Male' : v === gv?.female ? 'Female' : v === gv?.unknown ? 'Unknown' : v
+      return `${prefix}Sex: ${c.values.map(name).join(', ')}`
     }
     case 'death': {
       const c = node.config as DeathCriteriaConfig

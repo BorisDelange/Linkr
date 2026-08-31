@@ -427,10 +427,11 @@ export function ConceptsPage() {
     const count = buildDomainCountQuery(mapping, dictKey, selectedConceptId)
     if (count) parts.push({ titleKey: 'concepts.stats_sql_count', sql: count })
     if (hasValueColumnForDict(mapping, dictKey)) {
-      const dist = buildValueDistributionQuery(mapping, dictKey, selectedConceptId)
-      if (dist) parts.push({ titleKey: 'concepts.stats_sql_distribution', sql: dist })
+      // Same order as the panel: histogram, then the summary numbers.
       const hist = buildValueHistogramQuery(mapping, dictKey, selectedConceptId, 20, excludeOutliers)
       if (hist) parts.push({ titleKey: 'concepts.stats_sql_histogram', sql: hist })
+      const dist = buildValueDistributionQuery(mapping, dictKey, selectedConceptId)
+      if (dist) parts.push({ titleKey: 'concepts.stats_sql_distribution', sql: dist })
     }
     return parts
   }, [mappedSource?.schemaMapping, selectedConceptId, concepts, excludeOutliers])
@@ -500,7 +501,7 @@ export function ConceptsPage() {
               setSelectedConceptIds(new Set())
               chooseDatabase(id)
             }}
-            size="xs"
+            size="sm"
             icon
             className="w-44 shrink-0"
           />
@@ -904,6 +905,7 @@ export function ConceptsPage() {
               onSelect={setSelectedConceptId}
               selectedConceptIds={selectedConceptIds}
               onSelectedConceptIdsChange={setSelectedConceptIds}
+              onEnter={() => { void addSelectedToList() }}
               onOpenConceptSet={setOpenSetName}
               onPageChange={setPage}
               onPageSizeChange={(size) => {

@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, type ReactNode } from 'react'
+import { useState, useMemo, useRef, useEffect, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -59,6 +59,7 @@ import {
   conceptCellContent,
 } from './concept-cells'
 import { columnLabel } from '@/lib/format-helpers'
+import { isTypingTarget } from '@/lib/utils'
 import { resolveRowSelection } from './row-selection'
 import type { ConceptRow } from './use-concepts'
 import type {
@@ -116,6 +117,8 @@ interface ConceptTableProps {
   onToggleConcept?: (row: ConceptRow) => void
   /** Extra trailing column pinned after the data columns (e.g. a stats popover). */
   rowAction?: { render: (row: ConceptRow) => ReactNode; size?: number }
+  /** Enter on the focused table runs this — the same action as the toolbar's +. */
+  onEnter?: () => void
   /** Empty-state message. Defaults to the Concepts page's own wording. */
   emptyMessage?: string
 }
@@ -250,6 +253,7 @@ export function ConceptTable({
   pickMode = false,
   onToggleConcept,
   rowAction,
+  onEnter,
   emptyMessage,
 }: ConceptTableProps) {
   const { t } = useTranslation()
@@ -269,9 +273,76 @@ export function ConceptTable({
 
   // Anchor for shift-range selection — the last row clicked without Shift.
   const selectionAnchorRef = useRef<number | null>(null)
+  // Row elements by concept id, so keyboard navigation can scroll the newly
+  // selected row into view.
+  const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
+  // Which end of the incoming page to land on, set when an arrow key walked off
+  // the current one. Cleared as soon as the new rows arrive.
+  const pendingEdgeRef = useRef<'first' | 'last' | null>(null)
+
+  useEffect(() => {
+    const edge = pendingEdgeRef.current
+    if (!edge || concepts.length === 0) return
+    pendingEdgeRef.current = null
+    const id = edge === 'first'
+      ? concepts[0].concept_id
+      : concepts[concepts.length - 1].concept_id
+    onSelect(id)
+    // The row mounts in the same commit as `concepts`, so its ref is set by now.
+    rowRefs.current.get(id)?.scrollIntoView({ block: 'nearest' })
+  }, [concepts, onSelect])
 
   /** File-explorer-style selection: plain / Ctrl-Cmd (toggle) / Shift (range).
    *  The rules live in resolveRowSelection, which is unit-tested. */
+  // Arrow-key navigation over the rows. Moves the single selection (the detail
+  // panel follows) and scrolls the row into view; multi-selection stays a
+  // pointer gesture. Home/End jump to the ends of the loaded page.
+  //
+  // Walking off either end turns the page and lands on the row the user was
+  // heading for — the last of the previous page going up, the first of the next
+  // going down. `pendingEdgeRef` carries that intent across the fetch, since the
+  // rows are not there yet when the key is pressed.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (isTypingTarget(e)) return
+
+    if (e.key === 'Enter' && onEnter) {
+      e.preventDefault()
+      onEnter()
+      return
+    }
+
+    const order = concepts.map((c) => c.concept_id)
+    if (order.length === 0) return
+
+    const current = selectedConceptId === null ? -1 : order.indexOf(selectedConceptId)
+    let next: number | null = null
+    if (e.key === 'ArrowDown') next = current < 0 ? 0 : current + 1
+    else if (e.key === 'ArrowUp') next = current < 0 ? order.length - 1 : current - 1
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = order.length - 1
+    if (next === null) return
+
+    // The container scrolls, so the browser would also scroll it itself.
+    e.preventDefault()
+
+    if (next >= order.length) {
+      if (page + 1 >= totalPages) return
+      pendingEdgeRef.current = 'first'
+      onPageChange(page + 1)
+      return
+    }
+    if (next < 0) {
+      if (page === 0) return
+      pendingEdgeRef.current = 'last'
+      onPageChange(page - 1)
+      return
+    }
+
+    const id = order[next]
+    if (id !== selectedConceptId) onSelect(id)
+    rowRefs.current.get(id)?.scrollIntoView({ block: 'nearest' })
+  }
+
   const handleRowClick = (row: ConceptRow, e: React.MouseEvent) => {
     const byId = new Map(concepts.map((r) => [r.concept_id, r]))
     const result = resolveRowSelection({
@@ -576,7 +647,15 @@ export function ConceptTable({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Table */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        data-concept-scroller
+        className="min-h-0 flex-1 overflow-auto focus:outline-none"
+        // Arrow keys walk the rows and move the detail panel with them, which is
+        // how a long concept list is actually read. `tabIndex` makes the scroller
+        // focusable so it receives the keys at all; clicking a row focuses it.
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
+      >
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -655,6 +734,10 @@ export function ConceptTable({
                 table.getRowModel().rows.map((row) => (
                   <TableRow
                     key={`${row.original._dict_key ?? ''}:${row.original.concept_id}`}
+                    ref={(el) => {
+                      if (el) rowRefs.current.set(row.original.concept_id, el)
+                      else rowRefs.current.delete(row.original.concept_id)
+                    }}
                     className="cursor-pointer select-none"
                     data-state={
                       (pickMode || selectedConceptIds.size > 0
@@ -663,7 +746,12 @@ export function ConceptTable({
                         ? 'selected'
                         : undefined
                     }
-                    onClick={(e) => handleRowClick(row.original, e)}
+                    // Focus the scroller so the arrow keys work straight after a
+                    // click, without a separate tab stop to find.
+                    onClick={(e) => {
+                      e.currentTarget.closest<HTMLElement>('[data-concept-scroller]')?.focus()
+                      handleRowClick(row.original, e)
+                    }}
                   >
                     {row.getVisibleCells().map((cell) => {
                       const raw = cell.getValue()

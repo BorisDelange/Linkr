@@ -51,6 +51,9 @@ export interface MeasurementDistribution {
   mean_val: number
   median_val: number
   std_val: number
+  /** Quartiles, for the box plot. Absent on rows cached before it existed. */
+  q1_val?: number
+  q3_val?: number
 }
 
 export interface HistogramBin {
@@ -60,9 +63,34 @@ export interface HistogramBin {
   excluded_count?: number
 }
 
-/** Bumped when the histogram SQL changes, so shared-cache rows written by an
- *  older build are recomputed instead of served. */
-export const HISTOGRAM_VARIANT = 'p1p99'
+/** Bumped when the stats SQL changes, so shared-cache rows written by an older
+ *  build are recomputed instead of served.
+ *
+ *  `p1p99-union`: value stats used to read a single event table — whichever the
+ *  mapping happened to declare first — so a concept stored elsewhere cached a
+ *  row with a real rowCount but an empty distribution and no histogram. Reading
+ *  every value-bearing table fixed the query, and this bump is what stops those
+ *  rows from being served forever. */
+export const HISTOGRAM_VARIANT = 'p1p99-union-q'
+
+/**
+ * Whether a row from the shared cache may be served as-is.
+ *
+ * The cache is keyed by concept id alone, so a row written by an older build can
+ * hold stats the current query no longer produces. `histogramVariant` tags what
+ * a row actually contains; anything else is recomputed rather than trusted.
+ *
+ * An empty histogram is checked too. It used to be waved through as "nothing to
+ * be stale about", which is exactly backwards: a concept whose values live in a
+ * table the old query never read cached a real rowCount with an empty
+ * distribution, and that emptiness was then served forever — the fixed query
+ * never got a chance to run. Only a row with no distribution at all is trusted
+ * without a matching tag: nothing was ever computed for it, so nothing is stale.
+ */
+export function isFreshCachedStats(stats: ConceptStats): boolean {
+  if (stats.histogramVariant === HISTOGRAM_VARIANT) return true
+  return !stats.histogram?.length && !stats.distribution
+}
 
 export interface ConceptStats {
   /** Which histogram SQL produced `histogram` (absent on pre-clip rows). */
@@ -477,11 +505,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     if (isServerMode() && excludeOutliers) {
       try {
         const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId)
-        // The shared cache is keyed by concept id alone, so entries written
-        // before the outlier clip existed hold a raw histogram (one bar plus a
-        // few spikes). `histogramVariant` tags what a row actually contains —
-        // anything else is recomputed rather than trusted.
-        if (shared && (!shared.histogram?.length || shared.histogramVariant === HISTOGRAM_VARIANT)) {
+        if (shared && isFreshCachedStats(shared)) {
           statsCache.current.set(conceptId, shared)
           if (!isStale()) {
             setConceptStats(shared)

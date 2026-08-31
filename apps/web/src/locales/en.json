@@ -552,6 +552,7 @@
     "detail_invalid_reason": "Invalid reason",
     "stats_title": "Data statistics",
     "stats_row_count": "Records",
+    "stats_patient_count": "Patients",
     "stats_loading": "Computing statistics...",
     "stats_no_records": "No records found for this concept.",
     "stats_disabled": "Statistics are not computed.",

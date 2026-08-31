@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildValueDistributionQuery, buildValueHistogramQuery } from './concept-queries'
+import { isFreshCachedStats, HISTOGRAM_VARIANT, type ConceptStats } from './use-concepts'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 // A dictionary spans several event tables, and which one holds a given concept
@@ -88,5 +89,43 @@ describe('buildValueHistogramQuery', () => {
     expect(sql).toContain('MIN(v) AS mn')
     expect(sql).toContain('MAX(v) AS mx')
     expect(sql).not.toContain('QUANTILE_CONT')
+  })
+})
+
+describe('isFreshCachedStats', () => {
+  it('serves a row tagged with the current variant', () => {
+    expect(isFreshCachedStats({
+      rowCount: 10,
+      histogramVariant: HISTOGRAM_VARIANT,
+      histogram: [{ bin_start: 1, count: 2 }],
+    })).toBe(true)
+  })
+
+  it('recomputes a row tagged by an older build', () => {
+    expect(isFreshCachedStats({
+      rowCount: 10,
+      histogramVariant: 'p1p99',
+      histogram: [{ bin_start: 1, count: 2 }],
+    })).toBe(false)
+  })
+
+  it('recomputes the empty stats the single-table bug cached', () => {
+    // Exactly what a real database held: a true rowCount beside a distribution
+    // of zeros, because the values lived in a table the old query never read.
+    // Waved through as "nothing to be stale about", it was served forever.
+    expect(isFreshCachedStats({
+      rowCount: 13540,
+      distribution: {
+        total_count: 0, non_null_count: 0,
+        min_val: null, max_val: null, mean_val: null, median_val: null, std_val: null,
+      } as unknown as NonNullable<ConceptStats['distribution']>,
+      histogram: [],
+      histogramVariant: 'p1p99',
+    })).toBe(false)
+  })
+
+  it('serves a concept that genuinely has no values to bin', () => {
+    // Nothing was ever computed, so there is no stale result hiding here.
+    expect(isFreshCachedStats({ rowCount: 4 })).toBe(true)
   })
 })

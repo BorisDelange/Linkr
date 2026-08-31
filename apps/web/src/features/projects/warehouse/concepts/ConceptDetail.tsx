@@ -27,7 +27,7 @@ interface ConceptDetailProps {
 
 function MetaRow({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div className="flex items-start justify-between gap-2 py-1.5">
+    <div className="flex items-start justify-between gap-2 py-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="min-w-0 break-words text-right text-xs font-medium">{value || '—'}</span>
     </div>
@@ -80,7 +80,7 @@ export function ConceptDetail({
 
   return (
     <ScrollArea className="h-full">
-      <div className="space-y-4 p-3">
+      <div className="space-y-3 p-3">
         {/* Header — same shape as the mapping editor's concept detail: name plus
             a code badge on the first line, vocabulary on the second. */}
         <div>
@@ -132,15 +132,15 @@ export function ConceptDetail({
 
         {/* Metadata — dynamic from availableColumns */}
         <div>
-          <h4 className="text-xs font-medium">{t('concepts.detail_title')}</h4>
-          <div className="mt-1">
+          <h4 className="mb-2 text-xs font-medium">{t('concepts.detail_title')}</h4>
+          <div>
             {metaColumns.map((col) => {
               const raw = concept[col.id]
               // standard_concept reads as the same S/C/NS badge as the table —
               // and NULL is meaningful there (non-standard), so it always shows.
               if (col.id === 'standard_concept') {
                 return (
-                  <div key={col.id} className="flex items-center justify-between gap-2 py-1.5">
+                  <div key={col.id} className="flex items-center justify-between gap-2 py-0.5">
                     <span className="text-xs text-muted-foreground">{columnLabel(col.id)}</span>
                     <StandardConceptBadge value={raw == null ? null : String(raw)} />
                   </div>
@@ -170,6 +170,9 @@ export function ConceptDetail({
           isLoading={statsLoading}
           excludeOutliers={excludeOutliers}
           statsEnabled={statsEnabled}
+          patientCount={
+            typeof concept.patient_count === 'number' ? concept.patient_count : undefined
+          }
         />
       </div>
 

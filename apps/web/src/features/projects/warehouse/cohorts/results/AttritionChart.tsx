@@ -39,6 +39,12 @@ export function AttritionChart({ attrition }: AttritionChartProps) {
             <Tooltip
               formatter={(value) => [Number(value).toLocaleString(), t('cohorts.attrition_count')]}
               labelFormatter={(label) => label}
+              // Recharts' unstyled default renders at the browser's base font
+              // size, twice the chrome around it. Same values every other chart
+              // in the app passes.
+              contentStyle={{ fontSize: 11, background: 'var(--color-popover)', border: '1px solid var(--color-border)', color: 'var(--color-popover-foreground)' }}
+              itemStyle={{ fontSize: 11 }}
+              labelStyle={{ fontSize: 11 }}
             />
             <Bar dataKey="count" radius={[0, 4, 4, 0]}>
               {attrition.map((step, idx) => (

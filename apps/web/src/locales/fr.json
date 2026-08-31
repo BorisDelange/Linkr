@@ -552,6 +552,7 @@
     "detail_invalid_reason": "Raison d'invalidité",
     "stats_title": "Statistiques des données",
     "stats_row_count": "Enregistrements",
+    "stats_patient_count": "Patients",
     "stats_loading": "Calcul des statistiques...",
     "stats_no_records": "Aucun enregistrement trouvé pour ce concept.",
     "stats_disabled": "Les statistiques ne sont pas calculées.",

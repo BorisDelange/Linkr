@@ -3,6 +3,7 @@ import {
   buildCohortCountSql,
   buildCohortMembershipSql,
   buildCohortResultsSql,
+  getNodeLabel,
 } from './cohort-query'
 import type { Cohort, CohortLevel, SchemaMapping } from '@/types'
 
@@ -420,5 +421,40 @@ describe('criteria from an untrusted cohort JSON', () => {
       eventMapping,
     )!
     expect(sql).toMatch(/\(DATE_DIFF\('day'.*>= 2 AND DATE_DIFF\('day'.*<= 10\)/s)
+  })
+})
+
+// An attrition step is labelled from the criterion that produced it. A sex
+// criterion stores gender CONCEPT IDS, and which id means what belongs to the
+// mapping — so the label must resolve them, or the chart reads "Sex: 8532".
+describe('getNodeLabel — sex', () => {
+  const omop = { genderValues: { male: '8507', female: '8532', unknown: '0' } } as SchemaMapping
+  const node = (values: string[], exclude = false) =>
+    ({ kind: 'criterion', type: 'sex', config: { values }, exclude }) as unknown as Parameters<typeof getNodeLabel>[0]
+
+  it('names the concept ids the picker offered', () => {
+    expect(getNodeLabel(node(['8532']), omop)).toBe('Sex: Female')
+    expect(getNodeLabel(node(['8507']), omop)).toBe('Sex: Male')
+    expect(getNodeLabel(node(['0']), omop)).toBe('Sex: Unknown')
+  })
+
+  it('keeps every selected value, in order', () => {
+    expect(getNodeLabel(node(['8507', '8532']), omop)).toBe('Sex: Male, Female')
+  })
+
+  it('resolves against the mapping, not a hard-coded OMOP table', () => {
+    // MIMIC stores letters, eHOP digits: the same id means different things.
+    const mimic = { genderValues: { male: 'M', female: 'F' } } as SchemaMapping
+    expect(getNodeLabel(node(['F']), mimic)).toBe('Sex: Female')
+    // 8532 is not a gender value here, so it is left as-is rather than mislabelled.
+    expect(getNodeLabel(node(['8532']), mimic)).toBe('Sex: 8532')
+  })
+
+  it('falls back to the raw value with no mapping', () => {
+    expect(getNodeLabel(node(['8532']))).toBe('Sex: 8532')
+  })
+
+  it('keeps the exclusion prefix', () => {
+    expect(getNodeLabel(node(['8532'], true), omop)).toBe('NOT Sex: Female')
   })
 })
