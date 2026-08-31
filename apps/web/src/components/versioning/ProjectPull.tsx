@@ -10,7 +10,7 @@ import {
   PROJECT_GROUP_PATHS,
   type ProjectPullGroupKey,
 } from '@/lib/project-pull-plan-builder'
-import { itemId, type PullDecision, type PullPlan } from '@/lib/pull-plan'
+import { itemId, planIsEmpty, type PullDecision, type PullPlan } from '@/lib/pull-plan'
 import {
   buildProjectDiffPlan,
   buildProjectPullDiff,
@@ -158,6 +158,23 @@ export function ProjectPull({ projectUid, branch, remoteHead, mode, onPulled }: 
       setApplying(false)
     }
   }
+
+  // An empty plan still has to advance the cursors, or the entity stays "behind"
+  // forever: the remote moved (sync_state compares oids), but nothing in that
+  // commit differs from what we already hold, so PullPanel shows "nothing to
+  // pull" and offers no button to press. Left alone the banner never clears —
+  // and it gates the push, so the user cannot send their own work either.
+  // Finalizing here is the honest record: every incoming item was decided (there
+  // were none) and we hold the content, so both cursors may move.
+  const emptyPlan = !!plan && planIsEmpty(plan)
+  useEffect(() => {
+    if (!emptyPlan || applying) return
+    void handleFinalize()
+    // handleFinalize is redefined each render, so it cannot be a dependency
+    // without re-firing; `emptyPlan` plus the `applying` guard bound this to one
+    // run per computed plan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emptyPlan])
 
   if (loading) {
     return (

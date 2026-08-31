@@ -177,6 +177,7 @@ const preparedWith = (
   plan: { dashboards: [], scripts: [], cohorts: [], datasets: [], pipeline: [], readmeChanged: false },
   clonedOid,
   branch: 'main',
+  localScriptContent: new Map(),
 })
 
 const sel = (over: Partial<ProjectPullSelection> = {}): ProjectPullSelection => ({
@@ -541,6 +542,22 @@ describe('applyProjectPull — dataset overwrite (the half-deleted-dataset regre
     expect(t.ideFiles.get(did('utils/analysis.py'))).toMatchObject({ content: 'new', parentId: did('utils') })
     expect(t.ideFiles.get('local-only')).toBeDefined()
     expect(t.ideFiles.size).toBe(3)
+  })
+})
+
+describe('applyProjectPull — an empty plan still clears the "behind" banner', () => {
+  it('advances BOTH cursors when there was nothing to take', async () => {
+    // The remote moved (a push, or a commit that changes nothing we import), so
+    // sync_state reports "behind" on oids alone while the plan comes out empty.
+    // Finalizing must record that commit as held, or the banner never clears —
+    // and it gates the push, leaving the user unable to send their own work.
+    const { storage } = makeStore()
+    storageHolder.current = storage
+    await applyProjectPull(P, preparedWith(emptyParsed()), sel({ keepLocal: true, decided: true }))
+
+    // reviewedOnly=false — nothing was declined, so we genuinely hold the commit.
+    expect(gitMocks.gitSetSyncState)
+      .toHaveBeenCalledExactlyOnceWith('projects', P, 'main', 'oid-123', false)
   })
 })
 
