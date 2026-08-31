@@ -14,9 +14,10 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Card } from '@/components/ui/card'
-import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { localized } from '@/lib/localized'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { ENTRY_TYPES, ENTRY_TYPE_META } from '@/lib/catalog/entry-meta'
 import type { InstalledInfo } from '@/lib/catalog/installed'
 import type { CatalogEntry, CatalogEntryType } from '@/lib/catalog/types'
@@ -67,7 +68,7 @@ export function CatalogBrowser({
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
   const [authorFilter, setAuthorFilter] = useState<string[]>([])
   const [orgFilter, setOrgFilter] = useState<string[]>([])
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('community-catalog')
 
   const allBadges = useMemo(
     () => [...new Set(entries.flatMap((e) => e.badges ?? []))].sort(),

@@ -91,6 +91,15 @@ renaming a column re-keys it and repoints every widget config and filter that he
 id. The tools do those cascades for you and list what changed — read that list, because
 ids and keys you quoted from an earlier `describe_tree` are stale afterwards.
 
+**A script reaches its project through `linkr`, never through a path you wrote.** The
+library is importable in every project — `library(linkr)` / `import linkr` — and gives a
+script its directories (`linkr_datasets_dir()` / `linkr.datasets_dir()`, …) and its
+databases (`linkr_connect(name)` / `linkr.connect(name)`). A path you derive instead
+(`getwd()`, `"../datasets"`, an absolute `.duckdb`) is wrong the moment a binding is
+re-pointed or the project is installed anywhere else, and a hardcoded database path also
+bypasses the permission check `connect()` performs. Full API, and the two mistakes worth
+avoiding in generated code: `references/script.md`.
+
 ## Identity: three fields, one of them a trap
 
 Every entity carries the same identity block, and getting it wrong is the single

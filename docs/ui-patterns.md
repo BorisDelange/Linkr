@@ -343,6 +343,22 @@ and turns Cancel into Close while nothing has changed.
   Enter means something else (a tag input that adds on Enter), mark that field
   `data-no-enter-submit`; to disable it for a whole dialog, pass `noEnterSubmit`.
 
+### Two-pane browsers: `DocumentationDialog`
+
+`features/projects/files/DocumentationDialog.tsx` is the reference for a
+*navigator* dialog — a `workbench` shell whose body is a fixed-width sidebar plus
+a scrolling content pane. Two things are worth copying rather than re-deriving:
+
+- **One sidebar, two levels, not two panes.** It shows either the list or the
+  contents of the item you drilled into, with a back button. A second permanent
+  pane would spend a third of the dialog on a list that is often one row long.
+- **Pass `hideFooter` and reset on close, not in an effect.** The reset belongs in
+  the `onOpenChange` handler; an effect watching `open` sets state during render
+  and trips `react-hooks/set-state-in-effect`.
+
+Third-party text (a package's own docs) must render through `MarkdownRenderer`,
+which carries the app's `rehype-sanitize` schema — never with `dangerouslySetInnerHTML`.
+
 ### Shared dialogs — check call sites before restyling
 
 `ImportConflictDialog` (10 call sites), `ImportSourceDialog` (5),

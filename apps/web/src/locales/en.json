@@ -2871,6 +2871,20 @@
     "auto_save": "Auto-save",
     "auto_save_delay": "Auto-save delay (seconds)"
   },
+  "docs": {
+    "title": "Documentation",
+    "description": "Reference for the functions available in your scripts.",
+    "language_r": "R",
+    "language_python": "Python",
+    "search_packages": "Search packages",
+    "search_functions": "Search functions",
+    "back_to_packages": "All packages",
+    "overview": "Overview",
+    "no_packages": "No matching package",
+    "no_functions": "No matching function",
+    "pick_package": "Pick a package",
+    "pick_package_hint": "Choose a package on the left to read its documentation."
+  },
   "shortcuts": {
     "title": "Keyboard shortcuts",
     "general": "General",

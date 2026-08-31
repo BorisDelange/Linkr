@@ -21,11 +21,12 @@ import { cardMenuTriggerClass, cn } from '@/lib/utils'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
 import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-selection'
 import { Card } from '@/components/ui/card'
-import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { useContentBadge } from '@/components/versioning/use-content-badge'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { applySort, visitSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { localized } from '@/lib/localized'
 import {
   DropdownMenu,
@@ -90,7 +91,7 @@ export function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('projects')
   const [importOpen, setImportOpen] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<{ uid: string; name: string } | null>(null)
