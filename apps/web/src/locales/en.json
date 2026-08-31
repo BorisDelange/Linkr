@@ -3094,8 +3094,6 @@
     "confirm": "Delete all data"
   },
   "version_check": {
-    "update_title": "Linkr has been updated",
-    "update_description": "A new version is now active. No action required.",
     "schema_title": "Data reset required",
     "schema_description": "The local data format has changed with this update. Your existing data is no longer compatible and may cause errors.",
     "schema_hint": "You can export your projects before resetting to avoid losing work.",
