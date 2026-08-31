@@ -12,7 +12,7 @@
 
 import { execFileSync } from 'child_process'
 import { createServer } from 'net'
-import { cpSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { cpSync, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, statSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -112,6 +112,8 @@ copyIfPresent('config.local.json', 'config.local.json')
 // LINKR_DATA_DIR (same SQLite file and Parquet blobs → two backends fighting
 // over one database) and LINKR_CORS_ORIGINS (pinned to the main frontend port,
 // which would reject this worktree's). Copy the rest as-is.
+let dataWarning = null
+
 const apiEnvSrc = path.join(repoRoot, 'apps/api/.env')
 if (existsSync(apiEnvSrc)) {
   const dataDir = path.join(worktreePath, '.linkr-data')
@@ -122,17 +124,34 @@ if (existsSync(apiEnvSrc)) {
   // Start from a COPY of the main data dir, not an empty one: an agent needs the
   // real projects and databases to test against, and its writes must not touch
   // them. On APFS `cp -c` clones — instant, and no disk until something differs.
+  //
+  // Every failure path here must SAY so. A worktree that silently opens on an
+  // empty database looks like a working app, and the agent tests against
+  // nothing without ever knowing.
   if (mainDataDir && existsSync(mainDataDir)) {
     process.stdout.write('  copying data dir… ')
     try {
       execFileSync('cp', ['-Rc', mainDataDir, dataDir])
       console.log('done (APFS clone)')
-    } catch {
-      cpSync(mainDataDir, dataDir, { recursive: true })
-      console.log('done (full copy)')
+    } catch (cloneError) {
+      // cp may have written a partial tree before failing; the fallback must not
+      // merge into it.
+      rmSync(dataDir, { recursive: true, force: true })
+      console.log(`clone failed (${cloneError.message.trim().split('\n')[0]}) — copying instead…`)
+      try {
+        cpSync(mainDataDir, dataDir, { recursive: true })
+        console.log('  copying data dir… done (full copy)')
+      } catch (copyError) {
+        rmSync(dataDir, { recursive: true, force: true })
+        mkdirSync(dataDir, { recursive: true })
+        dataWarning = `data dir NOT copied (${copyError.message.trim().split('\n')[0]}) — the app will start on an empty database`
+      }
     }
   } else {
     mkdirSync(dataDir, { recursive: true })
+    dataWarning = mainDataDir
+      ? `LINKR_DATA_DIR (${mainDataDir}) does not exist — the app will start on an empty database`
+      : 'no LINKR_DATA_DIR in apps/api/.env — the app will start on an empty database'
   }
 
   const rewritten = readFileSync(apiEnvSrc, 'utf-8')
@@ -147,12 +166,27 @@ if (existsSync(apiEnvSrc)) {
 
   writeFileSync(path.join(worktreePath, 'apps/api/.env'), rewritten)
   console.log('  wrote apps/api/.env (own data dir + CORS origin)')
+
+  // Trust nothing above: compare the copied database against its source.
+  if (!dataWarning && mainDataDir) {
+    const srcDb = path.join(mainDataDir, 'linkr.db')
+    const dstDb = path.join(dataDir, 'linkr.db')
+    if (existsSync(srcDb)) {
+      const srcSize = statSync(srcDb).size
+      const dstSize = existsSync(dstDb) ? statSync(dstDb).size : 0
+      if (dstSize !== srcSize) {
+        dataWarning = `linkr.db copied as ${dstSize} bytes, source is ${srcSize} — the app may start on an empty or truncated database`
+      }
+    }
+  }
+} else {
+  dataWarning = 'apps/api/.env not found — no data dir was copied, and the app will start on an empty database'
 }
 
 // The block below is what the user acts on: an agent must hand it over intact
 // rather than paraphrasing it (see CLAUDE.md § Working in parallel).
 console.log(`
-  ✓ ${path.basename(worktreePath)}  (${branch})
+  ✓ ${path.basename(worktreePath)}  (${branch})${dataWarning ? `\n\n  ⚠  ${dataWarning}` : ''}
 
   ── Run the app ── in a new VS Code terminal, front + back together:
 
