@@ -394,10 +394,15 @@ async def retest_data_source(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Re-validate a stored external source using its saved (encrypted)
-    credentials — no password from the client. Returns ok + introspected tables
-    so the UI can refresh status and stats."""
-    source = await _load_source(db, source_id, user, "databases:write")
+    """Re-validate a stored source using its saved (encrypted) credentials — no
+    password from the client. Returns ok + introspected tables so the UI can
+    refresh status and stats.
+
+    Read permission: this opens the database and reports whether it answered,
+    writing nothing. Gating it on `databases:write` left a reader looking at a
+    stale `error` with no way to re-check it.
+    """
+    source = await _load_source(db, source_id, user, "databases:read")
     ok, error, tables = await data_source_service.test_connection_stored(source)
     return TestConnectionResult(ok=ok, error=error, tables=tables)
 
@@ -411,7 +416,14 @@ async def get_data_source_schema(
     """Introspected tables + columns of an external source, for the schema
     mapping / table-discovery UI. Uses the stored (encrypted) credentials."""
     source = await _load_source(db, source_id, user, "databases:read")
-    return await data_source_service.introspect(db, source)
+    try:
+        return await data_source_service.introspect(db, source)
+    except Exception as e:  # noqa: BLE001 — the driver's message is the diagnosis
+        # Reaching the database is the one thing this route does, so a driver
+        # failure is not a server fault: unhandled, it became a bare 500 whose
+        # "Internal server error" hid the only text that says what went wrong —
+        # a held file lock, a missing file, bad credentials.
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
 
 
 @router.get("/{source_id}/connection-info", response_model=DatabaseConnectionInfo)

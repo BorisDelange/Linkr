@@ -582,6 +582,23 @@ async def test_connection_stored(
     source: DataSource,
 ) -> tuple[bool, str | None, list[dict]]:
     """Re-test a stored source using its decrypted password (no client secret)."""
+    # A managed file has no credentials to re-send: the test is whether the file
+    # is there and can be opened. Without this it fell through to the external
+    # path and answered "unsupported engine", so a managed database that failed
+    # once — a held lock, a run interrupted mid-write — stayed `error` forever,
+    # its only offered way out being the rebuild that empties it.
+    if is_managed(source):
+        path = managed_db.path_for(source.id)
+        if not path.exists():
+            return False, f"database file not found: {path}", []
+        try:
+            tables = await asyncio.to_thread(
+                db_connect.introspect_file, "duckdb", str(path)
+            )
+            return True, None, tables
+        except Exception as e:  # noqa: BLE001 — the driver's message is the diagnosis
+            return False, str(e), []
+
     config = dict(source.connection_config or {})
     config["password"] = connection_password(source)
     return await test_connection(config)

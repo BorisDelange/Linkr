@@ -29,6 +29,16 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EntitySecondaryTabsTrigger } from '@/components/ui/entity-secondary-tabs'
@@ -485,7 +495,10 @@ function OverviewTab({
   const { resolveAttachmentUrls } = useReadmeAttachments('data-source', source.id, source.workspaceId)
   const canWrite = useMyWorkspaceRole().can('databases:write')
   const rebuildFromSchema = useDataSourceStore((s) => s.rebuildFromSchema)
+  const retestDataSource = useDataSourceStore((s) => s.retestDataSource)
   const [rebuilding, setRebuilding] = useState(false)
+  const [confirmRebuild, setConfirmRebuild] = useState(false)
+  const [retesting, setRetesting] = useState(false)
   // Mounted here rather than inside the cards: the "not computed yet" banner sits
   // above them as a sibling in this grid, and both need the same state. One
   // instance, so the cards keep reading the very numbers the banner speaks for.
@@ -505,7 +518,32 @@ function OverviewTab({
   // statistics to run, and saying so twice buries the reason that matters.
   const showStatsBanner = !cache && !statsLoading && !showStatusBanner
 
+  const handleRetest = async () => {
+    setRetesting(true)
+    try {
+      await retestDataSource(source.id)
+    } finally {
+      setRetesting(false)
+    }
+  }
+
+  // Re-check a failed database when its page opens. `loadDataSources` already
+  // sweeps every broken source, but only once per session: this covers the
+  // database that broke — or was repaired outside the app, an ETL releasing its
+  // file lock — after that sweep ran.
+  //
+  // Once per source id: `status` moving to 'configuring' during the test would
+  // otherwise re-enter this on the next render.
+  const autoRetested = useRef<string | null>(null)
+  useEffect(() => {
+    if (source.status !== 'error' || autoRetested.current === source.id) return
+    autoRetested.current = source.id
+    void handleRetest()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the source, not on the handler identity
+  }, [source.id, source.status])
+
   const handleRebuild = async () => {
+    setConfirmRebuild(false)
     setRebuilding(true)
     try {
       await rebuildFromSchema(source.id)
@@ -550,19 +588,55 @@ function OverviewTab({
               the export leaves the DuckDB file behind on purpose. Offer the one
               action that can fix it, since creation was the only path that ever
               applied the DDL. */}
-          {canWrite && canRebuild && (
-            <div className="mt-2 flex items-center gap-2">
-              <Button size="sm" variant="outline" onClick={handleRebuild} disabled={rebuilding}>
-                {rebuilding && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
-                {t('databases.rebuild_from_schema')}
-              </Button>
-              <span className="text-[10px] text-muted-foreground">
-                {t('databases.rebuild_from_schema_hint')}
-              </span>
-            </div>
-          )}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {/* First, because it is the non-destructive way out and fixes every
+                transient cause. The rebuild below is the last resort. */}
+            <Button size="sm" variant="outline" onClick={handleRetest} disabled={retesting || rebuilding}>
+              {retesting && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
+              {t('databases.test_connection_again')}
+            </Button>
+            {canWrite && canRebuild && (
+              <>
+                {/* Confirmed, never immediate: the rebuild drops whatever the file
+                    holds, and a database that merely failed to connect may still
+                    carry every row it was loaded with. */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setConfirmRebuild(true)}
+                  disabled={rebuilding || retesting}
+                >
+                  {rebuilding && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
+                  {t('databases.rebuild_from_schema')}
+                </Button>
+                <span className="text-[10px] text-muted-foreground">
+                  {t('databases.rebuild_from_schema_hint')}
+                </span>
+              </>
+            )}
+          </div>
         </div>
       )}
+
+      <AlertDialog open={confirmRebuild} onOpenChange={setConfirmRebuild}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('databases.rebuild_from_schema')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('databases.rebuild_from_schema_confirm', { name: localized(source.name, i18n.language) })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={handleRebuild}
+            >
+              {t('databases.rebuild_from_schema_action')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* The counts below are COUNT(*) over what may be billions of rows, so
           server mode never runs them unasked — the cards then read "—" with

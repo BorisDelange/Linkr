@@ -219,6 +219,19 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
           if (ds.schemaMapping) ds.schemaMapping = sanitizeSchemaMapping(ds.schemaMapping)
         }
         set({ dataSources: all, dataSourcesLoaded: true })
+        // Re-check what is marked broken, once per session load. `status:
+        // 'error'` is written by whichever call failed and nothing clears it, so
+        // a transient cause — a file locked by a running ETL, a server that was
+        // briefly down — outlived itself and the database kept reading as
+        // broken. Server mode only: `retestDataSource` returns immediately
+        // otherwise.
+        //
+        // Deliberately not awaited: this is repair, not part of loading, and the
+        // UI must not wait on one database per failed row before it renders.
+        if (isServerMode()) {
+          const broken = all.filter((ds) => ds.status === 'error')
+          void Promise.all(broken.map((ds) => get().retestDataSource(ds.id).catch(() => {})))
+        }
       } finally {
         loadingPromise = null
       }
