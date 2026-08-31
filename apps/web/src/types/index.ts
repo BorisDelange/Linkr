@@ -705,6 +705,13 @@ export interface PatientDashboard extends Seedable, Authored {
   projectUid: string
   name: LocalizedString
   description?: LocalizedString
+  /** Which linked database this board reads. Optional: a board written before
+   *  the field existed, or imported from elsewhere, falls back to the first
+   *  usable one (see `resolveProjectSource`). */
+  dataSourceId?: string
+  /** Portable pointer to that database, stamped when it is picked (not derived
+   *  at export time, so a server-side export carries it too). */
+  dataSourceRef?: DataSourceRef
   showWidgetTitles?: boolean
   /** Pixel gap between widgets on the grid. Defaults to DASHBOARD_GRID.margin (12). */
   widgetSpacing?: number

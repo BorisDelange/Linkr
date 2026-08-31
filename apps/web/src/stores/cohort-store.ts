@@ -12,6 +12,7 @@ import type {
   CohortMaterialization,
   AttritionStep,
   SchemaMapping,
+  DataSourceRef,
 } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -179,6 +180,8 @@ interface CohortState {
     level: CohortLevel
     criteriaTree?: CriteriaGroupNode
     version?: string
+    dataSourceId?: string
+    dataSourceRef?: DataSourceRef
   }) => Promise<string>
 
   /** Copy a cohort's definition (not its execution output). Returns the new id. */
@@ -248,6 +251,8 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       projectUid: source.projectUid,
       name: source.name,
       description: source.description,
+      dataSourceId: source.dataSourceId,
+      dataSourceRef: source.dataSourceRef,
       level: source.level,
       criteriaTree: source.criteriaTree ?? makeEmptyTree(),
       schemaVersion: CURRENT_SCHEMA_VERSION,

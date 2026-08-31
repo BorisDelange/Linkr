@@ -12,7 +12,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
-import { useDataSourceStore } from '@/stores/data-source-store'
+import { useProjectSource } from '@/stores/data-source-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { PatientChartContext } from './patient-data/PatientChartContext'
 import { PatientChartTabBar } from './patient-data/PatientChartTabBar'
@@ -37,11 +37,6 @@ export function PatientDataPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sidebarVisible, setSidebarVisible] = useState(true)
 
-  const { getActiveSource } = useDataSourceStore()
-  const mappedSource = projectUid ? getActiveSource(projectUid) : undefined
-  const dataSourceId = mappedSource?.id
-  const schemaMapping = mappedSource?.schemaMapping
-
   // Narrow selectors: a bare usePatientChartStore() re-renders the page (and the
   // whole grid under it) on every patient/visit selection change.
   const dashboards = usePatientChartStore((s) => s.dashboards)
@@ -62,6 +57,12 @@ export function PatientDataPage() {
   // The URL carries a short id prefix (see short-id.ts), so resolve it against the
   // project's boards rather than matching the raw param.
   const currentBoard = resolveByIdPrefix(projectBoards, raw.boardId, (d) => d.id)
+
+  // Each board reads the database it was configured with, so two boards of the
+  // same project can sit on different databases.
+  const mappedSource = useProjectSource(projectUid, currentBoard?.dataSourceId)
+  const dataSourceId = mappedSource?.id
+  const schemaMapping = mappedSource?.schemaMapping
 
   useEffect(() => {
     if (currentBoard) setActiveDashboard(projectUid, currentBoard.id)

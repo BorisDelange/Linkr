@@ -3,13 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { DialogShell } from '@/components/ui/dialog-shell'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { DatabaseSelect } from '@/components/ui/database-select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
@@ -195,18 +189,12 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
           content: (
             <div className="space-y-2">
               <Label>{t('data_catalog.select_database')}</Label>
-              <Select value={dataSourceId} onValueChange={setDataSourceId}>
-                <SelectTrigger>
-                  <SelectValue placeholder={t('data_catalog.select_database')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {dbSources.map((ds) => (
-                    <SelectItem key={ds.id} value={ds.id}>
-                      {localized(ds.name, language)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <DatabaseSelect
+                workspaceId={activeWorkspaceId}
+                value={dataSourceId}
+                onChange={setDataSourceId}
+                placeholder={t('data_catalog.select_database')}
+              />
             </div>
           ),
         }]}

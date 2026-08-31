@@ -3,13 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { DatabaseSelect } from '@/components/ui/database-select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
@@ -188,18 +182,12 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
               <>
                 <div className="space-y-2">
                   <Label>{t('etl.source_database')}</Label>
-                  <Select value={sourceId} onValueChange={setSourceId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder={t('etl.select_source')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {dbSources.map((ds) => (
-                        <SelectItem key={ds.id} value={ds.id}>
-                          {localized(ds.name, language)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <DatabaseSelect
+                    workspaceId={activeWorkspaceId}
+                    value={sourceId}
+                    onChange={setSourceId}
+                    placeholder={t('etl.select_source')}
+                  />
                   {dbSources.length === 0 && (
                     <p className="text-xs text-muted-foreground">{t('etl.no_databases_available')}</p>
                   )}
@@ -207,18 +195,12 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
 
                 <div className="space-y-2">
                   <Label>{t('etl.target_database')}</Label>
-                  <Select value={targetId} onValueChange={setTargetId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder={t('etl.select_target')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {dbSources.map((ds) => (
-                        <SelectItem key={ds.id} value={ds.id}>
-                          {localized(ds.name, language)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <DatabaseSelect
+                    workspaceId={activeWorkspaceId}
+                    value={targetId}
+                    onChange={setTargetId}
+                    placeholder={t('etl.select_target')}
+                  />
                   <p className="text-xs text-muted-foreground">{t('etl.target_database_hint')}</p>
                 </div>
               </>

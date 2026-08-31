@@ -16,7 +16,8 @@ import {
   Check,
 } from 'lucide-react'
 import type { VisibilityState } from '@tanstack/react-table'
-import { useDataSourceStore } from '@/stores/data-source-store'
+import { useProjectSource } from '@/stores/data-source-store'
+import { DatabaseSelect } from '@/components/ui/database-select'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -61,17 +62,18 @@ import { packSetNames, unpackSetNames } from './concepts/concept-set-names'
 import { ConceptTable } from './concepts/ConceptTable'
 import { ConceptDetail } from './concepts/ConceptDetail'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useConceptsDatabase } from './concepts/use-concepts-database'
 
 // Module-level cache for column visibility (survives unmount/remount)
 const columnVisibilityCache = new Map<string, VisibilityState>()
 
 export function ConceptsPage() {
   const { t, i18n } = useTranslation()
-  const { projectUid: uid } = useResolvedParams()
-  const { getActiveSource } = useDataSourceStore()
+  const { wsUid, projectUid: uid } = useResolvedParams()
   const language = useAppStore((s) => s.language)
   const deleteConceptSetsBatch = useConceptMappingStore((s) => s.deleteConceptSetsBatch)
-  const mappedSource = uid ? getActiveSource(uid) : undefined
+  const [chosenDatabaseId, chooseDatabase] = useConceptsDatabase(uid)
+  const mappedSource = useProjectSource(uid, chosenDatabaseId)
 
   const {
     hasConceptTable,
@@ -455,6 +457,17 @@ export function ConceptsPage() {
           page, so they only cost vertical space. */}
       <TooltipProvider delayDuration={300}>
         <div className="flex items-center gap-1.5 border-b px-3 py-2">
+          {/* Which database the page reads, ahead of the filters: it decides what
+              they even have to filter. */}
+          <DatabaseSelect
+            workspaceId={wsUid}
+            projectUid={uid}
+            value={mappedSource?.id}
+            onChange={chooseDatabase}
+            size="xs"
+            className="w-44 shrink-0"
+          />
+
           {/* Filters popover — the column dropdowns, gathered in one place like
               the mapping editor's source-concepts toolbar. */}
           <Popover>

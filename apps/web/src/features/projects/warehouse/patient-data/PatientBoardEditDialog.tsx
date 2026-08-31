@@ -3,10 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
 import { DialogShell } from '@/components/ui/dialog-shell'
+import { DatabaseSelect } from '@/components/ui/database-select'
 import { useSaveForm } from '@/hooks/use-save-form'
+import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { localized, setLocalized } from '@/lib/localized'
+import { buildPointer } from '@/lib/import-identity'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useAppStore } from '@/stores/app-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { PatientDashboard } from '@/types'
 
 export function PatientBoardEditDialog({
@@ -24,19 +28,24 @@ export function PatientBoardEditDialog({
   const initialVersion = item.version ?? '0.1.0'
   const [name, setName] = useState(initialName)
   const [description, setDescription] = useState(initialDescription)
+  const [dataSourceId, setDataSourceId] = useState(item.dataSourceId)
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const databases = useDatabaseOptions(workspaceId, item.projectUid)
 
   const doSave = () => {
     updateDashboard(item.id, {
       name: setLocalized(item.name, language, name.trim()),
       description: setLocalized(item.description ?? {}, language, description.trim()),
+      dataSourceId,
+      dataSourceRef: buildPointer(databases, dataSourceId),
       version: initialVersion,
     })
     onOpenChange(false)
   }
 
   const { canSaveNow, save } = useSaveForm({
-    current: { name: name.trim(), description: description.trim() },
-    baseline: { name: initialName, description: initialDescription },
+    current: { name: name.trim(), description: description.trim(), dataSourceId },
+    baseline: { name: initialName, description: initialDescription, dataSourceId: item.dataSourceId },
     onSave: doSave,
     canSave: name.trim().length > 0,
   })
@@ -70,6 +79,17 @@ export function PatientBoardEditDialog({
                 onChange={(e) => setDescription(e.target.value)}
                 className="text-sm"
                 placeholder={t('patient_data.board_description_placeholder')}
+              />
+            )}
+          </FormField>
+          <FormField label={t('patient_data.field_database')}>
+            {() => (
+              <DatabaseSelect
+                workspaceId={workspaceId}
+                projectUid={item.projectUid}
+                value={dataSourceId}
+                onChange={setDataSourceId}
+                size="sm"
               />
             )}
           </FormField>

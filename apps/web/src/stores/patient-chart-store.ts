@@ -99,6 +99,7 @@ interface PatientChartState {
     projectUid: string,
     name?: string,
     description?: string,
+    database?: Pick<PatientDashboard, 'dataSourceId' | 'dataSourceRef'>,
   ) => Promise<string>
   /** Deep-copy a board with its tabs and widgets. Returns the new id. */
   duplicateDashboard: (dashboardId: string) => Promise<string | null>
@@ -430,7 +431,7 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
 
   // --- Board CRUD ---
 
-  createDashboard: async (projectUid, name, description) => {
+  createDashboard: async (projectUid, name, description, database) => {
     const id = uid()
     const now = new Date().toISOString()
     const existing = get().dashboards.filter((d) => d.projectUid === projectUid)
@@ -443,6 +444,8 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
       projectUid,
       name: setLocalized({}, lang, name ?? `Board ${existing.length + 1}`),
       description: description ? setLocalized({}, lang, description) : undefined,
+      dataSourceId: database?.dataSourceId,
+      dataSourceRef: database?.dataSourceRef,
       displayOrder: existing.length,
       version: '0.1.0',
       createdAt: now,

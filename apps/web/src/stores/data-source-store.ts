@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
@@ -9,7 +10,6 @@ import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { localized } from '@/lib/localized'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { useConnectionStore } from '@/stores/connection-store'
 import type {
   DataSource,
   DatabaseConnectionConfig,
@@ -24,21 +24,52 @@ import type {
   LocalizedString,
 } from '@/types'
 
-// --- Active data source persistence (localStorage) ---
-
-const ACTIVE_DS_KEY = 'linkr-active-datasources'
-
-function loadActiveDataSourceIds(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(ACTIVE_DS_KEY)
-    return raw ? (JSON.parse(raw) as Record<string, string>) : {}
-  } catch {
-    return {}
+/**
+ * The database a project feature (patient board, cohort, concepts) should query.
+ *
+ * Each of those carries its own `dataSourceId` now, but it is optional: rows
+ * written before the field existed have none, and an import into another
+ * instance may not resolve one. Rather than showing an empty screen, they fall
+ * back to a usable database — the same one the whole project used to share.
+ *
+ * The asked-for database must still be linked to the project and connected: a
+ * stale id (unlinked since, or deleted) resolves to the fallback instead of to
+ * nothing, so the screen keeps working while the user fixes the choice.
+ *
+ * The fallback requires `schemaMapping.patientTable` because every caller reads
+ * patient-scoped OMOP tables through it; an unmapped database cannot answer.
+ */
+export function resolveProjectSource(
+  dataSources: DataSource[],
+  linkedIds: string[],
+  dataSourceId?: string,
+): DataSource | undefined {
+  const eligible = dataSources.filter(
+    (ds) => linkedIds.includes(ds.id) && ds.status === 'connected',
+  )
+  if (dataSourceId) {
+    const asked = eligible.find((ds) => ds.id === dataSourceId)
+    if (asked) return asked
   }
+  return eligible.find((ds) => !!ds.schemaMapping?.patientTable)
 }
 
-function saveActiveDataSourceIds(ids: Record<string, string>): void {
-  localStorage.setItem(ACTIVE_DS_KEY, JSON.stringify(ids))
+/**
+ * `resolveProjectSource` as a hook, so a screen re-renders when the database it
+ * resolved to connects, is unlinked, or disappears.
+ */
+export function useProjectSource(
+  projectUid: string | undefined,
+  dataSourceId?: string,
+): DataSource | undefined {
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const projectsRaw = useAppStore((s) => s._projectsRaw)
+  return useMemo(() => {
+    if (!projectUid) return undefined
+    const linkedIds =
+      projectsRaw.find((p) => p.uid === projectUid)?.linkedDataSourceIds ?? []
+    return resolveProjectSource(dataSources, linkedIds, dataSourceId)
+  }, [dataSources, projectsRaw, projectUid, dataSourceId])
 }
 
 interface DataSourceState {
@@ -50,14 +81,12 @@ interface DataSourceState {
   /** Get data sources for a specific workspace. */
   getWorkspaceSources: (workspaceId: string) => DataSource[]
   getProjectSources: (projectUid: string) => DataSource[]
-  getFirstMappedSource: (projectUid: string) => DataSource | undefined
 
-  /** Map projectUid → active dataSourceId. */
-  activeDataSourceIds: Record<string, string>
-  /** Set (or clear) the active data source for a project. */
-  setActiveDataSource: (projectUid: string, dataSourceId: string | null) => void
-  /** Get the active data source for a project, with fallback to first mapped source. */
-  getActiveSource: (projectUid: string) => DataSource | undefined
+  /**
+   * The database a project feature should query: the one it asks for, or a
+   * usable stand-in. See `resolveProjectSource`.
+   */
+  resolveProjectSource: (projectUid: string, dataSourceId?: string) => DataSource | undefined
 
   addDataSource: (source: {
     name: LocalizedString
@@ -248,42 +277,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     return get().dataSources.filter((ds) => linkedIds.includes(ds.id))
   },
 
-  getFirstMappedSource: (projectUid: string) => {
+  resolveProjectSource: (projectUid, dataSourceId) => {
     const linkedIds = useAppStore.getState().getProjectLinkedDataSourceIds(projectUid)
-    return get().dataSources.find(
-      (ds) => linkedIds.includes(ds.id) && !!ds.schemaMapping?.patientTable && ds.status === 'connected',
-    )
-  },
-
-  activeDataSourceIds: loadActiveDataSourceIds(),
-
-  setActiveDataSource: (projectUid, dataSourceId) => {
-    set((s) => {
-      const next = { ...s.activeDataSourceIds }
-      if (dataSourceId) {
-        next[projectUid] = dataSourceId
-      } else {
-        delete next[projectUid]
-      }
-      saveActiveDataSourceIds(next)
-      return { activeDataSourceIds: next }
-    })
-    // Sync IDE connection dropdown
-    useConnectionStore.getState().setActiveConnection(dataSourceId)
-  },
-
-  getActiveSource: (projectUid) => {
-    const { dataSources, activeDataSourceIds } = get()
-    const activeId = activeDataSourceIds[projectUid]
-    if (activeId) {
-      const ds = dataSources.find((d) => d.id === activeId && d.status === 'connected')
-      if (ds) return ds
-    }
-    // Fallback: first connected linked source with schema mapping
-    const linkedIds = useAppStore.getState().getProjectLinkedDataSourceIds(projectUid)
-    return dataSources.find(
-      (ds) => linkedIds.includes(ds.id) && !!ds.schemaMapping?.patientTable && ds.status === 'connected',
-    )
+    return resolveProjectSource(get().dataSources, linkedIds, dataSourceId)
   },
 
   addDataSource: async (source) => {
@@ -629,19 +625,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     await getStorage().databaseStatsCache.delete(id)
     await getStorage().dataSources.delete(id)
 
-    set((s) => {
-      // Clean up active selection if this was the active source
-      const next = { ...s.activeDataSourceIds }
-      for (const [projectUid, dsId] of Object.entries(next)) {
-        if (dsId === id) delete next[projectUid]
-      }
-      saveActiveDataSourceIds(next)
-      return {
-        dataSources: s.dataSources.filter((d) => d.id !== id),
-        activeDataSourceIds: next,
-      }
-    })
-
+    // Entities pointing at this database keep their now-dangling `dataSourceId`:
+    // `resolveProjectSource` drops it for them, and clearing it here would lose
+    // the user's choice when the database is only briefly gone (a re-import).
+    set((s) => ({ dataSources: s.dataSources.filter((d) => d.id !== id) }))
   },
 
   createEmptyDatabase: async (source) => {

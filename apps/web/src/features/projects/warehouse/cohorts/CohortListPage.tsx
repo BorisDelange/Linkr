@@ -25,7 +25,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { CohortCard } from './CohortCard'
-import { CreateCohortDialog } from './CreateCohortDialog'
+import { CreateCohortDialog, type CohortFormData } from './CreateCohortDialog'
 
 export function CohortListPage() {
   const { t } = useTranslation()
@@ -66,13 +66,13 @@ export function CohortListPage() {
   // the shortened ones — which silently dropped the Cohorts highlight.
   const cohortIds = useMemo(() => cohorts.map((c) => c.id), [cohorts])
 
-  const handleCreate = async (data: { name: string; description: string; version: string }) => {
+  const handleCreate = async (data: CohortFormData) => {
     if (!uid) return
     const id = await addCohort({ projectUid: uid, level: 'visit_detail', ...data })
     navigate(paths.cohort(wsUid ?? '', uid, id, [...cohortIds, id]))
   }
 
-  const handleEditSubmit = (data: { name: string; description: string; version: string }) => {
+  const handleEditSubmit = (data: CohortFormData) => {
     if (editingCohort) updateCohort(editingCohort.id, data)
     setEditingCohort(null)
   }
@@ -158,13 +158,17 @@ export function CohortListPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSubmit={handleCreate}
+        workspaceId={wsUid}
+        projectUid={uid}
       />
 
       <CreateCohortDialog
         open={!!editingCohort}
         onOpenChange={(open) => { if (!open) setEditingCohort(null) }}
         onSubmit={handleEditSubmit}
-        editing={editingCohort ? { name: editingCohort.name, description: editingCohort.description, version: editingCohort.version } : undefined}
+        editing={editingCohort ? { name: editingCohort.name, description: editingCohort.description, version: editingCohort.version, dataSourceId: editingCohort.dataSourceId } : undefined}
+        workspaceId={wsUid}
+        projectUid={uid}
       />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>

@@ -1,6 +1,7 @@
 // --- Cohort Builder Types ---
 
 import type { Authored } from '@/types/author'
+import type { DataSourceRef } from '@/types/concept-mapping'
 
 /** Extraction level for the cohort */
 export type CohortLevel = 'patient' | 'visit' | 'visit_detail' | 'event'
@@ -179,6 +180,13 @@ export interface Cohort extends Authored {
   projectUid: string
   name: string
   description: string
+  /** Which linked database this cohort runs against. Optional: a cohort written
+   *  before the field existed, or imported from elsewhere, falls back to the
+   *  first usable one (see `resolveProjectSource`). */
+  dataSourceId?: string
+  /** Portable pointer to that database, stamped when it is picked (not derived
+   *  at export time, so a server-side export carries it too). */
+  dataSourceRef?: DataSourceRef
   level: CohortLevel
   /** Root criteria tree (always a group node acting as container) */
   criteriaTree: CriteriaGroupNode

@@ -36,12 +36,10 @@ export function DatabasesPage() {
   const navigate = useNavigate()
   const canEdit = useMyProjectRole(uid).atLeast('editor')
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const setActiveDataSource = useDataSourceStore((s) => s.setActiveDataSource)
   const testConnection = useDataSourceStore((s) => s.testConnection)
   const disconnectDataSource = useDataSourceStore((s) => s.disconnectDataSource)
   const mountProjectSources = useDataSourceStore((s) => s.mountProjectSources)
   const reconnectDataSource = useDataSourceStore((s) => s.reconnectDataSource)
-  const activeDataSourceIds = useDataSourceStore((s) => s.activeDataSourceIds)
   const linkedIds = useAppStore((s) =>
     s._projectsRaw.find((p) => p.uid === uid)?.linkedDataSourceIds ?? EMPTY_IDS,
   )
@@ -96,29 +94,6 @@ export function DatabasesPage() {
       })),
     },
   ]
-
-  const activeSource = useMemo(() => {
-    if (!uid) return undefined
-    const activeId = activeDataSourceIds[uid]
-    if (activeId) {
-      const ds = dataSources.find((d) => d.id === activeId && d.status === 'connected')
-      if (ds) return ds
-    }
-    return sources.find(
-      (ds) => !!ds.schemaMapping?.patientTable && ds.status === 'connected',
-    )
-  }, [uid, activeDataSourceIds, dataSources, sources])
-
-  // Auto-select first connected mapped source if none is active
-  useEffect(() => {
-    if (!uid || activeSource) return
-    const firstMapped = sources.find(
-      (ds) => ds.status === 'connected' && !!ds.schemaMapping?.patientTable,
-    )
-    if (firstMapped) {
-      setActiveDataSource(uid, firstMapped.id)
-    }
-  }, [uid, activeSource, sources, setActiveDataSource])
 
   // Ids are shortened in the URL, so resolve the prefix against the project's
   // own linked list — the same way every other detail route does.
@@ -198,12 +173,10 @@ export function DatabasesPage() {
               <DatabaseCard
                 key={ds.id}
                 source={ds}
-                isActive={activeSource?.id === ds.id}
                 onClick={() => navigate(paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds))}
                 onOpenLicense={() => navigate(`${paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds)}?tab=license`)}
                 onOpenDocs={(tab) => navigate(`${paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds)}?tab=${tab}`)}
                 onOpenVersioning={() => navigate(`${paths.database(wsUid ?? '', uid ?? '', ds.id, siblingIds)}?tab=versioning`)}
-                onSetActive={() => uid && setActiveDataSource(uid, ds.id)}
                 onTestConnection={() => testConnection(ds.id)}
                 onDisconnect={() => disconnectDataSource(ds.id)}
                 onReconnect={() => reconnectDataSource(ds.id)}

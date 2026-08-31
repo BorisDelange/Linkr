@@ -41,6 +41,9 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useAppStore } from '@/stores/app-store'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useMyProjectRole } from '@/hooks/use-context-role'
+import { useDatabaseOptions } from '@/hooks/use-database-options'
+import { DatabaseSelect } from '@/components/ui/database-select'
+import { buildPointer } from '@/lib/import-identity'
 import { PatientBoardEditDialog } from './patient-data/PatientBoardEditDialog'
 import type { PatientDashboard } from '@/types'
 
@@ -65,6 +68,8 @@ export function PatientDataListPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
   const [createDescription, setCreateDescription] = useState('')
+  const [createDatabaseId, setCreateDatabaseId] = useState<string | undefined>()
+  const databases = useDatabaseOptions(wsUid, projectUid)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [editTarget, setEditTarget] = useState<PatientDashboard | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -114,10 +119,14 @@ export function PatientDataListPage() {
   const handleCreate = async () => {
     const name = createName.trim()
     if (!name || nameError) return
-    const id = await createDashboard(projectUid, name, createDescription.trim() || undefined)
+    const id = await createDashboard(projectUid, name, createDescription.trim() || undefined, {
+      dataSourceId: createDatabaseId,
+      dataSourceRef: buildPointer(databases, createDatabaseId),
+    })
     setCreateOpen(false)
     setCreateName('')
     setCreateDescription('')
+    setCreateDatabaseId(undefined)
     navigate(paths.patientBoard(wsUid ?? '', projectUid, id))
   }
 
@@ -324,6 +333,15 @@ export function PatientDataListPage() {
                 onChange={(e) => setCreateDescription(e.target.value)}
                 rows={3}
                 className="resize-none"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>{t('patient_data.field_database')}</Label>
+              <DatabaseSelect
+                workspaceId={wsUid}
+                projectUid={projectUid}
+                value={createDatabaseId}
+                onChange={setCreateDatabaseId}
               />
             </div>
       </DialogShell>

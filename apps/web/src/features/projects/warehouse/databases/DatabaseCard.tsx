@@ -9,9 +9,7 @@ import {
   Plug,
   Unplug,
   RefreshCw,
-  Check,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -23,9 +21,7 @@ import { useDatabaseActions } from './use-database-actions'
 
 interface DatabaseCardProps {
   source: DataSource
-  isActive?: boolean
   onClick?: () => void
-  onSetActive?: () => void
   onTestConnection: () => void
   onDisconnect?: () => void
   onReconnect?: () => void
@@ -82,9 +78,7 @@ const statusColors: Record<string, string> = {
 
 export const DatabaseCard = memo(function DatabaseCard({
   source,
-  isActive,
   onClick,
-  onSetActive,
   onTestConnection,
   onDisconnect,
   onReconnect,
@@ -118,7 +112,6 @@ export const DatabaseCard = memo(function DatabaseCard({
   const cardClassName = cn(
     'flex min-h-44 min-w-0 flex-col gap-0 py-0 transition-colors',
     onClick && 'cursor-pointer hover:bg-accent',
-    isActive && 'border-green-500/50 bg-green-50 dark:bg-green-950/20',
     selected && selectedCardClass,
   )
 
@@ -158,28 +151,6 @@ export const DatabaseCard = memo(function DatabaseCard({
           {/* Error status is shown by the status dot; the full message lives in
               the detail panel. Keep the card light — just the linked-projects strip. */}
           {belowStats}
-
-          {/* Active badge / use action */}
-          {(isActive || (onSetActive && source.status === 'connected')) && (
-            <div className="mt-3 flex items-center gap-2">
-              {isActive ? (
-                <span className="inline-flex items-center gap-1 rounded-md bg-green-100 px-2 py-1 text-xs font-medium text-green-700 dark:bg-green-900/40 dark:text-green-400">
-                  <Check size={12} />
-                  {t('databases.active_badge')}
-                </span>
-              ) : onSetActive && source.status === 'connected' ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => { e.stopPropagation(); onSetActive() }}
-                  className="gap-1.5 text-xs"
-                >
-                  <Check size={12} />
-                  {t('databases.use_database')}
-                </Button>
-              ) : null}
-            </div>
-          )}
         </div>
 
         {/* Same menu the header badge shows, so the two cannot drift: edit,

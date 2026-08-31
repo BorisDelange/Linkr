@@ -53,4 +53,32 @@ describe('useDatabaseOptions', () => {
     // belongs to no workspace, so no picker should offer it.
     expect(databaseOptions([ds({ id: 'orphan', workspaceId: undefined })], 'ws-1')).toEqual([])
   })
+
+  describe('project scope', () => {
+    const rows = [ds({ id: 'linked' }), ds({ id: 'unlinked' })]
+
+    it('offers only the databases the project has linked', () => {
+      const out = databaseOptions(rows, 'ws-1', ['linked'])
+      expect(out.map((d) => d.id)).toEqual(['linked'])
+    })
+
+    it('offers the whole workspace when no project scope is given', () => {
+      expect(databaseOptions(rows, 'ws-1', undefined).map((d) => d.id)).toEqual([
+        'linked',
+        'unlinked',
+      ])
+    })
+
+    it('offers nothing for a project that has linked nothing', () => {
+      // Distinct from `undefined`: an empty link list is an answer, not a
+      // missing scope, so it must not fall back to the whole workspace.
+      expect(databaseOptions(rows, 'ws-1', [])).toEqual([])
+    })
+
+    it('still applies the workspace scope to a linked database', () => {
+      // A stale link may name a database that has since moved workspaces.
+      const out = databaseOptions([ds({ id: 'moved', workspaceId: 'ws-2' })], 'ws-1', ['moved'])
+      expect(out).toEqual([])
+    })
+  })
 })

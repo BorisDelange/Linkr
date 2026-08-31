@@ -5,7 +5,7 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { useCohortStore } from '@/stores/cohort-store'
-import { useDataSourceStore } from '@/stores/data-source-store'
+import { useProjectSource } from '@/stores/data-source-store'
 import * as engine from '@/lib/duckdb/engine'
 import {
   Play,
@@ -64,11 +64,10 @@ export function CohortBuilderPage() {
     executionLoading,
     executionErrors,
   } = useCohortStore()
-  const { getActiveSource } = useDataSourceStore()
 
   const cohort = resolveByIdPrefix(cohorts, raw.cohortId, (c) => c.id)
   const cohortId = cohort?.id
-  const activeSource = uid ? getActiveSource(uid) : undefined
+  const activeSource = useProjectSource(uid, cohort?.dataSourceId)
   const mapping = activeSource?.schemaMapping
 
   const [leftView, setLeftView] = useState<'criteria' | 'sql'>('criteria')
