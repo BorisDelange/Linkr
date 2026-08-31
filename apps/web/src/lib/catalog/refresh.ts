@@ -24,7 +24,7 @@ export async function refreshStoresAfterInstall(
     // A workspace brings every kind of entity at once, so nothing that reads from a
     // store can be assumed current — reload the lot rather than enumerate.
     case 'workspace': {
-      const [{ useAppStore }, { useConceptMappingStore }, { useSqlScriptsStore }, { useEtlStore }, { useDqStore }, { useCatalogStore }, { useDataSourceStore }, { useSchemaPresetStore }] = await Promise.all([
+      const [{ useAppStore }, { useConceptMappingStore }, { useSqlScriptsStore }, { useEtlStore }, { useDqStore }, { useCatalogStore }, { useDataSourceStore }, { useSchemaPresetStore }, { useCohortStore }, { usePipelineStore }] = await Promise.all([
         import('@/stores/app-store'),
         import('@/stores/concept-mapping-store'),
         import('@/stores/sql-scripts-store'),
@@ -33,6 +33,8 @@ export async function refreshStoresAfterInstall(
         import('@/stores/catalog-store'),
         import('@/stores/data-source-store'),
         import('@/stores/schema-preset-store'),
+        import('@/stores/cohort-store'),
+        import('@/stores/pipeline-store'),
       ])
       reloads.push(
         useAppStore.getState().loadProjects(),
@@ -41,7 +43,14 @@ export async function refreshStoresAfterInstall(
         useEtlStore.getState().loadEtlPipelines(),
         useDqStore.getState().loadDqRuleSets(),
         useCatalogStore.getState().loadCatalogs(),
-        useDataSourceStore.getState().loadDataSources(),
+        useDataSourceStore.getState().loadDataSources(true),
+        // Cohorts and pipelines are loaded ONCE, by the App shell at startup, so
+        // nothing else ever re-reads them: an installed project's cohorts sat in
+        // storage while the page rendered the pre-install list, until a manual
+        // reload. They hold every project's rows (the views filter by projectUid),
+        // so one reload covers whatever the install wrote.
+        useCohortStore.getState().loadCohorts(),
+        usePipelineStore.getState().loadPipelines(),
         // Scoped: an unscoped load pulls every workspace's presets into the store,
         // which the database dialogs then offer as this workspace's own.
         useSchemaPresetStore.getState().loadPresets(workspaceId),
@@ -50,8 +59,18 @@ export async function refreshStoresAfterInstall(
       break
     }
     case 'project': {
-      const { useAppStore } = await import('@/stores/app-store')
-      reloads.push(useAppStore.getState().loadProjects())
+      const [{ useAppStore }, { useCohortStore }, { usePipelineStore }] = await Promise.all([
+        import('@/stores/app-store'),
+        import('@/stores/cohort-store'),
+        import('@/stores/pipeline-store'),
+      ])
+      reloads.push(
+        useAppStore.getState().loadProjects(),
+        // Startup-only stores, same as the workspace case above: a project brings
+        // cohorts and pipelines that nothing else would re-read.
+        useCohortStore.getState().loadCohorts(),
+        usePipelineStore.getState().loadPipelines(),
+      )
       // A project carries datasets, dashboards and concept mappings, held by stores
       // that load lazily per project and early-return once their marker matches. An
       // overwrite rewrites those rows underneath a store that already believes it is
@@ -97,7 +116,7 @@ export async function refreshStoresAfterInstall(
     }
     case 'database': {
       const { useDataSourceStore } = await import('@/stores/data-source-store')
-      reloads.push(useDataSourceStore.getState().loadDataSources())
+      reloads.push(useDataSourceStore.getState().loadDataSources(true))
       break
     }
   }

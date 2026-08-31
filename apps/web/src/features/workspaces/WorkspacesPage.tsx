@@ -9,6 +9,9 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
+import { useCohortStore } from '@/stores/cohort-store'
+import { usePipelineStore } from '@/stores/pipeline-store'
 import { isServerMode, formatApiError, type FormattedError } from '@/lib/api-client'
 import { findLineageMatch, type ImportTarget } from '@/lib/import-identity'
 import { importWorkspaceTree, type WorkspaceImportResult } from '@/lib/workspace-import'
@@ -371,6 +374,16 @@ export function WorkspacesPage() {
           // app store still holds the empty-README pointer row. Reload it, else the
           // project's Summary shows a blank README/tasks until a full page reload.
           await loadProjects()
+          // The databases too: a git-linked database's own clone rewrites its row
+          // (schema mapping included) after doImport loaded the store. Every
+          // "choose a database" picker reads it and intersects with the project's
+          // links, so a stale store left a cohort's dropdown empty until a manual
+          // page reload — even though both sides were correct in storage.
+          await useDataSourceStore.getState().loadDataSources(true)
+          // Cohorts and pipelines load once, at app startup, so an imported
+          // project's cohorts stayed invisible until a manual page reload.
+          await useCohortStore.getState().loadCohorts()
+          await usePipelineStore.getState().loadPipelines()
           await useCatalogStore.getState().loadCatalogs()
         } else {
           // Client-only: cloning is impossible — badge every linked entity so its

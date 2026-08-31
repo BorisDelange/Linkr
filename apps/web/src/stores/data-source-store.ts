@@ -76,7 +76,9 @@ interface DataSourceState {
   dataSources: DataSource[]
   dataSourcesLoaded: boolean
 
-  loadDataSources: () => Promise<void>
+  /** `force` re-reads storage even while a load is in flight — for a caller that
+   *  just wrote rows (an import's clones) and must not get the pre-write result. */
+  loadDataSources: (force?: boolean) => Promise<void>
 
   /** Get data sources for a specific workspace. */
   getWorkspaceSources: (workspaceId: string) => DataSource[]
@@ -217,9 +219,14 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
   dataSources: [],
   dataSourcesLoaded: false,
 
-  loadDataSources: async () => {
-    if (loadingPromise) return loadingPromise
-    loadingPromise = (async () => {
+  loadDataSources: async (force = false) => {
+    // Joining the in-flight load is right for concurrent READERS, but wrong for a
+    // caller that just WROTE: an import's clones rewrite rows after the load
+    // started, so the shared promise resolves with pre-clone data and the store
+    // stays stale until a manual page reload — which is exactly how a cohort's
+    // database dropdown came up empty right after installing a workspace.
+    if (loadingPromise && !force) return loadingPromise
+    const mine: Promise<void> = (async () => {
       try {
         const all = await getStorage().dataSources.getAll()
         // Migrate: assign alias to data sources that don't have one yet
@@ -262,10 +269,14 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
           void Promise.all(broken.map((ds) => get().retestDataSource(ds.id).catch(() => {})))
         }
       } finally {
-        loadingPromise = null
+        // Only clear the slot if it is still ours: a forced reload started while
+        // this one was in flight owns it now, and nulling it would let the next
+        // reader start a third load against the same rows.
+        if (loadingPromise === mine) loadingPromise = null
       }
     })()
-    return loadingPromise
+    loadingPromise = mine
+    return mine
   },
 
   getWorkspaceSources: (workspaceId: string) => {
