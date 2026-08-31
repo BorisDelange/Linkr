@@ -726,7 +726,7 @@ export async function importWorkspaceTree(
   // databases exist. `linkedDataSourceIds` is stripped from every export (local
   // UUIDs), so the pointers stamped beside them are the only way an imported
   // project keeps its links; the ones matching no local database are dropped.
-  const projectRefs = [...parsed.projects, ...parsed.projectEntries]
+  const projectRefs = [...parsed.projects.values(), ...parsed.projectEntries]
     .map((e) => e.project)
     .filter((p): p is Project => !!p?.linkedDataSourceRefs?.length)
   if (projectRefs.length > 0) {

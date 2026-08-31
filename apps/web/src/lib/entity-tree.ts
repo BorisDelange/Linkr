@@ -189,7 +189,7 @@ function canonicalOrderRanks(
 ): Map<string, number> {
   const bySibling = new Map<string, { id: string, order: number, path: string }[]>()
   for (const node of nodes) {
-    const order = (node as Record<string, unknown>).order
+    const order = (node as unknown as Record<string, unknown>).order
     if (typeof order !== 'number') continue
     const group = node.parentId ?? ''
     const entry = { id: node.id, order, path: treeNodePath(node, byId) }

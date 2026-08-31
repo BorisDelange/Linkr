@@ -204,10 +204,10 @@ export interface PointerRef {
  * also travels through the server-side export, which builds the manifest from
  * the stored row alone and cannot look the database up.
  */
-export function buildPointer<T extends PointerTarget & { name?: L }, L>(
+export function buildPointer<T extends PointerTarget & { name?: unknown }>(
   rows: T[],
   id: string | undefined,
-): { lineageId?: string; entityId?: string; label?: L } | undefined {
+): { lineageId?: string; entityId?: string; label?: T['name'] } | undefined {
   if (!id) return undefined
   const row = rows.find((r) => r.id === id)
   if (!row) return undefined
