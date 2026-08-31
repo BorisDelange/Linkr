@@ -43,6 +43,12 @@ const draftKey = (projectUid: string, branch: string) => `${projectUid}|${branch
  * The project pull, rendered inline where the push list normally sits — the same
  * shell as the mapping-project and ETL pulls, over a different plan builder.
  *
+ * CURRENTLY UNWIRED — features/projects/VersioningPage no longer passes this as
+ * its `renderInlinePull`, so projects show the "pull not implemented" banner and
+ * push only. Matching a project's six child kinds against the remote proved too
+ * unreliable (phantom changes, overwritten local work). Kept, with its tests, for
+ * the rework; rebind it in VersioningPage once the matching is trustworthy.
+ *
  * Scripts open a diff: they are text, and "which lines changed" is what decides
  * whether to take one. The other groups are structured entities whose export is a
  * rewritten JSON document, so a diff would show regenerated ids rather than the

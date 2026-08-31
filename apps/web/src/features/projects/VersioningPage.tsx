@@ -5,12 +5,6 @@ import { useAppStore } from '@/stores/app-store'
 import { useVersioningStore } from '@/stores/versioning-store'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
 import { useRememberedVersioningTab } from '@/components/versioning/use-remembered-versioning-tab'
-import { ProjectPull } from '@/components/versioning/ProjectPull'
-import { useDashboardStore } from '@/stores/dashboard-store'
-import { useDatasetStore } from '@/stores/dataset-store'
-import { useFileStore } from '@/stores/file-store'
-import { usePipelineStore } from '@/stores/pipeline-store'
-import { useCohortStore } from '@/stores/cohort-store'
 import { ExportTab } from './versioning/ExportTab'
 
 export function VersioningPage() {
@@ -66,25 +60,14 @@ export function VersioningPage() {
           onTabChange={(v) => { setTab(v); onTabChange(v) }}
           syncScope="projects"
           syncId={projectUid ?? undefined}
-          renderInlinePull={projectUid ? ({ branch, remoteHead, mode, onPulled }) => (
-            <ProjectPull
-              projectUid={projectUid}
-              branch={branch}
-              remoteHead={remoteHead}
-              mode={mode}
-              onPulled={onPulled}
-            />
-          ) : undefined}
-          onAfterPull={async () => {
-            // The pull wrote to storage; the project views read from in-memory
-            // stores — invalidate them so the pulled dashboards/datasets/scripts/
-            // cohorts/pipelines show without a manual refresh (mirrors import).
-            useDashboardStore.setState({ activeProjectUid: null, loaded: false })
-            useDatasetStore.setState({ activeProjectUid: null })
-            useFileStore.setState({ activeProjectUid: null })
-            await usePipelineStore.getState().loadPipelines()
-            await useCohortStore.getState().loadCohorts()
-          }}
+          // No `renderInlinePull`: the project pull is DISABLED. A project bundles
+          // six kinds of children (dashboards, patient boards, scripts, cohorts,
+          // datasets, pipeline) whose remote-vs-local matching proved too unreliable
+          // — it reported phantom changes and overwrote local work. Without a
+          // renderer GitSyncPanel falls back to the `pull_not_implemented` banner:
+          // push works, taking remote changes back does not.
+          // The implementation is kept, unwired, in components/versioning/ProjectPull
+          // + lib/project-pull*.ts — rebind it here once the matching is trustworthy.
         />
       </div>
     </div>
