@@ -79,3 +79,7 @@ config.local.json
 # Clones made by scripts/fetch-default-data.ts, keyed <repo>@<ref>. A build cache:
 # pinned refs make it a perfect hit, and deleting it only costs one re-clone.
 .cache/
+
+# Per-worktree LINKR_DATA_DIR written by scripts/new-worktree.mjs, so parallel
+# worktrees never share one SQLite file (see docs/conventions.md § Worktrees).
+.linkr-data/

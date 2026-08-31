@@ -34,6 +34,10 @@ if (uvicorn === 'uvicorn') {
   console.warn('⚠  apps/api/.venv not found — falling back to uvicorn on PATH')
 }
 
+// Run from apps/api so --reload-dir resolves the same way it did when this was
+// a `cd apps/api && uvicorn …` shell script.
+const apiDir = path.join(repoRoot, 'apps/api')
+
 const args = [
   'app.main:app',
   '--reload',
@@ -41,12 +45,10 @@ const args = [
   'app',
   '--port',
   port,
-  '--app-dir',
-  'apps/api',
   ...process.argv.slice(2),
 ]
 
 console.log(`\n  API  →  http://localhost:${port}\n`)
 
-const child = spawn(uvicorn, args, { cwd: repoRoot, stdio: 'inherit' })
+const child = spawn(uvicorn, args, { cwd: apiDir, stdio: 'inherit' })
 child.on('exit', (code) => process.exit(code ?? 0))

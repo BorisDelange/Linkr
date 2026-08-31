@@ -88,6 +88,29 @@ copyIfPresent('apps/api/.venv', 'apps/api/.venv')
 copyIfPresent('apps/web/public/data/seed', 'seed data')
 copyIfPresent('config.local.json', 'config.local.json')
 
+// The API .env carries three values that must NOT be shared between worktrees:
+// LINKR_DATA_DIR (same SQLite file and Parquet blobs → two backends fighting
+// over one database), and LINKR_CORS_ORIGINS (pinned to :3000, which would
+// reject this worktree's frontend). Copy the rest as-is.
+const apiEnvSrc = path.join(repoRoot, 'apps/api/.env')
+if (existsSync(apiEnvSrc)) {
+  const dataDir = path.join(worktreePath, '.linkr-data')
+  mkdirSync(dataDir, { recursive: true })
+
+  const rewritten = readFileSync(apiEnvSrc, 'utf-8')
+    .split('\n')
+    .map((line) => {
+      if (/^\s*LINKR_DATA_DIR\s*=/.test(line)) return `LINKR_DATA_DIR=${dataDir}`
+      if (/^\s*LINKR_CORS_ORIGINS\s*=/.test(line))
+        return `LINKR_CORS_ORIGINS=http://localhost:${web}`
+      return line
+    })
+    .join('\n')
+
+  writeFileSync(path.join(worktreePath, 'apps/api/.env'), rewritten)
+  console.log('  wrote apps/api/.env (own data dir + CORS origin)')
+}
+
 // Tint the window so two VS Code instances are never confused for each other.
 const palette = ['#1e3a5f', '#4a1e5f', '#1e5f3a', '#5f4a1e', '#5f1e2e']
 const hash = [...name].reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
