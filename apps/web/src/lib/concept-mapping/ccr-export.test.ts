@@ -110,6 +110,18 @@ describe('buildCcrCsvs — concept.csv', () => {
     expect(rows(conceptCsv)[1]).toContain('"Sodium, serum"')
   })
 
+  it('names an unnamed concept after its code', () => {
+    // concept.concept_name is NOT NULL and DuckDB reads an empty CSV field as
+    // NULL, so a blank name fails the whole vocabulary load, not just its row.
+    // Real dictionaries carry blanks: MIMIC-IV's d_labitems has four.
+    for (const sourceConceptName of ['', '   ']) {
+      const { conceptCsv } = buildCcrCsvs([
+        m({ id: 'a', sourceConceptName, sourceConceptCode: '51771' }),
+      ])
+      expect(field(rows(conceptCsv)[1], 'concept_name')).toBe('51771')
+    }
+  })
+
   it('produces a header-only file for an empty project', () => {
     const { conceptCsv, conceptRowCount } = buildCcrCsvs([])
     expect(rows(conceptCsv)).toHaveLength(1)

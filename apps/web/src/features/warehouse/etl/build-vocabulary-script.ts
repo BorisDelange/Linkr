@@ -229,6 +229,9 @@ export function buildPruneVocabularyScript(): string {
   parts.push(`CREATE OR REPLACE TABLE ${T}.tmp_used_concepts AS`)
   parts.push(`SELECT DISTINCT concept_id`)
   parts.push(`FROM query(getvariable('linkr_used_concepts_sql'))`)
+  // 0 is excluded from the *used* set, not from the kept one: it stands for "no
+  // matching concept", so expanding its ancestors and relations in step 2 would
+  // pull in a closure that means nothing. Step 2 adds it back as a fixed concept.
   parts.push('WHERE concept_id IS NOT NULL AND concept_id <> 0;')
   parts.push('')
   // Stop rather than delete everything. Every DELETE below is
@@ -253,6 +256,15 @@ export function buildPruneVocabularyScript(): string {
   parts.push(`CREATE OR REPLACE TABLE ${T}.tmp_keep_concepts AS`)
   parts.push('SELECT DISTINCT concept_id FROM (')
   parts.push(`    SELECT concept_id FROM ${T}.tmp_used_concepts`)
+  parts.push('    UNION')
+  // The concepts the ETL writes as literals. 0 above all: every unmapped row
+  // carries concept_id = 0, and no *_concept_id column points at the others'
+  // rows either (they sit in gender_concept_id, *_type_concept_id and the like,
+  // which the step 1 scan does read - but a CDM with no death row, say, never
+  // mentions 32817). Pruning them leaves those columns pointing at a concept
+  // that is gone: a broken foreign key on every unmapped fact.
+  parts.push('    -- Concepts the ETL scripts reference as literals.')
+  parts.push(`    SELECT UNNEST([${ETL_FIXED_CONCEPT_IDS.join(', ')}]) AS concept_id`)
   parts.push('    UNION')
   parts.push('    -- Ancestors, so a query on a parent concept still finds its descendants.')
   parts.push('    SELECT a.ancestor_concept_id')
@@ -525,7 +537,10 @@ export function buildVocabularyScriptWithIds(
       parts.push(`INSERT INTO ${TARGET}.concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
       parts.push(`SELECT DISTINCT`)
       parts.push(`    stcm.source_concept_id       AS concept_id,`)
-      parts.push(`    stcm.source_code_description AS concept_name,`)
+      // concept_name is NOT NULL: a source dictionary that leaves a code
+      // unnamed would fail the whole load. The code is the only identity such
+      // a concept has — same fallback the C/CR export applies.
+      parts.push(`    COALESCE(NULLIF(TRIM(stcm.source_code_description), ''), stcm.source_code) AS concept_name,`)
       parts.push(`    stcm.${SOURCE_DOMAIN_COLUMN}          AS domain_id,`)
       parts.push(`    stcm.source_vocabulary_id    AS vocabulary_id,`)
       parts.push(`    'Clinical Observation'       AS concept_class_id,`)
@@ -878,7 +893,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`SELECT`)
   parts.push(`    (SELECT COALESCE(MAX(concept_id), ${SOURCE_CONCEPT_ID_BASE}) FROM ${TARGET}.concept WHERE concept_id >= ${SOURCE_CONCEPT_ID_BASE})`)
   parts.push(`      + ROW_NUMBER() OVER (ORDER BY src.source_vocabulary_id, src.source_code) AS concept_id,`)
-  parts.push(`    src.source_code_description AS concept_name,`)
+  parts.push(`    COALESCE(NULLIF(TRIM(src.source_code_description), ''), src.source_code) AS concept_name,`)
   parts.push(`    COALESCE(tc.domain_id, 'Observation') AS domain_id,`)
   parts.push(`    src.source_vocabulary_id    AS vocabulary_id,`)
   parts.push(`    'Clinical Observation'      AS concept_class_id,`)

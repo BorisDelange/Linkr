@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 import {
+  ETL_FIXED_CONCEPT_IDS,
   athenaSelectList,
   buildCustomVocabularyScript,
   buildPruneVocabularyScript,
@@ -423,6 +424,35 @@ describe('buildPruneVocabularyScript', () => {
         `(${col} IS NOT NULL AND ${col} NOT IN (SELECT concept_id FROM target.tmp_keep_concepts))`,
       )
     }
+  })
+
+  it('never writes a NULL concept_name, whichever path builds concept', () => {
+    // concept.concept_name is NOT NULL, so one unnamed source code fails the
+    // entire vocabulary load. The C/CR path resolves this in the CSV itself
+    // (see ccr-export); the STCM and custom-vocabulary paths read a description
+    // column straight out of the CSV and need the fallback in the SQL.
+    const stcm = buildVocabularyScript([MAPPING], undefined, undefined, 'stcm')
+    expect(stcm).toContain(
+      "COALESCE(NULLIF(TRIM(stcm.source_code_description), ''), stcm.source_code) AS concept_name",
+    )
+    const custom = buildCustomVocabularyScript([
+      { n: 'Foo', ci: 1, sv: 'mimiciv_drug', sd: 'Drug', cc: 'X1', ti: 42, tv: 'RxNorm' },
+    ])
+    expect(custom).toContain(
+      "COALESCE(NULLIF(TRIM(src.source_code_description), ''), src.source_code) AS concept_name",
+    )
+  })
+
+  it('keeps the concepts the ETL writes as literals', () => {
+    // Concept 0 above all: every unmapped row carries concept_id = 0, so pruning
+    // it turns each one into a broken foreign key. It is deliberately absent
+    // from tmp_used_concepts — expanding the closure of "no matching concept"
+    // means nothing — which is exactly why it has to be kept here instead.
+    const keep = sql.slice(sql.indexOf('CREATE OR REPLACE TABLE target.tmp_keep_concepts'))
+    expect(keep.slice(0, keep.indexOf(';'))).toContain(
+      `SELECT UNNEST([${ETL_FIXED_CONCEPT_IDS.join(', ')}]) AS concept_id`,
+    )
+    expect(ETL_FIXED_CONCEPT_IDS).toContain(0)
   })
 })
 

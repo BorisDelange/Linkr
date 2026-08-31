@@ -240,7 +240,10 @@ function PullCard({
           )}
         </div>
 
-        <ul className="min-h-0 flex-1 space-y-0.5">
+        {/* Long file lists scroll inside the card, as the push quick-action cards
+            do — a pull bringing fifty files must not stretch the card past the
+            panel and push the take/refuse buttons out of reach. */}
+        <ul className="min-h-0 max-h-48 flex-1 space-y-0.5 overflow-y-auto">
           {files.map((f) => (
             <li key={f.path} className="flex items-center gap-1.5 text-[11px]">
               {/* Only render a button where there is a viewer to open: a scope

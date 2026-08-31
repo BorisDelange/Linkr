@@ -33,6 +33,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { cn } from '@/lib/utils'
+import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
@@ -344,6 +345,11 @@ export function DatasetsPage() {
 
   const tabSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
+  // How the file and analysis tab groups share the bar's width.
+  const tabSplit = useTabGroupSplit('datasets')
+  const hasBothTabGroups =
+    openFileIds.length > 0 && !!selectedFileId && openAnalysisIds.length > 0
+
   const handleFileTabDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event
     if (!over || active.id === over.id) return
@@ -564,7 +570,10 @@ export function DatasetsPage() {
               {/* File tabs + analysis tabs */}
               {openFileIds.length > 0 && (
                 <div className="flex items-center border-b bg-muted/30">
-                  <div className="flex items-center overflow-x-auto">
+                  <div
+                    className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
+                    style={{ flex: tabSplit.flexFor('left', hasBothTabGroups) }}
+                  >
                     <DndContext
                       sensors={tabSensors}
                       collisionDetection={closestCenter}
@@ -595,10 +604,21 @@ export function DatasetsPage() {
                       </SortableContext>
                     </DndContext>
 
-                    {/* Analysis tabs for the selected file */}
-                    {selectedFileId && openAnalysisIds.length > 0 && (
-                      <>
-                        <div className="mx-1 h-4 w-px shrink-0 bg-border" />
+                  </div>
+
+                  {hasBothTabGroups && (
+                    <TabGroupSplitter
+                      onShareChange={tabSplit.setShare}
+                      onReset={tabSplit.reset}
+                    />
+                  )}
+
+                  {/* Analysis tabs for the selected file */}
+                  {selectedFileId && openAnalysisIds.length > 0 && (
+                    <div
+                      className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
+                      style={{ flex: tabSplit.flexFor('right', hasBothTabGroups) }}
+                    >
                         <DndContext
                           sensors={tabSensors}
                           collisionDetection={closestCenter}
@@ -629,9 +649,8 @@ export function DatasetsPage() {
                             })}
                           </SortableContext>
                         </DndContext>
-                      </>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   {/* Column visibility — moved to DatasetTable footer */}
                 </div>

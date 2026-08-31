@@ -190,8 +190,10 @@ export function PullFileRow({ scope, file, decisions, onDecideAll, onDecideItem,
       )}
     </div>
 
+    {/* Scrolls within the row: expanding a file with hundreds of items would
+        otherwise push every following file out of the list's own scroll. */}
     {showItems && (
-      <ul className="border-t bg-muted/20">
+      <ul className="max-h-64 overflow-y-auto border-t bg-muted/20">
         {file.items.map((item) => {
           const id = itemId(file, item)
           const verdict = decisions.get(id)
