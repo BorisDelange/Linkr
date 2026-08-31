@@ -214,6 +214,9 @@ const busySources = new Set<string>()
 
 /** Guard against concurrent loadDataSources calls. */
 let loadingPromise: Promise<void> | null = null
+/** Identifies the load that owns `loadingPromise`, so an overlapping forced
+ *  reload's `finally` cannot clear a slot that is no longer its own. */
+let loadingToken: symbol | null = null
 
 export const useDataSourceStore = create<DataSourceState>((set, get) => ({
   dataSources: [],
@@ -226,6 +229,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     // stays stale until a manual page reload — which is exactly how a cohort's
     // database dropdown came up empty right after installing a workspace.
     if (loadingPromise && !force) return loadingPromise
+    // A plain token, not the promise itself: referring to the promise from inside
+    // its own executor is a use-before-assignment if the body throws synchronously.
+    const token = Symbol('load')
+    loadingToken = token
     const mine: Promise<void> = (async () => {
       try {
         const all = await getStorage().dataSources.getAll()
@@ -272,7 +279,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
         // Only clear the slot if it is still ours: a forced reload started while
         // this one was in flight owns it now, and nulling it would let the next
         // reader start a third load against the same rows.
-        if (loadingPromise === mine) loadingPromise = null
+        if (loadingToken === token) loadingPromise = null
       }
     })()
     loadingPromise = mine
