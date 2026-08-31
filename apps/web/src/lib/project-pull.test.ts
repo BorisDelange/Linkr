@@ -54,6 +54,9 @@ function makeStore() {
     dashboards: new Map<string, Rec>(),
     dashboardTabs: new Map<string, Rec>(),
     dashboardWidgets: new Map<string, Rec>(),
+    patientDashboards: new Map<string, Rec>(),
+    patientDashboardTabs: new Map<string, Rec>(),
+    patientDashboardWidgets: new Map<string, Rec>(),
     cohorts: new Map<string, Rec>(),
     pipelines: new Map<string, Rec>(),
     ideFiles: new Map<string, Rec>(),
@@ -103,6 +106,31 @@ function makeStore() {
         for (const [id, r] of t.dashboardWidgets) if (r.tabId === tabId) t.dashboardWidgets.delete(id)
       },
       create: addOnly('dashboardWidgets', t.dashboardWidgets),
+    },
+    patientDashboards: {
+      getByProject: byProject(t.patientDashboards),
+      create: addOnly('patientDashboards', t.patientDashboards),
+      delete: del('patientDashboards', t.patientDashboards),
+    },
+    patientDashboardTabs: {
+      getByDashboard: async (boardId: string) =>
+        [...t.patientDashboardTabs.values()].filter((r) => r.patientDashboardId === boardId),
+      deleteByDashboard: async (boardId: string) => {
+        ops.push(`patientDashboardTabs.deleteByDashboard:${boardId}`)
+        for (const [id, r] of t.patientDashboardTabs) {
+          if (r.patientDashboardId === boardId) t.patientDashboardTabs.delete(id)
+        }
+      },
+      create: addOnly('patientDashboardTabs', t.patientDashboardTabs),
+    },
+    patientDashboardWidgets: {
+      deleteByTab: async (tabId: string) => {
+        ops.push(`patientDashboardWidgets.deleteByTab:${tabId}`)
+        for (const [id, r] of t.patientDashboardWidgets) {
+          if (r.tabId === tabId) t.patientDashboardWidgets.delete(id)
+        }
+      },
+      create: addOnly('patientDashboardWidgets', t.patientDashboardWidgets),
     },
     cohorts: {
       getByProject: byProject(t.cohorts),
@@ -174,15 +202,20 @@ const preparedWith = (
   clonedOid: string | null = 'oid-123',
 ): PreparedProjectPull => ({
   parsed,
-  plan: { dashboards: [], scripts: [], cohorts: [], datasets: [], pipeline: [], readmeChanged: false },
+  plan: {
+    dashboards: [], patientDashboards: [], scripts: [], cohorts: [], datasets: [],
+    pipeline: [], readmeChanged: false,
+  },
   clonedOid,
   branch: 'main',
   localScriptContent: new Map(),
+  localExportShape: { cohorts: new Map(), pipeline: new Map() },
+  remoteExportShape: { cohorts: new Map(), pipeline: new Map() },
 })
 
 const sel = (over: Partial<ProjectPullSelection> = {}): ProjectPullSelection => ({
-  dashboards: new Set(), scripts: new Set(), cohorts: new Set(),
-  datasets: new Set(), pipeline: new Set(), readme: false, ...over,
+  dashboards: new Set(), patientDashboards: new Set(), scripts: new Set(),
+  cohorts: new Set(), datasets: new Set(), pipeline: new Set(), readme: false, ...over,
 })
 
 const mustIndexOf = (ops: string[], op: string): number => {
@@ -329,6 +362,29 @@ describe('prepareProjectPull — natural-key matching', () => {
     expect(plan.scripts.map((s) => s.key)).toEqual(['edited.py', 'brand-new.py'])
     expect(plan.scripts.find((s) => s.key === 'edited.py')!.exists).toBe(true)
     expect(plan.scripts.find((s) => s.key === 'brand-new.py')!.exists).toBe(false)
+  })
+
+  it('offers patient boards, matched on the natural key like dashboards', async () => {
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    seedLinkedProject(t)
+    t.patientDashboards.set('local-b', {
+      id: 'local-b', projectUid: P, name: { en: 'Bedside' },
+    })
+
+    await stubClone((zip) => {
+      zip.file('patient-dashboards/bedside.json', JSON.stringify({
+        patientDashboard: { id: 'pb-1', name: { en: 'Bedside' } }, tabs: [], widgets: [],
+      }))
+      zip.file('patient-dashboards/new-board.json', JSON.stringify({
+        patientDashboard: { id: 'pb-2', name: { en: 'New Board' } }, tabs: [], widgets: [],
+      }))
+    })
+
+    const { plan } = await prepareProjectPull(P, 'main')
+    const byKey = new Map(plan.patientDashboards.map((i) => [i.key, i]))
+    expect(byKey.get('bedside')).toMatchObject({ exists: true, label: 'Bedside' })
+    expect(byKey.get('new-board')).toMatchObject({ exists: false })
   })
 
   it('drops cohorts and pipelines whose content already matches', async () => {
@@ -502,6 +558,44 @@ describe('prepareProjectPull — natural-key matching', () => {
 // ---------------------------------------------------------------------------
 // applyProjectPull — delete-then-import overlay
 // ---------------------------------------------------------------------------
+
+describe('applyProjectPull — patient board overwrite', () => {
+  it('tears down widgets → tabs → board before re-import', async () => {
+    const { storage, ops, t } = makeStore()
+    storageHolder.current = storage
+    // The local board sits at the id the import will derive, so without the
+    // delete-first the add-only create rejects — this proves the teardown runs.
+    const boardId = did('pb-1')
+    t.patientDashboards.set(boardId, { id: boardId, projectUid: P, name: { en: 'Bedside' } })
+    t.patientDashboardTabs.set('tab-local', { id: 'tab-local', patientDashboardId: boardId })
+    t.patientDashboardWidgets.set('w-local', { id: 'w-local', tabId: 'tab-local' })
+
+    const parsed = emptyParsed({
+      patientDashboards: [{ id: 'pb-1', name: { en: 'Bedside' } }],
+    } as unknown as Partial<ParsedProjectZip>)
+
+    await applyProjectPull(P, preparedWith(parsed), sel({
+      patientDashboards: new Set(['bedside']),
+    }))
+
+    // Children go before their parent, or a leftover row collides on re-import.
+    expect(mustIndexOf(ops, 'patientDashboardWidgets.deleteByTab:tab-local'))
+      .toBeLessThan(mustIndexOf(ops, `patientDashboardTabs.deleteByDashboard:${boardId}`))
+    expect(mustIndexOf(ops, `patientDashboardTabs.deleteByDashboard:${boardId}`))
+      .toBeLessThan(mustIndexOf(ops, `patientDashboards.delete:${boardId}`))
+    expect(t.patientDashboards.get(boardId)).toBeDefined()
+  })
+
+  it('leaves an unselected local board untouched', async () => {
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    t.patientDashboards.set('other', { id: 'other', projectUid: P, name: { en: 'Other' } })
+
+    await applyProjectPull(P, preparedWith(emptyParsed()), sel())
+
+    expect(t.patientDashboards.get('other')?.name).toEqual({ en: 'Other' })
+  })
+})
 
 describe('applyProjectPull — dashboard overwrite', () => {
   it('deletes widgets → tabs → dashboard before re-import, and keeps unselected local dashboards', async () => {
@@ -774,7 +868,7 @@ describe('applyProjectPull — failure paths (what is guaranteed today)', () => 
     const prepared = {
       ...preparedWith(parsed),
       plan: {
-        dashboards: [], scripts: [], datasets: [], pipeline: [],
+        dashboards: [], patientDashboards: [], scripts: [], datasets: [], pipeline: [],
         cohorts: [{ key: 'sepsis', label: 'Sepsis', exists: false }],
         readmeChanged: false,
       },
@@ -798,13 +892,14 @@ describe('isCompleteProjectPull', () => {
   const plan = (over: Partial<Record<string, unknown>> = {}) => ({
     dashboards: [{ key: 'd1', label: 'd1', exists: false }],
     scripts: [{ key: 's1', label: 's1', exists: false }],
-    cohorts: [], datasets: [], pipeline: [],
+    patientDashboards: [], cohorts: [], datasets: [], pipeline: [],
     readmeChanged: false,
     ...over,
   }) as never
 
   const sel = (over: Partial<Record<string, unknown>> = {}) => ({
-    dashboards: new Set<string>(), scripts: new Set<string>(), cohorts: new Set<string>(),
+    dashboards: new Set<string>(), patientDashboards: new Set<string>(),
+    scripts: new Set<string>(), cohorts: new Set<string>(),
     datasets: new Set<string>(), pipeline: new Set<string>(), readme: false,
     ...over,
   }) as never

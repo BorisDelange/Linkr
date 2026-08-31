@@ -127,8 +127,8 @@ export function ProjectPull({ projectUid, branch, remoteHead, mode, onPulled }: 
     setError(null)
     try {
       const groups: Record<ProjectPullGroupKey, Set<string>> = {
-        dashboards: new Set(), scripts: new Set(), cohorts: new Set(),
-        datasets: new Set(), pipeline: new Set(),
+        dashboards: new Set(), patientDashboards: new Set(), scripts: new Set(),
+        cohorts: new Set(), datasets: new Set(), pipeline: new Set(),
       }
       let readme = false
       for (const file of plan.files) {

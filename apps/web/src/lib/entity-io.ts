@@ -1579,6 +1579,7 @@ function remapColIds<T>(value: T, colIdMap: Map<string, string>): T {
  *  doesn't travel with the project (see linkedDataSourceIds in INSTANCE_FIELDS). */
 export type ProjectPullGroup =
   | 'dashboards'
+  | 'patientDashboards'
   | 'scripts'
   | 'cohorts'
   | 'conceptLists'
@@ -1629,8 +1630,9 @@ export async function importProjectContent(
       datasetData: wants('datasets') ? parsed.datasetData : [],
       datasetRawFiles: wants('datasets') ? parsed.datasetRawFiles : [],
       datasetAnalyses: wants('datasets') ? parsed.datasetAnalyses : [],
-      // Patient boards have no pull group yet, so a selective pull carries them
-      // through unfiltered (as a full import does) rather than dropping them.
+      patientDashboards: wants('patientDashboards') ? (parsed.patientDashboards ?? []) : [],
+      patientDashboardTabs: wants('patientDashboards') ? (parsed.patientDashboardTabs ?? []) : [],
+      patientDashboardWidgets: wants('patientDashboards') ? (parsed.patientDashboardWidgets ?? []) : [],
       // Databases (connections) never travel with a project pull; readme/attachments
       // are handled by the pull module, not here.
       connections: [],

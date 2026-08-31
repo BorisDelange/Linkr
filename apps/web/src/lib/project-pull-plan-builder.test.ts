@@ -9,7 +9,8 @@ import { isCompletePull, isFullyReviewed, itemId, type PullDecision } from './pu
 import type { PreparedProjectPull, ProjectPullPlan } from './project-pull'
 
 const emptyPlan = (): ProjectPullPlan => ({
-  dashboards: [], scripts: [], cohorts: [], datasets: [], pipeline: [], readmeChanged: false,
+  dashboards: [], patientDashboards: [], scripts: [], cohorts: [], datasets: [],
+  pipeline: [], readmeChanged: false,
 })
 
 const prepared = (over: Partial<ProjectPullPlan> = {}): PreparedProjectPull => ({
@@ -17,6 +18,9 @@ const prepared = (over: Partial<ProjectPullPlan> = {}): PreparedProjectPull => (
   plan: { ...emptyPlan(), ...over },
   clonedOid: 'oid-1',
   branch: 'main',
+  localScriptContent: new Map(),
+  localExportShape: { cohorts: new Map(), pipeline: new Map() },
+  remoteExportShape: { cohorts: new Map(), pipeline: new Map() },
 })
 
 describe('buildProjectPullPlan', () => {

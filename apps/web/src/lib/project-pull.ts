@@ -15,7 +15,9 @@
  * insert-only). Finally the sync anchor is advanced to the cloned commit so the
  * behind/diverged banner clears.
  */
-import type { Cohort, Dashboard, LocalizedString, Pipeline, Project, TodoItem } from '@/types'
+import type {
+  Cohort, Dashboard, LocalizedString, PatientDashboard, Pipeline, Project, TodoItem,
+} from '@/types'
 import { getStorage } from '@/lib/storage'
 import { gitCloneToZip, gitSetSyncState } from '@/lib/api/git'
 import { cleanGitUrl } from '@/lib/git-clone'
@@ -42,6 +44,7 @@ export interface PullItem {
 
 export interface ProjectPullPlan {
   dashboards: PullItem[]
+  patientDashboards: PullItem[]
   scripts: PullItem[]
   cohorts: PullItem[]
   datasets: PullItem[]
@@ -80,6 +83,7 @@ export interface PreparedProjectPull {
 /** The user's per-group selection (natural keys) + the readme block toggle. */
 export interface ProjectPullSelection {
   dashboards: Set<string>
+  patientDashboards: Set<string>
   scripts: Set<string>
   cohorts: Set<string>
   datasets: Set<string>
@@ -192,6 +196,9 @@ function treePath<T extends { id: string; name: string; parentId: string | null 
 
 // --- Natural keys (stable across instances, independent of the local id) -----
 const dashboardNaturalKey = (d: Dashboard): string => slugify(localizedEn(d.name) || d.id)
+/** Matches the export filename (`patient-dashboards/<slug>.json`), like the others. */
+const patientDashboardNaturalKey = (d: PatientDashboard): string =>
+  slugify(localizedEn(d.name) || d.id)
 const cohortNaturalKey = (c: Cohort): string => slugify(c.name || c.id)
 const pipelineNaturalKey = (p: Pipeline): string => slugify(localizedEn(p.name) || p.id)
 
@@ -213,12 +220,15 @@ export async function prepareProjectPull(
   if (!parsed) throw new Error('Cloned repository is not a valid project export')
 
   // Local natural keys per group, to mark remote items new vs existing.
-  const [localDashboards, localCohorts, localScripts, localDatasets, localPipelines] = await Promise.all([
+  const [
+    localDashboards, localCohorts, localScripts, localDatasets, localPipelines, localPatientBoards,
+  ] = await Promise.all([
     storage.dashboards.getByProject(projectUid),
     storage.cohorts.getByProject(projectUid),
     storage.ideFiles.getByProject(projectUid),
     storage.datasetFiles.getByProject(projectUid),
     storage.pipelines.getByProject(projectUid),
+    storage.patientDashboards.getByProject(projectUid),
   ])
 
   // Keyed by natural key, and holding the row itself: an entity present on both
@@ -226,6 +236,7 @@ export async function prepareProjectPull(
   const localCohortByKey = new Map(localCohorts.map((c) => [cohortNaturalKey(c), c] as const))
   const localPipelineByKey = new Map(localPipelines.map((p) => [pipelineNaturalKey(p), p] as const))
   const localDashKeys = new Set(localDashboards.map(dashboardNaturalKey))
+  const localPatientBoardKeys = new Set(localPatientBoards.map(patientDashboardNaturalKey))
   const localScriptById = new Map(localScripts.map((f) => [f.id, f]))
   const localScriptByPath = new Map(
     localScripts
@@ -242,6 +253,13 @@ export async function prepareProjectPull(
   const dashboards: PullItem[] = parsed.dashboards.map((d) => {
     const key = dashboardNaturalKey(d)
     return { key, label: localizedEn(d.name) || key, exists: localDashKeys.has(key) }
+  })
+  // Like dashboards, a board is a BUNDLE (board + tabs + widgets) this module
+  // cannot rebuild from the plan alone, so it is matched on the natural key and
+  // taken whole — no content comparison, and no diff row (see project-pull-diff).
+  const patientDashboards: PullItem[] = (parsed.patientDashboards ?? []).map((d) => {
+    const key = patientDashboardNaturalKey(d)
+    return { key, label: localizedEn(d.name) || key, exists: localPatientBoardKeys.has(key) }
   })
   // Like the scripts below: an entity identical to the remote is dropped rather
   // than offered as an overwrite of itself, or every push came straight back as a
@@ -283,7 +301,7 @@ export async function prepareProjectPull(
 
   return {
     parsed,
-    plan: { dashboards, scripts, cohorts, datasets, pipeline, readmeChanged },
+    plan: { dashboards, patientDashboards, scripts, cohorts, datasets, pipeline, readmeChanged },
     clonedOid: cloned.oid,
     branch,
     localScriptContent: new Map([...localScriptByPath].map(([p, f]) => [p, f.content])),
@@ -328,7 +346,9 @@ export function isCompleteProjectPull(
   selection: ProjectPullSelection,
 ): boolean {
   if (plan.readmeChanged && !selection.readme) return false
-  const groups = ['dashboards', 'scripts', 'cohorts', 'datasets', 'pipeline'] as const
+  const groups = [
+    'dashboards', 'patientDashboards', 'scripts', 'cohorts', 'datasets', 'pipeline',
+  ] as const
   return groups.every((g) => plan[g].every((item) => selection[g].has(item.key)))
 }
 
@@ -351,6 +371,7 @@ export async function applyProjectPull(
   // is included iff something in it is selected.
   const groups = new Set<ProjectPullGroup>()
   if (selection.dashboards.size) groups.add('dashboards')
+  if (selection.patientDashboards.size) groups.add('patientDashboards')
   if (selection.scripts.size) groups.add('scripts')
   if (selection.cohorts.size) groups.add('cohorts')
   if (selection.datasets.size) groups.add('datasets')
@@ -421,6 +442,24 @@ function narrowParsed(parsed: ParsedProjectZip, sel: ProjectPullSelection): Pars
     return false
   })
 
+  // Patient boards: same shape as dashboards, with flat tabs. Children ride with
+  // their board — a tab's key is `<boardKey>/<slug>`, a widget names its tabKey.
+  const keptBoards = (parsed.patientDashboards ?? [])
+    .filter((d) => sel.patientDashboards.has(patientDashboardNaturalKey(d)))
+  const keptBoardIds = new Set(keptBoards.map((d) => d.id).filter(Boolean))
+  const keptBoardTabs = (parsed.patientDashboardTabs ?? []).filter((tab) => {
+    if (tab.patientDashboardId && keptBoardIds.has(tab.patientDashboardId)) return true
+    if (tab.key) return sel.patientDashboards.has(tab.key.split('/')[0])
+    return false
+  })
+  const keptBoardTabIds = new Set(keptBoardTabs.map((t) => t.id))
+  const keptBoardTabKeys = new Set(keptBoardTabs.map((t) => t.key).filter(Boolean) as string[])
+  const keptBoardWidgets = (parsed.patientDashboardWidgets ?? []).filter((w) => {
+    if (w.tabId && keptBoardTabIds.has(w.tabId)) return true
+    if (w.tabKey) return keptBoardTabKeys.has(w.tabKey)
+    return false
+  })
+
   const remoteDsById = new Map(parsed.datasetFiles.map((f) => [f.id, f]))
   // Files match by path; folders are kept when any kept file needs them as an
   // ancestor (so the tree the import walks is complete).
@@ -435,6 +474,9 @@ function narrowParsed(parsed: ParsedProjectZip, sel: ProjectPullSelection): Pars
     dashboards: keptDashboards,
     dashboardTabs: keptTabs,
     dashboardWidgets: keptWidgets,
+    patientDashboards: keptBoards,
+    patientDashboardTabs: keptBoardTabs,
+    patientDashboardWidgets: keptBoardWidgets,
     cohorts: parsed.cohorts.filter((c) => sel.cohorts.has(cohortNaturalKey(c))),
     pipelines: parsed.pipelines.filter((p) => sel.pipeline.has(pipelineNaturalKey(p))),
     ideFiles: keptScripts,
@@ -482,6 +524,19 @@ async function deleteOverwrittenEntities(
       for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id)
       await storage.dashboardTabs.deleteByDashboard(d.id)
       await storage.dashboards.delete(d.id)
+    }
+  }
+  if (sel.patientDashboards.size) {
+    const local = await storage.patientDashboards.getByProject(projectUid)
+    for (const d of local) {
+      if (!sel.patientDashboards.has(patientDashboardNaturalKey(d))) continue
+      // Same teardown order as a dashboard: widgets, then tabs, then the board —
+      // the import loops are insert-only, so a leftover child collides on its
+      // deterministic id.
+      const tabs = await storage.patientDashboardTabs.getByDashboard(d.id)
+      for (const tab of tabs) await storage.patientDashboardWidgets.deleteByTab(tab.id)
+      await storage.patientDashboardTabs.deleteByDashboard(d.id)
+      await storage.patientDashboards.delete(d.id)
     }
   }
   if (sel.cohorts.size) {

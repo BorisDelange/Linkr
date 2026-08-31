@@ -17,6 +17,7 @@ import type { PreparedProjectPull, ProjectPullPlan } from '@/lib/project-pull'
 /** The export-tree folder that carries each group. */
 export const PROJECT_GROUP_PATHS = {
   dashboards: 'dashboards/',
+  patientDashboards: 'patient-dashboards/',
   scripts: 'scripts/',
   cohorts: 'cohorts/',
   datasets: 'datasets/',
@@ -27,7 +28,7 @@ export type ProjectPullGroupKey = keyof typeof PROJECT_GROUP_PATHS
 
 /** Groups in display order — the same order the dialog used. */
 export const PROJECT_PULL_GROUPS: ProjectPullGroupKey[] = [
-  'dashboards', 'scripts', 'cohorts', 'datasets', 'pipeline',
+  'dashboards', 'patientDashboards', 'scripts', 'cohorts', 'datasets', 'pipeline',
 ]
 
 /** The row carrying the README/LICENSE/todos/notes block. */

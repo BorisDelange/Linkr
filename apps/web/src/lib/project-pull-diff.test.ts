@@ -4,7 +4,7 @@ import { PROJECT_GROUP_PATHS } from './project-pull-plan-builder'
 import type { PreparedProjectPull, ProjectPullPlan } from './project-pull'
 
 const emptyPlan = (): ProjectPullPlan => ({
-  dashboards: [], scripts: [], cohorts: [], datasets: [], pipeline: [], readmeChanged: false,
+  dashboards: [], patientDashboards: [], scripts: [], cohorts: [], datasets: [], pipeline: [], readmeChanged: false,
 })
 
 const prepared = (
