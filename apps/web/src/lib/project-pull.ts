@@ -55,6 +55,9 @@ export interface PreparedProjectPull {
   /** The commit the clone landed on — the sync anchor after a successful pull. */
   clonedOid: string | null
   branch: string
+  /** Local script content by tree path — the left side of the diff viewer, kept
+   *  here so opening one costs no further read (see lib/project-pull-diff). */
+  localScriptContent: Map<string, string | undefined>
 }
 
 /** The user's per-group selection (natural keys) + the readme block toggle. */
@@ -83,6 +86,16 @@ export interface ProjectPullSelection {
    */
   decided?: boolean
 }
+
+/**
+ * Collapse CRLF/CR to LF before comparing two versions of a text file.
+ *
+ * Mirrors `_normalize_eol` in the backend's diff path: a script that only differs
+ * by line-ending style is not a change worth offering to pull, and without this a
+ * Windows-authored file would be reported as modified on every single pull.
+ */
+const sameText = (a: string | undefined, b: string | undefined): boolean =>
+  (a ?? '').replace(/\r\n?/g, '\n') === (b ?? '').replace(/\r\n?/g, '\n')
 
 const localizedEn = (s: LocalizedString | string | undefined | null): string => {
   if (s == null) return ''
@@ -141,8 +154,10 @@ export async function prepareProjectPull(
   const localCohortKeys = new Set(localCohorts.map(cohortNaturalKey))
   const localPipelineKeys = new Set(localPipelines.map(pipelineNaturalKey))
   const localScriptById = new Map(localScripts.map((f) => [f.id, f]))
-  const localScriptPaths = new Set(
-    localScripts.filter((f) => f.type === 'file').map((f) => treePath(f, localScriptById)),
+  const localScriptByPath = new Map(
+    localScripts
+      .filter((f) => f.type === 'file')
+      .map((f) => [treePath(f, localScriptById), f] as const),
   )
   const localDsById = new Map(localDatasets.map((f) => [f.id, f]))
   const localDatasetPaths = new Set(
@@ -163,9 +178,18 @@ export async function prepareProjectPull(
     const key = pipelineNaturalKey(p)
     return { key, label: localizedEn(p.name) || key, exists: localPipelineKeys.has(key) }
   })
+  // A script whose content already matches the remote is dropped, not listed as an
+  // overwrite of itself: right after a push every path exists on both sides, so
+  // marking on path alone reported the whole folder as "updated". Same rule as the
+  // ETL pull (buildEtlPullPlan) and as readmeChanged — the content is what changed
+  // or it did not. Only files survive this filter; folders never were pull items.
   const scripts: PullItem[] = parsed.ideFiles
     .filter((f) => f.type === 'file')
-    .map((f) => ({ key: f.path, label: f.path, exists: localScriptPaths.has(f.path) }))
+    .filter((f) => {
+      const local = localScriptByPath.get(f.path)
+      return !local || !sameText(local.content, f.content)
+    })
+    .map((f) => ({ key: f.path, label: f.path, exists: localScriptByPath.has(f.path) }))
   const datasets: PullItem[] = parsed.datasetFiles
     .filter((f) => f.type === 'file')
     .map((f) => {
@@ -180,6 +204,7 @@ export async function prepareProjectPull(
     plan: { dashboards, scripts, cohorts, datasets, pipeline, readmeChanged },
     clonedOid: cloned.oid,
     branch,
+    localScriptContent: new Map([...localScriptByPath].map(([p, f]) => [p, f.content])),
   }
 }
 

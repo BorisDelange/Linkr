@@ -31,6 +31,9 @@ interface PullPanelProps {
   /** Open the merge projection for a file. Omitted by scopes whose rows ARE whole
    *  files (ETL): there the row's label already says everything a viewer would. */
   onOpenDiff?: (path: string) => void
+  /** Which rows actually have a viewer. Omitted = all of them. Projects diff only
+   *  their scripts, so the other rows must not render as clickable. */
+  canOpenDiff?: (file: PullFile) => boolean
   /** Open a file's per-item picker. Omitted where no file carries sub-items. */
   onOpenTable?: (file: PullFile) => void
   /** Apply the decisions. `complete` tells the caller which cursor may advance. */
@@ -52,9 +55,13 @@ interface PullPanelProps {
  * version, and it reappears as a local change to push).
  */
 export function PullPanel({
-  plan, decisions, onDecide, mode, onOpenDiff, onOpenTable, onFinalize, applying,
+  plan, decisions, onDecide, mode, onOpenDiff, canOpenDiff, onOpenTable, onFinalize, applying,
 }: PullPanelProps) {
   const { t } = useTranslation()
+
+  /** The opener for one row, or undefined where that row has no viewer. */
+  const diffOpenerFor = (file: PullFile) =>
+    onOpenDiff && (!canOpenDiff || canOpenDiff(file)) ? onOpenDiff : undefined
 
   const empty = planIsEmpty(plan)
   const reviewed = isFullyReviewed(plan, decisions)
@@ -127,6 +134,7 @@ export function PullPanel({
                 onDecide={(decision) => onDecide(files.flatMap(idsOf), decision)}
                 onOpenTable={onOpenTable}
                 onOpenDiff={onOpenDiff}
+                canOpenDiff={canOpenDiff}
               />
             ))}
           </div>
@@ -177,7 +185,7 @@ export function PullPanel({
                       decisions={decisions}
                       onDecideAll={decideFile}
                       onDecideItem={(id, decision) => onDecide([id], decision)}
-                      onOpenDiff={onOpenDiff}
+                      onOpenDiff={diffOpenerFor(file)}
                       onOpenTable={onOpenTable}
                     />
                   ))}
@@ -194,7 +202,7 @@ export function PullPanel({
 
 /** One quick-action card: what it brings in, and one gesture to take or refuse it. */
 function PullCard({
-  card, files, decisions, onDecide, onOpenTable, onOpenDiff,
+  card, files, decisions, onDecide, onOpenTable, onOpenDiff, canOpenDiff,
 }: {
   card: PullCardDef
   files: PullFile[]
@@ -202,6 +210,7 @@ function PullCard({
   onDecide: (decision: PullDecision) => void
   onOpenTable?: (file: PullFile) => void
   onOpenDiff?: (path: string) => void
+  canOpenDiff?: (file: PullFile) => boolean
 }) {
   const { t } = useTranslation()
   const accent = !!card.isAll
@@ -249,7 +258,7 @@ function PullCard({
               {/* Only render a button where there is a viewer to open: a scope
                   without one would otherwise show a clickable path that does
                   nothing at all. */}
-              {onOpenDiff ? (
+              {onOpenDiff && (!canOpenDiff || canOpenDiff(f)) ? (
                 <button
                   type="button"
                   onClick={() => onOpenDiff(f.path)}

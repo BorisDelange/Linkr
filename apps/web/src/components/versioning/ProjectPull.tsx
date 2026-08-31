@@ -7,10 +7,17 @@ import {
   projectGroupForPath,
   PROJECT_DOCS_FILE,
   PROJECT_DOCS_KEY,
+  PROJECT_GROUP_PATHS,
   type ProjectPullGroupKey,
 } from '@/lib/project-pull-plan-builder'
 import { itemId, type PullDecision, type PullPlan } from '@/lib/pull-plan'
+import {
+  buildProjectDiffPlan,
+  buildProjectPullDiff,
+  scriptDiffPath,
+} from '@/lib/project-pull-diff'
 import { PullPanel } from './PullPanel'
+import { PullDiffDialog } from './PullDiffDialog'
 
 interface ProjectPullProps {
   projectUid: string
@@ -36,8 +43,10 @@ const draftKey = (projectUid: string, branch: string) => `${projectUid}|${branch
  * The project pull, rendered inline where the push list normally sits — the same
  * shell as the mapping-project and ETL pulls, over a different plan builder.
  *
- * No diff viewer: a project row is a folder of entities taken or left, and the
- * items under it already name each one. There is no merge projection to read.
+ * Scripts open a diff: they are text, and "which lines changed" is what decides
+ * whether to take one. The other groups are structured entities whose export is a
+ * rewritten JSON document, so a diff would show regenerated ids rather than the
+ * change itself — their rows stay unclickable (see lib/project-pull-diff).
  */
 export function ProjectPull({ projectUid, branch, remoteHead, mode, onPulled }: ProjectPullProps) {
   const { t } = useTranslation()
@@ -53,6 +62,7 @@ export function ProjectPull({ projectUid, branch, remoteHead, mode, onPulled }: 
   const [loading, setLoading] = useState(!_draftCache.has(key))
   const [error, setError] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
+  const [diffPath, setDiffPath] = useState<string | null>(null)
 
   useEffect(() => {
     if (_draftCache.has(key)) return
@@ -82,6 +92,21 @@ export function ProjectPull({ projectUid, branch, remoteHead, mode, onPulled }: 
     () => (prepared ? buildProjectPullPlan(prepared, branch) : null),
     [prepared, branch],
   )
+
+  // The dialog's own plan: one row per script, rather than the group row the
+  // panel ticks. Only scripts are diffable, so it is empty for every other group.
+  const diffPlan: PullPlan | null = useMemo(
+    () => (prepared ? buildProjectDiffPlan(prepared, branch) : null),
+    [prepared, branch],
+  )
+
+  // The panel hands back the row path (`scripts/`); the viewer opens on a FILE,
+  // so land on the first script and let its sidebar navigate to the others.
+  const openDiff = (path: string) => {
+    if (path !== PROJECT_GROUP_PATHS.scripts) return
+    const first = prepared?.plan.scripts[0]
+    if (first) setDiffPath(scriptDiffPath(first.key))
+  }
 
   const decide = (ids: string[], decision: PullDecision) => {
     setDecisions((prev) => {
@@ -164,9 +189,22 @@ export function ProjectPull({ projectUid, branch, remoteHead, mode, onPulled }: 
         decisions={decisions}
         onDecide={decide}
         mode={mode}
+        // Withheld when nothing is diffable: a row that looks clickable and does
+        // nothing reads as broken (the same rule PullFileRow applies).
+        onOpenDiff={prepared?.plan.scripts.length ? openDiff : undefined}
+        canOpenDiff={(file) => file.path === PROJECT_GROUP_PATHS.scripts}
         onFinalize={handleFinalize}
         applying={applying}
       />
+
+      {diffPath && prepared && diffPlan && (
+        <PullDiffDialog
+          plan={diffPlan}
+          initialPath={diffPath}
+          buildDiff={(file) => buildProjectPullDiff(file, prepared, prepared.localScriptContent)}
+          onClose={() => setDiffPath(null)}
+        />
+      )}
     </>
   )
 }

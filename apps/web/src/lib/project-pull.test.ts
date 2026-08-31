@@ -300,6 +300,67 @@ describe('prepareProjectPull — natural-key matching', () => {
     expect(prepared.plan.dashboards).toEqual([{ key: 'dash-9', label: 'dash-9', exists: false }])
   })
 
+  it('drops scripts whose content already matches — a push must not come back as a pull', async () => {
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    seedLinkedProject(t)
+    // The state right after a push: local and remote hold the same bytes.
+    t.ideFiles.set('same', {
+      id: 'same', projectUid: P, name: 'same.py', type: 'file', parentId: null, content: 'print(1)',
+    })
+    t.ideFiles.set('edited', {
+      id: 'edited', projectUid: P, name: 'edited.py', type: 'file', parentId: null, content: 'print(1)',
+    })
+
+    await stubClone((zip) => {
+      zip.file('scripts/_tree.json', JSON.stringify([
+        { path: 'same.py', type: 'file' },
+        { path: 'edited.py', type: 'file' },
+        { path: 'brand-new.py', type: 'file' },
+      ]))
+      zip.file('scripts/same.py', 'print(1)')
+      zip.file('scripts/edited.py', 'print(2)')
+      zip.file('scripts/brand-new.py', 'print(3)')
+    })
+
+    const { plan } = await prepareProjectPull(P, 'main')
+    // same.py is gone entirely; only the genuinely changed and the new one remain.
+    expect(plan.scripts.map((s) => s.key)).toEqual(['edited.py', 'brand-new.py'])
+    expect(plan.scripts.find((s) => s.key === 'edited.py')!.exists).toBe(true)
+    expect(plan.scripts.find((s) => s.key === 'brand-new.py')!.exists).toBe(false)
+  })
+
+  it('ignores line-ending style when comparing scripts', async () => {
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    seedLinkedProject(t)
+    t.ideFiles.set('crlf', {
+      id: 'crlf', projectUid: P, name: 'win.py', type: 'file', parentId: null,
+      content: 'a\r\nb\r\n',
+    })
+    await stubClone((zip) => {
+      zip.file('scripts/_tree.json', JSON.stringify([{ path: 'win.py', type: 'file' }]))
+      zip.file('scripts/win.py', 'a\nb\n')
+    })
+    // A Windows-authored script would otherwise be "updated" on every pull, forever.
+    expect((await prepareProjectPull(P, 'main')).plan.scripts).toEqual([])
+  })
+
+  it('still offers a script whose local copy is empty', async () => {
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    seedLinkedProject(t)
+    t.ideFiles.set('blank', {
+      id: 'blank', projectUid: P, name: 'blank.py', type: 'file', parentId: null,
+    })
+    await stubClone((zip) => {
+      zip.file('scripts/_tree.json', JSON.stringify([{ path: 'blank.py', type: 'file' }]))
+      zip.file('scripts/blank.py', 'print(1)')
+    })
+    expect((await prepareProjectPull(P, 'main')).plan.scripts)
+      .toEqual([{ key: 'blank.py', label: 'blank.py', exists: true }])
+  })
+
   it('readmeChanged reflects a README difference (false when both sides are empty)', async () => {
     const { storage, t } = makeStore()
     storageHolder.current = storage
