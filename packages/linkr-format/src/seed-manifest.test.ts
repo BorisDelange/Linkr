@@ -198,6 +198,19 @@ describe('buildSeedProjectIndex', () => {
     })
   })
 
+  // `patient-dashboards/` is its own folder, not a `dashboards/` subfolder: left
+  // out of the index, a seeded project showed no patient board at all.
+  it('lists patient dashboards apart from dashboards', () => {
+    const tree = new MemoryTree({
+      'projects/p/dashboards/icu.json': '{}',
+      'projects/p/patient-dashboards/board.json': '{}',
+    })
+    expect(buildSeedProjectIndex(tree, 'projects/p')).toMatchObject({
+      dashboards: ['icu.json'],
+      patientDashboards: ['board.json'],
+    })
+  })
+
   it('separates a CSV the loader parses from a raw upload it restores verbatim', () => {
     const tree = new MemoryTree({
       'projects/p/datasets/_tree.json': '[]',

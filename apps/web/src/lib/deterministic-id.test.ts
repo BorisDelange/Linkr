@@ -25,6 +25,10 @@ describe('deterministicId', () => {
     expect(deterministicId('x'.repeat(200), 'col-365168366-3')).toMatch(UUID_RE)
   })
 
+  it('rejects a non-string owner rather than failing deep inside', () => {
+    expect(() => deterministicId(undefined as unknown as string, 'queries/a.sql')).toThrow(TypeError)
+  })
+
   it('has no collisions across a batch of typical ids', () => {
     const keys = ['dash-1', 'tab-1', 'widget-1', 'col-0', 'col-1', 'cohort-a', 'pipe-x', 'b1', 'b2']
     const ids = keys.map((k) => deterministicId('proj-1', k))

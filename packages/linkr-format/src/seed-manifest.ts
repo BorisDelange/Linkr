@@ -322,6 +322,7 @@ export interface SeedProjectIndex {
   cohorts?: string[]
   connections?: string[]
   dashboards?: string[]
+  patientDashboards?: string[]
   datasetFolders?: string[]
   datasetAnalyses?: Record<string, string[]>
   datasetCsvFiles?: Record<string, string>
@@ -373,6 +374,7 @@ export function buildSeedProjectIndex(tree: EntityTree, dir: string): SeedProjec
     ['cohorts', 'cohorts'],
     ['databases', 'connections'],
     ['dashboards', 'dashboards'],
+    ['patient-dashboards', 'patientDashboards'],
   ] as const) {
     const found = namesIn(tree, `${dir}/${sub}`, '.json')
     if (found.length) index[key] = found

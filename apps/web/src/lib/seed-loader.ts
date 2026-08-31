@@ -22,9 +22,11 @@ import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import {
-  attachTreeIds, parseSourceConceptIdEntries, reassemblePresetMapping, resolveDashboardBundle,
+  attachTreeIds, cohortKey, parseSourceConceptIdEntries, patientDashboardKey, reassemblePresetMapping,
+  resolveDashboardBundle, slugify,
   type CompactSourceConceptIdEntries, type DashboardBundle,
 } from '@/lib/entity-io'
+import { deterministicId } from '@/lib/deterministic-id'
 import { fromPathTree, readPathTree, storablePathNode } from '@/lib/entity-tree'
 import { entityKey, resolvePointer, resolveSlugLanding } from '@/lib/import-identity'
 import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
@@ -38,6 +40,7 @@ import type {
   SqlScriptCollection, SqlScriptFile,
   WikiPage, ConceptSet,
   Dashboard, DashboardTab, DashboardWidget,
+  PatientDashboard, PatientDashboardTab, PatientDashboardWidget,
   DatasetFile, DatasetColumn, IdeFile,
   LocalizedString, TodoItem,
 } from '@/types'
@@ -346,10 +349,20 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
     }
   }
 
+  // Same rule as the ZIP import (`writeParsedProject`): a key-based export carries
+  // no local id, so it comes from the content key — seeding and importing the same
+  // repo then land on the same row.
+  const keyId = (key: string): string => deterministicId(projectUid, key)
+
   // --- Cohorts ---
   for (const path of projectIndex?.cohorts ?? []) {
     const cohort = await fetchJson<import('@/types').Cohort>(`${base}/cohorts/${path}`)
-    if (cohort) await storage.cohorts.create({ ...cohort, projectUid }).catch(() => {})
+    if (!cohort) continue
+    await storage.cohorts.create({
+      ...cohort,
+      id: cohort.id || keyId(cohortKey(cohort)),
+      projectUid,
+    }).catch((err) => console.error(`[seed-loader] cohort ${path}:`, err))
   }
 
   // --- Connections (databases/) ---
@@ -374,6 +387,38 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
     }
     for (const w of resolved.widgets) {
       await storage.dashboardWidgets.create(w).catch(() => {})
+    }
+  }
+
+  // --- Patient dashboards ---
+  // Same key-derived ids as the ZIP import; tabs key on `<board>/<tab>`, so a
+  // tab's owner is the board named by its key prefix.
+  for (const path of projectIndex?.patientDashboards ?? []) {
+    const bundle = await fetchJson<{
+      patientDashboard: PatientDashboard
+      tabs: (PatientDashboardTab & { key?: string })[]
+      widgets: (PatientDashboardWidget & { key?: string; tabKey?: string })[]
+    }>(`${base}/patient-dashboards/${path}`)
+    if (!bundle?.patientDashboard) continue
+    const board = bundle.patientDashboard
+    const boardId = board.id || keyId(patientDashboardKey(board))
+    await storage.patientDashboards.create({ ...board, id: boardId, projectUid })
+      .catch((err) => console.error(`[seed-loader] patient board ${path}:`, err))
+    for (const tab of bundle.tabs ?? []) {
+      const { key, ...rest } = tab
+      await storage.patientDashboardTabs.create({
+        ...rest,
+        id: key ? keyId(key) : tab.id,
+        patientDashboardId: boardId,
+      }).catch((err) => console.error(`[seed-loader] patient tab ${key ?? tab.id}:`, err))
+    }
+    for (const w of bundle.widgets ?? []) {
+      const { key, tabKey, ...rest } = w
+      await storage.patientDashboardWidgets.create({
+        ...rest,
+        id: key ? keyId(key) : w.id,
+        tabId: tabKey ? keyId(tabKey) : w.tabId,
+      }).catch((err) => console.error(`[seed-loader] patient widget ${key ?? w.id}:`, err))
     }
   }
 
@@ -576,7 +621,13 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
     .filter((e): e is SeedManifestEntity & { type: 'mappingProject' } => e.type === 'mappingProject')
     .map((e) => (e as { folder?: string }).folder)
     .filter((f): f is string => !!f)
-  await loadWorkspaceInternals(base, wsId, now, internals, mpFolders)
+  // Isolated: the internals are loaded before the first-class entities, so an
+  // unreadable one used to abort the whole workspace and seed zero projects.
+  try {
+    await loadWorkspaceInternals(base, wsId, now, internals, mpFolders)
+  } catch (err) {
+    console.error('[seed-loader] Failed to load workspace internals:', err)
+  }
 
   // --- Structural first-class entities (phase 1: projects, mapping projects, dq, catalogs) ---
   for (const entity of manifest.entities) {
@@ -738,6 +789,17 @@ async function loadStructuralEntity(
 }
 
 /** Load the non-re-seedable bootstrap content of a workspace (wiki, sql, etl pipelines, …). */
+/**
+ * The owner id a tree of files hangs off. Manifests carry the portable
+ * `entityId`; `id` is this instance's local key and is absent from a published
+ * repo, so reading it alone yielded `undefined` and threw inside
+ * `deterministicId`. Same precedence as `eid` (entity-io.ts) and its server port
+ * `_eid` (workspace_export.py).
+ */
+function ownerIdOf(entity: { entityId?: string; id?: string; name?: LocalizedString | string }): string | null {
+  return entity.entityId || entity.id || slugify(localized(entity.name, 'en') || '') || null
+}
+
 async function loadWorkspaceInternals(
   base: string, wsId: string, now: string, index: WorkspaceInternals, mpFolders: string[] = [],
 ): Promise<void> {
@@ -833,6 +895,8 @@ async function loadWorkspaceInternals(
   for (const colFolder of index.sqlCollections ?? []) {
     const collection = await fetchManifest<SqlScriptCollection>(`${base}/sql-scripts/${colFolder}`, 'sql-collection')
     if (!collection) continue
+    const collectionId = ownerIdOf(collection)
+    if (!collectionId) continue
     await storage.sqlScriptCollections.create({ ...collection, workspaceId: wsId, updatedAt: now }).catch(() => {})
     // Content lives at the file's tree path (`queries/cohort.sql`), which is also
     // its manifest key — a nested script used to be looked up at a flat
@@ -840,7 +904,7 @@ async function loadWorkspaceInternals(
     const { tree: colTree, filePrefix } = await fetchScriptTree(`${base}/sql-scripts/${colFolder}`)
     const tree = fromPathTree<SqlScriptFile & { path: string }>(
       readPathTree(colTree),
-      collection.id,
+      collectionId,
       'collectionId',
     )
     for (const f of tree) {
@@ -856,11 +920,13 @@ async function loadWorkspaceInternals(
   for (const etlFolder of index.etlPipelines ?? []) {
     const pipeline = await fetchManifest<EtlPipeline>(`${base}/etl/${etlFolder}`, 'etl-pipeline')
     if (!pipeline) continue
+    const pipelineId = ownerIdOf(pipeline)
+    if (!pipelineId) continue
     await storage.etlPipelines.create({ ...pipeline, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
     const { tree: etlTree, filePrefix } = await fetchScriptTree(`${base}/etl/${etlFolder}`)
     const tree = fromPathTree<EtlFile & { path: string }>(
       readPathTree(etlTree),
-      pipeline.id,
+      pipelineId,
       'pipelineId',
     )
     for (const f of tree) {
@@ -1539,6 +1605,20 @@ async function attachSeededEntityLinks(wsId: string): Promise<void> {
           ...(targetDataSourceId ? { targetDataSourceId } : {}),
           ...(mappingProjectId ? { mappingProjectId } : {}),
         }).catch(() => {})
+      }
+    }
+
+    // Cohorts and patient boards hang off a project, not the workspace, so they
+    // are reached through it. Their `dataSourceRef` is stripped of local ids like
+    // every other pointer — unresolved, a board opens with an empty database.
+    for (const project of inWorkspace(await storage.projects.getAll())) {
+      for (const cohort of await storage.cohorts.getByProject(project.uid)) {
+        const dataSourceId = link(cohort.dataSourceRef, cohort.dataSourceId)
+        if (dataSourceId) await storage.cohorts.update(cohort.id, { dataSourceId }).catch(() => {})
+      }
+      for (const board of await storage.patientDashboards.getByProject(project.uid)) {
+        const dataSourceId = link(board.dataSourceRef, board.dataSourceId)
+        if (dataSourceId) await storage.patientDashboards.update(board.id, { dataSourceId }).catch(() => {})
       }
     }
 

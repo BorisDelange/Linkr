@@ -280,6 +280,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         useOrganizationStore.getState().loadOrganizations()
         const { useWorkspaceStore } = await import('./workspace-store')
         useWorkspaceStore.getState().loadWorkspaces()
+        // Cohorts and pipelines are read ONCE, by the App shell, and this seed runs
+        // after that: what it wrote stayed invisible until a manual reload. Same
+        // re-read the catalog install does (lib/catalog/refresh.ts).
+        const { useCohortStore } = await import('./cohort-store')
+        useCohortStore.getState().loadCohorts()
+        const { usePipelineStore } = await import('./pipeline-store')
+        usePipelineStore.getState().loadPipelines()
       } catch {
         // Seed data may already exist in IndexedDB from a previous session
       }

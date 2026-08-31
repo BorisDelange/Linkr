@@ -38,6 +38,11 @@ function hex8(n: number): string {
  * stay stable; only pathological ':'-containing inputs get a new (distinct) id.
  */
 export function deterministicId(namespace: string, key: string): string {
+  // Names the offender: a manifest missing `entityId` used to surface here as
+  // "can't access property replace of undefined", far from the file at fault.
+  if (typeof namespace !== 'string' || typeof key !== 'string') {
+    throw new TypeError(`deterministicId needs two strings, got (${typeof namespace}, ${typeof key})`)
+  }
   const esc = (v: string) => v.replace(/:/g, '::')
   const s = `${esc(namespace)}:${esc(key)}`
   const a = hex8(fnv1a(s, 0))

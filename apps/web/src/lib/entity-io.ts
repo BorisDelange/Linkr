@@ -837,14 +837,16 @@ function byId<T extends { id: string }>(items: T[]): T[] {
 // Patient-dashboard content keys — same scheme as the dashboard ones above, minus
 // the sub-tab nesting (a patient board's tabs are a flat ordered list).
 
-/** patientDashboardKey — slug of the English name, matching the export filename. */
-function patientDashboardKey(d: PatientDashboard): string {
+/** patientDashboardKey — slug of the English name, matching the export filename.
+ *  Exported: the seed loader derives ids from the same key, so a seeded board and
+ *  an imported one land on the same row. */
+export function patientDashboardKey(d: PatientDashboard): string {
   return slugify(localized(d.name, 'en') || d.id)
 }
 
 /** cohortKey — slug of the name, matching the export filename. A cohort's name is
  *  a plain string (not a LocalizedString), so no language rule applies. */
-function cohortKey(c: Cohort): string {
+export function cohortKey(c: Cohort): string {
   return slugify(c.name || c.id)
 }
 
