@@ -3004,6 +3004,71 @@ describe('export — a cohort ships its definition, not its run results', () => 
     expect(cohort.criteriaTree).toEqual({ kind: 'group', operator: 'AND', children: [] })
   })
 
+  it('ships no id — the filename is the identity, like a dashboard', async () => {
+    const storage = new Proxy({
+      projects: { getById: async () => ({ uid: 'p1', name: { en: 'P' }, config: {} }) },
+      cohorts: { getByProject: async () => [{ id: 'co-1', projectUid: 'p1', name: 'Adults' }] },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const built = await buildProjectZip('p1', storage, {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const cohort = JSON.parse(await zip.files['cohorts/adults.json'].async('string'))
+    expect(cohort).not.toHaveProperty('id')
+  })
+
+  it('re-imports onto the SAME id — a round trip must reach a fixed point', async () => {
+    // The churn this guards: the id used to travel, the import re-hashed it into
+    // a new one, the next push wrote THAT back, and the cycle never converged —
+    // a phantom diff on every round trip. Deriving from the content key makes the
+    // second import land exactly where the first did.
+    const created: Record<string, unknown>[] = []
+    const storage = new Proxy({
+      cohorts: { create: async (c: Record<string, unknown>) => { created.push(c) } },
+      dataSources: { getAll: async () => [] },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const parsed = {
+      project: { uid: 'p1', name: { en: 'P' } },
+      ideFiles: [], pipelines: [], cohorts: [{ name: 'Adults' }], connections: [],
+      conceptLists: [], dashboards: [], dashboardTabs: [], dashboardWidgets: [],
+      datasetFiles: [], datasetAnalyses: [], datasetData: [], datasetRawFiles: [],
+      attachmentsMeta: [], attachmentBlobs: new Map(),
+    } as unknown as ParsedProjectZip
+
+    await importProjectContent(parsed, 'p1', storage)
+    await importProjectContent(parsed, 'p1', storage)
+
+    expect(created).toHaveLength(2)
+    expect(created[0].id).toBe(created[1].id)
+    // And it is derived from the key, not from anything the repo carried.
+    expect(created[0].id).toBe(deterministicId('p1', 'adults'))
+  })
+
+  it('still honours an id from an export written before it was dropped', async () => {
+    const created: Record<string, unknown>[] = []
+    const storage = new Proxy({
+      cohorts: { create: async (c: Record<string, unknown>) => { created.push(c) } },
+      dataSources: { getAll: async () => [] },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const parsed = {
+      project: { uid: 'p1', name: { en: 'P' } },
+      ideFiles: [], pipelines: [], cohorts: [{ id: 'co-legacy', name: 'Adults' }],
+      connections: [], conceptLists: [], dashboards: [], dashboardTabs: [],
+      dashboardWidgets: [], datasetFiles: [], datasetAnalyses: [], datasetData: [],
+      datasetRawFiles: [], attachmentsMeta: [], attachmentBlobs: new Map(),
+    } as unknown as ParsedProjectZip
+
+    await importProjectContent(parsed, 'p1', storage)
+    expect(created[0].id).toBe(deterministicId('p1', 'co-legacy'))
+  })
+
   it('writes no pipeline/ folder — the page does not exist yet', async () => {
     const storage = new Proxy({
       projects: { getById: async () => ({ uid: 'p1', name: { en: 'P' }, config: {} }) },

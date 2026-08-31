@@ -842,6 +842,12 @@ function patientDashboardKey(d: PatientDashboard): string {
   return slugify(localized(d.name, 'en') || d.id)
 }
 
+/** cohortKey — slug of the name, matching the export filename. A cohort's name is
+ *  a plain string (not a LocalizedString), so no language rule applies. */
+function cohortKey(c: Cohort): string {
+  return slugify(c.name || c.id)
+}
+
 /** Every tab id → `<boardKey>/<slug>`, `#<displayOrder>` on a sibling collision. */
 function buildPatientTabKeyMap(
   boardKey: string,
@@ -1166,7 +1172,12 @@ export async function buildProjectZip(
     // DATA_SOURCE_LOCAL_FIELDS); the criteria that produce them ARE versioned.
     delete out.attrition
     delete out.resultCount
-    zip.file(`cohorts/${slugify(c.name || c.id)}.json`, json(out))
+    // Key-addressed like a dashboard: the FILENAME is the identity, and the local
+    // id is re-derived from it on import. Versioning the id instead made every
+    // round trip rewrite it — the import re-hashed the repo's id, pushed the new
+    // one back, and the next import re-hashed that: churn that never converged.
+    delete out.id
+    zip.file(`cohorts/${cohortKey(c)}.json`, json(out))
   }
 
   // --- concept-lists/ ---
@@ -1682,7 +1693,10 @@ export async function importProjectContent(
     await storage.cohorts.create(
       dropForeignAuthorId({
         ...c,
-        id: mapId(c.id),
+        // Same rule as a patient board: a key-based export carries no id, so the
+        // id comes from the content key and a re-import lands on the same row.
+        // `mapId` stays for exports written before the id was dropped.
+        id: c.id ? mapId(c.id) : keyId(cohortKey(c)),
         projectUid,
         dataSourceId: localDatabaseId(c.dataSourceRef),
       }),

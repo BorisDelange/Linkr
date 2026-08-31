@@ -1,5 +1,4 @@
 {
-  "id": "co-1",
   "name": "Adults",
   "description": "age >= 18",
   "level": "patient",

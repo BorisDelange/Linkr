@@ -99,15 +99,21 @@ def _drop_local_database(meta: dict) -> dict:
     return out
 
 
-def _drop_cohort_run_results(meta: dict) -> dict:
-    """Port of the cohort run-result stripping in buildProjectZip (entity-io.ts).
+def _cohort_export_shape(meta: dict) -> dict:
+    """Port of the cohort export shaping in buildProjectZip (entity-io.ts).
 
     ``attrition`` and ``resultCount`` count the patients of THIS instance's
     database, so an instance holding the repo without the same data exports
     different numbers — a diff neither side can settle, coming back after every
     recompute. The criteria that produce them ARE versioned; only the counts go.
-    Same rule as a data source's ``stats``."""
-    return {k: v for k, v in meta.items() if k not in ("attrition", "resultCount")}
+    Same rule as a data source's ``stats``.
+
+    ``id`` goes too: a cohort is key-addressed like a dashboard, so the FILENAME
+    is its identity and the local id is re-derived from it on import. Versioning
+    the id made every round trip rewrite it (import re-hashed the repo's id,
+    pushed the new one back, next import re-hashed that) — churn with no fixed
+    point."""
+    return {k: v for k, v in meta.items() if k not in ("attrition", "resultCount", "id")}
 
 
 def _canonical_parse_options(opts: dict) -> dict:
@@ -687,7 +693,7 @@ def build_project_tree(
 
     for c in cohorts:
         tree[f"cohorts/{_slugify(c.get('name') or c['id'])}.json"] = _json(
-            _drop_cohort_run_results(_drop_local_database(_strip_instance_fields(c)))
+            _cohort_export_shape(_drop_local_database(_strip_instance_fields(c)))
         )
 
     # User-authored concept lists. Names are LocalizedString, so the slug comes
