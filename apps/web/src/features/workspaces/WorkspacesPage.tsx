@@ -45,11 +45,12 @@ import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
 import { EditWorkspaceDialog } from './EditWorkspaceDialog'
 import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
-import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, visitSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { localized } from '@/lib/localized'
 import { parseWorkspaceZip, collectGitLinkedEntities, applyClonedEntity } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
@@ -69,7 +70,7 @@ export function WorkspacesPage() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('workspaces')
 
   const badgeCategories = useBadgeCategories()
 

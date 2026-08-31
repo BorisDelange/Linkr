@@ -12,8 +12,9 @@ import { GatedButton } from '@/components/ui/gated-button'
 import { Card } from '@/components/ui/card'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
 import { useCardSelection } from '@/components/ui/use-card-selection'
-import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,7 +41,7 @@ export function CohortListPage() {
   const [editingCohort, setEditingCohort] = useState<Cohort | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Cohort | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('project-cohorts')
 
   const cohorts = useMemo(() => (uid ? allCohorts.filter((c) => c.projectUid === uid) : []), [uid, allCohorts])
 

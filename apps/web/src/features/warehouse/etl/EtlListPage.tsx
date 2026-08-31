@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { Workflow, Database, ArrowRight } from 'lucide-react'
-import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { cn } from '@/lib/utils'
 import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { useEtlStore } from '@/stores/etl-store'
@@ -49,7 +50,7 @@ export function EtlListPage() {
   )
 
   const [searchQuery, setSearchQuery] = useState('')
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('etl-pipelines')
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
   const filteredPipelines = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()

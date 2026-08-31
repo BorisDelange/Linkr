@@ -8,7 +8,7 @@ import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-se
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
-import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar } from '@/components/ui/list-page-toolbar'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -37,6 +37,7 @@ import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { paths } from '@/lib/paths'
 import { localized } from '@/lib/localized'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useAppStore } from '@/stores/app-store'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
@@ -68,7 +69,7 @@ export function PatientDataListPage() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [editTarget, setEditTarget] = useState<PatientDashboard | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('project-patient-data')
 
   useEffect(() => {
     if (projectUid) loadProjectDashboards(projectUid)

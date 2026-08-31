@@ -70,12 +70,13 @@ import { useAppStore } from '@/stores/app-store'
 import { useSchemaPresetStore, buildSchemaPreset, forkedLineage } from '@/stores/schema-preset-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
-import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar } from '@/components/ui/list-page-toolbar'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
 import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-selection'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { useSchemaPresetActions, toSchemaPresetItem } from './use-schema-preset-actions'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
@@ -1828,7 +1829,7 @@ export function SchemaPresetsPage() {
   }, [customPresets])
 
   const [searchQuery, setSearchQuery] = useState('')
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('schema-presets')
   const filteredSchemas = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     const filtered = q

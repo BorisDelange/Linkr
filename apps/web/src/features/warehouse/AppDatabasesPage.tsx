@@ -18,8 +18,9 @@ import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
 import { useCardSelection } from '@/components/ui/use-card-selection'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { Input } from '@/components/ui/input'
-import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { Label } from '@/components/ui/label'
 import { FieldInfo } from '@/components/ui/field-info'
 import { RequiredMark } from '@/components/ui/required-mark'
@@ -248,7 +249,7 @@ export function AppDatabasesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [projectFilter, setProjectFilter] = useState<string[]>([])
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('app-databases')
 
   // Show only databases for the current workspace, hide vocabulary-only sources
   const visibleSources = useMemo(

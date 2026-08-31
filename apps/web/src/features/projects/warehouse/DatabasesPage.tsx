@@ -9,8 +9,9 @@ import { Database, Link as LinkIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
 import { useCardSelection } from '@/components/ui/use-card-selection'
-import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { DatabaseCard } from './databases/DatabaseCard'
 import { DatabaseDetailPage } from './databases/DatabaseDetailPage'
 import { LinkDatabaseDialog } from './databases/LinkDatabaseDialog'
@@ -50,7 +51,7 @@ export function DatabasesPage() {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('project-databases')
 
   // Mount all data sources for this project when entering the page
   useEffect(() => {

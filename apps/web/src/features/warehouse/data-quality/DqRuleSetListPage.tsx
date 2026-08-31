@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { ShieldCheck, Database } from 'lucide-react'
-import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { cn } from '@/lib/utils'
 import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { BadgeStrip } from '@/components/ui/badge-strip'
@@ -55,7 +56,7 @@ export function DqRuleSetListPage() {
   )
 
   const [searchQuery, setSearchQuery] = useState('')
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('dq-rule-sets')
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
   const filteredRuleSets = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()

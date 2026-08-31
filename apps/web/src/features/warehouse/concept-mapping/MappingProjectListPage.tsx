@@ -9,12 +9,13 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
-import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { applySort, visitSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { getStorage } from '@/lib/storage'
 import { parseImportZip, readBinaryFromImportZip, readImportedManifest } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
@@ -102,7 +103,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('mapping-projects')
 
   // All distinct custom badges across the workspace's projects, keeping the first-seen
   // colour per label so the filter options match the badges shown on the cards.

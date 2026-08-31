@@ -10,12 +10,13 @@ import { Card } from '@/components/ui/card'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
 import { useCardSelection, selectedCardClass } from '@/components/ui/use-card-selection'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { EntityDocsDialog, type DocsTab } from '@/components/ui/entity-docs-dialog'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { localized } from '@/lib/localized'
 import { cn, cardMenuTriggerClass } from '@/lib/utils'
 import {
@@ -235,7 +236,7 @@ export function PluginsTab() {
   const [searchQuery, setSearchQuery] = useState('')
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
   const [typeFilter, setTypeFilter] = useState<string[]>([])
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [sort, setSort] = usePersistedSort('plugins')
 
   const importInputRef = useRef<HTMLInputElement>(null)
   const [importConflict, setImportConflict] = useState<{ name: string; files: Record<string, string>; pluginId: string } | null>(null)
