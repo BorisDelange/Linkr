@@ -3,6 +3,7 @@ import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, Databas
 import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, EtlQualityCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, PatientDashboardStorage, PatientDashboardTabStorage, PatientDashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, EtlRunHistoryStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, DqRunHistoryStorage, ConceptSetStorage, ConceptListStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getSchemaPreset } from '@/lib/schema-presets'
+import { backfillPortableRefs, type IdbUpgradeTransaction } from './idb-portable-refs'
 import { SUGGESTION_CATEGORIES } from '@/types'
 
 interface LinkrDB extends DBSchema {
@@ -327,7 +328,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 41
+const DB_VERSION = 42
 
 /**
  * One schema preset, rekeyed for the v41 store (keyPath `presetId` → `id`).
@@ -970,6 +971,21 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
             }
           })
         }
+      }
+      // Version 42: derive the portable pointer of every link that predates it.
+      //
+      // A cross-entity link exports as a `*Ref` pointer with its local id
+      // blanked, and the pointer is stamped when the user picks the target — so
+      // a link chosen before that existed exports with NO pointer, losing the
+      // reference on the next round trip. The one thing this instance can do is
+      // read its own rows: an id that still resolves names a real entity, whose
+      // lineageId/entityId/name are exactly what the pointer holds.
+      //
+      // Fills blanks only: an existing pointer records the user's actual choice,
+      // and an id resolving to nothing yields none rather than a guess. Twin of
+      // the server-side migration a9b0c1d2e3f4.
+      if (oldVersion < 42) {
+        backfillPortableRefs(transaction as unknown as IdbUpgradeTransaction)
       }
     },
   })
