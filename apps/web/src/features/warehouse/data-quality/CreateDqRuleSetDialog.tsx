@@ -13,6 +13,7 @@ import {
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
+import { buildPointer } from '@/lib/import-identity'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { BadgeEditor } from '@/components/ui/badge-editor'
@@ -82,6 +83,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         name: setLocalized(editingRuleSet.name, language, name.trim()),
         description: setLocalized(editingRuleSet.description, language, description.trim()),
         dataSourceId,
+        dataSourceRef: buildPointer(dbSources, dataSourceId),
         badges,
         version: version.trim() || '0.1.0',
         ...authoring,
@@ -97,6 +99,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         name: setLocalized(undefined, language, name.trim()),
         description: setLocalized(undefined, language, description.trim()),
         dataSourceId,
+        dataSourceRef: buildPointer(dbSources, dataSourceId),
         badges,
         status: 'draft',
         version: version.trim() || '0.1.0',

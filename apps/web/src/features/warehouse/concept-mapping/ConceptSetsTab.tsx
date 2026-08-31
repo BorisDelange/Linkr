@@ -71,6 +71,7 @@ import { ConceptSetDetailSheet } from './ConceptSetDetailSheet'
 import type { MappingProject, DataSource, ConceptSet, SchemaMapping, SchemaPresetId } from '@/types'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { localized, toLocalized } from '@/lib/localized'
+import { buildPointer } from '@/lib/import-identity'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import {
   compareVocabFiles,
@@ -770,7 +771,12 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         files: vocabSelected,
         isVocabularyReference: true,
       })
-      await updateMappingProject(project.id, { vocabularyDataSourceId: dsId })
+      // Read from the store rather than the render's `dataSources`: the database
+      // was created a line ago, so the closure's snapshot predates it.
+      await updateMappingProject(project.id, {
+        vocabularyDataSourceId: dsId,
+        vocabularyDataSourceRef: buildPointer(useDataSourceStore.getState().dataSources, dsId),
+      })
       setVocabFiles([])
       setVocabExcluded(new Set())
       if (vocabInputRef.current) vocabInputRef.current.value = ''
@@ -787,7 +793,10 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     try {
       await removeDataSource(project.vocabularyDataSourceId)
     } catch { /* might already be deleted */ }
-    await updateMappingProject(project.id, { vocabularyDataSourceId: undefined })
+    await updateMappingProject(project.id, {
+      vocabularyDataSourceId: undefined,
+      vocabularyDataSourceRef: undefined,
+    })
     setVocabRemoveOpen(false)
     setBrowseResults([])
     setBrowseVocabOptions([])

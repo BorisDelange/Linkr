@@ -9,7 +9,14 @@
     "en": "Reusable SQL",
     "fr": "SQL réutilisable"
   },
-  "defaultDataSourceId": null,
+  "defaultDataSourceRef": {
+    "lineageId": "db-lin-1",
+    "entityId": "mimic-iv-demo",
+    "label": {
+      "en": "MIMIC-IV demo",
+      "fr": "MIMIC-IV démo"
+    }
+  },
   "config": {
     "excludedFiles": [
       "scratch.sql"

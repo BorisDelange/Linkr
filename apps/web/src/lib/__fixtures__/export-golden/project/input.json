@@ -43,7 +43,13 @@
       "fr": "# Démo\nBonjour"
     },
     "linkedDataSourceIds": [
-      "ds-local-1"
+      "12994fb1-24c2-4aa4-8c6d-ba92b6b55646"
+    ],
+    "linkedDataSourceRefs": [
+      {
+        "lineageId": "db-lin-1",
+        "entityId": "mimic-demo"
+      }
     ],
     "organization": null,
     "lineageId": "lin-1",

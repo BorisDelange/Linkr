@@ -6,6 +6,7 @@ import { slugifyId } from '@/lib/slugify-id'
 import { setLocalized, toLocalized, isShellHtml } from '@/lib/localized'
 import { seedWorkspaces, isSeeded } from '@/lib/seed-loader'
 import { userToAuthorDetails } from '@/lib/user-identity'
+import { buildPointer } from '@/lib/import-identity'
 import type { Project, Workspace, Language, LocalizedString, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility, AuthorDetails, Authored, Lineaged, EntityLicense } from '@/types'
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
@@ -170,7 +171,7 @@ interface AppState {
   deleteProject: (uid: string) => Promise<void>
 
   // Data source linking (app-level databases ↔ projects)
-  linkDataSource: (projectUid: string, dataSourceId: string) => void
+  linkDataSource: (projectUid: string, dataSourceId: string) => Promise<void>
   unlinkDataSource: (projectUid: string, dataSourceId: string) => void
   getProjectLinkedDataSourceIds: (projectUid: string) => string[]
 
@@ -585,18 +586,35 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   // Data source linking
-  linkDataSource: (projectUid, dataSourceId) => {
+  //
+  // `linkedDataSourceRefs` is kept index-aligned with `linkedDataSourceIds`: the
+  // ids are local UUIDs stripped from every export, and the pointers are what
+  // travels in their place. A database carrying neither lineage nor slug yields
+  // an empty pointer rather than shortening the list, so the two stay parallel
+  // and unlinking one never shifts another's pointer onto the wrong database.
+  linkDataSource: async (projectUid, dataSourceId) => {
+    // Dynamic import for the same reason as the workspace store above:
+    // data-source-store imports this module, so a static one would be a cycle.
+    const { useDataSourceStore } = await import('./data-source-store')
+    const pointer = buildPointer(useDataSourceStore.getState().dataSources, dataSourceId) ?? {}
     set((s) => ({
       _projectsRaw: s._projectsRaw.map((p) => {
         if (p.uid !== projectUid) return p
         const ids = p.linkedDataSourceIds ?? []
         if (ids.includes(dataSourceId)) return p
-        return { ...p, linkedDataSourceIds: [...ids, dataSourceId] }
+        return {
+          ...p,
+          linkedDataSourceIds: [...ids, dataSourceId],
+          linkedDataSourceRefs: [...(p.linkedDataSourceRefs ?? []), pointer],
+        }
       }),
     }))
     const project = get()._projectsRaw.find((p) => p.uid === projectUid)
     if (project) {
-      getStorage().projects.update(projectUid, { linkedDataSourceIds: project.linkedDataSourceIds })
+      await getStorage().projects.update(projectUid, {
+        linkedDataSourceIds: project.linkedDataSourceIds,
+        linkedDataSourceRefs: project.linkedDataSourceRefs,
+      })
     }
   },
 
@@ -605,12 +623,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       _projectsRaw: s._projectsRaw.map((p) => {
         if (p.uid !== projectUid) return p
         const ids = p.linkedDataSourceIds ?? []
-        return { ...p, linkedDataSourceIds: ids.filter((id) => id !== dataSourceId) }
+        const refs = p.linkedDataSourceRefs ?? []
+        const keep = ids.flatMap((id, i) => (id === dataSourceId ? [] : [i]))
+        return {
+          ...p,
+          linkedDataSourceIds: keep.map((i) => ids[i]),
+          linkedDataSourceRefs: keep.map((i) => refs[i] ?? {}),
+        }
       }),
     }))
     const project = get()._projectsRaw.find((p) => p.uid === projectUid)
     if (project) {
-      getStorage().projects.update(projectUid, { linkedDataSourceIds: project.linkedDataSourceIds })
+      getStorage().projects.update(projectUid, {
+        linkedDataSourceIds: project.linkedDataSourceIds,
+        linkedDataSourceRefs: project.linkedDataSourceRefs,
+      })
     }
   },
 

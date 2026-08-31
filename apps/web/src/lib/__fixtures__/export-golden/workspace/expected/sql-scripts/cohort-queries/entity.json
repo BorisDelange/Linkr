@@ -9,7 +9,13 @@
     "en": "Reusable SQL.",
     "fr": "SQL réutilisable."
   },
-  "defaultDataSourceId": null,
+  "defaultDataSourceRef": {
+    "entityId": "mimic-demo",
+    "label": {
+      "en": "MIMIC-IV demo",
+      "fr": "MIMIC-IV démo"
+    }
+  },
   "createdAt": "2026-01-02T03:04:05.000Z",
   "createdBy": "Boris Delange",
   "createdByDetails": {

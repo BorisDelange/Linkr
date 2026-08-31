@@ -11,9 +11,25 @@
       "en": "Source to OMOP",
       "fr": "Source vers OMOP"
     },
-    "sourceDataSourceId": null,
-    "targetDataSourceId": null,
-    "mappingProjectId": null,
+    "sourceDataSourceId": "12994fb1-24c2-4aa4-8c6d-ba92b6b55646",
+    "sourceDataSourceRef": {
+      "lineageId": "db-lin-1",
+      "entityId": "mimic-iv-demo",
+      "label": {
+        "en": "MIMIC-IV demo",
+        "fr": "MIMIC-IV démo"
+      }
+    },
+    "targetDataSourceId": "7a9545a2-d6b7-48a5-9661-12de59139ae2",
+    "targetDataSourceRef": {
+      "lineageId": "db-lin-2",
+      "entityId": "omop-target"
+    },
+    "mappingProjectId": "329397bd-fbd7-4839-b71f-1f842f46ec8e",
+    "mappingProjectRef": {
+      "lineageId": "mp-lin-1",
+      "entityId": "adult-icu"
+    },
     "status": "draft",
     "lastRunAt": null,
     "lastRunDurationMs": null,

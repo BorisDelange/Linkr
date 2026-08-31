@@ -18,6 +18,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { schemaName } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
+import { buildPointer } from '@/lib/import-identity'
 import {
   buildVocabularyScriptWithIds,
   buildPruneVocabularyScript,
@@ -278,8 +279,11 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
   // Persist selection changes
   const handleProjectChange = useCallback((id: string) => {
     setSelectedProjectId(id)
-    if (pipeline) updatePipeline(pipeline.id, { mappingProjectId: id || undefined })
-  }, [pipeline, updatePipeline])
+    if (pipeline) updatePipeline(pipeline.id, {
+      mappingProjectId: id || undefined,
+      mappingProjectRef: buildPointer(availableProjects, id),
+    })
+  }, [pipeline, updatePipeline, availableProjects])
   const [creating, setCreating] = useState(false)
   const [result, setResult] = useState<{
     success: boolean

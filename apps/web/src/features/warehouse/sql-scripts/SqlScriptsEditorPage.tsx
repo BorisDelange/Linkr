@@ -88,6 +88,7 @@ import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts
 import type { ShortcutActionId } from '@/types/shortcuts'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
+import { buildPointer } from '@/lib/import-identity'
 
 /** Shortcut actions surfaced in the SQL editor (subset of the IDE's set;
  * no terminal here, so no toggle/clear-terminal). */
@@ -676,7 +677,10 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                       {dbSources.map((ds) => (
                         <DropdownMenuItem
                           key={ds.id}
-                          onClick={() => updateCollection(collectionId, { defaultDataSourceId: ds.id })}
+                          onClick={() => updateCollection(collectionId, {
+                            defaultDataSourceId: ds.id,
+                            defaultDataSourceRef: buildPointer(dbSources, ds.id),
+                          })}
                           className="gap-2 py-1 text-xs"
                           title={localized(ds.name, i18n.language)}
                         >

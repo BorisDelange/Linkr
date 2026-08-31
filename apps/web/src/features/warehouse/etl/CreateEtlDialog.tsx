@@ -24,6 +24,7 @@ import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { localized, setLocalized } from '@/lib/localized'
+import { buildPointer } from '@/lib/import-identity'
 import type { EtlPipeline, ProjectBadge } from '@/types'
 
 interface Props {
@@ -103,7 +104,9 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           name: setLocalized({}, language, name.trim()),
           description: {},
           sourceDataSourceId: sourceId,
+          sourceDataSourceRef: buildPointer(dbSources, sourceId),
           targetDataSourceId: targetId || undefined,
+          targetDataSourceRef: buildPointer(dbSources, targetId),
           badges,
           status: 'draft',
           version: version.trim() || '0.1.0',

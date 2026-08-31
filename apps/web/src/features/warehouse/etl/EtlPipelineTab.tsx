@@ -85,6 +85,7 @@ import {
   type ParquetTablePath,
 } from '@/lib/api/data-sources'
 import { localized } from '@/lib/localized'
+import { buildPointer } from '@/lib/import-identity'
 import {
   Select,
   SelectContent,
@@ -333,7 +334,10 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
           <div className="ml-auto flex min-w-0 items-center gap-1">
             <Select
               value={pipeline?.sourceDataSourceId ?? ''}
-              onValueChange={(value) => updatePipeline(pipelineId, { sourceDataSourceId: value })}
+              onValueChange={(value) => updatePipeline(pipelineId, {
+                sourceDataSourceId: value,
+                sourceDataSourceRef: buildPointer(dbSources, value),
+              })}
               disabled={!canWrite}
             >
               <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
@@ -351,7 +355,10 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
 
             <Select
               value={pipeline?.targetDataSourceId ?? ''}
-              onValueChange={(value) => updatePipeline(pipelineId, { targetDataSourceId: value || undefined })}
+              onValueChange={(value) => updatePipeline(pipelineId, {
+                targetDataSourceId: value || undefined,
+                targetDataSourceRef: buildPointer(dbSources, value),
+              })}
               disabled={!canWrite}
             >
               <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">

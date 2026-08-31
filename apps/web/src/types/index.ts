@@ -1,8 +1,9 @@
 // Core application types
 export type { SchemaMapping, SchemaPresetId, ConceptDictionary, EventTable, CustomSchemaPreset, ErdGroup } from './schema-mapping'
 export type { ConceptList, ConceptListItem, ConceptSet, ConceptSetItem, ConceptSetTranslation, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectSourceType, MappingProjectStatus, MappingProjectStats, FileColumnMapping, FileSourceData, SourceExtraction, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, MappingEquivalence, MappingType, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore, ScoresIndex, SuggestionCategory } from './concept-mapping'
+export type { DataSourceRef, EntityRef } from './concept-mapping'
 export { SUGGESTION_CATEGORIES } from './concept-mapping'
-import type { EffectiveMappingStatus } from './concept-mapping'
+import type { DataSourceRef, EffectiveMappingStatus, EntityRef } from './concept-mapping'
 export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogResultCache, PeriodConfig, CatalogPeriodRow } from './catalog'
 export { getDefaultDimensions } from './catalog'
 export type { AuthorDetails, Authored, Lineaged } from './author'
@@ -234,6 +235,16 @@ export interface Project extends Seedable, Authored, Lineaged {
 
   /** IDs of app-level databases linked to this project. */
   linkedDataSourceIds?: string[]
+  /**
+   * Portable identities of the linked databases, for export/import.
+   *
+   * `linkedDataSourceIds` holds this instance's local UUIDs, which is why it is
+   * stripped from every export (INSTANCE_FIELDS). These pointers travel in its
+   * place: stamped when a database is linked, and resolved back to local ids on
+   * import. Entries matching nothing here are dropped rather than guessed — the
+   * database is simply not installed on this instance.
+   */
+  linkedDataSourceRefs?: DataSourceRef[]
   /** Organization or author metadata. */
   organization?: OrganizationInfo
   /** Whether this project appears in the community catalog. Defaults to 'unlisted'. */
@@ -1007,7 +1018,20 @@ export interface EtlPipeline extends Seedable, Authored, Lineaged {
   badges?: ProjectBadge[]
   sourceDataSourceId: string
   targetDataSourceId?: string
+  /**
+   * Portable identities of the two databases above, for export/import.
+   *
+   * The ids are this instance's local UUIDs and address nothing anywhere else, so
+   * a reimported pipeline pointed at rows that do not exist. These pointers are
+   * what survive: stamped when a database is picked (not derived at export time,
+   * so the server-side export carries them too) and resolved back to local ids on
+   * import. Same rule as a mapping project's or a catalog's.
+   */
+  sourceDataSourceRef?: DataSourceRef
+  targetDataSourceRef?: DataSourceRef
   mappingProjectId?: string
+  /** Portable identity of the mapping project above — same rule, other type. */
+  mappingProjectRef?: EntityRef
   status: EtlPipelineStatus
   lastRunAt?: string
   lastRunDurationMs?: number
@@ -1191,6 +1215,15 @@ export interface SqlScriptCollection extends Authored, Lineaged {
   /** Badges for grouping/tagging (e.g. hospital center name). */
   badges?: ProjectBadge[]
   defaultDataSourceId?: string
+  /**
+   * Portable identity of the database above, for export/import.
+   *
+   * `defaultDataSourceId` is this instance's local UUID and addresses nothing
+   * anywhere else. This pointer is what travels: stamped when the database is
+   * picked (not derived at export time, so the server-side export carries it
+   * too) and resolved back to a local id on import.
+   */
+  defaultDataSourceRef?: DataSourceRef
   readme?: LocalizedString
   license?: EntityLicense
   /** Git repository this collection is linked to. When set, workspace export emits metadata + this pointer only. */
@@ -1232,6 +1265,15 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
   badges?: ProjectBadge[]
   /** Database to run checks against */
   dataSourceId: string
+  /**
+   * Portable identity of the database above, for export/import.
+   *
+   * `dataSourceId` is this instance's local UUID and addresses nothing anywhere
+   * else. This pointer is what travels: stamped when the database is picked (not
+   * derived at export time, so the server-side export carries it too) and
+   * resolved back to a local id on import.
+   */
+  dataSourceRef?: DataSourceRef
   status: DqRuleSetStatus
   lastRunAt?: string
   lastRunDurationMs?: number

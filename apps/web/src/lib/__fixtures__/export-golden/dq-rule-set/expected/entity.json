@@ -10,6 +10,14 @@
     "fr": "Contrôles de base"
   },
   "dataSourceId": "",
+  "dataSourceRef": {
+    "lineageId": "db-lin-1",
+    "entityId": "mimic-iv-demo",
+    "label": {
+      "en": "MIMIC-IV demo",
+      "fr": "MIMIC-IV démo"
+    }
+  },
   "status": "draft",
   "lastRunAt": null,
   "lastRunDurationMs": null,

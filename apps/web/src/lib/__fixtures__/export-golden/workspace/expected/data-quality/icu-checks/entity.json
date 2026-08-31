@@ -9,7 +9,13 @@
     "en": "Quality rules.",
     "fr": "Règles qualité."
   },
-  "dataSourceId": "ds1",
+  "dataSourceId": "",
+  "dataSourceRef": {
+    "lineageId": "db-lin-1",
+    "label": {
+      "en": "Warehouse"
+    }
+  },
   "status": "ready",
   "lastRunAt": null,
   "lastRunDurationMs": null,

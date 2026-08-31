@@ -24,6 +24,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
+import { buildPointer } from '@/lib/import-identity'
 import type { ProjectBadge, SqlScriptCollection } from '@/types'
 
 interface Props {
@@ -86,6 +87,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           name: setLocalized(editingCollection.name, language, name.trim()),
           description: setLocalized(editingCollection.description, language, description.trim()),
           defaultDataSourceId: defaultDbId || undefined,
+          defaultDataSourceRef: buildPointer(dbSources, defaultDbId),
           badges,
           version: version.trim() || '0.1.0',
           ...authoring,
@@ -100,6 +102,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           name: setLocalized({}, language, name.trim()),
           description: setLocalized({}, language, description.trim()),
           defaultDataSourceId: defaultDbId || undefined,
+          defaultDataSourceRef: buildPointer(dbSources, defaultDbId),
           badges,
           version: version.trim() || '0.1.0',
           // A README from the start: the collection is git-versionable, and a repo

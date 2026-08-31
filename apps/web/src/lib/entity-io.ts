@@ -925,10 +925,11 @@ const INSTANCE_FIELDS = [
   // on import (every create passes a fresh projectUid), so versioning it only
   // churns the diff — e.g. datasets/_tree.json flipping projectUid on reimport.
   'projectUid',
-  // Local database (data source) UUIDs the project points at. Databases are an
-  // instance-level resource that doesn't travel with the project, so these ids
-  // are meaningless on another instance and only churn the diff — the importer
-  // re-links its own databases. (Cf. the user's decision: databases stay unlinked.)
+  // Local database (data source) UUIDs the project points at: meaningless on
+  // another instance, and only diff churn here. `linkedDataSourceRefs` — the
+  // portable pointers stamped beside them — is deliberately NOT stripped: it is
+  // what lets the import re-link the databases it does have, instead of leaving
+  // every imported project unlinked.
   'linkedDataSourceIds',
 ] as const
 
@@ -2461,7 +2462,13 @@ export async function buildSqlCollectionFolder(
 ): Promise<void> {
   // Strip instance-specific fields (workspaceId, gitRemoteConfig, …) so the
   // versioned tree round-trips idempotently — import reassigns them anyway.
-  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(stripInstanceFields(collection) as SqlScriptCollection), 'sql-collection')))
+  //
+  // `defaultDataSourceId` goes too: a local database UUID addressing nothing
+  // elsewhere. Removed rather than blanked (it is optional, and a collection that
+  // never had one must not gain an empty string); `defaultDataSourceRef` is the
+  // portable pointer that travels in its place.
+  const { defaultDataSourceId: _db, ...portable } = stripInstanceFields(collection) as SqlScriptCollection
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(portable as SqlScriptCollection), 'sql-collection')))
   await writeEntityDocs(zip, prefix, collection, storage, 'sql-collection', collection.id)
   const files = await storage.sqlScriptFiles.getByCollection(collection.id)
   const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))
@@ -2657,14 +2664,19 @@ export async function buildDataCatalogZip(
 }
 
 /** Folder layout for one DQ rule set's git repo: the rule set (stripped) plus its
- *  custom checks (they belong to the rule set, not the workspace). */
+ *  custom checks (they belong to the rule set, not the workspace).
+ *
+ *  `dataSourceId` is blanked like a data catalog's — a local UUID that addresses
+ *  nothing elsewhere — and `dataSourceRef` is what travels. Reset in place rather
+ *  than removed: the type requires it, and reassigning keeps its key position. */
 export async function buildDqRuleSetFolder(
   zip: JSZip,
   prefix: string,
   ruleSet: DqRuleSet,
   storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(stripInstanceFields(ruleSet) as DqRuleSet), 'dq-rule-set')))
+  const portable = { ...stripInstanceFields(ruleSet), dataSourceId: '' } as DqRuleSet
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(portable), 'dq-rule-set')))
   await writeEntityDocs(zip, prefix, ruleSet, storage, 'dq-rule-set', ruleSet.id)
   const checks = await storage.dqCustomChecks.getByRuleSet(ruleSet.id)
   if (checks.length > 0) zip.file(`${prefix}${CONTENT_FILE.dqChecks}`, json(checks))
@@ -3543,6 +3555,16 @@ export async function applyClonedEntity(
  * Lay out an ETL pipeline in a git-friendly tree under `prefix`:
  * `_pipeline.json` (metadata), `_tree.json` (file hierarchy without content),
  * and each script written at its real path with its raw content.
+ *
+ * The three cross-entity links are blanked the way a data catalog's is: they are
+ * the exporting instance's local UUIDs, addressing nothing anywhere else, so
+ * shipping them would have the import land on rows that aren't there — or
+ * overwrite a correct local link with a foreign id. The `*Ref` pointers are what
+ * travel, and the import resolves them back by lineage.
+ *
+ * `sourceDataSourceId` is reset in place because the type requires it (and
+ * reassigning an existing key keeps its position); the two optional ones are
+ * removed, since a pipeline that never had them must not gain a null.
  */
 export async function buildEtlPipelineFolder(
   zip: JSZip,
@@ -3550,7 +3572,13 @@ export async function buildEtlPipelineFolder(
   pipeline: EtlPipeline,
   storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(stripInstanceFields(pipeline) as EtlPipeline), 'etl-pipeline')))
+  const {
+    targetDataSourceId: _target,
+    mappingProjectId: _mapping,
+    ...stripped
+  } = stripInstanceFields(pipeline) as EtlPipeline
+  const portable = { ...stripped, sourceDataSourceId: '' } as EtlPipeline
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(portable), 'etl-pipeline')))
   await writeEntityDocs(zip, prefix, pipeline, storage, 'etl-pipeline', pipeline.id)
   const files = await storage.etlFiles.getByPipeline(pipeline.id)
   const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))

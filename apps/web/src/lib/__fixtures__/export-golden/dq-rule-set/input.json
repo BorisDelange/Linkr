@@ -15,7 +15,15 @@
       "en": "Core checks",
       "fr": "Contrôles de base"
     },
-    "dataSourceId": "",
+    "dataSourceId": "12994fb1-24c2-4aa4-8c6d-ba92b6b55646",
+    "dataSourceRef": {
+      "lineageId": "db-lin-1",
+      "entityId": "mimic-iv-demo",
+      "label": {
+        "en": "MIMIC-IV demo",
+        "fr": "MIMIC-IV démo"
+      }
+    },
     "status": "draft",
     "lastRunAt": null,
     "lastRunDurationMs": null,

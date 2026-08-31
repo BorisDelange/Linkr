@@ -9,9 +9,20 @@
     "en": "Source to OMOP",
     "fr": "Source vers OMOP"
   },
-  "sourceDataSourceId": null,
-  "targetDataSourceId": null,
-  "mappingProjectId": null,
+  "sourceDataSourceId": "",
+  "sourceDataSourceRef": {
+    "lineageId": "db-lin-1",
+    "label": {
+      "en": "Warehouse"
+    }
+  },
+  "targetDataSourceRef": {
+    "entityId": "mimic-demo",
+    "label": {
+      "en": "MIMIC-IV demo",
+      "fr": "MIMIC-IV démo"
+    }
+  },
   "status": "draft",
   "lastRunAt": null,
   "lastRunDurationMs": null,

@@ -76,6 +76,7 @@ import type { DqCheck, DqCategory, DqSeverity } from '@/lib/duckdb/data-quality'
 import { useDqStore } from '@/stores/dq-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { localized } from '@/lib/localized'
+import { buildPointer } from '@/lib/import-identity'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { CATEGORIES, SEVERITIES, CATEGORY_COLORS } from './DqConstants'
@@ -436,7 +437,10 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
           <div className="ml-auto flex min-w-0 items-center gap-1">
             <Select
               value={dataSourceId}
-              onValueChange={(value) => updateRuleSet(ruleSetId, { dataSourceId: value })}
+              onValueChange={(value) => updateRuleSet(ruleSetId, {
+                dataSourceId: value,
+                dataSourceRef: buildPointer(dbSources, value),
+              })}
               disabled={!canWrite}
             >
               <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">

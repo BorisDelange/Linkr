@@ -214,6 +214,19 @@ export interface DataSourceRef {
 }
 
 /**
+ * The same portable pointer, for a reference to an entity that is not a database.
+ *
+ * Identical shape — `resolvePointer` matches on `lineageId`/`entityId` and cares
+ * nothing about the type it is resolving — but named for what it points at, so a
+ * pipeline's mapping-project reference does not read as another database.
+ */
+export interface EntityRef {
+  lineageId?: string
+  entityId?: string
+  label?: LocalizedString
+}
+
+/**
  * How far the source-concept extraction of a database project has got.
  *
  * A database source is not read into the editor directly: profiling a concept
@@ -284,6 +297,8 @@ export interface MappingProject extends Seedable, Authored, Lineaged {
   /** Optional vocabulary reference database (ATHENA import). When set, target concept
    *  searches and concept set resolution use this DB instead of the source DB. */
   vocabularyDataSourceId?: string
+  /** Portable form of `vocabularyDataSourceId` — same rule as `dataSourceRef`. */
+  vocabularyDataSourceRef?: DataSourceRef
   /**
    * The source concepts as a flat table.
    *
