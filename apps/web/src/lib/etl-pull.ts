@@ -155,6 +155,11 @@ export function isEtlManifest(path: string): boolean {
  *   - the data source ids name databases on THIS instance; taking a collaborator's
  *     would repoint the pipeline at a database that does not exist here
  *   - mappingProjectId likewise names a local mapping project
+ *   - the matching `*Ref` pointers are refused for the same reason one step up:
+ *     they are portable, so taking them WOULD resolve — to the collaborator's
+ *     choice of database, silently replacing the one the local user picked. A
+ *     pull brings code, not configuration. (Import and clone do resolve them:
+ *     there the entity is arriving, and has no local choice to preserve.)
  *   - lastRunAt / lastRunDurationMs / status describe OUR runs, not theirs;
  *     importing them would show a run that never happened here (and the quality
  *     cache keys on the last run, so it would also invalidate itself)
@@ -169,6 +174,7 @@ export function isEtlManifest(path: string): boolean {
  */
 const EXTRA_INSTANCE_PIPELINE_FIELDS = [
   'id', 'entityId', 'sourceDataSourceId', 'targetDataSourceId', 'mappingProjectId',
+  'sourceDataSourceRef', 'targetDataSourceRef', 'mappingProjectRef',
   'lastRunAt', 'lastRunDurationMs', 'status', 'createdAt',
   'readme', 'license',
 ] as const

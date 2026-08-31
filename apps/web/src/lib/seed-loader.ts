@@ -1469,41 +1469,88 @@ export async function seedDatabases(): Promise<void> {
       }
     }
 
-    await attachMappingProjectDatabases(wsId)
+    await attachSeededEntityLinks(wsId)
   }
 
   console.info('[seed-loader] Database seeding complete')
 }
 
 /**
- * Point each seeded mapping project and data catalog at its source database.
+ * Point each seeded entity at the database (or mapping project) it references.
  *
- * Both are structural (phase 1) and databases are data (phase 2), so at the
- * moment one is written there is no database to resolve its pointer against. Run
- * once here instead, when the databases of this workspace exist.
+ * The referencing entities are structural (phase 1) and databases are data
+ * (phase 2), so at the moment one is written there is nothing to resolve its
+ * pointer against. Run once here instead, when this workspace's databases exist.
  *
  * Only ever fills a blank: an entity the user has since pointed somewhere else
- * keeps that, and one whose database is not part of this seed stays sourceless.
+ * keeps that, and one whose target is not part of this seed stays unlinked.
  */
-async function attachMappingProjectDatabases(wsId: string): Promise<void> {
+async function attachSeededEntityLinks(wsId: string): Promise<void> {
   const storage = getStorage()
   try {
-    const projects = (await storage.mappingProjects.getAll())
-      .filter((p) => p.workspaceId === wsId && !p.dataSourceId && p.dataSourceRef)
-    const catalogs = (await storage.dataCatalogs.getAll())
-      .filter((c) => c.workspaceId === wsId && !c.dataSourceId && c.dataSourceRef)
-    if (projects.length === 0 && catalogs.length === 0) return
+    const inWorkspace = <T extends { workspaceId?: string }>(rows: T[]) =>
+      rows.filter((r) => r.workspaceId === wsId)
+    const projects = inWorkspace(await storage.mappingProjects.getAll())
+    const catalogs = inWorkspace(await storage.dataCatalogs.getAll())
+    const pipelines = inWorkspace(await storage.etlPipelines.getAll())
+    const ruleSets = inWorkspace(await storage.dqRuleSets.getAll())
+    const collections = inWorkspace(await storage.sqlScriptCollections.getAll())
+
     const databases = await storage.dataSources.getAll()
+    /** The local id a pointer resolves to, or undefined to leave the link alone. */
+    const link = (ref: Parameters<typeof resolvePointer>[1], current: string | undefined) =>
+      current ? undefined : resolvePointer(databases, ref, wsId)?.id
+
     for (const project of projects) {
-      const database = resolvePointer(databases, project.dataSourceRef, wsId)
-      if (database) {
-        await storage.mappingProjects.update(project.id, { dataSourceId: database.id }).catch(() => {})
+      const dataSourceId = link(project.dataSourceRef, project.dataSourceId)
+      const vocabularyDataSourceId = link(project.vocabularyDataSourceRef, project.vocabularyDataSourceId)
+      if (dataSourceId || vocabularyDataSourceId) {
+        await storage.mappingProjects.update(project.id, {
+          ...(dataSourceId ? { dataSourceId } : {}),
+          ...(vocabularyDataSourceId ? { vocabularyDataSourceId } : {}),
+        }).catch(() => {})
       }
     }
     for (const catalog of catalogs) {
-      const database = resolvePointer(databases, catalog.dataSourceRef, wsId)
-      if (database) {
-        await storage.dataCatalogs.update(catalog.id, { dataSourceId: database.id }).catch(() => {})
+      const dataSourceId = link(catalog.dataSourceRef, catalog.dataSourceId)
+      if (dataSourceId) await storage.dataCatalogs.update(catalog.id, { dataSourceId }).catch(() => {})
+    }
+    for (const ruleSet of ruleSets) {
+      const dataSourceId = link(ruleSet.dataSourceRef, ruleSet.dataSourceId)
+      if (dataSourceId) await storage.dqRuleSets.update(ruleSet.id, { dataSourceId }).catch(() => {})
+    }
+    for (const collection of collections) {
+      const defaultDataSourceId = link(collection.defaultDataSourceRef, collection.defaultDataSourceId)
+      if (defaultDataSourceId) {
+        await storage.sqlScriptCollections.update(collection.id, { defaultDataSourceId }).catch(() => {})
+      }
+    }
+    for (const pipeline of pipelines) {
+      const sourceDataSourceId = link(pipeline.sourceDataSourceRef, pipeline.sourceDataSourceId)
+      const targetDataSourceId = link(pipeline.targetDataSourceRef, pipeline.targetDataSourceId)
+      // Mapping projects are seeded in the same phase as the pipelines, so by now
+      // they are stored and resolve like the databases do.
+      const mappingProjectId = pipeline.mappingProjectId
+        ? undefined
+        : resolvePointer(projects, pipeline.mappingProjectRef, wsId)?.id
+      if (sourceDataSourceId || targetDataSourceId || mappingProjectId) {
+        await storage.etlPipelines.update(pipeline.id, {
+          ...(sourceDataSourceId ? { sourceDataSourceId } : {}),
+          ...(targetDataSourceId ? { targetDataSourceId } : {}),
+          ...(mappingProjectId ? { mappingProjectId } : {}),
+        }).catch(() => {})
+      }
+    }
+
+    // Projects link a LIST of databases, and the ids are stripped from every
+    // export: without this a seeded project comes back with no database at all.
+    for (const project of inWorkspace(await storage.projects.getAll())) {
+      if (project.linkedDataSourceIds?.length || !project.linkedDataSourceRefs?.length) continue
+      const linkedDataSourceIds = project.linkedDataSourceRefs
+        .map((ref) => resolvePointer(databases, ref, wsId)?.id)
+        .filter((id): id is string => !!id)
+      if (linkedDataSourceIds.length > 0) {
+        await storage.projects.update(project.uid, { linkedDataSourceIds }).catch(() => {})
       }
     }
   } catch (err) {

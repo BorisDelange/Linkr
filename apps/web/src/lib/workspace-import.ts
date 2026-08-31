@@ -530,6 +530,17 @@ export async function importWorkspaceTree(
     }
   }
 
+  // Read once for the three loops below: the databases landed earlier in this
+  // import, so they are already stored and every entity resolves against the
+  // same set. Each manifest carries a portable pointer, never the writing
+  // instance's data-source UUID (which would address nothing here); no local
+  // match leaves the entity sourceless — the user re-picks — rather than
+  // pointing it at a dangling id.
+  const linkedDatabases =
+    parsed.sqlCollections.length + parsed.etlPipelines.length + parsed.dqRuleSets.length > 0
+      ? await storage.dataSources.getAll()
+      : []
+
   // --- Import SQL script collections ---
   if (parsed.sqlCollections.length > 0) {
     reportPhase('workspaces.import_phase_sql', 0, parsed.sqlCollections.length)
@@ -544,6 +555,7 @@ export async function importWorkspaceTree(
     }
     await storage.sqlScriptCollections.create({
       ...collection, id, workspaceId: targetWsId, updatedAt: now,
+      defaultDataSourceId: resolvePointer(linkedDatabases, collection.defaultDataSourceRef, targetWsId)?.id,
       ...(duplicate
         ? { name: copyLocalizedName(collection.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: collection.lineageId }
         : { lineageId: collection.lineageId ?? crypto.randomUUID() }),
@@ -574,6 +586,13 @@ export async function importWorkspaceTree(
     }
     await storage.etlPipelines.create({
       ...pipeline, id, workspaceId: targetWsId, updatedAt: now,
+      // `sourceDataSourceId` is required by the type, so it falls back to '' —
+      // the same empty the export writes — rather than going undefined.
+      sourceDataSourceId: resolvePointer(linkedDatabases, pipeline.sourceDataSourceRef, targetWsId)?.id ?? '',
+      targetDataSourceId: resolvePointer(linkedDatabases, pipeline.targetDataSourceRef, targetWsId)?.id,
+      // `mappingProjectId` is resolved after the loop: mapping projects import
+      // later, so nothing is stored yet to point at.
+      mappingProjectId: undefined,
       ...(duplicate
         ? { name: copyLocalizedName(pipeline.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: pipeline.lineageId }
         : { lineageId: pipeline.lineageId ?? crypto.randomUUID() }),
@@ -601,6 +620,7 @@ export async function importWorkspaceTree(
     }
     await storage.dqRuleSets.create({
       ...ruleSet, id, workspaceId: targetWsId, updatedAt: now,
+      dataSourceId: resolvePointer(linkedDatabases, ruleSet.dataSourceRef, targetWsId)?.id ?? '',
       ...(duplicate
         ? { name: copyLocalizedName(ruleSet.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: ruleSet.lineageId }
         : { lineageId: ruleSet.lineageId ?? crypto.randomUUID() }),
@@ -661,6 +681,7 @@ export async function importWorkspaceTree(
       await storage.mappingProjects.create({
         ...mp, id, workspaceId: targetWsId, updatedAt: now,
         dataSourceId: database?.id ?? '',
+        vocabularyDataSourceId: resolvePointer(storedDatabases, mp.vocabularyDataSourceRef, targetWsId)?.id,
         ...(duplicate
           ? { name: copyLocalizedName(mp.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: mp.lineageId }
           : { lineageId: mp.lineageId ?? crypto.randomUUID() }),
@@ -698,6 +719,42 @@ export async function importWorkspaceTree(
     }
     reportPhase('workspaces.import_phase_mappings', totalMappings, totalMappings)
     await yieldToBrowser()
+  }
+
+  // --- Re-link projects to their databases ---
+  // Deferred like the pipelines' mapping project: projects import before the
+  // databases exist. `linkedDataSourceIds` is stripped from every export (local
+  // UUIDs), so the pointers stamped beside them are the only way an imported
+  // project keeps its links; the ones matching no local database are dropped.
+  const projectRefs = [...parsed.projects, ...parsed.projectEntries]
+    .map((e) => e.project)
+    .filter((p): p is Project => !!p?.linkedDataSourceRefs?.length)
+  if (projectRefs.length > 0) {
+    const storedDatabases = await storage.dataSources.getAll()
+    for (const project of projectRefs) {
+      const ids = project.linkedDataSourceRefs!
+        .map((ref) => resolvePointer(storedDatabases, ref, targetWsId)?.id)
+        .filter((id): id is string => !!id)
+      if (ids.length === 0) continue
+      const uid = idMap.get(`project:${project.uid}`)
+      if (uid) await storage.projects.update(uid, { linkedDataSourceIds: ids }).catch(() => {})
+    }
+  }
+
+  // --- Re-link ETL pipelines to their mapping projects ---
+  // Deferred to here because mapping projects import after pipelines: at pipeline
+  // creation there was nothing stored to point at. Same portable-pointer rule as
+  // the databases — a pipeline whose mapping project is not part of this import
+  // stays unlinked rather than keeping the exporter's id.
+  const pipelinesToLink = parsed.etlPipelines.filter(({ pipeline }) => pipeline.mappingProjectRef)
+  if (pipelinesToLink.length > 0) {
+    const storedMappingProjects = await storage.mappingProjects.getAll()
+    for (const { pipeline } of pipelinesToLink) {
+      const project = resolvePointer(storedMappingProjects, pipeline.mappingProjectRef, targetWsId)
+      if (!project) continue
+      const id = idMap.get(`etl-pipeline:${pipeline.entityId ?? pipeline.id}`)
+      if (id) await storage.etlPipelines.update(id, { mappingProjectId: project.id }).catch(() => {})
+    }
   }
 
   // --- Import source concept ID registry (ranges + entries) ---

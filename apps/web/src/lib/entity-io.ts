@@ -3303,6 +3303,35 @@ export async function importParsedDatabase(
 }
 
 /**
+ * The local ids a cloned manifest's portable pointers resolve to.
+ *
+ * Only the links that actually matched are returned, so the caller can spread
+ * the result over its update without blanking a correct local link: a repo
+ * cloned into an instance that does not hold the referenced database keeps
+ * whatever the row already points at.
+ */
+async function resolveEntityLinks(
+  meta: Partial<SqlScriptCollection & EtlPipeline>,
+  workspaceId: string,
+  storage: Storage,
+): Promise<Partial<SqlScriptCollection & EtlPipeline>> {
+  const needsDatabases = meta.defaultDataSourceRef || meta.sourceDataSourceRef || meta.targetDataSourceRef
+  const databases = needsDatabases ? await storage.dataSources.getAll() : []
+  const links: Partial<SqlScriptCollection & EtlPipeline> = {}
+  const defaultDb = resolvePointer(databases, meta.defaultDataSourceRef, workspaceId)
+  if (defaultDb) links.defaultDataSourceId = defaultDb.id
+  const sourceDb = resolvePointer(databases, meta.sourceDataSourceRef, workspaceId)
+  if (sourceDb) links.sourceDataSourceId = sourceDb.id
+  const targetDb = resolvePointer(databases, meta.targetDataSourceRef, workspaceId)
+  if (targetDb) links.targetDataSourceId = targetDb.id
+  if (meta.mappingProjectRef) {
+    const project = resolvePointer(await storage.mappingProjects.getAll(), meta.mappingProjectRef, workspaceId)
+    if (project) links.mappingProjectId = project.id
+  }
+  return links
+}
+
+/**
  * Apply the content of a cloned git repo (root = one entity's export layout) into storage,
  * filling in the content of an already-imported, git-linked entity.
  * Returns true when content was applied, false when the repo didn't match the expected layout.
@@ -3332,14 +3361,28 @@ export async function applyClonedEntity(
     // _pipeline.json — the workspace only carried a minimal pointer. Then the files.
     const meta = await readManifest<SqlScriptCollection | EtlPipeline>(type)
     if (meta) {
-      const { id: _id, workspaceId: _ws, ...changes } = dropForeignAuthorId(meta) as SqlScriptCollection
+      // The database and mapping-project links never travel (the export blanks
+      // them), so the repo's values must not be written over the local ones:
+      // this row already carries whatever the workspace import resolved. They are
+      // re-resolved from the portable pointers below, and what is stored stays
+      // when nothing matches.
+      const {
+        id: _id, workspaceId: _ws,
+        defaultDataSourceId: _defaultDb,
+        sourceDataSourceId: _sourceDb, targetDataSourceId: _targetDb, mappingProjectId: _mp,
+        ...changes
+      } = dropForeignAuthorId(meta) as SqlScriptCollection & EtlPipeline
       // README.md / LICENSE.md / attachments/ live as files in the repo, not in the
       // metadata: fold them back onto the entity so the clone is complete.
       const docs = await readEntityDocs(zip, '', meta)
       const withDocs = { ...changes, readme: docs.readme, license: docs.license }
       const ownerType = type === 'sql-collection' ? 'sql-collection' : 'etl-pipeline'
-      if (type === 'sql-collection') await storage.sqlScriptCollections.update(targetId, withDocs).catch(() => {})
-      else await storage.etlPipelines.update(targetId, withDocs as Partial<EtlPipeline>).catch(() => {})
+      const links = workspaceId ? await resolveEntityLinks(meta, workspaceId, storage) : {}
+      if (type === 'sql-collection') {
+        await storage.sqlScriptCollections.update(targetId, { ...withDocs, ...links }).catch(() => {})
+      } else {
+        await storage.etlPipelines.update(targetId, { ...withDocs, ...links } as Partial<EtlPipeline>).catch(() => {})
+      }
       await createEntityAttachments(
         storage,
         { meta: docs.attachmentsMeta, blobs: docs.attachmentBlobs },
@@ -3444,8 +3487,15 @@ export async function applyClonedEntity(
   if (type === 'dq-rule-set') {
     const ruleSet = await readManifest<DqRuleSet>('dq-rule-set')
     if (!ruleSet) return false
-    const { id: _id, workspaceId: _ws, ...rest } = dropForeignAuthorId(ruleSet) as DqRuleSet
-    const changes = await withEntityDocs(rest, 'dq-rule-set')
+    // Same rule as the data catalog below: `dataSourceId` never travels, so the
+    // repo's value must not overwrite the local link. Re-resolve from the
+    // portable pointer, and keep what is stored when nothing matches.
+    const { id: _id, workspaceId: _ws, dataSourceId: _dsid, ...rest } = dropForeignAuthorId(ruleSet) as DqRuleSet
+    const changes = await withEntityDocs(rest, 'dq-rule-set') as Partial<DqRuleSet>
+    if (workspaceId && ruleSet.dataSourceRef) {
+      const database = resolvePointer(await storage.dataSources.getAll(), ruleSet.dataSourceRef, workspaceId)
+      if (database) changes.dataSourceId = database.id
+    }
     await storage.dqRuleSets.update(targetId, changes)
     const checks = (await readJson<DqCustomCheck[]>(CONTENT_FILE.dqChecks)) ?? []
     await storage.dqCustomChecks.deleteByRuleSet(targetId).catch(() => {})
