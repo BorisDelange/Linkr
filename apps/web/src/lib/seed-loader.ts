@@ -682,8 +682,12 @@ async function loadStructuralEntity(
       }
 
       // Full project: load scripts, pipelines, cohorts, dashboards, datasets, etc.
+      // Probed through `_index.json` — it lists everything a full project ships,
+      // so it is present whatever the project holds. Probing `scripts/_tree.json`
+      // instead made scripts mandatory: a project of datasets alone (no code) was
+      // taken for a bare row, and its datasets and analyses never loaded.
       const isFull = entity.full
-        || (await fetchJson(`${base}/projects/${folder}/scripts/_tree.json`)) !== null
+        || (await fetchJson(`${base}/projects/${folder}/_index.json`)) !== null
       if (isFull) {
         await loadFullProject(project.uid, `${base}/projects/${folder}`)
       }
