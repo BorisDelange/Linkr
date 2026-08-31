@@ -12,6 +12,7 @@ import {
   Terminal,
   Settings2,
   Keyboard,
+  Info,
   RefreshCw,
   Plug,
   X,
@@ -101,6 +102,7 @@ import {
 import { TerminalPanel } from '@/components/terminal/TerminalPanel'
 import { useSessionStore } from '@/stores/session-store'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
+import { DocumentationDialog } from './files/DocumentationDialog'
 import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { EditorSettingsDialog } from './files/EditorSettingsDialog'
 import { ConnectionsPanel } from './files/ConnectionsPanel'
@@ -170,6 +172,7 @@ export function FilesPage() {
   const [createParentId, setCreateParentId] = useState<string | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [docsOpen, setDocsOpen] = useState(false)
   const [schemaDialogOpen, setSchemaDialogOpen] = useState(false)
   const [editorSettingsOpen, setEditorSettingsOpen] = useState(false)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
@@ -1356,6 +1359,19 @@ export function FilesPage() {
                     <TooltipContent>{t('files.shortcuts')}</TooltipContent>
                   </Tooltip>
 
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => setDocsOpen(true)}
+                      >
+                        <Info size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('docs.title')}</TooltipContent>
+                  </Tooltip>
+
                   {editorVisible && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -2014,6 +2030,11 @@ export function FilesPage() {
         <KeyboardShortcutsDialog
           open={shortcutsOpen}
           onOpenChange={setShortcutsOpen}
+        />
+        <DocumentationDialog
+          open={docsOpen}
+          onOpenChange={setDocsOpen}
+          language={sessionLanguage}
         />
         {activeConnectionId && (
           <SchemaBrowserDialog
