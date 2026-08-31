@@ -26,6 +26,10 @@ class DqRuleSet(Base, TimestampMixin):
     # so it travels with the export (LICENSE.md) independently of the picker.
     license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     data_source_id: Mapped[str] = mapped_column(String(36))
+    # Portable identity of the database above ({lineageId?, entityId?, label?}).
+    # data_source_id is this instance's local UUID and means nothing elsewhere, so
+    # this is what the export carries and the import resolves back to a local row.
+    data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     last_run_at: Mapped[str | None] = mapped_column(String(40))
     last_run_duration_ms: Mapped[int | None] = mapped_column(Integer)

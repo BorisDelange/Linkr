@@ -89,6 +89,7 @@ async def _seed(db) -> Project:
         # project/workspace licence export had no end-to-end coverage at all.
         license=p.get("license"),
         linked_data_source_ids=p["linkedDataSourceIds"],
+        linked_data_source_refs=p.get("linkedDataSourceRefs"),
         organization=data["organization"],
         lineage_id=p["lineageId"],
         parent_lineage_id=p["parentLineageId"],

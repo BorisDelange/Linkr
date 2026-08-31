@@ -16,6 +16,8 @@ class SqlScriptCollectionCreate(CamelModel):
     readme: dict | str | None = None
     license: dict | None = None
     default_data_source_id: str | None = None
+    # Portable pointer to the database; the import resolves it to a local id.
+    default_data_source_ref: dict | None = None
     git_remote_config: dict | None = None
     created_by_id: int | None = None
     created_by: str | None = None
@@ -39,6 +41,8 @@ class SqlScriptCollectionUpdate(CamelModel):
     readme: dict | str | None = None
     license: dict | None = None
     default_data_source_id: str | None = None
+    # Portable pointer to the database; the import resolves it to a local id.
+    default_data_source_ref: dict | None = None
     git_remote_config: dict | None = None
     # Editable authoring provenance (author re-attribution + org snapshot).
     created_by_id: int | None = None
@@ -65,6 +69,8 @@ class SqlScriptCollectionResponse(CamelModel):
     readme: dict | str | None = None
     license: dict | None = None
     default_data_source_id: str | None = None
+    # Portable pointer to the database; the import resolves it to a local id.
+    default_data_source_ref: dict | None = None
     git_remote_config: dict | None = None
     created_by_id: int | None = None
     created_by: str | None = None

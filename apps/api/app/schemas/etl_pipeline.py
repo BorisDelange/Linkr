@@ -18,6 +18,11 @@ class EtlPipelineCreate(CamelModel):
     source_data_source_id: str | None = None
     target_data_source_id: str | None = None
     mapping_project_id: str | None = None
+    # Portable identities of the three links above; the import resolves them
+    # back to local ids (the raw ids mean nothing on another instance).
+    source_data_source_ref: dict | None = None
+    target_data_source_ref: dict | None = None
+    mapping_project_ref: dict | None = None
     status: str = "draft"
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
@@ -46,6 +51,11 @@ class EtlPipelineUpdate(CamelModel):
     source_data_source_id: str | None = None
     target_data_source_id: str | None = None
     mapping_project_id: str | None = None
+    # Portable identities of the three links above; the import resolves them
+    # back to local ids (the raw ids mean nothing on another instance).
+    source_data_source_ref: dict | None = None
+    target_data_source_ref: dict | None = None
+    mapping_project_ref: dict | None = None
     status: str | None = None
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
@@ -76,6 +86,11 @@ class EtlPipelineResponse(CamelModel):
     source_data_source_id: str | None = None
     target_data_source_id: str | None = None
     mapping_project_id: str | None = None
+    # Portable identities of the three links above; the import resolves them
+    # back to local ids (the raw ids mean nothing on another instance).
+    source_data_source_ref: dict | None = None
+    target_data_source_ref: dict | None = None
+    mapping_project_ref: dict | None = None
     status: str
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None

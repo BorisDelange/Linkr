@@ -146,7 +146,7 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
         # Absent on the TS side means ``undefined``, which JSON.stringify omits;
         # the response schema makes it an explicit None here, so drop it or a
         # project without one exports a key more server-side than client-side.
-        if k in ("dataSourceRef", "sourceExtraction") and v is None:
+        if k in ("dataSourceRef", "vocabularyDataSourceRef", "sourceExtraction") and v is None:
             continue
         # Reset in place: reassigning an existing key keeps its position (JS + py3.7+).
         out[k] = "" if k == "dataSourceId" else v

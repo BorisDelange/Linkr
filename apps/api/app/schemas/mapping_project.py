@@ -23,6 +23,8 @@ class MappingProjectCreate(CamelModel):
     data_source_id: str | None = None
     data_source_ref: dict | None = None
     vocabulary_data_source_id: str | None = None
+    # Portable pointer to the vocabulary database; resolved to a local id on import.
+    vocabulary_data_source_ref: dict | None = None
     file_source_data: dict | None = None
     source_extraction: dict | None = None
     raw_file_sha: str | None = None
@@ -64,6 +66,8 @@ class MappingProjectUpdate(CamelModel):
     data_source_id: str | None = None
     data_source_ref: dict | None = None
     vocabulary_data_source_id: str | None = None
+    # Portable pointer to the vocabulary database; resolved to a local id on import.
+    vocabulary_data_source_ref: dict | None = None
     file_source_data: dict | None = None
     source_extraction: dict | None = None
     raw_file_sha: str | None = None
@@ -94,6 +98,8 @@ class MappingProjectResponse(CamelModel):
     data_source_id: str | None = None
     data_source_ref: dict | None = None
     vocabulary_data_source_id: str | None = None
+    # Portable pointer to the vocabulary database; resolved to a local id on import.
+    vocabulary_data_source_ref: dict | None = None
     file_source_data: dict | None = None
     source_extraction: dict | None = None
     raw_file_sha: str | None = None

@@ -156,6 +156,56 @@ def _portable_catalog(data: dict) -> dict:
     return data
 
 
+def _drop_null_refs(data: dict, *keys: str) -> dict:
+    """Drop each portable pointer that is absent.
+
+    ``JSON.stringify`` omits ``undefined`` while Pydantic emits an explicit null,
+    so a pointer that was never stamped must be removed to keep the exported
+    bytes identical on both sides.
+    """
+    for key in keys:
+        if data.get(key) is None:
+            data.pop(key, None)
+    return data
+
+
+def _portable_rule_set(data: dict) -> dict:
+    """A DQ rule set's metadata with its database link in portable form.
+
+    Mirrors ``buildDqRuleSetFolder`` (entity-io.ts): ``dataSourceId`` is reset in
+    place (the type requires it, and reassigning an existing key keeps its
+    position) while ``dataSourceRef`` is what travels.
+    """
+    data["dataSourceId"] = ""
+    return _drop_null_refs(data, "dataSourceRef")
+
+
+def _portable_collection(data: dict) -> dict:
+    """A SQL collection's metadata with its database link in portable form.
+
+    Mirrors ``buildSqlCollectionFolder`` (entity-io.ts): ``defaultDataSourceId``
+    is optional, so it is REMOVED rather than blanked — a collection that never
+    had one must not gain an empty string.
+    """
+    data.pop("defaultDataSourceId", None)
+    return _drop_null_refs(data, "defaultDataSourceRef")
+
+
+def _portable_pipeline(data: dict) -> dict:
+    """An ETL pipeline's metadata with its three links in portable form.
+
+    Mirrors ``buildEtlPipelineFolder`` (entity-io.ts): ``sourceDataSourceId`` is
+    required by the type so it is blanked in place; the two optional links are
+    removed. The ``*Ref`` pointers are what the import resolves.
+    """
+    data["sourceDataSourceId"] = ""
+    data.pop("targetDataSourceId", None)
+    data.pop("mappingProjectId", None)
+    return _drop_null_refs(
+        data, "sourceDataSourceRef", "targetDataSourceRef", "mappingProjectRef"
+    )
+
+
 def _resolve_git_remote(cfg: dict | None) -> dict | None:
     """Port of ``resolveGitRemote`` (entity-io.ts:1374): a remote with a URL, else
     None. The legacy ``gitUrl`` field never reaches the server schemas, so only the
@@ -420,7 +470,7 @@ async def _sql_collection_sub_tree(db: AsyncSession, collection) -> dict[str, by
     entity.json (stripped) + scripts/_tree.json (files without content) + each file
     under scripts/."""
     tree: dict[str, bytes] = {}
-    dumped = _badged_dump(SqlScriptCollectionResponse, collection)
+    dumped = _portable_collection(_badged_dump(SqlScriptCollectionResponse, collection))
     # Same byte-parity rule as `badges`: the client omits an unset `config`
     # entirely (JSON.stringify skips undefined) while Pydantic emits an explicit
     # null. A collection with no versioning marks must export identically either way.
@@ -461,7 +511,7 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
     entity.json (stripped) + scripts/_tree.json + each file under scripts/, except
     the machine-managed mapping/ folder which stays at the root."""
     tree: dict[str, bytes] = {}
-    dumped = _badged_dump(EtlPipelineResponse, pipeline)
+    dumped = _portable_pipeline(_badged_dump(EtlPipelineResponse, pipeline))
     # Same byte-parity rule as `badges`: the client omits an unset `config`
     # entirely (JSON.stringify skips undefined) while Pydantic emits an explicit
     # null. A pipeline with no versioning marks must export identically either way.
@@ -660,7 +710,7 @@ async def build_workspace_tree_from_db(
             if options.exclude_entities.get(c.id):
                 continue
             git = _resolve_git_remote(c.git_remote_config)
-            meta = _badged_dump(SqlScriptCollectionResponse, c)
+            meta = _portable_collection(_badged_dump(SqlScriptCollectionResponse, c))
             entry: dict = {
                 "meta": strip_entity_docs(meta),
                 "git": git,
@@ -677,7 +727,7 @@ async def build_workspace_tree_from_db(
             if options.exclude_entities.get(p.id):
                 continue
             git = _resolve_git_remote(p.git_remote_config)
-            meta = _badged_dump(EtlPipelineResponse, p)
+            meta = _portable_pipeline(_badged_dump(EtlPipelineResponse, p))
             entry = {
                 "meta": strip_entity_docs(meta),
                 "git": git,
@@ -697,7 +747,7 @@ async def build_workspace_tree_from_db(
                 _dump(DqCustomCheckResponse, c)
                 for c in await dq_rule_set_service.list_checks(db, rs.id)
             ]
-            meta = _badged_dump(DqRuleSetResponse, rs)
+            meta = _portable_rule_set(_badged_dump(DqRuleSetResponse, rs))
             git = _resolve_git_remote(rs.git_remote_config)
             entry = {
                 "meta": strip_entity_docs(_strip_instance_fields(meta)),
@@ -867,7 +917,7 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
     # (stripped) + checks.json (verbatim, only when non-empty). Note this differs
     # from the workspace layout, which bundles {ruleSet, checks} in _ruleset.json.
     tree: dict[str, bytes] = {}
-    dumped = _badged_dump(DqRuleSetResponse, rule_set)
+    dumped = _portable_rule_set(_badged_dump(DqRuleSetResponse, rule_set))
     tree[ENTITY_MANIFEST] = _json(
         with_entity_type(
             strip_entity_docs(_strip_instance_fields(dumped)), TYPE_DQ_RULE_SET, APP_VERSION

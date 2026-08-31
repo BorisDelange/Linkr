@@ -48,6 +48,10 @@ class Project(Base, TimestampMixin):
     # so it travels with the export (LICENSE.md) independently of the picker.
     license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     linked_data_source_ids: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    # Portable identities of the databases above, one per entry. The ids are local
+    # UUIDs, stripped from every export; these travel in their place so an
+    # imported project can be re-linked to the databases this instance holds.
+    linked_data_source_refs: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Stable cross-instance identity (separate from the local PK). Preserved across
     # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.

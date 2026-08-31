@@ -33,6 +33,8 @@ class MappingProject(Base, TimestampMixin):
     # import resolves back to a local database.
     data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     vocabulary_data_source_id: Mapped[str | None] = mapped_column(String(36))
+    # Portable form of vocabulary_data_source_id — same rule as data_source_ref.
+    vocabulary_data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Parsed-file metadata WITHOUT the raw bytes (columns/columnMapping/parseOptions/
     # totalRowCount/fileName). The bytes are the blob referenced below.
     file_source_data: Mapped[dict | None] = mapped_column(JSONB_or_JSON)

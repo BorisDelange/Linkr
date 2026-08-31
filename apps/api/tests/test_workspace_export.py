@@ -43,6 +43,9 @@ from app.services.workspace_export import (
 )
 from app.services.workspace_export_assemble import (
     _canonical_schema_mapping,
+    _portable_collection,
+    _portable_pipeline,
+    _portable_rule_set,
     _is_entity_docs_file,
     _plugin_manifest,
     _to_path_tree,
@@ -268,7 +271,7 @@ def _build_tree() -> dict[str, bytes]:
                 }
             ),
         }
-        for c in data["sqlCollections"]
+        for c in map(_portable_collection, data["sqlCollections"])
     ]
     etl_pipelines = [
         {
@@ -291,7 +294,7 @@ def _build_tree() -> dict[str, bytes]:
                 }
             ),
         }
-        for p in data["etlPipelines"]
+        for p in map(_portable_pipeline, data["etlPipelines"])
     ]
     # An unlinked rule set / catalog is written as a folder, like its own repo, so
     # its docs come along — the assembler reads them from the DB and passes them in.
@@ -303,7 +306,7 @@ def _build_tree() -> dict[str, bytes]:
             "folder": rs.get("entityId") or _slugify(rs["name"].get("en") or rs["id"]),
             **({} if rs.get("gitRemoteConfig") else {"docs": entity_doc_files("", rs)}),
         }
-        for rs in data["dqRuleSets"]
+        for rs in map(_portable_rule_set, data["dqRuleSets"])
     ]
     # `dataSourceId` is blanked in place, as the production assembler does
     # (_portable_catalog): it is a local UUID, and `dataSourceRef` is the pointer

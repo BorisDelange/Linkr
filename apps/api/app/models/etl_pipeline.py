@@ -28,6 +28,13 @@ class EtlPipeline(Base, TimestampMixin):
     source_data_source_id: Mapped[str | None] = mapped_column(String(36))
     target_data_source_id: Mapped[str | None] = mapped_column(String(36))
     mapping_project_id: Mapped[str | None] = mapped_column(String(36))
+    # Portable identities of the three links above ({lineageId?, entityId?,
+    # label?}). The ids are this instance's local UUIDs and mean nothing
+    # elsewhere, so these are what the export carries and the import resolves
+    # back to local rows.
+    source_data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    target_data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    mapping_project_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     last_run_at: Mapped[str | None] = mapped_column(String(40))
     last_run_duration_ms: Mapped[int | None] = mapped_column(Integer)

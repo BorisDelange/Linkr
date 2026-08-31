@@ -26,6 +26,10 @@ class SqlScriptCollection(Base, TimestampMixin):
     # so it travels with the export (LICENSE.md) independently of the picker.
     license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     default_data_source_id: Mapped[str | None] = mapped_column(String(36))
+    # Portable identity of the database above ({lineageId?, entityId?, label?}).
+    # default_data_source_id is this instance's local UUID and means nothing
+    # elsewhere, so this is what the export carries and the import resolves back.
+    default_data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # User-facing semver, portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")

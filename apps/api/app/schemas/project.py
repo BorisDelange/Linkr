@@ -24,6 +24,9 @@ class ProjectCreate(CamelModel):
     # git/import round-trips.
     license: dict | None = None
     linked_data_source_ids: list[str] | None = None
+    # Portable identities of the databases above, one per entry: the ids are
+    # stripped from every export, so these are what travel.
+    linked_data_source_refs: list | None = None
     organization: dict | None = None
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
@@ -56,6 +59,9 @@ class ProjectUpdate(CamelModel):
     readme: dict | str | None = None
     license: dict | None = None
     linked_data_source_ids: list[str] | None = None
+    # Portable identities of the databases above, one per entry: the ids are
+    # stripped from every export, so these are what travel.
+    linked_data_source_refs: list | None = None
     organization: dict | None = None
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
@@ -94,6 +100,9 @@ class ProjectResponse(CamelModel):
     readme: dict | str | None = None
     license: dict | None = None
     linked_data_source_ids: list[str] | None = None
+    # Portable identities of the databases above, one per entry: the ids are
+    # stripped from every export, so these are what travel.
+    linked_data_source_refs: list | None = None
     organization: dict | None = None
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
