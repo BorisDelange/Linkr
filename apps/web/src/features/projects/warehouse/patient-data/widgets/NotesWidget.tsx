@@ -47,20 +47,11 @@ interface NoteRow {
 }
 
 // ---------------------------------------------------------------------------
-// Badge color palette (auto-assigned to distinct note types)
+// Note type badge style — deliberately neutral: the colored highlights inside
+// the note text are what should catch the eye, not the type label.
 // ---------------------------------------------------------------------------
 
-const BADGE_PALETTE = [
-  'bg-blue-500/15 text-blue-700 dark:text-blue-400',
-  'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
-  'bg-amber-500/15 text-amber-700 dark:text-amber-400',
-  'bg-violet-500/15 text-violet-700 dark:text-violet-400',
-  'bg-pink-500/15 text-pink-700 dark:text-pink-400',
-  'bg-red-500/15 text-red-700 dark:text-red-400',
-  'bg-cyan-500/15 text-cyan-700 dark:text-cyan-400',
-  'bg-orange-500/15 text-orange-700 dark:text-orange-400',
-  'bg-gray-500/15 text-gray-700 dark:text-gray-400',
-]
+const NOTE_TYPE_BADGE_CLASS = 'bg-muted text-muted-foreground'
 
 // ---------------------------------------------------------------------------
 // Fuzzy-ish matching helper
@@ -130,11 +121,11 @@ function coloredHighlightSegments(
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function NoteTypeBadge({ type, colorClass }: { type: string; colorClass: string }) {
+function NoteTypeBadge({ type }: { type: string }) {
   if (!type) return null
   return (
     <span
-      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${colorClass}`}
+      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${NOTE_TYPE_BADGE_CLASS}`}
     >
       {type}
     </span>
@@ -289,16 +280,6 @@ export function NotesWidget({
   const appliedIds = useMemo(() => config.appliedWordSetIds ?? [], [config.appliedWordSetIds])
   const filterToApplied = config.filterToWordSets ?? false
 
-  // Dynamic badge color map: type string → palette class
-  const badgeColorMap = useMemo(() => {
-    const types = [...new Set(notes.map((n) => n.note_type).filter(Boolean))].sort()
-    const map = new Map<string, string>()
-    types.forEach((type, i) => {
-      map.set(type, BADGE_PALETTE[i % BADGE_PALETTE.length])
-    })
-    return map
-  }, [notes])
-
   // Load notes
   useEffect(() => {
     // Skip while the tab is hidden (keep-alive leaves it mounted); keep the data
@@ -370,7 +351,9 @@ export function NotesWidget({
     return sortNotes(result, sort)
   }, [filteredNotes, textSearch, sort, filterToApplied, wordSets, appliedIds])
 
-  const selectedNote = notes.find((n) => n.note_id === selectedNoteId) ?? null
+  // Resolved against the filtered list, so a note excluded by the current
+  // search stops being displayed instead of lingering from before.
+  const selectedNote = displayNotes.find((n) => n.note_id === selectedNoteId) ?? null
 
   const sortFields = useMemo(
     () => [
@@ -568,10 +551,7 @@ export function NotesWidget({
                       <span className="text-[10px] text-muted-foreground tabular-nums">
                         {formatDate(note.note_date)}
                       </span>
-                      <NoteTypeBadge
-                        type={note.note_type}
-                        colorClass={badgeColorMap.get(note.note_type) ?? 'bg-muted text-muted-foreground'}
-                      />
+                      <NoteTypeBadge type={note.note_type} />
                     </div>
                   </button>
                 ))}
@@ -592,10 +572,7 @@ export function NotesWidget({
                       <span className="text-xs text-muted-foreground">
                         {formatDate(selectedNote.note_date)}
                       </span>
-                      <NoteTypeBadge
-                        type={selectedNote.note_type}
-                        colorClass={badgeColorMap.get(selectedNote.note_type) ?? 'bg-muted text-muted-foreground'}
-                      />
+                      <NoteTypeBadge type={selectedNote.note_type} />
                       {selectedNote.visit_id && (
                         <span className="text-[10px] text-muted-foreground">
                           Visit {selectedNote.visit_id}
@@ -656,36 +633,31 @@ function NoteTextRenderer({
     return <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(highlighted) }} />
   }
 
-  // Plain text
+  // Plain text. Newlines inside a paragraph are kept by whitespace-pre-wrap
+  // rather than one <p> per line: the surrounding `prose` styles give every <p>
+  // a full paragraph margin, which would space single line breaks far apart.
   const paragraphs = text.split(/\n{2,}/)
 
   return (
-    <div className="space-y-2">
-      {paragraphs.map((para, i) => {
-        const lines = para.split('\n')
-        return (
-          <div key={i}>
-            {lines.map((line, j) => (
-              <p key={j} className="text-xs leading-relaxed whitespace-pre-wrap">
-                {coloredWords.length > 0
-                  ? coloredHighlightSegments(line, coloredWords).map((seg, k) =>
-                      seg.colorIndex !== null ? (
-                        <mark
-                          key={k}
-                          className={`${WORD_SET_COLORS[seg.colorIndex]?.bg ?? 'bg-yellow-200 dark:bg-yellow-500/30'} rounded-sm px-0.5`}
-                        >
-                          {seg.text}
-                        </mark>
-                      ) : (
-                        <span key={k}>{seg.text}</span>
-                      ),
-                    )
-                  : line}
-              </p>
-            ))}
-          </div>
-        )
-      })}
+    <div className="space-y-3">
+      {paragraphs.map((para, i) => (
+        <p key={i} className="my-0 text-xs leading-relaxed whitespace-pre-wrap">
+          {coloredWords.length > 0
+            ? coloredHighlightSegments(para, coloredWords).map((seg, k) =>
+                seg.colorIndex !== null ? (
+                  <mark
+                    key={k}
+                    className={`${WORD_SET_COLORS[seg.colorIndex]?.bg ?? 'bg-yellow-200 dark:bg-yellow-500/30'} rounded-sm px-0.5`}
+                  >
+                    {seg.text}
+                  </mark>
+                ) : (
+                  <span key={k}>{seg.text}</span>
+                ),
+              )
+            : para}
+        </p>
+      ))}
     </div>
   )
 }
