@@ -944,7 +944,6 @@
     "no_cohorts": "Aucune cohorte définie",
     "no_cohorts_description": "Créez votre première cohorte pour définir des populations de patients.",
     "not_found": "Cohorte introuvable",
-    "card_criteria": "{{count}} critères",
     "card_results": "{{count}} résultats",
     "results_count": "résultats",
     "open": "Ouvrir",

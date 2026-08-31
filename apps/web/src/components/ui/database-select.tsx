@@ -22,6 +22,9 @@ interface Props {
   size?: 'xs' | 'sm' | 'default'
   className?: string
   disabled?: boolean
+  /** Show a database icon in the trigger. For a toolbar control standing on its
+   *  own; a form field is already named by its label, so it stays off there. */
+  icon?: boolean
 }
 
 /**
@@ -41,6 +44,7 @@ export function DatabaseSelect({
   size = 'default',
   className,
   disabled,
+  icon = false,
 }: Props) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -55,8 +59,8 @@ export function DatabaseSelect({
 
   return (
     <Select value={value ?? ''} onValueChange={onChange} disabled={disabled || empty}>
-      <SelectTrigger size={size} className={cn('gap-1.5', className)}>
-        <Database size={12} className="shrink-0 text-muted-foreground" />
+      <SelectTrigger size={size} className={cn(icon && 'gap-1.5', className)}>
+        {icon && <Database size={12} className="shrink-0 text-muted-foreground" />}
         <SelectValue placeholder={empty ? emptyLabel : (placeholder ?? t('databases.select_database'))} />
       </SelectTrigger>
       <SelectContent>

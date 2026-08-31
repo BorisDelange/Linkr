@@ -62,7 +62,6 @@ export function CohortCard({
   const navigate = useNavigate()
 
   const levelLabel = t(`cohorts.level_${cohort.level}`)
-  const criteriaCount = countCriteria(cohort.criteriaTree)
 
   const handleClick = () => {
     navigate(href)
@@ -134,15 +133,6 @@ export function CohortCard({
             <TruncatedText text={cohort.description} className="text-xs text-muted-foreground" />
           )}
         </div>
-        {/* Criteria + results */}
-        <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-          <span>{t('cohorts.card_criteria', { count: criteriaCount })}</span>
-          {cohort.resultCount != null && (
-            <span className="font-medium text-foreground">
-              {cohort.resultCount.toLocaleString()} {t('cohorts.results_count')}
-            </span>
-          )}
-        </div>
         <EntityDatabaseLine projectUid={cohort.projectUid} dataSourceId={cohort.dataSourceId} />
        </div>
         <CardMetaFooter
@@ -155,14 +145,4 @@ export function CohortCard({
       </div>
     </Card>
   )
-}
-
-/** Count total leaf criteria in the tree */
-function countCriteria(node: Cohort['criteriaTree']): number {
-  let count = 0
-  for (const child of node.children) {
-    if (child.kind === 'criterion') count++
-    else count += countCriteria(child)
-  }
-  return count
 }

@@ -471,6 +471,7 @@ export function ConceptsPage() {
               chooseDatabase(id)
             }}
             size="xs"
+            icon
             className="w-44 shrink-0"
           />
 
