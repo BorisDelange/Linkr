@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import seedHashesPlugin from './vite-plugin-seed-hashes'
@@ -36,8 +36,7 @@ const appVersion = (() => {
 // (see server.headers below), and the SW's install-time page reload + module
 // interception floods the console with "failed to load module" noise whenever
 // the dev server restarts.
-function stripCoiInServerMode() {
-  const serverMode = !!process.env.VITE_API_URL
+function stripCoiInServerMode(serverMode: boolean) {
   return {
     name: 'strip-coi-in-server-mode',
     transformIndexHtml(html: string, ctx: { server?: unknown }) {
@@ -60,38 +59,48 @@ const basePath = (() => {
   return `/${raw.replace(/^\/+|\/+$/g, '')}/`
 })()
 
-export default defineConfig({
-  base: basePath,
-  plugins: [react(), tailwindcss(), seedHashesPlugin(), stripCoiInServerMode()],
-  define: {
-    __APP_BUILD_HASH__: JSON.stringify(gitHash),
-    __APP_VERSION__: JSON.stringify(appVersion),
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      '@default-plugins': path.resolve(__dirname, '../../packages/default-plugins'),
-      '@linkr/format': path.resolve(__dirname, '../../packages/linkr-format/src/index.ts'),
+export default defineConfig(({ mode }) => {
+  // Dev ports are overridable so several git worktrees can run side by side,
+  // each on its own pair (see scripts/new-worktree.mjs). WEB_PORT/API_PORT come
+  // from the worktree's .env.local — loadEnv with an empty prefix is required to
+  // read non-VITE_ keys — and default to the historical 3000/8000.
+  const env = { ...loadEnv(mode, __dirname, ''), ...process.env }
+  const webPort = Number(env.WEB_PORT) || 3000
+  const apiPort = Number(env.API_PORT) || 8000
+
+  return {
+    base: basePath,
+    plugins: [react(), tailwindcss(), seedHashesPlugin(), stripCoiInServerMode(!!env.VITE_API_URL)],
+    define: {
+      __APP_BUILD_HASH__: JSON.stringify(gitHash),
+      __APP_VERSION__: JSON.stringify(appVersion),
     },
-  },
-  optimizeDeps: {
-    exclude: ['pyodide'],
-  },
-  server: {
-    port: 3000,
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'credentialless',
-    },
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '/ws': {
-        target: 'ws://localhost:8000',
-        ws: true,
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+        '@default-plugins': path.resolve(__dirname, '../../packages/default-plugins'),
+        '@linkr/format': path.resolve(__dirname, '../../packages/linkr-format/src/index.ts'),
       },
     },
-  },
+    optimizeDeps: {
+      exclude: ['pyodide'],
+    },
+    server: {
+      port: webPort,
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'credentialless',
+      },
+      proxy: {
+        '/api': {
+          target: `http://localhost:${apiPort}`,
+          changeOrigin: true,
+        },
+        '/ws': {
+          target: `ws://localhost:${apiPort}`,
+          ws: true,
+        },
+      },
+    },
+  }
 })

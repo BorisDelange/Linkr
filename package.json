@@ -12,8 +12,11 @@
     "test": "cd apps/web && npm run test",
     "dev:web": "cd apps/web && npm run dev",
     "dev:client": "cd apps/web && npm run dev:client",
-    "dev:api": "cd apps/api && uvicorn app.main:app --reload --reload-dir app --port 8000",
+    "dev:api": "node scripts/dev-api.mjs",
     "dev:all": "concurrently \"npm run dev:web\" \"npm run dev:api\"",
+    "worktree:new": "node scripts/new-worktree.mjs",
+    "worktree:remove": "node scripts/remove-worktree.mjs",
+    "worktree:status": "node scripts/worktree-status.mjs",
     "data:fetch": "tsx scripts/fetch-default-data.ts",
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "prepare": "node scripts/install-git-hooks.mjs"
