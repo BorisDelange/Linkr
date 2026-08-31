@@ -44,7 +44,7 @@ import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { isServerMode } from '@/lib/api-client'
-import { resolvePointer } from '@/lib/import-identity'
+import { findLineageMatch, resolvePointer, resolveSlugLanding } from '@/lib/import-identity'
 import { importDatasetOnServer } from '@/lib/api/datasets'
 
 
@@ -3266,8 +3266,12 @@ async function applyClonedDatabase(
 /** What a database ZIP declares, read before deciding overwrite vs duplicate. */
 export interface ParsedDatabaseZip {
   zip: JSZip
-  /** The repo's own id — the row it overwrites when the user keeps it. */
+  /** The published slug, which is what the repo is addressed by — NOT a local
+   *  key. Where the row lands is `importParsedDatabase`'s call to make. */
   id: string
+  /** Cross-instance identity, when the repo carries one: what recognises a
+   *  re-import of the same published database. */
+  lineageId?: string
   name: LocalizedString
   tableCount: number
 }
@@ -3278,17 +3282,24 @@ export interface ParsedDatabaseZip {
  * Deliberately not `parseImportZip`: that decodes every entry as text, which
  * would corrupt `data/*.parquet`. The bytes stay untouched in the JSZip and are
  * read as arraybuffers by `importParsedDatabase` below.
+ *
+ * `entityId` leads, `id` trails: exports stopped carrying the writing instance's
+ * local key (see `withEntityType`), so demanding `id` here rejected every repo
+ * the app itself publishes — the same order `idOf` reads for the catalog, which
+ * is why a catalog install of the very same repo kept working.
  */
 export async function parseDatabaseZip(file: File): Promise<ParsedDatabaseZip | null> {
   const zip = stripRootFolder(await JSZip.loadAsync(file))
   const metaEntry = zip.files[ENTITY_MANIFEST] ?? zip.files[MANIFEST.database]
   if (!metaEntry) return null
   const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
-  if (!meta.id) return null
+  const key = meta.entityId ?? meta.id ?? meta.lineageId
+  if (!key) return null
   return {
     zip,
-    id: meta.id,
-    name: toLocalized(meta.name ?? meta.id),
+    id: key,
+    ...(meta.lineageId ? { lineageId: meta.lineageId } : {}),
+    name: toLocalized(meta.name ?? key),
     tableCount: meta.tables?.length ?? 0,
   }
 }
@@ -3297,6 +3308,13 @@ export async function parseDatabaseZip(file: File): Promise<ParsedDatabaseZip | 
  * Import a parsed database ZIP. `duplicate` mints a fresh id so the incoming
  * database lands beside the existing one instead of replacing it — the same two
  * options every other per-page importer offers.
+ *
+ * Where an overwrite lands follows the workspace import's rule (see
+ * `resolveByLineage` / `resolveSlugLanding`): lineage first, then the slug but
+ * only when free or already held by this workspace. Landing on the slug
+ * unconditionally would overwrite another workspace's database — and
+ * `applyClonedDatabase` clears the previous Parquet before writing, so that loss
+ * is not recoverable.
  */
 export async function importParsedDatabase(
   parsed: ParsedDatabaseZip,
@@ -3305,7 +3323,13 @@ export async function importParsedDatabase(
   workspaceId?: string,
   gitRemoteConfig?: GitRemoteConfig,
 ): Promise<string | null> {
-  const targetId = duplicate ? crypto.randomUUID() : parsed.id
+  const rows = await storage.dataSources.getAll().catch(() => [])
+  const wsId = workspaceId ?? ''
+  const byLineage = findLineageMatch(rows, parsed, wsId)
+  const targetId = duplicate
+    ? crypto.randomUUID()
+    : byLineage?.id
+      ?? resolveSlugLanding(parsed.id, rows.find((ds) => ds.id === parsed.id), wsId)
   const ok = await applyClonedDatabase(parsed.zip, targetId, storage, workspaceId, gitRemoteConfig)
   if (!ok) return null
   // The alias names the DuckDB schema, so a copy sharing the original's alias

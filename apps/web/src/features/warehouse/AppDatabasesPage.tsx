@@ -43,6 +43,7 @@ import { getStorage } from '@/lib/storage'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { parseDatabaseZip, importParsedDatabase, type ParsedDatabaseZip } from '@/lib/entity-io'
+import { findLineageMatch } from '@/lib/import-identity'
 import { DatabaseCard } from '@/features/projects/warehouse/databases/DatabaseCard'
 import { AddDatabaseDialog } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
 import { DatabaseDetailPage } from '@/features/projects/warehouse/databases/DatabaseDetailPage'
@@ -338,7 +339,13 @@ export function AppDatabasesPage() {
   const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseDatabaseZip(file)
     if (!parsed) throw new Error(t('databases.import_not_a_database'))
-    const existing = await getStorage().dataSources.getById(parsed.id).catch(() => null)
+    // Lineage first, then the published slug — the same order importParsedDatabase
+    // lands by, so the prompt and the write can never disagree. Asking by local id
+    // matched nothing once exports stopped carrying one, and every re-import
+    // silently piled up a fresh copy.
+    const rows = await getStorage().dataSources.getAll().catch(() => [])
+    const existing = findLineageMatch(rows, parsed, wsUid ?? '')
+      ?? rows.find((ds) => ds.id === parsed.id)
     // Only a row in THIS workspace is a conflict the user can answer. The same id
     // in another workspace is a different database: overwriting it would delete
     // that workspace's Parquet (applyClonedDatabase clears the previous files

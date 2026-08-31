@@ -1482,8 +1482,11 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
   })
 
   describe('applyClonedEntity: database', () => {
-    /** A store recording data-source and file writes, with everything else inert. */
-    function makeStore(): { store: Storage; calls: Record<string, unknown[][]> } {
+    /** A store recording data-source and file writes, with everything else inert.
+     *  `existing` seeds the rows an import resolves its landing against. */
+    function makeStore(
+      existing: { id: string; lineageId?: string; workspaceId?: string }[] = [],
+    ): { store: Storage; calls: Record<string, unknown[][]> } {
       const calls: Record<string, unknown[][]> = {}
       const rec = (name: string) => (...args: unknown[]) => {
         (calls[name] ??= []).push(args)
@@ -1493,8 +1496,8 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         get: (_t, prop) => {
           switch (prop) {
             case 'dataSources': return {
-              getAll: async () => [],
-              getById: async () => null,
+              getAll: async () => existing,
+              getById: async (id: string) => existing.find((ds) => ds.id === id) ?? null,
               create: rec('ds.create'),
               update: rec('ds.update'),
             }
@@ -1510,8 +1513,12 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
       return { store, calls }
     }
 
+    // The shape buildDataSourceFolder actually writes: `entityId` is the published
+    // slug, and the writing instance's `id` is stripped from every export. A
+    // fixture carrying `id` hid the fact that the real parser rejected every
+    // published repo.
     const META = (over: Record<string, unknown> = {}) => JSON.stringify({
-      id: 'mimic-iv-demo',
+      entityId: 'mimic-iv-demo',
       alias: 'mimic_iv_demo',
       name: { en: 'MIMIC-IV Demo' },
       sourceType: 'database',
@@ -1834,6 +1841,63 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         const zip = new JSZip()
         zip.file('project.json', '{}')
         expect(await parseDatabaseZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File)).toBeNull()
+      })
+
+      // The parser demanded `id`, which withEntityType strips from every export:
+      // the Import button rejected every repo the app itself publishes as "not a
+      // database repository", while a catalog install of the same repo worked —
+      // idOf reads `entityId` first. Round-trip through the real writer so the
+      // parser can never again disagree with what the exporter produces.
+      it('accepts a tree the app itself exported, which carries no id', async () => {
+        const out = new JSZip()
+        await buildDataSourceFolder(out, '', {
+          id: 'local-primary-key', entityId: 'mimic-iv-demo', alias: 'db',
+          name: { en: 'MIMIC-IV Demo' }, description: {},
+          lineageId: 'lin-db', sourceType: 'database',
+          schemaMapping: { presetId: 'inline', presetLabel: { en: 'Inline' }, eventTables: {} },
+          connectionConfig: { engine: 'duckdb' },
+        } as unknown as Parameters<typeof buildDataSourceFolder>[2], new Proxy({}, {
+          get: () => new Proxy({}, { get: () => async () => [] }),
+        }) as unknown as Storage)
+        const meta = JSON.parse(await out.files['entity.json'].async('string')) as Record<string, unknown>
+        expect(meta.id).toBeUndefined()
+
+        const zip = new JSZip()
+        zip.file('entity.json', JSON.stringify(meta))
+        const parsed = await parseDatabaseZip(
+          await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File,
+        )
+        expect(parsed?.id).toBe('mimic-iv-demo')
+        expect(parsed?.lineageId).toBe('lin-db')
+      })
+
+      it('still reads a repo published back when exports carried id', async () => {
+        const zip = new JSZip()
+        zip.file('entity.json', JSON.stringify({ id: 'legacy-db', name: { en: 'Legacy' } }))
+        const parsed = await parseDatabaseZip(
+          await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File,
+        )
+        expect(parsed?.id).toBe('legacy-db')
+      })
+
+      it('lands a re-import on the row it wrote last time, by lineage', async () => {
+        const parsed = (await parseDatabaseZip(await repoZip({ lineageId: 'lin-db' })))!
+        const { store } = makeStore([
+          { id: 'row-written-last-time', lineageId: 'lin-db', workspaceId: 'ws1' },
+        ])
+        expect(await importParsedDatabase(parsed, store, false, 'ws1')).toBe('row-written-last-time')
+      })
+
+      // applyClonedDatabase clears the previous Parquet before writing, so landing
+      // on a slug another workspace holds would destroy that workspace's data.
+      it('mints rather than overwrite a database of another workspace', async () => {
+        const parsed = (await parseDatabaseZip(await repoZip()))!
+        const { store } = makeStore([
+          { id: 'mimic-iv-demo', workspaceId: 'other-ws' },
+        ])
+        const id = await importParsedDatabase(parsed, store, false, 'ws1')
+        expect(id).not.toBe('mimic-iv-demo')
+        expect(id).toBeTruthy()
       })
     })
   })
