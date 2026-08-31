@@ -27,6 +27,15 @@ describe('buildQuickActions', () => {
     expect(paths(scripts)).toEqual(['scripts/a.sql'])
   })
 
+  it('projects: Sync all carries a patient board (it was dropped as a foreign file)', () => {
+    // patient-dashboards/ had no rule in git-file-meta, so it fell to the 'other'
+    // category and excludeForeign silently dropped it: creating a patient board
+    // left nothing to push.
+    const changed = ch('project.json', 'patient-dashboards/icu.json')
+    const [all] = buildQuickActions('projects', changed)
+    expect(paths(all)).toEqual(['project.json', 'patient-dashboards/icu.json'])
+  })
+
   it('carries each file change type through to the action files (badges)', () => {
     const changed = ch(['project.json', 'modified'], ['dashboards/d.json', 'added'], ['dashboards/old.json', 'deleted'])
     const [all] = buildQuickActions('projects', changed)

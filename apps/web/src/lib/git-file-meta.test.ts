@@ -11,6 +11,12 @@ describe('gitFileMeta', () => {
     expect(gitFileMeta('projects', 'scripts/analysis.R').category).toBe('scripts')
     expect(gitFileMeta('projects', 'datasets/cohort/data.csv').category).toBe('datasets')
     expect(gitFileMeta('projects', 'dashboards/overview.json').category).toBe('dashboards')
+    // Patient boards ship as their own folder. Without a rule they fell to
+    // 'other', which isForeignPath reads as "another tool wrote this" — so
+    // "Sync all" skipped every one of them.
+    expect(gitFileMeta('projects', 'patient-dashboards/icu.json').category).toBe('dashboards')
+    expect(gitFileMeta('projects', 'patient-dashboards/icu.json').descriptionKey)
+      .toBe('versioning.file_desc_patient_dashboard')
     expect(gitFileMeta('projects', 'cohorts/adults.json').category).toBe('cohorts')
     expect(gitFileMeta('projects', 'environments/python/pyproject.toml').category).toBe('environments')
     expect(gitFileMeta('projects', 'environments/r/renv.lock').category).toBe('environments')

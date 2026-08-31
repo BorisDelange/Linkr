@@ -2114,6 +2114,7 @@
     "file_desc_dataset_columns": "The column definitions of a dataset (names and types).",
     "file_desc_dataset_file": "A dataset: its metadata, analyses and — if included — its data.",
     "file_desc_dashboard": "A dashboard with its tabs and widgets.",
+    "file_desc_patient_dashboard": "A patient board with its tabs and widgets.",
     "file_desc_cohort": "A cohort definition (its inclusion/exclusion criteria).",
     "file_desc_concept_list": "User-authored concept list",
     "file_desc_pipeline": "The data pipeline: the transformation steps.",

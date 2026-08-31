@@ -16,6 +16,10 @@ describe('isForeignPath', () => {
     expect(isForeignPath('projects', '.gitignore')).toBe(false)
   })
 
+  it('never flags a patient board — Linkr writes that folder, so Sync all must carry it', () => {
+    expect(isForeignPath('projects', 'patient-dashboards/icu.json')).toBe(false)
+  })
+
   it('never flags recognised content', () => {
     expect(isForeignPath('projects', 'project.json')).toBe(false)
     expect(isForeignPath('projects', 'dashboards/d.json')).toBe(false)

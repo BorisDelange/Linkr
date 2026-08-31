@@ -2117,6 +2117,7 @@
     "file_desc_dataset_columns": "La définition des colonnes d'un jeu de données (noms et types).",
     "file_desc_dataset_file": "Un jeu de données : ses métadonnées, analyses et — si inclus — ses données.",
     "file_desc_dashboard": "Un tableau de bord avec ses onglets et ses widgets.",
+    "file_desc_patient_dashboard": "Un tableau patient avec ses onglets et ses widgets.",
     "file_desc_cohort": "Une définition de cohorte (ses critères d'inclusion/exclusion).",
     "file_desc_concept_list": "Liste de concepts créée par l’utilisateur",
     "file_desc_pipeline": "Le pipeline de données : les étapes de transformation.",

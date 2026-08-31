@@ -3639,9 +3639,30 @@ export async function applyClonedEntity(
   // them — the previous order lost all three whenever content import threw. Keep the
   // local uid/workspaceId and re-apply the git pointer (the repo export strips
   // gitRemoteConfig as an instance field).
-  const { uid: _uid, workspaceId: _ws, ...meta } = dropForeignAuthorId(parsed.project) as Project
+  const {
+    uid: _uid, workspaceId: _ws, linkedDataSourceIds: _dbIds, ...meta
+  } = dropForeignAuthorId(parsed.project) as Project
+  // The database links live ONLY in the project's own repo: the workspace carries
+  // a bare pointer (uid/name/gitRemoteConfig), so the workspace import's re-link
+  // step sees no `linkedDataSourceRefs` and leaves the project with no database at
+  // all — and `resolveProjectSource` filters on that list, so every warehouse
+  // screen then resolves to nothing. Resolve them here, where the repo's refs are
+  // finally in hand, and BEFORE importProjectContent: the cohorts and patient
+  // boards it writes resolve their own database against these same pointers.
+  const databases = workspaceId && meta.linkedDataSourceRefs?.length
+    ? await storage.dataSources.getAll()
+    : []
+  const linkedDataSourceIds = workspaceId
+    ? (meta.linkedDataSourceRefs ?? [])
+      .map((ref) => resolvePointer(databases, ref, workspaceId)?.id)
+      .filter((id): id is string => !!id)
+    : []
   await storage.projects.update(targetId, {
     ...meta,
+    // Same rule as resolveEntityLinks: a repo cloned where the referenced database
+    // is not installed keeps whatever the row already points at, rather than
+    // blanking a correct local link.
+    ...(linkedDataSourceIds.length > 0 ? { linkedDataSourceIds } : {}),
     ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
     ...(workspaceId ? { workspaceId } : {}),
   }).catch(() => {})

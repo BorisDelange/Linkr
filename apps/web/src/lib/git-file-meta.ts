@@ -120,6 +120,11 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     { test: /^datasets\/_tree\.json$/, category: 'datasets', order: CAT.datasets, descriptionKey: 'versioning.file_desc_datasets_tree' },
     { test: /^datasets\/.*\/_columns\.json$/, category: 'datasets', order: CAT.datasets, descriptionKey: 'versioning.file_desc_dataset_columns' },
     { test: /^datasets\//, category: 'datasets', order: CAT.datasets, descriptionKey: 'versioning.file_desc_dataset_file' },
+    // Before `dashboards/` for readability only — both patterns are anchored, so
+    // `patient-dashboards/` never matched the one below. Without a rule of its own
+    // it fell to 'other', which `isForeignPath` reads as "written by another tool":
+    // "Sync all" then skipped every patient board.
+    { test: /^patient-dashboards\//, category: 'dashboards', order: CAT.dashboards, descriptionKey: 'versioning.file_desc_patient_dashboard' },
     { test: /^dashboards\//, category: 'dashboards', order: CAT.dashboards, descriptionKey: 'versioning.file_desc_dashboard' },
     { test: /^cohorts\//, category: 'cohorts', order: CAT.cohorts, descriptionKey: 'versioning.file_desc_cohort' },
     { test: /^concept-lists\//, category: 'concepts', order: CAT.concepts, descriptionKey: 'versioning.file_desc_concept_list' },
