@@ -4,6 +4,7 @@ import { queryDataSource } from '@/lib/duckdb/engine'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { buildPatientSummaryQuery } from '@/lib/duckdb/patient-data-queries'
 import { formatGender as fmtGender } from '@/lib/format-helpers'
+import { CopyIconButton } from '@/components/ui/copy-icon-button'
 
 interface PatientSummary {
   patient_id: string
@@ -80,7 +81,10 @@ export function PatientHoverCard({
 
   return (
     <div className="min-w-44 space-y-1 text-xs">
-      <div className="font-mono font-semibold">{patientId}</div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="select-text font-mono font-semibold">{patientId}</span>
+        <CopyIconButton text={patientId} />
+      </div>
       {loading ? (
         <div className="text-background/60">{t('common.loading')}</div>
       ) : summary ? (

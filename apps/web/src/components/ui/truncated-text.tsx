@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
-import { Check, Copy } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { CopyIconButton } from '@/components/ui/copy-icon-button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 /** Hover dwell before a tooltip is built, matching Radix's old delayDuration. */
@@ -123,39 +122,11 @@ export function TruncatedText({
           ) : (
             <div className="flex items-start gap-1.5">
               <span className="select-text">{text}</span>
-              <CopyButton text={text} />
+              <CopyIconButton text={text} className="mt-px" />
             </div>
           )}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
-  )
-}
-
-/** Copy-to-clipboard control shown inside the tooltip, with a brief tick on success. */
-function CopyButton({ text }: { text: string }) {
-  const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const copy = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    e.preventDefault()
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => setCopied(false), 1200)
-    })
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      title={copied ? t('common.copied') : t('common.copy')}
-      className="mt-px shrink-0 rounded p-0.5 opacity-70 hover:bg-white/15 hover:opacity-100"
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />}
-    </button>
   )
 }
