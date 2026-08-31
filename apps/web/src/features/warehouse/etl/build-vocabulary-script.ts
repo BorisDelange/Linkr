@@ -89,6 +89,39 @@ const ATHENA_COLUMNS: Record<string, string[]> = {
 const DATE_COLUMNS = new Set(['valid_start_date', 'valid_end_date'])
 
 /**
+ * The vocabulary tables the prune rewrites instead of DELETEing from, with the
+ * id columns to keep on and the NOT NULL columns of the CDM 5.4 DDL.
+ *
+ * The constraints are listed because DuckDB has no dynamic DDL: `query()` is a
+ * table function and rejects an ALTER, so they cannot be read back from
+ * duckdb_columns() at run time and have to be spelled out.
+ */
+const REWRITTEN_VOCAB_TABLES: {
+  table: string
+  idColumns: string[]
+  notNull: string[]
+}[] = [
+  {
+    table: 'concept_relationship',
+    idColumns: ['concept_id_1', 'concept_id_2'],
+    notNull: ['concept_id_1', 'concept_id_2', 'relationship_id', 'valid_start_date', 'valid_end_date'],
+  },
+  {
+    table: 'concept_ancestor',
+    idColumns: ['ancestor_concept_id', 'descendant_concept_id'],
+    notNull: [
+      'ancestor_concept_id', 'descendant_concept_id',
+      'min_levels_of_separation', 'max_levels_of_separation',
+    ],
+  },
+  {
+    table: 'concept_synonym',
+    idColumns: ['concept_id'],
+    notNull: ['concept_id', 'concept_synonym_name', 'language_concept_id'],
+  },
+]
+
+/**
  * Explicit select list for an ATHENA table, normalising the date columns.
  *
  * `try_strptime` returns NULL instead of raising when the text is not YYYYMMDD,
@@ -296,18 +329,33 @@ export function buildPruneVocabularyScript(): string {
   parts.push('-- 3. Prune the vocabulary tables')
   parts.push('-- =================================================================')
   parts.push('')
+  // Kept by rewriting the table, not by DELETEing what falls out. These tables
+  // are the big ones — a full ATHENA concept_ancestor is ~85M rows and the prune
+  // drops ~70M of them — and deleting a large majority costs far more than
+  // writing the minority that survives: measured on that table, 135s to DELETE
+  // against 1.1s to rewrite, for byte-identical output. SEMI JOIN rather than
+  // `IN (…)` so each id column is one hash join.
+  //
+  // CREATE OR REPLACE builds a fresh table, which does NOT inherit the original
+  // NOT NULL constraints — hence the ALTER after each one. Without them the CDM
+  // ends up laxer than its own DDL, silently.
+  for (const { table, idColumns, notNull } of REWRITTEN_VOCAB_TABLES) {
+    parts.push(`CREATE OR REPLACE TABLE ${T}.${table} AS`)
+    parts.push(`SELECT t.* FROM ${T}.${table} t`)
+    idColumns.forEach((col, i) => {
+      parts.push(`SEMI JOIN ${T}.tmp_keep_concepts k${i} ON k${i}.concept_id = t.${col}`)
+    })
+    parts[parts.length - 1] += ';'
+    for (const col of notNull) {
+      parts.push(`ALTER TABLE ${T}.${table} ALTER COLUMN ${col} SET NOT NULL;`)
+    }
+    parts.push('')
+  }
+
+  // `concept` stays a DELETE: only ~650k rows fall out of it here, so the
+  // rewrite would buy little, and it is the table whose constraints the rest of
+  // the CDM leans on hardest.
   parts.push(`DELETE FROM ${T}.concept`)
-  parts.push(`WHERE concept_id NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts);`)
-  parts.push('')
-  parts.push(`DELETE FROM ${T}.concept_relationship`)
-  parts.push(`WHERE concept_id_1 NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts)`)
-  parts.push(`   OR concept_id_2 NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts);`)
-  parts.push('')
-  parts.push(`DELETE FROM ${T}.concept_ancestor`)
-  parts.push(`WHERE ancestor_concept_id NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts)`)
-  parts.push(`   OR descendant_concept_id NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts);`)
-  parts.push('')
-  parts.push(`DELETE FROM ${T}.concept_synonym`)
   parts.push(`WHERE concept_id NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts);`)
   parts.push('')
   // Every concept column has to hold, not just the drug: the others are foreign

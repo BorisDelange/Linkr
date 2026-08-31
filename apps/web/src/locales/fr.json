@@ -3094,8 +3094,6 @@
     "confirm": "Supprimer toutes les données"
   },
   "version_check": {
-    "update_title": "Linkr a été mis à jour",
-    "update_description": "Une nouvelle version est active. Aucune action requise.",
     "schema_title": "Réinitialisation des données requise",
     "schema_description": "Le format des données locales a changé avec cette mise à jour. Vos données existantes ne sont plus compatibles et peuvent provoquer des erreurs.",
     "schema_hint": "Vous pouvez exporter vos projets avant de réinitialiser pour ne pas perdre votre travail.",
