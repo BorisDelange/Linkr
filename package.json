@@ -13,7 +13,7 @@
     "dev:web": "cd apps/web && npm run dev",
     "dev:client": "cd apps/web && npm run dev:client",
     "dev:api": "node scripts/dev-api.mjs",
-    "dev:all": "concurrently \"npm run dev:web\" \"npm run dev:api\"",
+    "dev:all": "node scripts/dev-all.mjs",
     "worktree:new": "node scripts/new-worktree.mjs",
     "worktree:remove": "node scripts/remove-worktree.mjs",
     "worktree:status": "node scripts/worktree-status.mjs",
