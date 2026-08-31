@@ -180,6 +180,9 @@ export function AddDatabaseDialog({
   /** Why the save failed — shown above the footer instead of failing silently. */
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
+  /** False until the workspace's presets have been fetched — an empty dropdown
+   *  otherwise reads as "none installed" while the fetch is still in flight. */
+  const [presetsLoaded, setPresetsLoaded] = useState(false)
 
   const isEditMode = !!editingSource
 
@@ -188,12 +191,17 @@ export function AddDatabaseDialog({
   // and the old fallback fetched EVERY workspace's presets — which then raced the
   // scoped fetch that followed, so the dropdown could keep offering another
   // workspace's schemas. Same guard as SchemaPresetsPage.
+  //
+  // The guard needs `useResolvedParams` to work outside `<Routes>` too: this
+  // dialog is also mounted from the Header's badge menu, a sibling of `<Routes>`
+  // where `useParams()` is always empty — hence the pathname fallback there.
   useEffect(() => {
     if (!open || !wsUid) return
     let cancelled = false
+    setPresetsLoaded(false)
     getStorage().schemaPresets.getByWorkspace(wsUid)
-      .then((rows) => { if (!cancelled) setCustomPresets(rows) })
-      .catch(() => {})
+      .then((rows) => { if (!cancelled) { setCustomPresets(rows); setPresetsLoaded(true) } })
+      .catch(() => { if (!cancelled) setPresetsLoaded(true) })
     return () => { cancelled = true }
   }, [open, wsUid])
 
@@ -836,6 +844,11 @@ export function AddDatabaseDialog({
                       ))}
                     </SelectContent>
                   </Select>
+                  {presetsLoaded && customPresets.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('databases.no_schemas_installed')}
+                    </p>
+                  )}
                 </div>
 
                 {isCreatedFromSchema ? (

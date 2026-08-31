@@ -785,6 +785,7 @@
     "select_preset": "Sélectionner un schéma...",
     "no_presets_with_ddl": "Aucun schéma avec DDL disponible. Ajoutez un DDL à un schéma dans la page Schémas.",
     "no_schema": "Aucun schéma (accès SQL brut)",
+    "no_schemas_installed": "Aucun schéma installé dans cet espace de travail. Ajoutez-en un depuis la page Schémas.",
     "database_name": "Nom de la base",
     "database_name_placeholder": "ex. OMOP CDM (vide)",
     "created_from_preset": "Créée depuis le preset {{preset}} (vide)",

@@ -785,6 +785,7 @@
     "select_preset": "Select a schema...",
     "no_presets_with_ddl": "No schemas with DDL available. Add a DDL to a schema in the Schemas page.",
     "no_schema": "No schema (raw SQL access)",
+    "no_schemas_installed": "No schema installed in this workspace. Add one from the Schemas page.",
     "database_name": "Database name",
     "database_name_placeholder": "e.g. OMOP CDM (empty)",
     "created_from_preset": "Created from {{preset}} preset (empty)",
