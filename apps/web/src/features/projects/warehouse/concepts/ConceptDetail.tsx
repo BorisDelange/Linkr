@@ -1,11 +1,15 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Code2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { columnLabel } from '@/lib/format-helpers'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import { ConceptStatsPanel } from './ConceptStatsPanel'
+import { ConceptStatsSqlDialog } from './ConceptStatsSqlDialog'
 import type { ConceptStats } from './use-concepts'
 import type { ColumnDescriptor } from './concept-queries'
 
@@ -17,6 +21,8 @@ interface ConceptDetailProps {
   hasValueColumn: boolean
   excludeOutliers: boolean
   statsEnabled: boolean
+  /** The statements behind the stats panel, in execution order. */
+  statsSql?: { titleKey: string; sql: string }[]
 }
 
 function MetaRow({ label, value }: { label: string; value: string | null | undefined }) {
@@ -36,8 +42,10 @@ export function ConceptDetail({
   hasValueColumn,
   excludeOutliers,
   statsEnabled,
+  statsSql = [],
 }: ConceptDetailProps) {
   const { t } = useTranslation()
+  const [sqlOpen, setSqlOpen] = useState(false)
 
   // Metadata rows follow the table's column order (concept_id included — it is
   // the field most often copied out of here); the name is already the heading.
@@ -76,7 +84,7 @@ export function ConceptDetail({
         {/* Header — same shape as the mapping editor's concept detail: name plus
             a code badge on the first line, vocabulary on the second. */}
         <div>
-          <div className="flex items-start gap-2">
+          <div className="flex items-center gap-2">
             <span className="min-w-0 break-words text-sm font-semibold leading-tight">
               {conceptName || conceptIdLabel || t('concepts.unnamed_concept')}
             </span>
@@ -84,6 +92,28 @@ export function ConceptDetail({
               <Badge variant="outline" className="shrink-0 font-mono">
                 {conceptCode}
               </Badge>
+            )}
+            {statsSql.length > 0 && (
+              // The page's provider closes above the detail pane, so the tooltip
+              // needs its own here.
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="ml-auto shrink-0"
+                      onClick={() => setSqlOpen(true)}
+                      aria-label={t('concepts.stats_sql_title')}
+                    >
+                      <Code2 size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="text-xs">
+                    {t('concepts.stats_sql_title')}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -142,6 +172,8 @@ export function ConceptDetail({
           statsEnabled={statsEnabled}
         />
       </div>
+
+      <ConceptStatsSqlDialog open={sqlOpen} onOpenChange={setSqlOpen} queries={statsSql} />
     </ScrollArea>
   )
 }

@@ -57,7 +57,14 @@ import { useConceptSetIndex, membershipKey } from './concepts/use-concept-set-in
 import { ImportConceptSetDialog } from '@/features/warehouse/concept-mapping/ImportConceptSetDialog'
 import { ConceptSetDetailSheet } from '@/features/warehouse/concept-mapping/ConceptSetDetailSheet'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
-import { hasValueColumnForDict, DEFAULT_HIDDEN_COLUMNS, CONCEPT_SET_COLUMNS } from './concepts/concept-queries'
+import {
+  hasValueColumnForDict,
+  buildDomainCountQuery,
+  buildValueDistributionQuery,
+  buildValueHistogramQuery,
+  DEFAULT_HIDDEN_COLUMNS,
+  CONCEPT_SET_COLUMNS,
+} from './concepts/concept-queries'
 import { packSetNames, unpackSetNames } from './concepts/concept-set-names'
 import { ConceptTable } from './concepts/ConceptTable'
 import { ConceptDetail } from './concepts/ConceptDetail'
@@ -404,6 +411,29 @@ export function ConceptsPage() {
     if (!dictKey) return false
     return hasValueColumnForDict(mappedSource.schemaMapping, dictKey)
   }, [mappedSource?.schemaMapping, selectedConceptId, concepts])
+
+  // The statements behind the stats panel, rebuilt for display from the same
+  // pure builders the loader calls — never a transcript of what ran (in server
+  // mode a shared cache may answer without querying at all), so the dialog says
+  // so. `excludeOutliers` is a dependency: it changes the histogram's SQL.
+  const statsSql = useMemo<{ titleKey: string; sql: string }[]>(() => {
+    const mapping = mappedSource?.schemaMapping
+    if (!mapping || selectedConceptId === null) return []
+    const row = concepts.find((c) => c.concept_id === selectedConceptId)
+    const dictKey = (row?._dict_key as string) ?? mapping.conceptTables?.[0]?.key
+    if (!dictKey) return []
+
+    const parts: { titleKey: string; sql: string }[] = []
+    const count = buildDomainCountQuery(mapping, dictKey, selectedConceptId)
+    if (count) parts.push({ titleKey: 'concepts.stats_sql_count', sql: count })
+    if (hasValueColumnForDict(mapping, dictKey)) {
+      const dist = buildValueDistributionQuery(mapping, dictKey, selectedConceptId)
+      if (dist) parts.push({ titleKey: 'concepts.stats_sql_distribution', sql: dist })
+      const hist = buildValueHistogramQuery(mapping, dictKey, selectedConceptId, 20, excludeOutliers)
+      if (hist) parts.push({ titleKey: 'concepts.stats_sql_histogram', sql: hist })
+    }
+    return parts
+  }, [mappedSource?.schemaMapping, selectedConceptId, concepts, excludeOutliers])
 
   // No data source
   if (!mappedSource) {
@@ -914,6 +944,7 @@ export function ConceptsPage() {
               hasValueColumn={hasValueCol}
               excludeOutliers={excludeOutliers}
               statsEnabled={statsEnabled}
+              statsSql={statsSql}
             />
             )}
           </Allotment.Pane>
