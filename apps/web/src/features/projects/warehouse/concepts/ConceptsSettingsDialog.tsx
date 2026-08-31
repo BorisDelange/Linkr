@@ -2,15 +2,9 @@ import { useTranslation } from 'react-i18next'
 import { Download, ExternalLink, Library, RefreshCw, Repeat } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Separator } from '@/components/ui/separator'
+import { DialogShell } from '@/components/ui/dialog-shell'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 interface ConceptsSettingsDialogProps {
@@ -46,7 +40,8 @@ export interface ImportedDictionary {
   importedAt: string
 }
 
-/** A labelled checkbox row: the label and its explanation are both clickable. */
+/** Label + hint on the left, switch on the right — the settings-row shape the
+ *  dashboard and patient-board dialogs use. */
 function SettingRow({
   checked,
   onCheckedChange,
@@ -59,17 +54,13 @@ function SettingRow({
   hint: string
 }) {
   return (
-    <label className="flex cursor-pointer select-none items-start gap-2.5">
-      <Checkbox
-        checked={checked}
-        onCheckedChange={(v) => onCheckedChange(v === true)}
-        className="mt-0.5 size-4"
-      />
-      <span className="space-y-0.5">
-        <span className="block text-xs font-medium">{label}</span>
-        <span className="block text-[11px] text-muted-foreground">{hint}</span>
-      </span>
-    </label>
+    <div className="flex items-center justify-between gap-4">
+      <div className="space-y-0.5">
+        <Label>{label}</Label>
+        <p className="text-[11px] text-muted-foreground">{hint}</p>
+      </div>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
   )
 }
 
@@ -89,14 +80,17 @@ export function ConceptsSettingsDialog({
   const repoUrl = repoHref(dictionary?.sourceRepo)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('concepts.settings_title')}</DialogTitle>
-          <DialogDescription>{t('concepts.settings_description')}</DialogDescription>
-        </DialogHeader>
-
-        <Tabs defaultValue="general">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      kind="settings"
+      title={t('concepts.settings_title')}
+      description={t('concepts.settings_description')}
+      // Every option here applies on the spot, so there is nothing to confirm.
+      hideFooter
+      contentClassName="space-y-0"
+    >
+        <Tabs defaultValue="general" className="py-2">
           <TabsList className="w-full">
             <TabsTrigger value="general" className="flex-1">
               {t('concepts.settings_tab_general')}
@@ -106,6 +100,7 @@ export function ConceptsSettingsDialog({
             </TabsTrigger>
           </TabsList>
 
+          <div className="min-h-[210px]">
           <TabsContent value="general" className="space-y-5 pt-3">
             <SettingRow
               checked={statsEnabled}
@@ -113,7 +108,6 @@ export function ConceptsSettingsDialog({
               label={t('etl.profiling_compute_stats')}
               hint={t('concepts.settings_stats_hint')}
             />
-            <Separator />
             <SettingRow
               checked={excludeOutliers}
               onCheckedChange={onExcludeOutliersChange}
@@ -194,8 +188,8 @@ export function ConceptsSettingsDialog({
               </Button>
             )}
           </TabsContent>
+          </div>
         </Tabs>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }
