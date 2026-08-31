@@ -296,7 +296,7 @@ export function ProjectsPage() {
     }
 
     // Write all sub-entities (child ids remapped to fresh UUIDs to avoid collisions).
-    await importProjectContent(parsed, uid, storage)
+    await importProjectContent(parsed, uid, storage, { workspaceId })
 
     // Invalidate in-memory caches so stores reload from IDB on next project open
     useDashboardStore.setState({ activeProjectUid: null, loaded: false })

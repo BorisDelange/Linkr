@@ -528,6 +528,7 @@ Check this table before writing any form field.
 | `VersionField` | The version input on those same dialogs. |
 | `AuthoringFields` | Author + organization on an entity dialog. Both start locked showing the originals; unlocking re-attributes and writes a frozen snapshot. Don't roll your own attribution UI. |
 | `DatePickerField` | Any date input — built on the app's own `Calendar`, so every date field matches. |
+| `DatabaseSelect` | **Any "choose a database" control.** Wraps `useDatabaseOptions` (workspace scoping + vocabulary exclusion) and says why the list is empty. Pass `projectUid` for a **project** feature (patient board, cohort, Concepts): it then offers only the databases that project has linked. Omit it for a **workspace** entity (ETL, DQ, catalog, SQL collection), which sees the whole workspace. |
 | `PasswordInput` | Any secret input (reveal toggle). |
 | `LangHint` | Marks a field as `LocalizedString`-backed, so the user knows they are editing one translation. |
 | `RequiredMark` | The required-field asterisk. |

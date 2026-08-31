@@ -18,6 +18,13 @@ class Cohort(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), default="")
     description: Mapped[str] = mapped_column(Text, default="")
+    # Which linked database the cohort runs against. Nullable: a cohort written
+    # before the field existed falls back to the project's first usable database.
+    data_source_id: Mapped[str | None] = mapped_column(String(36))
+    # Portable identity of the database above ({lineageId?, entityId?, label?}).
+    # data_source_id is this instance's local UUID and means nothing elsewhere, so
+    # this is what the export carries and the import resolves back to a local row.
+    data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     level: Mapped[str] = mapped_column(String(20))  # patient | visit | visit_detail | event
     criteria_tree: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     custom_sql: Mapped[str | None] = mapped_column(Text)

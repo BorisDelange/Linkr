@@ -7,7 +7,7 @@ from app.models.base import JSONB_or_JSON, Base, TimestampMixin
 class PatientDashboard(Base, TimestampMixin):
     """A project's patient-data board: the Warehouse counterpart of Dashboard. Same
     flat three-table shape (board / tabs / widgets keyed by parent id), but bound to
-    the project's OMOP data source rather than to a dataset, so there is no
+    one of the project's OMOP data sources rather than to a dataset, so there is no
     filter_config / default_dataset_file_id here."""
 
     __tablename__ = "patient_dashboards"
@@ -19,6 +19,13 @@ class PatientDashboard(Base, TimestampMixin):
     )
     name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
     description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
+    # Which linked database the board reads. Nullable: a board written before the
+    # field existed falls back to the project's first usable database.
+    data_source_id: Mapped[str | None] = mapped_column(String(36))
+    # Portable identity of the database above ({lineageId?, entityId?, label?}).
+    # data_source_id is this instance's local UUID and means nothing elsewhere, so
+    # this is what the export carries and the import resolves back to a local row.
+    data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     show_widget_titles: Mapped[bool | None] = mapped_column(Boolean)
     widget_spacing: Mapped[int | None] = mapped_column(Integer)
     fit_to_height: Mapped[bool | None] = mapped_column(Boolean)

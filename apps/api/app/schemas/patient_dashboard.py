@@ -10,6 +10,8 @@ class PatientDashboardCreate(CamelModel):
     project_uid: str
     name: dict | str = {}
     description: dict | str | None = None
+    data_source_id: str | None = None
+    data_source_ref: dict | None = None
     show_widget_titles: bool | None = None
     widget_spacing: int | None = None
     fit_to_height: bool | None = None
@@ -28,6 +30,8 @@ class PatientDashboardCreate(CamelModel):
 class PatientDashboardUpdate(CamelModel):
     name: dict | str | None = None
     description: dict | str | None = None
+    data_source_id: str | None = None
+    data_source_ref: dict | None = None
     show_widget_titles: bool | None = None
     widget_spacing: int | None = None
     fit_to_height: bool | None = None
@@ -47,6 +51,8 @@ class PatientDashboardResponse(CamelModel):
     project_uid: str
     name: dict | str
     description: dict | str | None = None
+    data_source_id: str | None = None
+    data_source_ref: dict | None = None
     show_widget_titles: bool | None = None
     widget_spacing: int | None = None
     fit_to_height: bool | None = None

@@ -30,7 +30,7 @@ import type {
   ConceptSet, MappingProject, ConceptMapping,
   SourceConceptIdRange, SourceConceptIdEntry,
   DataCatalog, ServiceMapping, UserPlugin,
-  DataSource, CustomSchemaPreset,
+  DataSource, DataSourceRef, CustomSchemaPreset,
   DatabaseConnectionConfig, StoredFile, SchemaMapping, SchemaSource,
   GitRemoteConfig,
   LocalizedString, TodoItem,
@@ -1157,7 +1157,11 @@ export async function buildProjectZip(
   // --- cohorts/ ---
   const cohorts = await storage.cohorts.getByProject(projectUid)
   for (const c of cohorts) {
-    zip.file(`cohorts/${slugify(c.name || c.id)}.json`, json(stripInstanceFields(c)))
+    const out = stripInstanceFields(c) as Record<string, unknown>
+    // A local database UUID addresses nothing elsewhere; `dataSourceRef` beside it
+    // is the portable pointer the import resolves back to a local row.
+    delete out.dataSourceId
+    zip.file(`cohorts/${slugify(c.name || c.id)}.json`, json(out))
   }
 
   // --- concept-lists/ ---
@@ -1274,6 +1278,9 @@ export async function buildProjectZip(
     delete boardOut.id
     // projectUid is the parent's local PK (regenerated on reimport); import re-sets it.
     delete boardOut.projectUid
+    // A local database UUID addresses nothing elsewhere; `dataSourceRef` beside it
+    // is the portable pointer the import resolves back to a local row.
+    delete boardOut.dataSourceId
 
     const tabsOut = tabs
       .map((tab) => {
@@ -1569,6 +1576,11 @@ export interface ImportProjectOptions {
    *  are insert-only, so a pull that OVERWRITES an existing entity must delete its
    *  (deterministic) id first — see deleteDerivedProjectIds in project-pull.ts. */
   groups?: Set<ProjectPullGroup>
+  /** Workspace the project lands in, used to resolve the portable database
+   *  pointers cohorts and patient boards carry. Omitted by callers that do not
+   *  know it yet: the entity then keeps no local database id and falls back to
+   *  the project's first usable one. */
+  workspaceId?: string
 }
 
 export async function importProjectContent(
@@ -1577,8 +1589,12 @@ export async function importProjectContent(
   storage: Storage,
   options: ImportProjectOptions = {},
 ): Promise<void> {
-  const { groups } = options
+  const { groups, workspaceId } = options
   const wants = (g: ProjectPullGroup): boolean => !groups || groups.has(g)
+  // Resolve a portable database pointer to a local row, once per import.
+  const databases = workspaceId ? await storage.dataSources.getAll() : []
+  const localDatabaseId = (ref: DataSourceRef | undefined): string | undefined =>
+    workspaceId ? resolvePointer(databases, ref, workspaceId)?.id : undefined
   // A selective (pull) import narrows the content to the chosen groups by emptying
   // the arrays of the ones not wanted — the loops below stay unchanged. A plain
   // import passes no `groups`, so every array is kept. Dataset row data/raw files
@@ -1658,7 +1674,14 @@ export async function importProjectContent(
     await storage.conceptLists.create({ ...l, id: mapId(l.id), projectUid })
   }
   for (const c of parsed.cohorts) {
-    await storage.cohorts.create(dropForeignAuthorId({ ...c, id: mapId(c.id), projectUid }))
+    await storage.cohorts.create(
+      dropForeignAuthorId({
+        ...c,
+        id: mapId(c.id),
+        projectUid,
+        dataSourceId: localDatabaseId(c.dataSourceRef),
+      }),
+    )
   }
   for (const c of parsed.connections) {
     await storage.connections.create({ ...c, id: mapId(c.id), projectUid })
@@ -1750,6 +1773,7 @@ export async function importProjectContent(
         ...d,
         id: d.id ? mapId(d.id) : keyId(patientDashboardKey(d)),
         projectUid,
+        dataSourceId: localDatabaseId(d.dataSourceRef),
       }),
     )
   }
@@ -3597,7 +3621,7 @@ export async function applyClonedEntity(
     ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
     ...(workspaceId ? { workspaceId } : {}),
   }).catch(() => {})
-  await importProjectContent(parsed, targetId, storage)
+  await importProjectContent(parsed, targetId, storage, { workspaceId })
   return true
 }
 

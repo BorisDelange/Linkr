@@ -84,6 +84,21 @@ def _strip_instance_fields(meta: dict) -> dict:
     return out
 
 
+def _drop_local_database(meta: dict) -> dict:
+    """Port of the per-entity database handling in buildProjectZip (entity-io.ts),
+    for the entities that pick one: patient boards and cohorts.
+
+    ``dataSourceId`` is this instance's local UUID and addresses nothing
+    elsewhere, so only the portable ``dataSourceRef`` beside it travels. A null
+    ref goes too: the frontend reads from IndexedDB, where a never-picked
+    database leaves no key at all, and emitting ``null`` here would make the two
+    exports differ byte for byte."""
+    out = {k: v for k, v in meta.items() if k != "dataSourceId"}
+    if out.get("dataSourceRef") is None:
+        out.pop("dataSourceRef", None)
+    return out
+
+
 def _canonical_parse_options(opts: dict) -> dict:
     """parseOptions with keys (and nested per-column maps) sorted — mirrors
     entity-io.ts:canonicalParseOptions and dataset_fs._canonical_parse_options, so
@@ -341,12 +356,13 @@ def _build_patient_dashboard_json(
 ) -> bytes:
     """Port of the per-board transform in buildProjectZip: strip instance fields +
     UUID ids, replace them with content keys. No filterConfig and no parentKey —
-    a patient board binds to the project's data source, and its tabs are flat."""
+    a patient board binds to one of the project's data sources, and its tabs are
+    flat."""
     board_key = _patient_dashboard_key(board)
     tab_key_map = _build_patient_tab_key_map(board_key, tabs)
     widget_key_map = _build_patient_widget_key_map(tab_key_map, widgets)
 
-    board_out = _strip_instance_fields(board)
+    board_out = _drop_local_database(_strip_instance_fields(board))
     board_out.pop("id", None)
     board_out.pop("projectUid", None)
 
@@ -657,7 +673,7 @@ def build_project_tree(
 
     for c in cohorts:
         tree[f"cohorts/{_slugify(c.get('name') or c['id'])}.json"] = _json(
-            _strip_instance_fields(c)
+            _drop_local_database(_strip_instance_fields(c))
         )
 
     # User-authored concept lists. Names are LocalizedString, so the slug comes

@@ -313,7 +313,7 @@ export async function importWorkspaceTree(
     await storage.projects.create(entity)
 
     // Write all sub-entities (child ids remapped to fresh UUIDs to avoid collisions).
-    await importProjectContent(parsedProject, uid, storage)
+    await importProjectContent(parsedProject, uid, storage, { workspaceId: targetWsId })
     projectIdx++
     reportPhase('workspaces.import_phase_projects', projectIdx, parsed.projects.size)
     await yieldToBrowser()

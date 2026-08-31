@@ -8,6 +8,8 @@ class CohortCreate(CamelModel):
     project_uid: str
     name: str = ""
     description: str = ""
+    data_source_id: str | None = None
+    data_source_ref: dict | None = None
     level: str
     criteria_tree: dict = {}
     custom_sql: str | None = None
@@ -23,6 +25,8 @@ class CohortCreate(CamelModel):
 class CohortUpdate(CamelModel):
     name: str | None = None
     description: str | None = None
+    data_source_id: str | None = None
+    data_source_ref: dict | None = None
     level: str | None = None
     criteria_tree: dict | None = None
     custom_sql: str | None = None
@@ -41,6 +45,8 @@ class CohortResponse(CamelModel):
     project_uid: str
     name: str
     description: str
+    data_source_id: str | None = None
+    data_source_ref: dict | None = None
     level: str
     criteria_tree: dict
     custom_sql: str | None = None
