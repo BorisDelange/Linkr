@@ -105,20 +105,21 @@ server mode is essentially built, and the remaining work is A→D below.
 
 ## Portable cross-entity links — [portable-entity-links-plan.md](portable-entity-links-plan.md)
 
-An entity pointing at another entity exports **this instance's primary key**, and nothing
-translates it back on import — so an ETL pipeline or SQL collection shared with anyone lands
-pointing at rows that do not exist, and reads as "no source database". Four fields
-(`sourceDataSourceId`, `targetDataSourceId`, `mappingProjectId`, `defaultDataSourceId`);
-`linkedDataSourceIds` is fine, it is stripped on purpose. Verified on the real published
-repos 2026-08-28. Hand-writing a `lineageId` into the repo does **not** fix it — the
-consumers match on the PK, so both ends have to move. Blocks nothing, but silently degrades
-every shared workspace with a pipeline, the demo one included.
+**Done 2026-08-31.** An entity pointing at another entity exported **this instance's primary
+key**, and nothing translated it back on import — so an ETL pipeline or SQL collection shared
+with anyone landed pointing at rows that do not exist, and read as "no source database". Now
+each link ships a portable `{lineageId?, entityId?, label?}` pointer beside a blanked id, the
+way `DataCatalog` already did; the import resolves it back to a local row and leaves the link
+empty when nothing matches. Seven fields in the end — the 2026-08-28 audit had missed
+`DqRuleSet.dataSourceId` and `MappingProject.vocabularyDataSourceId`, and `Project.linked
+DataSourceIds` was reclassified from "fine, stripped on purpose" to portable on the user's
+call.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | 1–2. Export the 4 fields as `lineageId`; resolve back to local PKs in a second import pass (after databases + mapping projects exist) | S |
-| 🔜 | 3. Tests: pure resolution + an export→import→export round trip that keeps the links | S |
-| 🔜 | 4. Re-export the published ETL repos so they carry lineages | S |
+| ✅ | 1–2. Blank each id, ship a `*Ref` beside it, resolve on import (deferred pass where the target lands later) | S |
+| ✅ | 3. Tests: pure resolution + goldens carrying real pointers, front and server byte-identical | S |
+| 🔜 | 4. Re-export the published repos so they carry pointers — until then those trees hold dead UUIDs, which now import as "unlinked" rather than dangling | S |
 | 💤 | 5. `source.`/`target.` role aliases in generated SQL — different half of the problem, larger, later | L |
 
 ## Schema preset identity — [schema-preset-identity-plan.md](schema-preset-identity-plan.md)

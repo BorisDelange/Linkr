@@ -1,6 +1,19 @@
 # Portable cross-entity links — plan
 
-**Status**: 🔜 diagnosed, not started · **Effort**: S/M · **Date**: 2026-08-28
+**Status**: ✅ done (2026-08-31) · **Effort**: S/M · **Date**: 2026-08-28
+
+> **Landed.** All seven links below now travel as portable `*Ref` pointers,
+> stamped when the target is picked and resolved on import. Step 5 (`source.` /
+> `target.` role aliases) remains a separate, untouched effort — see §3.
+>
+> The shipped shape differs from §2 as first written: rather than overwrite the
+> id field with a `lineageId`, each link gained a **sibling pointer**
+> (`{lineageId?, entityId?, label?}`) while the id field is blanked. That is the
+> pattern `DataCatalog` had already proven, and it buys three things a bare
+> lineage cannot: a readable-slug fallback for rows written before lineage
+> existed, a `label` so the UI can name a database this instance does not hold,
+> and — decisively — an id field whose meaning never changes, so every consumer
+> comparing `p.id === pipeline.mappingProjectId` keeps working untouched.
 
 An exported entity that points at *another* entity writes **this instance's primary
 key**, and nothing translates it on import. So a pipeline exported here and imported
@@ -21,12 +34,26 @@ Audited 2026-08-28 against the export and the import.
 
 | Field | Owner | In the export? | Verdict |
 |---|---|---|---|
-| `sourceDataSourceId` | `EtlPipeline` | yes, local PK | ❌ dead cross-instance |
-| `targetDataSourceId` | `EtlPipeline` | yes, local PK | ❌ dead cross-instance |
-| `mappingProjectId` | `EtlPipeline` | yes, local PK | ❌ dead cross-instance |
-| `defaultDataSourceId` | `SqlScriptCollection` | yes, local PK | ❌ dead cross-instance |
-| `dataSourceId` | `DataCatalog` | no longer — blanked, `dataSourceRef` travels | ✅ **fixed 2026-08-30** |
-| `linkedDataSourceIds` | `Project` | **no** — in `INSTANCE_FIELDS` | ✅ fine: dropped on purpose, "databases stay unlinked" |
+| `sourceDataSourceId` | `EtlPipeline` | no longer — blanked, `sourceDataSourceRef` travels | ✅ **fixed 2026-08-31** |
+| `targetDataSourceId` | `EtlPipeline` | no longer — dropped, `targetDataSourceRef` travels | ✅ **fixed 2026-08-31** |
+| `mappingProjectId` | `EtlPipeline` | no longer — dropped, `mappingProjectRef` travels | ✅ **fixed 2026-08-31** |
+| `defaultDataSourceId` | `SqlScriptCollection` | no longer — dropped, `defaultDataSourceRef` travels | ✅ **fixed 2026-08-31** |
+| `dataSourceId` | `DqRuleSet` | no longer — blanked, `dataSourceRef` travels | ✅ **fixed 2026-08-31** |
+| `vocabularyDataSourceId` | `MappingProject` | no longer — dropped, `vocabularyDataSourceRef` travels | ✅ **fixed 2026-08-31** |
+| `dataSourceId` | `DataCatalog` | no longer — blanked, `dataSourceRef` travels | ✅ fixed 2026-08-30 |
+| `linkedDataSourceIds` | `Project` | **no** — in `INSTANCE_FIELDS`; `linkedDataSourceRefs` travels beside it | ✅ **fixed 2026-08-31** |
+
+Two rows the 2026-08-28 audit missed, both found while implementing:
+`DqRuleSet.dataSourceId` (same bug, same shape as the catalog's) and
+`MappingProject.vocabularyDataSourceId` (which the export simply *dropped*, so a
+project's ATHENA vocabulary never survived a round trip at all).
+
+`Project.linkedDataSourceIds` was reclassified rather than fixed in place. The
+2026-08-28 verdict — "fine: dropped on purpose" — was right for a world without
+portable pointers: stripping a list of meaningless UUIDs beat shipping them. With
+pointers available the user chose the portable form, so the ids stay stripped and
+`linkedDataSourceRefs` travels beside them; databases that the receiving instance
+does not hold are simply dropped from the list.
 
 > `DataCatalog.dataSourceId` was a fifth case this table originally missed. It was
 > the worst of them: the git-clone branch (`entity-io.ts`, `applyEntityRepo`) wrote
@@ -99,11 +126,23 @@ undoing it.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | 1. Export: translate the 4 fields to `lineageId` (front `entity-io.ts` + the Python twin, so both stamp the same bytes) | S |
-| 🔜 | 2. Import: second pass over pipelines + SQL collections resolving lineage → local PK, after databases/mapping projects are written | S |
-| 🔜 | 3. Unit tests on the pure resolution (a lineage that matches, one that does not, a null) + a golden round-trip: export → import into a fresh instance → the pipeline still names its databases | S |
-| 🔜 | 4. Re-export the published ETL repos so they carry lineages (`linkr-public-content`, `linkr-content-private`) | S |
+| ✅ | 1. Export: blank each id and ship a `*Ref` pointer beside it (front `entity-io.ts` + the Python twin, so both stamp the same bytes) | S |
+| ✅ | 2. Import: resolve the pointers — inline where the target already landed, in a deferred pass for a pipeline's mapping project and a project's databases | S |
+| ✅ | 3. Unit tests on the pure resolution + the export/import round trip; golden fixtures now carry real pointers so both sides prove the blanking | S |
+| 🔜 | 4. Re-export the published repos so they carry pointers (`linkr-public-content`, `linkr-content-private`) — until then those trees still hold dead UUIDs, which now import as "unlinked" instead of dangling | S |
 | 💤 | 5. `source.`/`target.` role aliases in generated SQL — separate effort, see §3 | L |
+
+**Stamped on selection, not derived at export.** The pointer is written when the
+user picks the target, because the *server* export builds its manifest from the
+stored row alone and cannot look the database up. This is also why step 4 is
+still open: an entity whose database was picked before this change has no pointer
+until it is re-picked (or re-exported from an instance that has one).
+
+**A pull deliberately does not resolve them.** `EXTRA_INSTANCE_PIPELINE_FIELDS`
+refuses the new `*Ref` fields alongside the ids it already refused: a pull brings
+code, and taking the pointers *would* resolve — to the collaborator's choice of
+database, silently replacing the local user's. Import and clone do resolve them,
+because there the entity is arriving and has no local choice to preserve.
 
 ## 5. Related
 

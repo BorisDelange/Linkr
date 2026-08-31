@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { DB_ERROR_NO_DATA_ON_IMPORT, slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, reassemblePresetMapping, resolveDashboardBundle, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
+import { DB_ERROR_NO_DATA_ON_IMPORT, slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, buildDqRuleSetFolder, reassemblePresetMapping, resolveDashboardBundle, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/lib/entity-versioning'
 import { findLineageMatch, resolveByLineage } from '@/lib/import-identity'
-import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset, SqlScriptCollection, SqlScriptFile } from '@/types'
+import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset, EtlPipeline, SqlScriptCollection, SqlScriptFile } from '@/types'
 import type { Storage } from '@/lib/storage'
 
 const serverMode = vi.hoisted(() => ({ value: false }))
@@ -2828,5 +2828,83 @@ describe('projectSlug / sameProjectSlug', () => {
     // Otherwise every slugless project would collide with every other one, and an
     // import would silently overwrite an unrelated row.
     expect(sameProjectSlug({}, {})).toBe(false)
+  })
+})
+
+// A cross-entity link is a LOCAL uuid: on another instance it names nothing, and a
+// reimport into a fresh database (where every row is minted anew) breaks it for
+// certain. So no export may carry one — the portable pointer beside it is what
+// travels. These assert the invariant per builder, since each has its own rule for
+// whether the id is required (blanked in place) or optional (removed outright).
+describe('export — local database ids never travel', () => {
+  const DB_REF = { lineageId: 'db-lin-1', entityId: 'mimic', label: { en: 'MIMIC' } }
+  const LOCAL_UUID = '12994fb1-24c2-4aa4-8c6d-ba92b6b55646'
+
+  const manifestOf = async (zip: JSZip) =>
+    JSON.parse(await zip.files['entity.json'].async('string'))
+
+  const emptyStore = {
+    readmeAttachments: { getByOwner: async () => [] },
+    etlFiles: { getByPipeline: async () => [] },
+    sqlScriptFiles: { getByCollection: async () => [] },
+    dqCustomChecks: { getByRuleSet: async () => [] },
+  } as unknown as Storage
+
+  it('blanks a pipeline\'s required source id and drops its two optional links', async () => {
+    const zip = new JSZip()
+    await buildEtlPipelineFolder(zip, '', {
+      id: 'p1', workspaceId: 'ws1', name: { en: 'P' }, description: {},
+      sourceDataSourceId: LOCAL_UUID, sourceDataSourceRef: DB_REF,
+      targetDataSourceId: LOCAL_UUID, targetDataSourceRef: DB_REF,
+      mappingProjectId: LOCAL_UUID, mappingProjectRef: { lineageId: 'mp-lin-1' },
+      status: 'draft', createdAt: '2026-01-01', updatedAt: '2026-01-01',
+    } as EtlPipeline, emptyStore)
+
+    const meta = await manifestOf(zip)
+    // Required by the type, so it is reset in place rather than removed — that
+    // also keeps its key position, which the byte-parity goldens pin.
+    expect(meta.sourceDataSourceId).toBe('')
+    // Optional: a pipeline that never had one must not gain a null.
+    expect(meta).not.toHaveProperty('targetDataSourceId')
+    expect(meta).not.toHaveProperty('mappingProjectId')
+    expect(meta.sourceDataSourceRef).toEqual(DB_REF)
+    expect(meta.targetDataSourceRef).toEqual(DB_REF)
+    expect(meta.mappingProjectRef).toEqual({ lineageId: 'mp-lin-1' })
+  })
+
+  it('removes a collection\'s optional default database id', async () => {
+    const zip = new JSZip()
+    await buildSqlCollectionFolder(zip, '', {
+      id: 'c1', workspaceId: 'ws1', name: { en: 'C' }, description: {},
+      defaultDataSourceId: LOCAL_UUID, defaultDataSourceRef: DB_REF,
+      createdAt: '2026-01-01', updatedAt: '2026-01-01',
+    } as SqlScriptCollection, emptyStore)
+
+    const meta = await manifestOf(zip)
+    expect(meta).not.toHaveProperty('defaultDataSourceId')
+    expect(meta.defaultDataSourceRef).toEqual(DB_REF)
+  })
+
+  it('blanks a rule set\'s required database id', async () => {
+    const zip = new JSZip()
+    await buildDqRuleSetFolder(zip, '', {
+      id: 'r1', workspaceId: 'ws1', name: { en: 'R' }, description: {},
+      dataSourceId: LOCAL_UUID, dataSourceRef: DB_REF,
+      status: 'draft', createdAt: '2026-01-01', updatedAt: '2026-01-01',
+    } as DqRuleSet, emptyStore)
+
+    const meta = await manifestOf(zip)
+    expect(meta.dataSourceId).toBe('')
+    expect(meta.dataSourceRef).toEqual(DB_REF)
+  })
+
+  it('strips a project\'s linked ids but keeps the pointers that replace them', () => {
+    const stripped = stripInstanceFields({
+      uid: 'p1', name: { en: 'P' },
+      linkedDataSourceIds: [LOCAL_UUID],
+      linkedDataSourceRefs: [DB_REF],
+    }) as Record<string, unknown>
+    expect(stripped).not.toHaveProperty('linkedDataSourceIds')
+    expect(stripped.linkedDataSourceRefs).toEqual([DB_REF])
   })
 })

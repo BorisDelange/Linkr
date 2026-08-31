@@ -81,15 +81,16 @@ export interface BuildSeedManifestOptions {
    * Per-database extras that genuinely cannot be derived — today only
    * `linkToProject`.
    *
-   * `linkedDataSourceIds` is stripped from every export as an instance field
-   * ("databases stay unlinked"), which is right for a user's import and wrong for
-   * a seed meant to open ready to use. So the seed re-states that one link, and
-   * only that one.
+   * `linkedDataSourceIds` is stripped from every export as an instance field,
+   * which is right for a user's import and wrong for a seed meant to open ready
+   * to use. So the seed re-states that one link, and only that one — as a
+   * fallback for a seed whose project predates `linkedDataSourceRefs`, since the
+   * portable pointers now re-link the databases on their own.
    *
-   * Deliberately NOT a place to patch up broken cross-entity links: a pipeline's
-   * source/target/mapping ids are an export bug with its own fix
-   * (docs/planning/portable-entity-links-plan.md). Hand-maintaining them here
-   * would hide the bug and rot at the next re-export.
+   * Deliberately NOT a place to patch up broken cross-entity links. A pipeline's
+   * source/target/mapping ids were an export bug, now fixed at the source: they
+   * travel as portable `*Ref` pointers the import resolves. Hand-maintaining them
+   * here would hide any regression and rot at the next re-export.
    *
    * Keyed by database folder name.
    */
