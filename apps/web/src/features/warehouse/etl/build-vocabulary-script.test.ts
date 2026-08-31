@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 import {
+  ETL_FIXED_CONCEPT_IDS,
   athenaSelectList,
   buildCustomVocabularyScript,
   buildPruneVocabularyScript,
@@ -423,6 +424,18 @@ describe('buildPruneVocabularyScript', () => {
         `(${col} IS NOT NULL AND ${col} NOT IN (SELECT concept_id FROM target.tmp_keep_concepts))`,
       )
     }
+  })
+
+  it('keeps the concepts the ETL writes as literals', () => {
+    // Concept 0 above all: every unmapped row carries concept_id = 0, so pruning
+    // it turns each one into a broken foreign key. It is deliberately absent
+    // from tmp_used_concepts — expanding the closure of "no matching concept"
+    // means nothing — which is exactly why it has to be kept here instead.
+    const keep = sql.slice(sql.indexOf('CREATE OR REPLACE TABLE target.tmp_keep_concepts'))
+    expect(keep.slice(0, keep.indexOf(';'))).toContain(
+      `SELECT UNNEST([${ETL_FIXED_CONCEPT_IDS.join(', ')}]) AS concept_id`,
+    )
+    expect(ETL_FIXED_CONCEPT_IDS).toContain(0)
   })
 })
 
