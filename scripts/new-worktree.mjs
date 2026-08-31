@@ -35,8 +35,26 @@ if (existsSync(worktreePath)) {
   process.exit(1)
 }
 
-// A port is only free if the OS says so — a registry of past allocations can be
-// stale (crashed process) or blind (a port taken by something outside Linkr).
+// Probing the OS alone is not enough: a worktree whose app is not running holds
+// no socket, so its ports would look free and be handed out twice. The existing
+// .env.local files are the reservations; the probe then rules out ports taken by
+// something outside Linkr.
+function reservedPorts() {
+  const taken = new Set()
+  for (const block of git('worktree', 'list', '--porcelain').split('\n\n')) {
+    const dir = block.match(/^worktree (.+)$/m)?.[1]
+    if (!dir) continue
+    const envFile = path.join(dir, 'apps/web/.env.local')
+    if (!existsSync(envFile)) continue
+    const text = readFileSync(envFile, 'utf-8')
+    for (const key of ['WEB_PORT', 'API_PORT']) {
+      const value = text.match(new RegExp(`^\\s*${key}\\s*=\\s*(\\d+)`, 'm'))?.[1]
+      if (value) taken.add(Number(value))
+    }
+  }
+  return taken
+}
+
 function isFree(port) {
   return new Promise((resolve) => {
     const server = createServer()
@@ -47,9 +65,11 @@ function isFree(port) {
 }
 
 async function findPortPair() {
+  const reserved = reservedPorts()
   for (let offset = 1; offset < 100; offset++) {
     const web = 3000 + offset
     const api = 8000 + offset
+    if (reserved.has(web) || reserved.has(api)) continue
     if ((await isFree(web)) && (await isFree(api))) return { web, api }
   }
   throw new Error('no free port pair found in 3001-3099 / 8001-8099')
@@ -111,33 +131,23 @@ if (existsSync(apiEnvSrc)) {
   console.log('  wrote apps/api/.env (own data dir + CORS origin)')
 }
 
-// Tint the window so two VS Code instances are never confused for each other.
-const palette = ['#1e3a5f', '#4a1e5f', '#1e5f3a', '#5f4a1e', '#5f1e2e']
-const hash = [...name].reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
-const tint = palette[hash % palette.length]
-mkdirSync(path.join(worktreePath, '.vscode'), { recursive: true })
-writeFileSync(
-  path.join(worktreePath, '.vscode/settings.json'),
-  JSON.stringify(
-    {
-      'workbench.colorCustomizations': {
-        'titleBar.activeBackground': tint,
-        'titleBar.activeForeground': '#ffffff',
-        'activityBar.background': tint,
-      },
-    },
-    null,
-    2,
-  ) + '\n',
-)
-
+// The block below is what the user acts on: an agent must hand it over intact
+// rather than paraphrasing it (see CLAUDE.md § Working in parallel).
 console.log(`
   ✓ ${path.basename(worktreePath)}  (${branch})
 
-    Front  http://localhost:${web}
-    API    http://localhost:${api}
+  ── Run the app ── in a new VS Code terminal, front + back together:
 
-    code "${worktreePath}"
-    cd "${worktreePath}" && npm run dev:web     # front
-    cd "${worktreePath}" && npm run dev:api     # back
+  cd "${worktreePath}" && npm run dev:all
+
+     Open       http://localhost:${web}
+     Stop       Ctrl+C in that terminal
+
+  ── See the files ── VS Code › File › Add Folder to Workspace… ›
+
+     ${worktreePath}
+
+  ── When the branch is merged ──
+
+  npm run worktree:remove -- ${name} --branch
 `)

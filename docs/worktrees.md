@@ -29,17 +29,44 @@ workspace — reallocating on every launch would silently empty it.
 
 ## Running
 
-The same commands as always; they read the worktree's own ports.
+One VS Code terminal per worktree, front and back together:
 
 ```bash
-npm run dev:web     # front, on WEB_PORT
-npm run dev:api     # uvicorn, on API_PORT, via apps/api/.venv
-npm run dev:all     # both, one terminal
+cd ../linkr-agent-a && npm run dev:all
 ```
+
+`dev:web` and `dev:api` still exist if you want them in separate terminals — for
+instance to restart the backend without losing the frontend's HMR state. All
+three read the worktree's own ports.
 
 `npm run worktree:status` lists every worktree, its ports, and whether they
 answer right now (probed, not read from a file — a crashed server never shows as
 running).
+
+## Seeing the files
+
+The worktrees live next to the repo, as sibling directories:
+
+```
+Programming projects/
+├── linkr/                ← main worktree
+├── linkr-agent-a/        ← branch feature/agent-a
+└── linkr-agent-b/        ← branch feature/agent-b
+```
+
+To review an agent's work without leaving your window, *File › Add Folder to
+Workspace…* on its directory: it gets its own Source Control section, listing
+only its changes. Beware that `Cmd+P` and `Cmd+Shift+F` then span every folder in
+the workspace, so each hit shows up once per worktree — remove the folder again
+once the branch is merged.
+
+From a terminal, without adding anything to the workspace:
+
+```bash
+git -C ../linkr-agent-a status
+git -C ../linkr-agent-a diff
+git diff feature/fastapi-backend...feature/agent-a   # branches are shared
+```
 
 ## Removing
 
@@ -68,7 +95,7 @@ Not shared and not versioned, hence copied at creation: `node_modules`, the venv
 
 - A new worktree checks out the branch **as committed**. Uncommitted work in the
   main worktree — including changes to these very scripts — is not carried over.
-- `.vscode/settings.json` gets a per-worktree title-bar tint, so two similar
-  VS Code windows are not confused for one another.
 - Never point two worktrees at one `LINKR_DATA_DIR`: two backends on a single
   SQLite file, and DuckDB handle conflicts on the same Parquet.
+- Each worktree costs a full checkout plus the copied `node_modules` and venv —
+  several GB. Remove it once its branch is merged.

@@ -59,9 +59,28 @@ cd ../linkr-my-task && npm run dev:all
 ```
 
 It gets its own branch, its own free port pair, its own `LINKR_DATA_DIR`, and a
-copy of everything git ignores (`node_modules`, venv, seed). **Tell the user the
-URLs the script prints** — that is how they reach your version of the app. Then
-merge the branch back when the work is done.
+copy of everything git ignores (`node_modules`, venv, seed).
+
+### Then report back — do not paraphrase this
+
+The user works in **one VS Code window**, opened on the main worktree. From
+there they can neither see your files nor reach your app until you tell them
+how. **Never start a dev server yourself** — the user runs it, in their own
+terminal, so they control restarts. Repeat the script's closing block to them
+**verbatim**, as a copyable command block, covering all three:
+
+1. **The command to run the app** — `cd "<worktree path>" && npm run dev:all`,
+   to be pasted in a **new VS Code terminal** (one terminal per worktree; front
+   and back run together in it).
+2. **How to reach it** — the frontend URL (`http://localhost:<WEB_PORT>`), and
+   that `Ctrl+C` in that terminal stops it.
+3. **How to see your files** — *File › Add Folder to Workspace…* on the worktree
+   path, which adds it to their window with its own Source Control section,
+   separate from the main worktree's.
+
+A summary sentence is not enough: the paths and ports must be there literally,
+ready to paste. Then merge the branch back when the work is done and tell them
+the `worktree:remove` command.
 
 Two consequences worth knowing: a branch can only be checked out in one worktree
 at a time (so each agent needs its own branch), and a new worktree checks the
