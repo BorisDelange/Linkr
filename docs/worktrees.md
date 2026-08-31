@@ -19,9 +19,11 @@ and two generated files —
 
 - `apps/web/.env.local` — `WEB_PORT` / `API_PORT` / `VITE_API_URL`, a pair the
   script picked by probing the OS for free ports.
-- `apps/api/.env` — copied from the main worktree, with `LINKR_DATA_DIR` pointed
-  at a private `.linkr-data/` and `LINKR_CORS_ORIGINS` set to this worktree's
-  frontend port.
+- `apps/api/.env` — copied from the main worktree, with `LINKR_CORS_ORIGINS` set
+  to this worktree's frontend port and `LINKR_DATA_DIR` pointed at a private
+  `.linkr-data/` **cloned from the main one**, so the app opens on the real
+  projects and databases while its writes stay local. On APFS this is a
+  `cp -c` clone: instant, and costing no disk until the two diverge.
 
 Ports are allocated **once, at creation**, and then belong to the worktree. A
 stable port keeps the app's browser origin stable, and with it the IndexedDB
@@ -68,6 +70,30 @@ git -C ../linkr-agent-a diff
 git diff feature/fastapi-backend...feature/agent-a   # branches are shared
 ```
 
+## Merging back
+
+An agent commits on its own branch, inside its own worktree — `git add -A` is
+safe there, since it cannot see anyone else's files. Commits live in the shared
+`.git`, so they are visible from the main worktree the moment they are made:
+
+```bash
+git log --oneline feature/agent-a
+git diff feature/fastapi-backend...feature/agent-a
+```
+
+**The merge happens from the main worktree**, not from the agent's: git refuses
+to check out a branch that is already checked out elsewhere.
+
+```bash
+git merge feature/agent-a
+npm run worktree:remove -- agent-a --branch
+```
+
+The other direction — pulling recent main-branch commits *into* a worktree — is
+the agent's to run, from its own directory: `git merge feature/fastapi-backend`.
+Worth doing when the branch has been open a while, since the worktree started
+from whatever commit was current at creation.
+
 ## Removing
 
 ```bash
@@ -97,5 +123,8 @@ Not shared and not versioned, hence copied at creation: `node_modules`, the venv
   main worktree — including changes to these very scripts — is not carried over.
 - Never point two worktrees at one `LINKR_DATA_DIR`: two backends on a single
   SQLite file, and DuckDB handle conflicts on the same Parquet.
+- The data dir is cloned as-is. Creating a worktree while the main backend is
+  mid-write can capture a torn SQLite file — the original is never at risk, but
+  the copy may need a re-clone. Prefer creating worktrees with the app stopped.
 - Each worktree costs a full checkout plus the copied `node_modules` and venv —
   several GB. Remove it once its branch is merged.

@@ -79,8 +79,13 @@ terminal, so they control restarts. Repeat the script's closing block to them
    separate from the main worktree's.
 
 A summary sentence is not enough: the paths and ports must be there literally,
-ready to paste. Then merge the branch back when the work is done and tell them
-the `worktree:remove` command.
+ready to paste.
+
+Commit on your own branch as you go. **You cannot merge into the main branch
+yourself** — it is checked out in the user's worktree, so git will refuse; tell
+them the `git merge <your-branch>` and `worktree:remove` commands to run once the
+work is done. Pulling their recent commits *into* your worktree is yours to do:
+`git merge feature/fastapi-backend`.
 
 Two consequences worth knowing: a branch can only be checked out in one worktree
 at a time (so each agent needs its own branch), and a new worktree checks the

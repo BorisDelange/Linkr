@@ -108,14 +108,32 @@ copyIfPresent('apps/api/.venv', 'apps/api/.venv')
 copyIfPresent('apps/web/public/data/seed', 'seed data')
 copyIfPresent('config.local.json', 'config.local.json')
 
-// The API .env carries three values that must NOT be shared between worktrees:
+// The API .env carries two values that must NOT be shared between worktrees:
 // LINKR_DATA_DIR (same SQLite file and Parquet blobs → two backends fighting
-// over one database), and LINKR_CORS_ORIGINS (pinned to :3000, which would
-// reject this worktree's frontend). Copy the rest as-is.
+// over one database) and LINKR_CORS_ORIGINS (pinned to the main frontend port,
+// which would reject this worktree's). Copy the rest as-is.
 const apiEnvSrc = path.join(repoRoot, 'apps/api/.env')
 if (existsSync(apiEnvSrc)) {
   const dataDir = path.join(worktreePath, '.linkr-data')
-  mkdirSync(dataDir, { recursive: true })
+  const mainDataDir = readFileSync(apiEnvSrc, 'utf-8').match(
+    /^\s*LINKR_DATA_DIR\s*=\s*(.+)$/m,
+  )?.[1]?.trim()
+
+  // Start from a COPY of the main data dir, not an empty one: an agent needs the
+  // real projects and databases to test against, and its writes must not touch
+  // them. On APFS `cp -c` clones — instant, and no disk until something differs.
+  if (mainDataDir && existsSync(mainDataDir)) {
+    process.stdout.write('  copying data dir… ')
+    try {
+      execFileSync('cp', ['-Rc', mainDataDir, dataDir])
+      console.log('done (APFS clone)')
+    } catch {
+      cpSync(mainDataDir, dataDir, { recursive: true })
+      console.log('done (full copy)')
+    }
+  } else {
+    mkdirSync(dataDir, { recursive: true })
+  }
 
   const rewritten = readFileSync(apiEnvSrc, 'utf-8')
     .split('\n')
