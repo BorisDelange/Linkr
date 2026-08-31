@@ -5,6 +5,7 @@ Linkr is a healthcare data visualization platform (React + FastAPI). v2 is a ful
 - **Code conventions (read before writing code)** → `docs/conventions.md`
 - **UI patterns (read before writing any UI)** → `docs/ui-patterns.md` — which shared component to reuse (datatable, dialogs, toolbars, page headers) and the type scale
 - Architecture, navigation, stores, OMOP patterns, database gotchas → `docs/architecture.md`
+- **Running several agents at once** → `docs/worktrees.md` (one worktree each, own ports)
 - Fuzzy search rules → `docs/fuzzy-search.md`
 - Available shadcn/ui components (upstream catalogue) → `docs/shadcn-components.md`
 - Long-term vision → `docs/vision-roadmap.md`
@@ -37,7 +38,36 @@ npm run data:fetch # bake the default data into public/data/seed/ (needs network
 
 # Docker
 docker compose -f docker/docker-compose.yml up
+
+# Parallel worktrees (see below)
+npm run worktree:new -- <name>   # own branch, own ports, ready to run
+npm run worktree:status          # who runs where
 ```
+
+## Working in parallel — use a worktree
+
+Several agents often work on this repo at once, and a shared checkout makes them
+collide: each one's `git status` shows the others' half-finished edits, staging
+has to be done path by path, and only one of them can run the app (ports 3000/8000
+are taken by the first). **Before starting a task that another agent could be
+running in parallel, create your own worktree** rather than editing the shared
+checkout:
+
+```bash
+npm run worktree:new -- my-task     # → ../linkr-my-task, branch feature/my-task
+cd ../linkr-my-task && npm run dev:all
+```
+
+It gets its own branch, its own free port pair, its own `LINKR_DATA_DIR`, and a
+copy of everything git ignores (`node_modules`, venv, seed). **Tell the user the
+URLs the script prints** — that is how they reach your version of the app. Then
+merge the branch back when the work is done.
+
+Two consequences worth knowing: a branch can only be checked out in one worktree
+at a time (so each agent needs its own branch), and a new worktree checks the
+branch out **as committed** — uncommitted work elsewhere does not come along.
+
+Details, removal, and what is shared vs copied → `docs/worktrees.md`.
 
 **Default data is not in this repo.** It is one published workspace
 (`linkr-public-content/workspaces/demo-workspace`) whose children are git links.
