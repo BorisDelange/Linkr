@@ -74,7 +74,8 @@ import { useRoleSchemas } from './use-role-schemas'
 import { usePipelineRunner } from './use-pipeline-runner'
 import { RunAbortedError } from './run-pipeline-sql'
 import { EtlUploadDialog } from './EtlUploadDialog'
-import { inferEtlLanguage } from './etl-file-language'
+import { compareEtlFilesByOrder } from '@/lib/etl-file-order'
+import { inferEtlLanguage, nextEtlOrder } from './etl-file-language'
 import { RunProgressBar } from './RunProgressBar'
 import { statementLineAt } from './statement-preview'
 import { csvDelimiterFor, parseCsvPreview } from '@/lib/csv-preview'
@@ -223,7 +224,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
   const orderedSqlFiles = useMemo(() => (
     files
       .filter((f) => f.type === 'file' && (f.language === 'sql' || f.name.endsWith('.sql')))
-      .sort((a, b) => a.order - b.order)
+      .sort(compareEtlFilesByOrder)
   ), [files])
 
   // Only the pipeline's own databases — its two roles plus the ATHENA reference
@@ -334,7 +335,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
       parentId: null,
       content: '',
       language: lang,
-      order: files.length,
+      order: nextEtlOrder(files),
       createdAt: now,
     }
     await createFile(file)

@@ -245,6 +245,40 @@ def _tree_path(file: dict, by_id: dict[str, dict]) -> str:
     return "/".join(parts)
 
 
+def _canonical_order_ranks(files: list[dict], by_id: dict[str, dict]) -> dict[str, int]:
+    """Port of ``canonicalOrderRanks`` (entity-tree.ts): each node's ``order``
+    renumbered 0..n-1 WITHIN EACH SIBLING GROUP, keeping the sequence the user set.
+
+    ``order`` is an instance-local integer with no unique index, never
+    recompacted after a delete, so a live tree holds gaps and — for rows written
+    before the creation paths took a max — duplicates. Both would reach the repo
+    verbatim, where a duplicate makes the run sequence depend on the DB's own
+    return order and a gap churns the diff for no visible reason.
+
+    Per parent, NOT across the tree: ``order`` ranks a node among its siblings,
+    so ``queries/cohort.sql`` at 0 and ``top.sql`` at 0 are two positions in two
+    folders, not a collision.
+
+    A DENSE RANK, not a fresh numbering: ``files`` is the already-filtered kept
+    set, so excluding a file from versioning must shift only the ranks after it.
+    Ties break on the path, under the UTF-16 key, so both builders agree."""
+    by_sibling: dict[str, list[tuple[str, int, bytes]]] = {}
+    for f in files:
+        order = f.get("order")
+        if not isinstance(order, int) or isinstance(order, bool):
+            continue
+        group = f.get("parentId") or ""
+        entry = (f["id"], order, _tree_path(f, by_id).encode("utf-16-be"))
+        by_sibling.setdefault(group, []).append(entry)
+
+    ranks: dict[str, int] = {}
+    for group in by_sibling.values():
+        group.sort(key=lambda t: (t[1], t[2]))
+        for index, (node_id, _, _) in enumerate(group):
+            ranks[node_id] = index
+    return ranks
+
+
 def _to_path_tree(files: list[dict], fk_key: str) -> list[dict]:
     """Port of ``toPathTree`` (entity-tree.ts): a node's identity in the repo is
     its path, so ``path`` replaces id/parentId/name and the instance-local FK
@@ -253,11 +287,16 @@ def _to_path_tree(files: list[dict], fk_key: str) -> list[dict]:
     ORDER BY). Key order must match the TS builder — the golden fixtures are
     shared by both test suites."""
     by_id = {f["id"]: f for f in files}
+    ranks = _canonical_order_ranks(files, by_id)
     dropped = {"id", "parentId", "name", "content", fk_key}
-    out = [
-        {"path": _tree_path(f, by_id), **{k: v for k, v in f.items() if k not in dropped}}
-        for f in files
-    ]
+    out = []
+    for f in files:
+        node = {"path": _tree_path(f, by_id), **{k: v for k, v in f.items() if k not in dropped}}
+        if f["id"] in ranks:
+            # Reassigning an existing key keeps its position, so the key order
+            # the golden fixtures pin is untouched.
+            node["order"] = ranks[f["id"]]
+        out.append(node)
     return sorted(out, key=_utf16_key)
 
 

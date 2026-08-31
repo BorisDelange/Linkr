@@ -137,6 +137,7 @@ export function toPathTree<T extends TreeNode>(
   fkKey: TreeFkKey,
 ): Record<string, unknown>[] {
   const byId = new Map<string, TreeNode>(nodes.map((n) => [n.id, n]))
+  const rank = canonicalOrderRanks(nodes, byId)
   return nodes
     .map((node) => {
       const {
@@ -147,9 +148,64 @@ export function toPathTree<T extends TreeNode>(
         [fkKey]: _fk,
         ...rest
       } = node as T & Record<string, unknown>
-      return { path: treeNodePath(node, byId), ...rest }
+      const canonical = rank.get(node.id)
+      return {
+        path: treeNodePath(node, byId),
+        ...rest,
+        ...(canonical === undefined ? {} : { order: canonical }),
+      }
     })
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+}
+
+/**
+ * Canonical `order` per node id: the same sequence, renumbered 0..n-1 WITHIN
+ * EACH SIBLING GROUP.
+ *
+ * `order` is an instance-local integer with no unique index, never recompacted
+ * after a delete — so a live tree holds gaps ({0,1,3,4,5}) and, for anything
+ * written before the creation paths took a max, outright duplicates. Both reach
+ * the repo verbatim, where a duplicate makes the run sequence depend on the
+ * storage's own return order (which differs per instance), and a gap churns the
+ * diff for a reason no reader can see.
+ *
+ * Per parent, NOT across the tree: `order` ranks a node among its siblings, so
+ * `queries/cohort.sql` at 0 and `top.sql` at 0 are two positions in two folders,
+ * not a collision. Flattening them would destroy real position information.
+ *
+ * A DENSE RANK, not a fresh numbering per export: the rank follows the order the
+ * user actually set, so excluding a file from versioning shifts only the ranks
+ * after it rather than rewriting the tree — `nodes` here is already the filtered
+ * `kept` set. Ties break on the path (JS `<`/`>`, i.e. by UTF-16 code unit — the
+ * server twin sorts on `.encode('utf-16-be')` to match), so two siblings sharing
+ * an `order` land in a sequence every instance agrees on.
+ *
+ * Trees whose nodes carry no `order` (nothing does today, but the type is a bare
+ * TreeNode) are left untouched rather than given one.
+ */
+function canonicalOrderRanks(
+  nodes: TreeNode[],
+  byId: Map<string, TreeNode>,
+): Map<string, number> {
+  const bySibling = new Map<string, { id: string, order: number, path: string }[]>()
+  for (const node of nodes) {
+    const order = (node as Record<string, unknown>).order
+    if (typeof order !== 'number') continue
+    const group = node.parentId ?? ''
+    const entry = { id: node.id, order, path: treeNodePath(node, byId) }
+    const existing = bySibling.get(group)
+    if (existing) existing.push(entry)
+    else bySibling.set(group, [entry])
+  }
+  const ranks = new Map<string, number>()
+  for (const group of bySibling.values()) {
+    group
+      .sort((a, b) => (
+        a.order !== b.order ? a.order - b.order : a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+      ))
+      .forEach((n, index) => ranks.set(n.id, index))
+  }
+  return ranks
 }
 
 /** The parent directory of a path, or '' at the root. */

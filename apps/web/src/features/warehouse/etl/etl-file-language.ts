@@ -109,3 +109,22 @@ export function orderByNamePatch(
   })
   return patch
 }
+
+/**
+ * The `order` to give a file created in `files` (a whole pipeline's nodes).
+ *
+ * Max + 1, never `files.length`: `order` has no unique index and nothing
+ * recompacts it after a delete, so a count collides with a value still in use.
+ * Delete the file at order 2 of 0..5 and the count is 5 — the order the last
+ * file still holds. Two files then share a rank, `sort((a, b) => a.order -
+ * b.order)` falls back to the storage's own order, and the pipeline runs in a
+ * sequence that differs between instances.
+ *
+ * Counts the pipeline's whole tree, matching the reindex the Pipeline tab's
+ * drag/sort-by-name applies, so a new file always lands after every existing one.
+ * Generated scripts sit at negative orders (see EtlVocabularyTab), which a max
+ * naturally leaves alone.
+ */
+export function nextEtlOrder(files: Pick<EtlFile, 'order'>[]): number {
+  return files.reduce((max, f) => (Number.isFinite(f.order) && f.order > max ? f.order : max), -1) + 1
+}

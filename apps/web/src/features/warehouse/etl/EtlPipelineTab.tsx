@@ -94,6 +94,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { formatDateTimeLocale, formatDuration } from '@/lib/format-helpers'
+import { compareEtlFilesByOrder } from '@/lib/etl-file-order'
 import { etlLanguageLabel, orderByNamePatch } from './etl-file-language'
 import { usePipelineRunner } from './use-pipeline-runner'
 import {
@@ -173,7 +174,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
   const sqlFiles = useMemo(() =>
     files
       .filter((f) => f.type === 'file' && f.language === 'sql')
-      .sort((a, b) => a.order - b.order),
+      .sort(compareEtlFilesByOrder),
     [files],
   )
 

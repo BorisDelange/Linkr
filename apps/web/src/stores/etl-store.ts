@@ -4,6 +4,7 @@ import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
 import { prunedConfigForTree, renameVersioningMark } from '@/lib/entity-versioning'
 import { treeNodePath } from '@/lib/entity-tree'
+import { compareEtlFilesByOrder } from '@/lib/etl-file-order'
 import type { EtlPipeline, EtlFile, EtlRunLog, EtlRunHistoryEntry } from '@/types'
 
 /** A file's path inside its pipeline — the key the versioning marks use. */
@@ -248,7 +249,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     // starting during the fetch was judged against a stale activePipelineId.
     const samePipeline = get().activePipelineId === pipelineId
     set({
-      files: files.sort((a, b) => a.order - b.order),
+      files: files.sort(compareEtlFilesByOrder),
       filesLoaded: true,
       activePipelineId: pipelineId,
       _dirtyMap: new Map(),
@@ -266,7 +267,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   createFile: async (file) => {
     await getStorage().etlFiles.create(file)
     set((s) => ({
-      files: [...s.files, file].sort((a, b) => a.order - b.order),
+      files: [...s.files, file].sort(compareEtlFilesByOrder),
     }))
   },
 

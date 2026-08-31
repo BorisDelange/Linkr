@@ -4,7 +4,7 @@ import { Upload, Loader2 } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Button } from '@/components/ui/button'
 import { useEtlStore } from '@/stores/etl-store'
-import { inferEtlLanguage, safeEtlFileName } from './etl-file-language'
+import { inferEtlLanguage, nextEtlOrder, safeEtlFileName } from './etl-file-language'
 import {
   findConflicts,
   planUpload,
@@ -53,7 +53,7 @@ export function EtlUploadDialog({ open, onOpenChange, pipelineId, parentId = nul
     try {
       const { files, createFile, updateFile, selectFile } = useEtlStore.getState()
       const plan = planUpload(candidates, siblings(), resolution)
-      let order = files.filter((f) => f.pipelineId === pipelineId).length
+      let order = nextEtlOrder(files.filter((f) => f.pipelineId === pipelineId))
       let lastId: string | null = null
 
       // Replacing UPDATES in place, so the file keeps its id — and with it its

@@ -2,7 +2,7 @@
   {
     "path": "top.sql",
     "type": "file",
-    "order": 1,
+    "order": 0,
     "dataSourceId": null,
     "createdAt": "2026-01-02T03:04:05.000Z"
   }

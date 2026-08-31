@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   compareEtlFilesByName,
   inferEtlLanguage,
+  nextEtlOrder,
   orderByNamePatch,
   safeEtlFileName,
   uniqueEtlFileName,
@@ -138,6 +139,27 @@ describe('orderByNamePatch', () => {
 
   it('handles an empty pipeline', () => {
     expect(orderByNamePatch([]).size).toBe(0)
+  })
+})
+
+describe('nextEtlOrder', () => {
+  it('never reuses an order a live file still holds after a delete', () => {
+    // The bug: `files.length` on 0..5 minus the file at 2 gives 5 — the order the
+    // last file still has. Both then sort as equals and the run order stops
+    // being deterministic.
+    const afterDelete = [{ order: 0 }, { order: 1 }, { order: 3 }, { order: 4 }, { order: 5 }]
+    expect(afterDelete).toHaveLength(5)
+    expect(nextEtlOrder(afterDelete)).toBe(6)
+  })
+
+  it('starts at 0 on an empty pipeline', () => {
+    expect(nextEtlOrder([])).toBe(0)
+  })
+
+  it('stays above the generated scripts, which sit at negative orders', () => {
+    // EtlVocabularyTab writes mapping/ at -2 and the vocabulary script at -1 so
+    // they run before the user's scripts; a new file must not land among them.
+    expect(nextEtlOrder([{ order: -2 }, { order: -1 }])).toBe(0)
   })
 })
 

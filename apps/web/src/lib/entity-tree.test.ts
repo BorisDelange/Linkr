@@ -31,9 +31,11 @@ describe('treeNodePath', () => {
 describe('toPathTree', () => {
   it('replaces id/parentId/name/fk/content with a path, sorted by path', () => {
     const out = toPathTree(NODES, 'collectionId')
+    // `order` is renumbered per sibling group: sofa/ and top.sql share the root
+    // (1 → 1, 0 → 0), while sofa.sql is alone under sofa/ so its 2 becomes 0.
     expect(out).toEqual([
       { path: 'sofa', type: 'folder', order: 1, createdAt: 'T0' },
-      { path: 'sofa/sofa.sql', type: 'file', order: 2, createdAt: 'T0' },
+      { path: 'sofa/sofa.sql', type: 'file', order: 0, createdAt: 'T0' },
       { path: 'top.sql', type: 'file', order: 0, createdAt: 'T0' },
     ])
   })
@@ -41,6 +43,77 @@ describe('toPathTree', () => {
   it('sorts by path so the bytes do not depend on the row order', () => {
     const shuffled = [NODES[2], NODES[1], NODES[0]]
     expect(toPathTree(shuffled, 'collectionId')).toEqual(toPathTree(NODES, 'collectionId'))
+  })
+
+  it('renumbers order 0..n-1, keeping the sequence the user set', () => {
+    // A live tree holds gaps: nothing recompacts `order` after a delete.
+    const gapped = [
+      { id: 'a', collectionId: 'c', name: 'a.sql', type: 'file' as const, parentId: null, order: 0 },
+      { id: 'b', collectionId: 'c', name: 'b.sql', type: 'file' as const, parentId: null, order: 3 },
+      { id: 'c', collectionId: 'c', name: 'c.sql', type: 'file' as const, parentId: null, order: 7 },
+    ]
+    expect(toPathTree(gapped, 'collectionId').map((n) => n.order)).toEqual([0, 1, 2])
+  })
+
+  it('gives two nodes sharing an order a stable sequence', () => {
+    // The bug this guards: `order: files.length` reused a value a live file still
+    // held, so the export carried a duplicate and the run sequence fell back to
+    // whatever order storage returned — different per instance.
+    const tied = [
+      { id: 'a', collectionId: 'c', name: '20_map_visit.sql', type: 'file' as const, parentId: null, order: 5 },
+      { id: 'b', collectionId: 'c', name: '14_src_note.sql', type: 'file' as const, parentId: null, order: 5 },
+      { id: 'c', collectionId: 'c', name: '00_vocabulary.sql', type: 'file' as const, parentId: null, order: 0 },
+    ]
+    const out = toPathTree(tied, 'collectionId')
+    expect(out.map((n) => [n.path, n.order])).toEqual([
+      ['00_vocabulary.sql', 0],
+      ['14_src_note.sql', 1],
+      ['20_map_visit.sql', 2],
+    ])
+    // And it does not depend on the row order the storage happened to yield.
+    expect(toPathTree([tied[2], tied[1], tied[0]], 'collectionId')).toEqual(out)
+  })
+
+  it('shifts only the ranks after a node dropped from the versioned set', () => {
+    // `nodes` is the already-filtered `kept` set, so excluding one file must not
+    // rewrite every other node's order — that would churn the whole diff.
+    const all = [
+      { id: 'a', collectionId: 'c', name: 'a.sql', type: 'file' as const, parentId: null, order: 0 },
+      { id: 'b', collectionId: 'c', name: 'b.sql', type: 'file' as const, parentId: null, order: 1 },
+      { id: 'c', collectionId: 'c', name: 'c.sql', type: 'file' as const, parentId: null, order: 2 },
+    ]
+    const withoutFirst = toPathTree(all.slice(1), 'collectionId')
+    expect(withoutFirst.map((n) => [n.path, n.order])).toEqual([['b.sql', 0], ['c.sql', 1]])
+  })
+
+  it('ranks within each sibling group, not across the tree', () => {
+    // `order` positions a node among its siblings, so the same value in two
+    // folders is not a collision — flattening them would move real positions.
+    const nested = [
+      { id: 'd', collectionId: 'c', name: 'queries', type: 'folder' as const, parentId: null, order: 0 },
+      { id: 'a', collectionId: 'c', name: 'cohort.sql', type: 'file' as const, parentId: 'd', order: 0 },
+      { id: 'b', collectionId: 'c', name: 'top.sql', type: 'file' as const, parentId: null, order: 1 },
+    ]
+    expect(toPathTree(nested, 'collectionId').map((n) => [n.path, n.order])).toEqual([
+      ['queries', 0],
+      ['queries/cohort.sql', 0],
+      ['top.sql', 1],
+    ])
+  })
+
+  it('leaves nodes carrying no order alone rather than inventing one', () => {
+    const bare = [
+      { id: 'a', collectionId: 'c', name: 'a.sql', type: 'file' as const, parentId: null },
+    ]
+    expect(toPathTree(bare, 'collectionId')).toEqual([{ path: 'a.sql', type: 'file' }])
+  })
+
+  it('keeps order in its original key position', () => {
+    // The golden fixtures pin the key order, and the server twin reassigns the
+    // existing key for the same reason.
+    expect(Object.keys(toPathTree(NODES, 'collectionId')[0])).toEqual([
+      'path', 'type', 'order', 'createdAt',
+    ])
   })
 
   it('orders astral filenames by UTF-16 code unit (the server twin must match)', () => {
