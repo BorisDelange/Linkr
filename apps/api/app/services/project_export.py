@@ -99,6 +99,17 @@ def _drop_local_database(meta: dict) -> dict:
     return out
 
 
+def _drop_cohort_run_results(meta: dict) -> dict:
+    """Port of the cohort run-result stripping in buildProjectZip (entity-io.ts).
+
+    ``attrition`` and ``resultCount`` count the patients of THIS instance's
+    database, so an instance holding the repo without the same data exports
+    different numbers — a diff neither side can settle, coming back after every
+    recompute. The criteria that produce them ARE versioned; only the counts go.
+    Same rule as a data source's ``stats``."""
+    return {k: v for k, v in meta.items() if k not in ("attrition", "resultCount")}
+
+
 def _canonical_parse_options(opts: dict) -> dict:
     """parseOptions with keys (and nested per-column maps) sorted — mirrors
     entity-io.ts:canonicalParseOptions and dataset_fs._canonical_parse_options, so
@@ -536,7 +547,7 @@ def build_project_tree(
     project: dict,
     organization: dict | None,
     ide_files: list[dict],
-    pipelines: list[dict],
+    pipelines: list[dict],  # noqa: ARG001 — accepted but not versioned, see below
     cohorts: list[dict],
     connections: list[dict],
     dashboards: list[dict[str, Any]],
@@ -561,6 +572,10 @@ def build_project_tree(
     the same shape keyed on ``patientDashboard``. ``dataset_analyses`` /
     ``dataset_data`` / ``dataset_raw_files`` are keyed by dataset-file id; blobs by
     attachment id.
+
+    ``pipelines`` is accepted for call-site symmetry but NOT written: the pipeline
+    page is not implemented, so versioning its placeholder rows only produced a
+    diff no one could act on. buildProjectZip skips it too — change both together.
     """
     tree: dict[str, bytes] = {}
     # Tree paths of data files written into the export — each becomes a `!path`
@@ -666,14 +681,13 @@ def build_project_tree(
     for path, content in sorted((env_specs or {}).items()):
         tree[path] = content
 
-    if pipelines:
-        tree["pipeline/pipeline.json"] = _json(
-            [_strip_instance_fields(p) for p in pipelines]
-        )
+    # pipeline/ is NOT versioned: the page is not implemented yet, so its rows are
+    # a placeholder no one can edit and a diff no one can act on. Mirrors
+    # buildProjectZip — restore both together with the page.
 
     for c in cohorts:
         tree[f"cohorts/{_slugify(c.get('name') or c['id'])}.json"] = _json(
-            _drop_local_database(_strip_instance_fields(c))
+            _drop_cohort_run_results(_drop_local_database(_strip_instance_fields(c)))
         )
 
     # User-authored concept lists. Names are LocalizedString, so the slug comes

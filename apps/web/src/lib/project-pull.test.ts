@@ -331,6 +331,131 @@ describe('prepareProjectPull — natural-key matching', () => {
     expect(plan.scripts.find((s) => s.key === 'brand-new.py')!.exists).toBe(false)
   })
 
+  it('drops cohorts and pipelines whose content already matches', async () => {
+    // The state right after a push: same name, same content on both sides. Marking
+    // on the natural key alone reported "3 updated" with nothing behind it.
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    seedLinkedProject(t)
+    t.cohorts.set('c-same', {
+      id: 'c-same', projectUid: P, name: 'Sepsis', definition: { op: 'and' },
+    })
+    t.cohorts.set('c-edited', {
+      id: 'c-edited', projectUid: P, name: 'Edited', definition: { op: 'and' },
+    })
+    t.pipelines.set('pl-same', { id: 'pl-same', projectUid: P, name: { en: 'Main' }, steps: [] })
+
+    await stubClone((zip) => {
+      zip.file('cohorts/sepsis.json', JSON.stringify({ name: 'Sepsis', definition: { op: 'and' } }))
+      zip.file('cohorts/edited.json', JSON.stringify({ name: 'Edited', definition: { op: 'or' } }))
+      zip.file('cohorts/brand-new.json', JSON.stringify({ name: 'Brand New' }))
+      zip.file('pipeline/pipeline.json', JSON.stringify([{ name: { en: 'Main' }, steps: [] }]))
+    })
+
+    const { plan } = await prepareProjectPull(P, 'main')
+    expect(plan.cohorts.map((c) => c.key)).toEqual(['edited', 'brand-new'])
+    expect(plan.cohorts.find((c) => c.key === 'edited')!.exists).toBe(true)
+    expect(plan.cohorts.find((c) => c.key === 'brand-new')!.exists).toBe(false)
+    // The pipeline is byte-identical, so the whole group falls away.
+    expect(plan.pipeline).toEqual([])
+  })
+
+  // The pull's projection and the export's field-stripping are two lists kept in
+  // two files, and they only work if they agree: a field the export drops but the
+  // pull keeps sits on one side only, so the entity is "updated" forever. This
+  // drives the REAL exporter and feeds its output back through the pull, so a
+  // future change to one list fails here instead of in the user's face.
+  it('agrees with what buildProjectZip actually writes — no drift between the two', async () => {
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    seedLinkedProject(t)
+    // buildProjectZip reads the project itself; the pull's stub only needs the
+    // git link, so give it the name/config the exporter also requires.
+    t.projects.set(P, { ...(t.projects.get(P) as object), name: { en: 'P' }, config: {} } as never)
+    const cohort = {
+      id: 'c1', projectUid: P, name: 'Sepsis',
+      criteriaTree: { kind: 'group', operator: 'AND', children: [] },
+      description: '', level: 'visit_detail', customSql: null,
+      version: '0.1.0', schemaVersion: 4, materialization: null,
+      // Everything the export is meant to drop:
+      attrition: [{ nodeId: '__total__', label: 'Total', count: 1190, excluded: 0 }],
+      resultCount: 590,
+      dataSourceId: 'local-db-uuid',
+      updatedAt: '2026-08-31T00:00:00.000Z', workspaceId: 'ws-1', ownerId: 7,
+    }
+    t.cohorts.set('c1', cohort)
+
+    // Build the repo file the way a push does, then hand it back as the remote.
+    // The pull's store stub only implements what the IMPORT touches, so fill the
+    // export-only tables with empties rather than widening it for every test.
+    const emptyReads = { get: (t: object, m: string | symbol) =>
+      m in t ? t[m as keyof typeof t] : async () => [] }
+    const exportStore = new Proxy(storage as object, {
+      get: (target, prop) =>
+        new Proxy(prop in target ? (target[prop as keyof typeof target] as object) : {}, emptyReads),
+    })
+    const { buildProjectZip } = await import('@/lib/entity-io')
+    const built = await buildProjectZip(P, exportStore as never, {})
+    const JSZipMod = (await import('jszip')).default
+    const builtZip = await JSZipMod.loadAsync(await built!.blob.arrayBuffer())
+    const exported = await builtZip.files['cohorts/sepsis.json'].async('string')
+
+    await stubClone((zip) => zip.file('cohorts/sepsis.json', exported))
+
+    // Nothing changed between the push and the pull, so nothing may be offered.
+    expect((await prepareProjectPull(P, 'main')).plan.cohorts).toEqual([])
+  })
+
+  it('ignores a cohort’s run results — they stay local, the repo has none', async () => {
+    // attrition/resultCount live in the DB but are stripped from the export, so
+    // the local row has them and the remote file never will. Comparing them made
+    // the cohort permanently "updated" the moment they left the export.
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    seedLinkedProject(t)
+    t.cohorts.set('c1', {
+      id: 'c1', projectUid: P, name: 'Sepsis', criteriaTree: { kind: 'group' },
+      attrition: [{ nodeId: '__total__', label: 'Total', count: 1190, excluded: 0 }],
+      resultCount: 590,
+    })
+    await stubClone((zip) => {
+      zip.file('cohorts/sepsis.json', JSON.stringify({
+        name: 'Sepsis', criteriaTree: { kind: 'group' },
+      }))
+    })
+    expect((await prepareProjectPull(P, 'main')).plan.cohorts).toEqual([])
+  })
+
+  it('ignores instance-only fields when comparing a cohort', async () => {
+    // The local row carries ids, timestamps and the resolved database; the repo
+    // holds none of them. Comparing raw would call every cohort modified forever.
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    seedLinkedProject(t)
+    t.cohorts.set('c1', {
+      id: 'c1', projectUid: P, name: 'Sepsis', definition: { op: 'and' },
+      dataSourceId: 'local-db-uuid', updatedAt: '2026-01-01', workspaceId: 'ws-1',
+      ownerId: 7, createdById: 3,
+    })
+    await stubClone((zip) => {
+      zip.file('cohorts/sepsis.json', JSON.stringify({ name: 'Sepsis', definition: { op: 'and' } }))
+    })
+    expect((await prepareProjectPull(P, 'main')).plan.cohorts).toEqual([])
+  })
+
+  it('ignores key ORDER when comparing — the two sides are built differently', async () => {
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    seedLinkedProject(t)
+    t.cohorts.set('c1', {
+      id: 'c1', projectUid: P, name: 'Sepsis', definition: { b: 2, a: 1 },
+    })
+    await stubClone((zip) => {
+      zip.file('cohorts/sepsis.json', JSON.stringify({ definition: { a: 1, b: 2 }, name: 'Sepsis' }))
+    })
+    expect((await prepareProjectPull(P, 'main')).plan.cohorts).toEqual([])
+  })
+
   it('ignores line-ending style when comparing scripts', async () => {
     const { storage, t } = makeStore()
     storageHolder.current = storage

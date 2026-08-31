@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { DB_ERROR_NO_DATA_ON_IMPORT, slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, buildDqRuleSetFolder, reassemblePresetMapping, resolveDashboardBundle, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
+import { DB_ERROR_NO_DATA_ON_IMPORT, buildProjectZip, slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, buildDqRuleSetFolder, reassemblePresetMapping, resolveDashboardBundle, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/lib/entity-versioning'
@@ -2970,5 +2970,50 @@ describe('export — local database ids never travel', () => {
     }) as Record<string, unknown>
     expect(stripped).not.toHaveProperty('linkedDataSourceIds')
     expect(stripped.linkedDataSourceRefs).toEqual([DB_REF])
+  })
+})
+
+// Counts computed against THIS instance's database are not the cohort: two
+// instances holding the same repo over different data export different numbers,
+// and a recompute changes them with nothing edited — a diff neither side can
+// settle. The criteria that produce them stay versioned. (The golden tree pins
+// the bytes; this pins the REASON, so a future field lands on the right side.)
+describe('export — a cohort ships its definition, not its run results', () => {
+  it('drops attrition and resultCount, keeps the criteria', async () => {
+    const storage = {
+      projects: { getById: async () => ({ uid: 'p1', name: { en: 'P' }, config: {} }) },
+      cohorts: {
+        getByProject: async () => [{
+          id: 'c1', projectUid: 'p1', name: 'Adults',
+          criteriaTree: { kind: 'group', operator: 'AND', children: [] },
+          attrition: [{ nodeId: '__total__', label: 'Total', count: 1190 }],
+          resultCount: 590,
+        }],
+      },
+    } as unknown as Storage
+    const partial = new Proxy(storage, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const built = await buildProjectZip('p1', partial, {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const cohort = JSON.parse(await zip.files['cohorts/adults.json'].async('string'))
+
+    expect(cohort).not.toHaveProperty('attrition')
+    expect(cohort).not.toHaveProperty('resultCount')
+    expect(cohort.criteriaTree).toEqual({ kind: 'group', operator: 'AND', children: [] })
+  })
+
+  it('writes no pipeline/ folder — the page does not exist yet', async () => {
+    const storage = new Proxy({
+      projects: { getById: async () => ({ uid: 'p1', name: { en: 'P' }, config: {} }) },
+      pipelines: { getByProject: async () => [{ id: 'pl1', projectUid: 'p1', name: { en: 'Main' } }] },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const built = await buildProjectZip('p1', storage, {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    expect(Object.keys(zip.files).filter((f) => f.startsWith('pipeline/'))).toEqual([])
   })
 })

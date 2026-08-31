@@ -24,6 +24,7 @@ import {
   parseProjectZip,
   importProjectContent,
   slugify,
+  stripInstanceFields,
   type ParsedProjectZip,
   type ProjectPullGroup,
 } from '@/lib/entity-io'
@@ -58,6 +59,22 @@ export interface PreparedProjectPull {
   /** Local script content by tree path — the left side of the diff viewer, kept
    *  here so opening one costs no further read (see lib/project-pull-diff). */
   localScriptContent: Map<string, string | undefined>
+  /**
+   * The local cohorts/pipelines the plan compared against, AS THE EXPORT WRITES
+   * THEM, keyed by natural key. This is the left side of their diff: showing the
+   * raw row instead would parade ids and timestamps the repo never holds, so the
+   * viewer must read the same projection the comparison used.
+   */
+  localExportShape: {
+    cohorts: Map<string, unknown>
+    pipeline: Map<string, unknown>
+  }
+  /** The same projection for the REMOTE side, keyed identically — the right side
+   *  of that diff, so the viewer never re-derives a natural key of its own. */
+  remoteExportShape: {
+    cohorts: Map<string, unknown>
+    pipeline: Map<string, unknown>
+  }
 }
 
 /** The user's per-group selection (natural keys) + the readme block toggle. */
@@ -96,6 +113,60 @@ export interface ProjectPullSelection {
  */
 const sameText = (a: string | undefined, b: string | undefined): boolean =>
   (a ?? '').replace(/\r\n?/g, '\n') === (b ?? '').replace(/\r\n?/g, '\n')
+
+/**
+ * Is this entity identical to the version the remote would write?
+ *
+ * Compared as the EXPORT sees them, not as they sit in the database: the repo
+ * holds `stripInstanceFields(entity)` minus `dataSourceId`, so a raw comparison
+ * would flag every local-only field (ids, timestamps, the resolved database) and
+ * report the whole folder as modified right after a push. Key order is normalised
+ * too — the two sides are built by different code paths (a JSON parse vs a live
+ * row), so their key order has no reason to agree and is not a difference.
+ *
+ * The same projection the export applies is the only honest basis for "did this
+ * actually change?" — the rule scripts and readmeChanged already follow.
+ */
+const sameExported = (local: unknown, remote: unknown): boolean =>
+  stableJson(exportShape(local)) === stableJson(exportShape(remote))
+
+/**
+ * The export's projection of one entity, as `buildProjectZip` writes it.
+ *
+ * MUST drop everything the export drops. A field the export removes but this
+ * keeps is present on one side and absent on the other, so the entity reads as
+ * modified forever — which is exactly what happened when the cohort's run
+ * results stopped being versioned and this projection did not follow. Keep this
+ * list beside the one in `buildProjectZip` (cohorts/ section).
+ */
+const exportShape = (entity: unknown): Record<string, unknown> => {
+  const out = stripInstanceFields(entity as never) as Record<string, unknown>
+  const {
+    // A local UUID addresses nothing elsewhere; `id` never travels for these
+    // key-addressed entities.
+    dataSourceId: _db, id: _id,
+    // Cohort run results: counted against THIS instance's database, so they are
+    // not part of the definition the repo holds.
+    attrition: _attrition, resultCount: _resultCount,
+    ...rest
+  } = out
+  return rest
+}
+
+/** JSON with keys sorted at every depth, so key order is never a difference. */
+function stableJson(value: unknown): string {
+  const sort = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(sort)
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(
+        Object.keys(v as Record<string, unknown>).sort()
+          .map((k) => [k, sort((v as Record<string, unknown>)[k])]),
+      )
+    }
+    return v
+  }
+  return JSON.stringify(sort(value) ?? null)
+}
 
 const localizedEn = (s: LocalizedString | string | undefined | null): string => {
   if (s == null) return ''
@@ -150,9 +221,11 @@ export async function prepareProjectPull(
     storage.pipelines.getByProject(projectUid),
   ])
 
+  // Keyed by natural key, and holding the row itself: an entity present on both
+  // sides still has to be compared before it is offered as an "update".
+  const localCohortByKey = new Map(localCohorts.map((c) => [cohortNaturalKey(c), c] as const))
+  const localPipelineByKey = new Map(localPipelines.map((p) => [pipelineNaturalKey(p), p] as const))
   const localDashKeys = new Set(localDashboards.map(dashboardNaturalKey))
-  const localCohortKeys = new Set(localCohorts.map(cohortNaturalKey))
-  const localPipelineKeys = new Set(localPipelines.map(pipelineNaturalKey))
   const localScriptById = new Map(localScripts.map((f) => [f.id, f]))
   const localScriptByPath = new Map(
     localScripts
@@ -170,14 +243,23 @@ export async function prepareProjectPull(
     const key = dashboardNaturalKey(d)
     return { key, label: localizedEn(d.name) || key, exists: localDashKeys.has(key) }
   })
-  const cohorts: PullItem[] = parsed.cohorts.map((c) => {
-    const key = cohortNaturalKey(c)
-    return { key, label: c.name || key, exists: localCohortKeys.has(key) }
-  })
-  const pipeline: PullItem[] = parsed.pipelines.map((p) => {
-    const key = pipelineNaturalKey(p)
-    return { key, label: localizedEn(p.name) || key, exists: localPipelineKeys.has(key) }
-  })
+  // Like the scripts below: an entity identical to the remote is dropped rather
+  // than offered as an overwrite of itself, or every push came straight back as a
+  // pull of everything it had just sent.
+  const cohorts: PullItem[] = parsed.cohorts
+    .map((c) => ({ c, key: cohortNaturalKey(c) }))
+    .filter(({ c, key }) => {
+      const local = localCohortByKey.get(key)
+      return !local || !sameExported(local, c)
+    })
+    .map(({ c, key }) => ({ key, label: c.name || key, exists: localCohortByKey.has(key) }))
+  const pipeline: PullItem[] = parsed.pipelines
+    .map((p) => ({ p, key: pipelineNaturalKey(p) }))
+    .filter(({ p, key }) => {
+      const local = localPipelineByKey.get(key)
+      return !local || !sameExported(local, p)
+    })
+    .map(({ p, key }) => ({ key, label: localizedEn(p.name) || key, exists: localPipelineByKey.has(key) }))
   // A script whose content already matches the remote is dropped, not listed as an
   // overwrite of itself: right after a push every path exists on both sides, so
   // marking on path alone reported the whole folder as "updated". Same rule as the
@@ -205,6 +287,14 @@ export async function prepareProjectPull(
     clonedOid: cloned.oid,
     branch,
     localScriptContent: new Map([...localScriptByPath].map(([p, f]) => [p, f.content])),
+    localExportShape: {
+      cohorts: new Map([...localCohortByKey].map(([k, c]) => [k, exportShape(c)])),
+      pipeline: new Map([...localPipelineByKey].map(([k, p]) => [k, exportShape(p)])),
+    },
+    remoteExportShape: {
+      cohorts: new Map(parsed.cohorts.map((c) => [cohortNaturalKey(c), exportShape(c)])),
+      pipeline: new Map(parsed.pipelines.map((p) => [pipelineNaturalKey(p), exportShape(p)])),
+    },
   }
 }
 

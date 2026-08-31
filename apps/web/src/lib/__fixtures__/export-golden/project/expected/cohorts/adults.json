@@ -8,8 +8,6 @@
     "rules": []
   },
   "customSql": null,
-  "resultCount": 42,
-  "attrition": null,
   "materialization": null,
   "schemaVersion": 3,
   "createdAt": "2026-01-04T00:00:00.000Z",

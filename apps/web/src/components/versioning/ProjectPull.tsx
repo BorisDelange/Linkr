@@ -7,14 +7,14 @@ import {
   projectGroupForPath,
   PROJECT_DOCS_FILE,
   PROJECT_DOCS_KEY,
-  PROJECT_GROUP_PATHS,
   type ProjectPullGroupKey,
 } from '@/lib/project-pull-plan-builder'
 import { itemId, planIsEmpty, type PullDecision, type PullPlan } from '@/lib/pull-plan'
 import {
   buildProjectDiffPlan,
   buildProjectPullDiff,
-  scriptDiffPath,
+  entityDiffPath,
+  isDiffableGroupPath,
 } from '@/lib/project-pull-diff'
 import { PullPanel } from './PullPanel'
 import { PullDiffDialog } from './PullDiffDialog'
@@ -100,12 +100,13 @@ export function ProjectPull({ projectUid, branch, remoteHead, mode, onPulled }: 
     [prepared, branch],
   )
 
-  // The panel hands back the row path (`scripts/`); the viewer opens on a FILE,
-  // so land on the first script and let its sidebar navigate to the others.
+  // The panel hands back the GROUP path (`cohorts/`); the viewer opens on one
+  // entity, so land on that group's first item and let the sidebar do the rest.
   const openDiff = (path: string) => {
-    if (path !== PROJECT_GROUP_PATHS.scripts) return
-    const first = prepared?.plan.scripts[0]
-    if (first) setDiffPath(scriptDiffPath(first.key))
+    const group = projectGroupForPath(path)
+    if (!group || !isDiffableGroupPath(path)) return
+    const first = prepared?.plan[group][0]
+    if (first) setDiffPath(entityDiffPath(group as 'scripts' | 'cohorts' | 'pipeline', first.key))
   }
 
   const decide = (ids: string[], decision: PullDecision) => {
@@ -208,8 +209,8 @@ export function ProjectPull({ projectUid, branch, remoteHead, mode, onPulled }: 
         mode={mode}
         // Withheld when nothing is diffable: a row that looks clickable and does
         // nothing reads as broken (the same rule PullFileRow applies).
-        onOpenDiff={prepared?.plan.scripts.length ? openDiff : undefined}
-        canOpenDiff={(file) => file.path === PROJECT_GROUP_PATHS.scripts}
+        onOpenDiff={diffPlan?.files.length ? openDiff : undefined}
+        canOpenDiff={(file) => isDiffableGroupPath(file.path)}
         onFinalize={handleFinalize}
         applying={applying}
       />

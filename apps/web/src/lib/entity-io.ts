@@ -527,8 +527,7 @@ export async function readBinaryFromImportZip(
 //   .gitignore                        — data files ignored; each versionedDataFiles entry re-included via !path
 //   scripts/_tree.json                — IDE file tree metadata (for round-trip import)
 //   scripts/{path}                    — IDE files under scripts/ folder
-//   pipeline/pipeline.json            — array of pipelines
-//   cohorts/{slug}.json               — one file per cohort
+//   cohorts/{slug}.json               — one file per cohort (minus run results)
 //   concept-lists/{slug}.json         — one file per user-authored concept list
 //   databases/{slug}.json             — one file per IDE connection
 //   dashboards/{slug}.json            — dashboard + its tabs + widgets
@@ -1149,10 +1148,9 @@ export async function buildProjectZip(
   // origin) that the backend regenerates on import and never reads back — strip
   // it so re-exporting an imported project is stable.
   // --- pipeline/ ---
-  const pipelines = await storage.pipelines.getByProject(projectUid)
-  if (pipelines.length > 0) {
-    zip.file('pipeline/pipeline.json', json(pipelines.map(stripInstanceFields)))
-  }
+  // NOT versioned: the pipeline page is not implemented yet, so its rows are a
+  // placeholder no one can edit — versioning them only produces a diff the user
+  // cannot act on. Restore this (and the group in project-pull) with the page.
 
   // --- cohorts/ ---
   const cohorts = await storage.cohorts.getByProject(projectUid)
@@ -1161,6 +1159,13 @@ export async function buildProjectZip(
     // A local database UUID addresses nothing elsewhere; `dataSourceRef` beside it
     // is the portable pointer the import resolves back to a local row.
     delete out.dataSourceId
+    // Run RESULTS, not definition: both count the patients of THIS instance's
+    // database, so an instance holding the repo without the same data exports
+    // different numbers — a diff neither side can settle, re-appearing after
+    // every recompute. Same rule as a data source's `stats` (see
+    // DATA_SOURCE_LOCAL_FIELDS); the criteria that produce them ARE versioned.
+    delete out.attrition
+    delete out.resultCount
     zip.file(`cohorts/${slugify(c.name || c.id)}.json`, json(out))
   }
 
