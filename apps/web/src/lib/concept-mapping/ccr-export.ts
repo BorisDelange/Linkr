@@ -47,6 +47,21 @@ const VALID_END = '2099-12-31'
 const DEFAULT_DOMAIN = 'Observation'
 
 /**
+ * The name to give a source concept whose dictionary leaves it unnamed.
+ *
+ * `concept.concept_name` is NOT NULL in the CDM, and an empty CSV field reads
+ * back as NULL — so one unnamed code fails the whole vocabulary load rather than
+ * its own row. Real dictionaries do carry blanks: MIMIC-IV's `d_labitems` has
+ * four itemids with no label.
+ *
+ * Falls back to the code, the only identity such a concept actually has. A
+ * constant like 'Unknown' would collide across every unnamed code and lose it.
+ */
+function conceptNameOf(m: ConceptMapping): string {
+  return m.sourceConceptName?.trim() || m.sourceConceptCode
+}
+
+/**
  * Concept class per domain, the last resort of `conceptClassOf`.
  *
  * Deliberately an echo of the domain rather than a real vocabulary class
@@ -174,7 +189,7 @@ export function buildCcrCsvs(
     seen.add(key)
     conceptLines.push([
       String(ids.byKey.get(key) ?? 0),
-      csvField(m.sourceConceptName),
+      csvField(conceptNameOf(m)),
       csvField(m.sourceDomainId || DEFAULT_DOMAIN),
       csvField(m.sourceVocabularyId),
       csvField(conceptClassOf(m)),

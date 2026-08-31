@@ -537,7 +537,10 @@ export function buildVocabularyScriptWithIds(
       parts.push(`INSERT INTO ${TARGET}.concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
       parts.push(`SELECT DISTINCT`)
       parts.push(`    stcm.source_concept_id       AS concept_id,`)
-      parts.push(`    stcm.source_code_description AS concept_name,`)
+      // concept_name is NOT NULL: a source dictionary that leaves a code
+      // unnamed would fail the whole load. The code is the only identity such
+      // a concept has — same fallback the C/CR export applies.
+      parts.push(`    COALESCE(NULLIF(TRIM(stcm.source_code_description), ''), stcm.source_code) AS concept_name,`)
       parts.push(`    stcm.${SOURCE_DOMAIN_COLUMN}          AS domain_id,`)
       parts.push(`    stcm.source_vocabulary_id    AS vocabulary_id,`)
       parts.push(`    'Clinical Observation'       AS concept_class_id,`)
@@ -890,7 +893,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`SELECT`)
   parts.push(`    (SELECT COALESCE(MAX(concept_id), ${SOURCE_CONCEPT_ID_BASE}) FROM ${TARGET}.concept WHERE concept_id >= ${SOURCE_CONCEPT_ID_BASE})`)
   parts.push(`      + ROW_NUMBER() OVER (ORDER BY src.source_vocabulary_id, src.source_code) AS concept_id,`)
-  parts.push(`    src.source_code_description AS concept_name,`)
+  parts.push(`    COALESCE(NULLIF(TRIM(src.source_code_description), ''), src.source_code) AS concept_name,`)
   parts.push(`    COALESCE(tc.domain_id, 'Observation') AS domain_id,`)
   parts.push(`    src.source_vocabulary_id    AS vocabulary_id,`)
   parts.push(`    'Clinical Observation'      AS concept_class_id,`)
