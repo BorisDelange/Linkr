@@ -171,9 +171,23 @@ interface MarkdownRendererProps {
   content: string
   className?: string
   resolveWikilink?: (name: string) => string | null
+  /**
+   * Renderer overrides merged over the defaults, for a caller whose blocks need
+   * more than prose styling — e.g. the IDE documentation dialog rendering fenced
+   * code through Monaco. Merged last, so an override wins for the tags it names
+   * and every other tag keeps the shared behaviour (callouts, mermaid, heading
+   * anchors).
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  extraComponents?: Record<string, any>
 }
 
-export function MarkdownRenderer({ content, className, resolveWikilink }: MarkdownRendererProps) {
+export function MarkdownRenderer({
+  content,
+  className,
+  resolveWikilink,
+  extraComponents,
+}: MarkdownRendererProps) {
   // Pre-process markdown
   let processed = content
   processed = processCallouts(processed)
@@ -237,7 +251,7 @@ export function MarkdownRenderer({ content, className, resolveWikilink }: Markdo
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
         urlTransform={urlTransform}
-        components={components()}
+        components={{ ...components(), ...extraComponents }}
       >
         {processed}
       </ReactMarkdown>

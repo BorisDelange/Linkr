@@ -12,8 +12,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
+import { CodeViewer } from '@/components/editor/CodeViewer'
 import { cn } from '@/lib/utils'
 import { docPackages, type DocLanguage, type DocPackage } from '@/lib/docs/linkr-client'
+import { readFence } from '@/lib/docs/read-fence'
 
 interface DocumentationDialogProps {
   open: boolean
@@ -29,6 +31,24 @@ interface DocumentationDialogProps {
  * back button reads as the same gesture a file explorer uses.
  */
 type View = { level: 'packages' } | { level: 'symbols'; packageId: string; symbolId: string }
+
+/**
+ * Fenced code rendered through the read-only editor rather than as prose, so an
+ * example is highlighted in the same theme and font the reader's own editor uses
+ * — and so it stays selectable and copyable. Mermaid keeps the shared renderer's
+ * handling: this overrides `pre`, and a mermaid fence is a `code` the default
+ * `pre` still wraps.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function DocCodeBlock({ node, children }: any) {
+  const fence = readFence(node)
+  if (!fence) return <pre>{children}</pre>
+  return (
+    <div className="my-3 overflow-hidden rounded-md border border-border">
+      <CodeViewer value={fence.source} language={fence.language} maxHeight={320} />
+    </div>
+  )
+}
 
 export function DocumentationDialog({
   open,
@@ -237,12 +257,27 @@ export function DocumentationDialog({
       <div className="min-h-0 flex-1 overflow-y-auto pl-4">
         {content ? (
           <div className="pb-4">
-            {activeSymbol && (
-              <div className="mb-3 border-b border-border pb-3">
-                <code className="text-sm font-medium">{activeSymbol.signature}</code>
+            {/* Which package, in which language — the sidebar shows the package
+                name only while you are inside it, and the language lives in a
+                dropdown that scrolls out of sight in a long page. */}
+            <div className="mb-3 border-b border-border pb-3">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Package size={12} />
+                <span className="font-medium text-foreground">{activePackage?.name}</span>
+                <span aria-hidden>·</span>
+                <span>{t(language === 'r' ? 'docs.language_r' : 'docs.language_python')}</span>
               </div>
-            )}
-            <MarkdownRenderer content={content} className="text-sm" />
+              {activeSymbol && (
+                <code className="mt-1.5 block text-sm font-medium">
+                  {activeSymbol.signature}
+                </code>
+              )}
+            </div>
+            <MarkdownRenderer
+              content={content}
+              className="text-sm"
+              extraComponents={{ pre: DocCodeBlock }}
+            />
           </div>
         ) : (
           <EmptyState
