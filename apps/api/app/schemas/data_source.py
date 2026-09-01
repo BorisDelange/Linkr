@@ -222,6 +222,11 @@ class ClientDatabase(CamelModel):
     """
 
     id: str
+    # Flattened from the stored LocalizedString to a plain string: a script matches
+    # on this name, so picking a language server-side keeps that from being every
+    # caller's problem. Declared `str` alone, every source whose name is localized
+    # (i.e. every source created through the UI) failed validation and the endpoint
+    # 500-ed for the whole list.
     name: str
     engine: str | None = None
     # "duckdb" today for every supported engine (see the class docstring).
@@ -240,6 +245,24 @@ class ClientDatabase(CamelModel):
     attach_type: str | None = None
     attach_dsn: str | None = None
     attach_scope: str | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _flatten_name(cls, value: object) -> str:
+        """Accept the stored LocalizedString and resolve it, preferring English.
+
+        A language counts only when it is non-blank after stripping, matching
+        ``readLocalized`` (packages/linkr-format/src/check.ts) and the export side's
+        ``_localized_en``."""
+        if isinstance(value, dict):
+            preferred = value.get("en")
+            if isinstance(preferred, str) and preferred.strip():
+                return preferred
+            for candidate in value.values():
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate
+            return ""
+        return value if isinstance(value, str) else ""
 
 
 class DatabaseConnectionInfo(CamelModel):

@@ -638,3 +638,22 @@ async def test_connection_info_for_a_parquet_folder_points_at_the_directory(clie
         assert table["paths"], f"{table['table']} must name at least one blob"
         assert table["exists"] is True
         assert not any(p.endswith(".parquet") for p in table["paths"])
+
+
+def test_client_database_flattens_a_localized_name():
+    """Every source created through the UI stores `name` as a LocalizedString, so a
+    schema declaring it a plain `str` rejected all of them and the client endpoint
+    500-ed for the whole list — `linkr_databases()` and `linkr_connect()` with it."""
+    from app.schemas.data_source import ClientDatabase
+
+    localized = ClientDatabase(
+        id="a", name={"en": "MIMIC-IV", "fr": "MIMIC-IV (fr)"}, kind="managed"
+    )
+    assert localized.name == "MIMIC-IV"
+
+    # No English: fall through to the first non-blank language rather than error.
+    assert ClientDatabase(id="b", name={"fr": "Entrepôt"}, kind="managed").name == "Entrepôt"
+    # Blank English does not win — it would render as an unnamed database.
+    assert ClientDatabase(id="c", name={"en": "   ", "fr": "Entrepôt"}).name == "Entrepôt"
+    # A bare string (seed data, older manifests) is still accepted as-is.
+    assert ClientDatabase(id="d", name="Plain").name == "Plain"
