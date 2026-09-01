@@ -314,6 +314,7 @@ export async function executePython(
 
   const figures: RuntimeFigure[] = []
   let table: RuntimeOutput['table'] = null
+  let failed = false
 
   try {
     // Ensure common directories exist in Pyodide's virtual filesystem
@@ -410,9 +411,10 @@ del _d
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     stderr += message + '\n'
+    failed = true
   } finally {
     setStatus('ready')
   }
 
-  return { stdout: stdout.trimEnd(), stderr: stderr.trimEnd(), figures, table, html: null }
+  return { stdout: stdout.trimEnd(), stderr: stderr.trimEnd(), figures, table, html: null, failed }
 }

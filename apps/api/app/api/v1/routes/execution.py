@@ -297,6 +297,7 @@ def _shape_output(out) -> ExecuteResponse:
         ],
         table=out.table,
         html=out.html,
+        failed=out.failed,
     )
 
 
@@ -549,6 +550,7 @@ async def _terminal_kernel_loop(
                 ],
                 "table": out.table,
                 "html": out.html,
+                "failed": out.failed,
             })
         except runtime.ExecutionError as e:
             if draining:

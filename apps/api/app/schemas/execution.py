@@ -95,6 +95,9 @@ class ExecuteResponse(CamelModel):
     figures: list[RuntimeFigureResponse]
     table: RuntimeTableResponse | None
     html: str | None
+    # The code raised — as opposed to merely writing to stderr, which R does for
+    # warnings and messages too.
+    failed: bool = False
 
 
 class EnvironmentResponse(CamelModel):

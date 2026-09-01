@@ -1661,6 +1661,7 @@
     "overview_truncated": "Showing the first {{limit}} events of this row."
   },
   "files": {
+    "empty_markdown_cell": "Empty markdown cell",
     "explorer": "Explorer",
     "running": "Running...",
     "new_file": "New file",

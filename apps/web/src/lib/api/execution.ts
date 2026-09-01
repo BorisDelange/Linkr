@@ -7,8 +7,12 @@ import type { SessionLanguage } from '@/lib/api/execution-sessions'
 import type { Job } from '@/lib/api/environments'
 
 /** The active session for (project, language) — but only R/Python carry sessions;
- *  anything else (sql) always runs in the implicit 'default' namespace. */
-function activeSessionFor(projectUid: string | null, language: RuntimeLanguage): string {
+ *  anything else (sql) always runs in the implicit 'default' namespace.
+ *
+ *  Exported because interrupting a run must target the SAME session it was sent
+ *  to: SIGINT'ing 'default' while the user runs in another session stops nothing
+ *  and hits an unrelated kernel. */
+export function activeSessionFor(projectUid: string | null, language: RuntimeLanguage): string {
   if (!projectUid || (language !== 'python' && language !== 'r')) return 'default'
   return useSessionStore.getState().getActiveSessionId(projectUid, language as SessionLanguage)
 }
@@ -36,6 +40,11 @@ export function executeOnServer(
      *  project's persistent session kernel — so dashboard widgets run in parallel
      *  without sharing a namespace or serialising on one lock. */
     ephemeral?: boolean
+    /** Abandon the request when aborted. This is a plain POST, so unlike
+     *  streamOnServer there is no socket whose teardown SIGINTs the kernel:
+     *  aborting only stops the client waiting. A caller that wants the kernel to
+     *  actually stop must also call interruptServerKernel(). */
+    signal?: AbortSignal
   },
 ): Promise<RuntimeOutput> {
   // The backend resolves a disk-source dataset (datasetFileId = its path) only
@@ -61,6 +70,7 @@ export function executeOnServer(
       purpose: opts?.purpose ?? 'ide',
       ephemeral: opts?.ephemeral ?? false,
     }),
+    signal: opts?.signal,
   })
 }
 
@@ -163,6 +173,7 @@ export function streamOnServer(
               figures: (msg.figures ?? []) as RuntimeFigure[],
               table: (msg.table ?? null) as RuntimeTable | null,
               html: msg.html ?? null,
+              failed: msg.failed === true,
             }))
           }
         },

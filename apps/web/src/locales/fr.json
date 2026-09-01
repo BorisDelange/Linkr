@@ -1661,6 +1661,7 @@
     "overview_truncated": "Affichage des {{limit}} premiers événements de cette ligne."
   },
   "files": {
+    "empty_markdown_cell": "Cellule markdown vide",
     "explorer": "Explorateur",
     "running": "Exécution...",
     "new_file": "Nouveau fichier",

@@ -64,9 +64,10 @@ import {
 import { useAppStore, resolveEditorTheme } from '@/stores/app-store'
 import { CellOutput } from '@/components/editor/CellOutput'
 import { parseRmdFile, serializeRmdFile, parseChunkOptions, serializeChunkOptions, type RmdCell } from '@/lib/rmd-parser'
+import { runCellSequence, runnableCells, outputFailed } from '@/lib/notebook-run'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
-import { executeR } from '@/lib/runtimes/webr-engine'
-import { executeOnServer } from '@/lib/api/execution'
+import { executeR, interruptR } from '@/lib/runtimes/webr-engine'
+import { executeOnServer, interruptServerKernel, activeSessionFor } from '@/lib/api/execution'
 import { isServerMode } from '@/lib/api-client'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { defineLinkrThemes } from '@/components/editor/monaco-themes'
@@ -176,6 +177,10 @@ interface RmdNotebookProps {
   /** Called when the cells or their states change, so the parent's outline sidebar
    *  can render from a push instead of polling the imperative handle. */
   onOutlineChange?: (cells: RmdCell[], states: Map<string, CellState>) => void
+  /** Called when a run starts or ends. A push, like onOutlineChange: the toolbar
+   *  lives in the parent and reads the notebook through a REF, which never
+   *  re-renders it — so Run/Stop could not swap without this. */
+  onRunningChange?: (running: boolean) => void
 }
 
 /** Imperative handle exposed to the parent for toolbar actions */
@@ -184,6 +189,10 @@ export interface RmdNotebookHandle {
   runCellAndAdvance: () => void
   runAll: () => void
   runAbove: () => void
+  /** Abort the run in flight and interrupt its kernel. No-op when nothing runs. */
+  stopRun: () => void
+  /** A cell or a sequence is executing — the toolbar shows Stop instead of Run. */
+  isRunning: boolean
   renderPreview: () => void
   renderHtml: () => void
   renderPdf: () => void
@@ -217,6 +226,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   initialCellStates,
   onCellStatesChange,
   onOutlineChange,
+  onRunningChange,
 }, ref) {
   const { t } = useTranslation()
   const darkMode = useAppStore((s) => s.darkMode)
@@ -243,6 +253,12 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
     }
     return map
   })
+
+  // buildHtml runs the cells and then reads their outputs. A render-time closure
+  // over `cellStates` would still hold the map as it was BEFORE those runs, so it
+  // reads the live one through this ref.
+  const cellStatesRef = useRef(cellStates)
+  cellStatesRef.current = cellStates
 
   // Notify parent when cellStates changes (positional array for stable caching)
   const onCellStatesChangeRef = useRef(onCellStatesChange)
@@ -483,15 +499,38 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   }, [])
 
   // ---- Execution ----
+  // A run in flight — a single cell or a whole sequence. Aborting it is what the
+  // toolbar's Stop button does; `runningCellId` is the cell whose kernel to SIGINT.
+  const runControllerRef = useRef<AbortController | null>(null)
+  const runningCellRef = useRef<{ id: string; language: string } | null>(null)
+  const [isRunning, setIsRunning] = useState(false)
+
+  // Push the run state to the parent's toolbar (it reads us through a ref, which
+  // never re-renders it), so the Run button can swap to Stop.
+  const onRunningChangeRef = useRef(onRunningChange)
+  onRunningChangeRef.current = onRunningChange
+  useEffect(() => {
+    onRunningChangeRef.current?.(isRunning)
+  }, [isRunning])
+
+  /**
+   * Run one cell.
+   *
+   * Returns whether it SUCCEEDED, so a sequence runner (runAll / runAbove /
+   * buildHtml) can stop at the first failure instead of running the rest of the
+   * notebook against state the failed cell never produced.
+   */
   const runCell = useCallback(
-    async (cellId: string) => {
+    async (cellId: string, signal?: AbortSignal): Promise<boolean> => {
       // Use cellsRef to always read the latest cells array, avoiding stale closures
       // when runCell is called from Monaco addCommand callbacks.
       const cell = cellsRef.current.find((c) => c.id === cellId)
-      if (!cell || cell.type !== 'code' || !cell.content.trim()) return
+      if (!cell || cell.type !== 'code' || !cell.content.trim()) return true
+      if (signal?.aborted) return false
 
       setCellStates((prev) => new Map(prev).set(cellId, { status: 'running', output: null }))
       scrollToCell(cellId)
+      runningCellRef.current = { id: cellId, language: cell.language ?? '' }
 
       try {
         let output: RuntimeOutput
@@ -502,10 +541,11 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
           output = isServerMode()
             ? await executeOnServer(cell.language, cell.content, {
                 connectionId: activeConnectionId ?? undefined,
+                signal,
               })
             : cell.language === 'python'
-              ? await executePython(cell.content, activeConnectionId ?? null)
-              : await executeR(cell.content, activeConnectionId ?? null)
+              ? await executePython(cell.content, activeConnectionId ?? null, signal)
+              : await executeR(cell.content, activeConnectionId ?? null, signal)
         } else if (cell.language === 'sql') {
           if (!activeConnectionId) {
             output = {
@@ -514,6 +554,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
               figures: [],
               table: null,
               html: null,
+              failed: true,
             }
           } else {
             const rows = await duckdbEngine.queryDataSource(activeConnectionId, cell.content)
@@ -536,14 +577,33 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
             figures: [],
             table: null,
             html: null,
+            failed: true,
           }
         }
 
-        // Determine if execution had an error: stderr non-empty with no other output
-        const hasOutput = output.stdout || output.figures.length > 0 || output.table || output.html
-        const hasError = output.stderr && !hasOutput
+        // A Stop races the run: the abort may land after the kernel has already
+        // answered, and the kernel reports an interrupt as a failure. Painting the
+        // cell red for a stop the user asked for would be wrong, so the signal
+        // wins over the payload.
+        if (signal?.aborted) {
+          setCellStates((prev) => new Map(prev).set(cellId, { status: 'idle', output: null }))
+          return false
+        }
+
+        // `failed` is the engine's own verdict on whether the code raised. A
+        // non-empty stderr is NOT a failure — R writes warnings and messages there
+        // on a perfectly good run — and treating it as one would stop a Run all on
+        // the first warning.
+        const hasError = outputFailed(output)
         setCellStates((prev) => new Map(prev).set(cellId, { status: hasError ? 'error' : 'success', output }))
+        return !hasError
       } catch (err) {
+        // A user Stop aborts mid-cell. That is not a cell error: leave the cell
+        // idle rather than painting a red output the user did not cause.
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          setCellStates((prev) => new Map(prev).set(cellId, { status: 'idle', output: null }))
+          return false
+        }
         const message = err instanceof Error ? err.message : String(err)
         setCellStates((prev) =>
           new Map(prev).set(cellId, {
@@ -551,6 +611,9 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
             output: { stdout: '', stderr: message, figures: [], table: null, html: null },
           }),
         )
+        return false
+      } finally {
+        runningCellRef.current = null
       }
     },
     [activeConnectionId, t, scrollToCell],
@@ -567,24 +630,77 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
     })
   }, [])
 
+  /** Run a sequence of cells under one abort controller, stopping at the first
+   *  failure (the rule itself lives in lib/notebook-run). */
+  const runSequence = useCallback(
+    async (sequence: RmdCell[]): Promise<boolean> => {
+      // One sequence at a time: a second Run all while one is in flight would
+      // interleave two runs in the same kernel namespace.
+      if (runControllerRef.current) return false
+      const controller = new AbortController()
+      runControllerRef.current = controller
+      setIsRunning(true)
+      try {
+        const { completed } = await runCellSequence(
+          sequence,
+          (cell) => runCell(cell.id, controller.signal),
+          (cell) => togglePreview(cell.id, true),
+          () => controller.signal.aborted,
+        )
+        return completed
+      } finally {
+        runControllerRef.current = null
+        setIsRunning(false)
+      }
+    },
+    [runCell, togglePreview],
+  )
+
   const runAll = useCallback(async () => {
-    const runnableCells = cells.filter((c) => (c.type === 'code' || c.type === 'markdown') && c.content.trim())
-    for (const cell of runnableCells) {
-      if (cell.type === 'code') await runCell(cell.id)
-      else togglePreview(cell.id, true)
-    }
-  }, [cells, runCell, togglePreview])
+    await runSequence(runnableCells(cells))
+  }, [cells, runSequence])
 
   const runAbove = useCallback(async () => {
     if (!activeCell) return
     const idx = cells.findIndex((c) => c.id === activeCell)
     if (idx < 0) return
-    const above = cells.slice(0, idx).filter((c) => (c.type === 'code' || c.type === 'markdown') && c.content.trim())
-    for (const cell of above) {
-      if (cell.type === 'code') await runCell(cell.id)
-      else togglePreview(cell.id, true)
+    await runSequence(runnableCells(cells.slice(0, idx)))
+  }, [cells, activeCell, runSequence])
+
+  /**
+   * Stop the run in flight — the toolbar's Stop button.
+   *
+   * Aborting alone only stops the CLIENT waiting: a single-cell run goes through
+   * executeOnServer, a plain POST whose kernel keeps going regardless (unlike the
+   * script path's WebSocket, where socket teardown SIGINTs). So also interrupt the
+   * kernel over HTTP, or "stopping" a long cell would just hide it while it ran on
+   * and blocked the next cell on the kernel lock.
+   */
+  const stopRun = useCallback(() => {
+    const running = runningCellRef.current
+    runControllerRef.current?.abort()
+    runControllerRef.current = null
+    setIsRunning(false)
+    if (!running) return
+    if (running.language === 'r' || running.language === 'python') {
+      if (isServerMode()) {
+        const projectUid = useAppStore.getState().activeProjectUid
+        if (projectUid) {
+          // Same session the run was sent to — interrupting 'default' while the
+          // user runs in another session stops nothing and hits a bystander.
+          const sessionId = activeSessionFor(projectUid, running.language)
+          void interruptServerKernel(running.language, projectUid, sessionId).catch(() => {
+            // Nothing was running server-side, or the kernel is already gone.
+          })
+        }
+      } else if (running.language === 'r') {
+        // webR's only interrupt channel; Pyodide has none (it runs on the main
+        // thread), so a WASM Python cell runs to completion and the abort just
+        // stops us waiting for it.
+        interruptR()
+      }
     }
-  }, [cells, activeCell, runCell, togglePreview])
+  }, [])
 
   /** Advance activeCell to the next cell (any type) and focus its editor */
   const advanceCell = useCallback(() => {
@@ -606,15 +722,13 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
 
   /** Build a self-contained HTML document from the current notebook state */
   const buildHtml = useCallback(async (): Promise<{ html: string; title: string }> => {
-    // Run all chunks first
-    const codeCells = cells.filter((c) => c.type === 'code' && c.content.trim())
-    for (const cell of codeCells) {
-      await runCell(cell.id)
-    }
-    // Small delay for state propagation
-    await new Promise((r) => setTimeout(r, 150))
+    // Run all chunks first — stopping at the first failure, like Run all, so a
+    // broken notebook renders up to the error instead of pretending it ran.
+    await runSequence(cells.filter((c) => c.type === 'code' && c.content.trim()))
+    // One tick so the last setCellStates has committed before we read the ref.
+    await new Promise((r) => setTimeout(r, 0))
 
-    const states = cellStates
+    const states = cellStatesRef.current
 
     // Extract YAML title
     const yamlCell = cells.find((c) => c.type === 'yaml')
@@ -722,7 +836,7 @@ ${bodyParts.join('\n')}
 </html>`
 
     return { html, title }
-  }, [cells, cellStates, runCell])
+  }, [cells, runSequence])
 
   /** Download as HTML file */
   const handleRenderPreview = useCallback(async () => {
@@ -826,7 +940,7 @@ ${bodyParts.join('\n')}
         e.preventDefault()
         if (activeCell) {
           if (activeCellObj?.type === 'markdown') togglePreview(activeCell)
-          else if (activeCellObj?.type === 'code') runCell(activeCell)
+          else if (activeCellObj?.type === 'code') void runSequence([activeCellObj])
         }
         return
       }
@@ -837,7 +951,7 @@ ${bodyParts.join('\n')}
       ) {
         e.preventDefault()
         if (activeCell) {
-          if (activeCellObj?.type === 'code') runCell(activeCell)
+          if (activeCellObj?.type === 'code') void runSequence([activeCellObj])
           else if (activeCellObj?.type === 'markdown') togglePreview(activeCell)
           // yaml: nothing to run, just advance
           advanceCell()
@@ -848,7 +962,7 @@ ${bodyParts.join('\n')}
       if (matchCombo(e, getBinding(nb('run_chunk_insert')))) {
         e.preventDefault()
         if (activeCell) {
-          if (activeCellObj?.type === 'code') runCell(activeCell)
+          if (activeCellObj?.type === 'code') void runSequence([activeCellObj])
           addCell(activeCell, 'code', activeCellObj?.language ?? 'r')
         }
         return
@@ -902,7 +1016,7 @@ ${bodyParts.join('\n')}
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [onSave, handleRender, readOnly, activeCell, cells, runCell, runAll, runAbove, addCell, removeCell, togglePreview, advanceCell, getBinding, nb])
+  }, [onSave, handleRender, readOnly, activeCell, cells, runSequence, runAll, runAbove, addCell, removeCell, togglePreview, advanceCell, getBinding, nb])
 
   const editorOptions = useMemo(() => getMiniEditorOptions(readOnly, fontSize), [readOnly, fontSize])
 
@@ -914,17 +1028,20 @@ ${bodyParts.join('\n')}
       if (!activeCell) return
       const cell = cellsRef.current.find((c) => c.id === activeCell)
       if (cell?.type === 'markdown') togglePreview(activeCell)
-      else if (cell?.type === 'code') runCell(activeCell)
+      // A one-cell sequence, so a single run is stoppable like Run all is.
+      else if (cell?.type === 'code') void runSequence([cell])
     },
     runCellAndAdvance: () => {
       if (!activeCell) return
       const cell = cellsRef.current.find((c) => c.id === activeCell)
-      if (cell?.type === 'code') runCell(activeCell)
+      if (cell?.type === 'code') void runSequence([cell])
       else if (cell?.type === 'markdown') togglePreview(activeCell)
       advanceCell()
     },
     runAll,
     runAbove,
+    stopRun,
+    isRunning,
     renderPreview: handleRenderPreview,
     renderHtml: handleRenderHtml,
     renderPdf: handleRenderPdf,
@@ -944,7 +1061,7 @@ ${bodyParts.join('\n')}
       setSourceView((v) => !v)
     },
     scrollToCell,
-  }), [activeCell, runCell, advanceCell, togglePreview, runAll, runAbove, handleRenderPreview, handleRenderHtml, handleRenderPdf, addCell, cells, hasYamlCell, isRendering, cellStates, sourceView, serializeFn, scrollToCell])
+  }), [activeCell, runSequence, advanceCell, togglePreview, runAll, runAbove, stopRun, isRunning, handleRenderPreview, handleRenderHtml, handleRenderPdf, addCell, cells, hasYamlCell, isRendering, cellStates, sourceView, serializeFn, scrollToCell])
 
   // Source view: when user edits the raw text, debounce re-parsing into cells
   const sourceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1005,7 +1122,7 @@ ${bodyParts.join('\n')}
                 dropTargetIdx={dropTargetIdx}
                 onFocus={() => setActiveCell(cell.id)}
                 onContentChange={(v) => updateCellContent(cell.id, v)}
-                onRun={() => runCell(cell.id)}
+                onRun={() => void runSequence([cell])}
                 onAdvance={advanceCell}
                 onRemove={() => removeCell(cell.id)}
                 onMoveUp={() => moveCell(cell.id, 'up')}
@@ -1663,7 +1780,7 @@ function RmdCellBlock({
                 className="px-3 py-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
               />
             ) : (
-              <p className="px-3 py-2 text-muted-foreground/50 italic">Empty markdown cell</p>
+              <p className="px-3 py-2 text-xs text-muted-foreground/50 italic">{t('files.empty_markdown_cell')}</p>
             )}
           </div>
         ) : (

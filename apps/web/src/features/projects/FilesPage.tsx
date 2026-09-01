@@ -40,6 +40,7 @@ import {
   ListEnd,
   FileCode2,
   Database,
+  Square,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DialogShell } from '@/components/ui/dialog-shell'
@@ -111,6 +112,7 @@ import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useShortcutStore } from '@/stores/shortcut-store'
 import { comboToString } from '@/lib/format-shortcut'
+import { widenToBlock, nextRunnableLine, firstRunnableLine, bracketProbeColumn, opensBlockAtEol, type RunSpan } from '@/lib/editor-run-block'
 import type { ShortcutActionId } from '@/types/shortcuts'
 
 const LazyRmdNotebook = lazy(() => import('./files/RmdNotebook').then(m => ({ default: m.RmdNotebook })))
@@ -359,6 +361,19 @@ export function FilesPage() {
     setOutlineCells([])
     setOutlineCellStates(new Map())
   }, [selectedFileId])
+
+  // Whether the SELECTED notebook is running — drives Run ⇄ Stop in the toolbar.
+  // Pushed for the same reason as the outline: the toolbar reads the notebook
+  // through a ref, so nothing would re-render it when a run starts or ends.
+  const [notebookRunning, setNotebookRunning] = useState(false)
+  const handleNotebookRunningChange = useCallback((fid: string, running: boolean) => {
+    if (fid !== selectedFileIdRef.current) return
+    setNotebookRunning(running)
+  }, [])
+
+  // A background notebook may still be running, but the toolbar describes the
+  // selected one — reset until it pushes its own state.
+  useEffect(() => { setNotebookRunning(false) }, [selectedFileId])
 
   // When a dataset file is selected, redirect it to an output tab (the dataset
   // viewer) instead of a file tab showing raw JSON. Matches both the legacy
@@ -703,12 +718,11 @@ export function FilesPage() {
           const duration = Date.now() - start
           updateExecutionResult(execId, {
             duration,
-            // A real failure arrives as an `error` message and throws to the catch
-            // below; reaching here means the code ran. Writing to stderr is not a
-            // failure — R sends warnings and messages there — so it colours the
-            // result amber rather than marking the run failed.
-            success: true,
-            warned: sawStderr || !!result.stderr,
+            // Red vs amber comes from the kernel's own verdict, not from stderr:
+            // R writes warnings, messages AND errors there, so stderr alone cannot
+            // tell "it ran but warned" (amber) from "it raised" (red).
+            success: !result.failed,
+            warned: !result.failed && (sawStderr || !!result.stderr),
             output: warning + (streamed || `Executed in ${duration}ms`),
             installOffer,
           })
@@ -721,11 +735,16 @@ export function FilesPage() {
           : await executeR(code, activeConnectionId, controller.signal)
 
         const duration = Date.now() - start
-        const success = !result.stderr
+        const failed = result.failed === true
         updateExecutionResult(execId, {
           duration,
-          success,
-          output: success ? result.stdout || `Executed in ${duration}ms` : result.stderr,
+          success: !failed,
+          // Warnings reach stderr without failing the run, so show them next to the
+          // output rather than instead of it.
+          warned: !failed && !!result.stderr,
+          output: failed
+            ? result.stderr
+            : [result.stdout, result.stderr].filter(Boolean).join('\n') || `Executed in ${duration}ms`,
         })
         addFiguresAndTable(result)
       } catch (err) {
@@ -851,17 +870,128 @@ export function FilesPage() {
     }
   }, [selectedNode, runCode])
 
-  const handleRunLine = useCallback(() => {
+  /**
+   * The block under the cursor, via Monaco's own "expand selection".
+   *
+   * Expanding repeatedly walks outward (word → call → block → … → whole file),
+   * so we collect the steps and let widenToBlock pick the innermost multi-line
+   * one. Its bracket provider starts a `xxx {` range at the line's first
+   * non-whitespace character, so `f <- function() {` comes along with its body.
+   *
+   * We stop at the first multi-line range that is NOT the whole document: the
+   * word provider always contributes the full model range, so breaking on any
+   * multi-line range would accept "the entire script" on a line that has no
+   * enclosing bracket.
+   *
+   * The editor's selection is restored before returning: this is a query, and
+   * running a line must not leave the user's block highlighted.
+   */
+  const blockSpanAtCursor = useCallback(async (cursorLine: number, cursorColumn: number): Promise<RunSpan> => {
+    const editor = editorRef.current
+    if (!editor) return { startLine: cursorLine, endLine: cursorLine }
+    const model = editor.getModel()
+    const original = editor.getSelection()
+    const expand = editor.getAction('editor.action.smartSelect.expand')
+    if (!expand || !original || !model) return { startLine: cursorLine, endLine: cursorLine }
+    const lineCount = model.getLineCount()
+
+    // A line that ENDS by opening a block is not itself inside that block, and
+    // Monaco only reports a pair whose closer is unmatched from the probe — so
+    // probe one line down, from within the block.
+    const opensBlock = opensBlockAtEol(model.getLineContent(cursorLine))
+    const probeLine = opensBlock && cursorLine < lineCount ? cursorLine + 1 : cursorLine
+
+    const candidates: RunSpan[] = []
+    try {
+      // Probe from ON the line's last non-blank character, never past it: the
+      // bracket provider scans rightwards first, so a caret sitting after a
+      // closing `}` finds no bracket and reports no block.
+      const probeText = model.getLineContent(probeLine)
+      const probeColumn = probeLine === cursorLine
+        ? bracketProbeColumn(probeText, cursorColumn)
+        : bracketProbeColumn(probeText, model.getLineMaxColumn(probeLine))
+      editor.setSelection({
+        startLineNumber: probeLine, startColumn: probeColumn,
+        endLineNumber: probeLine, endColumn: probeColumn,
+      })
+      // Bounded: expansion terminates at the whole document, and a handful of
+      // steps is enough to leave the current line in any real code.
+      for (let step = 0; step < 8; step++) {
+        // Genuinely async — the providers are awaited and the bracket one yields
+        // to the event loop, so the selection is NOT updated until this resolves.
+        await expand.run()
+        const next = editor.getSelection()
+        if (!next) break
+        const span = { startLine: next.startLineNumber, endLine: next.endLineNumber }
+        candidates.push(span)
+        const wholeDocument = span.startLine <= 1 && span.endLine >= lineCount
+        if (wholeDocument) break
+        if (span.endLine > span.startLine) break
+      }
+    } finally {
+      editor.setSelection(original)
+    }
+    // Match candidates against the line we probed from — when that was the line
+    // below (a block-opening line), the block found starts at cursorLine anyway,
+    // so the span still covers the caret.
+    const span = widenToBlock(probeLine, candidates, lineCount)
+    return span.startLine <= cursorLine && span.endLine >= cursorLine
+      ? span
+      : { startLine: cursorLine, endLine: cursorLine }
+  }, [])
+
+  const handleRunLine = useCallback(async () => {
     if (!editorRef.current || !selectedNode) return
     const position = editorRef.current.getPosition()
     if (!position) return
     const model = editorRef.current.getModel()
     if (!model) return
-    const lineContent = model.getLineContent(position.lineNumber)
-    if (lineContent.trim()) {
-      runCode(lineContent, `${selectedNode.name}:${position.lineNumber}`)
+
+    // A comment is not a statement: run the next real line instead of sending
+    // `# ...` to the interpreter. If that line opens a block, widening below
+    // picks up the whole block from there.
+    const startLine = firstRunnableLine(
+      position.lineNumber,
+      model.getLineCount(),
+      (line) => model.getLineContent(line),
+      selectedLanguage,
+    )
+    if (startLine === null) return
+    // Only keep the caret's column when we are still on its own line; after
+    // skipping down to a later line that column is meaningless.
+    const startColumn = startLine === position.lineNumber
+      ? position.column
+      : model.getLineMaxColumn(startLine)
+
+    // A cursor inside a multi-line block runs the WHOLE block: the single line
+    // under it (`  warning("...")`, or a bare `}`) is rarely valid on its own.
+    const span = await blockSpanAtCursor(startLine, startColumn)
+    const code = model.getValueInRange({
+      startLineNumber: span.startLine,
+      startColumn: 1,
+      endLineNumber: span.endLine,
+      endColumn: model.getLineMaxColumn(span.endLine),
+    })
+    if (!code.trim()) return
+
+    const label = span.startLine === span.endLine
+      ? `${selectedNode.name}:${span.startLine}`
+      : `${selectedNode.name}:${span.startLine}-${span.endLine}`
+    runCode(code, label)
+
+    // Advance past what just ran, so repeated presses walk down the file
+    // (RStudio's behaviour). Nothing below → leave the cursor where it is.
+    const nextLine = nextRunnableLine(
+      span.endLine,
+      model.getLineCount(),
+      (line) => model.getLineContent(line),
+      selectedLanguage,
+    )
+    if (nextLine !== null) {
+      editorRef.current.setPosition({ lineNumber: nextLine, column: 1 })
+      editorRef.current.revealLineInCenterIfOutsideViewport(nextLine)
     }
-  }, [selectedNode, runCode])
+  }, [selectedNode, runCode, blockSpanAtCursor, selectedLanguage])
 
   // Cmd+Enter: run selection if any, otherwise run current line (RStudio convention)
   const handleRunSelectionOrLine = useCallback(() => {
@@ -875,8 +1005,8 @@ export function FilesPage() {
         return
       }
     }
-    // Fallback: run current line
-    handleRunLine()
+    // Fallback: run the current line (or the block around it)
+    void handleRunLine()
   }, [selectedNode, runCode, handleRunLine])
 
   // Cmd+S: force flush debounced content save
@@ -1168,7 +1298,7 @@ export function FilesPage() {
                     <RunButton
                       onRunFile={handleRunFile}
                       onRunSelection={handleRunSelection}
-                      onRunLine={handleRunLine}
+                      onRunLine={() => void handleRunLine()}
                       onStop={handleStop}
                       onRunFileAsJob={handleRunFileAsJob}
                       isSql={isSql}
@@ -1217,8 +1347,21 @@ export function FilesPage() {
                   <>
                     <div className="mx-1 h-4 w-px bg-border" />
                     <div className="flex items-center gap-1.5">
-                      {/* Run cell and advance + dropdown */}
+                      {/* Run cell and advance + dropdown — becomes Stop while a
+                          cell or a Run all is in flight, like the script toolbar. */}
                       <div className="flex">
+                        {notebookRunning ? (
+                          <Button
+                            size="xs"
+                            variant="destructive"
+                            className="gap-1"
+                            onClick={() => notebookRef.current?.stopRun()}
+                          >
+                            <Square size={12} />
+                            {t('files.stop')}
+                          </Button>
+                        ) : (
+                          <>
                         <Button
                           size="xs"
                           className="gap-1 rounded-r-none"
@@ -1260,6 +1403,8 @@ export function FilesPage() {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
+                          </>
+                        )}
                       </div>
 
                       {/* Same picker as the script toolbar: a notebook's cells
@@ -1489,20 +1634,6 @@ export function FilesPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={outputVisible ? 'secondary' : 'ghost'}
-                        size="icon-xs"
-                        onClick={() => setOutputVisible(!outputVisible)}
-                        disabled={!hasOutput}
-                      >
-                        {outputVisible ? <Eye size={14} /> : <EyeOff size={14} />}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('files.toggle_output')}</TooltipContent>
-                  </Tooltip>
-
                   {isNotebook && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1521,6 +1652,20 @@ export function FilesPage() {
                       <TooltipContent>{t('files.toggle_outline')}</TooltipContent>
                     </Tooltip>
                   )}
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={outputVisible ? 'secondary' : 'ghost'}
+                        size="icon-xs"
+                        onClick={() => setOutputVisible(!outputVisible)}
+                        disabled={!hasOutput}
+                      >
+                        {outputVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('files.toggle_output')}</TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
 
@@ -1942,6 +2087,9 @@ export function FilesPage() {
                                     onOutlineChange={(cells, states) =>
                                       handleOutlineChange(fid, cells, states)
                                     }
+                                    onRunningChange={(running) =>
+                                      handleNotebookRunningChange(fid, running)
+                                    }
                                   />
                                 ) : (
                                   <LazyRmdNotebook
@@ -1964,6 +2112,9 @@ export function FilesPage() {
                                     activeConnectionId={activeConnectionId}
                                     onOutlineChange={(cells, states) =>
                                       handleOutlineChange(fid, cells, states)
+                                    }
+                                    onRunningChange={(running) =>
+                                      handleNotebookRunningChange(fid, running)
                                     }
                                   />
                                 )}
