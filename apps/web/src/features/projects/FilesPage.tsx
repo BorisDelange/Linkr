@@ -65,7 +65,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
-import { CodeEditor } from '@/components/editor/CodeEditor'
+import { CodeEditor, type PendingEdits } from '@/components/editor/CodeEditor'
 import { useFileStore } from '@/stores/file-store'
 import { useAppStore } from '@/stores/app-store'
 import { useConnectionStore } from '@/stores/connection-store'
@@ -280,6 +280,9 @@ export function FilesPage() {
   // so a stale cross-project id was left in place.
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+  // Typing is debounced in CodeEditor, so the toolbar's Save/Run must settle the
+  // buffer before reading the file's content from the store.
+  const pendingEditsRef = useRef<PendingEdits | null>(null)
   // Keep-alive: one ref per open notebook file, so switching tabs doesn't destroy state.
   const notebookRefsMap = useRef<Map<string, RmdNotebookHandle | IpynbNotebookHandle>>(new Map())
   // Convenience accessor for the active notebook (used by toolbar buttons).
@@ -700,7 +703,12 @@ export function FilesPage() {
           const duration = Date.now() - start
           updateExecutionResult(execId, {
             duration,
-            success: !sawStderr && !result.stderr,
+            // A real failure arrives as an `error` message and throws to the catch
+            // below; reaching here means the code ran. Writing to stderr is not a
+            // failure — R sends warnings and messages there — so it colours the
+            // result amber rather than marking the run failed.
+            success: true,
+            warned: sawStderr || !!result.stderr,
             output: warning + (streamed || `Executed in ${duration}ms`),
             installOffer,
           })
@@ -790,8 +798,12 @@ export function FilesPage() {
   )
 
   const handleRunFile = useCallback(() => {
-    if (!selectedNode?.content) return
-    runCode(selectedNode.content, selectedNode.name)
+    // Reads the content from the store, so the debounced keystrokes have to land
+    // first — otherwise this runs the file as it was up to 400ms ago.
+    pendingEditsRef.current?.flush()
+    const content = useFileStore.getState().files.find((f) => f.id === selectedNode?.id)?.content
+    if (!selectedNode || !content) return
+    runCode(content, selectedNode.name)
   }, [selectedNode, runCode])
 
   // Run the whole file as a background job (batch, fresh process). Server-only;
@@ -799,7 +811,10 @@ export function FilesPage() {
   // panel takes over from here (progress, output, cancel, figures/table). A pending
   // result card confirms it started and points to the jobs panel.
   const handleRunFileAsJob = useCallback(() => {
-    if (!selectedNode?.content) return
+    // See handleRunFile: the content comes from the store, so settle the buffer.
+    pendingEditsRef.current?.flush()
+    const content = useFileStore.getState().files.find((f) => f.id === selectedNode?.id)?.content
+    if (!selectedNode || !content) return
     if (selectedLanguage !== 'python' && selectedLanguage !== 'r') return
     const execId = `run-job-${Date.now()}`
     addExecutionResult({
@@ -810,10 +825,10 @@ export function FilesPage() {
       duration: 0,
       success: true,
       output: t('files.run_as_job_started', { label: selectedNode.name }),
-      code: selectedNode.content,
+      code: content,
     })
     setOutputVisible(true)
-    void runFileAsJob(selectedLanguage, selectedNode.content, {
+    void runFileAsJob(selectedLanguage, content, {
       projectUid: activeProjectUid ?? undefined,
       label: selectedNode.name,
     }).catch((e) =>
@@ -867,6 +882,9 @@ export function FilesPage() {
   // Cmd+S: force flush debounced content save
   const handleSaveFile = useCallback(() => {
     if (!selectedNode || isVirtualFile) return
+    // saveFile reads the content from the store; without this the last keystrokes
+    // of a debounce window would be written to disk as the previous text.
+    pendingEditsRef.current?.flush()
     saveFile(selectedNode.id)
     // If this is a CSV/TSV file opened in editor mode, refresh its output tab
     const ext = selectedNode.name.split('.').pop()?.toLowerCase()
@@ -906,6 +924,9 @@ export function FilesPage() {
 
   const handleDiscardAndClose = useCallback(() => {
     if (!closeConfirmFileId) return
+    // Drop the editor's pending keystrokes BEFORE reverting: its unmount flush
+    // would otherwise write them back and re-dirty the file we just discarded.
+    pendingEditsRef.current?.discard()
     revertFile(closeConfirmFileId)
     closeFile(closeConfirmFileId)
     setCloseConfirmFileId(null)
@@ -1962,6 +1983,7 @@ export function FilesPage() {
                             }
                             readOnly={isVirtualFile}
                             editorRef={editorRef}
+                            pendingEditsRef={pendingEditsRef}
                             onSave={handleSaveFile}
                             onRunSelectionOrLine={isVirtualFile ? undefined : handleRunSelectionOrLine}
                             onRunFile={isVirtualFile ? undefined : handleRunFile}

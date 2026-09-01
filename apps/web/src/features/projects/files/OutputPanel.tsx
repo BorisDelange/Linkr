@@ -381,10 +381,15 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
         className={cn(
           'rounded-md border',
           collapsed ? 'p-1.5' : 'p-3',
-          result.success
-            // An interrupted run is !success, so it shares the red styling.
-            ? 'border-green-500/30 bg-green-500/5'
-            : 'border-red-500/30 bg-red-500/5'
+          // Red is for a run that did NOT produce its result (an error, or a Stop,
+          // which is !success). A run that only wrote to stderr DID run — in R that
+          // is where warnings and messages go — so it gets amber, not the same
+          // signal as a failure.
+          !result.success
+            ? 'border-red-500/30 bg-red-500/5'
+            : result.warned
+              ? 'border-amber-500/30 bg-amber-500/5'
+              : 'border-green-500/30 bg-green-500/5'
         )}
       >
         <div className={cn('flex items-center justify-between', collapsed ? 'mb-0' : 'mb-1.5')}>
