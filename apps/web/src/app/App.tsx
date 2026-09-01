@@ -17,6 +17,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { StatusBar } from '@/components/layout/StatusBar'
+import { EnvironmentsDialogHost } from '@/features/projects/files/EnvironmentsDialog'
 import { WorkspaceGuard } from '@/app/WorkspaceGuard'
 import { ProjectGuard } from '@/app/ProjectGuard'
 import { VersionCheckDialog } from '@/components/layout/VersionCheckDialog'
@@ -249,6 +250,7 @@ export function App() {
           </Suspense>
         </main>
         <StatusBar />
+        <EnvironmentsDialogHost />
       </SidebarInset>
     </SidebarProvider>
   )

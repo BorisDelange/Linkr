@@ -27,6 +27,7 @@ interface IpynbNotebookProps {
   fileName?: string
   initialCellStates?: CellState[]
   onCellStatesChange?: (states: CellState[]) => void
+  onOutlineChange?: (cells: RmdCell[], states: Map<string, CellState>) => void
 }
 
 export interface IpynbNotebookHandle extends RmdNotebookHandle {
@@ -34,7 +35,7 @@ export interface IpynbNotebookHandle extends RmdNotebookHandle {
 }
 
 export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>(
-  function IpynbNotebook({ content, onChange, readOnly, onSave, onRenderOutput, activeConnectionId, fileName, initialCellStates, onCellStatesChange }, ref) {
+  function IpynbNotebook({ content, onChange, readOnly, onSave, onRenderOutput, activeConnectionId, fileName, initialCellStates, onCellStatesChange, onOutlineChange }, ref) {
     const rmdRef = useRef<RmdNotebookHandle>(null)
     const metadataRef = useRef<IpynbNotebookType['metadata']>({})
 
@@ -116,6 +117,7 @@ export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>
         notebookFormat="ipynb"
         initialCellStates={initialCellStates}
         onCellStatesChange={onCellStatesChange}
+        onOutlineChange={onOutlineChange}
       />
     )
   },

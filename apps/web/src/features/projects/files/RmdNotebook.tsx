@@ -173,6 +173,9 @@ interface RmdNotebookProps {
   initialCellStates?: CellState[]
   /** Called when cellStates change, so the parent can cache them (positional array). */
   onCellStatesChange?: (states: CellState[]) => void
+  /** Called when the cells or their states change, so the parent's outline sidebar
+   *  can render from a push instead of polling the imperative handle. */
+  onOutlineChange?: (cells: RmdCell[], states: Map<string, CellState>) => void
 }
 
 /** Imperative handle exposed to the parent for toolbar actions */
@@ -213,6 +216,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   notebookFormat = 'rmd',
   initialCellStates,
   onCellStatesChange,
+  onOutlineChange,
 }, ref) {
   const { t } = useTranslation()
   const darkMode = useAppStore((s) => s.darkMode)
@@ -249,6 +253,15 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
     const positional = cellsRef.current.map((c) => cellStates.get(c.id) ?? { status: 'idle' as const, output: null })
     onCellStatesChangeRef.current(positional)
   }, [cellStates])
+
+  // Push cells + states to the parent's outline sidebar. A push, not a poll: the
+  // sidebar used to re-read the imperative handle twice a second, which re-rendered
+  // the whole IDE page on every tick.
+  const onOutlineChangeRef = useRef(onOutlineChange)
+  onOutlineChangeRef.current = onOutlineChange
+  useEffect(() => {
+    onOutlineChangeRef.current?.(cells, cellStates)
+  }, [cells, cellStates])
 
   const [previewCells, setPreviewCells] = useState<Set<string>>(new Set())
   const [activeCell, setActiveCell] = useState<string | null>(null)

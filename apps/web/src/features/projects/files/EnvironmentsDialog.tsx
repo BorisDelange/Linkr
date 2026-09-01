@@ -59,6 +59,18 @@ interface EnvironmentsDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
+/**
+ * The Environments modal, wired to its own store slice. Mounted once at the app
+ * level rather than inside StatusBar: the footer re-renders on every kernels/jobs
+ * poll (3-4s), and the dialog mounted there re-rendered its package tables with it.
+ * Subscribing here keeps those re-renders inside this subtree.
+ */
+export function EnvironmentsDialogHost() {
+  const open = useEnvironmentsUiStore((s) => s.open)
+  const setOpen = useEnvironmentsUiStore((s) => s.setOpen)
+  return <EnvironmentsDialog open={open} onOpenChange={setOpen} />
+}
+
 function getPackageUrl(lang: 'python' | 'r', name: string): string {
   return lang === 'python'
     ? `https://pypi.org/project/${encodeURIComponent(name)}`
@@ -445,11 +457,18 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
               <TabsTrigger value="python" className="flex-1">Python</TabsTrigger>
               <TabsTrigger value="r" className="flex-1">R</TabsTrigger>
             </TabsList>
+            {/* Only the visible tab is mounted: the hidden one was still loading its
+                packages, options and cached updates (4 requests) and re-rendering its
+                table on every parent render, for a panel nobody was looking at. */}
             <TabsContent value="python" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-              <ServerEnvironmentsPanel language="python" reloadKey={open} pending={pending} />
+              {serverTab === 'python' && (
+                <ServerEnvironmentsPanel language="python" reloadKey={open} pending={pending} />
+              )}
             </TabsContent>
             <TabsContent value="r" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-              <ServerEnvironmentsPanel language="r" reloadKey={open} pending={pending} />
+              {serverTab === 'r' && (
+                <ServerEnvironmentsPanel language="r" reloadKey={open} pending={pending} />
+              )}
             </TabsContent>
           </Tabs>
         ) : (

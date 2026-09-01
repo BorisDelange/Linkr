@@ -14,6 +14,24 @@ import { listJobs, cancelJob, clearJobs, type Job } from '@/lib/api/environments
 
 const ACTIVE = new Set(['queued', 'running'])
 
+/** True when the poll returned nothing this indicator would draw differently. The
+ *  common case by far is "no jobs at all", where re-rendering the footer every 3s
+ *  also re-rendered every dialog mounted in it (the environments manager). While a
+ *  job IS running, progress/logTail move and the compare correctly reports a change. */
+function sameJobs(a: Job[], b: Job[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((j, i) => {
+    const o = b[i]
+    return (
+      j.id === o.id &&
+      j.status === o.status &&
+      j.progress === o.progress &&
+      j.label === o.label &&
+      j.logTail === o.logTail
+    )
+  })
+}
+
 /**
  * Footer jobs indicator (server mode): shows active long jobs (env builds today,
  * long runs later) with a popover to view status/log and cancel. Polls while a
@@ -35,7 +53,9 @@ export function JobsIndicator() {
     let cancelled = false
     const tick = () => {
       listJobs(projectUid)
-        .then((j) => { if (!cancelled) setJobs(j) })
+        .then((j) => {
+          if (!cancelled) setJobs((prev) => (sameJobs(prev, j) ? prev : j))
+        })
         .catch(() => {})
     }
     tick()

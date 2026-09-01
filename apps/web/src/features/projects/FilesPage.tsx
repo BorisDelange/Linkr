@@ -120,47 +120,60 @@ import type { IpynbNotebookHandle } from './files/IpynbNotebook'
 
 export function FilesPage() {
   const { t } = useTranslation()
-  const {
-    selectedFileId,
-    openFileIds,
-    updateFileContent,
-    selectFile,
-    closeFile,
-    reorderOpenFiles,
-    outputTabs,
-    outputTabOrder,
-    activeOutputTab,
-    executionResults,
-    addExecutionResult,
-    updateExecutionResult,
-    addOutputTab,
-    setActiveOutputTab,
-    closeOutputTab,
-    reorderAllOutputTabs,
-    clearExecutionResults,
-    outputVisible,
-    setOutputVisible,
-    terminalTabs,
-    openTerminalTab,
-    closeTerminalTab,
-    selectTerminalTab,
-    loadProjectFiles,
-    reloadFromDisk,
-    isFileDirty,
-    saveFile,
-    revertFile,
-    _dirtyVersion,
-    editorModeFileIds,
-  } = useFileStore()
-  const { activeProjectUid } = useAppStore()
+  // Atomic selectors, NOT `useFileStore()`. Subscribing to the whole store re-rendered
+  // this 2000-line page on every mutation of any field — including `files`, which is
+  // rebuilt on every keystroke, which in turn re-ran the Monaco decoration effects
+  // below over the entire file. Actions are stable references, so selecting them one
+  // by one costs nothing.
+  const selectedFileId = useFileStore((s) => s.selectedFileId)
+  const openFileIds = useFileStore((s) => s.openFileIds)
+  const outputTabs = useFileStore((s) => s.outputTabs)
+  const outputTabOrder = useFileStore((s) => s.outputTabOrder)
+  const activeOutputTab = useFileStore((s) => s.activeOutputTab)
+  const executionResults = useFileStore((s) => s.executionResults)
+  const outputVisible = useFileStore((s) => s.outputVisible)
+  const terminalTabs = useFileStore((s) => s.terminalTabs)
+  const editorModeFileIds = useFileStore((s) => s.editorModeFileIds)
+  const _dirtyVersion = useFileStore((s) => s._dirtyVersion)
+
+  const updateFileContent = useFileStore((s) => s.updateFileContent)
+  const selectFile = useFileStore((s) => s.selectFile)
+  const closeFile = useFileStore((s) => s.closeFile)
+  const reorderOpenFiles = useFileStore((s) => s.reorderOpenFiles)
+  const addExecutionResult = useFileStore((s) => s.addExecutionResult)
+  const updateExecutionResult = useFileStore((s) => s.updateExecutionResult)
+  const addOutputTab = useFileStore((s) => s.addOutputTab)
+  const setActiveOutputTab = useFileStore((s) => s.setActiveOutputTab)
+  const closeOutputTab = useFileStore((s) => s.closeOutputTab)
+  const reorderAllOutputTabs = useFileStore((s) => s.reorderAllOutputTabs)
+  const clearExecutionResults = useFileStore((s) => s.clearExecutionResults)
+  const setOutputVisible = useFileStore((s) => s.setOutputVisible)
+  const openTerminalTab = useFileStore((s) => s.openTerminalTab)
+  const closeTerminalTab = useFileStore((s) => s.closeTerminalTab)
+  const selectTerminalTab = useFileStore((s) => s.selectTerminalTab)
+  const loadProjectFiles = useFileStore((s) => s.loadProjectFiles)
+  const reloadFromDisk = useFileStore((s) => s.reloadFromDisk)
+  const isFileDirty = useFileStore((s) => s.isFileDirty)
+  const saveFile = useFileStore((s) => s.saveFile)
+  const revertFile = useFileStore((s) => s.revertFile)
+  const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   const canWriteIde = useMyProjectRole(activeProjectUid ?? undefined).can('ide:write')
-  const { activeConnectionId, loadProjectConnections, getProjectConnections, setActiveConnection } = useConnectionStore()
-  const { isExecuting, startExecution, stopExecution, finishExecution } = useRuntimeStore()
+  const activeConnectionId = useConnectionStore((s) => s.activeConnectionId)
+  const loadProjectConnections = useConnectionStore((s) => s.loadProjectConnections)
+  const getProjectConnections = useConnectionStore((s) => s.getProjectConnections)
+  const setActiveConnection = useConnectionStore((s) => s.setActiveConnection)
+  const isExecuting = useRuntimeStore((s) => s.isExecuting)
+  const startExecution = useRuntimeStore((s) => s.startExecution)
+  const stopExecution = useRuntimeStore((s) => s.stopExecution)
+  const finishExecution = useRuntimeStore((s) => s.finishExecution)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
   const dataSourcesLoaded = useDataSourceStore((s) => s.dataSourcesLoaded)
   const loadCohorts = useCohortStore((s) => s.loadCohorts)
   const loadPipelines = usePipelineStore((s) => s.loadPipelines)
-  const { loadProjectDatasets, loadFileData, getFileRows, files: datasetFiles, _dirtyVersion: _datasetDirtyVersion } = useDatasetStore()
+  const loadProjectDatasets = useDatasetStore((s) => s.loadProjectDatasets)
+  const loadFileData = useDatasetStore((s) => s.loadFileData)
+  const getFileRows = useDatasetStore((s) => s.getFileRows)
+  const datasetFiles = useDatasetStore((s) => s.files)
   const { nodes } = useProjectTree(activeProjectUid)
   const idePath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.idePath)
   const resolvedDirs = useResolvedDirs(activeProjectUid, idePath ?? '')
@@ -288,6 +301,12 @@ export function FilesPage() {
   }, [])
 
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
+  // Scalar views of the selected file. Effects key on THESE, never on `nodes` or
+  // `selectedNode` — both get a new identity on every keystroke in any file, which
+  // re-ran the CSV parsing/decoration effects over the whole document each time.
+  // Non-null exactly when a file (not a folder) is selected.
+  const selectedName = selectedNode?.type === 'file' ? selectedNode.name : null
+  const selectedContent = selectedNode?.type === 'file' ? selectedNode.content ?? '' : null
   const activeTerminalTab = terminalTabs.find((t) => t.id === selectedFileId)
   // Sessions are language-scoped: resolve the active session for the language
   // of what's in focus. A script uses its own language; an R/Python terminal
@@ -314,22 +333,29 @@ export function FilesPage() {
     () => localStorage.getItem('linkr-notebook-outline') !== 'false'
   )
 
-  // Outline: poll notebook cells for the sidebar
+  // Outline: the notebook PUSHES its cells + states (see RmdNotebook's
+  // onOutlineChange). Polling the imperative handle twice a second re-rendered this
+  // whole page on every tick, whether or not anything had changed.
   const [outlineCells, setOutlineCells] = useState<RmdCell[]>([])
   const [outlineCellStates, setOutlineCellStates] = useState<Map<string, CellState>>(new Map())
 
+  // Every open notebook stays mounted (hidden tabs), so each one pushes; only the
+  // selected file's push may reach the sidebar, which shows one outline.
+  const handleOutlineChange = useCallback(
+    (fid: string, cells: RmdCell[], states: Map<string, CellState>) => {
+      if (fid !== selectedFileIdRef.current) return
+      setOutlineCells(cells)
+      setOutlineCellStates(states)
+    },
+    [],
+  )
+
+  // Switching tabs shows a different notebook: clear until that one pushes, so the
+  // sidebar never shows the previous file's outline.
   useEffect(() => {
-    if (!outlineVisible || !isNotebook) return
-    const update = () => {
-      const ref = notebookRef.current
-      if (!ref) return
-      setOutlineCells(ref.getCells())
-      setOutlineCellStates(ref.getCellStates())
-    }
-    update()
-    const id = setInterval(update, 500)
-    return () => clearInterval(id)
-  }, [outlineVisible, isNotebook])
+    setOutlineCells([])
+    setOutlineCellStates(new Map())
+  }, [selectedFileId])
 
   // When a dataset file is selected, redirect it to an output tab (the dataset
   // viewer) instead of a file tab showing raw JSON. Matches both the legacy
@@ -339,8 +365,10 @@ export function FilesPage() {
     const isBridgeId = selectedFileId?.startsWith('ds-bridge:')
     const isDsNodeId = selectedFileId?.startsWith(DS_NODE_PREFIX)
     if (!isBridgeId && !isDsNodeId) return
-    const node = nodes.find((n) => n.id === selectedFileId)
-    if (!node || node.type !== 'file') return
+    // `selectedName` is non-null exactly when the selected node is a file — deriving
+    // the guard from it keeps this effect off `nodes`, whose identity churns on
+    // every keystroke.
+    if (selectedName === null) return
 
     const dsFileId = isBridgeId
       ? selectedFileId!.replace('ds-bridge:', '')
@@ -373,18 +401,17 @@ export function FilesPage() {
     } else {
       loadFileData(dsFileId).then(() => open(toTable(getFileRows(dsFileId))))
     }
-  }, [selectedFileId, nodes, datasetFiles, closeFile, loadFileData, getFileRows, addOutputTab, setOutputVisible, setEditorVisible])
+  }, [selectedFileId, selectedName, datasetFiles, closeFile, loadFileData, getFileRows, addOutputTab, setOutputVisible, setEditorVisible])
 
   // When a CSV/TSV IDE file is selected, open it as a table in the output panel
   // (skip if the file was explicitly opened in editor mode via context menu)
   useEffect(() => {
     if (!selectedFileId || selectedFileId.startsWith('ds-bridge:') || selectedFileId.startsWith('virtual:')) return
     if (editorModeFileIds.has(selectedFileId)) return
-    const node = nodes.find((n) => n.id === selectedFileId)
-    if (!node || node.type !== 'file') return
-    const ext = node.name.split('.').pop()?.toLowerCase()
+    if (selectedName === null || selectedContent === null) return
+    const ext = selectedName.split('.').pop()?.toLowerCase()
     if (ext !== 'csv' && ext !== 'tsv') return
-    const content = node.content ?? ''
+    const content = selectedContent
     if (!content.trim()) return
 
     const delimiter = ext === 'tsv' ? '\t' : ','
@@ -397,12 +424,12 @@ export function FilesPage() {
 
     addOutputTab({
       id: `csv-preview:${selectedFileId}`,
-      label: node.name,
+      label: selectedName,
       type: 'table',
       content: { headers, rows: tableRows },
     })
     setOutputVisible(true)
-  }, [selectedFileId, nodes, addOutputTab, setOutputVisible, editorModeFileIds])
+  }, [selectedFileId, selectedName, selectedContent, addOutputTab, setOutputVisible, editorModeFileIds])
 
   // Show editor pane when a file in editor mode is selected (e.g. CSV edit)
   useEffect(() => {
@@ -442,7 +469,7 @@ export function FilesPage() {
     }
   }, [selectedNode, activeTerminalTab, hasOutput, editorVisible, openFileIds, selectFile, setOutputVisible])
 
-  // CSV column colorization in Monaco — apply inline decorations per column
+  // CSV column colorization in Monaco — apply inline decorations per column.
   const csvDecorationsRef = useRef<string[]>([])
   useEffect(() => {
     const editor = editorRef.current
@@ -450,16 +477,15 @@ export function FilesPage() {
       csvDecorationsRef.current = []
       return
     }
-    const node = nodes.find((n) => n.id === selectedFileId)
-    if (!node || node.type !== 'file') return
-    const ext = node.name.split('.').pop()?.toLowerCase()
+    if (selectedName === null || selectedContent === null) return
+    const ext = selectedName.split('.').pop()?.toLowerCase()
     if (ext !== 'csv' && ext !== 'tsv') {
       if (csvDecorationsRef.current.length > 0) {
         csvDecorationsRef.current = editor.deltaDecorations(csvDecorationsRef.current, [])
       }
       return
     }
-    const content = node.content ?? ''
+    const content = selectedContent
     if (!content.trim()) return
 
     const delimiter = ext === 'tsv' ? '\t' : ','
@@ -501,7 +527,7 @@ export function FilesPage() {
       }
     }
     csvDecorationsRef.current = editor.deltaDecorations(csvDecorationsRef.current, decorations)
-  }, [selectedFileId, nodes])
+  }, [selectedFileId, selectedName, selectedContent])
 
   // Inject CSV column color CSS once
   useEffect(() => {
@@ -1864,6 +1890,9 @@ export function FilesPage() {
                                     }}
                                     activeConnectionId={activeConnectionId}
                                     fileName={node.name}
+                                    onOutlineChange={(cells, states) =>
+                                      handleOutlineChange(fid, cells, states)
+                                    }
                                   />
                                 ) : (
                                   <LazyRmdNotebook
@@ -1884,6 +1913,9 @@ export function FilesPage() {
                                       setOutputVisible(true)
                                     }}
                                     activeConnectionId={activeConnectionId}
+                                    onOutlineChange={(cells, states) =>
+                                      handleOutlineChange(fid, cells, states)
+                                    }
                                   />
                                 )}
                               </Suspense>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { isServerMode } from '@/lib/api-client'
 import { getPyodideStatus, onPyodideStatusChange } from '@/lib/runtimes/pyodide-engine'
 import { getWebRStatus, onWebRStatusChange } from '@/lib/runtimes/webr-engine'
 import type { RuntimeStatus } from '@/lib/runtimes/types'
@@ -84,19 +85,31 @@ export function useBrowserMetrics(intervalMs = 5000): BrowserMetrics {
   const refresh = useCallback(async () => {
     const memory = getMemoryInfo()
     const storage = await getStorageInfo()
-    setMetrics((prev) => ({
-      ...prev,
-      memory,
-      storage,
-      sessionUptime: formatUptime(Date.now() - SESSION_START),
-      runtimes: {
-        pyodide: getPyodideStatus(),
-        webR: getWebRStatus(),
-      },
-    }))
+    const sessionUptime = formatUptime(Date.now() - SESSION_START)
+    const pyodide = getPyodideStatus()
+    const webR = getWebRStatus()
+    setMetrics((prev) => {
+      const unchanged =
+        prev.memory.usedMB === memory.usedMB &&
+        prev.memory.totalMB === memory.totalMB &&
+        prev.storage?.usedMB === storage?.usedMB &&
+        prev.storage?.quotaMB === storage?.quotaMB &&
+        prev.sessionUptime === sessionUptime &&
+        prev.runtimes.pyodide === pyodide &&
+        prev.runtimes.webR === webR
+      // Same numbers → keep the object identity, so an idle tick doesn't re-render
+      // the footer and everything mounted in it.
+      return unchanged
+        ? prev
+        : { ...prev, memory, storage, sessionUptime, runtimes: { pyodide, webR } }
+    })
   }, [])
 
   useEffect(() => {
+    // Server mode computes remotely: StatusBar forces the browser figures to null and
+    // never draws them, so polling them (navigator.storage.estimate() hits the disk)
+    // was pure waste. Kernels are surfaced by useServerKernels instead.
+    if (isServerMode()) return
     refresh()
     const id = setInterval(refresh, intervalMs)
     return () => clearInterval(id)

@@ -18,7 +18,6 @@ import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { useSessionStore } from '@/stores/session-store'
 import { useEnvironmentsUiStore } from '@/stores/environments-ui-store'
 import { APP_VERSION } from '@/lib/version'
-import { EnvironmentsDialog } from '@/features/projects/files/EnvironmentsDialog'
 import { JobsIndicator } from '@/components/layout/JobsIndicator'
 import type { RuntimeStatus } from '@/lib/runtimes/types'
 
@@ -67,9 +66,9 @@ function formatMB(mb: number): string {
 export function StatusBar() {
   const { t } = useTranslation()
   const metrics = useBrowserMetrics()
-  // Modal open state lives in a store so the "install in environment" affordances
-  // (script output button, terminal toast) can open it and queue an install.
-  const environmentsOpen = useEnvironmentsUiStore((s) => s.open)
+  // Only the trigger lives here. The dialog itself is mounted next to StatusBar (see
+  // App.tsx): this footer re-renders on every kernels/jobs poll, and a dialog mounted
+  // inside it re-rendered its package tables along with it.
   const setEnvironmentsOpen = useEnvironmentsUiStore((s) => s.setOpen)
   const server = isServerMode()
   // Only treat a project as active on an actual project route — the app-store's
@@ -146,7 +145,6 @@ export function StatusBar() {
               <Box size={11} />
               <span>{t('environments.title')}</span>
             </button>
-            <EnvironmentsDialog open={environmentsOpen} onOpenChange={setEnvironmentsOpen} />
             <span className="opacity-30">|</span>
           </>
         )}
