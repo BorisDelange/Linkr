@@ -22,9 +22,11 @@ or when the process dies. In-memory only — variables are lost on server restar
 import asyncio
 import base64
 import json
+import os
 import signal
 import subprocess
 import time
+from pathlib import Path
 
 from typing import TYPE_CHECKING, Awaitable, Callable
 
@@ -33,6 +35,24 @@ from app.services.execution.runtime import RuntimeOutput, ExecutionError
 
 if TYPE_CHECKING:
     from app.models.environment import Environment
+
+
+def _client_py_source() -> Path | None:
+    """The `linkr` Python client package's source root (the directory to put on
+    PYTHONPATH), or None when it is not on disk.
+
+    Mirrors renv_provisioner.client_r_source. It is put on the path rather than
+    installed into each project venv so `import linkr` works in a project whose
+    environment was never built — the same promise the R client makes."""
+    override = os.environ.get("LINKR_CLIENT_PY_SOURCE")
+    if override:
+        path = Path(override)
+        return path if (path / "linkr" / "__init__.py").is_file() else None
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "packages" / "linkr-py" / "src"
+        if (candidate / "linkr" / "__init__.py").is_file():
+            return candidate
+    return None
 
 
 def _read_rss_kb(pid: int) -> int | None:
@@ -298,7 +318,11 @@ while True:
 #     shared kernel-infra lib] so library() resolves ONLY against the project's
 #     declared packages + the kernel infra + base R — a server-global package (plotly
 #     not in renv.lock) never leaks. Empty LINKR_R_LIB (the app interpreter) keeps the
-#     default paths untouched.
+#     default paths but still PREPENDS the kernel-infra lib, so the packages Linkr
+#     ships win over a same-named one in the site library. That is not hypothetical:
+#     LinkR v1 (the Shiny app) is itself an R package called `linkr`, so on a machine
+#     where it is installed, library(linkr) used to load v1 and every linkr_*() helper
+#     came back "could not find function".
 #   - point install.packages()/renv at the configured repo so a manual install in
 #     the R console has a CRAN mirror despite --vanilla skipping the site Rprofile.
 #   - absorb a STRAY interrupt during the idle stdin read: a Stop SIGINT races the
@@ -362,6 +386,9 @@ local({
     }
     .paths <- c(.lib, Sys.getenv("LINKR_R_KERNEL_LIB"))
     .libPaths(.paths[nzchar(.paths)])
+  } else {
+    .klib <- Sys.getenv("LINKR_R_KERNEL_LIB")
+    if (nzchar(.klib)) .libPaths(c(.klib, .libPaths()))
   }
   .repo <- Sys.getenv("LINKR_R_REPOS")
   if (nzchar(.repo)) options(repos = c(CRAN = .repo))
@@ -855,7 +882,7 @@ class KernelManager:
         # shells out to Rscript (~9s on a cold cache, ~0.3s warm). Doing it inside
         # _make — which runs under self._lock — froze the whole event loop and queued
         # every other user's kernel op behind it.
-        await self._prepare_r_shared(language, environment)
+        await self._prepare_r_shared(language)
         key = (project_uid, user_id, language, session_id)
         async with self._lock:
             to_shutdown = self._sweep_idle_locked()
@@ -873,19 +900,19 @@ class KernelManager:
             await k.shutdown()
         return kernel
 
-    async def _prepare_r_shared(
-        self, language: str, environment: "Environment | None"
-    ) -> None:
-        """Materialise the two SHARED R directories an isolated kernel needs: the
-        base+recommended sandbox and the kernel-infra library (jsonlite/base64enc/
-        svglite + their dependency closure).
+    async def _prepare_r_shared(self, language: str) -> None:
+        """Materialise the SHARED R directories a kernel needs: the base+recommended
+        sandbox, the kernel-infra library (jsonlite/base64enc/svglite + their dependency
+        closure), and the `linkr` client package with its own private dependency library.
 
-        Both shell out to Rscript, so they run in a thread — never on the event loop,
-        and never under the manager lock. Memoised per data dir: after the first
-        success this is an in-memory string compare, so the hot spawn path costs
-        nothing. Only a project env needs them; the app interpreter keeps the default
-        paths."""
-        if language != "r" or environment is None:
+        All shell out to Rscript, so they run in a thread — never on the event loop, and
+        never under the manager lock. Memoised per data dir: after the first success this
+        is an in-memory string compare, so the hot spawn path costs nothing.
+
+        Runs for the app interpreter too, not just a project env: `library(linkr)` must
+        work in every R session the IDE starts, and the sandbox is a prerequisite of the
+        client install (its dependency resolution runs under the same isolation)."""
+        if language != "r":
             return
         from app.services import project_fs
 
@@ -899,6 +926,7 @@ class KernelManager:
 
             await asyncio.to_thread(renv_provisioner.ensure_r_sandbox)
             await asyncio.to_thread(renv_provisioner.ensure_kernel_r_lib)
+            await asyncio.to_thread(renv_provisioner.ensure_client_r_lib)
             self._r_shared_ready_for = data_dir
 
     async def spawn_batch(
@@ -908,7 +936,7 @@ class KernelManager:
         NOT counted against the per-user session limit — for a background 'run as
         job'. The caller must ``shutdown()`` it when done. Same interpreter/cwd/env
         selection as an interactive kernel, so managed envs resolve identically."""
-        await self._prepare_r_shared(language, environment)
+        await self._prepare_r_shared(language)
         return self._make(language, project_uid, environment)
 
     async def restart(
@@ -994,6 +1022,19 @@ class KernelManager:
             # so it falls back to the app interpreter. (R isolates without a build via a
             # possibly-empty library — Python has no lib-only equivalent.)
             python = interpreter_path or sys.executable
+            # `import linkr` must work in every project, including one whose venv was
+            # never built, so the client package is put on the path rather than
+            # installed into each env. PREPENDED, so it wins over an unrelated
+            # same-named package the interpreter might already see.
+            client_src = _client_py_source()
+            if client_src is not None:
+                existing = env.get("PYTHONPATH") or os.environ.get("PYTHONPATH", "")
+                env = {
+                    **env,
+                    "PYTHONPATH": (
+                        f"{client_src}{os.pathsep}{existing}" if existing else str(client_src)
+                    ),
+                }
             return Kernel([python, "-c", _PY_KERNEL_LOOP], cwd=cwd, env=env)
         if language == "r":
             # renv keeps a shared Rscript; a project env is isolated by its private
@@ -1007,7 +1048,17 @@ class KernelManager:
             # instead of leaking a server-global package. The shared kernel lib
             # (jsonlite/base64enc/svglite) keeps the kernel itself working there. The app
             # interpreter (environment is None) keeps the default paths.
-            env = {**env, "LINKR_R_REPOS": settings.r_repos}
+            # The kernel-infra library and the client library are passed in BOTH cases.
+            # An isolated env pins .libPaths() to them; the app interpreter prepends the
+            # kernel lib to the default paths, so `library(linkr)` finds the client this
+            # server ships rather than an unrelated same-named package in the site
+            # library (LinkR v1 is itself an R package called `linkr`).
+            env = {
+                **env,
+                "LINKR_R_REPOS": settings.r_repos,
+                "LINKR_R_KERNEL_LIB": str(project_fs.kernel_r_lib()),
+                "LINKR_CLIENT_R_LIB": str(project_fs.client_r_lib()),
+            }
             if has_env:
                 from app.services.execution import renv_provisioner
 
@@ -1017,7 +1068,6 @@ class KernelManager:
                 env = {
                     **env,
                     "LINKR_R_LIB": interpreter_path or str(renv_provisioner.library_path(project_uid)),
-                    "LINKR_R_KERNEL_LIB": str(project_fs.kernel_r_lib()),
                     "LINKR_R_SANDBOX": str(project_fs.r_sandbox()),
                 }
             return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=cwd, env=env)
@@ -1228,7 +1278,7 @@ async def run_ephemeral(
 
     # Provision the shared R dirs here (off the loop, memoised) so the pool's sync
     # factory below never shells out to Rscript.
-    await manager._prepare_r_shared(language, environment)
+    await manager._prepare_r_shared(language)
 
     def make() -> Kernel:
         return manager._make(language, project_uid, environment)
@@ -1262,7 +1312,7 @@ async def prewarm(
 
     # Provision the shared R dirs here (off the loop, memoised) so the pool's sync
     # factory below never shells out to Rscript.
-    await manager._prepare_r_shared(language, environment)
+    await manager._prepare_r_shared(language)
 
     def make() -> Kernel:
         return manager._make(language, project_uid, environment)

@@ -14,6 +14,7 @@ library is (re)materialised by ``build`` (``renv::restore``), a manual step.
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -447,6 +448,135 @@ def ensure_kernel_r_lib(on_log=None) -> None:
     # the user as "figures just don't work" with nothing in any log.
     if res.returncode != 0 and on_log is not None:
         on_log(f"kernel R lib ensure failed (exit {res.returncode}): {res.stderr.strip()[:2000]}")
+
+
+# The `linkr` client package's own dependencies. They go in a SEPARATE library that is
+# never on .libPaths() (see project_fs.client_r_lib): anything reachable from the kernel's
+# path is loadable by user code, and a script that can library(duckdb) without declaring
+# it breaks wherever the project's own environment is all there is.
+_CLIENT_DEPS = ("DBI", "duckdb", "jsonlite")
+
+
+def _r_bin() -> str:
+    """The ``R`` binary next to the configured ``Rscript`` — ``R CMD INSTALL`` must run
+    the same R the kernels do. Falls back to a bare "R" on PATH when rscript_bin is not
+    an absolute path (the default, "Rscript")."""
+    rscript = Path(settings.rscript_bin)
+    sibling = rscript.with_name("R")
+    return str(sibling) if rscript.is_absolute() and sibling.exists() else "R"
+
+
+def client_r_source() -> Path | None:
+    """The `linkr` R client package sources shipped with the server, or None when they
+    are not on disk (an install that dropped `packages/`)."""
+    override = os.environ.get("LINKR_CLIENT_R_SOURCE")
+    if override:
+        path = Path(override)
+        return path if (path / "DESCRIPTION").is_file() else None
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "packages" / "linkr-r"
+        if (candidate / "DESCRIPTION").is_file():
+            return candidate
+    return None
+
+
+def _installed_client_version(lib: Path) -> str | None:
+    desc = lib / "linkr" / "DESCRIPTION"
+    if not desc.is_file():
+        return None
+    for line in desc.read_text(errors="ignore").splitlines():
+        if line.startswith("Version:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+
+def _source_client_version(source: Path) -> str | None:
+    for line in (source / "DESCRIPTION").read_text(errors="ignore").splitlines():
+        if line.startswith("Version:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+
+def ensure_client_r_lib(on_log=None) -> None:
+    """Install the `linkr` client package into the shared KERNEL library, and its
+    dependencies into the separate client library.
+
+    Why the kernel library for the package itself: it is the one library on every
+    isolated kernel's ``.libPaths()``, so ``library(linkr)`` resolves even in a project
+    whose environment has never been built — which is the promise the IDE docs make.
+
+    Why a separate library for DBI/duckdb/jsonlite: everything on ``.libPaths()`` is
+    loadable by user code. There they would let a script ``library(duckdb)`` without
+    declaring it, and that script then breaks wherever the project's environment is all
+    there is. The package reaches them through ``loadNamespace(lib.loc=)`` instead (see
+    the client's R/zzz.R), driven by ``LINKR_CLIENT_R_LIB``.
+
+    Reinstalled whenever the shipped version differs from the installed one, so a server
+    upgrade doesn't leave an old client behind. Idempotent and cheap otherwise (reading
+    one DESCRIPTION). Requires ensure_r_sandbox() first.
+    """
+    import subprocess
+
+    source = client_r_source()
+    if source is None:
+        if on_log is not None:
+            on_log("client R package sources not found; library(linkr) will not resolve")
+        return
+
+    kernel_lib = project_fs.kernel_r_lib()
+    want = _source_client_version(source)
+    have = _installed_client_version(kernel_lib)
+    deps_present = all(
+        (project_fs.client_r_lib() / d).is_dir() for d in _CLIENT_DEPS
+    )
+    if have is not None and have == want and deps_present:
+        return
+
+    lib = str(kernel_lib).replace("\\", "/")
+    client_lib = str(project_fs.client_r_lib()).replace("\\", "/")
+    sandbox = str(project_fs.r_sandbox()).replace("\\", "/")
+    deps = ", ".join(f"'{d}'" for d in _CLIENT_DEPS)
+    repo = settings.r_repos.replace("'", "")
+    # Same isolation the kernel runs under, for the same reason as ensure_kernel_r_lib:
+    # the resolver must see what the kernel sees, or it skips deps that are only present
+    # in the site library and the install is silently incomplete.
+    code = (
+        f"local({{ .sb <- '{sandbox}'; "
+        f"if (dir.exists(.sb)) {{ .b <- .BaseNamespaceEnv; "
+        f"if (bindingIsLocked('.Library', .b)) unlockBinding('.Library', .b); "
+        f"assign('.Library', .sb, envir = .b); lockBinding('.Library', .b) }}; "
+        f".libPaths(c('{client_lib}', '{lib}')) }}); "
+        f"local({{ .need <- Filter(function(p) "
+        f"!nzchar(system.file(package=p, lib.loc='{client_lib}')), c({deps})); "
+        f"if (length(.need)) install.packages(.need, lib='{client_lib}', repos='{repo}', "
+        f"dependencies=c('Depends','Imports','LinkingTo')) }})"
+    )
+    try:
+        res = subprocess.run(
+            [settings.rscript_bin, "--vanilla", "-e", code],
+            capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+        )
+        if res.returncode != 0 and on_log is not None:
+            on_log(f"client R deps install failed (exit {res.returncode}): {res.stderr.strip()[:2000]}")
+        # INSTALL, not install.packages(): the sources are a local directory, and this
+        # skips the repo entirely. --no-test-load because the load test would resolve
+        # the Suggests (DBI/duckdb) that deliberately are not on this library's path.
+        res = subprocess.run(
+            [
+                _r_bin(), "CMD", "INSTALL",
+                "--no-test-load", f"--library={kernel_lib}", str(source),
+            ],
+            capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        # Best-effort, like the kernel library: a failure here surfaces to the user as
+        # "could not find function linkr_scripts_dir", which is clearer than refusing to
+        # start the kernel at all.
+        if on_log is not None:
+            on_log(f"client R lib ensure failed: {e}")
+        return
+    if res.returncode != 0 and on_log is not None:
+        on_log(f"client R lib ensure failed (exit {res.returncode}): {res.stderr.strip()[:2000]}")
 
 
 async def build(project_uid: str, on_log=None, options: dict | None = None) -> BuildResult:

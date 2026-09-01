@@ -1,8 +1,29 @@
 import os
-
-import duckdb
+from typing import TYPE_CHECKING
 
 from ._api import LinkrError, api_call, find_database
+
+if TYPE_CHECKING:
+    import duckdb
+
+
+def _duckdb():
+    """Resolve duckdb at call time, not at import time.
+
+    ``import linkr`` must work in a project environment that declares nothing — the
+    path helpers need no dependency at all, and a top-level ``import duckdb`` made
+    the whole package unimportable there, so ``linkr.scripts_dir()`` failed with
+    "No module named 'duckdb'". Mirrors the R client, whose DBI/duckdb are Suggests
+    resolved on use (see linkr-r/R/zzz.R).
+    """
+    try:
+        import duckdb
+    except ModuleNotFoundError as e:
+        raise LinkrError(
+            "Opening a database needs the 'duckdb' package, which this project's "
+            "environment does not have. Add it in the Environments manager."
+        ) from e
+    return duckdb
 
 
 def databases() -> list[dict]:
@@ -31,7 +52,7 @@ def databases() -> list[dict]:
     ]
 
 
-def connect(name: str, read_only: bool = True) -> duckdb.DuckDBPyConnection:
+def connect(name: str, read_only: bool = True) -> "duckdb.DuckDBPyConnection":
     """Open one of this project's databases.
 
     Returns a real DuckDB connection — a DBAPI handle — so ``.execute()``,
@@ -69,7 +90,7 @@ def connect(name: str, read_only: bool = True) -> duckdb.DuckDBPyConnection:
 
     kind = db.get("kind")
     if kind in ("managed", "file"):
-        return duckdb.connect(db["path"], read_only=read_only)
+        return _duckdb().connect(db["path"], read_only=read_only)
     if kind == "parquet-folder":
         return _open_parquet(db.get("tables") or [])
     if kind == "external":
@@ -77,8 +98,8 @@ def connect(name: str, read_only: bool = True) -> duckdb.DuckDBPyConnection:
     raise LinkrError(f"Unsupported database kind: {kind}")
 
 
-def _open_parquet(tables: list[dict]) -> duckdb.DuckDBPyConnection:
-    con = duckdb.connect()
+def _open_parquet(tables: list[dict]) -> "duckdb.DuckDBPyConnection":
+    con = _duckdb().connect()
     try:
         for entry in tables:
             paths = ", ".join(_quote(p) for p in entry["paths"])
@@ -92,8 +113,8 @@ def _open_parquet(tables: list[dict]) -> duckdb.DuckDBPyConnection:
     return con
 
 
-def _open_external(db: dict) -> duckdb.DuckDBPyConnection:
-    con = duckdb.connect()
+def _open_external(db: dict) -> "duckdb.DuckDBPyConnection":
+    con = _duckdb().connect()
     try:
         attach_type = db["attachType"]
         _use_server_extensions(con)
@@ -111,7 +132,7 @@ def _open_external(db: dict) -> duckdb.DuckDBPyConnection:
     return con
 
 
-def _use_server_extensions(con: duckdb.DuckDBPyConnection) -> None:
+def _use_server_extensions(con: "duckdb.DuckDBPyConnection") -> None:
     """Read DuckDB extensions from the server's directory rather than downloading
     them per session — which would also fail outright on an air-gapped instance."""
     ext_dir = os.environ.get("LINKR_DUCKDB_EXTENSIONS", "")

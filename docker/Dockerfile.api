@@ -51,6 +51,16 @@ RUN pip install --no-cache-dir -e ".[execution]"
 COPY VERSION /app/VERSION
 ENV LINKR_VERSION_FILE=/app/VERSION
 
+# The R/Python client libraries (`library(linkr)` / `import linkr`) live above the
+# copied apps/api tree too. Same treatment as VERSION: ship them explicitly and point
+# the resolvers at them, otherwise every IDE script fails with "could not find function
+# linkr_scripts_dir" on a Docker deployment. The R package is installed into the shared
+# kernel library on first R kernel start; the Python one is put on PYTHONPATH.
+COPY packages/linkr-r /app/client/linkr-r
+COPY packages/linkr-py /app/client/linkr-py
+ENV LINKR_CLIENT_R_SOURCE=/app/client/linkr-r
+ENV LINKR_CLIENT_PY_SOURCE=/app/client/linkr-py/src
+
 # Pre-bundle DuckDB extensions into the image so an offline deployment never
 # needs to reach the network on first use. They install under
 # <dir>/v<ver>/<platform>/; the entrypoint seeds the runtime data volume's
