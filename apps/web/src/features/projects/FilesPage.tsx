@@ -1194,6 +1194,60 @@ export function FilesPage() {
                         </DropdownMenu>
                       </div>
 
+                      {/* Same picker as the script toolbar: a notebook's cells
+                          reach the database through it too. */}
+                      <ConnectionDropdown projectUid={activeProjectUid ?? undefined} />
+
+                      {/* Add cell + dropdown */}
+                      <div className="flex">
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="gap-1 rounded-r-none"
+                          onClick={() => notebookRef.current?.addCell('code', 'r')}
+                        >
+                          <Plus size={12} />
+                          Add R cell
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              className="rounded-l-none border-l-0 px-1"
+                            >
+                              <ChevronDown size={12} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'r')} className="gap-2 text-xs">
+                              <Code size={13} className="text-muted-foreground" />
+                              R
+                              {nbShortcuts.insertChunk && <DropdownMenuShortcut>{nbShortcuts.insertChunk}</DropdownMenuShortcut>}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'python')} className="gap-2 text-xs">
+                              <Code size={13} className="text-muted-foreground" />
+                              Python
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'sql')} className="gap-2 text-xs">
+                              <Database size={13} className="text-muted-foreground" />
+                              SQL
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('markdown')} className="gap-2 text-xs">
+                              <FileText size={13} className="text-muted-foreground" />
+                              Markdown
+                            </DropdownMenuItem>
+                            {!notebookRef.current?.hasYamlCell && (
+                              <DropdownMenuItem onClick={() => notebookRef.current?.addCell('yaml')} className="gap-2 text-xs">
+                                <Settings2 size={13} className="text-muted-foreground" />
+                                {t('files.yaml_front_matter')}
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+
                       {/* ipynb: Download dropdown / Rmd: Render + dropdown */}
                       {isIpynbFile ? (
                         <div className="flex">
@@ -1265,57 +1319,8 @@ export function FilesPage() {
                         </div>
                       )}
 
-                      {/* Add cell + dropdown */}
-                      <div className="flex">
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          className="gap-1 rounded-r-none"
-                          onClick={() => notebookRef.current?.addCell('code', 'r')}
-                        >
-                          <Plus size={12} />
-                          Add R cell
-                        </Button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="xs"
-                              className="rounded-l-none border-l-0 px-1"
-                            >
-                              <ChevronDown size={12} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'r')} className="gap-2 text-xs">
-                              <Code size={13} className="text-muted-foreground" />
-                              R
-                              {nbShortcuts.insertChunk && <DropdownMenuShortcut>{nbShortcuts.insertChunk}</DropdownMenuShortcut>}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'python')} className="gap-2 text-xs">
-                              <Code size={13} className="text-muted-foreground" />
-                              Python
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'sql')} className="gap-2 text-xs">
-                              <Database size={13} className="text-muted-foreground" />
-                              SQL
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('markdown')} className="gap-2 text-xs">
-                              <FileText size={13} className="text-muted-foreground" />
-                              Markdown
-                            </DropdownMenuItem>
-                            {!notebookRef.current?.hasYamlCell && (
-                              <DropdownMenuItem onClick={() => notebookRef.current?.addCell('yaml')} className="gap-2 text-xs">
-                                <Settings2 size={13} className="text-muted-foreground" />
-                                {t('files.yaml_front_matter')}
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-
-                      {/* Markdown / Cells toggle */}
+                      {/* Raw / Cells toggle — "Raw" is the file's own source
+                          (Markdown for an Rmd, JSON for an ipynb). */}
                       <Button
                         variant="outline"
                         size="xs"
@@ -1324,13 +1329,9 @@ export function FilesPage() {
                       >
                         {notebookRef.current?.sourceView
                           ? <><LayoutGrid size={12} /> {t('files.view_cells')}</>
-                          : <><FileCode size={12} /> {t('files.view_markdown')}</>
+                          : <><FileCode size={12} /> {t('files.view_raw')}</>
                         }
                       </Button>
-
-                      {/* Same picker as the script toolbar: a notebook's cells
-                          reach the database through it too. */}
-                      <ConnectionDropdown projectUid={activeProjectUid ?? undefined} />
                     </div>
                   </>
                 )}

@@ -1729,7 +1729,7 @@
     "render_preview": "Aperçu",
     "render_download_html": "Télécharger en HTML",
     "yaml_front_matter": "En-tête YAML",
-    "view_markdown": "Markdown",
+    "view_raw": "Raw",
     "view_cells": "Cellules",
     "type_csv": "Fichier CSV",
     "create_folder": "Créer un dossier",
