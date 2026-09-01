@@ -92,7 +92,7 @@ ChunkHandler = Callable[[str, str], Awaitable[None] | None]
 # (the legacy contract, used by analyses/widgets). Capture mirrors the stateless
 # harness (matplotlib SVG figures, a `result`/last DataFrame as a table).
 _PY_KERNEL_LOOP = r'''
-import sys, io, json, base64, traceback
+import sys, io, json, base64, time, traceback
 
 _real_out, _real_err = sys.stdout, sys.stderr
 
@@ -108,19 +108,40 @@ _CUR_RUN = 0
 
 
 class _StreamWriter(io.TextIOBase):
-    """A stdout/stderr replacement that emits each write to the host as a
-    __linkr_stream__ line, so a REPL sees output as it is produced."""
+    """A stdout/stderr replacement that emits writes to the host as
+    __linkr_stream__ lines, so a REPL sees output as it is produced.
+
+    Writes are coalesced on a short deadline rather than sent one per call: print()
+    issues a separate write() per line, so `print(df)` on a large frame sent one JSON
+    message, one flush and one websocket frame PER ROW — which cost far more than
+    producing the text. Buffering by time, not by size, keeps a slow producer live
+    (a lone line still goes out within _FLUSH_S) while a burst leaves as few frames."""
+
+    _FLUSH_S = 0.05
 
     def __init__(self, kind):
         self._kind = kind
+        self._buf = []
+        self._deadline = None
 
     def write(self, s):
         if s:
-            _emit({"__linkr_stream__": self._kind, "data": s, "__linkr_run__": _CUR_RUN})
+            now = time.monotonic()
+            self._buf.append(s)
+            if self._deadline is None:
+                self._deadline = now + self._FLUSH_S
+            elif now >= self._deadline:
+                self.flush()
         return len(s)
 
     def flush(self):
-        pass
+        if not self._buf:
+            self._deadline = None
+            return
+        _emit({"__linkr_stream__": self._kind, "data": "".join(self._buf),
+               "__linkr_run__": _CUR_RUN})
+        self._buf = []
+        self._deadline = None
 
 
 def _linkr_sql_query(sql):
@@ -247,6 +268,12 @@ def _run(code, stream):
     except Exception:
         traceback.print_exc()
     finally:
+        # Writes are coalesced on a deadline that only advances on the NEXT write, so
+        # whatever the run produced last is still sitting in the buffer. Flush both
+        # before restoring, or a run's final lines never reach the host.
+        if stream:
+            sys.stdout.flush()
+            sys.stderr.flush()
         sys.stdout, sys.stderr = _real_out, _real_err
     return {"stdout": "" if stream else out.getvalue(),
             "stderr": "" if stream else err.getvalue(),
@@ -349,6 +376,13 @@ while True:
 #     emitted as soon as it finishes, so `print("a"); Sys.sleep(5); print("b")` shows
 #     "a", the pause, then "b" instead of both at the end. Batch mode accumulates
 #     into .out for the single final payload.
+#   - that per-expression output is emitted as ONE message, not one per line. The
+#     granularity R can actually offer is the expression (capture.output returns the
+#     whole block once the call has returned), so splitting it per line bought no
+#     earlier delivery — it only multiplied the cost: `sql_query("SELECT * FROM
+#     person")` on a large table became one JSON encode, one flush and one websocket
+#     frame PER ROW, which took far longer than the query. Interleaving is unchanged:
+#     stdout and stderr are still emitted separately, in order, per expression.
 #   - auto-print ONLY visible values, exactly like the R REPL: `x <- 3`, `library(..)`
 #     and other invisible-returning calls print nothing, while a bare `x` or
 #     `head(df)` prints. withVisible() carries R's visibility flag; printing
@@ -406,7 +440,8 @@ suppressMessages({
 }
 .stream_lines <- function(kind, text) {
   if (length(text) == 0) return(invisible())
-  for (.l in text) .emit(list("__linkr_stream__" = kind, data = paste0(.l, "\n"), "__linkr_run__" = .run_n))
+  .emit(list("__linkr_stream__" = kind, data = paste0(paste0(text, collapse = "\n"), "\n"),
+             "__linkr_run__" = .run_n))
 }
 # A true handle on fd 1, unaffected by sink(). .eval_one runs user code under
 # utils::capture.output(), which sinks the default connection — an RPC emitted
