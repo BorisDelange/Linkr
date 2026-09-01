@@ -345,16 +345,23 @@ def test_interpreter_key_isolates_every_project_r_env():
     assert _interpreter_key("python", "p1", _Env("managed")) == "__system__:python"
 
 
-def test_r_kernel_loop_stays_under_e_arg_threshold():
+def test_r_kernel_runs_from_a_file_not_the_e_argument():
     """`Rscript --vanilla -e <loop>` mangles the argument past ~7 KB (WARNING + a
-    fatal "unexpected end of input"), which hangs the client on "Loading R runtime".
-    Keep the R source lean — prose comments belong in Python, not the R string. This
-    guards the regression that adding a comment block reintroduced."""
+    fatal "unexpected end of input"), which hung the client on "Loading R runtime"
+    — twice, since the loop sat just under the cliff and any added line crossed it.
+    The loop is now written to a file and run as `Rscript <file>`, which has no such
+    limit, so its size is no longer load-bearing. This guards the spawn shape: a
+    return to `-e` would reinstate a hang that reports itself only as a timeout."""
     from app.services.execution.kernel import _R_KERNEL_LOOP
+    from app.services import project_fs
 
-    assert len(_R_KERNEL_LOOP.encode("utf-8")) < 7000, (
-        "R kernel loop too large for `Rscript -e`; move comments to Python, not the R string"
-    )
+    path = project_fs.kernel_r_script(_R_KERNEL_LOOP)
+    assert path.is_file()
+    assert path.read_text(encoding="utf-8") == _R_KERNEL_LOOP
+    # Rewriting with changed source replaces the file rather than appending.
+    same = project_fs.kernel_r_script(_R_KERNEL_LOOP)
+    assert same == path
+    assert same.read_text(encoding="utf-8") == _R_KERNEL_LOOP
 
 
 @pytest.mark.asyncio
@@ -401,11 +408,13 @@ async def test_r_kernel_returns_a_table_for_a_trailing_data_frame():
     import shutil
 
     from app.services.execution.kernel import _R_KERNEL_LOOP, Kernel
+    from app.services import project_fs
 
     if not shutil.which("Rscript"):
         pytest.skip("Rscript not installed")
 
-    k = Kernel(cmd=["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP])
+    # From a file, as _make() does: `Rscript -e` truncates a program this long.
+    k = Kernel(cmd=["Rscript", "--vanilla", str(project_fs.kernel_r_script(_R_KERNEL_LOOP))])
     try:
         out = await asyncio.wait_for(
             k.execute_stream("iris", lambda kind, data: None), timeout=120
@@ -443,12 +452,14 @@ async def test_r_kernel_stops_the_run_at_the_first_error():
     import shutil
 
     from app.services.execution.kernel import _R_KERNEL_LOOP, Kernel
+    from app.services import project_fs
 
     if not shutil.which("Rscript"):
         pytest.skip("Rscript not installed")
 
     chunks: list[tuple[str, str]] = []
-    k = Kernel(cmd=["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP])
+    # From a file, as _make() does: `Rscript -e` truncates a program this long.
+    k = Kernel(cmd=["Rscript", "--vanilla", str(project_fs.kernel_r_script(_R_KERNEL_LOOP))])
     try:
         out = await asyncio.wait_for(
             k.execute_stream(

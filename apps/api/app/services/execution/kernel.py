@@ -381,6 +381,46 @@ suppressMessages({
   if (length(text) == 0) return(invisible())
   for (.l in text) .emit(list("__linkr_stream__" = kind, data = paste0(.l, "\n"), "__linkr_run__" = .run_n))
 }
+# A true handle on fd 1, unaffected by sink(). .eval_one runs user code under
+# utils::capture.output(), which sinks the default connection — an RPC emitted
+# through .emit() from inside user code would land in the run's captured stdout
+# instead of reaching the host, and the kernel would then block forever waiting
+# for a reply nobody was asked for. Only protocol lines emitted from within user
+# code need this; .emit() elsewhere runs outside the sink.
+#
+# Opened on first use, never at boot: holding a second handle on fd 1 from the
+# start blocks the kernel before it reaches its read loop.
+.rpc_con <- NULL
+.rpc_connection <- function() {
+  if (is.null(.rpc_con))
+    .rpc_con <<- tryCatch(file("/dev/fd/1", "w", raw = TRUE), error = function(e) NULL)
+  if (is.null(.rpc_con))
+    stop("sql_query() is unavailable: this kernel could not open fd 1.", call. = FALSE)
+  .rpc_con
+}
+
+# sql_query(): the R counterpart of the Python kernel's helper. Same RPC — emit a
+# query request, block on the reply — so the host services both kernels through
+# one code path and holds the connection config; the kernel never sees it.
+# Reads from .con, the same handle the run loop uses, so the reply cannot be
+# swallowed by a second buffered reader.
+sql_query <- function(sql) {
+  .rc <- .rpc_connection()
+  writeLines(toJSON(list("__linkr_rpc__" = "query", sql = sql),
+                    auto_unbox = TRUE, null = "null"), .rc)
+  flush(.rc)
+  .resp <- fromJSON(readLines(.con, n = 1, warn = FALSE), simplifyVector = FALSE)
+  if (!is.null(.resp$error)) stop(.resp$error, call. = FALSE)
+  .rows <- .resp$rows
+  if (length(.rows) == 0) return(data.frame())
+  # rows arrive as a list of {column: value} objects; NULL (SQL NULL) becomes NA
+  # so a column keeps its length and does not silently collapse.
+  .cols <- names(.rows[[1]])
+  .df <- lapply(.cols, function(.c)
+    unlist(lapply(.rows, function(.r) if (is.null(.r[[.c]])) NA else .r[[.c]]), use.names = FALSE))
+  names(.df) <- .cols
+  as.data.frame(.df, stringsAsFactors = FALSE, optional = TRUE)
+}
 repeat {
   # Absorb a stray SIGINT arriving during the idle read (a late Stop from a
   # finished run) so it can't bleed into the next run. See Python notes below.
@@ -1020,7 +1060,11 @@ class KernelManager:
                     "LINKR_R_KERNEL_LIB": str(project_fs.kernel_r_lib()),
                     "LINKR_R_SANDBOX": str(project_fs.r_sandbox()),
                 }
-            return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=cwd, env=env)
+            # Run the loop from a file, not `-e`: `-e` silently truncates a long
+            # program, and the loop is close enough to that limit that a few added
+            # lines would make the kernel hang at boot with no usable error.
+            loop_path = project_fs.kernel_r_script(_R_KERNEL_LOOP)
+            return Kernel(["Rscript", "--vanilla", str(loop_path)], cwd=cwd, env=env)
         raise ExecutionError(f"No persistent kernel for language: {language}")
 
 
