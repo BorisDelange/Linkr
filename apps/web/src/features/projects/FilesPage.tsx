@@ -112,7 +112,7 @@ import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useShortcutStore } from '@/stores/shortcut-store'
 import { comboToString } from '@/lib/format-shortcut'
-import { widenToBlock, nextRunnableLine, type RunSpan } from '@/lib/editor-run-block'
+import { widenToBlock, nextRunnableLine, firstRunnableLine, bracketProbeColumn, opensBlockAtEol, type RunSpan } from '@/lib/editor-run-block'
 import type { ShortcutActionId } from '@/types/shortcuts'
 
 const LazyRmdNotebook = lazy(() => import('./files/RmdNotebook').then(m => ({ default: m.RmdNotebook })))
@@ -873,23 +873,47 @@ export function FilesPage() {
   /**
    * The block under the cursor, via Monaco's own "expand selection".
    *
-   * Expanding repeatedly walks outward (word → call → block → …), so we step
-   * until the selection covers several lines and take that — the innermost
-   * block. Its bracket provider starts a `xxx {` range at the line's first
+   * Expanding repeatedly walks outward (word → call → block → … → whole file),
+   * so we collect the steps and let widenToBlock pick the innermost multi-line
+   * one. Its bracket provider starts a `xxx {` range at the line's first
    * non-whitespace character, so `f <- function() {` comes along with its body.
+   *
+   * We stop at the first multi-line range that is NOT the whole document: the
+   * word provider always contributes the full model range, so breaking on any
+   * multi-line range would accept "the entire script" on a line that has no
+   * enclosing bracket.
    *
    * The editor's selection is restored before returning: this is a query, and
    * running a line must not leave the user's block highlighted.
    */
-  const blockSpanAtCursor = useCallback(async (cursorLine: number): Promise<RunSpan> => {
+  const blockSpanAtCursor = useCallback(async (cursorLine: number, cursorColumn: number): Promise<RunSpan> => {
     const editor = editorRef.current
     if (!editor) return { startLine: cursorLine, endLine: cursorLine }
+    const model = editor.getModel()
     const original = editor.getSelection()
     const expand = editor.getAction('editor.action.smartSelect.expand')
-    if (!expand || !original) return { startLine: cursorLine, endLine: cursorLine }
+    if (!expand || !original || !model) return { startLine: cursorLine, endLine: cursorLine }
+    const lineCount = model.getLineCount()
+
+    // A line that ENDS by opening a block is not itself inside that block, and
+    // Monaco only reports a pair whose closer is unmatched from the probe — so
+    // probe one line down, from within the block.
+    const opensBlock = opensBlockAtEol(model.getLineContent(cursorLine))
+    const probeLine = opensBlock && cursorLine < lineCount ? cursorLine + 1 : cursorLine
 
     const candidates: RunSpan[] = []
     try {
+      // Probe from ON the line's last non-blank character, never past it: the
+      // bracket provider scans rightwards first, so a caret sitting after a
+      // closing `}` finds no bracket and reports no block.
+      const probeText = model.getLineContent(probeLine)
+      const probeColumn = probeLine === cursorLine
+        ? bracketProbeColumn(probeText, cursorColumn)
+        : bracketProbeColumn(probeText, model.getLineMaxColumn(probeLine))
+      editor.setSelection({
+        startLineNumber: probeLine, startColumn: probeColumn,
+        endLineNumber: probeLine, endColumn: probeColumn,
+      })
       // Bounded: expansion terminates at the whole document, and a handful of
       // steps is enough to leave the current line in any real code.
       for (let step = 0; step < 8; step++) {
@@ -898,13 +922,22 @@ export function FilesPage() {
         await expand.run()
         const next = editor.getSelection()
         if (!next) break
-        candidates.push({ startLine: next.startLineNumber, endLine: next.endLineNumber })
-        if (next.startLineNumber < next.endLineNumber) break
+        const span = { startLine: next.startLineNumber, endLine: next.endLineNumber }
+        candidates.push(span)
+        const wholeDocument = span.startLine <= 1 && span.endLine >= lineCount
+        if (wholeDocument) break
+        if (span.endLine > span.startLine) break
       }
     } finally {
       editor.setSelection(original)
     }
-    return widenToBlock(cursorLine, candidates)
+    // Match candidates against the line we probed from — when that was the line
+    // below (a block-opening line), the block found starts at cursorLine anyway,
+    // so the span still covers the caret.
+    const span = widenToBlock(probeLine, candidates, lineCount)
+    return span.startLine <= cursorLine && span.endLine >= cursorLine
+      ? span
+      : { startLine: cursorLine, endLine: cursorLine }
   }, [])
 
   const handleRunLine = useCallback(async () => {
@@ -914,9 +947,25 @@ export function FilesPage() {
     const model = editorRef.current.getModel()
     if (!model) return
 
+    // A comment is not a statement: run the next real line instead of sending
+    // `# ...` to the interpreter. If that line opens a block, widening below
+    // picks up the whole block from there.
+    const startLine = firstRunnableLine(
+      position.lineNumber,
+      model.getLineCount(),
+      (line) => model.getLineContent(line),
+      selectedLanguage,
+    )
+    if (startLine === null) return
+    // Only keep the caret's column when we are still on its own line; after
+    // skipping down to a later line that column is meaningless.
+    const startColumn = startLine === position.lineNumber
+      ? position.column
+      : model.getLineMaxColumn(startLine)
+
     // A cursor inside a multi-line block runs the WHOLE block: the single line
     // under it (`  warning("...")`, or a bare `}`) is rarely valid on its own.
-    const span = await blockSpanAtCursor(position.lineNumber)
+    const span = await blockSpanAtCursor(startLine, startColumn)
     const code = model.getValueInRange({
       startLineNumber: span.startLine,
       startColumn: 1,
@@ -936,12 +985,13 @@ export function FilesPage() {
       span.endLine,
       model.getLineCount(),
       (line) => model.getLineContent(line),
+      selectedLanguage,
     )
     if (nextLine !== null) {
       editorRef.current.setPosition({ lineNumber: nextLine, column: 1 })
       editorRef.current.revealLineInCenterIfOutsideViewport(nextLine)
     }
-  }, [selectedNode, runCode, blockSpanAtCursor])
+  }, [selectedNode, runCode, blockSpanAtCursor, selectedLanguage])
 
   // Cmd+Enter: run selection if any, otherwise run current line (RStudio convention)
   const handleRunSelectionOrLine = useCallback(() => {
