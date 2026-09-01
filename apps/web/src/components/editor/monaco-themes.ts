@@ -88,6 +88,14 @@ export const linkrDark: IStandaloneThemeData = {
     'editorSuggestWidget.background': '#0f172b',
     'editorSuggestWidget.border': '#1d293d',
     'editorSuggestWidget.selectedBackground': '#1d293d',
+    // Set explicitly: with only a selectedBackground, Monaco keeps its default
+    // foreground for the highlighted row, which is near-white — fine here, but
+    // unreadable on the light theme's pale selection. Both are pinned so the
+    // selected row always states its own contrast.
+    'editorSuggestWidget.foreground': '#e2e8f0',
+    'editorSuggestWidget.selectedForeground': '#f8fafc',
+    'editorSuggestWidget.highlightForeground': '#60a5fa',
+    'editorSuggestWidget.focusHighlightForeground': '#93c5fd',
     'editorHoverWidget.background': '#0f172b',
     'editorHoverWidget.border': '#1d293d',
     'editorGutter.background': '#0b1120',
@@ -158,6 +166,11 @@ export const linkrLight: IStandaloneThemeData = {
     'editorSuggestWidget.background': '#ffffff',
     'editorSuggestWidget.border': '#e2e8f0',
     'editorSuggestWidget.selectedBackground': '#f1f5f9',
+    // The selected row was white-on-#f1f5f9 — invisible. See the dark theme's note.
+    'editorSuggestWidget.foreground': '#0f172b',
+    'editorSuggestWidget.selectedForeground': '#0f172b',
+    'editorSuggestWidget.highlightForeground': '#2563eb',
+    'editorSuggestWidget.focusHighlightForeground': '#1d4ed8',
     'editorHoverWidget.background': '#ffffff',
     'editorHoverWidget.border': '#e2e8f0',
     'editorGutter.background': '#f8fafc',
