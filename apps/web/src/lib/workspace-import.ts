@@ -754,6 +754,32 @@ export async function importWorkspaceTree(
     }
   }
 
+  // --- Re-link cohorts and patient boards to their databases ---
+  // Same deferral, one level down: importProjectContent ran before the databases
+  // existed, so it could not resolve the pointer each cohort and board carries
+  // and left `dataSourceId` unset. That is invisible — resolveProjectSource falls
+  // back to the project's first usable database — so a board bound to database 2
+  // silently rendered database 1's data.
+  const importedProjectUids = [...parsed.projects.values(), ...parsed.projectEntries]
+    .map((e) => e.project?.uid)
+    .map((uid) => (uid ? idMap.get(`project:${uid}`) : undefined))
+    .filter((uid): uid is string => !!uid)
+  if (importedProjectUids.length > 0) {
+    const storedDatabases = await storage.dataSources.getAll()
+    const localIdFor = (ref: DataSourceRef | undefined) =>
+      ref ? resolvePointer(storedDatabases, ref, targetWsId)?.id : undefined
+    for (const uid of importedProjectUids) {
+      for (const cohort of await storage.cohorts.getByProject(uid).catch(() => [])) {
+        const id = localIdFor(cohort.dataSourceRef)
+        if (id) await storage.cohorts.update(cohort.id, { dataSourceId: id }).catch(() => {})
+      }
+      for (const board of await storage.patientDashboards.getByProject(uid).catch(() => [])) {
+        const id = localIdFor(board.dataSourceRef)
+        if (id) await storage.patientDashboards.update(board.id, { dataSourceId: id }).catch(() => {})
+      }
+    }
+  }
+
   // --- Re-link ETL pipelines to their mapping projects ---
   // Deferred to here because mapping projects import after pipelines: at pipeline
   // creation there was nothing stored to point at. Same portable-pointer rule as

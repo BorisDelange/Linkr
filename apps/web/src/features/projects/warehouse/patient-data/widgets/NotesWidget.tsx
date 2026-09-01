@@ -75,6 +75,24 @@ interface ColoredWord {
   colorIndex: number
 }
 
+/**
+ * The words to match, escaped and ordered LONGEST FIRST.
+ *
+ * Alternation in JS is first-match-wins, not longest-match, so a set holding
+ * both "GCS" and "GCS motor" matched only "GCS" in "GCS motor 5". Across two
+ * sets it was worse: the shorter word's colour was shown, crediting the wrong
+ * set for the hit. Sorting by length makes the longest candidate win.
+ */
+function escapedWordPatterns(coloredWords: ColoredWord[]): Array<ColoredWord & { pattern: string }> {
+  return coloredWords
+    .filter((cw) => cw.word.trim())
+    .map((cw) => ({
+      ...cw,
+      pattern: cw.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    }))
+    .sort((a, b) => b.word.length - a.word.length)
+}
+
 /** Split text around matches, returning segments with optional color index. */
 function coloredHighlightSegments(
   text: string,
@@ -82,12 +100,7 @@ function coloredHighlightSegments(
 ): Array<{ text: string; colorIndex: number | null }> {
   if (coloredWords.length === 0) return [{ text, colorIndex: null }]
 
-  const escaped = coloredWords
-    .filter((cw) => cw.word.trim())
-    .map((cw) => ({
-      ...cw,
-      pattern: cw.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
-    }))
+  const escaped = escapedWordPatterns(coloredWords)
   if (escaped.length === 0) return [{ text, colorIndex: null }]
 
   const regex = new RegExp(`(${escaped.map((e) => e.pattern).join('|')})`, 'gi')
@@ -666,12 +679,7 @@ function NoteTextRenderer({
 function highlightInHtml(html: string, coloredWords: ColoredWord[]): string {
   if (coloredWords.length === 0) return html
 
-  const escaped = coloredWords
-    .filter((cw) => cw.word.trim())
-    .map((cw) => ({
-      ...cw,
-      pattern: cw.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
-    }))
+  const escaped = escapedWordPatterns(coloredWords)
   if (escaped.length === 0) return html
 
   // Build a lookup for matched word → color

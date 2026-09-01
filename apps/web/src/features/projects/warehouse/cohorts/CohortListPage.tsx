@@ -181,7 +181,7 @@ export function CohortListPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t('cohorts.delete_confirm_title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('cohorts.delete_confirm_description', { name: deleteTarget?.name ?? '' })}
+              {t('cohorts.delete_confirm_description', { name: localized(deleteTarget?.name, language) })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

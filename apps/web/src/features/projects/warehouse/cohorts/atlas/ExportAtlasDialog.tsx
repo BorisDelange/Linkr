@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { localized } from '@/lib/localized'
 import { exportToAtlas } from './atlas-converter'
 import type { Cohort } from '@/types'
 
@@ -40,7 +41,9 @@ export function ExportAtlasDialog({ open, onOpenChange, cohort }: ExportAtlasDia
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${cohort.name || 'cohort'}-atlas.json`
+    // `localized` first: the name is a LocalizedString, so `|| 'cohort'` never
+    // fired (an object is truthy) and the filename read "[object Object]-atlas".
+    a.download = `${localized(cohort.name, 'en') || 'cohort'}-atlas.json`
     a.click()
     URL.revokeObjectURL(url)
   }

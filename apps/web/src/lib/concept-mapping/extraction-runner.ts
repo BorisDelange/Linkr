@@ -174,9 +174,24 @@ export interface StartRunInput {
   options: ProfileOptions
   /** Which end of each dictionary to walk from. */
   sort: ExtractionSort
-  /** Where a resume picks up, and what it is counting towards. */
-  resumeFrom: { extracted: number; total: number } | null
+  /**
+   * Where a resume picks up, what it is counting towards, and the per-dictionary
+   * sizes the interrupted run measured. `sizes` is absent on a run stored before
+   * they were recorded; the loop then recounts, as it used to.
+   */
+  resumeFrom: { extracted: number; total: number; sizes?: number[] } | null
   query: (sql: string) => Promise<Record<string, unknown>[]>
+  /**
+   * Like `query`, but guaranteed to return EVERY row.
+   *
+   * Server mode caps a single response at MAX_QUERY_ROWS and truncates silently,
+   * so the two dictionary-wide passes below (the counts and the id list) must not
+   * go through `query`: a ranking built from the first 10k rows would set
+   * `sizes[i]` to that truncated length, and the run would report itself done
+   * having profiled a fraction of the dictionary. Same reason
+   * `source-concepts-loader` pages its own reads.
+   */
+  queryAll: (sql: string) => Promise<Record<string, unknown>[]>
   /**
    * Write progress and the newly extracted rows back to the project.
    *
@@ -233,7 +248,7 @@ export function startRun(input: StartRunInput): void {
 }
 
 async function loop(input: StartRunInput, controller: AbortController): Promise<void> {
-  const { projectId, mapping, sources, options, query, persist } = input
+  const { projectId, mapping, sources, options, query, queryAll, persist } = input
   try {
     // A restart re-counts: the dictionaries may have grown since the last run,
     // and resuming against a stale total would stop short of the new rows.
@@ -243,10 +258,22 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     const sort = input.sort ?? DEFAULT_EXTRACTION_SORT
 
     // Per-dictionary sizes, so a global offset can be mapped onto the right one.
+    //
+    // A resume REUSES the sizes its run measured rather than recounting: the
+    // offset is an index into those boundaries, so a dictionary that changed
+    // size in between would move them and land the resume in the wrong
+    // dictionary. Only a fresh run (or one stored before sizes were recorded)
+    // counts.
+    const storedSizes = input.resumeFrom?.sizes
+    const reuseSizes = !!storedSizes && storedSizes.length === sources.length
     const sizes: number[] = []
-    for (const source of sources) {
-      const rows = await query(buildDictionaryCountQuery(source))
-      sizes.push(Number(rows[0]?.total ?? 0))
+    if (reuseSizes) {
+      sizes.push(...storedSizes)
+    } else {
+      for (const source of sources) {
+        const rows = await query(buildDictionaryCountQuery(source))
+        sizes.push(Number(rows[0]?.total ?? 0))
+      }
     }
 
     // A volume sort needs the counts before anything can be profiled: one
@@ -258,9 +285,12 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
       rankings = []
       for (const [i, source] of sources.entries()) {
         if (controller.signal.aborted) return
+        // queryAll, not query: both return one row per concept, so on a real
+        // vocabulary the server's row cap would truncate them and the ranking
+        // would silently cover only the first page (see StartRunInput.queryAll).
         const [counts, ids] = await Promise.all([
-          query(buildConceptCountsQuery(source)),
-          query(buildDictionaryIdsQuery(source)),
+          queryAll(buildConceptCountsQuery(source)),
+          queryAll(buildDictionaryIdsQuery(source)),
         ])
         // Ranked over the WHOLE dictionary, not just the concepts the event
         // table mentions: one with no records still belongs in the CSV, with a
@@ -271,7 +301,9 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
           ids.map((r) => Number(r.concept_id)),
         )
         rankings.push(ranked)
-        sizes[i] = ranked.length
+        // A resume keeps the boundaries its run walked (see above); only a fresh
+        // run adopts the ranking's length as this dictionary's size.
+        if (!reuseSizes) sizes[i] = ranked.length
       }
     }
 
@@ -324,7 +356,7 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
 
       await persist(
         {
-          dictionaryKeys: keys, extracted: offset, total: runTotal,
+          dictionaryKeys: keys, extracted: offset, total: runTotal, sizes,
           options: { ...options, sections }, sort,
           updatedAt: new Date().toISOString(),
         },

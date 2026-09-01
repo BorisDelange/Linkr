@@ -41,6 +41,7 @@ import { ResultsPanel } from './results/ResultsPanel'
 import { ImportAtlasDialog } from './atlas/ImportAtlasDialog'
 import { ExportAtlasDialog } from './atlas/ExportAtlasDialog'
 import { formatDateTime } from '@/lib/format-helpers'
+import { localized } from '@/lib/localized'
 import type { CohortLevel, CriteriaGroupNode } from '@/types'
 
 const levelOptions: { value: CohortLevel; labelKey: string }[] = [
@@ -191,7 +192,10 @@ export function CohortBuilderPage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `cohort-${cohort?.name ?? cohortId}.csv`
+    // The name is a LocalizedString — interpolating it raw wrote
+    // "cohort-[object Object].csv". English, like the export filename, so the
+    // download keeps one name whatever the UI language is set to.
+    a.download = `cohort-${localized(cohort?.name, 'en') || cohortId}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }, [result, cohort, cohortId])

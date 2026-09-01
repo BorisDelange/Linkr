@@ -181,6 +181,15 @@ export interface Cohort extends Authored {
   projectUid: string
   name: LocalizedString
   description: LocalizedString
+  /**
+   * The export filename this cohort was read from, without folder or extension.
+   *
+   * Import-time only — never stored, never exported. The filename IS the
+   * identity (the local id is derived from it), and two cohorts sharing a name
+   * are disambiguated there (`adults`, `adults#2`), so re-deriving the key from
+   * the name would collapse them onto one id and lose one of them.
+   */
+  exportKey?: string
   /** Which linked database this cohort runs against. Optional: a cohort written
    *  before the field existed, or imported from elsewhere, falls back to the
    *  first usable one (see `resolveProjectSource`). */

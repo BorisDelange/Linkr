@@ -26,6 +26,7 @@ import {
   type ProfileSource,
 } from './concept-profile'
 import { csvEscape } from './export'
+import { escSql } from '@/lib/format-helpers'
 
 /** Execute SQL against the source database and return its rows. */
 export type QueryFn = (sql: string) => Promise<Record<string, unknown>[]>
@@ -180,7 +181,12 @@ export function buildConceptCountsQuery(source: ProfileSource): string {
  */
 export function buildDictionaryIdsQuery(source: ProfileSource): string {
   const idExpr = conceptIdExpr(source)
-  return `SELECT ${idExpr} AS concept_id FROM "${source.dictionary.table}" d`
+  // DISTINCT because the id is not always the dictionary's own key: with no key
+  // column it is a hash of the code, and two rows can share one (the same code
+  // under two vocabulary versions, or a plain collision). A duplicate would make
+  // `sizes[i]` count a concept the page query — which fetches by `IN (ids)` —
+  // returns only once, so the run could never reach that dictionary's end.
+  return `SELECT DISTINCT ${idExpr} AS concept_id FROM "${source.dictionary.table}" d`
 }
 
 /** One concept's counts, as the counting pass returns them. */
@@ -256,7 +262,7 @@ export function buildDictionaryPageQuery(
     ${idExpr} AS concept_id,
     ${dict.codeColumn ? `CAST(d."${dict.codeColumn}" AS VARCHAR)` : `CAST(${idExpr} AS VARCHAR)`} AS concept_code,
     d."${dict.nameColumn}" AS concept_name,
-    ${vocabCol ? `CAST(d."${vocabCol}" AS VARCHAR)` : `'${dict.table}'`} AS vocabulary_id,
+    ${vocabCol ? `CAST(d."${vocabCol}" AS VARCHAR)` : `'${escSql(dict.table)}'`} AS vocabulary_id,
     ${dict.categoryColumn ? `CAST(d."${dict.categoryColumn}" AS VARCHAR)` : 'NULL'} AS category
   FROM "${dict.table}" d`
 

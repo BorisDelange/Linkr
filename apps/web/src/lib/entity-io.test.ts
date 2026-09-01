@@ -3148,6 +3148,64 @@ describe('export — a cohort ships its definition, not its run results', () => 
     expect(created[0].id).toBe(deterministicId('p1', 'adults'))
   })
 
+  it('keeps BOTH cohorts when two share a name', async () => {
+    // The loss this guards: the key is the slug of the name and nothing enforces
+    // unique names, so two "Adults" wrote cohorts/adults.json twice and the
+    // second silently destroyed the first.
+    const storage = new Proxy({
+      projects: { getById: async () => ({ uid: 'p1', name: { en: 'P' }, config: {} }) },
+      cohorts: {
+        getByProject: async () => [
+          { id: 'co-b', projectUid: 'p1', name: 'Adults', level: 'visit' },
+          { id: 'co-a', projectUid: 'p1', name: 'Adults', level: 'patient' },
+        ],
+      },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const built = await buildProjectZip('p1', storage, {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const files = Object.keys(zip.files).filter((f) => f.startsWith('cohorts/') && f.endsWith('.json')).sort()
+    expect(files).toEqual(['cohorts/adults.json', 'cohorts/adults#2.json'].sort())
+    // The suffix follows id order, not the order the storage happened to return,
+    // so the two keep their filenames across exports.
+    expect(JSON.parse(await zip.files['cohorts/adults.json'].async('string')).level).toBe('patient')
+    expect(JSON.parse(await zip.files['cohorts/adults#2.json'].async('string')).level).toBe('visit')
+  })
+
+  it('gives two same-named cohorts distinct ids on import', async () => {
+    const created: Record<string, unknown>[] = []
+    const storage = new Proxy({
+      cohorts: { create: async (c: Record<string, unknown>) => { created.push(c) } },
+      dataSources: { getAll: async () => [] },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const parsed = {
+      project: { uid: 'p1', name: { en: 'P' } },
+      ideFiles: [], pipelines: [],
+      // As parseProjectZip reads them: the filename is carried, and it is what
+      // separates the pair. Deriving from the name would give them one id.
+      cohorts: [
+        { name: 'Adults', exportKey: 'adults' },
+        { name: 'Adults', exportKey: 'adults#2' },
+      ],
+      connections: [], conceptLists: [], dashboards: [], dashboardTabs: [],
+      dashboardWidgets: [], datasetFiles: [], datasetAnalyses: [], datasetData: [],
+      datasetRawFiles: [], attachmentsMeta: [], attachmentBlobs: new Map(),
+    } as unknown as ParsedProjectZip
+
+    await importProjectContent(parsed, 'p1', storage)
+    expect(created).toHaveLength(2)
+    expect(created[0].id).not.toBe(created[1].id)
+    expect(created[0].id).toBe(deterministicId('p1', 'adults'))
+    expect(created[1].id).toBe(deterministicId('p1', 'adults#2'))
+    // The addressing key is not a property of the cohort — it must not be stored.
+    expect(created[0]).not.toHaveProperty('exportKey')
+  })
+
   it('still honours an id from an export written before it was dropped', async () => {
     const created: Record<string, unknown>[] = []
     const storage = new Proxy({

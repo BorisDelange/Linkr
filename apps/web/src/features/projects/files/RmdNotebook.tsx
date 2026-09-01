@@ -680,8 +680,16 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
         )
         return completed
       } finally {
-        runControllerRef.current = null
-        setIsRunning(false)
+        // Only clear OUR OWN controller. Stop aborts without clearing (the run is
+        // still settling — WASM Pyodide has no interrupt and always runs to the
+        // end), so a Run all pressed right after Stop starts a second sequence
+        // while this one unwinds. Clearing unconditionally then dropped the new
+        // sequence's controller and reset the toolbar, leaving a run nothing
+        // could stop.
+        if (runControllerRef.current === controller) {
+          runControllerRef.current = null
+          setIsRunning(false)
+        }
       }
     },
     [runCell, togglePreview],
@@ -716,8 +724,11 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
    */
   const stopRun = useCallback(() => {
     const running = runningCellRef.current
+    // Abort but do NOT clear the ref: it doubles as runSequence's one-at-a-time
+    // guard, and the aborted sequence is still unwinding. Clearing here let a
+    // second Run all through, and the first sequence's cleanup then clobbered it.
+    // runSequence's finally owns the lifecycle and clears its own controller.
     runControllerRef.current?.abort()
-    runControllerRef.current = null
     setIsRunning(false)
     if (!running) return
     if (running.language === 'r' || running.language === 'python') {

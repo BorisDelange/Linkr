@@ -153,6 +153,10 @@ const exportShape = (entity: unknown): Record<string, unknown> => {
     // Cohort run results: counted against THIS instance's database, so they are
     // not part of the definition the repo holds.
     attrition: _attrition, resultCount: _resultCount,
+    // How the tree ADDRESSED the entity (its filename), attached when the ZIP is
+    // read. Never written to a file, so comparing it would call every cohort
+    // changed — the local side has no such field.
+    exportKey: _exportKey,
     ...rest
   } = out
   return rest
@@ -385,8 +389,17 @@ export async function applyProjectPull(
   // Narrow the parsed content to exactly the picked items within each chosen group.
   const filtered = narrowParsed(parsed, selection)
 
+  // The workspace is what resolves the portable pointer each cohort and patient
+  // board carries. Omitting it wrote `dataSourceId: undefined` over the user's
+  // per-entity choice, and the fallback to the project's first usable database
+  // hid it: the entity kept rendering, against the wrong data.
+  const localProject = await storage.projects.getById(projectUid)
+
   if (groups.size) {
-    await importProjectContent(filtered, projectUid, storage, { groups })
+    await importProjectContent(filtered, projectUid, storage, {
+      groups,
+      workspaceId: localProject?.workspaceId,
+    })
   }
 
   // Re-link the databases the pulled manifest points at. A pull writes content
@@ -397,10 +410,9 @@ export async function applyProjectPull(
   const pulledRefs = (parsed.project as { linkedDataSourceRefs?: PointerRef[] })
     .linkedDataSourceRefs
   if (pulledRefs?.length) {
-    const local = await storage.projects.getById(projectUid)
-    if (local?.workspaceId) {
+    if (localProject?.workspaceId) {
       const rows = await storage.dataSources.getAll().catch(() => [])
-      const linked = resolveProjectPointers(rows, pulledRefs, local.workspaceId)
+      const linked = resolveProjectPointers(rows, pulledRefs, localProject.workspaceId)
       if (linked.ids.length > 0) {
         await storage.projects.update(projectUid, {
           linkedDataSourceIds: linked.ids,

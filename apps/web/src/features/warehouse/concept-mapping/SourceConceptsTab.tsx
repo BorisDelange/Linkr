@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { queryDataSource, queryDataSourceAll } from '@/lib/duckdb/engine'
 import { cn } from '@/lib/utils'
 import {
   DEFAULT_PROFILE_OPTIONS,
@@ -354,8 +354,11 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       sort: !restart && saved ? (saved.sort ?? DEFAULT_EXTRACTION_SORT) : sort,
       // A restart re-counts: the dictionaries may have grown since the last run,
       // and resuming against a stale total would stop short of the new rows.
-      resumeFrom: restart ? null : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0 },
+      resumeFrom: restart
+        ? null
+        : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0, sizes: saved?.sizes },
       query: (sql) => queryDataSource(dataSource.id, sql),
+      queryAll: (sql) => queryDataSourceAll(dataSource.id, sql),
       persist,
       persistError: async (message) => {
         if (!saved) return
@@ -366,7 +369,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     })
   }, [
     mapping, sources, dataSource, ensureMounted, saved, project, options,
-    persist, updateMappingProject,
+    persist, updateMappingProject, sort, t,
   ])
 
   const stop = useCallback(() => pauseRun(project.id), [project.id])
@@ -387,6 +390,9 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     setConfirmDiscard(false)
     clearRunError(project.id)
     localCsv.current = null
+    // Drop the module-level entry too, not just its contents: it outlives the
+    // component, and a discarded extraction's CSV can be tens of megabytes.
+    localCsvBuffers.delete(project.id)
     await updateMappingProject(project.id, {
       sourceExtraction: null,
       fileSourceData: null,

@@ -454,6 +454,11 @@ export function outlierBounds(
 /** Append the outlier filter to a scope that already has a WHERE. */
 function withinBounds(column: string, bounds: OutlierBounds | null): string {
   if (!bounds) return ''
+  // A non-finite bound would emit `>= NaN`, which DuckDB refuses to parse — and
+  // `run` swallows that, so the concept would silently lose its numeric block and
+  // histogram. `num()` yields NaN for any value the driver hands back unparsed,
+  // and NaN != null passes every guard above, so check here.
+  if (!Number.isFinite(bounds.lower) || !Number.isFinite(bounds.upper)) return ''
   return ` AND e."${column}" >= ${bounds.lower} AND e."${column}" <= ${bounds.upper}`
 }
 

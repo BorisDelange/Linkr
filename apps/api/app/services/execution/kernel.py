@@ -146,11 +146,15 @@ class _StreamWriter(io.TextIOBase):
     def write(self, s):
         if s:
             now = time.monotonic()
+            # Flush what is ALREADY buffered before appending, not after: checking
+            # afterwards held the current line back too, so `print(a); sleep;
+            # print(b)` sent nothing until b arrived and the two left together —
+            # losing exactly the live pause streaming exists to show.
+            if self._deadline is not None and now >= self._deadline:
+                self.flush()
             self._buf.append(s)
             if self._deadline is None:
                 self._deadline = now + self._FLUSH_S
-            elif now >= self._deadline:
-                self.flush()
         return len(s)
 
     def flush(self):
@@ -336,9 +340,12 @@ while True:
     # BaseException so a stray KeyboardInterrupt between expressions (outside
     # _run's own handler) ends the run cleanly instead of killing the interpreter.
     except BaseException as e:  # noqa: BLE001
+        # `failed` is REQUIRED here: the host reads bool(done.get("failed")), so
+        # omitting it reports a kernel error as a successful run — the notebook
+        # would run the next cell against a namespace this one never touched.
         result = {"stdout": "", "stderr": "kernel error: " + str(e),
                   "figures": [], "table": None, "html": None,
-                  "__linkr_done__": True}
+                  "failed": True, "__linkr_done__": True}
     # Tag the done with the run counter so the host can discard a STALE done left
     # in the pipe by a stopped run (whose reader was torn down) instead of pairing
     # it with the next run — that mismatch made a fresh run look done instantly.

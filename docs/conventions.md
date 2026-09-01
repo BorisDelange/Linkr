@@ -282,7 +282,8 @@ enforce three gates. All are at zero and must stay there:
 - `npm run test` — Vitest suite (must pass)
 - `npm run lint` — ESLint **errors** = 0 (warnings allowed; mostly React Compiler
   rules kept as warnings since the compiler isn't enabled — see eslint.config.js)
-- `npm run typecheck` — `tsc -b` clean
+- `npm run typecheck` — `tsc -b` clean (from `apps/web`; there is no root script,
+  and the hook runs it there)
 
 Don't reintroduce errors. If a change legitimately needs a type escape, prefer
 `as unknown as T` with a one-line WHY over `as any`; never add `@ts-ignore`.

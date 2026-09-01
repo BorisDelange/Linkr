@@ -116,6 +116,30 @@ def _cohort_export_shape(meta: dict) -> dict:
     return {k: v for k, v in meta.items() if k not in ("attrition", "resultCount", "id")}
 
 
+def _cohort_keys(cohorts: list[dict]) -> dict[str, dict]:
+    """Export key → cohort, ``#<n>`` on a name collision.
+
+    Twin of ``buildCohortKeyMap`` (entity-io.ts) and must stay byte-identical to
+    it. Cohort names are not unique — nothing enforces it — and the key is the
+    slug of the name, so two cohorts called "Adults" produced one filename and
+    the second silently overwrote the first, losing a cohort the user authored.
+
+    Sorted by id (code-point, matching the frontend's comparison) because the
+    suffix is handed out as we go: a different order would give the pair each
+    other's keys, i.e. swapped ids on reimport and a diff with nothing behind it.
+    """
+    out: dict[str, dict] = {}
+    for c in sorted(cohorts, key=lambda c: str(c["id"])):
+        base = _slugify(_localized_en(c.get("name")) or c["id"])
+        key = base
+        n = 2
+        while key in out:
+            key = f"{base}#{n}"
+            n += 1
+        out[key] = c
+    return out
+
+
 def _canonical_parse_options(opts: dict) -> dict:
     """parseOptions with keys (and nested per-column maps) sorted — mirrors
     entity-io.ts:canonicalParseOptions and dataset_fs._canonical_parse_options, so
@@ -745,8 +769,8 @@ def build_project_tree(
     # Names are LocalizedString, so the slug comes from English — the same rule
     # cohortKey uses on the frontend, or the two would export the same cohort
     # under different filenames.
-    for c in cohorts:
-        tree[f"cohorts/{_slugify(_localized_en(c.get('name')) or c['id'])}.json"] = _json(
+    for cohort_key, c in _cohort_keys(cohorts).items():
+        tree[f"cohorts/{cohort_key}.json"] = _json(
             _cohort_export_shape(_drop_local_database(_strip_instance_fields(c)))
         )
 

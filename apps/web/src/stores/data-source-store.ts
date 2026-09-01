@@ -261,6 +261,11 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
           // is what those queries read, so this is the one gate they all share.
           if (ds.schemaMapping) ds.schemaMapping = sanitizeSchemaMapping(ds.schemaMapping)
         }
+        // Only the newest load may publish. In server mode `getAll()` is an HTTP
+        // request, so a plain read that started first can resolve AFTER a forced
+        // reload and overwrite it with pre-write rows — putting back exactly the
+        // staleness `force` was added to clear.
+        if (loadingToken !== token) return
         set({ dataSources: all, dataSourcesLoaded: true })
         // Re-check what is marked broken, once per session load. `status:
         // 'error'` is written by whichever call failed and nothing clears it, so

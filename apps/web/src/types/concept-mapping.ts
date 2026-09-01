@@ -249,6 +249,18 @@ export interface SourceExtraction {
   extracted: number
   /** Concepts the dictionary holds, as counted when the run started. */
   total: number
+  /**
+   * How many concepts each dictionary held when the run started, in
+   * `dictionaryKeys` order.
+   *
+   * The offset is GLOBAL, and mapping it back onto (dictionary, local offset)
+   * needs the very sizes the writing run used. Recounting them on resume is what
+   * broke it: a dictionary that grew or shrank in between shifts every boundary,
+   * so the resume restarts inside the wrong dictionary and concepts are skipped
+   * or profiled twice. Absent on runs started before this was recorded — those
+   * resume on a recount, as they always did.
+   */
+  sizes?: number[]
   /** Which profile blocks this run computes, and how. */
   options: import('@/lib/concept-mapping/concept-profile').ProfileOptions
   /**

@@ -263,6 +263,38 @@ def test_include_data_writes_raw_file_verbatim_without_sidecar():
     assert "!datasets/cohort/cohort.csv" in tree[".gitignore"].decode()
 
 
+def test_two_cohorts_sharing_a_name_both_survive():
+    # The loss this guards: the filename is the slug of the name and nothing
+    # enforces unique cohort names, so two "Adults" wrote cohorts/adults.json
+    # twice and the second silently destroyed the first. Must match
+    # buildCohortKeyMap's suffixing exactly, or the two writers disagree.
+    tree = build_project_tree(
+        project={"uid": "p", "name": {"en": "P"}},
+        organization=None,
+        ide_files=[],
+        pipelines=[],
+        cohorts=[
+            {"id": "co-b", "name": "Adults", "level": "visit"},
+            {"id": "co-a", "name": "Adults", "level": "patient"},
+        ],
+        connections=[],
+        dashboards=[],
+        dataset_files=[],
+        dataset_analyses={},
+        dataset_data={},
+        dataset_raw_files={},
+        attachments=[],
+        attachment_blobs={},
+        versioned_data_files=set(),
+    )
+    assert "cohorts/adults.json" in tree
+    assert "cohorts/adults#2.json" in tree
+    # Suffix handed out in id order, not input order, so the pair keeps its
+    # filenames across exports rather than swapping them.
+    assert json.loads(tree["cohorts/adults.json"])["level"] == "patient"
+    assert json.loads(tree["cohorts/adults#2.json"])["level"] == "visit"
+
+
 def test_computed_dataset_reconstructs_csv_when_no_raw_file():
     # No raw file but rows present (a computed dataset) → reconstructed CSV via
     # datasetToCsv (header uses column NAMES, cells keyed by column ids).

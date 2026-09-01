@@ -846,9 +846,44 @@ export function patientDashboardKey(d: PatientDashboard): string {
 
 /** cohortKey — slug of the English name, matching the export filename. English
  *  so the filename (and the id derived from it) stays put when the cohort is
- *  renamed in another language. */
+ *  renamed in another language.
+ *
+ *  Use `buildCohortKeyMap` when writing or reading a whole project: nothing
+ *  enforces unique cohort names, and two that share one collapse onto this key. */
 export function cohortKey(c: Cohort): string {
   return slugify(localized(c.name, 'en') || c.id)
+}
+
+/**
+ * Every cohort id → its export key, `#<n>` on a collision.
+ *
+ * Cohort names are not unique — nothing in the app enforces it — and the key is
+ * the slug of the name, so two cohorts called "Adults" produce one filename:
+ * writing them both wrote `cohorts/adults.json` twice and the second silently
+ * destroyed the first, losing a cohort the user had authored. Disambiguated the
+ * way sibling tabs and widgets already are.
+ *
+ * Fixed iteration order for the same reason `buildPatientTabKeyMap` sorts: the
+ * suffix is handed out as we go, so a different order gives the pair each
+ * other's keys — swapped ids on reimport and a diff with no change behind it.
+ * Code-point order on the id, matching Python's `sorted(key=str)`.
+ */
+export function buildCohortKeyMap(cohorts: Cohort[]): Map<string, string> {
+  const keyOf = new Map<string, string>()
+  const seen = new Set<string>()
+  const ordered = [...cohorts].sort((a, b) => {
+    const x = String(a.id)
+    const y = String(b.id)
+    return x < y ? -1 : x > y ? 1 : 0
+  })
+  for (const c of ordered) {
+    const base = cohortKey(c)
+    let key = base
+    for (let n = 2; seen.has(key); n++) key = `${base}#${n}`
+    seen.add(key)
+    keyOf.set(c.id, key)
+  }
+  return keyOf
 }
 
 /** Every tab id → `<boardKey>/<slug>`, `#<displayOrder>` on a sibling collision. */
@@ -1195,6 +1230,7 @@ export async function buildProjectZip(
 
   // --- cohorts/ ---
   const cohorts = await storage.cohorts.getByProject(projectUid)
+  const cohortKeys = buildCohortKeyMap(cohorts)
   for (const c of cohorts) {
     const out = stripInstanceFields(c) as Record<string, unknown>
     // A local database UUID addresses nothing elsewhere; `dataSourceRef` beside it
@@ -1212,7 +1248,7 @@ export async function buildProjectZip(
     // round trip rewrite it — the import re-hashed the repo's id, pushed the new
     // one back, and the next import re-hashed that: churn that never converged.
     delete out.id
-    zip.file(`cohorts/${cohortKey(c)}.json`, json(out))
+    zip.file(`cohorts/${cohortKeys.get(c.id) ?? cohortKey(c)}.json`, json(out))
   }
 
   // --- concept-lists/ ---
@@ -1727,13 +1763,18 @@ export async function importProjectContent(
     await storage.conceptLists.create({ ...l, id: mapId(l.id), projectUid })
   }
   for (const c of parsed.cohorts) {
+    // `exportKey` is read from the filename and must not be stored: it is how the
+    // tree addressed this cohort, not a property of the cohort.
+    const { exportKey, ...cohort } = c
     await storage.cohorts.create(
       dropForeignAuthorId({
-        ...c,
+        ...cohort,
         // Same rule as a patient board: a key-based export carries no id, so the
         // id comes from the content key and a re-import lands on the same row.
-        // `mapId` stays for exports written before the id was dropped.
-        id: c.id ? mapId(c.id) : keyId(cohortKey(c)),
+        // The key is the FILENAME (`exportKey`), which disambiguates two cohorts
+        // sharing a name — deriving it from the name would give them one id and
+        // drop one. `mapId` stays for exports written before the id was dropped.
+        id: c.id ? mapId(c.id) : keyId(exportKey ?? cohortKey(c)),
         projectUid,
         dataSourceId: localDatabaseId(c.dataSourceRef),
       }),
@@ -2249,7 +2290,12 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
   const cohorts: Cohort[] = []
   for (const [path, entry] of scanFolder(zip, 'cohorts/')) {
     if (path.endsWith('.json')) {
-      cohorts.push(JSON.parse(await entry.async('string')))
+      const cohort = JSON.parse(await entry.async('string')) as Cohort
+      // The FILENAME is the identity, so carry it: two cohorts sharing a name
+      // are disambiguated in the file name (`adults`, `adults#2`) and re-deriving
+      // the key from the name alone would collapse them back onto one id.
+      cohort.exportKey = path.slice('cohorts/'.length, -'.json'.length)
+      cohorts.push(cohort)
     }
   }
 

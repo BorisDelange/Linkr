@@ -61,3 +61,28 @@ describe('dynamically built i18n keys resolve', () => {
     })
   }
 })
+
+/**
+ * en.json and fr.json must hold exactly the same keys.
+ *
+ * English is the fallback language, so a key present only in French does not
+ * degrade — it renders the raw key id on screen. That shipped: the `_plural`
+ * suffix (dead in i18next v4 JSON) was converted to `_one`/`_other` in fr.json
+ * only, and English users read "versioning.pull_count_add" in the pull panel.
+ * Nothing else in the gate compares the two files.
+ */
+describe('locale parity', () => {
+  const flatten = (value: unknown, prefix = ''): string[] =>
+    Object.entries(value as Record<string, unknown>).flatMap(([k, v]) =>
+      v && typeof v === 'object' && !Array.isArray(v)
+        ? flatten(v, `${prefix}${k}.`)
+        : [`${prefix}${k}`],
+    )
+
+  it('en and fr declare the same keys', () => {
+    const enKeys = new Set(flatten(en))
+    const frKeys = new Set(flatten(fr))
+    expect([...enKeys].filter((k) => !frKeys.has(k))).toEqual([])
+    expect([...frKeys].filter((k) => !enKeys.has(k))).toEqual([])
+  })
+})
