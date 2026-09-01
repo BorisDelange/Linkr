@@ -13,6 +13,7 @@ library is (re)materialised by ``build`` (``renv::restore``), a manual step.
 """
 
 import asyncio
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -480,21 +481,23 @@ def client_r_source() -> Path | None:
     return None
 
 
-def _installed_client_version(lib: Path) -> str | None:
-    desc = lib / "linkr" / "DESCRIPTION"
-    if not desc.is_file():
+def _client_source_fingerprint(source: Path) -> str:
+    """Identity of the shipped client sources: the declared version plus the mtime and
+    size of DESCRIPTION and every R file. Editing a function without bumping the version
+    still changes this, which is the point — a stale client is invisible until a script
+    calls something that moved."""
+    parts = [(source / "DESCRIPTION").read_text(errors="ignore").strip()]
+    for path in sorted((source / "R").glob("*.R")):
+        stat = path.stat()
+        parts.append(f"{path.name}:{stat.st_mtime_ns}:{stat.st_size}")
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def _installed_client_fingerprint(lib: Path) -> str | None:
+    stamp = lib / "linkr" / "linkr-source-fingerprint"
+    if not stamp.is_file():
         return None
-    for line in desc.read_text(errors="ignore").splitlines():
-        if line.startswith("Version:"):
-            return line.split(":", 1)[1].strip()
-    return None
-
-
-def _source_client_version(source: Path) -> str | None:
-    for line in (source / "DESCRIPTION").read_text(errors="ignore").splitlines():
-        if line.startswith("Version:"):
-            return line.split(":", 1)[1].strip()
-    return None
+    return stamp.read_text(errors="ignore").strip() or None
 
 
 def ensure_client_r_lib(on_log=None) -> None:
@@ -511,9 +514,11 @@ def ensure_client_r_lib(on_log=None) -> None:
     there is. The package reaches them through ``loadNamespace(lib.loc=)`` instead (see
     the client's R/zzz.R), driven by ``LINKR_CLIENT_R_LIB``.
 
-    Reinstalled whenever the shipped version differs from the installed one, so a server
-    upgrade doesn't leave an old client behind. Idempotent and cheap otherwise (reading
-    one DESCRIPTION). Requires ensure_r_sandbox() first.
+    Reinstalled whenever the shipped SOURCES change, not just the declared version: the
+    version is hand-edited and easy to forget, and a stale client is invisible until a
+    script calls a function that moved. The fingerprint (mtime + size of every R file
+    and DESCRIPTION) is stamped beside the install; a mismatch reinstalls. Idempotent
+    and cheap otherwise (a few stat calls). Requires ensure_r_sandbox() first.
     """
     import subprocess
 
@@ -524,12 +529,12 @@ def ensure_client_r_lib(on_log=None) -> None:
         return
 
     kernel_lib = project_fs.kernel_r_lib()
-    want = _source_client_version(source)
-    have = _installed_client_version(kernel_lib)
+    want = _client_source_fingerprint(source)
+    have = _installed_client_fingerprint(kernel_lib)
     deps_present = all(
         (project_fs.client_r_lib() / d).is_dir() for d in _CLIENT_DEPS
     )
-    if have is not None and have == want and deps_present:
+    if have == want and deps_present:
         return
 
     lib = str(kernel_lib).replace("\\", "/")
@@ -575,8 +580,13 @@ def ensure_client_r_lib(on_log=None) -> None:
         if on_log is not None:
             on_log(f"client R lib ensure failed: {e}")
         return
-    if res.returncode != 0 and on_log is not None:
-        on_log(f"client R lib ensure failed (exit {res.returncode}): {res.stderr.strip()[:2000]}")
+    if res.returncode != 0:
+        if on_log is not None:
+            on_log(f"client R lib ensure failed (exit {res.returncode}): {res.stderr.strip()[:2000]}")
+        return
+    # Stamp only on success, so a failed install is retried next time rather than
+    # recorded as up to date.
+    (kernel_lib / "linkr" / "linkr-source-fingerprint").write_text(want, encoding="utf-8")
 
 
 async def build(project_uid: str, on_log=None, options: dict | None = None) -> BuildResult:

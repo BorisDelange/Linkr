@@ -219,14 +219,21 @@ class ClientDatabase(CamelModel):
     place Linkr hands a secret to user code. It is only ever sent to a caller who
     already holds `databases:read` on the source, i.e. someone who can read the
     same data through the UI; see the endpoint for why that trade is made.
+
+    `alias` is what a script addresses a database BY. It is the same slug the SQL
+    editor uses (``ds_<alias>``), it is stable across renames, and it is readable —
+    unlike the uuid. `name` and `id` are carried for display and are deliberately
+    NOT accepted by ``linkr_connect``: a script keyed on a display name breaks the
+    day someone edits it, and one keyed on a uuid is unreadable.
     """
 
     id: str
-    # Flattened from the stored LocalizedString to a plain string: a script matches
-    # on this name, so picking a language server-side keeps that from being every
-    # caller's problem. Declared `str` alone, every source whose name is localized
-    # (i.e. every source created through the UI) failed validation and the endpoint
-    # 500-ed for the whole list.
+    # The stable, readable key a script addresses this database by.
+    alias: str
+    # Display only. Flattened from the stored LocalizedString to a plain string, so
+    # picking a language is not every caller's problem. Declared `str` alone, every
+    # source whose name is localized (i.e. every source created through the UI)
+    # failed validation and the endpoint 500-ed for the whole list.
     name: str
     engine: str | None = None
     # "duckdb" today for every supported engine (see the class docstring).

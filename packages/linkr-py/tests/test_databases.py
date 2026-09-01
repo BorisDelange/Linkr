@@ -8,7 +8,7 @@ import pytest
 from linkr import _databases
 from linkr._api import LinkrError
 
-CONNECTABLE = [{"id": "x", "name": "Db", "dialect": "duckdb", "kind": "managed",
+CONNECTABLE = [{"id": "x", "alias": "db", "name": "Db", "dialect": "duckdb", "kind": "managed",
                 "connectable": True, "path": "/tmp/x.duckdb"}]
 
 
@@ -24,7 +24,7 @@ def test_unconnectable_source_says_why(monkeypatch):
     monkeypatch.setattr(_databases, "api_call", lambda path: rows)
 
     with pytest.raises(LinkrError, match="no data has been uploaded"):
-        _databases.connect("Db")
+        _databases.connect("db")
 
 
 def test_unknown_dialect_is_refused_rather_than_guessed(monkeypatch):
@@ -34,11 +34,11 @@ def test_unknown_dialect_is_refused_rather_than_guessed(monkeypatch):
     monkeypatch.setattr(_databases, "api_call", lambda path: rows)
 
     with pytest.raises(LinkrError, match="oracle"):
-        _databases.connect("Db")
+        _databases.connect("db")
 
 
-def test_empty_name_is_rejected():
-    with pytest.raises(LinkrError, match="name"):
+def test_empty_alias_is_rejected():
+    with pytest.raises(LinkrError, match="alias"):
         _databases.connect("")
 
 
@@ -90,11 +90,11 @@ def test_duckdb_is_resolved_at_call_time_not_import_time(monkeypatch):
 def test_databases_shape(monkeypatch):
     monkeypatch.setattr(
         _databases, "api_call",
-        lambda path: [{"id": "a", "name": "N", "engine": "duckdb",
+        lambda path: [{"id": "a", "alias": "n", "name": "N", "engine": "duckdb",
                        "dialect": "duckdb", "kind": "managed", "connectable": True}],
     )
 
     assert _databases.databases() == [
-        {"id": "a", "name": "N", "engine": "duckdb", "dialect": "duckdb",
-         "kind": "managed", "connectable": True}
+        {"alias": "n", "name": "N", "id": "a", "engine": "duckdb",
+         "dialect": "duckdb", "kind": "managed", "connectable": True}
     ]

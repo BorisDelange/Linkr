@@ -57,15 +57,19 @@
 #' MySQL are reached by attaching them into DuckDB exactly as the app's own SQL
 #' editor does, so a query moves between the IDE and the app unchanged.
 #'
-#' @return A data frame with columns `id`, `name`, `engine`, `dialect`, `kind`
-#'   and `connectable`. `connectable` is FALSE for a source whose file was never
-#'   uploaded: it is listed, but `linkr_connect()` on it will fail.
+#' `alias` is the column to copy into [linkr_connect()]: it is the stable slug
+#' (the one the SQL editor uses as `ds_<alias>`), so a script keeps working when
+#' the database is renamed. `name` is there to read, not to address.
+#'
+#' @return A data frame with columns `alias`, `name`, `engine`, `dialect`,
+#'   `kind` and `connectable`. `connectable` is FALSE for a source whose file
+#'   was never uploaded: it is listed, but `linkr_connect()` on it will fail.
 #' @export
 linkr_databases <- function() {
   rows <- .linkr_api_call("/databases")
   if (length(rows) == 0) {
     return(data.frame(
-      id = character(0), name = character(0), engine = character(0),
+      alias = character(0), name = character(0), engine = character(0),
       dialect = character(0), kind = character(0), connectable = logical(0),
       stringsAsFactors = FALSE
     ))
@@ -80,7 +84,8 @@ linkr_databases <- function() {
     )
   }
   data.frame(
-    id = field("id"),
+    # `alias` first: linkr_connect() takes it, so it is the column to copy.
+    alias = field("alias"),
     name = field("name"),
     engine = field("engine"),
     dialect = field("dialect"),
@@ -90,22 +95,36 @@ linkr_databases <- function() {
   )
 }
 
-.linkr_find_database <- function(rows, name) {
-  ids <- vapply(rows, function(r) as.character(r$id), character(1))
-  names_ <- vapply(rows, function(r) as.character(r$name), character(1))
-  hit <- which(ids == name)
-  if (length(hit) == 1) return(rows[[hit]])
-  hit <- which(names_ == name)
+# Matches on the alias ALONE, never the display name or the uuid. A script keyed
+# on a display name breaks the day someone renames the database (and a name can
+# be localized, so there is no single "the" name), while a uuid is unreadable in
+# the code that has to be reviewed. The alias is the slug the SQL editor uses.
+#
+# Nothing enforces alias uniqueness today, so a duplicate is reported rather
+# than resolved to whichever row came first — picking one at random is how a
+# script quietly reads the wrong database.
+.linkr_find_database <- function(rows, alias) {
+  # NA rather than a length-0 vapply failure for a row without an alias: an
+  # older server that predates the field must produce "no database with that
+  # alias", not "values must be length 1".
+  aliases <- vapply(
+    rows,
+    function(r) if (is.null(r$alias)) NA_character_ else as.character(r$alias),
+    character(1)
+  )
+  hit <- which(aliases == alias)
   if (length(hit) == 1) return(rows[[hit]])
   if (length(hit) > 1) {
+    ids <- vapply(rows[hit], function(r) as.character(r$id), character(1))
     stop(
-      "Several databases are named '", name, "'. Use the id instead, one of: ",
-      paste(ids[hit], collapse = ", "), call. = FALSE
+      "Several databases share the alias '", alias, "' (",
+      paste(ids, collapse = ", "), "). Rename one in the Databases page so a ",
+      "script can address them unambiguously.", call. = FALSE
     )
   }
   stop(
-    "No database named '", name, "' in this project. Available: ",
-    if (length(names_)) paste(names_, collapse = ", ") else "(none)",
+    "No database with alias '", alias, "' in this project. Available: ",
+    if (length(aliases)) paste(aliases, collapse = ", ") else "(none)",
     call. = FALSE
   )
 }

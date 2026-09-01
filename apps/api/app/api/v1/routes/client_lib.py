@@ -58,6 +58,7 @@ async def list_databases(
     return [
         ClientDatabase(
             id=source.id,
+            alias=source.alias,
             name=source.name,
             **await data_source_service.client_recipe(db, source),
         )

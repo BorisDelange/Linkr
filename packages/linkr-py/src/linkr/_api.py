@@ -42,24 +42,28 @@ def api_call(path: str) -> list[dict]:
         raise LinkrError(f"Could not reach the Linkr server at {base}: {e.reason}") from e
 
 
-def find_database(rows: list[dict], name: str) -> dict:
-    """Resolve a database by id first, then by name.
+def find_database(rows: list[dict], alias: str) -> dict:
+    """Resolve a database by its alias, and only by its alias.
 
-    Id wins so an exact id is never ambiguous, even where two sources share a
-    display name — which is legal, and the case a name-only lookup cannot serve.
+    Not the display name: renaming a database would silently break every script
+    addressing it, and a name can be localized, so there is no single "the" name.
+    Not the uuid either: it is stable but unreadable in code someone has to review.
+    The alias is the same slug the SQL editor uses (``ds_<alias>``).
+
+    Nothing enforces alias uniqueness today (no DB constraint, no server check), so
+    a duplicate is reported rather than silently resolved to whichever row came
+    first — picking one at random is how a script quietly reads the wrong database.
     """
-    for row in rows:
-        if row.get("id") == name:
-            return row
-    matches = [row for row in rows if row.get("name") == name]
+    matches = [row for row in rows if row.get("alias") == alias]
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1:
         ids = ", ".join(str(m.get("id")) for m in matches)
         raise LinkrError(
-            f"Several databases are named {name!r}. Use the id instead, one of: {ids}"
+            f"Several databases share the alias {alias!r} ({ids}). Rename one in the "
+            "Databases page so a script can address them unambiguously."
         )
-    available = ", ".join(str(r.get("name")) for r in rows) or "(none)"
+    available = ", ".join(str(r.get("alias")) for r in rows) or "(none)"
     raise LinkrError(
-        f"No database named {name!r} in this project. Available: {available}"
+        f"No database with alias {alias!r} in this project. Available: {available}"
     )

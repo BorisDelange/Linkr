@@ -69,7 +69,7 @@ import { executeR } from '@/lib/runtimes/webr-engine'
 import { executeOnServer } from '@/lib/api/execution'
 import { isServerMode } from '@/lib/api-client'
 import * as duckdbEngine from '@/lib/duckdb/engine'
-import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
+import { defineLinkrThemes } from '@/components/editor/monaco-themes'
 import { useShortcutStore } from '@/stores/shortcut-store'
 import type { KeyCombo, ShortcutActionId } from '@/types/shortcuts'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
@@ -225,8 +225,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   const fontSize = useAppStore((s) => s.editorSettings.fontSize)
 
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
-    monaco.editor.defineTheme('linkr-dark', linkrDark)
-    monaco.editor.defineTheme('linkr-light', linkrLight)
+    defineLinkrThemes(monaco)
   }, [])
 
   // ---- State ----

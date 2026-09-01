@@ -647,13 +647,18 @@ def test_client_database_flattens_a_localized_name():
     from app.schemas.data_source import ClientDatabase
 
     localized = ClientDatabase(
-        id="a", name={"en": "MIMIC-IV", "fr": "MIMIC-IV (fr)"}, kind="managed"
+        id="a", alias="mimic_iv", name={"en": "MIMIC-IV", "fr": "MIMIC-IV (fr)"},
+        kind="managed",
     )
     assert localized.name == "MIMIC-IV"
+    # The alias is what a script addresses the database by, and is never localized.
+    assert localized.alias == "mimic_iv"
 
     # No English: fall through to the first non-blank language rather than error.
-    assert ClientDatabase(id="b", name={"fr": "Entrepôt"}, kind="managed").name == "Entrepôt"
+    assert ClientDatabase(id="b", alias="e", name={"fr": "Entrepôt"}).name == "Entrepôt"
     # Blank English does not win — it would render as an unnamed database.
-    assert ClientDatabase(id="c", name={"en": "   ", "fr": "Entrepôt"}).name == "Entrepôt"
+    assert ClientDatabase(
+        id="c", alias="e", name={"en": "   ", "fr": "Entrepôt"}
+    ).name == "Entrepôt"
     # A bare string (seed data, older manifests) is still accepted as-is.
-    assert ClientDatabase(id="d", name="Plain").name == "Plain"
+    assert ClientDatabase(id="d", alias="p", name="Plain").name == "Plain"

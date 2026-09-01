@@ -134,7 +134,7 @@ library(DBI)
 linkr_project_dir(); linkr_scripts_dir(); linkr_datasets_dir()
 linkr_databases()
 
-con <- linkr_connect("MIMIC-IV")
+con <- linkr_connect("mimic_iv")
 dbGetQuery(con, "SELECT * FROM person LIMIT 10")
 dbDisconnect(con, shutdown = TRUE)
 \`\`\`
@@ -165,9 +165,13 @@ editor does, so a query moves between the IDE and the app unchanged.
 
 ## Value
 
-A data frame with columns \`id\`, \`name\`, \`engine\`, \`dialect\`, \`kind\` and
+A data frame with columns \`alias\`, \`name\`, \`engine\`, \`dialect\`, \`kind\` and
 \`connectable\`. \`connectable\` is \`FALSE\` for a source whose file was never
 uploaded: it is listed, but \`linkr_connect()\` on it will fail.
+
+\`alias\` is the column to copy into \`linkr_connect()\`: it is the stable slug (the
+one the SQL editor uses as \`ds_<alias>\`), so a script keeps working when the
+database is renamed. \`name\` is there to read, not to address.
 
 ## Requires a session
 
@@ -178,7 +182,7 @@ IDE session it fails with a message saying so.
     {
       id: 'connect',
       name: 'linkr_connect',
-      signature: 'linkr_connect(name, read_only = TRUE)',
+      signature: 'linkr_connect(alias, read_only = TRUE)',
       summary: 'Open one of this project’s databases.',
       body: `
 Returns a real DBI connection, so everything built on DBI works: \`dbGetQuery\`,
@@ -186,7 +190,8 @@ Returns a real DBI connection, so everything built on DBI works: \`dbGetQuery\`,
 
 ## Arguments
 
-- **\`name\`** — database name or id, as listed by \`linkr_databases()\`.
+- **\`alias\`** — the database’s alias, as listed by \`linkr_databases()\`.
+  The stable slug, not the display name: a rename must not break a script.
 - **\`read_only\`** — passed through for file-backed sources. External databases
   are always attached read-only: a script must not write to a source.
 
@@ -209,7 +214,7 @@ against a local Parquet file in one statement.
 A \`DBIConnection\`. Close it with \`DBI::dbDisconnect()\`.
 
 \`\`\`r
-con <- linkr_connect("MIMIC-IV")
+con <- linkr_connect("mimic_iv")
 on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 \`\`\`
 `.trim(),
@@ -231,7 +236,7 @@ import linkr
 linkr.project_dir(); linkr.scripts_dir(); linkr.datasets_dir()
 linkr.databases()
 
-with linkr.connect("MIMIC-IV") as con:
+with linkr.connect("mimic_iv") as con:
     df = con.execute("SELECT * FROM person LIMIT 10").df()
 \`\`\`
 
@@ -255,9 +260,13 @@ editor does, so a query moves between the IDE and the app unchanged.
 
 ## Returns
 
-A list of dicts with keys \`id\`, \`name\`, \`engine\`, \`dialect\`, \`kind\` and
-\`connectable\`. A source whose file was never uploaded is listed with
+A list of dicts with keys \`alias\`, \`name\`, \`id\`, \`engine\`, \`dialect\`, \`kind\`
+and \`connectable\`. A source whose file was never uploaded is listed with
 \`connectable\` \`False\`: visible, but \`connect()\` on it will fail.
+
+\`alias\` is the key to copy into \`connect()\`: it is the stable slug (the one the
+SQL editor uses as \`ds_<alias>\`), so a script keeps working when the database is
+renamed. \`name\` is there to read, not to address.
 
 ## Requires a session
 
@@ -268,7 +277,7 @@ IDE session it raises \`LinkrError\` with a message saying so.
     {
       id: 'connect',
       name: 'connect',
-      signature: 'linkr.connect(name, read_only=True)',
+      signature: 'linkr.connect(alias, read_only=True)',
       summary: 'Open one of this project’s databases.',
       body: `
 Returns a real DuckDB connection — a DBAPI handle — so \`.execute()\`, \`.df()\`,
@@ -276,7 +285,8 @@ pandas' \`read_sql\` and anything else built on it work.
 
 ## Parameters
 
-- **\`name\`** — database name or id, as listed by \`linkr.databases()\`.
+- **\`alias\`** — the database’s alias, as listed by \`linkr.databases()\`.
+  The stable slug, not the display name: a rename must not break a script.
 - **\`read_only\`** — passed through for file-backed sources. External databases
   are always attached read-only: a script must not write to a source.
 
@@ -299,7 +309,7 @@ against a local Parquet file in one statement.
 Close what you open, or use the connection as a context manager:
 
 \`\`\`python
-with linkr.connect("MIMIC-IV") as con:
+with linkr.connect("mimic_iv") as con:
     df = con.execute("SELECT * FROM person LIMIT 10").df()
 \`\`\`
 `.trim(),

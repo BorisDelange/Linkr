@@ -14,26 +14,28 @@
 #' in one process, so a hidden shared connection would surface later as a
 #' "Unique file handle conflict" that no restart fixes.
 #'
-#' @param name Database name or id, as listed by [linkr_databases()].
+#' @param alias The database's alias, as listed by [linkr_databases()] — the
+#'   stable slug, not the display name: renaming a database must not break a
+#'   script, and a display name can differ per language.
 #' @param read_only Passed through for file-backed sources. External databases
 #'   are always attached read-only: a script must not write to a source.
 #' @return A `DBIConnection`. Close it with `DBI::dbDisconnect()`.
 #' @export
-linkr_connect <- function(name, read_only = TRUE) {
-  if (!is.character(name) || length(name) != 1 || !nzchar(name)) {
-    stop("`name` must be a single database name or id.", call. = FALSE)
+linkr_connect <- function(alias, read_only = TRUE) {
+  if (!is.character(alias) || length(alias) != 1 || !nzchar(alias)) {
+    stop("`alias` must be a single database alias.", call. = FALSE)
   }
-  db <- .linkr_find_database(.linkr_api_call("/databases"), name)
+  db <- .linkr_find_database(.linkr_api_call("/databases"), alias)
   if (!isTRUE(db$connectable)) {
     stop(
-      "Database '", db$name, "' cannot be opened: no data has been uploaded ",
+      "Database '", db$alias, "' cannot be opened: no data has been uploaded ",
       "or built for it yet.", call. = FALSE
     )
   }
   dialect <- if (is.null(db$dialect)) "duckdb" else db$dialect
   if (!identical(dialect, "duckdb")) {
     stop(
-      "Database '", db$name, "' speaks the '", dialect, "' dialect, which ",
+      "Database '", db$alias, "' speaks the '", dialect, "' dialect, which ",
       "this version of the linkr package cannot open.", call. = FALSE
     )
   }

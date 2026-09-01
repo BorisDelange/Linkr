@@ -36,13 +36,19 @@ def databases() -> list[dict]:
     MySQL are reached by attaching them into DuckDB exactly as the app's own SQL
     editor does, so a query moves between the IDE and the app unchanged.
 
+    ``alias`` is the field to copy into :func:`connect`: it is the stable slug (the
+    one the SQL editor uses as ``ds_<alias>``), so a script keeps working when the
+    database is renamed. ``name`` is there to read, not to address.
+
     A source whose file was never uploaded is listed with ``connectable`` False:
     visible, but :func:`connect` on it will fail.
     """
     return [
         {
-            "id": row.get("id"),
+            # `alias` first: it is what connect() takes, so it is the field to copy.
+            "alias": row.get("alias"),
             "name": row.get("name"),
+            "id": row.get("id"),
             "engine": row.get("engine"),
             "dialect": row.get("dialect"),
             "kind": row.get("kind"),
@@ -52,7 +58,7 @@ def databases() -> list[dict]:
     ]
 
 
-def connect(name: str, read_only: bool = True) -> "duckdb.DuckDBPyConnection":
+def connect(alias: str, read_only: bool = True) -> "duckdb.DuckDBPyConnection":
     """Open one of this project's databases.
 
     Returns a real DuckDB connection — a DBAPI handle — so ``.execute()``,
@@ -69,22 +75,24 @@ def connect(name: str, read_only: bool = True) -> "duckdb.DuckDBPyConnection":
     file handle conflict" that no restart fixes. Close what you open, or use the
     connection as a context manager.
 
-    :param name: Database name or id, as listed by :func:`databases`.
+    :param alias: The database's alias, as listed by :func:`databases` — the stable
+        slug, not the display name: renaming a database must not break a script,
+        and a display name can differ per language.
     :param read_only: Passed through for file-backed sources. External databases
         are always attached read-only: a script must not write to a source.
     """
-    if not isinstance(name, str) or not name:
-        raise LinkrError("`name` must be a database name or id.")
-    db = find_database(api_call("/databases"), name)
+    if not isinstance(alias, str) or not alias:
+        raise LinkrError("`alias` must be a database alias.")
+    db = find_database(api_call("/databases"), alias)
     if not db.get("connectable"):
         raise LinkrError(
-            f"Database {db.get('name')!r} cannot be opened: no data has been "
+            f"Database {db.get('alias')!r} cannot be opened: no data has been "
             "uploaded or built for it yet."
         )
     dialect = db.get("dialect") or "duckdb"
     if dialect != "duckdb":
         raise LinkrError(
-            f"Database {db.get('name')!r} speaks the {dialect!r} dialect, which "
+            f"Database {db.get('alias')!r} speaks the {dialect!r} dialect, which "
             "this version of the linkr package cannot open."
         )
 
