@@ -20,7 +20,9 @@ interface FileTreeProps {
 
 export function FileTree({ onNewChild, search = '' }: FileTreeProps) {
   const { t } = useTranslation()
-  const { expandedFolders, selectedFileId, moveNode } = useFileStore()
+  const expandedFolders = useFileStore((s) => s.expandedFolders)
+  const selectedFileId = useFileStore((s) => s.selectedFileId)
+  const moveNode = useFileStore((s) => s.moveNode)
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   const { nodes } = useProjectTree(activeProjectUid)
   const [rootDragOver, setRootDragOver] = useState(false)
@@ -42,15 +44,33 @@ export function FileTree({ onNewChild, search = '' }: FileTreeProps) {
   })
   const compare = (a: TreeNode, b: TreeNode) => compareTreeNodes(sortable(a), sortable(b), sort)
 
+  // One pass over the tree, bucketed by parent, each bucket sorted once. getChildren
+  // used to filter + sort the WHOLE node list per call, and visibleIds calls it once
+  // per expanded folder — O(n²) on every render of a page that re-renders on every
+  // keystroke.
+  //
   // Alphabetical, including at the root: ROOT_ORDER's fixed layout is gone with
   // the 'Custom' column, since a sort the user cannot select is a sort they
   // cannot get back to.
-  const rootNodes = nodes
-    .filter((f) => f.parentId === null && isVisible(f))
-    .sort(compare)
+  const childrenByParent = useMemo(() => {
+    const buckets = new Map<string | null, TreeNode[]>()
+    for (const n of nodes) {
+      if (!isVisible(n)) continue
+      const bucket = buckets.get(n.parentId ?? null)
+      if (bucket) bucket.push(n)
+      else buckets.set(n.parentId ?? null, [n])
+    }
+    for (const bucket of buckets.values()) bucket.sort(compare)
+    return buckets
+  // isVisible/compare derive from nodes, searchMatches and sort, all listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, searchMatches, sort])
+
+  const EMPTY_CHILDREN: TreeNode[] = useMemo(() => [], [])
+  const rootNodes = childrenByParent.get(null) ?? EMPTY_CHILDREN
 
   function getChildren(parentId: string): TreeNode[] {
-    return nodes.filter((f) => f.parentId === parentId && isVisible(f)).sort(compare)
+    return childrenByParent.get(parentId) ?? EMPTY_CHILDREN
   }
 
   // While searching, every folder on a match's path is forced open — a result
@@ -75,9 +95,9 @@ export function FileTree({ onNewChild, search = '' }: FileTreeProps) {
     }
     walk(rootNodes)
     return out
-  // rootNodes/getChildren derive from nodes+sort, both listed.
+  // rootNodes/getChildren both read childrenByParent, which is listed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, sort, effectiveExpanded])
+  }, [childrenByParent, effectiveExpanded])
 
   // A file deleted or renamed away must not stay selected: a bulk action would
   // then report a count it cannot deliver.

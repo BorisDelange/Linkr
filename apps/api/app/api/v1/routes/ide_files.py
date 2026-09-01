@@ -2,6 +2,8 @@
 source of truth. The tree is scanned from disk on every read, so files added by
 any means (terminal, git) appear in the IDE. No DB table backs these files."""
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +46,10 @@ def _node(project_uid: str, n: dict, with_content: bool) -> IdeFileResponse:
     )
 
 
+def _scan_with_content(project_uid: str) -> list[IdeFileResponse]:
+    return [_node(project_uid, n, with_content=True) for n in project_fs.scan_scripts(project_uid)]
+
+
 @router.get("", response_model=list[IdeFileResponse])
 async def list_files(
     project_uid: str = Query(alias="projectUid"),
@@ -52,7 +58,11 @@ async def list_files(
 ):
     """Scan scripts/ from disk and return the tree with each file's content."""
     await _check_project(db, project_uid, user, "ide:read")
-    return [_node(project_uid, n, with_content=True) for n in project_fs.scan_scripts(project_uid)]
+    # Off the event loop: this walks the whole IDE working dir and reads EVERY file's
+    # content. Run inline it froze the single worker for the duration — the kernels and
+    # jobs polls piled up behind it and released in a burst, which reads as the IDE
+    # stuttering. A bound ide_path can point at a large folder, so this is unbounded.
+    return await asyncio.to_thread(_scan_with_content, project_uid)
 
 
 @router.post("", response_model=IdeFileResponse, status_code=status.HTTP_201_CREATED)
