@@ -664,16 +664,39 @@ export function FilesPage() {
           // payload's stdout/stderr empty, so `!result.stderr` would call every
           // run a success. Track whether anything arrived on stderr instead.
           let sawStderr = false
-          const result = await streamOnServer(language, code, {
-            projectUid: activeProjectUid ?? undefined,
-            connectionId: activeConnectionId ?? undefined,
-            signal: controller.signal,
-            onChunk: (text, kind) => {
-              if (kind === 'stderr') sawStderr = true
-              streamed += text
-              updateExecutionResult(execId, { output: warning + streamed })
-            },
-          })
+          // The kernel emits one chunk per line, so `print(df)` on a 1000-row frame
+          // arrives as 1000 chunks. Pushing each one to the store re-rendered the page
+          // 1000 times and re-sent the whole accumulated string every time. Coalesce
+          // into one store write per animation frame: the text still appears as it is
+          // produced, at a rate a screen can actually show.
+          let flushHandle: number | null = null
+          const flush = () => {
+            flushHandle = null
+            updateExecutionResult(execId, { output: warning + streamed })
+          }
+          // Settle the pending frame by RUNNING it, not cancelling it: Stop throws
+          // AbortError and that handler keeps the output it finds on the result, so a
+          // dropped frame would silently lose the last lines the user did receive.
+          const flushNow = () => {
+            if (flushHandle === null) return
+            cancelAnimationFrame(flushHandle)
+            flush()
+          }
+          let result
+          try {
+            result = await streamOnServer(language, code, {
+              projectUid: activeProjectUid ?? undefined,
+              connectionId: activeConnectionId ?? undefined,
+              signal: controller.signal,
+              onChunk: (text, kind) => {
+                if (kind === 'stderr') sawStderr = true
+                streamed += text
+                if (flushHandle === null) flushHandle = requestAnimationFrame(flush)
+              },
+            })
+          } finally {
+            flushNow()
+          }
           const duration = Date.now() - start
           updateExecutionResult(execId, {
             duration,
