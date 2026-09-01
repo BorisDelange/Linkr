@@ -44,7 +44,7 @@ import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { isServerMode } from '@/lib/api-client'
-import { findLineageMatch, resolvePointer, resolveProjectPointers, resolveSlugLanding } from '@/lib/import-identity'
+import { buildPointer, findLineageMatch, resolvePointer, resolveProjectPointers, resolveSlugLanding } from '@/lib/import-identity'
 import { importDatasetOnServer } from '@/lib/api/datasets'
 
 
@@ -1092,10 +1092,32 @@ export async function buildProjectZip(
         return { ...projectMeta, config: cfg }
       })()
     : projectMeta
+
+  // The pointers are DERIVED from the databases the project is linked to, not
+  // copied from the stored list. `linkedDataSourceIds` is what the Databases page
+  // reads, so deriving from it publishes exactly what that page shows: a link
+  // removed there stops being exported, and a list that accumulated repeats
+  // (pointers used to be appended without ever being rewritten) publishes each
+  // database once. Dropping the key entirely when nothing is linked keeps the
+  // manifest free of an empty array no importer would act on.
+  const linkedIds = [...new Set(prunedProject.linkedDataSourceIds ?? [])]
+  const linkedRows = linkedIds.length > 0
+    ? await Promise.resolve()
+      .then(() => storage.dataSources?.getAll() ?? [])
+      .catch(() => [])
+    : []
+  const exportedRefs = linkedIds
+    .map((id) => buildPointer(linkedRows, id))
+    .filter((ref): ref is NonNullable<typeof ref> => !!ref)
   zip.file(ENTITY_MANIFEST, json({
     ...(projectSlug ? { entityId: projectSlug } : {}),
     type: 'project' as const,
     ...stripInstanceFields(exportedMeta),
+    // Derived pointers replace the stored list, but only when the databases were
+    // actually readable here: with none resolved there is nothing to publish and
+    // the stored list stands, rather than the export silently dropping every
+    // pointer it could not look up.
+    ...(exportedRefs.length > 0 ? { linkedDataSourceRefs: exportedRefs } : {}),
     ...(licenseMeta(projectLicense) ? { license: licenseMeta(projectLicense) } : {}),
     appVersion: APP_VERSION,
   }))

@@ -22,6 +22,7 @@ import { getStorage } from '@/lib/storage'
 import { gitCloneToZip, gitSetSyncState } from '@/lib/api/git'
 import { cleanGitUrl } from '@/lib/git-clone'
 import { entityDocsChanged, entityDocsChanges, presentReadme } from '@/lib/entity-docs-pull'
+import { resolveProjectPointers, type PointerRef } from '@/lib/import-identity'
 import {
   parseProjectZip,
   importProjectContent,
@@ -386,6 +387,27 @@ export async function applyProjectPull(
 
   if (groups.size) {
     await importProjectContent(filtered, projectUid, storage, { groups })
+  }
+
+  // Re-link the databases the pulled manifest points at. A pull writes content
+  // but never touched this, so a project whose repo names a database stayed
+  // unlinked after every pull — the pointer was right there and nothing read it.
+  // Same rule as the import paths: what is stored ends up being exactly the
+  // databases this instance actually has, each once.
+  const pulledRefs = (parsed.project as { linkedDataSourceRefs?: PointerRef[] })
+    .linkedDataSourceRefs
+  if (pulledRefs?.length) {
+    const local = await storage.projects.getById(projectUid)
+    if (local?.workspaceId) {
+      const rows = await storage.dataSources.getAll().catch(() => [])
+      const linked = resolveProjectPointers(rows, pulledRefs, local.workspaceId)
+      if (linked.ids.length > 0) {
+        await storage.projects.update(projectUid, {
+          linkedDataSourceIds: linked.ids,
+          linkedDataSourceRefs: linked.refs,
+        }).catch(() => {})
+      }
+    }
   }
 
   if (selection.readme) {

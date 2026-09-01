@@ -50,11 +50,13 @@ from app.services import (
     blob_store,
     cohort_service,
     dashboard_service,
+    data_source_service,
     patient_dashboard_service,
     ide_connection_service,
     pipeline_service,
     project_fs,
 )
+from app.schemas.data_source import DataSourceResponse
 from app.services.data import dataset_fs
 from app.services import concept_list_service
 from app.schemas.concept_list import ConceptListResponse
@@ -286,7 +288,14 @@ async def build_project_tree_from_db(
 
     resolved_org = project.organization or organization
 
+    # Only to resolve the project's linked database ids into portable pointers;
+    # the databases themselves are not part of a project export.
+    databases = [
+        _dump(DataSourceResponse, ds) for ds in await data_source_service.list_all(db)
+    ]
+
     return build_project_tree(
+        databases=databases,
         env_specs=_read_env_specs(project.uid),
         project=project_dict,
         organization=resolved_org,

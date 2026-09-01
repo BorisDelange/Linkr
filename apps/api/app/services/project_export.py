@@ -432,7 +432,28 @@ def _prune_marked_paths(project: dict, live_mark_keys: set[str]) -> dict:
     return {**project, "config": new_config}
 
 
-def _build_project_json(project: dict, organization: dict | None) -> bytes:
+def _build_pointer(row: dict) -> dict | None:
+    """Port of ``buildPointer`` (lib/import-identity.ts) for the export's use.
+
+    A row carrying neither identity yields nothing to point at, so no pointer.
+    """
+    lineage = row.get("lineageId")
+    entity_id = row.get("entityId")
+    if not lineage and not entity_id:
+        return None
+    out: dict = {}
+    if lineage:
+        out["lineageId"] = lineage
+    if entity_id:
+        out["entityId"] = entity_id
+    if "name" in row:
+        out["label"] = row["name"]
+    return out
+
+
+def _build_project_json(
+    project: dict, organization: dict | None, databases: list[dict] | None = None
+) -> bytes:
     """Port of the project.json transform (entity-io.ts:474-475 + attachEntity-
     Organization:1473).
 
@@ -453,6 +474,26 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
     if isinstance(config, dict) and "ideDataSourceId" in config:
         meta = {**meta, "config": {k: v for k, v in config.items() if k != "ideDataSourceId"}}
     out = _strip_instance_fields(meta)
+    # Pointers DERIVED from the linked databases rather than copied from the
+    # stored list — the same rule buildProjectZip applies, so both writers emit
+    # the same bytes. What is published is then exactly what the project's
+    # Databases page shows: each database once, and none it is no longer linked
+    # to. Derived only when the databases were actually handed in and at least
+    # one id resolves: a caller that passes none (or cannot see them) must fall
+    # back to the stored list, or the export would silently drop every pointer.
+    linked_ids = project.get("linkedDataSourceIds") or []
+    by_id = {c["id"]: c for c in (databases or [])}
+    seen: set[str] = set()
+    refs = []
+    for ds_id in linked_ids:
+        if ds_id in seen:
+            continue
+        seen.add(ds_id)
+        pointer = _build_pointer(by_id[ds_id]) if ds_id in by_id else None
+        if pointer:
+            refs.append(pointer)
+    if refs:
+        out["linkedDataSourceRefs"] = refs
     # `entityId` leads the file, matching buildProjectZip. Placed at the front
     # rather than assigned, since a dict re-adds a popped key last — a false diff.
     slug = project.get("entityId") or project.get("projectId")
@@ -575,6 +616,9 @@ def build_project_tree(
     env_specs: dict[str, bytes] | None = None,
     concept_lists: list[dict] | None = None,
     patient_dashboards: list[dict[str, Any]] | None = None,
+    # The workspace's databases, to derive the project's portable database
+    # pointers from the ids it is linked to (see _build_project_json).
+    databases: list[dict] | None = None,
 ) -> dict[str, bytes]:
     """Build the git-variant project export tree as ``{path: bytes}``.
 
@@ -609,7 +653,7 @@ def build_project_tree(
     }
     project = _prune_marked_paths(project, live_mark_keys)
 
-    tree[ENTITY_MANIFEST] = _build_project_json(project, organization)
+    tree[ENTITY_MANIFEST] = _build_project_json(project, organization, databases)
 
     tree.update(_readme_files(project.get("readme")))
     tree.update(license_file("", project.get("license")))

@@ -15,6 +15,7 @@ import { getStorage } from '@/lib/storage'
 import { paths, type SummaryTab } from '@/lib/paths'
 import { buildProjectZip, parseProjectZip, deleteProjectData, importProjectContent, sameProjectSlug } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
+import { resolveProjectPointers } from '@/lib/import-identity'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
@@ -285,6 +286,22 @@ export function ProjectsPage() {
     await storage.projects.delete(uid).catch(() => {})
 
     await storage.projects.create(entity)
+
+    // Re-link the databases the manifest points at. The ids in an export address
+    // rows on the instance that wrote it, so only the pointers travel and they
+    // have to be resolved here — without this the project imports with its
+    // Databases page empty even when every database it names is installed, which
+    // is what a git-link import did.
+    if (workspaceId && entity.linkedDataSourceRefs?.length) {
+      const rows = await storage.dataSources.getAll().catch(() => [])
+      const linked = resolveProjectPointers(rows, entity.linkedDataSourceRefs, workspaceId)
+      if (linked.ids.length > 0) {
+        await storage.projects.update(uid, {
+          linkedDataSourceIds: linked.ids,
+          linkedDataSourceRefs: linked.refs,
+        }).catch(() => {})
+      }
+    }
 
     // Anchor sync state to the commit we cloned, like every other git-imported
     // entity: it is the base this instance imported from, so a later push

@@ -2995,6 +2995,68 @@ describe('export — local database ids never travel', () => {
     expect(meta.config.ideDataSourceRef).toEqual(DB_REF)
   })
 
+  it('derives the database pointers from the ids the project is linked to', async () => {
+    // A published entity.json had accumulated the same pointer three times, plus
+    // one to a database the project no longer links to. Copying the stored list
+    // out preserved both; deriving from linkedDataSourceIds publishes exactly
+    // what the Databases page shows — each database once, and nothing it dropped.
+    const storage = new Proxy({
+      projects: {
+        getById: async () => ({
+          uid: 'p1', name: { en: 'P' },
+          linkedDataSourceIds: ['db-a', 'db-b', 'db-a', 'db-a'],
+          linkedDataSourceRefs: [
+            { lineageId: 'lin-a', entityId: 'mimic-iv-demo' },
+            { lineageId: 'lin-gone', entityId: 'mimic-iv-demo-omop' },
+            { lineageId: 'lin-a', entityId: 'mimic-iv-demo' },
+            { lineageId: 'lin-a', entityId: 'mimic-iv-demo' },
+          ],
+        }),
+      },
+      dataSources: {
+        getAll: async () => [
+          { id: 'db-a', lineageId: 'lin-a', entityId: 'mimic-iv-demo', name: { en: 'A' } },
+          { id: 'db-b', lineageId: 'lin-b', entityId: 'eicu', name: { en: 'B' } },
+        ],
+      },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const built = await buildProjectZip('p1', storage, {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const meta = JSON.parse(await zip.files['entity.json'].async('string'))
+
+    expect(meta.linkedDataSourceRefs).toEqual([
+      { lineageId: 'lin-a', entityId: 'mimic-iv-demo', label: { en: 'A' } },
+      { lineageId: 'lin-b', entityId: 'eicu', label: { en: 'B' } },
+    ])
+    expect(meta).not.toHaveProperty('linkedDataSourceIds')
+  })
+
+  it('keeps the stored pointers when the databases cannot be read', async () => {
+    // Without the databases there is nothing to derive from; dropping every
+    // pointer would unlink the project on the next import.
+    const stored = [{ lineageId: 'lin-a', entityId: 'mimic-iv-demo' }]
+    const storage = new Proxy({
+      projects: {
+        getById: async () => ({
+          uid: 'p1', name: { en: 'P' },
+          linkedDataSourceIds: ['db-a'],
+          linkedDataSourceRefs: stored,
+        }),
+      },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const built = await buildProjectZip('p1', storage, {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const meta = JSON.parse(await zip.files['entity.json'].async('string'))
+
+    expect(meta.linkedDataSourceRefs).toEqual(stored)
+  })
+
   it('leaves a project that never picked an IDE database untouched', async () => {
     // The strip must not invent an empty config key on a project that has none.
     const storage = new Proxy({

@@ -117,6 +117,71 @@ def test_machine_local_bindings_stripped_from_project_json():
     assert "datasetsPath" not in project_json
 
 
+def _tree_with(project: dict, databases: list[dict] | None):
+    data = json.loads((_GOLDEN / "input.json").read_text())
+    return build_project_tree(
+        project=project,
+        organization=data["organization"],
+        ide_files=data["ideFiles"],
+        pipelines=data["pipelines"],
+        cohorts=data["cohorts"],
+        connections=data["connections"],
+        dashboards=data["dashboards"],
+        dataset_files=data["datasetFiles"],
+        dataset_analyses=data["datasetAnalyses"],
+        dataset_data=data["datasetData"],
+        dataset_raw_files=data["datasetRawFiles"],
+        attachments=[],
+        attachment_blobs={},
+        versioned_data_files=set(),
+        databases=databases,
+    )
+
+
+def test_database_pointers_derived_from_the_linked_ids():
+    """A published entity.json had accumulated the same pointer three times, plus
+    one to a database the project was no longer linked to. The pointers are
+    derived from linkedDataSourceIds, so what travels is what the project's
+    Databases page shows: each database once, and nothing it dropped."""
+    data = json.loads((_GOLDEN / "input.json").read_text())
+    project = {
+        **data["project"],
+        "linkedDataSourceIds": ["db-a", "db-b", "db-a", "db-a"],
+        # The stale list the bug used to publish verbatim.
+        "linkedDataSourceRefs": [
+            {"lineageId": "lin-a", "entityId": "mimic-iv-demo"},
+            {"lineageId": "lin-gone", "entityId": "mimic-iv-demo-omop"},
+            {"lineageId": "lin-a", "entityId": "mimic-iv-demo"},
+            {"lineageId": "lin-a", "entityId": "mimic-iv-demo"},
+        ],
+    }
+    databases = [
+        {"id": "db-a", "lineageId": "lin-a", "entityId": "mimic-iv-demo", "name": {"en": "A"}},
+        {"id": "db-b", "lineageId": "lin-b", "entityId": "eicu", "name": {"en": "B"}},
+    ]
+    project_json = json.loads(_tree_with(project, databases)[ENTITY_MANIFEST].decode())
+    assert project_json["linkedDataSourceRefs"] == [
+        {"lineageId": "lin-a", "entityId": "mimic-iv-demo", "label": {"en": "A"}},
+        {"lineageId": "lin-b", "entityId": "eicu", "label": {"en": "B"}},
+    ]
+    # The local ids never travel — they address rows on this instance only.
+    assert "linkedDataSourceIds" not in project_json
+
+
+def test_database_pointers_kept_when_the_databases_are_not_available():
+    """A caller that cannot hand in the databases (no access, or an older call
+    site) must not have every pointer dropped from the export."""
+    data = json.loads((_GOLDEN / "input.json").read_text())
+    stored = [{"lineageId": "lin-a", "entityId": "mimic-iv-demo"}]
+    project = {
+        **data["project"],
+        "linkedDataSourceIds": ["db-a"],
+        "linkedDataSourceRefs": stored,
+    }
+    project_json = json.loads(_tree_with(project, None)[ENTITY_MANIFEST].decode())
+    assert project_json["linkedDataSourceRefs"] == stored
+
+
 def test_slugify_matches_ts():
     # Same rules as the TS slugify: NFD strip, lowercase, non-alnum → '-', trim.
     assert _slugify("Projet démo") == "projet-demo"
