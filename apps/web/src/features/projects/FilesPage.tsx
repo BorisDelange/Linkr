@@ -112,6 +112,7 @@ import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useShortcutStore } from '@/stores/shortcut-store'
 import { comboToString } from '@/lib/format-shortcut'
+import { widenToBlock, nextRunnableLine, type RunSpan } from '@/lib/editor-run-block'
 import type { ShortcutActionId } from '@/types/shortcuts'
 
 const LazyRmdNotebook = lazy(() => import('./files/RmdNotebook').then(m => ({ default: m.RmdNotebook })))
@@ -869,17 +870,78 @@ export function FilesPage() {
     }
   }, [selectedNode, runCode])
 
-  const handleRunLine = useCallback(() => {
+  /**
+   * The block under the cursor, via Monaco's own "expand selection".
+   *
+   * Expanding repeatedly walks outward (word → call → block → …), so we step
+   * until the selection covers several lines and take that — the innermost
+   * block. Its bracket provider starts a `xxx {` range at the line's first
+   * non-whitespace character, so `f <- function() {` comes along with its body.
+   *
+   * The editor's selection is restored before returning: this is a query, and
+   * running a line must not leave the user's block highlighted.
+   */
+  const blockSpanAtCursor = useCallback(async (cursorLine: number): Promise<RunSpan> => {
+    const editor = editorRef.current
+    if (!editor) return { startLine: cursorLine, endLine: cursorLine }
+    const original = editor.getSelection()
+    const expand = editor.getAction('editor.action.smartSelect.expand')
+    if (!expand || !original) return { startLine: cursorLine, endLine: cursorLine }
+
+    const candidates: RunSpan[] = []
+    try {
+      // Bounded: expansion terminates at the whole document, and a handful of
+      // steps is enough to leave the current line in any real code.
+      for (let step = 0; step < 8; step++) {
+        // Genuinely async — the providers are awaited and the bracket one yields
+        // to the event loop, so the selection is NOT updated until this resolves.
+        await expand.run()
+        const next = editor.getSelection()
+        if (!next) break
+        candidates.push({ startLine: next.startLineNumber, endLine: next.endLineNumber })
+        if (next.startLineNumber < next.endLineNumber) break
+      }
+    } finally {
+      editor.setSelection(original)
+    }
+    return widenToBlock(cursorLine, candidates)
+  }, [])
+
+  const handleRunLine = useCallback(async () => {
     if (!editorRef.current || !selectedNode) return
     const position = editorRef.current.getPosition()
     if (!position) return
     const model = editorRef.current.getModel()
     if (!model) return
-    const lineContent = model.getLineContent(position.lineNumber)
-    if (lineContent.trim()) {
-      runCode(lineContent, `${selectedNode.name}:${position.lineNumber}`)
+
+    // A cursor inside a multi-line block runs the WHOLE block: the single line
+    // under it (`  warning("...")`, or a bare `}`) is rarely valid on its own.
+    const span = await blockSpanAtCursor(position.lineNumber)
+    const code = model.getValueInRange({
+      startLineNumber: span.startLine,
+      startColumn: 1,
+      endLineNumber: span.endLine,
+      endColumn: model.getLineMaxColumn(span.endLine),
+    })
+    if (!code.trim()) return
+
+    const label = span.startLine === span.endLine
+      ? `${selectedNode.name}:${span.startLine}`
+      : `${selectedNode.name}:${span.startLine}-${span.endLine}`
+    runCode(code, label)
+
+    // Advance past what just ran, so repeated presses walk down the file
+    // (RStudio's behaviour). Nothing below → leave the cursor where it is.
+    const nextLine = nextRunnableLine(
+      span.endLine,
+      model.getLineCount(),
+      (line) => model.getLineContent(line),
+    )
+    if (nextLine !== null) {
+      editorRef.current.setPosition({ lineNumber: nextLine, column: 1 })
+      editorRef.current.revealLineInCenterIfOutsideViewport(nextLine)
     }
-  }, [selectedNode, runCode])
+  }, [selectedNode, runCode, blockSpanAtCursor])
 
   // Cmd+Enter: run selection if any, otherwise run current line (RStudio convention)
   const handleRunSelectionOrLine = useCallback(() => {
@@ -893,8 +955,8 @@ export function FilesPage() {
         return
       }
     }
-    // Fallback: run current line
-    handleRunLine()
+    // Fallback: run the current line (or the block around it)
+    void handleRunLine()
   }, [selectedNode, runCode, handleRunLine])
 
   // Cmd+S: force flush debounced content save
@@ -1186,7 +1248,7 @@ export function FilesPage() {
                     <RunButton
                       onRunFile={handleRunFile}
                       onRunSelection={handleRunSelection}
-                      onRunLine={handleRunLine}
+                      onRunLine={() => void handleRunLine()}
                       onStop={handleStop}
                       onRunFileAsJob={handleRunFileAsJob}
                       isSql={isSql}
@@ -1522,20 +1584,6 @@ export function FilesPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={outputVisible ? 'secondary' : 'ghost'}
-                        size="icon-xs"
-                        onClick={() => setOutputVisible(!outputVisible)}
-                        disabled={!hasOutput}
-                      >
-                        {outputVisible ? <Eye size={14} /> : <EyeOff size={14} />}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('files.toggle_output')}</TooltipContent>
-                  </Tooltip>
-
                   {isNotebook && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1554,6 +1602,20 @@ export function FilesPage() {
                       <TooltipContent>{t('files.toggle_outline')}</TooltipContent>
                     </Tooltip>
                   )}
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={outputVisible ? 'secondary' : 'ghost'}
+                        size="icon-xs"
+                        onClick={() => setOutputVisible(!outputVisible)}
+                        disabled={!hasOutput}
+                      >
+                        {outputVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('files.toggle_output')}</TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
 

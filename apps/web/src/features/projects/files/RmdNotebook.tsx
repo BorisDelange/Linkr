@@ -1780,7 +1780,7 @@ function RmdCellBlock({
                 className="px-3 py-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
               />
             ) : (
-              <p className="px-3 py-2 text-muted-foreground/50 italic">Empty markdown cell</p>
+              <p className="px-3 py-2 text-xs text-muted-foreground/50 italic">{t('files.empty_markdown_cell')}</p>
             )}
           </div>
         ) : (
