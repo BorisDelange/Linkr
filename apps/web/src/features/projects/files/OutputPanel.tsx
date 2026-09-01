@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import { CodeViewer } from '@/components/editor/CodeViewer'
 import { useFileStore, type ExecutionResult } from '@/stores/file-store'
-import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check, ChevronsUpDown, Package } from 'lucide-react'
+import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check, ChevronsUpDown, Package, ArrowDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDuration } from '@/lib/format-helpers'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -14,6 +14,7 @@ import { stripAnsi } from '@/lib/ansi'
 import { FigureViewer } from './FigureViewer'
 import { Button } from '@/components/ui/button'
 import { useEnvironmentsUiStore } from '@/stores/environments-ui-store'
+import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 
 export function getTabIcon(type: string) {
   switch (type) {
@@ -52,26 +53,15 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
   const isConsoleTab = activeOutputTab === '__exec_console__'
   const showExecContent = isConsoleTab
 
-  // Auto-scroll sentinel
-  const scrollSentinelRef = useRef<HTMLDivElement>(null)
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!showExecContent || executionResults.length === 0) return
-    const timer = setTimeout(() => {
-      if (scrollSentinelRef.current) {
-        scrollSentinelRef.current.scrollIntoView({ behavior: 'smooth' })
-      } else if (scrollAreaRef.current) {
-        const viewport = scrollAreaRef.current.querySelector(
-          '[data-slot="scroll-area-viewport"]'
-        )
-        if (viewport) {
-          viewport.scrollTop = viewport.scrollHeight
-        }
-      }
-    }, 50)
-    return () => clearTimeout(timer)
-  }, [showExecContent, executionResults.length])
+  // Follow the console output as it streams, but release the moment the reader
+  // scrolls up — see useStickToBottom. Keyed on the last result's TEXT, not just
+  // how many results there are: a long run is ONE result whose body keeps
+  // growing, so a length-only key never fires while it streams.
+  const lastResult = executionResults[executionResults.length - 1]
+  const { ref: consoleViewportRef, pinned, scrollToBottom } = useStickToBottom<HTMLDivElement>(
+    [executionResults.length, lastResult?.output, lastResult?.running],
+    showExecContent,
+  )
 
   // --- Drag/drop for all tabs (unified) ---
   const [dragTabId, setDragTabId] = useState<string | null>(null)
@@ -296,18 +286,32 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
       {/* Tab content */}
       <div className="flex-1 overflow-auto">
         {showExecContent && (
-          <ScrollArea className="h-full" ref={scrollAreaRef}>
-            <div className="p-2 space-y-1">
-              {executionResults.map((result, idx) => (
-                <ResultCard
-                  key={result.id}
-                  result={result}
-                  defaultCollapsed={idx < executionResults.length - 1}
-                />
-              ))}
-              <div ref={scrollSentinelRef} />
-            </div>
-          </ScrollArea>
+          <div className="relative h-full">
+            <ScrollArea className="h-full" viewportRef={consoleViewportRef}>
+              <div className="p-2 space-y-1">
+                {executionResults.map((result, idx) => (
+                  <ResultCard
+                    key={result.id}
+                    result={result}
+                    isLatest={idx === executionResults.length - 1}
+                  />
+                ))}
+              </div>
+            </ScrollArea>
+            {/* Only while detached: says the view is no longer following, and
+                takes the reader back without hunting for the bottom. */}
+            {!pinned && executionResults.length > 0 && (
+              <Button
+                size="xs"
+                variant="secondary"
+                className="absolute bottom-3 right-4 gap-1 shadow-md"
+                onClick={scrollToBottom}
+              >
+                <ArrowDown size={12} />
+                {t('files.scroll_to_latest')}
+              </Button>
+            )}
+          </div>
         )}
         {!showExecContent && activeTab?.type === 'figure' && (
           <FigureViewer content={String(activeTab.content ?? '')} label={activeTab.label} />
@@ -352,7 +356,7 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
 
 const COLLAPSED_LINES = 5
 
-function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; defaultCollapsed?: boolean }) {
+function ResultCard({ result, isLatest }: { result: ExecutionResult; isLatest?: boolean }) {
   const { t } = useTranslation()
   const [showCode, setShowCode] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -360,8 +364,20 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
   const displayText = showCode ? (result.code ?? '') : result.output
   const hasCode = !!result.code
   const lineCount = displayText.split('\n').length
-  const isLong = defaultCollapsed && lineCount > COLLAPSED_LINES
-  const [collapsed, setCollapsed] = useState(isLong)
+  // Long enough to be worth folding — independent of position, so the latest
+  // result can still be folded by hand while it is shown in full.
+  const isLong = lineCount > COLLAPSED_LINES
+
+  // null = follow the position: shown in full while it is the latest result,
+  // folded once a newer run supersedes it. Clicking the chevron pins the card
+  // open or shut — without that, expanding an old result would be undone the
+  // moment the next run arrives and re-evaluates the position.
+  const [override, setOverride] = useState<boolean | null>(null)
+  const collapsed = override ?? (isLong && !isLatest)
+  const toggleCollapsed = useCallback(
+    () => setOverride((prev) => !(prev ?? (isLong && !isLatest))),
+    [isLong, isLatest],
+  )
 
   const shownText = collapsed
     ? displayText.split('\n').slice(0, COLLAPSED_LINES).join('\n')
@@ -379,8 +395,12 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
     <TooltipProvider delayDuration={300}>
       <div
         className={cn(
+          // Padding lives on the inner sections, not here: the header is sticky,
+          // and a padded parent would leave a gap above it through which the
+          // scrolling text would show. No `overflow-hidden` either — it makes
+          // this the sticky ancestor's scroll container and pins the header to
+          // the card instead of to the viewport.
           'rounded-md border',
-          collapsed ? 'p-1.5' : 'p-3',
           // Red is for a run that did NOT produce its result (an error, or a Stop,
           // which is !success). A run that only wrote to stderr DID run — in R that
           // is where warnings and messages go — so it gets amber, not the same
@@ -392,89 +412,113 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
               : 'border-green-500/30 bg-green-500/5'
         )}
       >
-        <div className={cn('flex items-center justify-between', collapsed ? 'mb-0' : 'mb-1.5')}>
-          <div className="flex items-center gap-1.5">
-            {isLong && (
-              <button
-                onClick={() => setCollapsed((c) => !c)}
-                className="rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-              >
-                <ChevronsUpDown size={11} />
-              </button>
+        {/* Sticky, so the run's identity (name, code toggle, copy, time,
+            duration) stays visible while reading long output. Two layers: the
+            card's tint is 5% opaque, so a single tinted background would let the
+            output scroll visibly through the header — an opaque `bg-background`
+            sits underneath, the tint on top of it. */}
+        <div className="sticky top-0 z-10 rounded-t-md bg-background">
+          {/* Padding does NOT vary with `collapsed`: the title and the buttons
+              must not shift as a card folds and unfolds. */}
+          <div
+            className={cn(
+              'flex items-center justify-between rounded-t-md px-3 py-2',
+              !result.success
+                ? 'bg-red-500/5'
+                : result.warned
+                  ? 'bg-amber-500/5'
+                  : 'bg-green-500/5',
             )}
-            <span className={cn('text-xs font-medium', collapsed && 'text-muted-foreground')}>
-              {result.fileName}
-            </span>
-            {result.interrupted && (
-              <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">
-                {t('files.interrupted')}
+          >
+            <div className="flex items-center gap-1.5">
+              {isLong && (
+                <button
+                  onClick={toggleCollapsed}
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                >
+                  <ChevronsUpDown size={11} />
+                </button>
+              )}
+              <span className={cn('text-xs font-medium', collapsed && 'text-muted-foreground')}>
+                {result.fileName}
               </span>
-            )}
-            {collapsed && (
-              <span className="text-[10px] text-muted-foreground">
-                ({lineCount} lines)
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            {hasCode && (
+              {result.interrupted && (
+                <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">
+                  {t('files.interrupted')}
+                </span>
+              )}
+              {collapsed && (
+                <span className="text-[10px] text-muted-foreground">
+                  ({lineCount} lines)
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              {hasCode && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setShowCode((v) => !v)}
+                      className={cn(
+                        'rounded p-1 transition-colors',
+                        showCode
+                          ? 'bg-accent text-foreground'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                      )}
+                    >
+                      <Code size={12} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{showCode ? t('files.show_output') : t('files.show_code')}</TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={() => setShowCode((v) => !v)}
-                    className={cn(
-                      'rounded p-1 transition-colors',
-                      showCode
-                        ? 'bg-accent text-foreground'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-                    )}
+                    onClick={handleCopy}
+                    className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
                   >
-                    <Code size={12} />
+                    {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>{showCode ? t('files.show_output') : t('files.show_code')}</TooltipContent>
+                <TooltipContent>{t('files.copy')}</TooltipContent>
               </Tooltip>
-            )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={handleCopy}
-                  className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                >
-                  {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t('files.copy')}</TooltipContent>
-            </Tooltip>
-            <span className="ml-1 text-[10px] text-muted-foreground">
-              {new Date(result.timestamp).toLocaleTimeString()}
-            </span>
-            {result.running ? (
-              <LiveTimer startedAt={result.timestamp} />
-            ) : result.duration > 0 ? (
-              <span className="text-[10px] tabular-nums text-muted-foreground">
-                {formatDuration(result.duration)}
+              <span className="ml-1 text-[10px] text-muted-foreground">
+                {new Date(result.timestamp).toLocaleTimeString()}
               </span>
-            ) : null}
+              {result.running ? (
+                <LiveTimer startedAt={result.timestamp} />
+              ) : result.duration > 0 ? (
+                <span className="text-[10px] tabular-nums text-muted-foreground">
+                  {formatDuration(result.duration)}
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
-        {!collapsed && (
-          showCode ? (
-            // Source view: the real editor (read-only), so it keeps the syntax
-            // highlighting and layout it had on the left.
-            <div className="overflow-hidden rounded border">
-              <CodeViewer value={result.code ?? ''} language={result.language} />
-            </div>
-          ) : (
-            <div className="text-xs font-mono text-muted-foreground">
-              <AnsiText text={shownText} className="whitespace-pre-wrap break-words" />
-              {result.running && <RunningDots label={t('files.running')} />}
-            </div>
-          )
-        )}
-        {!showCode && result.installOffer && !result.running && (
-          <InstallOfferButton resultId={result.id} offer={result.installOffer} />
-        )}
+        {/* Body padding lives here now that the card itself is unpadded, and
+            matches the header's px-3 so the text lines up under the title. A
+            collapsed card renders no body at all, so it takes no padding —
+            otherwise the header would sit above an empty strip. */}
+        <div className={cn(!collapsed && 'px-3 pb-3')}>
+          {!collapsed && (
+            showCode ? (
+              // Source view: the real editor (read-only), so it keeps the syntax
+              // highlighting and layout it had on the left.
+              <div className="overflow-hidden rounded border">
+                <CodeViewer value={result.code ?? ''} language={result.language} />
+              </div>
+            ) : (
+              <div className="text-xs font-mono text-muted-foreground">
+                <AnsiText text={shownText} className="whitespace-pre-wrap break-words" />
+                {result.running && <RunningDots label={t('files.running')} />}
+              </div>
+            )
+          )}
+          {!showCode && result.installOffer && !result.running && (
+            <InstallOfferButton resultId={result.id} offer={result.installOffer} />
+          )}
+        </div>
       </div>
     </TooltipProvider>
   )

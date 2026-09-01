@@ -1666,6 +1666,7 @@
     "running": "Exécution...",
     "new_file": "Nouveau fichier",
     "new_folder": "Nouveau dossier",
+    "scroll_to_latest": "Aller au plus récent",
     "upload": "Importer",
     "no_files": "Aucun fichier. Créez un fichier ou utilisez le terminal.",
     "search_files": "Rechercher un fichier",

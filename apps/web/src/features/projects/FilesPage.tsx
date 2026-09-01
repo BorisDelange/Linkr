@@ -2299,7 +2299,7 @@ export function FilesPage() {
           onConfirm={handleSaveAndClose}
           confirmLabel={t('common.save')}
           footerExtra={
-            <Button variant="ghost" size="sm" onClick={handleDiscardAndClose}>
+            <Button variant="destructive" size="sm" onClick={handleDiscardAndClose}>
               {t('files.dont_save')}
             </Button>
           }
