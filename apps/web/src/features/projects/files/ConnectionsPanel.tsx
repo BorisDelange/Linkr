@@ -64,12 +64,19 @@ function ConnectionItem({
 }) {
   const { t } = useTranslation()
 
-  // `errorMessage` may hold a sentinel rather than a sentence: entity-io has no
-  // i18n, so it marks an import that carried no data and leaves the wording to
-  // whoever displays it. Rendered raw it shows up as "linkr:db-imported-without-data".
-  const errorText = entry.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
-    ? t('databases.imported_without_data')
-    : entry.errorMessage
+  // A connected database has nothing to explain: the reason is written with a
+  // failing status and only cleared by whatever fixes it, so a row that has since
+  // connected can still carry a stale one (a re-seed, a rebuild from DDL). Status
+  // is the live fact; the message is only ever a gloss on a bad one.
+  //
+  // `errorMessage` may also hold a sentinel rather than a sentence: entity-io has
+  // no i18n, so it marks a data-free import and leaves the wording to whoever
+  // displays it. Rendered raw it reads "linkr:db-imported-without-data".
+  const errorText = entry.status === 'connected'
+    ? undefined
+    : entry.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
+      ? t('databases.imported_without_data')
+      : entry.errorMessage
 
   return (
     <button
@@ -88,7 +95,7 @@ function ConnectionItem({
         </div>
         <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           <span className="shrink-0">{engineLabels[entry.engine] ?? entry.engine}</span>
-          {entry.errorMessage && (
+          {errorText && (
             <span className="min-w-0 truncate text-destructive" title={errorText}>{errorText}</span>
           )}
         </div>

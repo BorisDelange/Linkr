@@ -3287,7 +3287,10 @@ async function applyClonedDatabase(
         const source = { ...withDocs, id: targetId } as DataSource
         await engine.mountDataSource(source, storedFiles)
         const stats = await engine.computeStats(targetId, schemaMapping)
-        await storage.dataSources.update(targetId, { status: 'connected', stats })
+        // Clear the reason with the status: a row imported data-free carries the
+        // no-data sentinel, and leaving it behind shows "imported without data"
+        // on a database that is now connected and queryable.
+        await storage.dataSources.update(targetId, { status: 'connected', stats, errorMessage: undefined })
       }
     } catch (e) {
       console.warn('[entity-io] database imported but not connected:', e)

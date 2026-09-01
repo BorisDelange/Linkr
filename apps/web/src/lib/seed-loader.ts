@@ -1179,7 +1179,10 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
   // Mount in DuckDB and compute stats
   await engine.mountDataSource(dataSource, storedFiles)
   const stats = await engine.computeStats(db.id, schemaMapping)
-  await storage.dataSources.update(db.id, { status: 'connected', stats })
+  // errorMessage with the status: a re-seed over a row that landed data-free
+  // must drop the no-data sentinel, else the database reads "imported without
+  // data" while connected and queryable.
+  await storage.dataSources.update(db.id, { status: 'connected', stats, errorMessage: undefined })
 
   // Link to project if specified
   if (db.linkToProject) {
