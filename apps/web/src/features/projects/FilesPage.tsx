@@ -106,6 +106,7 @@ import { DocumentationDialog } from './files/DocumentationDialog'
 import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { EditorSettingsDialog } from './files/EditorSettingsDialog'
 import { ConnectionsPanel } from './files/ConnectionsPanel'
+import { ConnectionDropdown } from './files/ConnectionDropdown'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useShortcutStore } from '@/stores/shortcut-store'
@@ -154,10 +155,10 @@ export function FilesPage() {
   } = useFileStore()
   const { activeProjectUid } = useAppStore()
   const canWriteIde = useMyProjectRole(activeProjectUid ?? undefined).can('ide:write')
-  const { activeConnectionId, loadProjectConnections, getProjectConnections, setActiveConnection } = useConnectionStore()
+  const { activeConnectionId, loadProjectConnections } = useConnectionStore()
   const { isExecuting, startExecution, stopExecution, finishExecution } = useRuntimeStore()
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
-  const dataSourcesLoaded = useDataSourceStore((s) => s.dataSourcesLoaded)
+  const mountProjectSources = useDataSourceStore((s) => s.mountProjectSources)
   const loadCohorts = useCohortStore((s) => s.loadCohorts)
   const loadPipelines = usePipelineStore((s) => s.loadPipelines)
   const { loadProjectDatasets, loadFileData, getFileRows, files: datasetFiles, _dirtyVersion: _datasetDirtyVersion } = useDatasetStore()
@@ -250,21 +251,22 @@ export function FilesPage() {
     if (activeProjectUid) {
       loadProjectConnections(activeProjectUid)
       loadProjectFiles(activeProjectUid, idePath ?? undefined)
-      loadDataSources()
+      // Mount the project's databases the way the Databases page does. Without
+      // it the IDE showed whatever status was last written — a database imported
+      // without data stayed grey here while the Databases page had already
+      // healed it by mounting. No-ops in server mode and for already-mounted
+      // sources. Sequenced after the load: it reads the rows that load fetches.
+      loadDataSources().then(() => mountProjectSources(activeProjectUid))
       loadCohorts()
       loadPipelines()
       loadProjectDatasets(activeProjectUid)
     }
-  }, [activeProjectUid, idePath, loadProjectConnections, loadProjectFiles, loadDataSources, loadCohorts, loadPipelines, loadProjectDatasets])
+  }, [activeProjectUid, idePath, loadProjectConnections, loadProjectFiles, loadDataSources, mountProjectSources, loadCohorts, loadPipelines, loadProjectDatasets])
 
-  // Auto-select first database connection when none is active
-  useEffect(() => {
-    if (!activeProjectUid || activeConnectionId) return
-    const connections = getProjectConnections(activeProjectUid)
-    if (connections.length > 0) {
-      setActiveConnection(connections[0].id)
-    }
-  }, [activeProjectUid, activeConnectionId, dataSourcesLoaded, getProjectConnections, setActiveConnection])
+  // Auto-selection lives in ConnectionDropdown, which also re-selects when the
+  // active id belongs to another project (the selection is global). Doing it
+  // here too would fight it: this effect only fired when nothing was selected,
+  // so a stale cross-project id was left in place.
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   // Keep-alive: one ref per open notebook file, so switching tabs doesn't destroy state.
@@ -1325,6 +1327,10 @@ export function FilesPage() {
                           : <><FileCode size={12} /> {t('files.view_markdown')}</>
                         }
                       </Button>
+
+                      {/* Same picker as the script toolbar: a notebook's cells
+                          reach the database through it too. */}
+                      <ConnectionDropdown projectUid={activeProjectUid ?? undefined} />
                     </div>
                   </>
                 )}

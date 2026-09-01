@@ -445,6 +445,13 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
     # published before the rename still imports; nothing new emits it.
     dropped = {"readme", "todos", "notes", "uid", "license", "projectId"}
     meta = {k: v for k, v in project.items() if k not in dropped}
+    # `config.ideDataSourceId` is the IDE's selected database as this instance's
+    # local UUID: it addresses nothing elsewhere and would churn the diff between
+    # two instances. `ideDataSourceRef` beside it travels instead. Mirrors the
+    # same strip in buildProjectZip — the two must emit the same bytes.
+    config = meta.get("config")
+    if isinstance(config, dict) and "ideDataSourceId" in config:
+        meta = {**meta, "config": {k: v for k, v in config.items() if k != "ideDataSourceId"}}
     out = _strip_instance_fields(meta)
     # `entityId` leads the file, matching buildProjectZip. Placed at the front
     # rather than assigned, since a dict re-adds a popped key last — a false diff.

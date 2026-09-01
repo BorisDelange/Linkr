@@ -1,17 +1,16 @@
-import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Play, Square, ChevronDown, Database, Loader2, Server, FileCode, TextSelect, CornerDownLeft } from 'lucide-react'
+import { Play, Square, ChevronDown, Loader2, Server, FileCode, TextSelect, CornerDownLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useConnectionStore, type ConnectionEntry } from '@/stores/connection-store'
+import { useConnectionStore } from '@/stores/connection-store'
+import { ConnectionDropdown } from './ConnectionDropdown'
 import { useRuntimeStore } from '@/stores/runtime-store'
 import { useShortcutStore } from '@/stores/shortcut-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
@@ -51,25 +50,14 @@ export function RunButton({
   const runFileKey = useShortcutStore((s) => comboToString(s.shortcuts.run_file.binding))
   const runLineKey = useShortcutStore((s) => comboToString(s.shortcuts.run_selection_or_line.binding))
   const runAsJobKey = useShortcutStore((s) => comboToString(s.shortcuts.run_file_as_job.binding))
-  const { getProjectConnections, activeConnectionId, setActiveConnection } = useConnectionStore()
+  const { getProjectConnections, activeConnectionId } = useConnectionStore()
   const { pythonStatus, rStatus } = useRuntimeStore()
   const canExecute = useMyProjectRole(projectUid).can('ide:execute')
 
+  // Only to gate the Run button for SQL, which cannot run without a database.
+  // The selection itself is owned by ConnectionDropdown, which also auto-selects.
   const connections = projectUid ? getProjectConnections(projectUid) : []
-  const warehouseConns = connections.filter((c) => c.source === 'warehouse')
-  const customConns = connections.filter((c) => c.source === 'custom')
-
-  // Auto-select first connection if none is active or current one is gone
-  const hasValidSelection = activeConnectionId && connections.some((c) => c.id === activeConnectionId)
-  useEffect(() => {
-    if (isSql && connections.length > 0 && !hasValidSelection) {
-      setActiveConnection(connections[0].id)
-    }
-  }, [isSql, connections, hasValidSelection, setActiveConnection])
-
-  const activeConn = hasValidSelection
-    ? connections.find((c) => c.id === activeConnectionId)
-    : connections[0]
+  const activeConn = connections.find((c) => c.id === activeConnectionId) ?? connections[0]
 
   const runtimeStatus = language === 'python' ? pythonStatus : language === 'r' ? rStatus : 'idle'
   const isLoading = runtimeStatus === 'loading'
@@ -164,79 +152,7 @@ export function RunButton({
         )}
       </div>
 
-      {/* Connection selector — only for SQL files */}
-      {isSql && connections.length > 0 && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="xs" className="gap-1 max-w-[160px] text-[11px]">
-              <Database size={11} className="shrink-0" />
-              <span className="truncate">
-                {activeConn?.name ?? t('connections.select')}
-              </span>
-              <ChevronDown size={10} className="shrink-0 opacity-50" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-[200px]">
-            {warehouseConns.length > 0 && (
-              <>
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  {t('connections.warehouse_databases')}
-                </DropdownMenuLabel>
-                {warehouseConns.map((c) => (
-                  <ConnectionMenuItem
-                    key={c.id}
-                    entry={c}
-                    isActive={activeConnectionId === c.id}
-                    onSelect={() => setActiveConnection(c.id)}
-                  />
-                ))}
-              </>
-            )}
-            {warehouseConns.length > 0 && customConns.length > 0 && (
-              <DropdownMenuSeparator />
-            )}
-            {customConns.length > 0 && (
-              <>
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  {t('connections.custom_connections')}
-                </DropdownMenuLabel>
-                {customConns.map((c) => (
-                  <ConnectionMenuItem
-                    key={c.id}
-                    entry={c}
-                    isActive={activeConnectionId === c.id}
-                    onSelect={() => setActiveConnection(c.id)}
-                  />
-                ))}
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      <ConnectionDropdown projectUid={projectUid} />
     </div>
-  )
-}
-
-function ConnectionMenuItem({
-  entry,
-  isActive,
-  onSelect,
-}: {
-  entry: ConnectionEntry
-  isActive: boolean
-  onSelect: () => void
-}) {
-  const statusColor = entry.status === 'connected'
-    ? 'bg-green-500'
-    : entry.status === 'error'
-      ? 'bg-red-500'
-      : 'bg-gray-400'
-
-  return (
-    <DropdownMenuItem onClick={onSelect} className="gap-2 py-1 text-xs" title={entry.name}>
-      <span className={`size-1.5 shrink-0 rounded-full ${statusColor}`} />
-      <span className="truncate">{entry.name}</span>
-      {isActive && <span className="ml-auto text-primary">✓</span>}
-    </DropdownMenuItem>
   )
 }

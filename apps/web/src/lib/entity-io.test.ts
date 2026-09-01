@@ -2971,6 +2971,44 @@ describe('export — local database ids never travel', () => {
     expect(stripped).not.toHaveProperty('linkedDataSourceIds')
     expect(stripped.linkedDataSourceRefs).toEqual([DB_REF])
   })
+
+  it('removes the IDE database id from a project\'s config, keeping its pointer', async () => {
+    // The id lives inside `config`, not at the top level, so INSTANCE_FIELDS
+    // cannot reach it — buildProjectZip strips it, and project_export.py mirrors
+    // that strip so both ends emit the same bytes.
+    const storage = new Proxy({
+      projects: {
+        getById: async () => ({
+          uid: 'p1', name: { en: 'P' },
+          config: { ideDataSourceId: LOCAL_UUID, ideDataSourceRef: DB_REF },
+        }),
+      },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const built = await buildProjectZip('p1', storage, {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const meta = JSON.parse(await zip.files['entity.json'].async('string'))
+
+    expect(meta.config).not.toHaveProperty('ideDataSourceId')
+    expect(meta.config.ideDataSourceRef).toEqual(DB_REF)
+  })
+
+  it('leaves a project that never picked an IDE database untouched', async () => {
+    // The strip must not invent an empty config key on a project that has none.
+    const storage = new Proxy({
+      projects: { getById: async () => ({ uid: 'p1', name: { en: 'P' }, config: {} }) },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const built = await buildProjectZip('p1', storage, {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const meta = JSON.parse(await zip.files['entity.json'].async('string'))
+
+    expect(meta.config).toEqual({})
+  })
 })
 
 // Counts computed against THIS instance's database are not the cohort: two

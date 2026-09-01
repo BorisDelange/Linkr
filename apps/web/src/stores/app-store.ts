@@ -167,6 +167,9 @@ interface AppState {
    *  unmark a data file "to version"). Persists + travels with the export. */
   toggleVersionedDataFile: (uid: string, path: string) => Promise<void>
   toggleExcludedFile: (uid: string, path: string) => Promise<void>
+  /** Remember the database the IDE runs scripts against. Persists + travels with
+   *  the export (the id is local, the ref beside it is what survives an import). */
+  setIdeDataSource: (uid: string, dataSourceId: string | null) => Promise<void>
   getWorkspaceProjects: (workspaceId: string) => ProjectItem[]
   deleteProject: (uid: string) => Promise<void>
 
@@ -525,6 +528,41 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }))
     await getStorage().projects.update(uid, patch)
+  },
+
+  setIdeDataSource: async (uid, dataSourceId) => {
+    // Kept in project.config, like versionedDataFiles: it persists across
+    // reloads, is scoped to one project, and travels with the export.
+    //
+    // Two fields, the same split the rest of the app uses for a cross-entity
+    // reference: `ideDataSourceId` is this instance's local UUID and addresses
+    // nothing anywhere else, while `ideDataSourceRef` is the portable pointer
+    // resolved back on import. Stamped here rather than derived at export time,
+    // so a server-side export — which builds the manifest from the stored row
+    // and cannot look the database up — carries it too.
+    const project = get()._projectsRaw.find((p) => p.uid === uid)
+    if (!project) return
+    const config = (project.config ?? {}) as Record<string, unknown>
+    const { ideDataSourceId: _id, ideDataSourceRef: _ref, ...rest } = config
+    // Imported lazily, as linkDataSource does: data-source-store imports this
+    // module, so a static import here would close the cycle.
+    const { useDataSourceStore } = await import('./data-source-store')
+    const ref = dataSourceId
+      ? buildPointer(useDataSourceStore.getState().dataSources, dataSourceId)
+      : undefined
+    const newConfig = dataSourceId
+      ? { ...rest, ideDataSourceId: dataSourceId, ...(ref ? { ideDataSourceRef: ref } : {}) }
+      : rest
+    // Re-selecting the same database is not always a no-op: the ref is stamped
+    // from the database row, so one picked before it had a lineage gains its
+    // pointer here. Compare the result, not just the id.
+    if (JSON.stringify(newConfig) === JSON.stringify(config)) return
+    set((s) => ({
+      _projectsRaw: s._projectsRaw.map((p) =>
+        p.uid === uid ? { ...p, config: newConfig } : p
+      ),
+    }))
+    await getStorage().projects.update(uid, { config: newConfig })
   },
 
   toggleVersionedDataFile: async (uid, path) => {

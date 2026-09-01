@@ -21,6 +21,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useConnectionStore, type ConnectionEntry } from '@/stores/connection-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
+import { useAppStore } from '@/stores/app-store'
+import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { AddConnectionDialog } from './AddConnectionDialog'
 import { cn } from '@/lib/utils'
@@ -61,6 +64,13 @@ function ConnectionItem({
 }) {
   const { t } = useTranslation()
 
+  // `errorMessage` may hold a sentinel rather than a sentence: entity-io has no
+  // i18n, so it marks an import that carried no data and leaves the wording to
+  // whoever displays it. Rendered raw it shows up as "linkr:db-imported-without-data".
+  const errorText = entry.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
+    ? t('databases.imported_without_data')
+    : entry.errorMessage
+
   return (
     <button
       type="button"
@@ -79,7 +89,7 @@ function ConnectionItem({
         <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           <span className="shrink-0">{engineLabels[entry.engine] ?? entry.engine}</span>
           {entry.errorMessage && (
-            <span className="min-w-0 truncate text-destructive">{entry.errorMessage}</span>
+            <span className="min-w-0 truncate text-destructive" title={errorText}>{errorText}</span>
           )}
         </div>
       </div>
@@ -105,6 +115,10 @@ export function ConnectionsPanel({ open, onOpenChange, projectUid }: Connections
   const { t } = useTranslation()
   const canWrite = useMyProjectRole(projectUid).can('ide:write')
   const { getProjectConnections, activeConnectionId, setActiveConnection, removeCustomConnection } = useConnectionStore()
+  // Same reason as ConnectionDropdown: getProjectConnections reads the
+  // data-source store via getState(), so subscribe to keep the dots live.
+  useDataSourceStore((s) => s.dataSources)
+  useConnectionStore((s) => s.customConnections)
   const connections = getProjectConnections(projectUid)
 
   const warehouseConns = connections.filter((c) => c.source === 'warehouse')
@@ -112,6 +126,14 @@ export function ConnectionsPanel({ open, onOpenChange, projectUid }: Connections
 
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+
+  // Persist alongside the in-memory selection, as the toolbar dropdown does:
+  // the two write the same active connection, so both must remember it.
+  const setIdeDataSource = useAppStore((s) => s.setIdeDataSource)
+  const handleSelect = (id: string) => {
+    setActiveConnection(id)
+    void setIdeDataSource(projectUid, id)
+  }
 
   const handleRemove = async () => {
     if (!deleteTarget) return
@@ -151,7 +173,7 @@ export function ConnectionsPanel({ open, onOpenChange, projectUid }: Connections
                         key={entry.id}
                         entry={entry}
                         isActive={activeConnectionId === entry.id}
-                        onSelect={() => setActiveConnection(entry.id)}
+                        onSelect={() => handleSelect(entry.id)}
                       />
                     ))}
                   </div>
@@ -183,7 +205,7 @@ export function ConnectionsPanel({ open, onOpenChange, projectUid }: Connections
                         key={entry.id}
                         entry={entry}
                         isActive={activeConnectionId === entry.id}
-                        onSelect={() => setActiveConnection(entry.id)}
+                        onSelect={() => handleSelect(entry.id)}
                         onRemove={canWrite ? () => setDeleteTarget(entry.id) : undefined}
                       />
                     ))}
