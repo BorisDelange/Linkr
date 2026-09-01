@@ -18,6 +18,7 @@ import {
   useMemo,
   useImperativeHandle,
   forwardRef,
+  memo,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react'
@@ -65,6 +66,7 @@ import { useAppStore, resolveEditorTheme } from '@/stores/app-store'
 import { CellOutput } from '@/components/editor/CellOutput'
 import { parseRmdFile, serializeRmdFile, parseChunkOptions, serializeChunkOptions, type RmdCell } from '@/lib/rmd-parser'
 import { runCellSequence, runnableCells, outputFailed } from '@/lib/notebook-run'
+import { shouldIgnoreNotebookShortcut, describeShortcutTarget } from '@/lib/notebook-shortcuts'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR, interruptR } from '@/lib/runtimes/webr-engine'
 import { executeOnServer, interruptServerKernel, activeSessionFor } from '@/lib/api/execution'
@@ -355,6 +357,11 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
           c.id === cellId ? { ...c, content: newContent, dirty: true } : c,
         )
         syncToFile(updated)
+        // Typing is debounced in the cell, so a run right after a keystroke
+        // flushes and executes in the same tick — before React has re-rendered
+        // and refreshed cellsRef. Without this, runCell would read the text as
+        // it was up to 400ms ago and run stale code.
+        cellsRef.current = updated
         return updated
       })
     },
@@ -474,6 +481,19 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   const handleDragStart = useCallback((cellId: string) => {
     setDraggedCellId(cellId)
   }, [])
+
+  // Stable per-cell callbacks. The cell block takes the id as an argument rather
+  // than closing over it, so ONE function serves every cell and the memo on
+  // RmdCellBlock holds — otherwise a fresh closure per cell per render would
+  // re-render every Monaco editor on any state change (clicking a cell included).
+  const moveCellUp = useCallback((cellId: string) => moveCell(cellId, 'up'), [moveCell])
+  const moveCellDown = useCallback((cellId: string) => moveCell(cellId, 'down'), [moveCell])
+  const registerEditor = useCallback(
+    (cellId: string, editor: Monaco.editor.IStandaloneCodeEditor) => {
+      editorMapRef.current.set(cellId, editor)
+    },
+    [],
+  )
 
   const handleDragEnd = useCallback(() => {
     if (draggedCellId && dropTargetIdx != null) {
@@ -655,6 +675,13 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
     },
     [runCell, togglePreview],
   )
+
+  /** Run one cell by id — stable, so the cell block can memo. Reads the cell
+   *  from the ref so it always runs the CURRENT text, not a render-time copy. */
+  const runCellById = useCallback((cellId: string) => {
+    const cell = cellsRef.current.find((c) => c.id === cellId)
+    if (cell) void runSequence([cell])
+  }, [runSequence])
 
   const runAll = useCallback(async () => {
     await runSequence(runnableCells(cells))
@@ -927,6 +954,12 @@ ${bodyParts.join('\n')}
       const target = e.target as HTMLElement | null
       const inMonaco = target?.closest('.monaco-editor') != null
 
+      // Jupyter's command-mode shortcuts are BARE letters (a, b, d), so without
+      // this they fire from any text field in the app: typing "a" in a dialog's
+      // input was adding a cell to the notebook behind it.
+      const targetInfo = describeShortcutTarget(e.target)
+      if (targetInfo && shouldIgnoreNotebookShortcut(targetInfo)) return
+
       const activeCellObj = activeCell ? cells.find((c) => c.id === activeCell) : null
 
       // When Monaco has focus, its addCommand handles run/advance per-cell.
@@ -1120,23 +1153,23 @@ ${bodyParts.join('\n')}
                 isDragging={draggedCellId === cell.id}
                 isDragActive={draggedCellId != null}
                 dropTargetIdx={dropTargetIdx}
-                onFocus={() => setActiveCell(cell.id)}
-                onContentChange={(v) => updateCellContent(cell.id, v)}
-                onRun={() => void runSequence([cell])}
+                onFocus={setActiveCell}
+                onContentChange={updateCellContent}
+                onRun={runCellById}
                 onAdvance={advanceCell}
-                onRemove={() => removeCell(cell.id)}
-                onMoveUp={() => moveCell(cell.id, 'up')}
-                onMoveDown={() => moveCell(cell.id, 'down')}
-                onTogglePreview={() => togglePreview(cell.id)}
-                onAddAfter={(type, lang) => addCell(cell.id, type, lang)}
+                onRemove={removeCell}
+                onMoveUp={moveCellUp}
+                onMoveDown={moveCellDown}
+                onTogglePreview={togglePreview}
+                onAddAfter={addCell}
                 hasYamlCell={hasYamlCell}
-                onEditorMount={(editor) => editorMapRef.current.set(cell.id, editor)}
-                onDragStart={() => handleDragStart(cell.id)}
+                onEditorMount={registerEditor}
+                onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
                 onDragCancel={handleDragCancel}
                 onDropTargetChange={setDropTargetIdx}
-                onChunkMetaChange={(label, opts) => updateCellChunkMeta(cell.id, label, opts)}
-                onLanguageChange={(lang) => updateCellLanguage(cell.id, lang)}
+                onChunkMetaChange={updateCellChunkMeta}
+                onLanguageChange={updateCellLanguage}
                 shortcutPrefix={shortcutPrefix}
                 notebookFormat={notebookFormat}
               />
@@ -1443,23 +1476,26 @@ interface RmdCellBlockProps {
   isDragging: boolean
   isDragActive: boolean
   dropTargetIdx: number | null
-  onFocus: () => void
-  onContentChange: (value: string) => void
-  onRun: () => void
+  /** All per-cell callbacks take the cell id, so the parent passes ONE stable
+   *  function each instead of a fresh closure per cell on every render — which
+   *  is what lets the memo below actually hold. */
+  onFocus: (cellId: string) => void
+  onContentChange: (cellId: string, value: string) => void
+  onRun: (cellId: string) => void
   onAdvance: () => void
-  onRemove: () => void
-  onMoveUp: () => void
-  onMoveDown: () => void
-  onTogglePreview: () => void
-  onAddAfter: (type: RmdCell['type'], language?: string) => void
+  onRemove: (cellId: string) => void
+  onMoveUp: (cellId: string) => void
+  onMoveDown: (cellId: string) => void
+  onTogglePreview: (cellId: string) => void
+  onAddAfter: (cellId: string, type: RmdCell['type'], language?: string) => void
   hasYamlCell: boolean
-  onEditorMount: (editor: Monaco.editor.IStandaloneCodeEditor) => void
-  onDragStart: () => void
+  onEditorMount: (cellId: string, editor: Monaco.editor.IStandaloneCodeEditor) => void
+  onDragStart: (cellId: string) => void
   onDragEnd: () => void
   onDragCancel: () => void
   onDropTargetChange: (idx: number | null) => void
-  onChunkMetaChange: (label: string, options: string) => void
-  onLanguageChange: (language: string) => void
+  onChunkMetaChange: (cellId: string, label: string, options: string) => void
+  onLanguageChange: (cellId: string, language: string) => void
   shortcutPrefix: 'rmd' | 'ipynb'
   notebookFormat: 'rmd' | 'ipynb'
 }
@@ -1467,7 +1503,20 @@ interface RmdCellBlockProps {
 const RMD_COLLAPSE_LINE_THRESHOLD = 30
 const RMD_COLLAPSED_HEIGHT = 30 * 18 + 8
 
-function RmdCellBlock({
+/**
+ * One notebook cell.
+ *
+ * MEMOISED, and that is load-bearing: without it, any state change in the
+ * notebook — clicking a cell, a keystroke, a run finishing — re-renders every
+ * cell, and each one carries a Monaco editor. That was seconds of lag on a
+ * notebook with a few R/Python cells (markdown cells in preview mode have no
+ * editor, which is why they felt fine).
+ *
+ * The memo only holds because every callback prop is stable (see the parent:
+ * each takes the cell id rather than closing over it). Adding a prop built
+ * inline at the call site would silently switch it back off.
+ */
+const RmdCellBlock = memo(function RmdCellBlock({
   cell,
   index,
   totalCells,
@@ -1520,7 +1569,51 @@ function RmdCellBlock({
 
   const [copied, setCopied] = useState(false)
 
-  const lineCount = cell.content.split('\n').length
+  // Typing must not go through React. onContentChange writes to `cells`, a new
+  // array on every keystroke, which re-renders EVERY cell in the notebook — each
+  // one carrying a Monaco editor — and feeds `cell.content` back in for Monaco to
+  // reconcile. Monaco owns the live text; the notebook only needs it to serialise.
+  //
+  // While an edit is pending the editor is fed its OWN text: @monaco-editor/react
+  // reconciles with `value !== model.getValue()` and executeEdits on a mismatch,
+  // so handing it the stale prop would edit the keystroke straight back out. An
+  // external change still flows in, arriving when nothing is pending.
+  const [pending, setPending] = useState<string | null>(null)
+  const pendingRef = useRef<string | null>(null)
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const onContentChangeRef = useRef(onContentChange)
+  useEffect(() => { onContentChangeRef.current = onContentChange })
+
+  const flushContent = useCallback(() => {
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current)
+      flushTimerRef.current = null
+    }
+    const text = pendingRef.current
+    if (text === null) return
+    pendingRef.current = null
+    setPending(null)
+    onContentChangeRef.current(cell.id, text)
+  }, [cell.id])
+
+  const handleEditorChange = useCallback((v: string | undefined) => {
+    const text = v ?? ''
+    pendingRef.current = text
+    setPending(text)
+    if (flushTimerRef.current) clearTimeout(flushTimerRef.current)
+    flushTimerRef.current = setTimeout(flushContent, 400)
+  }, [flushContent])
+
+  // Unmounting (reorder, delete, switching to source view) must not drop the
+  // last keystrokes.
+  useEffect(() => flushContent, [flushContent])
+
+  const editorValue = pending ?? cell.content
+  // Everything below reads the LIVE text, so the line count, the collapse
+  // threshold and the editor's height track what is actually on screen.
+  const liveContent = editorValue
+
+  const lineCount = liveContent.split('\n').length
   const isLong = lineCount > RMD_COLLAPSE_LINE_THRESHOLD
   const [collapsed, setCollapsed] = useState(false)
   const [editorHeight, setEditorHeight] = useState(Math.max(lineCount * 18 + 8, 36))
@@ -1528,7 +1621,7 @@ function RmdCellBlock({
   // Auto-resize Monaco editor to fit content
   const handleEditorMount: OnMount = (editor, _monaco) => {
     editorRef.current = editor
-    onEditorMount(editor)
+    onEditorMount(cell.id, editor)
 
     const updateHeight = () => {
       const h = Math.max(editor.getContentHeight(), 36)
@@ -1544,7 +1637,7 @@ function RmdCellBlock({
     updateHeight()
 
     // Sync activeCell when this Monaco editor receives focus
-    editor.onDidFocusEditorWidget(() => onFocusRef.current())
+    editor.onDidFocusEditorWidget(() => onFocusRef.current(cell.id))
 
     // Intercept notebook shortcuts directly on the editor DOM rather than
     // using editor.addCommand, which registers in a global keybinding service
@@ -1573,8 +1666,8 @@ function RmdCellBlock({
           if (matchCombo(e, gb(nbId('run_chunk_stay')))) {
             e.preventDefault()
             e.stopPropagation()
-            if (cell.type === 'code') onRunRef.current()
-            else if (cell.type === 'markdown') onTogglePreviewRef.current()
+            if (cell.type === 'code') { flushContent(); onRunRef.current(cell.id) }
+            else if (cell.type === 'markdown') onTogglePreviewRef.current(cell.id)
             return
           }
 
@@ -1582,8 +1675,8 @@ function RmdCellBlock({
           if (matchCombo(e, gb(nbId('run_chunk'))) || matchCombo(e, gb('run_selection_or_line'))) {
             e.preventDefault()
             e.stopPropagation()
-            if (cell.type === 'code') onRunRef.current()
-            else if (cell.type === 'markdown') onTogglePreviewRef.current()
+            if (cell.type === 'code') { flushContent(); onRunRef.current(cell.id) }
+            else if (cell.type === 'markdown') onTogglePreviewRef.current(cell.id)
             // yaml: nothing to run, just advance
             onAdvanceRef.current()
             return
@@ -1631,8 +1724,8 @@ function RmdCellBlock({
     e.dataTransfer.setDragImage(ghost, 0, 0)
     requestAnimationFrame(() => document.body.removeChild(ghost))
     e.dataTransfer.effectAllowed = 'move'
-    onDragStart()
-  }, [cell.type, cell.language, onDragStart])
+    onDragStart(cell.id)
+  }, [cell.id, cell.type, cell.language, onDragStart])
 
   // Drop zone highlight: shown before this cell (logical index)
   const isDropBefore = isDragActive && dropTargetIdx === index && !isDragging
@@ -1654,7 +1747,7 @@ function RmdCellBlock({
         data-cell-id={cell.id}
         style={{ order: cssOrder }}
         className={`group rounded border transition-colors ${borderColor}`}
-        onClick={onFocus}
+        onClick={() => onFocus(cell.id)}
         onDragOver={(e) => e.preventDefault()}
       >
         {/* Cell header */}
@@ -1672,7 +1765,7 @@ function RmdCellBlock({
                 <GripVertical size={12} className="text-muted-foreground/50" />
               </div>
               <button
-                onClick={(e) => { e.stopPropagation(); onMoveUp() }}
+                onClick={(e) => { e.stopPropagation(); onMoveUp(cell.id) }}
                 disabled={index === 0}
                 className="p-0 rounded hover:bg-accent disabled:opacity-20"
                 title="Move up"
@@ -1680,7 +1773,7 @@ function RmdCellBlock({
                 <ChevronUp size={12} />
               </button>
               <button
-                onClick={(e) => { e.stopPropagation(); onMoveDown() }}
+                onClick={(e) => { e.stopPropagation(); onMoveDown(cell.id) }}
                 disabled={index === totalCells - 1}
                 className="p-0 rounded hover:bg-accent disabled:opacity-20"
                 title="Move down"
@@ -1722,7 +1815,7 @@ function RmdCellBlock({
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             {cell.type === 'code' && !readOnly && (
               <button
-                onClick={(e) => { e.stopPropagation(); onRun(); onAdvance() }}
+                onClick={(e) => { e.stopPropagation(); flushContent(); onRun(cell.id); onAdvance() }}
                 className="p-0.5 rounded hover:bg-accent"
                 title={t('files.notebook_run_cell')}
               >
@@ -1734,13 +1827,13 @@ function RmdCellBlock({
                 label={cell.chunkLabel ?? ''}
                 language={cell.language ?? 'r'}
                 options={cell.chunkOptions ?? ''}
-                onChange={onChunkMetaChange}
-                onLanguageChange={onLanguageChange}
+                onChange={(label, options) => onChunkMetaChange(cell.id, label, options)}
+                onLanguageChange={(language) => onLanguageChange(cell.id, language)}
               />
             )}
             {cell.type === 'markdown' && (
               <button
-                onClick={(e) => { e.stopPropagation(); onTogglePreview() }}
+                onClick={(e) => { e.stopPropagation(); onTogglePreview(cell.id) }}
                 className="p-0.5 rounded hover:bg-accent"
                 title={isPreview ? t('files.notebook_edit') : t('files.notebook_preview')}
               >
@@ -1750,7 +1843,7 @@ function RmdCellBlock({
             <button
               onClick={(e) => {
                 e.stopPropagation()
-                navigator.clipboard.writeText(cell.content)
+                navigator.clipboard.writeText(liveContent)
                 setCopied(true)
                 setTimeout(() => setCopied(false), 1500)
               }}
@@ -1761,7 +1854,7 @@ function RmdCellBlock({
             </button>
             {!readOnly && (
               <button
-                onClick={(e) => { e.stopPropagation(); onRemove() }}
+                onClick={(e) => { e.stopPropagation(); onRemove(cell.id) }}
                 className="p-0.5 rounded hover:bg-accent text-destructive/70"
               >
                 <Trash2 size={11} />
@@ -1773,10 +1866,10 @@ function RmdCellBlock({
         {/* Cell body */}
         {cell.type === 'markdown' && isPreview ? (
           // Rendered markdown preview
-          <div className="min-h-[2rem] cursor-pointer" onDoubleClick={onTogglePreview}>
-            {cell.content.trim() ? (
+          <div className="min-h-[2rem] cursor-pointer" onDoubleClick={() => onTogglePreview(cell.id)}>
+            {liveContent.trim() ? (
               <MarkdownRenderer
-                content={cell.content}
+                content={liveContent}
                 className="px-3 py-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
               />
             ) : (
@@ -1791,16 +1884,16 @@ function RmdCellBlock({
               style={{ height: collapsed ? RMD_COLLAPSED_HEIGHT : editorHeight }}
             >
               <Editor
-                value={cell.content}
+                value={editorValue}
                 language={monacoLang}
                 theme={theme}
                 options={editorOptions}
                 beforeMount={beforeMount}
-                onChange={(v) => onContentChange(v ?? '')}
+                onChange={handleEditorChange}
                 onMount={handleEditorMount}
                 loading={
                   <pre className="text-xs font-mono p-2 whitespace-pre-wrap min-h-[36px]">
-                    {cell.content}
+                    {liveContent}
                   </pre>
                 }
               />
@@ -1831,20 +1924,20 @@ function RmdCellBlock({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="center">
-                  <DropdownMenuItem onClick={() => onAddAfter('markdown')}>
+                  <DropdownMenuItem onClick={() => onAddAfter(cell.id, 'markdown')}>
                     <FileText size={14} /> Markdown
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onAddAfter('code', 'r')}>
+                  <DropdownMenuItem onClick={() => onAddAfter(cell.id, 'code', 'r')}>
                     <Code size={14} /> R
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onAddAfter('code', 'python')}>
+                  <DropdownMenuItem onClick={() => onAddAfter(cell.id, 'code', 'python')}>
                     <Code size={14} /> Python
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onAddAfter('code', 'sql')}>
+                  <DropdownMenuItem onClick={() => onAddAfter(cell.id, 'code', 'sql')}>
                     <Code size={14} /> SQL
                   </DropdownMenuItem>
                   {!hasYamlCell && (
-                    <DropdownMenuItem onClick={() => onAddAfter('yaml')}>
+                    <DropdownMenuItem onClick={() => onAddAfter(cell.id, 'yaml')}>
                       <Settings2 size={14} /> YAML front-matter
                     </DropdownMenuItem>
                   )}
@@ -1866,5 +1959,5 @@ function RmdCellBlock({
       )}
     </>
   )
-}
+})
 
