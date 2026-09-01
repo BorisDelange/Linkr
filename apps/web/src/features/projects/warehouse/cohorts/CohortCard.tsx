@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn, isTypingTarget } from '@/lib/utils'
+import { localized } from '@/lib/localized'
 import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
@@ -58,7 +59,7 @@ export function CohortCard({
   selected = false,
   onSelectClick,
 }: CohortCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
 
   const levelLabel = t(`cohorts.level_${cohort.level}`)
@@ -91,7 +92,7 @@ export function CohortCard({
           <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS.cohorts.bg)}>
             <UsersRound size={20} className={ENTITY_COLORS.cohorts.icon} />
           </div>
-          <TruncatedText text={cohort.name} readOnly className="min-w-0 flex-1 text-sm font-medium" />
+          <TruncatedText text={localized(cohort.name, i18n.language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
           <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${levelColors[cohort.level] ?? ''}`}>
             {levelLabel}
           </span>
@@ -129,8 +130,8 @@ export function CohortCard({
         </div>
         {/* Description */}
         <div className="mt-2 h-4">
-          {cohort.description && (
-            <TruncatedText text={cohort.description} className="text-xs text-muted-foreground" />
+          {localized(cohort.description, i18n.language) && (
+            <TruncatedText text={localized(cohort.description, i18n.language)} className="text-xs text-muted-foreground" />
           )}
         </div>
         <EntityDatabaseLine projectUid={cohort.projectUid} dataSourceId={cohort.dataSourceId} />

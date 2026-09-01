@@ -2,6 +2,7 @@
 
 import type { Authored } from '@/types/author'
 import type { DataSourceRef } from '@/types/concept-mapping'
+import type { LocalizedString } from '@/types/index'
 
 /** Extraction level for the cohort */
 export type CohortLevel = 'patient' | 'visit' | 'visit_detail' | 'event'
@@ -178,8 +179,8 @@ export type CriteriaTreeNode = CriterionNode | CriteriaGroupNode
 export interface Cohort extends Authored {
   id: string
   projectUid: string
-  name: string
-  description: string
+  name: LocalizedString
+  description: LocalizedString
   /** Which linked database this cohort runs against. Optional: a cohort written
    *  before the field existed, or imported from elsewhere, falls back to the
    *  first usable one (see `resolveProjectSource`). */
@@ -203,7 +204,8 @@ export interface Cohort extends Authored {
    * In fullstack mode it lives in the app DB and is shared across users.
    */
   materialization?: CohortMaterialization
-  /** Schema version for migration (current = 3) */
+  /** Schema version for migration; the current value is CURRENT_SCHEMA_VERSION
+   *  in cohort-store.ts, which is what migrations stamp. */
   schemaVersion: number
   /** User-facing semver (default '0.1.0'), distinct from schemaVersion (migration counter). */
   version?: string

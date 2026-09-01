@@ -175,7 +175,7 @@ export function PipelineCanvas() {
     (cohortId: string) => {
       if (!selectedNodeId) return
       const cohort = cohorts.find((c) => c.id === cohortId)
-      updateNodeData(selectedNodeId, { cohortId, label: cohort?.name ?? 'Cohort' })
+      updateNodeData(selectedNodeId, { cohortId, label: localized(cohort?.name, i18n.language) || 'Cohort' })
     },
     [selectedNodeId, cohorts, updateNodeData],
   )

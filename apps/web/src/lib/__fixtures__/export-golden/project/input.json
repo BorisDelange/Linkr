@@ -154,18 +154,41 @@
     {
       "id": "co-1",
       "projectUid": "proj-uid-1",
-      "name": "Adults",
-      "description": "age >= 18",
+      "name": {
+        "en": "Adults",
+        "fr": "Adultes"
+      },
+      "description": {
+        "en": "age >= 18",
+        "fr": "age >= 18"
+      },
       "level": "patient",
       "criteriaTree": {
-        "op": "and",
-        "rules": []
+        "kind": "group",
+        "id": "root",
+        "operator": "AND",
+        "children": [
+          {
+            "kind": "criterion",
+            "id": "crit-1",
+            "type": "age",
+            "config": {
+              "ageReference": "admission",
+              "min": 18
+            },
+            "operator": "AND",
+            "exclude": false,
+            "enabled": true
+          }
+        ],
+        "exclude": false,
+        "enabled": true
       },
       "customSql": null,
       "resultCount": 42,
       "attrition": null,
       "materialization": null,
-      "schemaVersion": 3,
+      "schemaVersion": 5,
       "createdAt": "2026-01-04T00:00:00.000Z",
       "updatedAt": "2026-06-02T00:00:00.000Z",
       "version": "0.1.0"

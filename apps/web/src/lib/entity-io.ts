@@ -844,10 +844,11 @@ export function patientDashboardKey(d: PatientDashboard): string {
   return slugify(localized(d.name, 'en') || d.id)
 }
 
-/** cohortKey — slug of the name, matching the export filename. A cohort's name is
- *  a plain string (not a LocalizedString), so no language rule applies. */
+/** cohortKey — slug of the English name, matching the export filename. English
+ *  so the filename (and the id derived from it) stays put when the cohort is
+ *  renamed in another language. */
 export function cohortKey(c: Cohort): string {
-  return slugify(c.name || c.id)
+  return slugify(localized(c.name, 'en') || c.id)
 }
 
 /** Every tab id → `<boardKey>/<slug>`, `#<displayOrder>` on a sibling collision. */

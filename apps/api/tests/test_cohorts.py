@@ -42,7 +42,10 @@ async def test_cohort_crud(client):
     proj = await _project(client, headers)
     c = await _cohort(client, headers, proj)
     assert c["projectUid"] == proj and c["level"] == "patient"
-    assert c["criteriaTree"]["op"] == "and" and c["schemaVersion"] == 3
+    assert c["criteriaTree"]["op"] == "and" and c["schemaVersion"] == 5
+    # A bare string still posts and reads back unchanged: LocalizedText tolerates
+    # the pre-multilingual shape rather than rejecting older clients.
+    assert c["name"] == "Adults"
 
     listed = (await client.get(f"{API}/cohorts?projectUid={proj}", headers=headers)).json()
     assert [x["id"] for x in listed] == [c["id"]]
@@ -85,6 +88,27 @@ async def test_list_all_without_project_filter(client):
     r = await client.get(f"{API}/cohorts", headers=headers)
     assert r.status_code == 200
     assert len(r.json()) == 1
+
+
+async def test_localized_name_round_trips(client):
+    # A cohort's name is a LocalizedString like every other entity's. Both
+    # languages must survive the write, and editing one must not drop the other.
+    headers = await _admin_headers(client)
+    proj = await _project(client, headers)
+    created = (await client.post(f"{API}/cohorts", headers=headers, json={
+        "id": "c-i18n", "projectUid": proj, "level": "patient",
+        "name": {"en": "Adults", "fr": "Adultes"},
+        "description": {"en": "Over 50", "fr": "Plus de 50 ans"},
+        "criteriaTree": {"kind": "group", "operator": "AND", "children": []},
+    })).json()
+    assert created["name"] == {"en": "Adults", "fr": "Adultes"}
+    assert created["description"] == {"en": "Over 50", "fr": "Plus de 50 ans"}
+
+    patched = (await client.patch(f"{API}/cohorts/c-i18n", headers=headers, json={
+        "name": {"en": "Adult patients", "fr": "Adultes"},
+    })).json()
+    assert patched["name"] == {"en": "Adult patients", "fr": "Adultes"}
+    assert patched["description"] == {"en": "Over 50", "fr": "Plus de 50 ans"}
 
 
 async def test_non_member_cannot_access(client, db):

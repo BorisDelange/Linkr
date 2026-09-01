@@ -1,7 +1,7 @@
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import JSONB_or_JSON, Base, LocalizedText, TimestampMixin
 
 
 class Cohort(Base, TimestampMixin):
@@ -16,8 +16,8 @@ class Cohort(Base, TimestampMixin):
     project_uid: Mapped[str] = mapped_column(
         ForeignKey("projects.uid", ondelete="CASCADE")
     )
-    name: Mapped[str] = mapped_column(String(255), default="")
-    description: Mapped[str] = mapped_column(Text, default="")
+    name: Mapped[dict] = mapped_column(LocalizedText, default=dict)  # LocalizedString
+    description: Mapped[dict | None] = mapped_column(LocalizedText)  # LocalizedString
     # Which linked database the cohort runs against. Nullable: a cohort written
     # before the field existed falls back to the project's first usable database.
     data_source_id: Mapped[str | None] = mapped_column(String(36))
@@ -33,7 +33,9 @@ class Cohort(Base, TimestampMixin):
     # Frozen membership snapshot (level, ids, patientIds, count, materializedAt).
     # Persisted and shared across users in fullstack mode.
     materialization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    schema_version: Mapped[int] = mapped_column(Integer, default=3)
+    # Matches CURRENT_SCHEMA_VERSION in the frontend's cohort-store: a row the
+    # server creates must not read as stale and get re-migrated on the client.
+    schema_version: Mapped[int] = mapped_column(Integer, default=5)
     # User-facing semver (distinct from schema_version, the internal migration
     # counter). Portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")

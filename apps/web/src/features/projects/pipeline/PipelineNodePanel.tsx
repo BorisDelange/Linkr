@@ -431,7 +431,7 @@ export function PipelineNodePanel({
               <option value="">{t('pipeline.select_cohort_placeholder')}</option>
               {cohorts.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {localized(c.name, i18n.language)}
                 </option>
               ))}
             </select>

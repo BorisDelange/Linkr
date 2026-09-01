@@ -18,6 +18,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { DatePickerField } from '@/components/ui/date-picker-field'
 import { cn } from '@/lib/utils'
+import { localized } from '@/lib/localized'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -188,7 +189,7 @@ export function PatientDataSidebar() {
                   </SelectItem>
                   {cohorts.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {c.name}
+                      {localized(c.name, i18n.language)}
                     </SelectItem>
                   ))}
                 </SelectContent>

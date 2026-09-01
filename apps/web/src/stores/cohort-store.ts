@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { stampAuthored } from '@/stores/app-store'
-import { copyNameString } from '@/lib/copy-name'
+import { copyName } from '@/lib/copy-name'
+import { toLocalized } from '@/lib/localized'
 import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
 import * as engine from '@/lib/duckdb/engine'
 import type {
@@ -13,13 +14,14 @@ import type {
   AttritionStep,
   SchemaMapping,
   DataSourceRef,
+  LocalizedString,
 } from '@/types'
 
 // ---------------------------------------------------------------------------
 // Migration: v1 flat criteria → v2 criteria tree
 // ---------------------------------------------------------------------------
 
-const CURRENT_SCHEMA_VERSION = 4
+const CURRENT_SCHEMA_VERSION = 5
 
 /** Result rows loaded per run. Matches the server's MAX_QUERY_ROWS (see
  *  `database.py`), which silently truncates anything larger — asking for more
@@ -79,11 +81,20 @@ function migrateCohortIfNeeded(raw: Record<string, unknown>): Cohort {
     version = 4
   }
 
+  // v4 → v5: name/description become LocalizedString, as every other entity
+  // already stores them. The plain string is filed under every language, so the
+  // cohort keeps rendering identically until someone edits one language.
+  if (version < 5) {
+    raw.name = toLocalized(raw.name as LocalizedString | string | undefined)
+    raw.description = toLocalized(raw.description as LocalizedString | string | undefined)
+    version = 5
+  }
+
   return {
     id: raw.id as string,
     projectUid: raw.projectUid as string,
-    name: (raw.name as string) ?? '',
-    description: (raw.description as string) ?? '',
+    name: raw.name as LocalizedString,
+    description: raw.description as LocalizedString,
     level: (raw.level as CohortLevel) ?? 'patient',
     criteriaTree: raw.criteriaTree as unknown as CriteriaGroupNode,
     customSql: (raw.customSql as string | null) ?? null,
@@ -175,8 +186,8 @@ interface CohortState {
 
   addCohort: (source: {
     projectUid: string
-    name: string
-    description: string
+    name: LocalizedString
+    description: LocalizedString
     level: CohortLevel
     criteriaTree?: CriteriaGroupNode
     version?: string
@@ -275,7 +286,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     const clone: Cohort = {
       ...structuredClone(source),
       id: crypto.randomUUID(),
-      name: copyNameString(source.name, state.cohorts.filter((c) => c.projectUid === source.projectUid).map((c) => c.name)),
+      name: copyName(source.name, state.cohorts.filter((c) => c.projectUid === source.projectUid).map((c) => c.name)),
       // Execution output is deliberately dropped: the copy has never run, and
       // carrying a count or a frozen membership over would show numbers that
       // describe the original's last run, not this cohort.

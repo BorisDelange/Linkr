@@ -107,3 +107,15 @@ a different population, and nothing downstream says so.
 
 Build cohorts in the app, where the criteria editor shows the attrition at each step.
 If asked to write one, say this rather than hand-rolling the JSON.
+
+Two things to know when **reading or fixing** an existing `cohorts/*.json`:
+
+- `name` and `description` are **LocalizedString** (`{"en": …, "fr": …}`), like every
+  other entity. A bare string still imports — the app backfills it into both languages
+  on read — but new files should carry the object. The export filename (and the id
+  derived from it) is the slug of the **English** name, so renaming in another language
+  leaves the file where it is.
+- The criteria live under `criteriaTree.children` — a recursive tree of
+  `{"kind": "group", …, "children": []}` and `{"kind": "criterion", "type": …, "config": …}`
+  nodes, each carrying `operator`, `exclude` and `enabled`. There is no `rules` array;
+  a node with `enabled: false` is skipped when the SQL is generated.

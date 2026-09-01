@@ -698,8 +698,11 @@ def build_project_tree(
     # a placeholder no one can edit and a diff no one can act on. Mirrors
     # buildProjectZip — restore both together with the page.
 
+    # Names are LocalizedString, so the slug comes from English — the same rule
+    # cohortKey uses on the frontend, or the two would export the same cohort
+    # under different filenames.
     for c in cohorts:
-        tree[f"cohorts/{_slugify(c.get('name') or c['id'])}.json"] = _json(
+        tree[f"cohorts/{_slugify(_localized_en(c.get('name')) or c['id'])}.json"] = _json(
             _cohort_export_shape(_drop_local_database(_strip_instance_fields(c)))
         )
 

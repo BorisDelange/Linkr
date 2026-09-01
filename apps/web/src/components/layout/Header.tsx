@@ -219,7 +219,7 @@ export function Header() {
   }, [editingPluginId, editingPluginFiles, editingPluginGitRemote])
 
   const dashboardName = dashboardEntity?.name != null ? localized(dashboardEntity.name, language) : undefined
-  const cohortName = cohortEntity?.name
+  const cohortName = cohortEntity?.name != null ? localized(cohortEntity.name, language) : undefined
   const patientBoardName = patientBoardEntity?.name != null ? localized(patientBoardEntity.name, language) : undefined
   const etlName = etlEntity?.name
   const sqlName = sqlEntity?.name
@@ -409,7 +409,7 @@ export function Header() {
           aria-label={t('common.actions')}
         >
           <UsersRound size={10} className="text-muted-foreground" />
-          {cohortEntity.name}
+          {localized(cohortEntity.name, language)}
           <MoreHorizontal size={12} className="text-muted-foreground" />
         </Badge>
       }

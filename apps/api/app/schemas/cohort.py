@@ -6,8 +6,10 @@ from app.schemas.base import CamelModel
 class CohortCreate(CamelModel):
     id: str
     project_uid: str
-    name: str = ""
-    description: str = ""
+    # LocalizedString. `str` is still accepted so older clients and seed
+    # manifests that post a bare name keep working (LocalizedText reads it back).
+    name: dict | str = ""
+    description: dict | str | None = None
     data_source_id: str | None = None
     data_source_ref: dict | None = None
     level: str
@@ -16,15 +18,15 @@ class CohortCreate(CamelModel):
     result_count: int | None = None
     attrition: list | None = None
     materialization: dict | None = None
-    schema_version: int = 3
+    schema_version: int = 5
     # Creation date preserved on import round-trip; absent → server_default stamps now.
     created_at: datetime | None = None
     version: str = "0.1.0"
 
 
 class CohortUpdate(CamelModel):
-    name: str | None = None
-    description: str | None = None
+    name: dict | str | None = None
+    description: dict | str | None = None
     data_source_id: str | None = None
     data_source_ref: dict | None = None
     level: str | None = None
@@ -43,8 +45,8 @@ class CohortUpdate(CamelModel):
 class CohortResponse(CamelModel):
     id: str
     project_uid: str
-    name: str
-    description: str
+    name: dict | str
+    description: dict | str | None = None
     data_source_id: str | None = None
     data_source_ref: dict | None = None
     level: str

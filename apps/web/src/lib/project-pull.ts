@@ -199,7 +199,7 @@ const dashboardNaturalKey = (d: Dashboard): string => slugify(localizedEn(d.name
 /** Matches the export filename (`patient-dashboards/<slug>.json`), like the others. */
 const patientDashboardNaturalKey = (d: PatientDashboard): string =>
   slugify(localizedEn(d.name) || d.id)
-const cohortNaturalKey = (c: Cohort): string => slugify(c.name || c.id)
+const cohortNaturalKey = (c: Cohort): string => slugify(localizedEn(c.name) || c.id)
 const pipelineNaturalKey = (p: Pipeline): string => slugify(localizedEn(p.name) || p.id)
 
 /**
@@ -270,7 +270,7 @@ export async function prepareProjectPull(
       const local = localCohortByKey.get(key)
       return !local || !sameExported(local, c)
     })
-    .map(({ c, key }) => ({ key, label: c.name || key, exists: localCohortByKey.has(key) }))
+    .map(({ c, key }) => ({ key, label: localizedEn(c.name) || key, exists: localCohortByKey.has(key) }))
   const pipeline: PullItem[] = parsed.pipelines
     .map((p) => ({ p, key: pipelineNaturalKey(p) }))
     .filter(({ p, key }) => {

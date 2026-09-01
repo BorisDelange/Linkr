@@ -15,7 +15,7 @@ import { CONTENT_FILE, MANIFEST } from '../layout.js'
 import { manifestPath } from './entities.js'
 
 const DQ_SEVERITIES = ['error', 'warning', 'info'] as const
-const COHORT_LEVELS = ['patient', 'visit', 'visit_detail'] as const
+const COHORT_LEVELS = ['patient', 'visit', 'visit_detail', 'event'] as const
 const MAPPING_STATUSES = ['approved', 'pending', 'rejected', 'draft'] as const
 
 /** `rule-set.json` + `checks.json`. */
@@ -153,6 +153,7 @@ export function validateCohort(
     return
   }
   checkLocalized(bag, path, '/name', cohort.name, { required: true })
+  checkLocalized(bag, path, '/description', cohort.description, { label: 'description' })
 
   if (cohort.level != null) {
     checkEnum(bag, path, '/level', cohort.level, COHORT_LEVELS, { label: 'level' })
@@ -161,19 +162,30 @@ export function validateCohort(
   // A cohort selects patients either through the criteria builder or through
   // hand-written SQL. With neither it imports fine and returns nobody.
   const tree = cohort.criteriaTree
-  const hasCriteria = isObject(tree) && Array.isArray(tree.rules) && tree.rules.length > 0
   const hasSql = typeof cohort.customSql === 'string' && cohort.customSql.trim().length > 0
-  if (!hasCriteria && !hasSql) {
+  if (!hasEnabledCriterion(tree) && !hasSql) {
     bag.warn(path, '', 'empty-value',
       'This cohort has neither criteria nor custom SQL; it would select nothing.',
-      'add rules to criteriaTree, or set customSql')
+      'add criteria to criteriaTree.children, or set customSql')
   }
 
   if (tree != null && !isObject(tree)) {
     bag.error(path, '/criteriaTree', 'wrong-type', 'criteriaTree must be an object.')
-  } else if (isObject(tree) && tree.rules != null && !Array.isArray(tree.rules)) {
-    bag.error(path, '/criteriaTree/rules', 'wrong-type', 'criteriaTree.rules must be an array.')
+  } else if (isObject(tree) && tree.children != null && !Array.isArray(tree.children)) {
+    bag.error(path, '/criteriaTree/children', 'wrong-type',
+      'criteriaTree.children must be an array.')
   }
+}
+
+/** Does the tree hold at least one criterion that SQL generation would emit?
+ *
+ * The tree is recursive — groups nest groups — and a node with `enabled: false`
+ * is skipped when the SQL is built, so a tree of disabled criteria selects
+ * everyone just as an empty one does. */
+function hasEnabledCriterion(node: unknown): boolean {
+  if (!isObject(node) || node.enabled === false) return false
+  if (node.kind === 'criterion') return true
+  return Array.isArray(node.children) && node.children.some(hasEnabledCriterion)
 }
 
 /** `catalog.json` — a data catalog. */

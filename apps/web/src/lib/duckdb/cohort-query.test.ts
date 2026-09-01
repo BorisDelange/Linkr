@@ -26,8 +26,8 @@ function makeCohort(level: CohortLevel): Cohort {
   return {
     id: 'c1',
     projectUid: 'p1',
-    name: 'Test',
-    description: '',
+    name: { en: 'Test', fr: 'Test' },
+    description: {},
     level,
     criteriaTree: {
       kind: 'group',

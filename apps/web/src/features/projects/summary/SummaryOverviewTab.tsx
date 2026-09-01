@@ -202,7 +202,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
               >
                 {byUpdatedDesc(cohorts).slice(0, MAX_LIST_ITEMS).map((c) => (
                   <ListItem key={c.id} to={paths.cohort(wsUid ?? '', uid, c.id, cohortIds)}>
-                    <span className="flex-1 truncate text-xs">{c.name}</span>
+                    <span className="flex-1 truncate text-xs">{localized(c.name, language)}</span>
                     {c.resultCount != null && (
                       <span className="text-[10px] tabular-nums text-muted-foreground">
                         {c.resultCount.toLocaleString()} {t('summary.results')}

@@ -160,11 +160,26 @@ describe('cohort', () => {
     return bag.all()
   }
 
+  const group = (children: unknown[]) => ({
+    kind: 'group', id: 'root', operator: 'AND', children, exclude: false, enabled: true,
+  })
+  const criterion = (extra: Record<string, unknown> = {}) => ({
+    kind: 'criterion', id: 'c', type: 'age', config: { min: 18 },
+    operator: 'AND', exclude: false, enabled: true, ...extra,
+  })
+
   it('accepts a cohort with criteria', () => {
     expect(run({
       name: { en: 'Adults' },
       level: 'patient',
-      criteriaTree: { op: 'and', rules: [{ field: 'age', op: '>=', value: 18 }] },
+      criteriaTree: group([criterion()]),
+    })).toEqual([])
+  })
+
+  it('accepts criteria nested in a sub-group', () => {
+    expect(run({
+      name: { en: 'Adults' },
+      criteriaTree: group([group([criterion()])]),
     })).toEqual([])
   })
 
@@ -172,10 +187,26 @@ describe('cohort', () => {
     expect(run({ name: { en: 'Adults' }, customSql: 'SELECT person_id FROM person' })).toEqual([])
   })
 
+  it('accepts every level the app defines', () => {
+    for (const level of ['patient', 'visit', 'visit_detail', 'event']) {
+      expect(run({ name: { en: 'X' }, level, customSql: 'SELECT 1' })).toEqual([])
+    }
+  })
+
   it('warns when it would select nobody', () => {
     // Imports fine, returns nothing — exactly the failure that is invisible in
     // the UI.
-    const issues = run({ name: { en: 'Empty' }, criteriaTree: { op: 'and', rules: [] } })
+    const issues = run({ name: { en: 'Empty' }, criteriaTree: group([]) })
+    expect(issues.find((i) => i.code === 'empty-value')?.severity).toBe('warning')
+  })
+
+  it('warns when every criterion is disabled', () => {
+    // SQL generation skips disabled nodes, so this selects everyone just as an
+    // empty tree does.
+    const issues = run({
+      name: { en: 'All off' },
+      criteriaTree: group([criterion({ enabled: false })]),
+    })
     expect(issues.find((i) => i.code === 'empty-value')?.severity).toBe('warning')
   })
 

@@ -7,11 +7,13 @@ import { DatabaseSelect } from '@/components/ui/database-select'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { buildPointer } from '@/lib/import-identity'
-import type { DataSourceRef } from '@/types'
+import { localizedRaw, seedLocalizedForEditing, setLocalized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
+import type { DataSourceRef, LocalizedString } from '@/types'
 
 export interface CohortFormData {
-  name: string
-  description: string
+  name: LocalizedString
+  description: LocalizedString
   version: string
   dataSourceId?: string
   dataSourceRef?: DataSourceRef
@@ -24,7 +26,12 @@ interface CreateCohortDialogProps {
   /** When set, the dialog edits this cohort's name/description instead of creating one.
    *  Its version is carried through untouched — a cohort belongs to a project and is
    *  not versioned on its own. */
-  editing?: { name: string; description?: string; version?: string; dataSourceId?: string }
+  editing?: {
+    name: LocalizedString
+    description?: LocalizedString
+    version?: string
+    dataSourceId?: string
+  }
   workspaceId: string | undefined
   projectUid: string | undefined
 }
@@ -38,25 +45,33 @@ export function CreateCohortDialog({
   projectUid,
 }: CreateCohortDialogProps) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const isEditing = !!editing
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [dataSourceId, setDataSourceId] = useState<string | undefined>()
   const databases = useDatabaseOptions(workspaceId, projectUid)
 
+  // Only the active language is shown and edited. Seeding from the other one
+  // (rather than blank) keeps a cohort named in English from looking untitled
+  // when the app is in French.
   useEffect(() => {
     if (open) {
-      setName(editing?.name ?? '')
-      setDescription(editing?.description ?? '')
+      setName(localizedRaw(seedLocalizedForEditing(editing?.name, language), language))
+      setDescription(
+        localizedRaw(seedLocalizedForEditing(editing?.description, language), language),
+      )
       setDataSourceId(editing?.dataSourceId)
     }
-  }, [open, editing])
+  }, [open, editing, language])
 
   const handleSubmit = () => {
     if (!name.trim()) return
     onSubmit({
-      name: name.trim(),
-      description: description.trim(),
+      // Merged into the existing map, so editing one language leaves the other
+      // untouched instead of replacing the whole name.
+      name: setLocalized(editing?.name, language, name.trim()),
+      description: setLocalized(editing?.description, language, description.trim()),
       version: editing?.version ?? '0.1.0',
       dataSourceId,
       dataSourceRef: buildPointer(databases, dataSourceId),
@@ -69,8 +84,11 @@ export function CreateCohortDialog({
   useSaveForm({
     current: { name: name.trim(), description: description.trim(), dataSourceId },
     baseline: {
-      name: editing?.name ?? '',
-      description: editing?.description ?? '',
+      name: localizedRaw(seedLocalizedForEditing(editing?.name, language), language),
+      description: localizedRaw(
+        seedLocalizedForEditing(editing?.description, language),
+        language,
+      ),
       dataSourceId: editing?.dataSourceId,
     },
     onSave: handleSubmit,

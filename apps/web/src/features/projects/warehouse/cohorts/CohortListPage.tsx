@@ -13,6 +13,8 @@ import { Card } from '@/components/ui/card'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
 import { useCardSelection } from '@/components/ui/use-card-selection'
 import { ListPageToolbar } from '@/components/ui/list-page-toolbar'
+import { localized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { usePersistedSort } from '@/lib/use-persisted-sort'
 import {
@@ -42,6 +44,7 @@ export function CohortListPage() {
   const [deleteTarget, setDeleteTarget] = useState<Cohort | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sort, setSort] = usePersistedSort('project-cohorts')
+  const language = useAppStore((s) => s.language)
 
   const cohorts = useMemo(() => (uid ? allCohorts.filter((c) => c.projectUid === uid) : []), [uid, allCohorts])
 
@@ -50,15 +53,16 @@ export function CohortListPage() {
     const filtered = !words.length
       ? cohorts
       : cohorts.filter((c) => {
-          const haystack = `${c.name} ${c.description ?? ''}`.toLowerCase()
+          const haystack =
+            `${localized(c.name, language)} ${localized(c.description, language)}`.toLowerCase()
           return words.every((w) => haystack.includes(w))
         })
     return applySort(filtered, sort, {
-      name: (c) => c.name,
+      name: (c) => localized(c.name, language),
       createdAt: (c) => c.createdAt,
       updatedAt: (c) => c.updatedAt,
     })
-  }, [cohorts, searchQuery, sort])
+  }, [cohorts, searchQuery, sort, language])
 
   const selection = useCardSelection(useMemo(() => filteredCohorts.map((c) => c.id), [filteredCohorts]))
 
@@ -93,7 +97,7 @@ export function CohortListPage() {
               <BulkDeleteAction
                 selection={selection}
                 canDelete={can('cohorts:delete')}
-                names={(id) => filteredCohorts.find((c) => c.id === id)?.name ?? id}
+                names={(id) => localized(filteredCohorts.find((c) => c.id === id)?.name ?? {}, language) || id}
                 onDeleteMany={async (ids) => { for (const id of ids) await removeCohort(id) }}
               />
             ) : (
