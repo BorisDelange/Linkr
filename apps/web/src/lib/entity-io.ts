@@ -44,7 +44,7 @@ import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { isServerMode } from '@/lib/api-client'
-import { findLineageMatch, resolvePointer, resolveSlugLanding } from '@/lib/import-identity'
+import { findLineageMatch, resolvePointer, resolveProjectPointers, resolveSlugLanding } from '@/lib/import-identity'
 import { importDatasetOnServer } from '@/lib/api/datasets'
 
 
@@ -3690,11 +3690,10 @@ export async function applyClonedEntity(
   const databases = workspaceId && (meta.linkedDataSourceRefs?.length || ideRef)
     ? await storage.dataSources.getAll()
     : []
-  const linkedDataSourceIds = workspaceId
-    ? (meta.linkedDataSourceRefs ?? [])
-      .map((ref) => resolvePointer(databases, ref, workspaceId)?.id)
-      .filter((id): id is string => !!id)
-    : []
+  const linked = workspaceId
+    ? resolveProjectPointers(databases, meta.linkedDataSourceRefs, workspaceId)
+    : { ids: [], refs: [] }
+  const linkedDataSourceIds = linked.ids
   // The IDE's database lives in `config` and is stored as a local UUID beside a
   // portable ref. The id names a row on the exporting instance and addresses
   // nothing here, so re-resolve it from the ref; drop it when the database is not
@@ -3711,10 +3710,16 @@ export async function applyClonedEntity(
   await storage.projects.update(targetId, {
     ...meta,
     ...resolvedIdeConfig,
-    // Same rule as resolveEntityLinks: a repo cloned where the referenced database
-    // is not installed keeps whatever the row already points at, rather than
-    // blanking a correct local link.
-    ...(linkedDataSourceIds.length > 0 ? { linkedDataSourceIds } : {}),
+    // Both lists are rewritten from what actually resolved, so the project ends
+    // up linked to exactly the databases its Databases page lists — no repeats,
+    // and no pointer to a database this instance does not have. Writing `meta`
+    // unchanged would carry the repo's own list straight back out on the next
+    // export, which is how a duplicated pointer survives a round trip.
+    // A repo cloned where NONE of the databases are installed keeps whatever the
+    // row already points at, rather than blanking a correct local link.
+    ...(linkedDataSourceIds.length > 0
+      ? { linkedDataSourceIds, linkedDataSourceRefs: linked.refs }
+      : {}),
     ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
     ...(workspaceId ? { workspaceId } : {}),
   }).catch(() => {})

@@ -8,6 +8,7 @@ import {
   resolveByLineage,
   resolveChildId,
   resolvePointer,
+  resolveProjectPointers,
   resolveSlugLanding,
   resolveWorkspaceId,
 } from '@/lib/import-identity'
@@ -282,5 +283,70 @@ describe('resolvePointer', () => {
     expect(resolvePointer(rows, { lineageId: 'lin-absent' }, WS)).toBeUndefined()
     expect(resolvePointer(rows, undefined, WS)).toBeUndefined()
     expect(resolvePointer(rows, {}, WS)).toBeUndefined()
+  })
+})
+
+describe('resolveProjectPointers', () => {
+  const rows = [
+    { id: 'local-1', entityId: 'mimic-iv-demo', lineageId: 'lin-1', workspaceId: WS },
+    { id: 'local-2', entityId: 'mimic-iv-demo-omop', lineageId: 'lin-2', workspaceId: WS },
+  ]
+
+  // The bug this exists for: an entity.json accumulated the same pointer three
+  // times, each import resolved all three to one database, and writing the
+  // manifest's own list back out handed the repeats to the next export.
+  it('keeps one entry per database, however often it is pointed at', () => {
+    const { ids, refs } = resolveProjectPointers(rows, [
+      { lineageId: 'lin-1' },
+      { lineageId: 'lin-2' },
+      { lineageId: 'lin-1' },
+      { lineageId: 'lin-1' },
+    ], WS)
+    expect(ids).toEqual(['local-1', 'local-2'])
+    expect(refs).toEqual([{ lineageId: 'lin-1' }, { lineageId: 'lin-2' }])
+  })
+
+  it('deduplicates on the resolved database, not on the pointer', () => {
+    // A lineage and a slug are different pointers naming the same row; keeping
+    // both would list that database twice.
+    const { ids } = resolveProjectPointers(rows, [
+      { lineageId: 'lin-1' },
+      { entityId: 'mimic-iv-demo' },
+    ], WS)
+    expect(ids).toEqual(['local-1'])
+  })
+
+  it('drops a pointer to a database this instance does not have', () => {
+    // What the project stores has to match what its Databases page shows: an
+    // unresolvable pointer is a link the page never displayed.
+    const { ids, refs } = resolveProjectPointers(rows, [
+      { lineageId: 'lin-absent' },
+      { lineageId: 'lin-2' },
+    ], WS)
+    expect(ids).toEqual(['local-2'])
+    expect(refs).toEqual([{ lineageId: 'lin-2' }])
+  })
+
+  it('keeps ids and pointers index-aligned', () => {
+    // The invariant linkDataSource/unlinkDataSource maintain: refs[i] is the
+    // portable pointer for ids[i], so unlinking one never shifts another's.
+    const { ids, refs } = resolveProjectPointers(rows, [
+      { lineageId: 'lin-2' },
+      { lineageId: 'lin-absent' },
+      { lineageId: 'lin-1' },
+    ], WS)
+    expect(ids).toEqual(['local-2', 'local-1'])
+    expect(refs).toEqual([{ lineageId: 'lin-2' }, { lineageId: 'lin-1' }])
+    expect(refs).toHaveLength(ids.length)
+  })
+
+  it('returns nothing for a project with no pointers', () => {
+    expect(resolveProjectPointers(rows, undefined, WS)).toEqual({ ids: [], refs: [] })
+    expect(resolveProjectPointers(rows, [], WS)).toEqual({ ids: [], refs: [] })
+  })
+
+  it('never reaches into another workspace', () => {
+    expect(resolveProjectPointers(rows, [{ lineageId: 'lin-1' }], 'ws-other'))
+      .toEqual({ ids: [], refs: [] })
   })
 })

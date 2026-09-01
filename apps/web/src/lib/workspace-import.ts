@@ -16,6 +16,7 @@ import {
   resolveChildId as resolveChildIdRule,
   entityKey,
   resolvePointer,
+  resolveProjectPointers,
   resolveSlugLanding,
   resolveWorkspaceId,
 } from '@/lib/import-identity'
@@ -736,16 +737,18 @@ export async function importWorkspaceTree(
   if (projectRefs.length > 0) {
     const storedDatabases = await storage.dataSources.getAll()
     for (const project of projectRefs) {
-      const ids = (project.linkedDataSourceRefs ?? [])
-        .map((ref) => resolvePointer(storedDatabases, ref, targetWsId)?.id)
-        .filter((id): id is string => !!id)
+      const linked = resolveProjectPointers(
+        storedDatabases, project.linkedDataSourceRefs, targetWsId)
+      const ids = linked.ids
       const ideRef = ideRefOf(project)
       const ideId = ideRef ? resolvePointer(storedDatabases, ideRef, targetWsId)?.id : undefined
       if (ids.length === 0 && !ideId) continue
       const uid = idMap.get(`project:${project.uid}`)
       if (!uid) continue
       await storage.projects.update(uid, {
-        ...(ids.length > 0 ? { linkedDataSourceIds: ids } : {}),
+        // Pointers rewritten alongside the ids: what the project stores is what
+        // its Databases page lists, with no repeats and nothing unresolved.
+        ...(ids.length > 0 ? { linkedDataSourceIds: ids, linkedDataSourceRefs: linked.refs } : {}),
         ...(ideId ? { config: { ...(project.config ?? {}), ideDataSourceId: ideId } } : {}),
       }).catch(() => {})
     }

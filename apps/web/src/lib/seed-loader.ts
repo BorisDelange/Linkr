@@ -28,7 +28,7 @@ import {
 } from '@/lib/entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { fromPathTree, readPathTree, storablePathNode } from '@/lib/entity-tree'
-import { entityKey, resolvePointer, resolveSlugLanding } from '@/lib/import-identity'
+import { entityKey, resolvePointer, resolveProjectPointers, resolveSlugLanding } from '@/lib/import-identity'
 import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { mergeSourceConceptIdRegistry, type SourceConceptIdGroup } from '@/lib/concept-mapping/source-concept-ids-io'
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
@@ -1643,11 +1643,14 @@ async function attachSeededEntityLinks(wsId: string): Promise<void> {
         }
       }
       if (project.linkedDataSourceIds?.length || !project.linkedDataSourceRefs?.length) continue
-      const linkedDataSourceIds = project.linkedDataSourceRefs
-        .map((ref) => resolvePointer(databases, ref, wsId)?.id)
-        .filter((id): id is string => !!id)
-      if (linkedDataSourceIds.length > 0) {
-        await storage.projects.update(project.uid, { linkedDataSourceIds }).catch(() => {})
+      const linked = resolveProjectPointers(databases, project.linkedDataSourceRefs, wsId)
+      if (linked.ids.length > 0) {
+        // Pointers rewritten with the ids, so a seed carrying a repeated or
+        // uninstallable pointer does not hand it back on the next export.
+        await storage.projects.update(project.uid, {
+          linkedDataSourceIds: linked.ids,
+          linkedDataSourceRefs: linked.refs,
+        }).catch(() => {})
       }
     }
   } catch (err) {

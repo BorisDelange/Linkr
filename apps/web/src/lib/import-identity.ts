@@ -254,3 +254,30 @@ export function resolvePointer<T extends PointerTarget>(
   }
   return undefined
 }
+
+/**
+ * Resolve a project's database pointers into the local ids and the pointers to
+ * store back, keeping the two index-aligned.
+ *
+ * The result is exactly what the project's Databases page shows: one entry per
+ * database actually installed here, in order, with no repeats. A pointer that
+ * resolves to nothing is dropped rather than carried — it names a database this
+ * instance does not have, so keeping it would export a link the page never
+ * displayed. Repeats are dropped by resolved id, not by pointer: two different
+ * pointers (say a lineage and a slug) can name the same row.
+ */
+export function resolveProjectPointers<T extends PointerTarget>(
+  rows: T[],
+  refs: PointerRef[] | undefined,
+  targetWorkspaceId: string,
+): { ids: string[]; refs: PointerRef[] } {
+  const ids: string[] = []
+  const kept: PointerRef[] = []
+  for (const ref of refs ?? []) {
+    const id = resolvePointer(rows, ref, targetWorkspaceId)?.id
+    if (!id || ids.includes(id)) continue
+    ids.push(id)
+    kept.push(ref)
+  }
+  return { ids, refs: kept }
+}

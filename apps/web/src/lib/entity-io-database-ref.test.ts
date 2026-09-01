@@ -166,6 +166,32 @@ describe('applyClonedEntity(project) — restoring the database links', () => {
     expect(updates[0]?.linkedDataSourceIds).toEqual(['local-a'])
   })
 
+  it('writes back the pointers it resolved, not the repo’s own list', async () => {
+    // A published entity.json had accumulated the same pointer three times. Each
+    // import resolved all three to one database and wrote the manifest's list
+    // straight back, so the repeats survived every round trip and the project
+    // stored more databases than its Databases page ever showed.
+    const { store, updates } = makeProjectStore()
+    const zip = clonedProjectZip({
+      uid: 'remote-uid',
+      name: { en: 'P' },
+      linkedDataSourceRefs: [
+        { lineageId: 'lin-a' },
+        { lineageId: 'lin-b' },
+        { lineageId: 'lin-a' },
+        { lineageId: 'lin-missing' },
+        { lineageId: 'lin-a' },
+      ],
+    })
+
+    expect(await applyClonedEntity(zip, 'project', 'p1', store, 'ws-1')).toBe(true)
+    expect(updates[0]?.linkedDataSourceIds).toEqual(['local-a', 'local-b'])
+    expect(updates[0]?.linkedDataSourceRefs).toEqual([
+      { lineageId: 'lin-a' },
+      { lineageId: 'lin-b' },
+    ])
+  })
+
   it('leaves the stored links alone when NO ref resolves', async () => {
     // Same rule as resolveEntityLinks: a repo cloned where none of the referenced
     // databases exist must not blank a link the local row already holds.
