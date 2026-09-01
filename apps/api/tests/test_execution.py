@@ -648,13 +648,18 @@ def _make_python_kernel(tmp_path):
 
 
 async def test_execute_stream_emits_chunks_before_done(tmp_path):
-    """Output produced incrementally must arrive as separate stdout chunks, in
-    order, before the final RuntimeOutput — not buffered into one blob."""
+    """Output produced OVER TIME must arrive as separate stdout chunks, in order,
+    before the final RuntimeOutput — not buffered into one blob at the end.
+
+    The separation that matters is temporal, not per-line: writes issued back to back
+    are coalesced on purpose (print() calls write() once per line, so a large frame
+    would otherwise cost one websocket frame per row). The sleeps here are what make
+    each print a distinct event, which is exactly what a REPL user perceives."""
     kernel = _make_python_kernel(tmp_path)
     chunks: list[tuple[str, str]] = []
     try:
         out = await kernel.execute_stream(
-            "for i in range(3):\n    print(i)",
+            "import time\nfor i in range(3):\n    print(i)\n    time.sleep(0.2)",
             lambda kind, data: chunks.append((kind, data)),
         )
     finally:
@@ -665,6 +670,26 @@ async def test_execute_stream_emits_chunks_before_done(tmp_path):
     assert joined.index("0") < joined.index("1") < joined.index("2")
     # Streamed output is not duplicated in the done payload.
     assert out.stdout == ""
+
+
+async def test_execute_stream_coalesces_a_burst(tmp_path):
+    """A burst of lines is delivered whole, not one message per line: sql_query on a
+    large table took longer to display than to run, at one JSON encode, one flush and
+    one websocket frame per row."""
+    kernel = _make_python_kernel(tmp_path)
+    chunks: list[tuple[str, str]] = []
+    try:
+        await kernel.execute_stream(
+            "for i in range(500):\n    print(i)",
+            lambda kind, data: chunks.append((kind, data)),
+        )
+    finally:
+        await kernel.shutdown()
+    stdout_chunks = [c for c in chunks if c[0] == "stdout"]
+    assert len(stdout_chunks) < 50, f"500 lines sent as {len(stdout_chunks)} messages"
+    # Nothing is dropped by the coalescing.
+    joined = "".join(d for _, d in stdout_chunks)
+    assert joined.count("\n") == 500
 
 
 async def test_execute_stream_routes_stderr_separately(tmp_path):
