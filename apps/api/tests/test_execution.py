@@ -970,3 +970,94 @@ async def test_pty_manager_caps_sessions_per_user(monkeypatch):
         await m.create("p", "s5", user_id=1)
     finally:
         m.shutdown_all()
+
+
+# --- Failure verdict: red vs amber -----------------------------------------
+# A run's colour in the IDE comes from `failed`, NOT from a non-empty stderr:
+# R writes warnings, messages AND errors to stderr, so stderr alone cannot tell
+# "it ran but warned" (amber) from "it raised" (red). These tests pin that split
+# on both kernels — get it wrong and either every warning looks like a crash, or
+# a real error is painted as a warning and a Run-all sails past it.
+
+
+async def test_python_kernel_marks_a_raise_as_failed(tmp_path):
+    kernel = _make_python_kernel(tmp_path)
+    try:
+        out = await kernel.execute('raise ValueError("boom")')
+        assert out.failed is True
+        assert "ValueError" in out.stderr
+    finally:
+        await kernel.shutdown()
+
+
+async def test_python_kernel_does_not_mark_a_warning_as_failed(tmp_path):
+    """stderr without an exception is a warning, not a failure."""
+    kernel = _make_python_kernel(tmp_path)
+    try:
+        out = await kernel.execute(
+            'import sys\nsys.stderr.write("just a note\\n")\nprint("still ran")'
+        )
+        assert out.failed is False
+        assert "just a note" in out.stderr
+        assert "still ran" in out.stdout
+    finally:
+        await kernel.shutdown()
+
+
+async def test_python_kernel_clean_run_is_not_failed(tmp_path):
+    kernel = _make_python_kernel(tmp_path)
+    try:
+        out = await kernel.execute("print(1 + 1)")
+        assert out.failed is False
+        assert out.stderr.strip() == ""
+    finally:
+        await kernel.shutdown()
+
+
+@requires_r
+async def test_r_kernel_marks_stop_as_failed(tmp_path):
+    kernel = _make_r_kernel(tmp_path)
+    try:
+        out = await kernel.execute('stop("boom")')
+        assert out.failed is True
+        assert "boom" in out.stderr
+    finally:
+        await kernel.shutdown()
+
+
+@requires_r
+async def test_r_kernel_marks_a_parse_error_as_failed(tmp_path):
+    """A syntax error never reaches the error handler — it fails at parse(), a
+    separate branch that also has to report the failure."""
+    kernel = _make_r_kernel(tmp_path)
+    try:
+        out = await kernel.execute("OK super")
+        assert out.failed is True
+        assert "unexpected" in out.stderr
+    finally:
+        await kernel.shutdown()
+
+
+@requires_r
+async def test_r_kernel_does_not_mark_warning_or_message_as_failed(tmp_path):
+    """warning() and message() both write to stderr on a run that SUCCEEDED."""
+    kernel = _make_r_kernel(tmp_path)
+    try:
+        out = await kernel.execute('warning("careful"); message("fyi"); print("still ran")')
+        assert out.failed is False
+        assert "careful" in out.stderr
+        assert "fyi" in out.stderr
+        assert "still ran" in out.stdout
+    finally:
+        await kernel.shutdown()
+
+
+@requires_r
+async def test_r_kernel_clean_run_is_not_failed(tmp_path):
+    kernel = _make_r_kernel(tmp_path)
+    try:
+        out = await kernel.execute("1 + 1")
+        assert out.failed is False
+        assert out.stderr.strip() == ""
+    finally:
+        await kernel.shutdown()

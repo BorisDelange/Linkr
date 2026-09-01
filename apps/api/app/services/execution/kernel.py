@@ -235,6 +235,7 @@ def _run(code, stream):
     are pushed to the host live and the returned strings are empty; otherwise
     they are buffered and returned in the done payload."""
     figures, table, html = [], None, None
+    failed = False
     if stream:
         out = err = None
         sys.stdout, sys.stderr = _StreamWriter("stdout"), _StreamWriter("stderr")
@@ -265,8 +266,10 @@ def _run(code, stream):
         # Host sent SIGINT (Ctrl+C) — report it on the current stream and keep
         # the kernel alive for the next request.
         (sys.stderr if stream else err).write("KeyboardInterrupt\n")
+        failed = True
     except Exception:
         traceback.print_exc()
+        failed = True
     finally:
         # Writes are coalesced on a deadline that only advances on the NEXT write, so
         # whatever the run produced last is still sitting in the buffer. Flush both
@@ -278,7 +281,7 @@ def _run(code, stream):
     return {"stdout": "" if stream else out.getvalue(),
             "stderr": "" if stream else err.getvalue(),
             "figures": figures, "table": table, "html": html,
-            "__linkr_done__": True}
+            "failed": failed, "__linkr_done__": True}
 
 
 # Explicit readline (not `for line in sys.stdin`) so sql_query can do its own
@@ -524,7 +527,8 @@ repeat {
   )
   .out <- character(0)
   tryCatch({
-    .exprs <- tryCatch(parse(text = .code), error = function(e) { .err <<- c(.err, conditionMessage(e)); NULL })
+    .exprs <- tryCatch(parse(text = .code),
+                       error = function(e) { .err <<- c(.err, conditionMessage(e)); .failed <<- TRUE; NULL })
     for (.e in .exprs) {
       .e_out <- .eval_one(.e)
       if (.stream) {
@@ -584,6 +588,7 @@ repeat {
   .emit(list(stdout = if (.stream) "" else paste(.out, collapse = "\n"),
              stderr = if (.stream) "" else paste(.err, collapse = "\n"),
              figures = .figs, table = .table, html = .html,
+             failed = (.failed || .interrupted),
              "__linkr_run__" = .run_n, "__linkr_done__" = TRUE))
 }
 '''
@@ -747,6 +752,7 @@ class Kernel:
             figures=out.figures,
             table=out.table,
             html=out.html,
+            failed=out.failed,
         )
 
     async def execute_stream(
@@ -787,6 +793,7 @@ class Kernel:
             figures=done.get("figures", []),
             table=done.get("table"),
             html=done.get("html"),
+            failed=bool(done.get("failed")),
         )
 
     async def _run_once(self, code: str, on_chunk, query_resolver) -> dict | None:

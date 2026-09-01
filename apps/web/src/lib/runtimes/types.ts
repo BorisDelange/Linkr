@@ -21,4 +21,9 @@ export interface RuntimeOutput {
   figures: RuntimeFigure[]
   table: RuntimeTable | null
   html: string | null
+  /** The code raised. NOT the same as a non-empty stderr: R writes warnings and
+   *  messages there on a perfectly successful run, so callers that must tell a
+   *  failure from a warning (the notebook stopping a Run all, result colouring)
+   *  read this, never `stderr`. Absent on older payloads → treated as false. */
+  failed?: boolean
 }

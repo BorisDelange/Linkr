@@ -28,6 +28,7 @@ interface IpynbNotebookProps {
   initialCellStates?: CellState[]
   onCellStatesChange?: (states: CellState[]) => void
   onOutlineChange?: (cells: RmdCell[], states: Map<string, CellState>) => void
+  onRunningChange?: (running: boolean) => void
 }
 
 export interface IpynbNotebookHandle extends RmdNotebookHandle {
@@ -35,7 +36,7 @@ export interface IpynbNotebookHandle extends RmdNotebookHandle {
 }
 
 export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>(
-  function IpynbNotebook({ content, onChange, readOnly, onSave, onRenderOutput, activeConnectionId, fileName, initialCellStates, onCellStatesChange, onOutlineChange }, ref) {
+  function IpynbNotebook({ content, onChange, readOnly, onSave, onRenderOutput, activeConnectionId, fileName, initialCellStates, onCellStatesChange, onOutlineChange, onRunningChange }, ref) {
     const rmdRef = useRef<RmdNotebookHandle>(null)
     const metadataRef = useRef<IpynbNotebookType['metadata']>({})
 
@@ -88,6 +89,8 @@ export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>
       runCellAndAdvance: () => rmdRef.current?.runCellAndAdvance(),
       runAll: () => rmdRef.current?.runAll(),
       runAbove: () => rmdRef.current?.runAbove(),
+      stopRun: () => rmdRef.current?.stopRun(),
+      get isRunning() { return rmdRef.current?.isRunning ?? false },
       renderPreview: () => rmdRef.current?.renderPreview(),
       renderHtml: () => rmdRef.current?.renderHtml(),
       renderPdf: () => rmdRef.current?.renderPdf(),
@@ -118,6 +121,7 @@ export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>
         initialCellStates={initialCellStates}
         onCellStatesChange={onCellStatesChange}
         onOutlineChange={onOutlineChange}
+        onRunningChange={onRunningChange}
       />
     )
   },

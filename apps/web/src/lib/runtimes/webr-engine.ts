@@ -285,6 +285,7 @@ export async function executeR(
   let stderr = ''
   const figures: RuntimeFigure[] = []
   let table: RuntimeOutput['table'] = null
+  let failed = false
 
   try {
     // Use shelter.captureR for output and plot capture
@@ -397,11 +398,15 @@ export async function executeR(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     stderr += message + '\n'
+    // captureR (captureConditions: false) lets an R error propagate here, so this
+    // is the run's failure path — not merely a warning, which lands in stderr
+    // via captureStreams without throwing.
+    failed = true
   } finally {
     setStatus('ready')
   }
 
-  return { stdout: stdout.trimEnd(), stderr: stderr.trimEnd(), figures, table, html: null }
+  return { stdout: stdout.trimEnd(), stderr: stderr.trimEnd(), figures, table, html: null, failed }
 }
 
 // Internal type for webR Shelter — not exported from webR types

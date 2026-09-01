@@ -40,6 +40,7 @@ import {
   ListEnd,
   FileCode2,
   Database,
+  Square,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DialogShell } from '@/components/ui/dialog-shell'
@@ -359,6 +360,19 @@ export function FilesPage() {
     setOutlineCells([])
     setOutlineCellStates(new Map())
   }, [selectedFileId])
+
+  // Whether the SELECTED notebook is running — drives Run ⇄ Stop in the toolbar.
+  // Pushed for the same reason as the outline: the toolbar reads the notebook
+  // through a ref, so nothing would re-render it when a run starts or ends.
+  const [notebookRunning, setNotebookRunning] = useState(false)
+  const handleNotebookRunningChange = useCallback((fid: string, running: boolean) => {
+    if (fid !== selectedFileIdRef.current) return
+    setNotebookRunning(running)
+  }, [])
+
+  // A background notebook may still be running, but the toolbar describes the
+  // selected one — reset until it pushes its own state.
+  useEffect(() => { setNotebookRunning(false) }, [selectedFileId])
 
   // When a dataset file is selected, redirect it to an output tab (the dataset
   // viewer) instead of a file tab showing raw JSON. Matches both the legacy
@@ -703,12 +717,11 @@ export function FilesPage() {
           const duration = Date.now() - start
           updateExecutionResult(execId, {
             duration,
-            // A real failure arrives as an `error` message and throws to the catch
-            // below; reaching here means the code ran. Writing to stderr is not a
-            // failure — R sends warnings and messages there — so it colours the
-            // result amber rather than marking the run failed.
-            success: true,
-            warned: sawStderr || !!result.stderr,
+            // Red vs amber comes from the kernel's own verdict, not from stderr:
+            // R writes warnings, messages AND errors there, so stderr alone cannot
+            // tell "it ran but warned" (amber) from "it raised" (red).
+            success: !result.failed,
+            warned: !result.failed && (sawStderr || !!result.stderr),
             output: warning + (streamed || `Executed in ${duration}ms`),
             installOffer,
           })
@@ -721,11 +734,16 @@ export function FilesPage() {
           : await executeR(code, activeConnectionId, controller.signal)
 
         const duration = Date.now() - start
-        const success = !result.stderr
+        const failed = result.failed === true
         updateExecutionResult(execId, {
           duration,
-          success,
-          output: success ? result.stdout || `Executed in ${duration}ms` : result.stderr,
+          success: !failed,
+          // Warnings reach stderr without failing the run, so show them next to the
+          // output rather than instead of it.
+          warned: !failed && !!result.stderr,
+          output: failed
+            ? result.stderr
+            : [result.stdout, result.stderr].filter(Boolean).join('\n') || `Executed in ${duration}ms`,
         })
         addFiguresAndTable(result)
       } catch (err) {
@@ -1217,8 +1235,21 @@ export function FilesPage() {
                   <>
                     <div className="mx-1 h-4 w-px bg-border" />
                     <div className="flex items-center gap-1.5">
-                      {/* Run cell and advance + dropdown */}
+                      {/* Run cell and advance + dropdown — becomes Stop while a
+                          cell or a Run all is in flight, like the script toolbar. */}
                       <div className="flex">
+                        {notebookRunning ? (
+                          <Button
+                            size="xs"
+                            variant="destructive"
+                            className="gap-1"
+                            onClick={() => notebookRef.current?.stopRun()}
+                          >
+                            <Square size={12} />
+                            {t('files.stop')}
+                          </Button>
+                        ) : (
+                          <>
                         <Button
                           size="xs"
                           className="gap-1 rounded-r-none"
@@ -1260,6 +1291,8 @@ export function FilesPage() {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
+                          </>
+                        )}
                       </div>
 
                       {/* Same picker as the script toolbar: a notebook's cells
@@ -1942,6 +1975,9 @@ export function FilesPage() {
                                     onOutlineChange={(cells, states) =>
                                       handleOutlineChange(fid, cells, states)
                                     }
+                                    onRunningChange={(running) =>
+                                      handleNotebookRunningChange(fid, running)
+                                    }
                                   />
                                 ) : (
                                   <LazyRmdNotebook
@@ -1964,6 +2000,9 @@ export function FilesPage() {
                                     activeConnectionId={activeConnectionId}
                                     onOutlineChange={(cells, states) =>
                                       handleOutlineChange(fid, cells, states)
+                                    }
+                                    onRunningChange={(running) =>
+                                      handleNotebookRunningChange(fid, running)
                                     }
                                   />
                                 )}

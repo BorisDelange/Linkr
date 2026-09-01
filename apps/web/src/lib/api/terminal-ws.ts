@@ -26,6 +26,9 @@ export interface TerminalMessage {
   figures?: unknown[]
   table?: unknown
   html?: string | null
+  /** On 'done': the code raised. Distinct from having written to stderr, which R
+   *  does for warnings and messages too. */
+  failed?: boolean
 }
 
 export interface TerminalSocketHandlers {
