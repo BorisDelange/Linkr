@@ -4,7 +4,7 @@ import type * as Monaco from 'monaco-editor'
 import { useAppStore, resolveEditorTheme } from '@/stores/app-store'
 import { useShortcutStore } from '@/stores/shortcut-store'
 import type { KeyCombo } from '@/types/shortcuts'
-import { linkrDark, linkrLight } from './monaco-themes'
+import { defineLinkrThemes } from './monaco-themes'
 
 interface CodeEditorProps {
   value: string
@@ -108,8 +108,7 @@ export function CodeEditor({
   const resolvedTheme = resolveEditorTheme(editorSettings.theme, darkMode)
 
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
-    monaco.editor.defineTheme('linkr-dark', linkrDark)
-    monaco.editor.defineTheme('linkr-light', linkrLight)
+    defineLinkrThemes(monaco)
   }, [])
 
   const handleMount: OnMount = useCallback(

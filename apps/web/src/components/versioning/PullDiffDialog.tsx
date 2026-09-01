@@ -7,7 +7,7 @@ import { FileWarning } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
-import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
+import { defineLinkrThemes } from '@/components/editor/monaco-themes'
 import { SectionLabel } from '@/components/ui/section-label'
 import { groupGitFiles } from '@/lib/git-file-meta'
 import { changeTypeMeta } from './git-change-meta'
@@ -38,8 +38,7 @@ export function PullDiffDialog({ plan, initialPath, buildDiff, onClose }: PullDi
   const diff = file ? buildDiff(file) : null
 
   const beforeMount: BeforeMount = useCallback((monaco) => {
-    monaco.editor.defineTheme('linkr-dark', linkrDark)
-    monaco.editor.defineTheme('linkr-light', linkrLight)
+    defineLinkrThemes(monaco)
   }, [])
 
   return (

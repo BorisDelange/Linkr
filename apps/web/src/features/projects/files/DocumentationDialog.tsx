@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import { CodeViewer } from '@/components/editor/CodeViewer'
+import { CodeViewerBoundary } from '@/components/editor/CodeViewerBoundary'
 import { cn } from '@/lib/utils'
 import { docPackages, type DocLanguage, type DocPackage } from '@/lib/docs/linkr-client'
 import { readFence } from '@/lib/docs/read-fence'
@@ -45,7 +46,16 @@ function DocCodeBlock({ node, children }: any) {
   if (!fence) return <pre>{children}</pre>
   return (
     <div className="my-3 overflow-hidden rounded-md border border-border">
-      <CodeViewer value={fence.source} language={fence.language} maxHeight={320} />
+      {/* Opening a symbol whose page carries the dialog's FIRST code sample mounts
+          Monaco while the loader is still settling; when that throws, the sample
+          degrades to plain text instead of taking the whole app down. */}
+      <CodeViewerBoundary
+        fallback={
+          <pre className="overflow-x-auto p-3 text-xs leading-relaxed">{fence.source}</pre>
+        }
+      >
+        <CodeViewer value={fence.source} language={fence.language} maxHeight={320} />
+      </CodeViewerBoundary>
     </div>
   )
 }

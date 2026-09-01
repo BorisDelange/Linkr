@@ -6,6 +6,26 @@
  */
 import type * as Monaco from 'monaco-editor'
 
+/**
+ * Register both themes from a `beforeMount` handler.
+ *
+ * Guarded because Monaco's loader is a module-level singleton: a viewer mounted in
+ * a dialog the user closes again immediately can reach `beforeMount` after the
+ * instantiation service has been disposed, and `defineTheme` then throws
+ * "InstantiationService has been disposed" up through React into the app-wide error
+ * boundary — the whole app shows a crash screen because a tooltip-sized code sample
+ * was unmounted early. A theme that fails to register just falls back to Monaco's
+ * default, which is not worth taking the app down for.
+ */
+export function defineLinkrThemes(monaco: typeof Monaco): void {
+  try {
+    monaco.editor.defineTheme('linkr-dark', linkrDark)
+    monaco.editor.defineTheme('linkr-light', linkrLight)
+  } catch {
+    // Disposed before this editor mounted — it will use the built-in theme.
+  }
+}
+
 type IStandaloneThemeData = Monaco.editor.IStandaloneThemeData
 
 /**

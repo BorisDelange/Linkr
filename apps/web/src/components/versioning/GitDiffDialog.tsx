@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
 import { useGitSyncStore } from '@/stores/git-sync-store'
-import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
+import { defineLinkrThemes } from '@/components/editor/monaco-themes'
 import { monacoLanguageFor } from '@/lib/monaco-language'
 import { SectionLabel } from '@/components/ui/section-label'
 import { groupGitFiles } from '@/lib/git-file-meta'
@@ -62,8 +62,7 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
   }, [scope, id, path, branch, getDiff])
 
   const beforeMount: BeforeMount = useCallback((monaco) => {
-    monaco.editor.defineTheme('linkr-dark', linkrDark)
-    monaco.editor.defineTheme('linkr-light', linkrLight)
+    defineLinkrThemes(monaco)
   }, [])
 
   const language = monacoLanguageFor(path)

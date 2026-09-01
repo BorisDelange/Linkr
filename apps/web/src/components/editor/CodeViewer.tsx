@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import Editor, { type BeforeMount } from '@monaco-editor/react'
 import { useAppStore, resolveEditorTheme } from '@/stores/app-store'
-import { linkrDark, linkrLight } from './monaco-themes'
+import { defineLinkrThemes } from './monaco-themes'
 
 const languageMap: Record<string, string> = {
   r: 'r',
@@ -42,8 +42,7 @@ export function CodeViewer({
   const height = fixedHeight ?? Math.min(Math.max(lines, 1) * lineHeight + 16, maxHeight)
 
   const beforeMount: BeforeMount = useCallback((monaco) => {
-    monaco.editor.defineTheme('linkr-dark', linkrDark)
-    monaco.editor.defineTheme('linkr-light', linkrLight)
+    defineLinkrThemes(monaco)
   }, [])
 
   return (
