@@ -1,5 +1,6 @@
 """Server-side R/Python execution endpoint (POST /execute)."""
 
+from types import SimpleNamespace
 import asyncio
 import shutil
 
@@ -1061,3 +1062,93 @@ async def test_r_kernel_clean_run_is_not_failed(tmp_path):
         assert out.stderr.strip() == ""
     finally:
         await kernel.shutdown()
+
+
+# --- Stale sessions: a kernel outlives the environment it started with -------
+
+
+class _StubKernel:
+    """Just the two attributes stale_sessions reads. A real Kernel would need a
+    live process, and patching `alive` onto the class leaks into every other
+    test in the session."""
+
+    def __init__(self, alive: bool = True, stamp: str | None = "old"):
+        self.alive = alive
+        self.env_stamp = stamp
+
+
+def _stub_kernel(alive: bool = True, stamp: str | None = "old"):
+    return _StubKernel(alive=alive, stamp=stamp)
+
+
+def test_stale_sessions_lists_a_session_started_before_the_build():
+    """A kernel binds its interpreter at spawn and is cached on (project, user,
+    language, session) — NOT on the environment. Building an env therefore leaves
+    a live session running the old interpreter, where `import sklearn` still
+    fails although the package is installed. That session must be reported."""
+    from app.services.execution import kernel as kmod
+
+    manager = kmod.KernelManager()
+    manager._kernels[("p1", 1, "python", "default")] = _stub_kernel(stamp="old-interp")
+    env = SimpleNamespace(
+        interpreter_path="/new/venv/bin/python", status="ready", updated_at=None
+    )
+    assert manager.stale_sessions("p1", "python", env) == ["default"]
+
+
+def test_stale_sessions_ignores_a_session_on_the_current_environment():
+    from app.services.execution import kernel as kmod
+
+    manager = kmod.KernelManager()
+    env = SimpleNamespace(
+        interpreter_path="/venv/bin/python", status="ready", updated_at=None
+    )
+    current = kmod._env_stamp(env)
+    manager._kernels[("p1", 1, "python", "default")] = _stub_kernel(stamp=current)
+    assert manager.stale_sessions("p1", "python", env) == []
+
+
+def test_stale_sessions_scopes_to_the_project_and_language():
+    """Another project's (or language's) kernel is not this environment's problem."""
+    from app.services.execution import kernel as kmod
+
+    manager = kmod.KernelManager()
+    manager._kernels[("other", 1, "python", "default")] = _stub_kernel(stamp="old")
+    manager._kernels[("p1", 1, "r", "default")] = _stub_kernel(stamp="old")
+    env = SimpleNamespace(interpreter_path="/new", status="ready", updated_at=None)
+    assert manager.stale_sessions("p1", "python", env) == []
+
+
+def test_stale_sessions_ignores_a_dead_kernel():
+    """A dead kernel respawns on the next run and picks up the new interpreter by
+    itself — offering a restart for it would be noise."""
+    from app.services.execution import kernel as kmod
+
+    manager = kmod.KernelManager()
+    manager._kernels[("p1", 1, "python", "default")] = _stub_kernel(
+        alive=False, stamp="old"
+    )
+    env = SimpleNamespace(interpreter_path="/new", status="ready", updated_at=None)
+    assert manager.stale_sessions("p1", "python", env) == []
+
+
+def test_env_stamp_changes_when_the_environment_is_rebuilt():
+    """The stamp must move when a build changes what the process would run —
+    otherwise nothing is ever reported stale."""
+    from datetime import datetime
+
+    from app.services.execution.kernel import _env_stamp
+
+    before = SimpleNamespace(
+        interpreter_path="/venv/bin/python",
+        status="draft",
+        updated_at=datetime(2026, 1, 1),
+    )
+    after = SimpleNamespace(
+        interpreter_path="/venv/bin/python",
+        status="ready",
+        updated_at=datetime(2026, 1, 2),
+    )
+    assert _env_stamp(before) != _env_stamp(after)
+    # The app interpreter (no project env) is its own stable identity.
+    assert _env_stamp(None) == "app"

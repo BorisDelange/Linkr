@@ -26,6 +26,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { restartServerKernel } from '@/lib/api/execution'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { summarizeInstallError, fullInstallError } from '@/lib/install-error'
@@ -129,6 +130,29 @@ export function ServerEnvironmentsPanel({
   useEffect(() => {
     void load()
   }, [load, reloadKey])
+
+  const [restarting, setRestarting] = useState(false)
+
+  /** Restart every session still on the old interpreter, then reload so the
+   *  banner clears. Their variables are lost — which is exactly why this is a
+   *  button the user presses rather than something the build does for them. */
+  const onRestartSessions = useCallback(async () => {
+    if (!projectUid) return
+    setRestarting(true)
+    try {
+      const sessions = env?.staleSessions ?? []
+      await Promise.all(
+        sessions.map((sessionId) =>
+          restartServerKernel(language, projectUid, sessionId).catch(() => {
+            // Already gone, or never started — either way it is no longer stale.
+          }),
+        ),
+      )
+      await load()
+    } finally {
+      setRestarting(false)
+    }
+  }, [projectUid, language, env?.staleSessions, load])
 
   // A build runs as a background job → poll until it settles, then reload the env
   // so its status flips draft/building → ready/error in the UI.
@@ -399,6 +423,9 @@ export function ServerEnvironmentsPanel({
   // an env with only infra is still "empty" for the no-packages hint / preset button.
   const userPackages = packages.filter((p) => !p.system)
 
+  // Sessions still running the pre-build interpreter (see ProjectEnvironment).
+  const staleSessions = env?.staleSessions ?? []
+
   const statusVariant =
     env?.status === 'ready' ? 'secondary' : env?.status === 'error' ? 'destructive' : 'outline'
   const needsBuild = env?.status === 'draft' || env?.status === 'error' || env?.status === 'building'
@@ -410,6 +437,31 @@ export function ServerEnvironmentsPanel({
   return (
     <TooltipProvider delayDuration={200}>
       <div className="mt-2 flex min-h-0 flex-1 flex-col gap-3">
+        {staleSessions.length > 0 && (
+          // A kernel keeps the interpreter it started with, so a session open
+          // across a build cannot import what was just installed. Restarting is
+          // the fix but clears the namespace — hence an offer, not an action.
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+            <RefreshCw size={13} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs">{t('environments.stale_session_title')}</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                {t('environments.stale_session_hint')}
+              </p>
+            </div>
+            <Button
+              size="xs"
+              variant="outline"
+              className="shrink-0 gap-1"
+              disabled={restarting}
+              onClick={onRestartSessions}
+            >
+              {restarting && <Loader2 size={11} className="animate-spin" />}
+              {t('environments.restart_sessions')}
+            </Button>
+          </div>
+        )}
+
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-sm font-medium">
             {label}

@@ -2974,6 +2974,9 @@
     "adding": "Adding..."
   },
   "environments": {
+    "restart_sessions": "Restart session",
+    "stale_session_hint": "It still runs the previous interpreter, so newly installed packages are not importable. Restarting clears the session's variables.",
+    "stale_session_title": "This session started before the last build",
     "title": "Environments",
     "description": "Install and manage Python and R packages for your WASM runtimes.",
     "description_server": "Python and R run on the server in full-stack mode.",

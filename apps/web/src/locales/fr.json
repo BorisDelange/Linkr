@@ -2977,6 +2977,9 @@
     "adding": "Ajout en cours..."
   },
   "environments": {
+    "restart_sessions": "Redémarrer la session",
+    "stale_session_hint": "Elle utilise encore l'interpréteur précédent : les paquets installés depuis ne sont pas importables. Le redémarrage efface les variables de la session.",
+    "stale_session_title": "Cette session a démarré avant la dernière construction",
     "title": "Environnements",
     "description": "Installer et gérer les packages Python et R pour les runtimes WASM.",
     "description_server": "Python et R s'exécutent sur le serveur en mode full-stack.",

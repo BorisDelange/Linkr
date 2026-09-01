@@ -107,6 +107,11 @@ class EnvironmentResponse(CamelModel):
     kind: str  # 'system' | 'managed'
     status: str  # draft | building | ready | error
     interpreter_path: str | None
+    # Sessions whose live kernel still runs the PREVIOUS environment: a kernel
+    # binds its interpreter at spawn, so a session open across a build keeps the
+    # old one and cannot import what was just installed. Restarting is the fix,
+    # but it clears the namespace — so the UI offers it rather than doing it.
+    stale_sessions: list[str] = []
 
 
 class PackageResponse(CamelModel):

@@ -25,7 +25,7 @@ from app.schemas.execution import (
     PackageResponse,
 )
 from app.services import project_fs
-from app.services.execution import environments, jobs
+from app.services.execution import environments, jobs, kernel
 from app.services.execution.package_spec import (
     InvalidPackageSpec,
     validate_package_spec,
@@ -36,7 +36,15 @@ router = APIRouter(tags=["environments"])
 
 
 def _env_response(env) -> EnvironmentResponse:
-    return EnvironmentResponse.model_validate(env, from_attributes=True)
+    resp = EnvironmentResponse.model_validate(env, from_attributes=True)
+    # A live kernel keeps the interpreter it started with, so a session open
+    # across a build still cannot import what was just installed. Surfacing the
+    # affected sessions lets the UI offer a restart instead of silently wiping
+    # the user's variables.
+    resp.stale_sessions = kernel.manager.stale_sessions(
+        env.project_uid, env.language, env
+    )
+    return resp
 
 
 async def _require_ide(db: AsyncSession, project_uid: str, user: User, action: str) -> Project:

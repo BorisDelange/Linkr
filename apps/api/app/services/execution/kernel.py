@@ -55,6 +55,25 @@ def _client_py_source() -> Path | None:
     return None
 
 
+def _env_stamp(environment: "Environment | None") -> str:
+    """Identity of the environment a kernel was started with.
+
+    A kernel picks its interpreter (and R library paths) once, at spawn, and the
+    kernel cache is keyed on (project, user, language, session) — NOT on the
+    environment. So building an env leaves any live kernel running the previous
+    interpreter, and `import sklearn` fails in a session that predates the build
+    even though the package is installed. Comparing this stamp to the env's
+    current one is how the UI knows to offer a restart.
+
+    Built from what actually changes the running process: which interpreter it
+    launched, and the build generation (updated_at) behind it.
+    """
+    if environment is None:
+        return "app"
+    updated = getattr(environment, "updated_at", None)
+    return f"{environment.interpreter_path or ''}|{environment.status or ''}|{updated.isoformat() if updated else ''}"
+
+
 def _read_rss_kb(pid: int) -> int | None:
     """Resident set size (KB) of a process, without a psutil dependency.
 
@@ -634,9 +653,17 @@ class Kernel:
         cwd: str | None = None,
         owns_cwd: bool = False,
         env: dict[str, str] | None = None,
+        env_stamp: str | None = None,
     ):
         self._cmd = cmd
         self._cwd = cwd
+        # Which environment this process was STARTED with. The interpreter is chosen
+        # once at spawn and never revisited, and the kernel cache is keyed on
+        # (project, user, language, session) — not on the environment — so building
+        # an env leaves any live kernel running the old interpreter. Comparing this
+        # against the environment's current stamp is how the UI can tell the user
+        # their session predates the build (see manager.stale_sessions).
+        self.env_stamp = env_stamp
         # Extra env layered over the server's own (LINKR_IDE/DATASETS/PROJECT), so a
         # script reaches the datasets dir without hard-coding its absolute path.
         self._env = env
@@ -940,6 +967,28 @@ class KernelManager:
     def _count_for_user(self, user_id: int) -> int:
         return sum(1 for (_p, uid, _l, _s) in self._kernels if uid == user_id)
 
+    def stale_sessions(
+        self, project_uid: str, language: str, environment: "Environment | None"
+    ) -> list[str]:
+        """Session ids whose live kernel was started with a DIFFERENT environment.
+
+        A kernel binds its interpreter at spawn and is cached on (project, user,
+        language, session), so building an env does not affect a session already
+        running: `import sklearn` still fails there although the package is
+        installed. Restarting silently would wipe the user's variables, so the UI
+        offers the restart instead — this is what tells it which sessions to offer
+        it for."""
+        want = _env_stamp(environment)
+        return sorted(
+            session_id
+            for (proj, _uid, lang, session_id), kernel in self._kernels.items()
+            if proj == project_uid
+            and lang == language
+            and kernel.alive
+            and kernel.env_stamp is not None
+            and kernel.env_stamp != want
+        )
+
     async def get(
         self,
         project_uid: str,
@@ -1097,6 +1146,7 @@ class KernelManager:
         # isolated (see the R branch).
         has_env = environment is not None
         interpreter_path = environment.interpreter_path if has_env else None
+        stamp = _env_stamp(environment)
         if language == "python":
             import sys
 
@@ -1117,7 +1167,7 @@ class KernelManager:
                         f"{client_src}{os.pathsep}{existing}" if existing else str(client_src)
                     ),
                 }
-            return Kernel([python, "-c", _PY_KERNEL_LOOP], cwd=cwd, env=env)
+            return Kernel([python, "-c", _PY_KERNEL_LOOP], cwd=cwd, env=env, env_stamp=stamp)
         if language == "r":
             # renv keeps a shared Rscript; a project env is isolated by its private
             # library. LINKR_R_REPOS gives a CRAN mirror for a manual install.packages()
@@ -1156,7 +1206,7 @@ class KernelManager:
             # program, and the loop is close enough to that limit that a few added
             # lines would make the kernel hang at boot with no usable error.
             loop_path = project_fs.kernel_r_script(_R_KERNEL_LOOP)
-            return Kernel(["Rscript", "--vanilla", str(loop_path)], cwd=cwd, env=env)
+            return Kernel(["Rscript", "--vanilla", str(loop_path)], cwd=cwd, env=env, env_stamp=stamp)
         raise ExecutionError(f"No persistent kernel for language: {language}")
 
 

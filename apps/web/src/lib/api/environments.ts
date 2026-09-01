@@ -8,6 +8,11 @@ export interface ProjectEnvironment {
   kind: 'system' | 'managed'
   status: 'draft' | 'building' | 'ready' | 'error'
   interpreterPath: string | null
+  /** Sessions whose live kernel still runs the PREVIOUS environment. A kernel
+   *  binds its interpreter when it starts, so a session left open across a build
+   *  cannot import what was just installed. Restarting fixes it but clears the
+   *  namespace, so the UI offers it rather than doing it silently. */
+  staleSessions?: string[]
 }
 
 export interface EnvPackage {
