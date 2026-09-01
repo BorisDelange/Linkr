@@ -345,10 +345,15 @@ export function FilesPage() {
   const [outlineCellStates, setOutlineCellStates] = useState<Map<string, CellState>>(new Map())
 
   // Every open notebook stays mounted (hidden tabs), so each one pushes; only the
-  // selected file's push may reach the sidebar, which shows one outline.
+  // selected file's push may reach the sidebar, which shows one outline. The id
+  // it was filled from is tracked so a stale reset cannot wipe a fresh push:
+  // child effects run BEFORE the parent's, so on a tab switch the newly selected
+  // notebook pushes first and the reset below would otherwise clear it.
+  const outlineFileIdRef = useRef<string | null>(null)
   const handleOutlineChange = useCallback(
     (fid: string, cells: RmdCell[], states: Map<string, CellState>) => {
       if (fid !== selectedFileIdRef.current) return
+      outlineFileIdRef.current = fid
       setOutlineCells(cells)
       setOutlineCellStates(states)
     },
@@ -356,8 +361,10 @@ export function FilesPage() {
   )
 
   // Switching tabs shows a different notebook: clear until that one pushes, so the
-  // sidebar never shows the previous file's outline.
+  // sidebar never shows the previous file's outline — unless the new one has
+  // already pushed, which is the common case.
   useEffect(() => {
+    if (outlineFileIdRef.current === selectedFileId) return
     setOutlineCells([])
     setOutlineCellStates(new Map())
   }, [selectedFileId])
@@ -366,14 +373,19 @@ export function FilesPage() {
   // Pushed for the same reason as the outline: the toolbar reads the notebook
   // through a ref, so nothing would re-render it when a run starts or ends.
   const [notebookRunning, setNotebookRunning] = useState(false)
+  const runningFileIdRef = useRef<string | null>(null)
   const handleNotebookRunningChange = useCallback((fid: string, running: boolean) => {
     if (fid !== selectedFileIdRef.current) return
+    runningFileIdRef.current = fid
     setNotebookRunning(running)
   }, [])
 
   // A background notebook may still be running, but the toolbar describes the
   // selected one — reset until it pushes its own state.
-  useEffect(() => { setNotebookRunning(false) }, [selectedFileId])
+  useEffect(() => {
+    if (runningFileIdRef.current === selectedFileId) return
+    setNotebookRunning(false)
+  }, [selectedFileId])
 
   // When a dataset file is selected, redirect it to an output tab (the dataset
   // viewer) instead of a file tab showing raw JSON. Matches both the legacy
@@ -2090,6 +2102,7 @@ export function FilesPage() {
                                     onRunningChange={(running) =>
                                       handleNotebookRunningChange(fid, running)
                                     }
+                                    isSelected={isActive}
                                   />
                                 ) : (
                                   <LazyRmdNotebook
@@ -2116,6 +2129,7 @@ export function FilesPage() {
                                     onRunningChange={(running) =>
                                       handleNotebookRunningChange(fid, running)
                                     }
+                                    isSelected={isActive}
                                   />
                                 )}
                               </Suspense>

@@ -183,6 +183,11 @@ interface RmdNotebookProps {
    *  lives in the parent and reads the notebook through a REF, which never
    *  re-renders it — so Run/Stop could not swap without this. */
   onRunningChange?: (running: boolean) => void
+  /** Whether this notebook is the one on screen. Every open notebook stays
+   *  mounted, and the parent clears the outline whenever the selection changes;
+   *  without this a notebook coming BACK into view never pushes again (its cells
+   *  did not change), leaving the sidebar empty. */
+  isSelected?: boolean
 }
 
 /** Imperative handle exposed to the parent for toolbar actions */
@@ -229,6 +234,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   onCellStatesChange,
   onOutlineChange,
   onRunningChange,
+  isSelected = true,
 }, ref) {
   const { t } = useTranslation()
   const darkMode = useAppStore((s) => s.darkMode)
@@ -277,8 +283,9 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   const onOutlineChangeRef = useRef(onOutlineChange)
   onOutlineChangeRef.current = onOutlineChange
   useEffect(() => {
+    if (!isSelected) return
     onOutlineChangeRef.current?.(cells, cellStates)
-  }, [cells, cellStates])
+  }, [cells, cellStates, isSelected])
 
   const [previewCells, setPreviewCells] = useState<Set<string>>(new Set())
   const [activeCell, setActiveCell] = useState<string | null>(null)
@@ -530,8 +537,12 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   const onRunningChangeRef = useRef(onRunningChange)
   onRunningChangeRef.current = onRunningChange
   useEffect(() => {
+    // Same as the outline: the parent resets this on every selection change, so
+    // a notebook coming back into view has to re-assert its state even though
+    // `isRunning` itself did not change.
+    if (!isSelected) return
     onRunningChangeRef.current?.(isRunning)
-  }, [isRunning])
+  }, [isRunning, isSelected])
 
   /**
    * Run one cell.

@@ -29,6 +29,7 @@ interface IpynbNotebookProps {
   onCellStatesChange?: (states: CellState[]) => void
   onOutlineChange?: (cells: RmdCell[], states: Map<string, CellState>) => void
   onRunningChange?: (running: boolean) => void
+  isSelected?: boolean
 }
 
 export interface IpynbNotebookHandle extends RmdNotebookHandle {
@@ -36,7 +37,7 @@ export interface IpynbNotebookHandle extends RmdNotebookHandle {
 }
 
 export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>(
-  function IpynbNotebook({ content, onChange, readOnly, onSave, onRenderOutput, activeConnectionId, fileName, initialCellStates, onCellStatesChange, onOutlineChange, onRunningChange }, ref) {
+  function IpynbNotebook({ content, onChange, readOnly, onSave, onRenderOutput, activeConnectionId, fileName, initialCellStates, onCellStatesChange, onOutlineChange, onRunningChange, isSelected }, ref) {
     const rmdRef = useRef<RmdNotebookHandle>(null)
     const metadataRef = useRef<IpynbNotebookType['metadata']>({})
 
@@ -122,6 +123,7 @@ export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>
         onCellStatesChange={onCellStatesChange}
         onOutlineChange={onOutlineChange}
         onRunningChange={onRunningChange}
+        isSelected={isSelected}
       />
     )
   },
