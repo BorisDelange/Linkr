@@ -179,6 +179,28 @@ def r_sandbox() -> Path:
     return d
 
 
+def kernel_r_script(source: str) -> Path:
+    """The R kernel loop, materialised as a file so it can be run as
+    ``Rscript <file>`` instead of ``Rscript -e <source>``.
+
+    ``-e`` silently truncates a long program (around 10k characters, emitting only
+    a mangled WARNING on stdout), and the loop had grown close enough to that
+    limit that adding a few lines made the kernel hang at boot with no usable
+    error. A file has no such limit. Rewritten whenever the source changes so a
+    deploy never runs a stale loop. Under data_dir/.cache/kernel-r.
+    """
+    d = settings.data_path / ".cache" / "kernel-r"
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / "kernel_loop.R"
+    if not path.exists() or path.read_text(encoding="utf-8") != source:
+        # Write-then-rename: a kernel spawning concurrently never sees a half file.
+        digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:12]
+        tmp = d / f"kernel_loop.{digest}.tmp"
+        tmp.write_text(source, encoding="utf-8")
+        tmp.replace(path)
+    return path
+
+
 def kernel_r_lib() -> Path:
     """A Linkr-wide R library holding ONLY the kernel's own infra packages
     (jsonlite/base64enc/svglite — the host↔kernel protocol + figure capture). It is

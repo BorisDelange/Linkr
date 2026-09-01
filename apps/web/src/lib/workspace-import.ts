@@ -26,7 +26,7 @@ import type { ParsedWorkspaceZip } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { getStorage } from '@/lib/storage'
-import type { DataSource, Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
+import type { DataSource, DataSourceRef, Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
 
 /** Append " (copy)" to every language of a multilingual name when duplicating. */
 function copyLocalizedName(name: LocalizedString): LocalizedString {
@@ -726,18 +726,28 @@ export async function importWorkspaceTree(
   // databases exist. `linkedDataSourceIds` is stripped from every export (local
   // UUIDs), so the pointers stamped beside them are the only way an imported
   // project keeps its links; the ones matching no local database are dropped.
+  // The IDE's chosen database rides in `config` under the same rule, so a project
+  // carrying only that one is re-linked here too.
+  const ideRefOf = (p: Project | undefined) =>
+    (p?.config as { ideDataSourceRef?: DataSourceRef } | undefined)?.ideDataSourceRef
   const projectRefs = [...parsed.projects.values(), ...parsed.projectEntries]
     .map((e) => e.project)
-    .filter((p): p is Project => !!p?.linkedDataSourceRefs?.length)
+    .filter((p): p is Project => !!p && (!!p.linkedDataSourceRefs?.length || !!ideRefOf(p)))
   if (projectRefs.length > 0) {
     const storedDatabases = await storage.dataSources.getAll()
     for (const project of projectRefs) {
-      const ids = project.linkedDataSourceRefs!
+      const ids = (project.linkedDataSourceRefs ?? [])
         .map((ref) => resolvePointer(storedDatabases, ref, targetWsId)?.id)
         .filter((id): id is string => !!id)
-      if (ids.length === 0) continue
+      const ideRef = ideRefOf(project)
+      const ideId = ideRef ? resolvePointer(storedDatabases, ideRef, targetWsId)?.id : undefined
+      if (ids.length === 0 && !ideId) continue
       const uid = idMap.get(`project:${project.uid}`)
-      if (uid) await storage.projects.update(uid, { linkedDataSourceIds: ids }).catch(() => {})
+      if (!uid) continue
+      await storage.projects.update(uid, {
+        ...(ids.length > 0 ? { linkedDataSourceIds: ids } : {}),
+        ...(ideId ? { config: { ...(project.config ?? {}), ideDataSourceId: ideId } } : {}),
+      }).catch(() => {})
     }
   }
 

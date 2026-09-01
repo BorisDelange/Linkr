@@ -106,6 +106,7 @@ import { DocumentationDialog } from './files/DocumentationDialog'
 import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { EditorSettingsDialog } from './files/EditorSettingsDialog'
 import { ConnectionsPanel } from './files/ConnectionsPanel'
+import { ConnectionDropdown } from './files/ConnectionDropdown'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useShortcutStore } from '@/stores/shortcut-store'
@@ -160,14 +161,12 @@ export function FilesPage() {
   const canWriteIde = useMyProjectRole(activeProjectUid ?? undefined).can('ide:write')
   const activeConnectionId = useConnectionStore((s) => s.activeConnectionId)
   const loadProjectConnections = useConnectionStore((s) => s.loadProjectConnections)
-  const getProjectConnections = useConnectionStore((s) => s.getProjectConnections)
-  const setActiveConnection = useConnectionStore((s) => s.setActiveConnection)
   const isExecuting = useRuntimeStore((s) => s.isExecuting)
   const startExecution = useRuntimeStore((s) => s.startExecution)
   const stopExecution = useRuntimeStore((s) => s.stopExecution)
   const finishExecution = useRuntimeStore((s) => s.finishExecution)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
-  const dataSourcesLoaded = useDataSourceStore((s) => s.dataSourcesLoaded)
+  const mountProjectSources = useDataSourceStore((s) => s.mountProjectSources)
   const loadCohorts = useCohortStore((s) => s.loadCohorts)
   const loadPipelines = usePipelineStore((s) => s.loadPipelines)
   const loadProjectDatasets = useDatasetStore((s) => s.loadProjectDatasets)
@@ -263,21 +262,22 @@ export function FilesPage() {
     if (activeProjectUid) {
       loadProjectConnections(activeProjectUid)
       loadProjectFiles(activeProjectUid, idePath ?? undefined)
-      loadDataSources()
+      // Mount the project's databases the way the Databases page does. Without
+      // it the IDE showed whatever status was last written — a database imported
+      // without data stayed grey here while the Databases page had already
+      // healed it by mounting. No-ops in server mode and for already-mounted
+      // sources. Sequenced after the load: it reads the rows that load fetches.
+      loadDataSources().then(() => mountProjectSources(activeProjectUid))
       loadCohorts()
       loadPipelines()
       loadProjectDatasets(activeProjectUid)
     }
-  }, [activeProjectUid, idePath, loadProjectConnections, loadProjectFiles, loadDataSources, loadCohorts, loadPipelines, loadProjectDatasets])
+  }, [activeProjectUid, idePath, loadProjectConnections, loadProjectFiles, loadDataSources, mountProjectSources, loadCohorts, loadPipelines, loadProjectDatasets])
 
-  // Auto-select first database connection when none is active
-  useEffect(() => {
-    if (!activeProjectUid || activeConnectionId) return
-    const connections = getProjectConnections(activeProjectUid)
-    if (connections.length > 0) {
-      setActiveConnection(connections[0].id)
-    }
-  }, [activeProjectUid, activeConnectionId, dataSourcesLoaded, getProjectConnections, setActiveConnection])
+  // Auto-selection lives in ConnectionDropdown, which also re-selects when the
+  // active id belongs to another project (the selection is global). Doing it
+  // here too would fight it: this effect only fired when nothing was selected,
+  // so a stale cross-project id was left in place.
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   // Keep-alive: one ref per open notebook file, so switching tabs doesn't destroy state.
@@ -1241,6 +1241,60 @@ export function FilesPage() {
                         </DropdownMenu>
                       </div>
 
+                      {/* Same picker as the script toolbar: a notebook's cells
+                          reach the database through it too. */}
+                      <ConnectionDropdown projectUid={activeProjectUid ?? undefined} />
+
+                      {/* Add cell + dropdown */}
+                      <div className="flex">
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="gap-1 rounded-r-none"
+                          onClick={() => notebookRef.current?.addCell('code', 'r')}
+                        >
+                          <Plus size={12} />
+                          Add R cell
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              className="rounded-l-none border-l-0 px-1"
+                            >
+                              <ChevronDown size={12} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'r')} className="gap-2 text-xs">
+                              <Code size={13} className="text-muted-foreground" />
+                              R
+                              {nbShortcuts.insertChunk && <DropdownMenuShortcut>{nbShortcuts.insertChunk}</DropdownMenuShortcut>}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'python')} className="gap-2 text-xs">
+                              <Code size={13} className="text-muted-foreground" />
+                              Python
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'sql')} className="gap-2 text-xs">
+                              <Database size={13} className="text-muted-foreground" />
+                              SQL
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('markdown')} className="gap-2 text-xs">
+                              <FileText size={13} className="text-muted-foreground" />
+                              Markdown
+                            </DropdownMenuItem>
+                            {!notebookRef.current?.hasYamlCell && (
+                              <DropdownMenuItem onClick={() => notebookRef.current?.addCell('yaml')} className="gap-2 text-xs">
+                                <Settings2 size={13} className="text-muted-foreground" />
+                                {t('files.yaml_front_matter')}
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+
                       {/* ipynb: Download dropdown / Rmd: Render + dropdown */}
                       {isIpynbFile ? (
                         <div className="flex">
@@ -1312,57 +1366,8 @@ export function FilesPage() {
                         </div>
                       )}
 
-                      {/* Add cell + dropdown */}
-                      <div className="flex">
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          className="gap-1 rounded-r-none"
-                          onClick={() => notebookRef.current?.addCell('code', 'r')}
-                        >
-                          <Plus size={12} />
-                          Add R cell
-                        </Button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="xs"
-                              className="rounded-l-none border-l-0 px-1"
-                            >
-                              <ChevronDown size={12} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'r')} className="gap-2 text-xs">
-                              <Code size={13} className="text-muted-foreground" />
-                              R
-                              {nbShortcuts.insertChunk && <DropdownMenuShortcut>{nbShortcuts.insertChunk}</DropdownMenuShortcut>}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'python')} className="gap-2 text-xs">
-                              <Code size={13} className="text-muted-foreground" />
-                              Python
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'sql')} className="gap-2 text-xs">
-                              <Database size={13} className="text-muted-foreground" />
-                              SQL
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('markdown')} className="gap-2 text-xs">
-                              <FileText size={13} className="text-muted-foreground" />
-                              Markdown
-                            </DropdownMenuItem>
-                            {!notebookRef.current?.hasYamlCell && (
-                              <DropdownMenuItem onClick={() => notebookRef.current?.addCell('yaml')} className="gap-2 text-xs">
-                                <Settings2 size={13} className="text-muted-foreground" />
-                                {t('files.yaml_front_matter')}
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-
-                      {/* Markdown / Cells toggle */}
+                      {/* Raw / Cells toggle — "Raw" is the file's own source
+                          (Markdown for an Rmd, JSON for an ipynb). */}
                       <Button
                         variant="outline"
                         size="xs"
@@ -1371,7 +1376,7 @@ export function FilesPage() {
                       >
                         {notebookRef.current?.sourceView
                           ? <><LayoutGrid size={12} /> {t('files.view_cells')}</>
-                          : <><FileCode size={12} /> {t('files.view_markdown')}</>
+                          : <><FileCode size={12} /> {t('files.view_raw')}</>
                         }
                       </Button>
                     </div>

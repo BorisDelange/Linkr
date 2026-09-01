@@ -423,6 +423,81 @@ async def test_sql_query_bridge_runs_via_host(client, monkeypatch):
     assert "alice" in r.json()["stdout"] and "bob" in r.json()["stdout"]
 
 
+@requires_r
+async def test_sql_query_bridge_runs_via_host_r(client, monkeypatch):
+    """R reaches the host through the same RPC as Python. The R kernel runs user
+    code under capture.output(), so this also guards that the request escapes the
+    capture instead of landing in the run's stdout (which would hang the kernel)."""
+    headers = await _admin_headers(client)
+    from app.services import data_source_service
+
+    uid = await _project(client, headers)
+
+    class _FakeSource:
+        workspace_id = None
+
+    async def fake_get(db, source_id):
+        return _FakeSource()
+
+    async def fake_query(db, source, sql):
+        assert "person" in sql
+        return [{"id": 1, "name": "alice"}, {"id": 2, "name": "bob"}]
+
+    monkeypatch.setattr(data_source_service, "get", fake_get)
+    monkeypatch.setattr(data_source_service, "query", fake_query)
+
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "r",
+        "code": "df <- sql_query('SELECT * FROM person')\ncat(nrow(df), paste(df$name, collapse=','), '\\n')",
+        "projectUid": uid, "connectionId": "conn-1",
+    })
+    assert r.status_code == 200
+    out = r.json()["stdout"]
+    assert "2" in out and "alice" in out and "bob" in out
+
+
+@requires_r
+async def test_sql_query_r_null_becomes_na(client, monkeypatch):
+    """A SQL NULL must keep its column's length (NA), not collapse the column."""
+    headers = await _admin_headers(client)
+    from app.services import data_source_service
+
+    uid = await _project(client, headers)
+
+    class _FakeSource:
+        workspace_id = None
+
+    async def fake_get(db, source_id):
+        return _FakeSource()
+
+    async def fake_query(db, source, sql):
+        return [{"a": 1}, {"a": None}]
+
+    monkeypatch.setattr(data_source_service, "get", fake_get)
+    monkeypatch.setattr(data_source_service, "query", fake_query)
+
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "r",
+        "code": "df <- sql_query('SELECT a FROM t')\ncat(nrow(df), sum(is.na(df$a)), '\\n')",
+        "projectUid": uid, "connectionId": "conn-1",
+    })
+    assert r.status_code == 200
+    assert "2 1" in r.json()["stdout"]
+
+
+@requires_r
+async def test_sql_query_without_connection_errors_in_kernel_r(client):
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "r",
+        "code": "sql_query('SELECT 1')",
+        "projectUid": uid,
+    })
+    assert r.status_code == 200
+    assert "connection" in r.json()["stderr"].lower()
+
+
 async def test_sql_query_without_connection_errors_in_kernel(client):
     headers = await _admin_headers(client)
     uid = await _project(client, headers)
@@ -634,8 +709,12 @@ async def test_execute_stream_final_payload_carries_table(tmp_path):
 
 def _make_r_kernel(tmp_path):
     from app.services.execution.kernel import Kernel, _R_KERNEL_LOOP
+    from app.services import project_fs
 
-    return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=str(tmp_path))
+    # Run the loop from a file, exactly as _make() does: `Rscript -e` silently
+    # truncates a program this long, which hangs the kernel at boot.
+    loop_path = project_fs.kernel_r_script(_R_KERNEL_LOOP)
+    return Kernel(["Rscript", "--vanilla", str(loop_path)], cwd=str(tmp_path))
 
 
 @requires_r

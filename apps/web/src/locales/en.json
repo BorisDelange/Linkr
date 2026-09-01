@@ -1729,7 +1729,7 @@
     "render_preview": "Preview",
     "render_download_html": "Download HTML",
     "yaml_front_matter": "YAML front-matter",
-    "view_markdown": "Markdown",
+    "view_raw": "Raw",
     "view_cells": "Cells",
     "type_csv": "CSV file",
     "create_folder": "Create a folder",

@@ -334,6 +334,34 @@ def test_stale_marked_and_excluded_paths_pruned_from_project_json():
     assert cfg["theme"] == "dark"
 
 
+def test_ide_data_source_id_stripped_from_config_but_pointer_kept():
+    # The IDE's selected database is stored as this instance's local UUID beside a
+    # portable pointer. The id addresses nothing on another instance and would
+    # churn the diff, so it never travels; the ref does. Mirrors the same strip in
+    # buildProjectZip -- front and server must emit the same bytes here.
+    project = {
+        "uid": "p",
+        "name": {"en": "P"},
+        "config": {
+            "theme": "dark",
+            "ideDataSourceId": "12994fb1-24c2-4aa4-8c6d-ba92b6b55646",
+            "ideDataSourceRef": {"lineageId": "db-lin-1", "entityId": "mimic"},
+        },
+    }
+    tree = build_project_tree(
+        project=project,
+        organization=None,
+        ide_files=[], pipelines=[], cohorts=[], connections=[], dashboards=[],
+        dataset_files=[], dataset_analyses={}, dataset_data={}, dataset_raw_files={},
+        attachments=[], attachment_blobs={},
+        versioned_data_files=set(),
+    )
+    cfg = json.loads(tree[ENTITY_MANIFEST].decode())["config"]
+    assert "ideDataSourceId" not in cfg
+    assert cfg["ideDataSourceRef"] == {"lineageId": "db-lin-1", "entityId": "mimic"}
+    assert cfg["theme"] == "dark"
+
+
 def test_gitignore_exception_escapes_metacharacters():
     # A marked filename containing gitignore metachars ([ ] * ? # !) must be escaped
     # in the !path exception, else git reads it as a pattern and the re-inclusion

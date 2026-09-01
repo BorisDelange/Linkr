@@ -1081,10 +1081,20 @@ export async function buildProjectZip(
   // uses. Written explicitly rather than left to the spread: the server builder
   // emits it in this position and the shared golden fixture compares bytes.
   const projectSlug = project.entityId ?? project.projectId
+  // The IDE's database: `ideDataSourceId` is this instance's local UUID, so it
+  // addresses nothing elsewhere and would churn the diff between two instances.
+  // `ideDataSourceRef` beside it is the portable pointer that travels; the import
+  // resolves it back. Same split as a SQL collection's defaultDataSourceId.
+  const exportedMeta = (projectMeta.config as Record<string, unknown> | undefined)?.ideDataSourceId
+    ? (() => {
+        const { ideDataSourceId: _local, ...cfg } = projectMeta.config as Record<string, unknown>
+        return { ...projectMeta, config: cfg }
+      })()
+    : projectMeta
   zip.file(ENTITY_MANIFEST, json({
     ...(projectSlug ? { entityId: projectSlug } : {}),
     type: 'project' as const,
-    ...stripInstanceFields(projectMeta),
+    ...stripInstanceFields(exportedMeta),
     ...(licenseMeta(projectLicense) ? { license: licenseMeta(projectLicense) } : {}),
     appVersion: APP_VERSION,
   }))
@@ -3277,7 +3287,10 @@ async function applyClonedDatabase(
         const source = { ...withDocs, id: targetId } as DataSource
         await engine.mountDataSource(source, storedFiles)
         const stats = await engine.computeStats(targetId, schemaMapping)
-        await storage.dataSources.update(targetId, { status: 'connected', stats })
+        // Clear the reason with the status: a row imported data-free carries the
+        // no-data sentinel, and leaving it behind shows "imported without data"
+        // on a database that is now connected and queryable.
+        await storage.dataSources.update(targetId, { status: 'connected', stats, errorMessage: undefined })
       }
     } catch (e) {
       console.warn('[entity-io] database imported but not connected:', e)
@@ -3672,7 +3685,8 @@ export async function applyClonedEntity(
   // screen then resolves to nothing. Resolve them here, where the repo's refs are
   // finally in hand, and BEFORE importProjectContent: the cohorts and patient
   // boards it writes resolve their own database against these same pointers.
-  const databases = workspaceId && meta.linkedDataSourceRefs?.length
+  const ideRef = (meta.config as { ideDataSourceRef?: DataSourceRef } | undefined)?.ideDataSourceRef
+  const databases = workspaceId && (meta.linkedDataSourceRefs?.length || ideRef)
     ? await storage.dataSources.getAll()
     : []
   const linkedDataSourceIds = workspaceId
@@ -3680,8 +3694,22 @@ export async function applyClonedEntity(
       .map((ref) => resolvePointer(databases, ref, workspaceId)?.id)
       .filter((id): id is string => !!id)
     : []
+  // The IDE's database lives in `config` and is stored as a local UUID beside a
+  // portable ref. The id names a row on the exporting instance and addresses
+  // nothing here, so re-resolve it from the ref; drop it when the database is not
+  // installed, rather than leaving a dangling id the picker would ignore anyway.
+  const config = meta.config as Record<string, unknown> | undefined
+  const resolvedIdeConfig = ideRef && config
+    ? (() => {
+        const local = workspaceId ? resolvePointer(databases, ideRef, workspaceId)?.id : undefined
+        const { ideDataSourceId: _drop, ...rest } = config
+        return { config: local ? { ...rest, ideDataSourceId: local } : rest }
+      })()
+    : {}
+
   await storage.projects.update(targetId, {
     ...meta,
+    ...resolvedIdeConfig,
     // Same rule as resolveEntityLinks: a repo cloned where the referenced database
     // is not installed keeps whatever the row already points at, rather than
     // blanking a correct local link.

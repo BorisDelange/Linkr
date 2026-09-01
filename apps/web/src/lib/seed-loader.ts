@@ -34,7 +34,7 @@ import { mergeSourceConceptIdRegistry, type SourceConceptIdGroup } from '@/lib/c
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
 import type {
   Workspace, Organization, Project, CustomSchemaPreset, UserPlugin,
-  DataSource, StoredFile, DatabaseConnectionConfig, SchemaMapping, SchemaPresetId, SchemaSource,
+  DataSource, DataSourceRef, StoredFile, DatabaseConnectionConfig, SchemaMapping, SchemaPresetId, SchemaSource,
   MappingProject, ConceptMapping, SourceConceptIdRange, SourceConceptIdEntry, EtlPipeline, EtlFile,
   DqRuleSet, DataCatalog, ServiceMapping,
   SqlScriptCollection, SqlScriptFile,
@@ -1179,7 +1179,10 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
   // Mount in DuckDB and compute stats
   await engine.mountDataSource(dataSource, storedFiles)
   const stats = await engine.computeStats(db.id, schemaMapping)
-  await storage.dataSources.update(db.id, { status: 'connected', stats })
+  // errorMessage with the status: a re-seed over a row that landed data-free
+  // must drop the no-data sentinel, else the database reads "imported without
+  // data" while connected and queryable.
+  await storage.dataSources.update(db.id, { status: 'connected', stats, errorMessage: undefined })
 
   // Link to project if specified
   if (db.linkToProject) {
@@ -1629,6 +1632,16 @@ async function attachSeededEntityLinks(wsId: string): Promise<void> {
     // Projects link a LIST of databases, and the ids are stripped from every
     // export: without this a seeded project comes back with no database at all.
     for (const project of inWorkspace(await storage.projects.getAll())) {
+      // The IDE's database sits in `config` as a ref (the local id is stripped
+      // from every export), so restore it here too — otherwise a seeded project
+      // opens the IDE on whichever database happens to come first.
+      const cfg = project.config as { ideDataSourceId?: string; ideDataSourceRef?: DataSourceRef } | undefined
+      if (cfg?.ideDataSourceRef && !cfg.ideDataSourceId) {
+        const ideDataSourceId = resolvePointer(databases, cfg.ideDataSourceRef, wsId)?.id
+        if (ideDataSourceId) {
+          await storage.projects.update(project.uid, { config: { ...cfg, ideDataSourceId } }).catch(() => {})
+        }
+      }
       if (project.linkedDataSourceIds?.length || !project.linkedDataSourceRefs?.length) continue
       const linkedDataSourceIds = project.linkedDataSourceRefs
         .map((ref) => resolvePointer(databases, ref, wsId)?.id)
