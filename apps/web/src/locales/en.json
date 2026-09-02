@@ -417,6 +417,8 @@
     "input_type_multi_select": "Multi-select dropdown",
     "input_type_single_select": "Single-select dropdown",
     "input_type_range": "Range",
+    "input_type_slider": "Slider",
+    "filter_no_date_range": "This column has no usable date range.",
     "input_type_double_range": "Double range",
     "filter_range_1": "Range 1",
     "filter_range_2": "Range 2",

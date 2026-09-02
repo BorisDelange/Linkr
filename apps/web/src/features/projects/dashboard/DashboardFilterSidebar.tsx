@@ -4,7 +4,17 @@ import { X, Plus, Database, ChevronsUpDown, ChevronRight, TriangleAlert, Setting
 import { SearchInput } from '@/components/ui/search-input'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { DatePickerField } from '@/components/ui/date-picker-field'
+import { DatePickerField, fromIsoDay } from '@/components/ui/date-picker-field'
+import { Slider } from '@/components/ui/slider'
+import { formatDate } from '@/lib/format-helpers'
+import {
+  daysBetween,
+  parseBounds,
+  toDayBound,
+  valueToSlider,
+  sliderToValue,
+  type DateBounds,
+} from './date-slider'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -213,6 +223,9 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     ]
     if (filterType === 'numeric' || filterType === 'date') {
       options.push({ value: 'range', label: t('dashboard.input_type_range') })
+    }
+    if (filterType === 'date') {
+      options.push({ value: 'slider', label: t('dashboard.input_type_slider') })
     }
     if (filterType === 'numeric') {
       options.push({ value: 'double-range', label: t('dashboard.input_type_double_range') })
@@ -551,6 +564,46 @@ function useFilterControlRows(fc: DashboardFilter): Record<string, unknown>[] {
   )
 }
 
+/** The earliest and latest day held by a date column, used to bound the date pickers
+ *  and to scale the slider. Server mode reads the column stats (which already carry
+ *  min/max for dates); front-only scans the loaded rows. Null while unknown — the
+ *  controls then fall back to being unbounded rather than to a wrong range. */
+function useDateColumnBounds(fc: DashboardFilter, rows: Record<string, unknown>[]): DateBounds | null {
+  const server = isServerMode()
+  const datasetFiles = useDatasetStore((s) => s.files)
+  const [serverBounds, setServerBounds] = useState<DateBounds | null>(null)
+
+  const fetchColId = useMemo(() => {
+    const cols = datasetFiles.find((f) => f.id === fc.datasetFileId)?.columns ?? []
+    return cols.find((c) => c.name === fc.columnName)?.id ?? fc.columnId
+  }, [datasetFiles, fc.datasetFileId, fc.columnName, fc.columnId])
+
+  useEffect(() => {
+    if (!server || fc.type !== 'date') return
+    let cancelled = false
+    fetchColumnStats(fc.datasetFileId, fetchColId)
+      .then((s) => {
+        if (!cancelled) setServerBounds(parseBounds(s.min as string, s.max as string))
+      })
+      .catch(() => { if (!cancelled) setServerBounds(null) })
+    return () => { cancelled = true }
+  }, [server, fc.type, fc.datasetFileId, fetchColId])
+
+  return useMemo(() => {
+    if (fc.type !== 'date') return null
+    if (server) return serverBounds
+    let lo: string | null = null
+    let hi: string | null = null
+    for (const row of rows) {
+      const day = toDayBound(row[fc.columnId] as string)
+      if (!day) continue
+      if (lo == null || day < lo) lo = day
+      if (hi == null || day > hi) hi = day
+    }
+    return parseBounds(lo, hi)
+  }, [fc.type, fc.columnId, server, serverBounds, rows])
+}
+
 /** Filter control that sources its own row data (front-only rows or server-fetched
  *  values). Separate component so the data hook runs per control (not in a .map). */
 function FilterControlWithData({
@@ -563,7 +616,8 @@ function FilterControlWithData({
   onChange: (value: FilterValue) => void
 }) {
   const rows = useFilterControlRows(fc)
-  return <FilterControl fc={fc} rows={rows} value={value} onChange={onChange} />
+  const dateBounds = useDateColumnBounds(fc, rows)
+  return <FilterControl fc={fc} rows={rows} value={value} onChange={onChange} dateBounds={dateBounds} />
 }
 
 function FilterControl({
@@ -571,20 +625,24 @@ function FilterControl({
   rows,
   value,
   onChange,
+  dateBounds,
 }: {
   fc: DashboardFilter
   rows: Record<string, unknown>[]
   value?: FilterValue
   onChange: (value: FilterValue) => void
+  dateBounds?: DateBounds | null
 }) {
   // Range inputs for numeric / date
-  if (fc.inputType === 'range') {
+  if (fc.inputType === 'range' || (fc.type === 'date' && fc.inputType === 'slider')) {
     if (fc.type === 'date') {
       return (
         <DateFilter
           value={value as (FilterValue & { type: 'date' | 'date-relative' }) | undefined}
           presets={fc.datePresets ?? []}
           onChange={onChange}
+          bounds={dateBounds ?? null}
+          asSlider={fc.inputType === 'slider'}
         />
       )
     }
@@ -1077,10 +1135,16 @@ function DateFilter({
   value,
   presets,
   onChange,
+  bounds,
+  asSlider,
 }: {
   value?: { type: 'date'; from: string | null; to: string | null } | { type: 'date-relative'; count: number; unit: DatePresetUnit }
   presets: DatePreset[]
   onChange: (value: FilterValue) => void
+  /** The column's own first and last day; null while unknown (still loading, or a
+   *  column with no parseable dates), in which case the pickers stay unbounded. */
+  bounds?: DateBounds | null
+  asSlider?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
@@ -1088,6 +1152,50 @@ function DateFilter({
   const from = value?.type === 'date' ? value.from : null
   const to = value?.type === 'date' ? value.to : null
   const hasValue = isRelative || !!(from || to)
+
+  // Calendars open on, and are limited to, the range the data actually covers —
+  // picking a day with no rows behind it can only ever return nothing.
+  const minDate = bounds ? fromIsoDay(bounds.min) : undefined
+  const maxDate = bounds ? fromIsoDay(bounds.max) : undefined
+  const pickerBounds = bounds ? { before: minDate, after: maxDate } : undefined
+
+  if (asSlider) {
+    if (!bounds) {
+      // No usable range: a slider with no scale would be a dead control, so say so.
+      return <p className="text-[10px] text-muted-foreground">{t('dashboard.filter_no_date_range')}</p>
+    }
+    const span = daysBetween(bounds.min, bounds.max)
+    const [start, end] = valueToSlider(bounds, from, to)
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+          <span>{formatDate(from ?? bounds.min, lang)}</span>
+          <span>{formatDate(to ?? bounds.max, lang)}</span>
+        </div>
+        <Slider
+          min={0}
+          max={span}
+          step={1}
+          value={[start, end]}
+          onValueChange={([s, e]) => onChange({ type: 'date', ...sliderToValue(bounds, [s, e]) })}
+          // A single-day column has a zero-width scale; the thumbs would overlap
+          // with nothing to choose between.
+          disabled={span === 0}
+        />
+        {hasValue && (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="h-5 gap-1 text-[10px] text-muted-foreground"
+            onClick={() => onChange({ type: 'date', from: null, to: null })}
+          >
+            <X size={10} />
+            {t('common.clear', 'Clear')}
+          </Button>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-1.5">
@@ -1119,6 +1227,11 @@ function DateFilter({
           <DatePickerField
             value={from ?? undefined}
             onChange={(v) => onChange({ type: 'date', from: v ?? null, to })}
+            // Unset means "from the beginning of the data", so show that day rather
+            // than an empty box the reader has to interpret.
+            placeholder={bounds ? formatDate(bounds.min, lang) : undefined}
+            defaultMonth={minDate}
+            disabledDays={pickerBounds}
           />
         </div>
         <div className="space-y-1">
@@ -1126,6 +1239,9 @@ function DateFilter({
           <DatePickerField
             value={to ?? undefined}
             onChange={(v) => onChange({ type: 'date', from, to: v ?? null })}
+            placeholder={bounds ? formatDate(bounds.max, lang) : undefined}
+            defaultMonth={maxDate}
+            disabledDays={pickerBounds}
           />
         </div>
       </div>

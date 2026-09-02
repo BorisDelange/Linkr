@@ -23,6 +23,17 @@ export function fromIsoDay(value?: string): Date | undefined {
   return new Date(y, m - 1, d)
 }
 
+/** Read one edge out of a `{ before, after }` disabled matcher, ignoring the other
+ *  shapes react-day-picker accepts (arrays, predicates, day-of-week matchers). */
+function boundFrom(
+  disabled: DatePickerFieldProps['disabledDays'],
+  edge: 'before' | 'after',
+): Date | undefined {
+  if (!disabled || typeof disabled !== 'object' || Array.isArray(disabled)) return undefined
+  const value = (disabled as Record<string, unknown>)[edge]
+  return value instanceof Date ? value : undefined
+}
+
 interface DatePickerFieldProps {
   value?: string
   onChange: (value: string | undefined) => void
@@ -32,6 +43,13 @@ interface DatePickerFieldProps {
   /** Hide the clear button when the caller manages emptiness itself. */
   clearable?: boolean
   className?: string
+  /** Days the calendar refuses, in react-day-picker's `disabled` shape — e.g.
+   *  `{ before, after }` to confine the picker to a range the data covers. */
+  disabledDays?: React.ComponentProps<typeof Calendar>['disabled']
+  /** Also constrain the month dropdowns, so the caption can't navigate outside
+   *  the allowed range either. Defaults to the bounds implied by `disabledDays`. */
+  startMonth?: Date
+  endMonth?: Date
 }
 
 /**
@@ -49,6 +67,9 @@ export function DatePickerField({
   placeholder,
   clearable = true,
   className,
+  disabledDays,
+  startMonth,
+  endMonth,
 }: DatePickerFieldProps) {
   const { t, i18n } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -81,6 +102,11 @@ export function DatePickerField({
             selected={selected}
             defaultMonth={selected ?? defaultMonth}
             captionLayout="dropdown"
+            disabled={disabledDays}
+            // The year/month dropdowns span 1900..2100 by default, which would let
+            // the caption wander far outside a bounded range.
+            startMonth={startMonth ?? boundFrom(disabledDays, 'before')}
+            endMonth={endMonth ?? boundFrom(disabledDays, 'after')}
             onSelect={(date) => {
               onChange(date ? toIsoDay(date) : undefined)
               setOpen(false)
