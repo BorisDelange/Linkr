@@ -64,10 +64,13 @@ def _python_filter_code(filters: list[dict]) -> str:
         col_j = json.dumps(col)
         kind = f.get("kind", "string")
         # The comparison series: numeric-coerced for numbers, string otherwise.
+        # A boolean column stringifies as "True"/"False" in pandas, but the filter
+        # values come from the UI as "true"/"false" — lower-case the boolean
+        # literals so a boolean filter matches instead of silently excluding all.
         series = (
             f"_pd.to_numeric(dataset[{col_j}], errors='coerce')"
             if kind == "number"
-            else f"dataset[{col_j}].astype(str)"
+            else f"dataset[{col_j}].astype(str).replace({{'True': 'true', 'False': 'false'}})"
         )
         clauses: list[str] = []
         for alt in alts:
@@ -133,10 +136,16 @@ def _r_filter_code(filters: list[dict]) -> str:
             continue
         col_r = _r_str(col)
         kind = f.get("kind", "string")
+        # R renders logicals "TRUE"/"FALSE"; the UI sends "true"/"false" (see the
+        # pandas branch above) — map the literals so boolean filters match.
         series = (
             f"suppressWarnings(as.numeric(dataset[[{col_r}]]))"
             if kind == "number"
-            else f"as.character(dataset[[{col_r}]])"
+            else (
+                f"ifelse(is.logical(dataset[[{col_r}]]), "
+                f"ifelse(dataset[[{col_r}]], 'true', 'false'), "
+                f"as.character(dataset[[{col_r}]]))"
+            )
         )
         clauses: list[str] = []
         for alt in alts:

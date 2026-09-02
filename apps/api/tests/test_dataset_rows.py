@@ -130,6 +130,16 @@ def test_distinct_values_numeric_column_cast_to_string():
     assert out["values"] == ["1.0", "2.0"]
 
 
+def test_distinct_values_boolean_column_is_lowercase():
+    """The dropdown's boolean literals are lower-case, and the render side folds
+    pandas' "True"/"False" to match. Pin the casing here: it is the convention both
+    ends agree on (see _linkr_str in render/key_indicator.py)."""
+    cols = [{"id": "c0", "type": "boolean"}]
+    rows = [{"c0": True}, {"c0": False}, {"c0": True}]
+    out = distinct_values(_parquet(rows, cols), "c0")
+    assert out["values"] == ["false", "true"]
+
+
 def test_distinct_values_empty_col_id():
     cols = [{"id": "c0", "type": "string"}]
     out = distinct_values(_parquet([{"c0": "a"}], cols), "")

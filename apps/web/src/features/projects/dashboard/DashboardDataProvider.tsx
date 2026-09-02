@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { DatasetColumn, FilterValue } from '@/types'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { resolveRelativeWindow } from './date-presets'
+import { toComparableString } from '@/lib/dataset-utils'
 
 interface DashboardDataContextValue {
   columns: DatasetColumn[]
@@ -54,7 +55,7 @@ export function applyFilters(
           // an empty list, which means "no restriction" (all pass) for dropdown-style inputs.
           if (filter.selected.length === 1 && filter.selected[0] === FILTER_NONE) return false
           if (filter.selected.length === 0) continue // no filter active
-          if (!filter.selected.includes(String(value ?? ''))) return false
+          if (!filter.selected.includes(toComparableString(value ?? ''))) return false
           break
         }
         case 'numeric': {

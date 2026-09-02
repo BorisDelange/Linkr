@@ -20,6 +20,7 @@ import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildKeyIndicatorSpec } from './key-indicator-server'
+import { toComparableString } from '@/lib/dataset-utils'
 
 // ---------------------------------------------------------------------------
 // Aggregate functions
@@ -314,10 +315,13 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
     if (rawValues.length === 0) return null
 
     // Resolve target: use configured value, or auto-detect most frequent
-    let resolvedTarget = targetValue
-    if (!resolvedTarget) {
+    let resolvedTarget = toComparableString(targetValue)
+    if (!targetValue) {
       const counts = new Map<string, number>()
-      for (const v of rawValues) counts.set(String(v), (counts.get(String(v)) ?? 0) + 1)
+      for (const v of rawValues) {
+        const k = toComparableString(v)
+        counts.set(k, (counts.get(k) ?? 0) + 1)
+      }
       let maxCount = 0
       for (const [k, c] of counts) {
         if (c > maxCount) { maxCount = c; resolvedTarget = k }
@@ -325,7 +329,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
     }
 
     const total = rawValues.length
-    const matchCount = rawValues.filter(v => String(v) === resolvedTarget).length
+    const matchCount = rawValues.filter(v => toComparableString(v) === resolvedTarget).length
     const pct = (matchCount / total) * 100
 
     return { result: pct, n: total, matchCount, resolvedTarget }
@@ -348,12 +352,12 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
     const vals: number[] = []
     let nonNull = 0
     let targetMatches = 0
-    const target = (targetValue ?? '').toString()
+    const target = toComparableString(targetValue ?? '')
     for (const row of metricRows) {
       const raw = row[column.id]
       if (isEmptyVal(raw)) continue
       nonNull++
-      if (target && String(raw) === target) targetMatches++
+      if (target && toComparableString(raw) === target) targetMatches++
       const num = typeof raw === 'number' ? raw : Number(raw)
       if (!isNaN(num)) vals.push(num)
     }
@@ -622,7 +626,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
       for (const row of rows) {
         const raw = row[column.id]
         if (raw == null) continue
-        const key = String(raw)
+        const key = toComparableString(raw)
         counts.set(key, (counts.get(key) ?? 0) + 1)
       }
       return Array.from(counts.entries())

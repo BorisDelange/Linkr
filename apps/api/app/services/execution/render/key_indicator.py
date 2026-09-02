@@ -164,8 +164,23 @@ def _linkr_hist(values, bins, start_at_zero, decimals):
         buckets[idx]["count"] += 1
     return buckets
 
+_LINKR_BOOL_STR = {"true": "true", "false": "false", "True": "true", "False": "false",
+                   "TRUE": "true", "FALSE": "false"}
+
+def _linkr_str(series):
+    # Comparison form of a cell. pandas renders booleans "True"/"False" while the
+    # Target value dropdown (DuckDB CAST AS VARCHAR) and the front (String(v)) both
+    # produce "true"/"false" — so a dropdown-chosen boolean could never match here.
+    # Lower-case the boolean literals only: a string column holding "True" as text
+    # keeps its own casing.
+    s = series.astype(str)
+    return s.map(lambda v: _LINKR_BOOL_STR.get(v, v))
+
+def _linkr_target_str(value):
+    return _LINKR_BOOL_STR.get(value, value)
+
 def _linkr_freq(series):
-    counts = series.astype(str).value_counts().head(10)
+    counts = _linkr_str(series).value_counts().head(10)
     return [{"name": str(k), "value": int(v)} for k, v in counts.items()]
 
 def _linkr_print_kpi(dataset, spec):
@@ -179,7 +194,7 @@ def _linkr_print_kpi(dataset, spec):
     unique_per = spec.get("uniquePer")
     unique_agg = spec.get("uniqueAggregation", "first")
     aggregate = spec.get("aggregate", "mean")
-    target = str(spec.get("targetValue") or "")
+    target = _linkr_target_str(str(spec.get("targetValue") or ""))
     exclude_na = spec.get("excludeNA", True)
     chart_type = spec.get("chartType", "none")
 
@@ -226,7 +241,7 @@ def _linkr_print_kpi(dataset, spec):
 
     if is_proportion:
         raw = metric_series[metric_series.notna()]
-        raw_str = raw.astype(str)
+        raw_str = _linkr_str(raw)
         total = len(raw_str)
         if total == 0:
             print(_json.dumps({"error": "no_data"}))
@@ -247,7 +262,7 @@ def _linkr_print_kpi(dataset, spec):
     else:
         nonnull_series = series[~series.map(_linkr_is_empty)]
         nonnull = len(nonnull_series)
-        target_matches = int((nonnull_series.astype(str) == target).sum()) if target else 0
+        target_matches = int((_linkr_str(nonnull_series) == target).sum()) if target else 0
         nums = list(_pd.to_numeric(nonnull_series, errors="coerce").dropna())
         if aggregate == "count":
             res = float(target_matches) if target else float(nonnull if exclude_na else metric_n)

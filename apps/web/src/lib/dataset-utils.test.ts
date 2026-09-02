@@ -5,8 +5,34 @@ import {
   isMissingValue,
   normalizeNaValues,
   displayCellValue,
+  toComparableString,
   DEFAULT_NA_VALUES,
 } from './dataset-utils'
+
+describe('toComparableString', () => {
+  it('folds the boolean literals of every engine to one form', () => {
+    // JS String(true), DuckDB CAST AS VARCHAR, pandas astype(str), R as.character.
+    expect(toComparableString(true)).toBe('true')
+    expect(toComparableString('true')).toBe('true')
+    expect(toComparableString('True')).toBe('true')
+    expect(toComparableString('TRUE')).toBe('true')
+    expect(toComparableString(false)).toBe('false')
+    expect(toComparableString('False')).toBe('false')
+    expect(toComparableString('FALSE')).toBe('false')
+  })
+
+  it('matches a dropdown-sourced target against a server-rendered cell', () => {
+    // The dropdown offers DuckDB's "true"; a server render stringifies the same
+    // cell through pandas as "True". They must compare equal.
+    expect(toComparableString('True')).toBe(toComparableString('true'))
+  })
+
+  it('leaves other values untouched', () => {
+    expect(toComparableString('Yes')).toBe('Yes')
+    expect(toComparableString(42)).toBe('42')
+    expect(toComparableString('')).toBe('')
+  })
+})
 
 describe('normalizeNaValues', () => {
   it('defaults to the built-in token list', () => {

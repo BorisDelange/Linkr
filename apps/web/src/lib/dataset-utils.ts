@@ -53,6 +53,21 @@ export function parseBoolean(value: unknown): boolean | null {
   return null
 }
 
+/** The string form used to compare a cell against a target value picked in the UI.
+ *  `String(v)` already yields "true"/"false" here, but the same cell is stringified
+ *  by pandas ("True"/"False") and R ("TRUE"/"FALSE") when a widget renders on the
+ *  server — so the boolean literals are folded to lower case on every side, and a
+ *  target chosen from the dropdown matches wherever it is evaluated. Only the
+ *  literals are folded: a string column holding "True" as text keeps its casing.
+ *  Server mirror: `_linkr_str` in
+ *  apps/api/app/services/execution/render/key_indicator.py. */
+export function toComparableString(value: unknown): string {
+  const s = String(value)
+  if (s === 'True' || s === 'TRUE') return 'true'
+  if (s === 'False' || s === 'FALSE') return 'false'
+  return s
+}
+
 /** Coerce a raw cell value to a column's declared type (mirrors the server
  *  dataset_parser `_coerce`): empty → null; number → number when parseable else
  *  the original string; boolean → bool when a known token else the string;

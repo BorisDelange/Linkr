@@ -145,6 +145,84 @@ def test_key_indicator_clamps_chart_bins_and_decimals():
     assert out["decimals"] == 0
 
 
+def _run_kpi(spec_extra, df):
+    """Execute the key-indicator render program against a DataFrame and return the
+    parsed JSON result (the program prints one JSON line)."""
+    import io
+    import json
+    from contextlib import redirect_stdout
+
+    spec = key_indicator.validate_spec(spec_extra)
+    code = key_indicator.build_code(spec)
+    buf = io.StringIO()
+    ns = {"dataset": df}
+    with redirect_stdout(buf):
+        exec(code, ns)  # noqa: S102 — server-owned program, test-only
+    return json.loads(buf.getvalue().strip().splitlines()[-1])
+
+
+def test_key_indicator_proportion_matches_lowercase_boolean_target():
+    """The Target value dropdown is fed by DuckDB (CAST AS VARCHAR → "true"), while
+    pandas stringifies the same column as "True" — so a boolean target used to match
+    nothing and every proportion rendered 0%."""
+    import pandas as pd
+
+    df = pd.DataFrame({"flag": [True, False, True, True]})
+    out = _run_kpi(
+        {"column": {"name": "flag", "numeric": False},
+         "aggregate": "proportion", "targetValue": "true"},
+        df,
+    )
+    assert out["matchCount"] == 3
+    assert out["n"] == 4
+    assert out["result"] == pytest.approx(75.0)
+
+
+def test_key_indicator_proportion_auto_target_is_lowercase():
+    """With no target the most frequent value is auto-detected; it is echoed back to
+    the client and shown in the title, so it must use the same casing the client
+    would have produced (String(v) → "false")."""
+    import pandas as pd
+
+    df = pd.DataFrame({"flag": [False, False, True]})
+    out = _run_kpi(
+        {"column": {"name": "flag", "numeric": False}, "aggregate": "proportion"},
+        df,
+    )
+    assert out["resolvedTarget"] == "false"
+    assert out["matchCount"] == 2
+
+
+def test_key_indicator_count_matches_boolean_target():
+    """Same mismatch on the non-proportion branch: aggregate=count with a target
+    counted 0 rows for a boolean column."""
+    import pandas as pd
+
+    df = pd.DataFrame({"flag": [True, False, True]})
+    out = _run_kpi(
+        {"column": {"name": "flag", "numeric": False},
+         "aggregate": "count", "targetValue": "true"},
+        df,
+    )
+    assert out["result"] == pytest.approx(2.0)
+
+
+def test_key_indicator_string_column_keeps_its_casing():
+    """Only the boolean literals are folded — a string column holding "True" as text
+    is still matched exactly, and not confused with a lower-case "true"."""
+    import pandas as pd
+
+    df = pd.DataFrame({"label": ["True", "true", "other"]})
+    out = _run_kpi(
+        {"column": {"name": "label", "numeric": False},
+         "aggregate": "proportion", "targetValue": "true"},
+        df,
+    )
+    # Both "True" and "true" fold to "true" — the fold is by design symmetric, so a
+    # dropdown value matches whichever casing the engine produced.
+    assert out["matchCount"] == 2
+
+
 def _run_plot(spec_extra, df):
     """Execute the plot-builder render program against a DataFrame and return the
     parsed JSON result (the program prints one JSON line)."""

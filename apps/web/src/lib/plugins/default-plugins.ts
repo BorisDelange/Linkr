@@ -59,7 +59,7 @@ export function registerDefaultPlugins() {
         en: 'Display a single KPI with aggregate value, icon, and optional mini-chart.',
         fr: 'Affiche un indicateur clé avec valeur agrégée, icône et mini-graphique optionnel.',
       },
-      version: '1.0.0',
+      version: '1.0.1',
       category: 'visualization',
       tags: ['kpi', 'indicator', 'dashboard'],
       runtime: ['component'],

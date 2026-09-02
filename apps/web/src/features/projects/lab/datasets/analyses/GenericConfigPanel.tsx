@@ -45,7 +45,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
 import { localized } from '@/lib/localized'
-import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
+import { displayColumnName, displayCellValue, toComparableString } from '@/lib/dataset-utils'
 import { defaultAnalysisColumns } from '@/lib/analysis-default-columns'
 import { inferSurveySchema } from '@/lib/survey/survey-infer'
 import { questionColumns, questionChoices } from '@/lib/survey/survey-schema'
@@ -986,7 +986,7 @@ function ColumnValueSelect({
     const seen = new Set<string>()
     for (const row of rows) {
       const raw = row[columnFieldId]
-      if (raw != null) seen.add(String(raw))
+      if (raw != null) seen.add(toComparableString(raw))
     }
     return Array.from(seen).sort()
   }, [columnFieldId, rows])
