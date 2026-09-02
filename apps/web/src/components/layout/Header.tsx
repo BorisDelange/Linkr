@@ -890,7 +890,7 @@ export function Header() {
                 if (uid) {
                   await deleteProject(uid)
                   closeProject()
-                  if (wsId) navigate(paths.workspaceHome(wsId))
+                  if (wsId) navigate(paths.projects(wsId))
                 }
               }}
             >
