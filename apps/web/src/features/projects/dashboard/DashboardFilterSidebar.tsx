@@ -129,7 +129,9 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
   /** Apply a dialog draft: create the filter, or patch the one being edited. */
   const handleSubmitConfig = (draft: FilterDraft) => {
     if (!draft.datasetFileId || !draft.columnId) return
-    const cols = datasetFiles.find((f) => f.id === draft.datasetFileId)?.columns ?? []
+    // Bind the narrowed value: the guard above doesn't survive into the map callback below.
+    const datasetFileId = draft.datasetFileId
+    const cols = datasetFiles.find((f) => f.id === datasetFileId)?.columns ?? []
     const col = cols.find((c) => c.id === draft.columnId)
     if (!col) return
     const { type } = detectColumnDefaults(col)
@@ -138,7 +140,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     if (configuring === 'new') {
       const newFilter: DashboardFilter = {
         id: crypto.randomUUID(),
-        datasetFileId: draft.datasetFileId,
+        datasetFileId,
         columnId: draft.columnId,
         columnName: col.name,
         type,
@@ -164,7 +166,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
           const hasAny = Object.values(nextLabel).some((v) => v.trim().length > 0)
           return {
             ...f,
-            datasetFileId: draft.datasetFileId,
+            datasetFileId,
             columnId: col.id,
             columnName: col.name,
             type,
@@ -1157,7 +1159,7 @@ function DateFilter({
   // picking a day with no rows behind it can only ever return nothing.
   const minDate = bounds ? fromIsoDay(bounds.min) : undefined
   const maxDate = bounds ? fromIsoDay(bounds.max) : undefined
-  const pickerBounds = bounds ? { before: minDate, after: maxDate } : undefined
+  const pickerBounds = minDate && maxDate ? { before: minDate, after: maxDate } : undefined
 
   if (asSlider) {
     if (!bounds) {

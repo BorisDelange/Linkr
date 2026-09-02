@@ -18,6 +18,10 @@ export interface PlotBuilderSpec {
   binWidth: number
   decimals: number
   xAxisStartZero: boolean
+  /** Histogram drag-to-zoom: re-bin only the values in this range, so zooming shows
+   *  finer structure rather than the same bars drawn wider. Null when unzoomed. */
+  zoomLo: number | null
+  zoomHi: number | null
 }
 
 /**
@@ -27,7 +31,12 @@ export interface PlotBuilderSpec {
  * viewer can render it without the server running any client-supplied code.
  * Server parity: apps/api/app/services/execution/render/plot_builder.py (_PLOT_PY).
  */
-export function buildPlotBuilderSpec(columns: DatasetColumn[], config: Record<string, unknown>): PlotBuilderSpec {
+export function buildPlotBuilderSpec(
+  columns: DatasetColumn[],
+  config: Record<string, unknown>,
+  /** Live interaction state, not part of the saved widget config. */
+  zoom?: { lo: number; hi: number } | null,
+): PlotBuilderSpec {
   const byId = new Map(columns.map((c) => [c.id, c]))
   const colName = (id: string | undefined): string | null => (id ? byId.get(id)?.name ?? null : null)
   const colType = (id: string | undefined): string | null => (id ? byId.get(id)?.type ?? null : null)
@@ -57,6 +66,10 @@ export function buildPlotBuilderSpec(columns: DatasetColumn[], config: Record<st
     bins: (config.bins as number) ?? 20,
     binWidth: (config.binWidth as number) ?? 5,
     decimals: (config.decimals as number) ?? 1,
-    xAxisStartZero: (config.xAxisStartZero as boolean) ?? false,
+    // Padding the axis down to 0 inside a zoom would drag the view back to the
+    // origin and undo it, so it only applies unzoomed.
+    xAxisStartZero: zoom ? false : ((config.xAxisStartZero as boolean) ?? false),
+    zoomLo: zoom?.lo ?? null,
+    zoomHi: zoom?.hi ?? null,
   }
 }

@@ -341,6 +341,58 @@ def test_plot_builder_outlier_ignores_a_non_numeric_axis():
     assert out["outliersExcluded"] == 1
 
 
+def test_plot_builder_zoom_rebins_the_selected_range():
+    """Zooming re-bins the values inside the window into the configured bin count,
+    rather than showing the original bars wider — the bars must get FINER."""
+    import pandas as pd
+
+    df = pd.DataFrame({"v": [i * 0.1 for i in range(1000)]})  # 0.0 .. 99.9
+    full = _run_plot({"plotType": "histogram", "hist": "v", "bins": 20}, df.copy())
+    zoomed = _run_plot({"plotType": "histogram", "hist": "v", "bins": 20,
+                        "zoomLo": 40, "zoomHi": 50}, df.copy())
+
+    assert len(zoomed["data"]) == 20  # still the configured count
+    full_width = full["data"][0]["hi"] - full["data"][0]["lo"]
+    zoom_width = zoomed["data"][0]["hi"] - zoomed["data"][0]["lo"]
+    assert zoom_width < full_width  # the whole point: finer bins
+    assert zoomed["data"][0]["lo"] == pytest.approx(40, abs=0.5)
+    assert zoomed["data"][-1]["hi"] == pytest.approx(50, abs=0.5)
+
+
+def test_plot_builder_zoom_caps_bins_at_distinct_values():
+    """20 bins over the integers 1..10 would leave every other bar empty — a comb
+    implying gaps the data doesn't have."""
+    import pandas as pd
+
+    df = pd.DataFrame({"age": [i % 40 + 1 for i in range(800)]})
+    out = _run_plot({"plotType": "histogram", "hist": "age", "bins": 20,
+                     "zoomLo": 1, "zoomHi": 10}, df)
+    assert len(out["data"]) == 10
+    assert all(d["count"] > 0 for d in out["data"])
+
+
+def test_plot_builder_histogram_bars_carry_numeric_bounds():
+    """The bin label is rounded for display; lo/hi are what a drag maps back onto."""
+    import pandas as pd
+
+    out = _run_plot({"plotType": "histogram", "hist": "v", "bins": 5},
+                    pd.DataFrame({"v": list(range(100))}))
+    for bar in out["data"]:
+        assert isinstance(bar["lo"], (int, float))
+        assert bar["hi"] > bar["lo"]
+
+
+def test_plot_builder_zoom_ignores_start_at_zero():
+    """Padding the axis down to 0 inside a zoom would pull the view back out to the
+    origin and undo it."""
+    import pandas as pd
+
+    df = pd.DataFrame({"v": list(range(100, 200))})
+    out = _run_plot({"plotType": "histogram", "hist": "v", "bins": 10,
+                     "xAxisStartZero": True, "zoomLo": 150, "zoomHi": 160}, df)
+    assert out["data"][0]["lo"] >= 149
+
+
 def test_plot_builder_unique_per_median_aggregates_per_entity():
     """uniquePer + median collapses multiple rows per entity to the per-entity
     median of the value column before plotting — and only the plotted columns need

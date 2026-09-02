@@ -74,6 +74,10 @@ def validate_spec(spec: dict) -> dict:
         "binWidth": _num(spec.get("binWidth"), "binWidth", 5),
         "decimals": _num(spec.get("decimals"), "decimals", 1),
         "xAxisStartZero": bool(spec.get("xAxisStartZero", False)),
+        # Histogram drag-to-zoom: re-bin only this value range, so zooming reveals
+        # finer structure rather than redrawing the same bars wider.
+        "zoomLo": None if spec.get("zoomLo") is None else _num(spec.get("zoomLo"), "zoomLo", 0),
+        "zoomHi": None if spec.get("zoomHi") is None else _num(spec.get("zoomHi"), "zoomHi", 0),
     }
 
 
@@ -133,9 +137,12 @@ def _linkr_histogram(values, bin_mode, bins_cfg, bin_width_cfg, start_at_zero, d
     vmin = min(values); vmax = max(values)
     date_mode = _linkr_is_date_range(values)
     if vmin == vmax:
-        return [{"bin": _linkr_fmt_bin(vmin, date_mode, decimals), "count": len(values)}]
+        return [{"bin": _linkr_fmt_bin(vmin, date_mode, decimals), "count": len(values), "lo": vmin, "hi": vmin}]
     start, bw, count = _linkr_bin_params(vmin, vmax, bin_mode, bins_cfg, bin_width_cfg, start_at_zero)
-    buckets = [{"bin": _linkr_fmt_bin(start + i * bw, date_mode, decimals), "count": 0} for i in range(count)]
+    # lo/hi are each bar's real numeric edges: the label is rounded for display and
+    # can't be parsed back, but drag-to-zoom needs the true bounds to re-bin.
+    buckets = [{"bin": _linkr_fmt_bin(start + i * bw, date_mode, decimals), "count": 0,
+                "lo": start + i * bw, "hi": start + (i + 1) * bw} for i in range(count)]
     for v in values:
         idx = int(_math.floor((v - start) / bw))
         if idx < 0: idx = 0
@@ -151,13 +158,14 @@ def _linkr_histogram_grouped(df, xcol, gcol, bin_mode, bins_cfg, bin_width_cfg, 
     vmin = min(all_vals); vmax = max(all_vals)
     date_mode = _linkr_is_date_range(all_vals)
     if vmin == vmax:
-        entry = {"bin": _linkr_fmt_bin(vmin, date_mode, decimals)}
+        entry = {"bin": _linkr_fmt_bin(vmin, date_mode, decimals), "lo": vmin, "hi": vmin}
         for g in group_names: entry[g] = 0
         return [entry]
     start, bw, count = _linkr_bin_params(vmin, vmax, bin_mode, bins_cfg, bin_width_cfg, start_at_zero)
     buckets = []
     for i in range(count):
-        entry = {"bin": _linkr_fmt_bin(start + i * bw, date_mode, decimals)}
+        entry = {"bin": _linkr_fmt_bin(start + i * bw, date_mode, decimals),
+                 "lo": start + i * bw, "hi": start + (i + 1) * bw}
         for g in group_names: entry[g] = 0
         buckets.append(entry)
     for _, row in df.iterrows():
@@ -457,6 +465,20 @@ def _linkr_print_plot(dataset, spec):
                 print(_json.dumps({**result, "data": data, "series": ["count"], "isCategorical": True, "colorByCategory": color_by_cat})); return
             data = _linkr_categorical_grouped(df, hist, eff_group, eff_group_names)
             print(_json.dumps({**result, "data": data, "series": eff_group_names, "isCategorical": True, "colorByCategory": color_by_cat})); return
+        # Drag-to-zoom: restrict to the selected value range and re-bin THOSE values,
+        # so the zoom shows finer structure rather than the same bars drawn wider.
+        # Mirrors the client path in PlotBuilderComponent.tsx.
+        zoom_lo = spec.get("zoomLo"); zoom_hi = spec.get("zoomHi")
+        if zoom_lo is not None and zoom_hi is not None:
+            _hnum = _pd.to_numeric(df[hist], errors="coerce")
+            df = df[_hnum.notna() & (_hnum >= zoom_lo) & (_hnum <= zoom_hi)]
+            # Asking for more bins than the range holds distinct values would leave
+            # every other bar empty - a comb implying gaps that are not in the data.
+            _distinct = len(set(v for v in (_linkr_to_num(v) for v in df[hist]) if not _math.isnan(v)))
+            if _distinct > 0:
+                bins_cfg = max(1, min(bins_cfg, _distinct))
+            # Padding the axis to 0 inside a zoom would pull the view back out.
+            saz = False
         if not eff_group_names or eff_group not in df.columns:
             values = [v for v in (_linkr_to_num(v) for v in df[hist]) if not _math.isnan(v)]
             data = _linkr_histogram(values, bin_mode, bins_cfg, bin_width_cfg, saz, decimals)
