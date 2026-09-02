@@ -30,6 +30,7 @@ import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-do
 import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { makeReinstall } from '@/lib/entity-reinstall'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { localized } from '@/lib/localized'
@@ -106,6 +107,9 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
     loadProjectMappings, updateMappingProject,
   } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
+  // Reinstalling replaces the whole entity's content, so it takes the same role
+  // the list page requires to delete it.
+  const canReinstall = useMyWorkspaceRole().atLeast('owner')
 
   useEffect(() => {
     if (!mappingProjectsLoaded) loadMappingProjects()
@@ -262,6 +266,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
                 onSave={(cfg) => updateMappingProject(project.id, { gitRemoteConfig: cfg ?? undefined })}
                 syncScope="mapping-projects"
                 syncId={project.id}
+                onReinstall={canReinstall ? makeReinstall('mapping-projects', project, project.workspaceId) : undefined}
               />
             </div>
           )}

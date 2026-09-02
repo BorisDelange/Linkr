@@ -66,6 +66,7 @@ import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { makeReinstall } from '@/lib/entity-reinstall'
 import { useAppStore } from '@/stores/app-store'
 import { useSchemaPresetStore, buildSchemaPreset, forkedLineage } from '@/stores/schema-preset-store'
 import { localized, setLocalized } from '@/lib/localized'
@@ -1120,8 +1121,11 @@ function SchemaDetailView({
   onBack: () => void
 }) {
   const { t } = useTranslation()
-  const { can } = useMyWorkspaceRole()
+  const { can, atLeast } = useMyWorkspaceRole()
   const canWrite = can('schemas:write')
+  // Reinstalling replaces the whole entity's content, so it takes the same role
+  // the list page requires to delete it.
+  const canReinstall = atLeast('owner')
   const schemaActions = useSchemaPresetActions()
   const setGitRemote = useSchemaPresetStore((s) => s.setGitRemote)
   const loadPresets = useSchemaPresetStore((s) => s.loadPresets)
@@ -1454,6 +1458,7 @@ function SchemaDetailView({
                 // The pull writes to storage; this page reads the preset from the
                 // store, in the SAME workspace scope the list uses.
                 onAfterPull={() => loadPresets(preset.workspaceId)}
+                onReinstall={canReinstall ? makeReinstall('schema-presets', preset, preset.workspaceId) : undefined}
               />
             )}
           </div>

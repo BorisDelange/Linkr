@@ -136,7 +136,9 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
     setError(null)
     try {
       const failure = await onReinstall({ url: gitRemote.url, branch })
-      if (failure) setError({ code: 'unknown', raw: failure })
+      // '' means it failed with no git message worth quoting — say so in words
+      // rather than showing an empty error box.
+      if (failure !== null) setError({ code: 'unknown', raw: failure || t('versioning.reinstall_failed') })
       else if (syncScope && syncId) void refreshStatus(syncScope, syncId, branch)
     } catch (err) {
       setError(toGitError(err))

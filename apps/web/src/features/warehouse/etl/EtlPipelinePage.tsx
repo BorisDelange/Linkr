@@ -13,6 +13,7 @@ import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-do
 import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { makeReinstall } from '@/lib/entity-reinstall'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import type { EtlPipeline } from '@/types'
@@ -90,6 +91,10 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   useEffect(() => {
     if (!etlPipelinesLoaded) loadEtlPipelines()
   }, [etlPipelinesLoaded, loadEtlPipelines])
+
+  // Reinstalling replaces the whole entity's content, so it takes the same role
+  // the list page requires to delete it.
+  const canReinstall = useMyWorkspaceRole().atLeast('owner')
 
   // pipelineId may be a short prefix from the URL; resolve to the full id before any store call.
   const pipeline = resolveByIdPrefix(etlPipelines, pipelineId, (p) => p.id)
@@ -247,6 +252,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
                 await loadEtlPipelines()
                 await loadPipelineFiles(pipeline.id)
               }}
+              onReinstall={canReinstall ? makeReinstall('etl-pipelines', pipeline, pipeline.workspaceId) : undefined}
             />
           </div>
         )}

@@ -27,6 +27,7 @@ import ReactMarkdown from 'react-markdown'
 import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { makeReinstall } from '@/lib/entity-reinstall'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { cn } from '@/lib/utils'
@@ -93,6 +94,9 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   }, [activeTab])
   const dqActions = useDqRuleSetActions()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
+  // Reinstalling replaces the whole entity's content, so it takes the same role
+  // the list page requires to delete it.
+  const canReinstall = useMyWorkspaceRole().atLeast('owner')
 
   useEffect(() => {
     if (!dqRuleSetsLoaded) loadDqRuleSets()
@@ -238,6 +242,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
               onSave={(cfg) => updateRuleSet(ruleSet.id, { gitRemoteConfig: cfg ?? undefined })}
               syncScope="dq-rule-sets"
               syncId={ruleSet.id}
+              onReinstall={canReinstall ? makeReinstall('dq-rule-sets', ruleSet, ruleSet.workspaceId) : undefined}
             />
           </div>
         </TabsContent>

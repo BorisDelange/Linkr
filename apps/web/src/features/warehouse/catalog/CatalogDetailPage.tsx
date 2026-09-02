@@ -27,6 +27,7 @@ import ReactMarkdown from 'react-markdown'
 import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { makeReinstall } from '@/lib/entity-reinstall'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { localized } from '@/lib/localized'
 import { useCatalogStore } from '@/stores/catalog-store'
@@ -94,6 +95,9 @@ export function CatalogDetailPage({ catalogId }: Props) {
   const { catalogs, catalogsLoaded, loadCatalogs, activeResultCache, loadResultCache, updateCatalog } = useCatalogStore()
   const catalogActions = useCatalogActions()
   const canWrite = useMyWorkspaceRole().can('catalog:write')
+  // Reinstalling replaces the whole entity's content, so it takes the same role
+  // the list page requires to delete it.
+  const canReinstall = useMyWorkspaceRole().atLeast('owner')
   const { activeWorkspaceId } = useWorkspaceStore()
   const catalogListPath = `/workspaces/${activeWorkspaceId}/warehouse/catalog`
 
@@ -196,6 +200,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
               onSave={(cfg) => updateCatalog(catalog.id, { gitRemoteConfig: cfg ?? undefined })}
               syncScope="data-catalogs"
               syncId={catalog.id}
+              onReinstall={canReinstall ? makeReinstall('data-catalogs', catalog, catalog.workspaceId) : undefined}
             />
           </div>
         </TabsContent>

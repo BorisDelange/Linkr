@@ -72,6 +72,7 @@ import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { useSqlScriptsStore, type SqlOutputTab, type SqlExecutionResult } from '@/stores/sql-scripts-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { makeReinstall } from '@/lib/entity-reinstall'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -111,6 +112,9 @@ interface Props {
 export function SqlScriptsEditorPage({ collectionId }: Props) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('sql-scripts:write')
+  // Reinstalling replaces the whole entity's content, so it takes the same role
+  // the list page requires to delete it.
+  const canReinstall = useMyWorkspaceRole().atLeast('owner')
   const {
     collections,
     collectionsLoaded,
@@ -513,6 +517,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                   onSave={(cfg) => updateCollection(collection.id, { gitRemoteConfig: cfg ?? undefined })}
                   syncScope="sql-script-collections"
                   syncId={collection.id}
+                  onReinstall={canReinstall ? makeReinstall('sql-script-collections', collection, collection.workspaceId) : undefined}
                 />
               )}
             </div>

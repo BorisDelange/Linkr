@@ -10,6 +10,8 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import type { GitScope } from '@/lib/api/git'
+import { makeReinstall } from '@/lib/entity-reinstall'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { EntityLicense, GitRemoteConfig, LocalizedString, ReadmeOwnerType } from '@/types'
 import { localized } from '@/lib/localized'
 import { cardMenuTriggerClass } from '@/lib/utils'
@@ -185,6 +187,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
 }: EntityActionsMenuProps<T>) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
 
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
   const menuOpen = open ?? uncontrolledOpen
@@ -316,6 +319,9 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             // from both the list page and the header menu.
             renderInlinePull={syncScope ? INLINE_PULLS[syncScope]?.(versioning.item.id) : undefined}
             onAfterPull={syncScope ? AFTER_PULLS[syncScope]?.(versioning.item) : undefined}
+            // Same reasoning as the pull above: reinstalling is a property of the
+            // entity kind, so it comes from the scope rather than from each caller.
+            onReinstall={syncScope && canDelete ? makeReinstall(syncScope, versioning.item, activeWorkspaceId) : undefined}
             supportsIncludeData={exportSupportsIncludeData}
             gitRemote={getGitRemote(versioning.item)}
             onExport={onExport ? () => onExport(versioning.item) : undefined}

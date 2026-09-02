@@ -59,6 +59,7 @@ import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { makeReinstall } from '@/lib/entity-reinstall'
 import {
 } from '@/components/ui/dropdown-menu'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
@@ -120,6 +121,10 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
   const dbActions = useDatabaseActions()
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
+  // Reinstalling replaces the whole entity's content, so it takes the same role
+  // the list page requires to delete it — and never from the project's read-only
+  // view of a workspace database.
+  const canReinstall = useMyWorkspaceRole().atLeast('owner') && !readOnly
   const [activeTab, setActiveTab] = useUrlTab<DatabaseTabId>({
     key: `database:${source?.id ?? 'none'}`,
     tabs: readOnly ? PROJECT_TAB_IDS : DATABASE_TAB_IDS,
@@ -291,6 +296,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
               // the page reads — without this the tabs keep describing the
               // database that was there before it.
               onAfterPull={() => loadDataSources()}
+              onReinstall={canReinstall ? makeReinstall('databases', source, source.workspaceId) : undefined}
             />
           </div>
         </TabsContent>
