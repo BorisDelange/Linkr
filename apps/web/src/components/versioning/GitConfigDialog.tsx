@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { ExternalLink, KeyRound, Link2Off, Loader2 } from 'lucide-react'
+import { ExternalLink, KeyRound, Link2Off, Loader2, RefreshCw } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -13,6 +13,9 @@ interface GitConfigDialogProps {
   onEditToken: () => void
   onDisconnect: () => void
   onClose: () => void
+  /** Rebuild this entity's content from the repository, discarding local changes.
+   *  Omitted by the scopes that don't support it yet, which then show no button. */
+  onReinstall?: () => void
 }
 
 /**
@@ -24,7 +27,7 @@ interface GitConfigDialogProps {
  * behind a button beside Refresh.
  */
 export function GitConfigDialog({
-  url, hasToken, saving, onEditToken, onDisconnect, onClose,
+  url, hasToken, saving, onEditToken, onDisconnect, onClose, onReinstall,
 }: GitConfigDialogProps) {
   const { t } = useTranslation()
 
@@ -86,6 +89,26 @@ export function GitConfigDialog({
               <GitTokenHelp />
             </div>
           </div>
+
+          {onReinstall && (
+            <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2">
+              <p className="min-w-0 flex-1 basis-0 text-[10px] leading-relaxed text-muted-foreground">
+                {t('versioning.config_reinstall_hint')}
+                <br />
+                {t('versioning.config_reinstall_hint_2')}
+              </p>
+              <Button
+                variant="ghost"
+                size="sm-tight"
+                className="shrink-0 text-muted-foreground hover:text-destructive"
+                onClick={onReinstall}
+                disabled={saving}
+              >
+                <RefreshCw size={13} />
+                {t('versioning.reinstall_action')}
+              </Button>
+            </div>
+          )}
 
           {/* No flex-wrap: the button stays on the right instead of dropping below
               once the sentence needs its second line. */}

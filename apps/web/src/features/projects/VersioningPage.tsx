@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useSearchParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useVersioningStore } from '@/stores/versioning-store'
+import { useMyProjectRole } from '@/hooks/use-context-role'
+import { reinstallProjectFromGit } from '@/lib/project-reinstall'
+import type { GitRemoteConfig } from '@/types'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
 import { useRememberedVersioningTab } from '@/components/versioning/use-remembered-versioning-tab'
 import { ExportTab } from './versioning/ExportTab'
@@ -10,6 +14,10 @@ import { ExportTab } from './versioning/ExportTab'
 export function VersioningPage() {
   const { t } = useTranslation()
   const projectUid = useAppStore((s) => s.activeProjectUid)
+  const projectName = useAppStore((s) => s.activeProjectName)
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const { can: canProject } = useMyProjectRole(projectUid ?? undefined)
+  const canDelete = canProject('project-settings:delete')
   const [searchParams] = useSearchParams()
   const location = useLocation()
   const tabParam = searchParams.get('tab')
@@ -39,6 +47,21 @@ export function VersioningPage() {
     if (projectUid) void loadRemoteConfig(projectUid)
   }, [projectUid, loadRemoteConfig])
 
+  const handleReinstall = useCallback(
+    async (config: GitRemoteConfig) => {
+      if (!projectUid || !workspaceId) return t('versioning.reinstall_failed')
+      const result = await reinstallProjectFromGit({
+        projectUid,
+        name: projectName ?? projectUid,
+        url: config.url,
+        branch: config.branch,
+        workspaceId,
+      })
+      return result.ok ? null : (result.error ?? t('versioning.reinstall_failed'))
+    },
+    [projectUid, projectName, workspaceId, t],
+  )
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 px-6 pt-6 pb-2 text-center">
@@ -60,6 +83,9 @@ export function VersioningPage() {
           onTabChange={(v) => { setTab(v); onTabChange(v) }}
           syncScope="projects"
           syncId={projectUid ?? undefined}
+          // Reinstalling replaces every child of the project with the repo's, so
+          // it is gated on the same permission as deleting it.
+          onReinstall={projectUid && workspaceId && canDelete ? handleReinstall : undefined}
           // No `renderInlinePull`: the project pull is DISABLED. A project bundles
           // six kinds of children (dashboards, patient boards, scripts, cohorts,
           // datasets, pipeline) whose remote-vs-local matching proved too unreliable

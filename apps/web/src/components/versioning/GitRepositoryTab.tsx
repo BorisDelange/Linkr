@@ -17,6 +17,7 @@ import { GitSyncPanel } from './GitSyncPanel'
 import { GitErrorInline } from './GitErrorInline'
 import { GitTokenDialog } from './GitTokenDialog'
 import { GitConfigDialog } from './GitConfigDialog'
+import { GitReinstallDialog } from './GitReinstallDialog'
 
 interface GitRepositoryTabProps {
   /** Current git link, or null when unlinked. */
@@ -32,6 +33,12 @@ interface GitRepositoryTabProps {
   renderInlinePull?: React.ComponentProps<typeof GitSyncPanel>['renderInlinePull']
   /** Scope-specific store refresh after a pull (forwarded to GitSyncPanel). */
   onAfterPull?: React.ComponentProps<typeof GitSyncPanel>['onAfterPull']
+  /**
+   * Rebuild this entity's content from its repository, discarding local changes.
+   * Only the scopes that pass this get the action; the others show no button.
+   * Resolves to an error message on failure, or null on success.
+   */
+  onReinstall?: (config: GitRemoteConfig) => Promise<string | null>
 }
 
 /**
@@ -42,7 +49,7 @@ interface GitRepositoryTabProps {
  *    disconnect) so the sync panel below gets the room to show the repo's files.
  * The branch is detected on connect and switched from the sync panel's dropdown.
  */
-export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderPullDialog, renderInlinePull, onAfterPull }: GitRepositoryTabProps) {
+export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderPullDialog, renderInlinePull, onAfterPull, onReinstall }: GitRepositoryTabProps) {
   const { t } = useTranslation()
   const refreshStatus = useGitSyncStore((s) => s.refreshStatus)
   const [url, setUrl] = useState(gitRemote?.url ?? '')
@@ -57,6 +64,8 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
   // presence — so this is fetched from the backend, not derived from the config.
   // null = not yet known (fetch in flight); avoids flashing "No token" before it resolves.
   const [hasToken, setHasToken] = useState<boolean | null>(null)
+  const [confirmReinstall, setConfirmReinstall] = useState(false)
+  const [reinstalling, setReinstalling] = useState(false)
 
   // gitRemote loads asynchronously (store fetch on mount / direct URL open), so
   // reflect a link that arrives after the first render — otherwise the tab stays
@@ -118,6 +127,22 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
       setHasToken(false)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleReinstall = async () => {
+    if (!onReinstall || !gitRemote?.url || reinstalling) return
+    setReinstalling(true)
+    setError(null)
+    try {
+      const failure = await onReinstall({ url: gitRemote.url, branch })
+      if (failure) setError({ code: 'unknown', raw: failure })
+      else if (syncScope && syncId) void refreshStatus(syncScope, syncId, branch)
+    } catch (err) {
+      setError(toGitError(err))
+    } finally {
+      setReinstalling(false)
+      setConfirmReinstall(false)
     }
   }
 
@@ -188,8 +213,23 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
             onEditToken={() => { setConfigOpen(false); setEditingToken(true) }}
             onDisconnect={async () => { setConfigOpen(false); await handleDisconnect() }}
             onClose={() => setConfigOpen(false)}
+            onReinstall={onReinstall ? () => { setConfigOpen(false); setConfirmReinstall(true) } : undefined}
           />
         )}
+
+        {confirmReinstall && (
+          <GitReinstallDialog
+            url={linkedUrl}
+            branch={branch}
+            busy={reinstalling}
+            onConfirm={handleReinstall}
+            onClose={() => { if (!reinstalling) setConfirmReinstall(false) }}
+          />
+        )}
+
+        {/* A reinstall failure surfaces here rather than in the dialog, which has
+            already closed by then. */}
+        {error && <GitErrorInline detail={error.raw} />}
 
         {editingToken && (
           <GitTokenDialog url={linkedUrl} onSave={handleTokenSaved} onClose={() => setEditingToken(false)} />

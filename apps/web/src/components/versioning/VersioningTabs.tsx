@@ -36,6 +36,8 @@ interface VersioningTabsProps {
   onAfterPull?: React.ComponentProps<typeof GitSyncPanel>['onAfterPull']
   /** Hide the Export tab and show only Git (e.g. entities whose export lives elsewhere). */
   gitOnly?: boolean
+  /** Rebuild the entity's content from its repository (forwarded to the repository tab). */
+  onReinstall?: React.ComponentProps<typeof GitRepositoryTab>['onReinstall']
 }
 
 /**
@@ -58,6 +60,7 @@ export function VersioningTabs({
   renderInlinePull,
   onAfterPull,
   gitOnly = false,
+  onReinstall,
 }: VersioningTabsProps) {
   const { t } = useTranslation()
   const [uncontrolledTab, setUncontrolledTab] = useState<VersioningTab>(gitOnly ? 'git' : initialTab)
@@ -90,7 +93,7 @@ export function VersioningTabs({
       </TabsList>
 
       <TabsContent value="git" className={sideContentClass}>
-        <GitRepositoryTab gitRemote={gitRemote} onSave={onSaveGitRemote} syncScope={syncScope} syncId={syncId} renderPullDialog={renderPullDialog} renderInlinePull={renderInlinePull} onAfterPull={onAfterPull} />
+        <GitRepositoryTab gitRemote={gitRemote} onSave={onSaveGitRemote} syncScope={syncScope} syncId={syncId} renderPullDialog={renderPullDialog} renderInlinePull={renderInlinePull} onAfterPull={onAfterPull} onReinstall={onReinstall} />
       </TabsContent>
 
       {!gitOnly && (
