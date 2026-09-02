@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Database } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -115,6 +115,16 @@ export function FilterConfigDialog({
     }
   }, [open, filter, datasetFiles, language])
 
+  // The datasets a widget uses, plus the one this filter already points at — that one
+  // may no longer be used by any widget (e.g. every widget was reassigned), and it must
+  // still render in the trigger and stay re-selectable.
+  const selectableDatasets = useMemo(() => {
+    const current = filter && !availableDatasets.some((f) => f.id === filter.datasetFileId)
+      ? datasetFiles.find((f) => f.id === filter.datasetFileId)
+      : undefined
+    return current ? [...availableDatasets, current] : availableDatasets
+  }, [availableDatasets, datasetFiles, filter])
+
   const dsFile = draft.datasetFileId ? datasetFiles.find((f) => f.id === draft.datasetFileId) : null
   const columns = dsFile?.columns ?? []
   const selectedColumn = columns.find((c) => c.id === draft.columnId)
@@ -143,17 +153,25 @@ export function FilterConfigDialog({
           {() => (
             <Select
               value={draft.datasetFileId ?? ''}
-              // Changing dataset invalidates the column, so clear it.
-              onValueChange={(v) => setDraft((d) => ({ ...d, datasetFileId: v, columnId: null }))}
-              // The dataset is fixed once the filter exists: re-pointing it at another
-              // dataset would silently orphan the column and any active value.
-              disabled={isEdit}
+              // Re-point at another dataset, keeping the column when the new one has a
+              // column of the same name (the identifier a user reasons about) — the
+              // common case of a dashboard imported without its data and rebuilt.
+              onValueChange={(v) =>
+                setDraft((d) => {
+                  const prevName = datasetFiles
+                    .find((f) => f.id === d.datasetFileId)
+                    ?.columns?.find((c) => c.id === d.columnId)?.name
+                  const nextCols = datasetFiles.find((f) => f.id === v)?.columns ?? []
+                  const match = prevName ? nextCols.find((c) => c.name === prevName) : undefined
+                  return { ...d, datasetFileId: v, columnId: match?.id ?? null }
+                })
+              }
             >
               <SelectTrigger className="h-8 text-xs">
                 <SelectValue placeholder={t('dashboard.filter_select_dataset')} />
               </SelectTrigger>
               <SelectContent position="popper" sideOffset={4}>
-                {(isEdit ? datasetFiles : availableDatasets).map((f) => (
+                {selectableDatasets.map((f) => (
                   <SelectItem key={f.id} value={f.id}>
                     <div className="flex items-center gap-2">
                       <Database size={11} className="text-muted-foreground" />
@@ -161,7 +179,7 @@ export function FilterConfigDialog({
                     </div>
                   </SelectItem>
                 ))}
-                {!isEdit && availableDatasets.length === 0 && (
+                {selectableDatasets.length === 0 && (
                   <div className="px-2 py-1.5 text-xs text-muted-foreground">
                     {t('dashboard.filter_no_datasets')}
                   </div>

@@ -140,8 +140,11 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
       updateDashboard(dashboard.id, { filterConfig: [...dashboard.filterConfig, newFilter] })
     } else if (configuring) {
       const target = configuring
-      // Column or input type changing invalidates any value already picked.
-      const invalidated = target.columnId !== draft.columnId || target.inputType !== draft.inputType
+      // Dataset, column or input type changing invalidates any value already picked.
+      const invalidated =
+        target.datasetFileId !== draft.datasetFileId ||
+        target.columnId !== draft.columnId ||
+        target.inputType !== draft.inputType
       updateDashboard(dashboard.id, {
         filterConfig: dashboard.filterConfig.map((f) => {
           if (f.id !== target.id) return f
@@ -151,6 +154,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
           const hasAny = Object.values(nextLabel).some((v) => v.trim().length > 0)
           return {
             ...f,
+            datasetFileId: draft.datasetFileId,
             columnId: col.id,
             columnName: col.name,
             type,

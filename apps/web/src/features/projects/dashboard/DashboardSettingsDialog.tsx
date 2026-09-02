@@ -58,8 +58,9 @@ export function DashboardSettingsDialog({
   const [fitToHeight, setFitToHeight] = useState(dashboard.fitToHeight !== false)
 
   // Bulk-assign confirmation
-  const [bulkAssignScope, setBulkAssignScope] = useState<'all' | 'tab' | null>(null)
+  const [bulkAssignScope, setBulkAssignScope] = useState<'all' | 'tab' | 'filters' | null>(null)
   const [bulkAssigned, setBulkAssigned] = useState<number | null>(null)
+  const [filtersAssigned, setFiltersAssigned] = useState<number | null>(null)
 
   // A dataset is selectable even before its columns are loaded: server mode lists
   // files without columns (lazy /meta on open), so requiring columns here would
@@ -93,6 +94,7 @@ export function DashboardSettingsDialog({
       setReloadWidgetsOnTabSwitch(dashboard.reloadWidgetsOnTabSwitch ?? false)
       setFitToHeight(dashboard.fitToHeight !== false)
       setBulkAssigned(null)
+      setFiltersAssigned(null)
     }
   }, [open, dashboard.showWidgetTitles, dashboard.defaultDatasetFileId, dashboard.widgetSpacing, dashboard.reloadWidgetsOnTabSwitch, dashboard.fitToHeight])
 
@@ -117,6 +119,10 @@ export function DashboardSettingsDialog({
 
   const handleBulkAssign = () => {
     if (!bulkAssignScope || !defaultDatasetFileId) return
+    if (bulkAssignScope === 'filters') {
+      handleAssignFilters(defaultDatasetFileId)
+      return
+    }
     const targetWidgets = bulkAssignScope === 'all' ? allDashboardWidgets : currentTabWidgets
     for (const w of targetWidgets) {
       updateWidgetDataset(w.id, defaultDatasetFileId)
@@ -125,7 +131,30 @@ export function DashboardSettingsDialog({
     setBulkAssigned(targetWidgets.length)
   }
 
-  const bulkCount = bulkAssignScope === 'all' ? allDashboardWidgets.length : currentTabWidgets.length
+  // Re-point every filter at the chosen dataset. A filter holds a single column, so
+  // the remap is a name lookup — the same bridge `remapWidgetColumns` uses for widgets.
+  // A filter whose column name is absent from the new dataset keeps its old id and shows
+  // as broken in the sidebar, which is honest: there is nothing to point it at.
+  const handleAssignFilters = (datasetFileId: string) => {
+    const newColumns = datasetFiles.find(f => f.id === datasetFileId)?.columns ?? []
+    const newColumnByName = new Map(newColumns.map(c => [c.name, c]))
+    updateDashboard(dashboard.id, {
+      filterConfig: dashboard.filterConfig.map(f => {
+        const match = newColumnByName.get(f.columnName)
+        return {
+          ...f,
+          datasetFileId,
+          ...(match ? { columnId: match.id } : {}),
+        }
+      }),
+    })
+    setBulkAssignScope(null)
+    setFiltersAssigned(dashboard.filterConfig.length)
+  }
+
+  const bulkCount = bulkAssignScope === 'filters'
+    ? dashboard.filterConfig.length
+    : bulkAssignScope === 'all' ? allDashboardWidgets.length : currentTabWidgets.length
   const currentTab = currentTabId ? dashboardTabs.find(tab => tab.id === currentTabId) : undefined
   const currentTabName = currentTab ? localized(currentTab.name, i18n.language) : ''
 
@@ -231,6 +260,7 @@ export function DashboardSettingsDialog({
               onValueChange={v => {
                 setDefaultDatasetFileId(v === '__none__' ? null : v)
                 setBulkAssigned(null)
+                setFiltersAssigned(null)
               }}
             >
               <SelectTrigger className="mt-1 h-8 text-sm">
@@ -285,6 +315,31 @@ export function DashboardSettingsDialog({
               )}
             </FormField>
           )}
+          {defaultDatasetFileId && (
+            <FormField
+              label={t('dashboard.assign_dataset_filters')}
+              hint={t('dashboard.assign_dataset_filters_hint')}
+            >
+              {() => (
+              <>
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={() => setBulkAssignScope('filters')}
+                disabled={dashboard.filterConfig.length === 0}
+              >
+                {t('dashboard.assign_all_filters')} ({dashboard.filterConfig.length})
+              </Button>
+              {filtersAssigned !== null && (
+                <p className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                  <Check size={12} className="shrink-0" />
+                  {t('dashboard.assign_filters_done', { count: filtersAssigned })}
+                </p>
+              )}
+              </>
+              )}
+            </FormField>
+          )}
           </TabsContent>
           </div>
         </Tabs>
@@ -295,7 +350,9 @@ export function DashboardSettingsDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{t('dashboard.assign_confirm_title')}</AlertDialogTitle>
           <AlertDialogDescription>
-            {bulkAssignScope === 'all'
+            {bulkAssignScope === 'filters'
+              ? t('dashboard.assign_confirm_filters', { count: bulkCount, dataset: projectDatasetFiles.find(f => f.id === defaultDatasetFileId)?.name ?? '' })
+              : bulkAssignScope === 'all'
               ? t('dashboard.assign_confirm_all', { count: bulkCount, dataset: projectDatasetFiles.find(f => f.id === defaultDatasetFileId)?.name ?? '' })
               : t('dashboard.assign_confirm_tab', { count: bulkCount, tab: currentTabName, dataset: projectDatasetFiles.find(f => f.id === defaultDatasetFileId)?.name ?? '' })
             }
