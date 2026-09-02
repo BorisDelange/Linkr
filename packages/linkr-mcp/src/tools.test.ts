@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { serializeEntity, serializeProject, type ProjectSpec } from '@linkr/format'
@@ -41,6 +41,14 @@ afterEach(() => {
 
 const dashboard = () => JSON.parse(readFileSync(join(root, 'dashboards/overview.json'), 'utf-8'))
 
+/** Rename in place, leaving the filename — and any key already written — behind. */
+function renameDashboard(en: string, tabs?: unknown[]): void {
+  const doc = dashboard()
+  doc.dashboard.name = { en }
+  if (tabs) doc.tabs = tabs
+  writeFileSync(join(root, 'dashboards/overview.json'), JSON.stringify(doc))
+}
+
 describe('describeTree', () => {
   it('lists datasets with their column ids and dashboards with their keys', () => {
     const out = describeTree(root)
@@ -76,6 +84,23 @@ describe('addDashboardTab', () => {
   it('rejects a duplicate key rather than silently overwriting', () => {
     addDashboardTab(root, 'overview', { en: 'Outcomes' })
     expect(() => addDashboardTab(root, 'overview', { en: 'Outcomes' })).toThrow(/already exists/)
+  })
+
+  it('keys the tab on the English name, not the filename', () => {
+    // These differ whenever a dashboard is renamed: the file keeps its old name,
+    // the key follows the new one. Keying on the filename wrote tabs that the
+    // import could not attach to any dashboard, and dropped them silently.
+    renameDashboard('Overview 2026', [])
+    expect(addDashboardTab(root, 'overview', { en: 'Outcomes' }))
+      .toContain('overview-2026/outcomes')
+  })
+
+  it('refuses to add to a dashboard whose existing tabs carry a stale prefix', () => {
+    // Renaming leaves the tabs already written pointing at the old key. Adding a
+    // correctly-keyed tab beside them would hide the breakage rather than fix it.
+    renameDashboard('Overview 2026')
+    expect(() => addDashboardTab(root, 'overview', { en: 'Outcomes' }))
+      .toThrow(/overview\/demographics.*dropped on import/s)
   })
 })
 

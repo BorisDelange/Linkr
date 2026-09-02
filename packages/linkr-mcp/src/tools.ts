@@ -10,7 +10,8 @@ import { copyFileSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync 
 import { dirname, join, relative, resolve } from 'node:path'
 import {
   ENTITY_MANIFEST, MANIFEST, SCRIPT_LANGUAGE as SCRIPT_LANGUAGES,
-  columnId, detectTreeKind, findCsv, formatIssues, isReadableKind, moveWidget, READABLE_KINDS,
+  columnId, dashboardKey, detectTreeKind, findCsv, formatIssues, isReadableKind, moveWidget,
+  READABLE_KINDS,
   readEntity, readProjectManifest, removeTab, removeWidget, renameDatasetColumns, renameTab,
   renameWidget,
   serializeEntity, serializeProject, slugify, tabCollateral, validateEntity, validateProject,
@@ -148,7 +149,12 @@ interface FilterDoc {
 }
 
 interface DashboardDoc {
-  dashboard: Record<string, unknown> & { filterConfig?: FilterDoc[] }
+  // `name` is narrowed out of the index signature because the dashboard's key —
+  // and therefore every tab key under it — is derived from it.
+  dashboard: Record<string, unknown> & {
+    name?: string | Record<string, string>
+    filterConfig?: FilterDoc[]
+  }
   tabs: { name: unknown; key?: string; parentKey?: string | null; displayOrder?: number }[]
   widgets: {
     name: unknown
@@ -287,10 +293,29 @@ export function addDashboardTab(
     )
   }
 
-  // Same key scheme as the exporter: `<dashboard-or-parent>/<slug>`.
-  const dashKey = path.replace(/^dashboards\//, '').replace(/\.json$/, '')
+  // Same key scheme as the exporter: `<dashboard-or-parent>/<slug>`. The
+  // dashboard's own key is the slug of its ENGLISH NAME, not of its filename —
+  // deriving it from the filename writes tabs that resolve to no dashboard at
+  // all whenever the two differ, and the import drops them, widgets included,
+  // without an error.
+  const dashKey = dashboardKey(doc.dashboard?.name)
+  if (!dashKey) throw new Error(`Dashboard "${dashboard}" has no English name to derive a key from.`)
   const key = `${parent ?? dashKey}/${slugify(label)}`
   if (doc.tabs.some((t) => t.key === key)) throw new Error(`A tab with key "${key}" already exists.`)
+
+  // A stale prefix on the tabs already there means the dashboard was renamed
+  // after they were written: they are the ones that will be dropped, not this
+  // one. Say so now, while the tree is open, rather than letting an import fail.
+  const stale = doc.tabs.filter((t) => t.parentKey == null && t.key?.split('/')[0] !== dashKey)
+  if (stale.length) {
+    throw new Error(
+      `This dashboard's key is "${dashKey}" (the slug of its English name), but ` +
+      `${stale.length} existing root tab(s) start with "${stale[0].key?.split('/')[0]}": ` +
+      `${stale.map((t) => t.key).join(', ')}. They were written before a rename and would ` +
+      `be dropped on import. Fix them first — rename the dashboard back, or re-add the tabs ` +
+      `under the current key — then add this one.`,
+    )
+  }
 
   doc.tabs.push({
     name,

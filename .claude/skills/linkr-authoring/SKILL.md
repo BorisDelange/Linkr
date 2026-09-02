@@ -91,6 +91,22 @@ renaming a column re-keys it and repoints every widget config and filter that he
 id. The tools do those cascades for you and list what changed — read that list, because
 ids and keys you quoted from an earlier `describe_tree` are stale afterwards.
 
+**Renaming a dashboard has no tool, and that is the trap.** A dashboard's key is
+`slug(english name)`, and a *root* tab's key is `<dashboardKey>/<slug>` — so editing the
+name in the JSON, or writing a tree whose dashboard name differs from what its tab keys
+already say, invalidates every root tab at once. The import resolves a tab's owner from
+that first segment; when it matches nothing the tab is dropped **with all its widgets**,
+and no error is raised. The giveaway is a dashboard that imports with its **filters intact
+but no tabs** — filters carry no hierarchical key, so they survive what the tabs do not.
+
+So: pick the dashboard's name before its tabs exist. If it has to change afterwards, the
+cheap fix is usually to rename it back to something whose slug is the prefix the tabs
+already carry; otherwise every tab has to be re-added under the new key. `validate_entity`
+now flags the mismatch (`unknown-reference` on `/tabs/<i>/key`) and `add_dashboard_tab`
+refuses to add beside stale tabs, so neither one can be walked past silently — but neither
+repairs it for you. Note that only root tabs are affected: a sub-tab is qualified by its
+parent's key, not by the dashboard's.
+
 **A script reaches its project through `linkr`, never through a path you wrote.** The
 library is importable in every project — `library(linkr)` / `import linkr` — and gives a
 script its directories (`linkr_datasets_dir()` / `linkr.datasets_dir()`, …) and its

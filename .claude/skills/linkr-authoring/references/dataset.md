@@ -42,3 +42,16 @@ the dataset as `<name>.csv`.
 
 Data files are gitignored by default in a generated tree; the app re-includes them per
 file through "mark for versioning".
+
+**A gitignored dataset imports empty, and that is not a bug.** An unversioned data file
+is exported *declared but without its payload*: the dataset and its columns are in
+`datasets/_tree.json`, the `.csv` is not in the repo. Importing gives the dashboard and a
+dataset with the right columns and zero rows, so every widget renders blank until
+whatever rebuilds the file has run. `validate_entity` reports it as one `missing-file`
+warning — expected on such a tree, and the reason not to "fix" it by committing the data.
+
+Two markers have to agree, or the tree breaks in a way that reads as a corrupt manifest:
+`.gitignore` must carry no `!` exception for the file, and `entity.json`
+`config.versionedDataFiles` must not name it. A path left in `versionedDataFiles` after
+the file moved is worse than nothing — it marks a file that no longer exists while
+looking like the data is handled.

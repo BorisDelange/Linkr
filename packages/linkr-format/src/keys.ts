@@ -34,7 +34,15 @@ export interface WidgetKeyInput {
   layout: { x: number; y: number }
 }
 
-/** A dashboard's key: the slug of its English name, matching its export filename. */
+/**
+ * A dashboard's key: the slug of its English name.
+ *
+ * The export filename is normally the same slug, but it follows the name — the
+ * name is the source. Deriving this from the filename instead looks equivalent
+ * until a rename, after which the two disagree and every tab key built on the
+ * wrong one addresses a dashboard that does not exist. Nothing catches that at
+ * write time; the import simply drops those tabs and their widgets.
+ */
 export function dashboardKey(name: NameInput, fallback = ''): string {
   return slugify(readLocalized(name, 'en') || fallback)
 }
