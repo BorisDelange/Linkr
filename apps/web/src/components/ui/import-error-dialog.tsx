@@ -47,7 +47,9 @@ export function ImportErrorDialog({ error, onClose, title, variant = 'error' }: 
       open={error !== null}
       onOpenChange={(open) => { if (!open) { setShowDetail(false); onClose() } }}
     >
-      <AlertDialogContent className="max-w-xl">
+      {/* The primitive caps itself at `sm:max-w-lg`; a plain `max-w-*` loses to
+          that responsive variant, so the override has to carry the breakpoint. */}
+      <AlertDialogContent className="sm:max-w-2xl">
         <AlertDialogHeader>
           <AlertDialogTitle>{title ?? t('common.import_error_title')}</AlertDialogTitle>
         </AlertDialogHeader>
