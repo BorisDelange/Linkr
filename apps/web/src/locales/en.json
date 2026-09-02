@@ -2715,6 +2715,7 @@
   },
   "plugins": {
     "builtin_badge": "Built-in",
+    "reset_zoom": "Reset zoom",
     "outliers_excluded": "{{count}} outlier excluded",
     "outliers_excluded_plural": "{{count}} outliers excluded",
     "sankey": {

@@ -16,12 +16,14 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  ReferenceArea,
 } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { cn } from '@/lib/utils'
 import { niceTicks } from '@/lib/chart-ticks'
 import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PALETTES, resolvePalette } from '@/lib/plugins/shared-styles'
 import { outlierBounds, isWithinBounds, type OutlierMethod } from '@/lib/outliers'
+import { windowFromDrag, composeZoom, sliceToWindow, isZoomed, type ZoomWindow } from './histogram-zoom'
 import { TruncatedTick, TruncatedNumericTick, CategoryAxisLabel } from './chart-axis-helpers'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
@@ -1205,6 +1207,7 @@ function HistogramPlot({
   colors: string[]; binMode: string; binsConfig: number; binWidthConfig: number; opacity: number; xLabel: string; yLabel: string
   showGrid: boolean; showLegend: boolean; legendPosition: string; legendFontSize?: number; barMode: string; orientation: string; xAxisStartZero?: boolean; decimals?: number; xLabelMaxLen?: number; yLabelMaxLen?: number; barSize?: number; serverData?: PlotServerData | null
 }) {
+  const { t } = useTranslation()
   const isCategorical = useMemo(() => (serverData ? !!serverData.isCategorical : isCategoricalColumn(rows, xCol)), [serverData, rows, xCol])
 
   // Grouping by the histogram variable itself produces offset sub-slot bars; render a single
@@ -1213,7 +1216,7 @@ function HistogramPlot({
   const effGroupCol = colorByCategory ? undefined : groupCol
   const effGroupNames = colorByCategory ? null : groupNames
 
-  const { data, series, effectiveBins } = useMemo(() => {
+  const { data: allData, series, effectiveBins } = useMemo(() => {
     if (serverData) {
       const d = (serverData.data ?? []) as Record<string, unknown>[]
       return { data: d, series: (serverData.series as string[]) ?? ['count'], effectiveBins: d.length }
@@ -1234,6 +1237,46 @@ function HistogramPlot({
     const d = buildHistogramGrouped(rows, xCol, effGroupCol, binMode, binsConfig, binWidthConfig, effGroupNames, xAxisStartZero, decimals)
     return { data: d, series: effGroupNames, effectiveBins: d.length }
   }, [serverData, isCategorical, rows, xCol, effGroupCol, effGroupNames, binMode, binsConfig, binWidthConfig, xAxisStartZero, decimals])
+
+  // Drag across the bars to zoom the bin axis, double-click to reset. The window is
+  // a range of bin indices (the axis is categorical), composed with any zoom already
+  // in effect so a second drag reads as relative to what is on screen.
+  const [rawZoom, setZoom] = useState<ZoomWindow | null>(null)
+  const [dragFrom, setDragFrom] = useState<number | null>(null)
+  const [dragTo, setDragTo] = useState<number | null>(null)
+
+  // Rebinning (a config or data change) can leave the window pointing past the end;
+  // ignore it at render rather than clearing it from an effect, which would cost an
+  // extra render pass.
+  const zoom = rawZoom && rawZoom.end < allData.length ? rawZoom : null
+
+  const data = useMemo(() => sliceToWindow(allData, zoom), [allData, zoom])
+
+  const handleDragStart = useCallback((e: { activeTooltipIndex?: number | null }) => {
+    setDragFrom(e?.activeTooltipIndex ?? null)
+    setDragTo(null)
+  }, [])
+
+  const handleDragMove = useCallback((e: { activeTooltipIndex?: number | null }) => {
+    setDragFrom((from) => {
+      if (from != null) setDragTo(e?.activeTooltipIndex ?? null)
+      return from
+    })
+  }, [])
+
+  const handleDragEnd = useCallback(() => {
+    const next = windowFromDrag(dragFrom, dragTo, data.length)
+    if (next) setZoom((cur) => composeZoom(cur, next))
+    setDragFrom(null)
+    setDragTo(null)
+  }, [dragFrom, dragTo, data.length])
+
+  const handleDragCancel = useCallback(() => {
+    setDragFrom(null)
+    setDragTo(null)
+  }, [])
+
+  const zoomed = isZoomed(zoom, allData.length)
 
   const hasGroups = effGroupNames != null && effGroupNames.length > 1
   const isOverlay = barMode === 'overlay' && hasGroups
@@ -1328,11 +1371,28 @@ function HistogramPlot({
   }
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <div className="relative h-full w-full">
+      {zoomed && (
+        <button
+          onClick={() => setZoom(null)}
+          className="absolute right-1 top-0 z-10 rounded border bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent"
+        >
+          {t('plugins.reset_zoom')}
+        </button>
+      )}
+      <ResponsiveContainer width="100%" height="100%">
       <BarChart
         data={data}
         layout={isHorizontal ? 'vertical' : 'horizontal'}
         margin={{ top: 5, right: 20, bottom: 25, left: 10 }}
+        onMouseDown={handleDragStart}
+        onMouseMove={handleDragMove}
+        onMouseUp={handleDragEnd}
+        // Leaving mid-drag abandons it: committing there would zoom on a gesture
+        // the user did not finish.
+        onMouseLeave={handleDragCancel}
+        onDoubleClick={() => setZoom(null)}
+        style={{ userSelect: 'none' }}
         {...(isOverlay ? { barGap: '-100%' } : {})}
       >
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
@@ -1364,9 +1424,27 @@ function HistogramPlot({
             {colorByCategory && data.map((_, idx) => <Cell key={idx} fill={colors[idx % colors.length]} />)}
           </Bar>
         ))}
+        {/* Live selection while dragging. Bounds are bin labels, since the axis is categorical. */}
+        {dragFrom != null && dragTo != null && dragFrom !== dragTo && (
+          <ReferenceArea
+            {...(isHorizontal
+              ? { y1: binLabelAt(data, dragFrom), y2: binLabelAt(data, dragTo) }
+              : { x1: binLabelAt(data, dragFrom), x2: binLabelAt(data, dragTo) })}
+            strokeOpacity={0}
+            fill="var(--color-primary)"
+            fillOpacity={0.12}
+          />
+        )}
       </BarChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </div>
   )
+}
+
+/** The bin label at an index, for a ReferenceArea bound on the categorical axis. */
+function binLabelAt(data: Record<string, unknown>[], index: number): string | undefined {
+  const row = data[index] as { bin?: unknown } | undefined
+  return row?.bin == null ? undefined : String(row.bin)
 }
 
 // ---------------------------------------------------------------------------
