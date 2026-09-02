@@ -108,7 +108,7 @@ describe('schema preset: export → import → re-export', () => {
     const ok = await applyClonedEntity(
       await JSZip.loadAsync(firstBytes), 'schema-preset', 'omop-cdm-5-4', target.store, 'ws-1',
     )
-    expect(ok).toBe(true)
+    expect(ok).toEqual({ ok: true })
     expect(target.presets.size).toBe(1)
 
     const imported = [...target.presets.values()][0]
@@ -165,7 +165,7 @@ describe('schema preset: export → import → re-export', () => {
     const target = makeStore()
     expect(
       await applyClonedEntity(await JSZip.loadAsync(builtBytes), 'schema-preset', 'fresh-id', target.store, 'ws-1'),
-    ).toBe(true)
+    ).toEqual({ ok: true })
   })
 
   it('keeps the lineage of a repo that has one, rather than minting a new one', async () => {

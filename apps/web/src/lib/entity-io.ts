@@ -3139,9 +3139,9 @@ async function applyClonedDatabase(
   storage: Storage,
   workspaceId?: string,
   gitRemoteConfig?: GitRemoteConfig,
-): Promise<boolean> {
+): Promise<ApplyClonedResult> {
   const metaEntry = zip.files[ENTITY_MANIFEST] ?? zip.files[MANIFEST.database]
-  if (!metaEntry) return false
+  if (!metaEntry) return { ok: false, reason: 'missing-manifest', context: MANIFEST.database }
   const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
 
   // The mapping is its own file since the split, with the DDL beside it — same
@@ -3338,7 +3338,7 @@ async function applyClonedDatabase(
         ? `Could not store this database's data: ${failedTables[0]}`
         : DB_ERROR_NO_DATA_ON_IMPORT,
     }).catch(() => {})
-    return true
+    return { ok: true }
   }
   {
     try {
@@ -3365,7 +3365,7 @@ async function applyClonedDatabase(
       console.warn('[entity-io] database imported but not connected:', e)
     }
   }
-  return true
+  return { ok: true }
 }
 
 /** What a database ZIP declares, read before deciding overwrite vs duplicate. */
@@ -3484,10 +3484,23 @@ async function resolveEntityLinks(
   return links
 }
 
+/** Why a clone could not be applied. `reason` is an i18n key suffix under
+ *  `versioning.apply_error_*`; `context` carries the file or detail to interpolate. */
+export interface ApplyClonedResult {
+  ok: boolean
+  reason?: 'missing-manifest' | 'missing-file' | 'unreadable-project' | 'write-failed'
+  /** The file that is missing, or the underlying write error. */
+  context?: string
+}
+
 /**
  * Apply the content of a cloned git repo (root = one entity's export layout) into storage,
  * filling in the content of an already-imported, git-linked entity.
- * Returns true when content was applied, false when the repo didn't match the expected layout.
+ *
+ * On failure the result names WHAT went wrong: a bare `false` left every caller
+ * with nothing to show but its own title, so the reinstall path reported "the
+ * reinstall failed" for a missing manifest, an absent DDL and a rejected write
+ * alike. `reason` + `context` let the UI say which file the repo is missing.
  */
 export async function applyClonedEntity(
   zip: JSZip,
@@ -3496,7 +3509,7 @@ export async function applyClonedEntity(
   storage: Storage,
   workspaceId?: string,
   gitRemoteConfig?: GitRemoteConfig,
-): Promise<boolean> {
+): Promise<ApplyClonedResult> {
   const readJson = async <T>(name: string): Promise<T | null> => {
     const entry = zip.files[name]
     return entry ? (JSON.parse(await entry.async('string')) as T) : null
@@ -3531,10 +3544,12 @@ export async function applyClonedEntity(
       const withDocs = { ...changes, readme: docs.readme, license: docs.license }
       const ownerType = type === 'sql-collection' ? 'sql-collection' : 'etl-pipeline'
       const links = workspaceId ? await resolveEntityLinks(meta, workspaceId, storage) : {}
+      // Not swallowed: a rejected write must reach the caller, or the import
+      // reports success for an entity the server never stored.
       if (type === 'sql-collection') {
-        await storage.sqlScriptCollections.update(targetId, { ...withDocs, ...links }).catch(() => {})
+        await storage.sqlScriptCollections.update(targetId, { ...withDocs, ...links })
       } else {
-        await storage.etlPipelines.update(targetId, { ...withDocs, ...links } as Partial<EtlPipeline>).catch(() => {})
+        await storage.etlPipelines.update(targetId, { ...withDocs, ...links } as Partial<EtlPipeline>)
       }
       await createEntityAttachments(
         storage,
@@ -3547,8 +3562,8 @@ export async function applyClonedEntity(
     const fkKey = type === 'sql-collection' ? 'collectionId' : 'pipelineId'
     // Clear this collection's/pipeline's own files first, so a retry or a re-clone
     // over a prior pointer doesn't leave stale rows.
-    if (type === 'sql-collection') await storage.sqlScriptFiles.deleteByCollection(targetId).catch(() => {})
-    else await storage.etlFiles.deleteByPipeline(targetId).catch(() => {})
+    if (type === 'sql-collection') await storage.sqlScriptFiles.deleteByCollection(targetId)
+    else await storage.etlFiles.deleteByPipeline(targetId)
     // Ids are derived from (targetId, path), so they're stable across re-clones
     // into this collection and distinct from a sibling clone of the same repo —
     // no collision to recover from, and _tree.json carries no id to churn.
@@ -3566,10 +3581,10 @@ export async function applyClonedEntity(
         if (content !== undefined) rec.content = content
       }
       const node = dropForeignAuthorId(storablePathNode(rec))
-      if (type === 'sql-collection') await storage.sqlScriptFiles.create(node as unknown as SqlScriptFile).catch(() => {})
-      else await storage.etlFiles.create(node as unknown as EtlFile).catch(() => {})
+      if (type === 'sql-collection') await storage.sqlScriptFiles.create(node as unknown as SqlScriptFile)
+      else await storage.etlFiles.create(node as unknown as EtlFile)
     }
-    return true
+    return { ok: true }
   }
 
   if (type === 'mapping-project') {
@@ -3586,11 +3601,13 @@ export async function applyClonedEntity(
     const scoresEntry = zip.files['similarity-scores.parquet']
     const scoresBytes = scoresEntry && !scoresEntry.dir ? await scoresEntry.async('uint8array') : null
     const { importMappingProjectContent } = await import('@/lib/concept-mapping/import')
-    return importMappingProjectContent(
+    const applied = await importMappingProjectContent(
       { files, scoresBytes },
       { targetId, workspaceId: workspaceId ?? '', replaceExisting: true, gitRemoteConfig },
       storage,
     )
+    // It refuses the tree on one condition only: no readable manifest carrying a name.
+    return applied ? { ok: true } : { ok: false, reason: 'missing-manifest', context: MANIFEST['mapping-project'] }
   }
 
   // data-catalog / dq-rule-set / schema-preset repos hold the entity's full
@@ -3619,7 +3636,7 @@ export async function applyClonedEntity(
 
   if (type === 'data-catalog') {
     const catalog = await readManifest<DataCatalog>('data-catalog')
-    if (!catalog) return false
+    if (!catalog) return { ok: false, reason: 'missing-manifest', context: MANIFEST['data-catalog'] }
     // `dataSourceId` never travels (the export blanks it), so the repo's value
     // must not be written over the local link: this row already carries whichever
     // database the workspace import resolved. Re-resolve from the portable
@@ -3634,12 +3651,12 @@ export async function applyClonedEntity(
     // Not swallowed: a rejected write must reach the caller, or the import
     // reports success for an entity the server never stored.
     await storage.dataCatalogs.update(targetId, changes)
-    return true
+    return { ok: true }
   }
 
   if (type === 'dq-rule-set') {
     const ruleSet = await readManifest<DqRuleSet>('dq-rule-set')
-    if (!ruleSet) return false
+    if (!ruleSet) return { ok: false, reason: 'missing-manifest', context: MANIFEST['dq-rule-set'] }
     // Same rule as the data catalog below: `dataSourceId` never travels, so the
     // repo's value must not overwrite the local link. Re-resolve from the
     // portable pointer, and keep what is stored when nothing matches.
@@ -3651,25 +3668,25 @@ export async function applyClonedEntity(
     }
     await storage.dqRuleSets.update(targetId, changes)
     const checks = (await readJson<DqCustomCheck[]>(CONTENT_FILE.dqChecks)) ?? []
-    await storage.dqCustomChecks.deleteByRuleSet(targetId).catch(() => {})
+    await storage.dqCustomChecks.deleteByRuleSet(targetId)
     for (const c of checks) {
       // Re-mint the check id: it's a global PK, so the repo's original id collides
       // when the same rule-set repo is cloned into a second workspace or as a copy.
       const { id: _cid, ruleSetId: _rs, ...rest } = c
-      await storage.dqCustomChecks.create({ ...rest, id: crypto.randomUUID(), ruleSetId: targetId } as DqCustomCheck).catch(() => {})
+      await storage.dqCustomChecks.create({ ...rest, id: crypto.randomUUID(), ruleSetId: targetId } as DqCustomCheck)
     }
-    return true
+    return { ok: true }
   }
 
   if (type === 'schema-preset') {
     const preset = await readManifest<CustomSchemaPreset & { name?: LocalizedString; description?: LocalizedString }>('schema-preset')
-    if (!preset) return false
+    if (!preset) return { ok: false, reason: 'missing-manifest', context: MANIFEST['schema-preset'] }
     // The DDL is its own file in the repo; the manifest carries identity only. A
     // preset whose schema.ddl is missing would create every OMOP table with no
     // columns, so treat it as an unreadable repo rather than import a schema that
     // silently does nothing.
     const ddl = await readText(SCHEMA_PRESET_DDL_FILE)
-    if (!ddl) return false
+    if (!ddl) return { ok: false, reason: 'missing-file', context: SCHEMA_PRESET_DDL_FILE }
     // The mapping is its own file since the split; an older repo has it inline.
     const mappingFile = await readJson<Partial<SchemaMapping>>(SCHEMA_PRESET_MAPPING_FILE)
     const presetMapping = reassemblePresetMapping(preset, mappingFile ?? undefined)
@@ -3718,7 +3735,7 @@ export async function applyClonedEntity(
       'schema-preset',
     )
     await storage.schemaPresets.save(withDocs)
-    return true
+    return { ok: true }
   }
 
   if (type === 'database') {
@@ -3728,7 +3745,9 @@ export async function applyClonedEntity(
   // project: parse the cloned repo as a project ZIP and write its sub-entities under targetId.
   const blob = await zip.generateAsync({ type: 'blob' })
   const parsed = await parseProjectZip(new File([blob], 'clone.zip'))
-  if (!parsed) return false
+  // parseProjectZip returns null for a tree with no manifest, or one whose
+  // manifest declares none of uid/entityId/projectId/lineageId.
+  if (!parsed) return { ok: false, reason: 'unreadable-project', context: ENTITY_MANIFEST }
   // Delete-first so a retry after a partially-successful clone is idempotent:
   // importProjectContent derives sub-entity ids deterministically from targetId
   // and inserts without catch, so a re-run would collide and throw (leaving the
@@ -3790,9 +3809,9 @@ export async function applyClonedEntity(
       : {}),
     ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
     ...(workspaceId ? { workspaceId } : {}),
-  }).catch(() => {})
+  })
   await importProjectContent(parsed, targetId, storage, { workspaceId })
-  return true
+  return { ok: true }
 }
 
 /**

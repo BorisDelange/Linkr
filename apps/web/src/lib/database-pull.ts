@@ -117,7 +117,7 @@ export async function applyDatabasePull(
     if (!source) throw new Error('database-pull: database no longer exists')
     // Keep the link: applyClonedEntity rebuilds the row, and a database that
     // forgot its own remote mid-pull would lose the panel that ran the pull.
-    const ok = await applyClonedEntity(
+    const applied = await applyClonedEntity(
       zip,
       'database',
       sourceId,
@@ -125,7 +125,11 @@ export async function applyDatabasePull(
       source.workspaceId,
       source.gitRemoteConfig,
     )
-    if (!ok) throw new Error('database-pull: changes could not be written')
+    if (!applied.ok) {
+      throw new Error(
+        `database-pull: changes could not be written${applied.context ? ` — missing ${applied.context}` : ''}`,
+      )
+    }
   }
 
   // Two cursors, two meanings (see etl-pull.ts). Taking the repo whole IS the

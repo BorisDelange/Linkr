@@ -119,7 +119,7 @@ describe('authored tree → install → re-export', () => {
     }) as unknown as Storage
 
     // targetId is what the catalog install resolves for a preset: its entityId.
-    expect(await applyClonedEntity(zipOf(authored), 'schema-preset', 'omop-cdm-5-4', store)).toBe(true)
+    expect(await applyClonedEntity(zipOf(authored), 'schema-preset', 'omop-cdm-5-4', store)).toEqual({ ok: true })
 
     const out = new JSZip()
     await buildSchemaPresetFolder(out, '', saved as never, store)
@@ -134,7 +134,7 @@ describe('authored tree → install → re-export', () => {
       // The install adopts the repo's id as the local key (catalog `idOf`).
       const rows: Record<string, Record<string, unknown>> = { row: { id: ID } }
       const store = makeStore(rows)
-      expect(await applyClonedEntity(zipOf(authored), c.kind, ID, store)).toBe(true)
+      expect(await applyClonedEntity(zipOf(authored), c.kind, ID, store)).toEqual({ ok: true })
 
       const out = new JSZip()
       await c.build(out, rows.row, store)

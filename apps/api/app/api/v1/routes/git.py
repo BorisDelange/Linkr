@@ -840,10 +840,12 @@ async def _load_workspace_entity(get_fn, entity_id, db, user, permission, not_fo
 
     entity = await get_fn(db, entity_id)
     if entity is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, not_found)
+        # The id is half the diagnosis: "not found" alone cannot tell a deleted
+        # entity from a stale link pointing at an id this instance never had.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{not_found} (id: {entity_id})")
     if entity.workspace_id is None:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, f"{not_found} has no workspace"
+            status.HTTP_400_BAD_REQUEST, f"{not_found} has no workspace (id: {entity_id})"
         )
     await check_workspace_permission(db, entity.workspace_id, user, permission)
     return entity

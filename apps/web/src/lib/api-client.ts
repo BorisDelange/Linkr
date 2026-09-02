@@ -140,6 +140,11 @@ export interface FormattedError {
  */
 export function formatApiError(err: unknown): FormattedError {
   const raw = err instanceof Error ? err.message : String(err)
+  // A bare backend string ("Not found") reads the same for a missing row and a
+  // broken route; the status is what separates them, and it was being dropped.
+  const status = err instanceof ApiError ? err.status : null
+  const withStatus = (summary: string): string =>
+    status !== null ? `${summary} (HTTP ${status})` : summary
   try {
     const body = JSON.parse(raw)
     const detail = body?.detail
@@ -154,11 +159,11 @@ export function formatApiError(err: unknown): FormattedError {
         detail: lines.join('\n'),
       }
     }
-    if (typeof detail === 'string') return { summary: detail, detail: null }
+    if (typeof detail === 'string') return { summary: withStatus(detail), detail: null }
   } catch {
     // not JSON — fall through to the raw message
   }
-  return { summary: raw, detail: null }
+  return { summary: withStatus(raw), detail: null }
 }
 
 /**

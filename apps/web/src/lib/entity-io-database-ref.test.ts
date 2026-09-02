@@ -150,7 +150,7 @@ describe('applyClonedEntity(project) — restoring the database links', () => {
       linkedDataSourceRefs: [{ lineageId: 'lin-b' }, { lineageId: 'lin-a' }],
     })
 
-    expect(await applyClonedEntity(zip, 'project', 'p1', store, 'ws-1')).toBe(true)
+    expect(await applyClonedEntity(zip, 'project', 'p1', store, 'ws-1')).toEqual({ ok: true })
     expect(updates[0]?.linkedDataSourceIds).toEqual(['local-b', 'local-a'])
   })
 
@@ -162,7 +162,7 @@ describe('applyClonedEntity(project) — restoring the database links', () => {
       linkedDataSourceRefs: [{ lineageId: 'lin-a' }, { lineageId: 'lin-missing' }],
     })
 
-    expect(await applyClonedEntity(zip, 'project', 'p1', store, 'ws-1')).toBe(true)
+    expect(await applyClonedEntity(zip, 'project', 'p1', store, 'ws-1')).toEqual({ ok: true })
     expect(updates[0]?.linkedDataSourceIds).toEqual(['local-a'])
   })
 
@@ -184,7 +184,7 @@ describe('applyClonedEntity(project) — restoring the database links', () => {
       ],
     })
 
-    expect(await applyClonedEntity(zip, 'project', 'p1', store, 'ws-1')).toBe(true)
+    expect(await applyClonedEntity(zip, 'project', 'p1', store, 'ws-1')).toEqual({ ok: true })
     expect(updates[0]?.linkedDataSourceIds).toEqual(['local-a', 'local-b'])
     expect(updates[0]?.linkedDataSourceRefs).toEqual([
       { lineageId: 'lin-a' },
@@ -202,7 +202,7 @@ describe('applyClonedEntity(project) — restoring the database links', () => {
       linkedDataSourceRefs: [{ lineageId: 'lin-missing' }],
     })
 
-    expect(await applyClonedEntity(zip, 'project', 'p1', store, 'ws-1')).toBe(true)
+    expect(await applyClonedEntity(zip, 'project', 'p1', store, 'ws-1')).toEqual({ ok: true })
     expect(updates[0]).not.toHaveProperty('linkedDataSourceIds')
   })
 
@@ -216,7 +216,7 @@ describe('applyClonedEntity(project) — restoring the database links', () => {
       linkedDataSourceIds: ['foreign-1', 'foreign-2'],
     })
 
-    expect(await applyClonedEntity(zip, 'project', 'p1', store, 'ws-1')).toBe(true)
+    expect(await applyClonedEntity(zip, 'project', 'p1', store, 'ws-1')).toEqual({ ok: true })
     expect(updates[0]).not.toHaveProperty('linkedDataSourceIds')
   })
 })

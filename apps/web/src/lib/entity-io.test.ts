@@ -208,7 +208,7 @@ describe('entity.json — the app reads either manifest name', () => {
       mapping: { presetId: 'omop', presetLabel: { en: 'OMOP' } },
     }))
     zip.file('schema.ddl', 'CREATE TABLE person ();')
-    expect(await applyClonedEntity(zip, 'schema-preset', 'preset-target', inertStore(saves, 'schemaPresets'))).toBe(true)
+    expect(await applyClonedEntity(zip, 'schema-preset', 'preset-target', inertStore(saves, 'schemaPresets'))).toEqual({ ok: true })
     const saved = saves[0] as { entityId?: string; lineageId?: string; mapping?: { ddl?: string; presetId?: string } }
     // The repo's own entityId is kept (it is the published slug); the LOCAL key
     // follows the target, and the DDL is folded back out of its sibling file.
@@ -224,7 +224,7 @@ describe('entity.json — the app reads either manifest name', () => {
     zip.file('entity.json', JSON.stringify({
       type: 'data-catalog', id: 'cat-1', name: { en: 'Catalog' }, dimensions: [],
     }))
-    expect(await applyClonedEntity(zip, 'data-catalog', 'cat-target', inertStore(saves, 'dataCatalogs'))).toBe(true)
+    expect(await applyClonedEntity(zip, 'data-catalog', 'cat-target', inertStore(saves, 'dataCatalogs'))).toEqual({ ok: true })
     expect(saves.length).toBeGreaterThan(0)
   })
 
@@ -1408,7 +1408,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     }) as unknown as Storage
 
     const catZip = new JSZip(); catZip.file('catalog.json', JSON.stringify(CATALOG({ id: 'ignored' })))
-    expect(await applyClonedEntity(catZip, 'data-catalog', 'cat-target', store)).toBe(true)
+    expect(await applyClonedEntity(catZip, 'data-catalog', 'cat-target', store)).toEqual({ ok: true })
     // targetId wins; the repo's own id is stripped from the applied changes.
     expect(calls['catalog.update']![0][0]).toBe('cat-target')
     expect((calls['catalog.update']![0][1] as { id?: string }).id).toBeUndefined()
@@ -1416,7 +1416,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     const rsZip = new JSZip()
     rsZip.file('rule-set.json', JSON.stringify(RULESET({ id: 'ignored' })))
     rsZip.file('checks.json', JSON.stringify([CHECK({ ruleSetId: 'ignored' })]))
-    expect(await applyClonedEntity(rsZip, 'dq-rule-set', 'rs-target', store)).toBe(true)
+    expect(await applyClonedEntity(rsZip, 'dq-rule-set', 'rs-target', store)).toEqual({ ok: true })
     expect(calls['rs.update']![0][0]).toBe('rs-target')
     expect(calls['chk.delete']![0][0]).toBe('rs-target')
     // Checks are recreated under the target rule set, not the repo's stale FK.
@@ -1425,7 +1425,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     const spZip = new JSZip()
     spZip.file('preset.json', JSON.stringify(PRESET()))
     spZip.file('schema.ddl', 'CREATE TABLE person ();')
-    expect(await applyClonedEntity(spZip, 'schema-preset', 'preset-target', store)).toBe(true)
+    expect(await applyClonedEntity(spZip, 'schema-preset', 'preset-target', store)).toEqual({ ok: true })
     const saved = calls['preset.save']![0][0] as {
       presetId: string
       id?: string
@@ -1535,7 +1535,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
       const zip = new JSZip()
       zip.file('_database.json', META({ createdAt: '2026-08-27T14:28:28.000Z' }))
 
-      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toEqual({ ok: true })
       const created = calls['ds.create']![0][0] as { createdAt: string }
       expect(created.createdAt).toBe('2026-08-27T14:28:28.000Z')
     })
@@ -1547,7 +1547,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
       zip.file('data/patients.parquet', new Uint8Array([1, 2, 3]))
       zip.file('data/admissions.parquet', new Uint8Array([4, 5]))
 
-      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toEqual({ ok: true })
       expect(calls['file.create']).toHaveLength(2)
       const created = calls['ds.create']![0][0] as { id: string }
       expect(created.id).toBe('db-target')
@@ -1579,7 +1579,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
       zip.file('_database.json', META())
       zip.file('data/patients.parquet', new Uint8Array([1]))
 
-      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toEqual({ ok: true })
       expect(calls['file.create']).toHaveLength(1)
     })
 
@@ -1590,14 +1590,15 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         schema: { presetId: 'inline', presetLabel: { en: 'Inline' }, eventTables: {} },
         tables: [],
       }))
-      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toEqual({ ok: true })
       const created = calls['ds.create']![0][0] as { schemaMapping: { presetId: string } }
       expect(created.schemaMapping.presetId).toBe('inline')
     })
 
     it('returns false when the repo carries no _database.json', async () => {
       const { store } = makeStore()
-      expect(await applyClonedEntity(new JSZip(), 'database', 'db-target', store)).toBe(false)
+      expect(await applyClonedEntity(new JSZip(), 'database', 'db-target', store))
+        .toEqual({ ok: false, reason: 'missing-manifest', context: '_database.json' })
     })
 
     // The cases above hand-write `schema`, so none of them noticed that the
@@ -1635,7 +1636,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
       back.file('entity.json', JSON.stringify(meta))
       back.file('mapping.json', JSON.stringify(written))
       back.file('schema.ddl', 'CREATE TABLE t (x INT);')
-      expect(await applyClonedEntity(back, 'database', 'db-target', store)).toBe(true)
+      expect(await applyClonedEntity(back, 'database', 'db-target', store)).toEqual({ ok: true })
       const created = calls['ds.create']![0][0] as {
         schemaMapping: { presetId: string; ddl: string }
       }
@@ -1652,7 +1653,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         schema: { presetId: 'inline', presetLabel: { en: 'Inline' }, eventTables: {} },
         tables: [],
       }))
-      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+      expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toEqual({ ok: true })
       const created = calls['ds.create']![0][0] as { schemaMapping: { presetId: string } }
       expect(created.schemaMapping.presetId).toBe('inline')
     })
@@ -1752,7 +1753,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         zip.file('_database.json', META())
         zip.file('data/patients.parquet', new Uint8Array([1]))
         zip.file('data/admissions.parquet', new Uint8Array([2]))
-        expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+        expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toEqual({ ok: true })
         expect(order.indexOf('source')).toBeLessThan(order.indexOf('file'))
       })
 
@@ -1790,7 +1791,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
           zip.file('_database.json', META())
           zip.file('data/patients.parquet', new Uint8Array([1]))
           zip.file('data/admissions.parquet', new Uint8Array([2]))
-          expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+          expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toEqual({ ok: true })
           expect(row!.status).toBe('connected')
         } finally {
           serverMode.value = false
@@ -1829,7 +1830,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         try {
           const zip = new JSZip()
           zip.file('_database.json', META())
-          expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toBe(true)
+          expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toEqual({ ok: true })
           expect(row!.status).toBe('disconnected')
           expect(row!.errorMessage).toBe(DB_ERROR_NO_DATA_ON_IMPORT)
         } finally {
@@ -1911,7 +1912,8 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     }) as unknown as Storage
     const spZip = new JSZip()
     spZip.file('preset.json', JSON.stringify(PRESET()))
-    expect(await applyClonedEntity(spZip, 'schema-preset', 'preset-target', store)).toBe(false)
+    expect(await applyClonedEntity(spZip, 'schema-preset', 'preset-target', store))
+      .toEqual({ ok: false, reason: 'missing-file', context: 'schema.ddl' })
   })
 
   it('applyClonedEntity recombines LICENSE.md/README.md with the entity JSON', async () => {
@@ -1986,7 +1988,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     zip.file('mappings.json', JSON.stringify([{ id: 'm1', sourceConceptCode: 'HR', targetConceptId: 42, comments: [] }]))
 
     const ok = await applyClonedEntity(zip, 'mapping-project', 'mp-target', store, 'ws-9', { url: 'https://example/adult', branch: 'main' })
-    expect(ok).toBe(true)
+    expect(ok).toEqual({ ok: true })
     // Project written under the target id + workspace, with source concepts from the CSV.
     const created = calls['mp.create']![0][0] as { id: string; workspaceId: string; gitRemoteConfig?: { url: string }; fileSourceData: { columns: string[] } }
     expect(created.id).toBe('mp-target')
@@ -2033,7 +2035,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
 
   it('applyClonedEntity derives file ids from the path, keeping the tree and content intact', async () => {
     const calls: Record<string, unknown[][]> = {}
-    expect(await applyClonedEntity(sqlCollectionRepoZip(), 'sql-collection', 'sql-target', sqlStore(calls))).toBe(true)
+    expect(await applyClonedEntity(sqlCollectionRepoZip(), 'sql-collection', 'sql-target', sqlStore(calls))).toEqual({ ok: true })
     expect(calls['files.deleteByCollection']).toHaveLength(1)
     const created = createdNodes(calls)
     // Parent before child, names recovered from the path, FK repointed at the target.
@@ -2062,7 +2064,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
 
   it('applyClonedEntity still reads a legacy id/parentId _tree.json (repos pushed before the path format)', async () => {
     const calls: Record<string, unknown[][]> = {}
-    expect(await applyClonedEntity(sqlCollectionRepoZip(true), 'sql-collection', 'sql-target', sqlStore(calls))).toBe(true)
+    expect(await applyClonedEntity(sqlCollectionRepoZip(true), 'sql-collection', 'sql-target', sqlStore(calls))).toEqual({ ok: true })
     const created = createdNodes(calls)
     expect(created.map((f) => f.name)).toEqual(['sofa', 'sofa.sql'])
     expect(created[1].parentId).toBe(created[0].id)
@@ -2080,15 +2082,18 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
       { id: 'f-file', collectionId: 'repo-col', name: 'inline.sql', type: 'file', parentId: null, content: 'select 42', order: 0, createdAt: '2026-01-01T00:00:00.000Z' },
     ]))
     const calls: Record<string, unknown[][]> = {}
-    expect(await applyClonedEntity(zip, 'sql-collection', 'sql-target', sqlStore(calls))).toBe(true)
+    expect(await applyClonedEntity(zip, 'sql-collection', 'sql-target', sqlStore(calls))).toEqual({ ok: true })
     expect(createdNodes(calls)[0].content).toBe('select 42')
   })
 
-  it('applyClonedEntity returns false when the cloned repo lacks the expected marker', async () => {
+  it('applyClonedEntity names the manifest the cloned repo lacks', async () => {
     const store = new Proxy({}, { get: () => new Proxy({}, { get: () => async () => {} }) }) as unknown as Storage
-    expect(await applyClonedEntity(new JSZip(), 'data-catalog', 'x', store)).toBe(false)
-    expect(await applyClonedEntity(new JSZip(), 'dq-rule-set', 'x', store)).toBe(false)
-    expect(await applyClonedEntity(new JSZip(), 'schema-preset', 'x', store)).toBe(false)
+    expect(await applyClonedEntity(new JSZip(), 'data-catalog', 'x', store))
+      .toEqual({ ok: false, reason: 'missing-manifest', context: 'catalog.json' })
+    expect(await applyClonedEntity(new JSZip(), 'dq-rule-set', 'x', store))
+      .toEqual({ ok: false, reason: 'missing-manifest', context: 'rule-set.json' })
+    expect(await applyClonedEntity(new JSZip(), 'schema-preset', 'x', store))
+      .toEqual({ ok: false, reason: 'missing-manifest', context: 'preset.json' })
   })
 })
 
@@ -2390,7 +2395,7 @@ describe('ETL pipeline docs — readme, license and attachments round-trip', () 
 
     const repo = new JSZip()
     await buildEtlPipelineFolder(repo, '', PIPELINE(), storeWith([ATTACHMENT]))
-    expect(await applyClonedEntity(repo, 'etl-pipeline', 'etl-target', store, 'ws-2')).toBe(true)
+    expect(await applyClonedEntity(repo, 'etl-pipeline', 'etl-target', store, 'ws-2')).toEqual({ ok: true })
 
     const changes = calls['etl.update']![0][1] as { readme?: unknown; license?: unknown }
     expect(changes.readme).toEqual({ en: expect.stringContaining('# My ETL'), fr: '# Mon ETL' })

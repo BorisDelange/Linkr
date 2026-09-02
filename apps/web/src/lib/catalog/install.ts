@@ -84,11 +84,11 @@ export const META_FILE: Record<CatalogEntry['type'], string[]> = {
 /**
  * Why a cloned tree could not be read, in one sentence the user can act on.
  *
- * `applyClonedEntity` returns a bare `false` for every unreadable tree, so this
- * re-inspects the archive to say WHICH file is missing. The common cause is a
- * repo whose layout predates — or, after a half-finished migration, no longer
- * matches — what its type expects: the manifest was renamed away and its
- * replacement never written, leaving a repo with content but no identity.
+ * `applyClonedEntity` now names the file it could not find, so this adds what a
+ * reason code cannot: the archive's actual contents, which is what tells the
+ * user whether they cloned the wrong repo or published a half-migrated layout.
+ * Still the only description available for a workspace tree, which is read
+ * elsewhere.
  */
 function describeUnreadableTree(zip: JSZip, type: CatalogEntry['type']): string {
   const has = (name: string) => zip.files[name] != null && !zip.files[name].dir
@@ -566,16 +566,22 @@ async function cloneWorkspaceChildren(
         continue
       }
       const zip = await JSZipMod.loadAsync(cloned.blob)
-      const ok = await applyClonedEntity(zip, child.type, id, storage, targetWsId, {
+      const applied = await applyClonedEntity(zip, child.type, id, storage, targetWsId, {
         url: child.url,
         branch: child.branch,
       })
-      if (ok) await anchorClonedEntity(child.type, id, child.branch, cloned.oid)
+      if (applied.ok) await anchorClonedEntity(child.type, id, child.branch, cloned.oid)
       // The entity is in either way — as a pointer with no content. Say which
       // ones stayed empty instead of reporting a clean install over a half-built
       // workspace; a private repo the catalog cannot authenticate to is the
       // common case, and nothing on screen said so.
-      if (!ok) failed.push({ name: child.name, reason: describeUnreadableTree(zip, child.type) })
+      if (!applied.ok) {
+        const detail = describeUnreadableTree(zip, child.type)
+        failed.push({
+          name: child.name,
+          reason: applied.context ? `Missing ${applied.context}. ${detail}` : detail,
+        })
+      }
     } catch (err) {
       failed.push({ name: child.name, reason: err instanceof Error ? err.message : String(err) })
     }
@@ -652,7 +658,11 @@ export async function commitCatalogInstall(
   let ok = false
   let applyError: string | undefined
   try {
-    ok = await applyClonedEntity(zip, entry.type, id, storage, workspaceId, git)
+    const applied = await applyClonedEntity(zip, entry.type, id, storage, workspaceId, git)
+    ok = applied.ok
+    // The reader names the file it wanted; describeUnreadableTree adds what the
+    // archive actually holds, which is the half that identifies a wrong repo.
+    if (!ok && applied.context) applyError = `Missing ${applied.context}. ${describeUnreadableTree(zip, entry.type)}`
   } catch (err) {
     ok = false
     applyError = err instanceof Error ? err.message : String(err)
@@ -665,10 +675,6 @@ export async function commitCatalogInstall(
       ok: false,
       failure: 'apply-failed',
       id,
-      // applyClonedEntity signals a tree it cannot read with a bare `false`, so
-      // without this the dialog had nothing to show but its own title — the same
-      // six words three times over. Name what is missing instead: it is almost
-      // always a repo whose layout does not match what this type expects.
       error: applyError ?? describeUnreadableTree(zip, entry.type),
     }
   }

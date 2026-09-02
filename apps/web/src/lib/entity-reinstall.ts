@@ -1,4 +1,6 @@
-import { retryGitContentClone } from '@/lib/git-content-retry'
+import { formatIssues } from '@linkr/format'
+import i18n from '@/lib/i18n'
+import { retryGitContentClone, type RetryContentResult } from '@/lib/git-content-retry'
 import type { GitScope } from '@/lib/api/git'
 import type { GitLinkedEntity } from '@/lib/entity-io'
 import { localized } from '@/lib/localized'
@@ -17,10 +19,7 @@ import { usePipelineStore } from '@/stores/pipeline-store'
 import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 
-export interface ReinstallResult {
-  ok: boolean
-  error?: string
-}
+export type ReinstallResult = RetryContentResult
 
 /**
  * Rebuild a git-linked entity's content from the repository it points at,
@@ -119,7 +118,17 @@ export function makeReinstall(
       workspaceId: ws,
       onReloaded: () => entry.reload({ id: item.id, workspaceId: ws }),
     })
-    return result.ok ? null : (result.error ?? '')
+    if (result.ok) return null
+    // A tree the reader refused names the file it wanted; only a clone that threw
+    // (network, auth) carries a git message. Either beats the caller's fallback.
+    const headline = result.reason
+      ? i18n.t(`versioning.apply_error_${result.reason}`, { file: result.context ?? '' })
+      : (result.error ?? '')
+    // The validator usually knows more than the one file the reader stopped at —
+    // append its report so the whole picture arrives in one message.
+    const errors = result.issues?.filter((i) => i.severity === 'error') ?? []
+    if (errors.length === 0) return headline
+    return `${headline}\n\n${formatIssues(errors)}`
   }
 }
 

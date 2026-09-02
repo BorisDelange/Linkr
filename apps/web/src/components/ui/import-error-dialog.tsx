@@ -47,7 +47,7 @@ export function ImportErrorDialog({ error, onClose, title, variant = 'error' }: 
       open={error !== null}
       onOpenChange={(open) => { if (!open) { setShowDetail(false); onClose() } }}
     >
-      <AlertDialogContent className="max-w-lg">
+      <AlertDialogContent className="max-w-xl">
         <AlertDialogHeader>
           <AlertDialogTitle>{title ?? t('common.import_error_title')}</AlertDialogTitle>
         </AlertDialogHeader>

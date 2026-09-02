@@ -410,7 +410,8 @@ def require_project_permission(permission: str):
         project = await db.get(Project, project_uid)
         if project is None:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Project not found (uid: {project_uid})",
             )
         await check_project_permission(db, project, user, permission)
         return project

@@ -10,8 +10,9 @@
  * must keep importing. Only the report changes.
  */
 import type JSZip from 'jszip'
-import { MemoryTree, formatIssues, validateProject, type Issue } from '@linkr/format'
+import { MemoryTree, formatIssues, validateEntity, validateProject, type EntityKind, type Issue } from '@linkr/format'
 import type { FormattedError } from '@/lib/api-client'
+import type { GitLinkedEntity } from '@/lib/entity-io'
 
 /**
  * Files whose CONTENT the validator inspects. Everything else in the ZIP still
@@ -69,6 +70,24 @@ export interface ImportValidation {
 
 export async function validateImportZip(zip: JSZip): Promise<ImportValidation> {
   const issues = validateProject(await treeFromZip(zip))
+  const errors = issues.filter((i) => i.severity === 'error').length
+  return { issues, errors, warnings: issues.length - errors }
+}
+
+/**
+ * The same report for a cloned git repo, whatever kind of entity it holds.
+ *
+ * The git paths applied a clone without ever validating it, so a tree the reader
+ * accepted but that is subtly wrong — a dataset declared with no data file, a
+ * widget pointing at a column that no longer exists — installed silently and
+ * only showed up as an empty screen later.
+ */
+export async function validateClonedEntity(
+  zip: JSZip,
+  type: GitLinkedEntity['type'],
+): Promise<ImportValidation> {
+  const tree = await treeFromZip(zip)
+  const issues = type === 'project' ? validateProject(tree) : validateEntity(tree, type as EntityKind)
   const errors = issues.filter((i) => i.severity === 'error').length
   return { issues, errors, warnings: issues.length - errors }
 }

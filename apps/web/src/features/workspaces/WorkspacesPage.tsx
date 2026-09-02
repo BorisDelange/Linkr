@@ -238,7 +238,7 @@ export function WorkspacesPage() {
       // Keep the git link on the restored entity (the repo's project.json strips it).
       // Only url+branch are stored — the token is persisted separately, encrypted.
       const gitRemote = { url: e.url, branch: e.branch }
-      const ok = await applyClonedEntity(zip, e.type, e.id, getStorage(), opts.workspaceId, gitRemote)
+      const { ok, context } = await applyClonedEntity(zip, e.type, e.id, getStorage(), opts.workspaceId, gitRemote)
       // Anchor sync state to the cloned commit so a later remote push is detected
       // as "behind" — mirrors the standalone import and the catalog install. Every
       // linked type, not just mapping projects: a workspace-imported project used
@@ -251,7 +251,10 @@ export function WorkspacesPage() {
       if (!ok) {
         setCloneError(s => ({
           ...s,
-          [key]: { summaryKey: 'workspaces.import_git_clone_no_content', detail: null },
+          [key]: {
+            summaryKey: 'workspaces.import_git_clone_no_content',
+            detail: context ? t('versioning.apply_error_missing_file', { file: context }) : null,
+          },
         }))
       }
       return ok
@@ -261,7 +264,7 @@ export function WorkspacesPage() {
       setCloneError(s => ({ ...s, [key]: formatApiError(err) }))
       return false
     }
-  }, [cloneToken, syncContentStatus])
+  }, [cloneToken, syncContentStatus, t])
 
   const handleCloneEntity = useCallback(
     (e: GitLinkedEntity) => cloneEntityContent(e, { workspaceId: gitLinkedWsId ?? undefined }),
