@@ -211,6 +211,7 @@ export function registerDefaultPlugins() {
           options: [
             { value: 'none', label: { en: 'None', fr: 'Aucun' } },
             { value: 'histogram', label: { en: 'Histogram', fr: 'Histogramme' }, onlyForColumnType: 'numeric' },
+            { value: 'boxplot', label: { en: 'Box plot', fr: 'Boîte à moustaches' }, onlyForColumnType: 'numeric' },
             { value: 'bar', label: { en: 'Bar chart', fr: 'Barres' } },
             { value: 'pie', label: { en: 'Pie chart', fr: 'Camembert' } },
           ],

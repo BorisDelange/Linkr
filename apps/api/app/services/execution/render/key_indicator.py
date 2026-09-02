@@ -19,7 +19,7 @@ _ALLOWED_AGGREGATE = {
 # uniqueAggregation reduces one row per entity: first/last pick the row, the rest
 # are numeric reductions handled by _linkr_agg.
 _ALLOWED_UNIQUE_AGG = {"first", "last", "mean", "median", "min", "max", "sum"}
-_ALLOWED_CHART = {"none", "histogram", "bar", "pie"}
+_ALLOWED_CHART = {"none", "histogram", "boxplot", "bar", "pie"}
 
 
 def validate_spec(spec: dict) -> dict:
@@ -183,6 +183,28 @@ def _linkr_freq(series):
     counts = _linkr_str(series).value_counts().head(10)
     return [{"name": str(k), "value": int(v)} for k, v in counts.items()]
 
+def _linkr_boxplot_stats(values):
+    # Tukey whiskers (Q1-1.5*IQR / Q3+1.5*IQR, pulled back to real data), matching
+    # computeBoxplotStats in PlotBuilderComponent.tsx so both plugins draw the same
+    # box for the same column. allStats' raw min/max would let one extreme value
+    # flatten the box to a sliver.
+    if not values:
+        return None
+    s = sorted(values)
+    n = len(s)
+    q1 = s[int(_math.floor(n * 0.25))]
+    med = s[int(_math.floor(n * 0.5))]
+    q3 = s[int(_math.floor(n * 0.75))]
+    iqr = q3 - q1
+    return {
+        "min": max(s[0], q1 - 1.5 * iqr),
+        "q1": q1,
+        "median": med,
+        "q3": q3,
+        "max": min(s[-1], q3 + 1.5 * iqr),
+        "mean": sum(s) / n,
+    }
+
 def _linkr_print_kpi(dataset, spec):
     import pandas as _pd
     col = spec.get("column")
@@ -293,6 +315,12 @@ def _linkr_print_kpi(dataset, spec):
     if chart_type == "histogram":
         vals = list(_pd.to_numeric(metric_series[~metric_series.map(_linkr_is_empty)], errors="coerce").dropna())
         chart = {"type": "histogram", "data": _linkr_hist(vals, int(spec.get("chartBins", 15)), bool(spec.get("xAxisStartZero", False)), int(spec.get("decimals", 1)))}
+    elif chart_type == "boxplot":
+        vals = list(_pd.to_numeric(metric_series[~metric_series.map(_linkr_is_empty)], errors="coerce").dropna())
+        stats = _linkr_boxplot_stats(vals)
+        # `data` stays empty: the box is described by `stats`, not by a series. The
+        # client gates the chart on stats for this type.
+        chart = {"type": "boxplot", "data": [], "stats": stats} if stats else None
     elif chart_type in ("bar", "pie"):
         raw = metric_series[metric_series.notna()]
         chart = {"type": chart_type, "data": _linkr_freq(raw)}

@@ -21,6 +21,7 @@ import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildKeyIndicatorSpec } from './key-indicator-server'
 import { toComparableString } from '@/lib/dataset-utils'
+import { BoxPlot } from '@/components/charts/box-plot'
 
 // ---------------------------------------------------------------------------
 // Aggregate functions
@@ -180,13 +181,50 @@ function buildHistogramData(values: number[], bins: number, startAtZero = false,
   return buckets
 }
 
+/**
+ * Five-number summary with Tukey whiskers (Q1−1.5·IQR / Q3+1.5·IQR, pulled back to
+ * real data). Server mirror: `_linkr_boxplot_stats` in
+ * apps/api/app/services/execution/render/key_indicator.py — including the
+ * nearest-rank quartiles, which differ from `percentile()`'s interpolation and must
+ * stay identical on both sides or the same column would draw two different boxes.
+ */
+export function computeBoxStats(values: number[]): BoxStats | null {
+  const s = values.filter(Number.isFinite).sort((a, b) => a - b)
+  const n = s.length
+  if (n === 0) return null
+  const q1 = s[Math.floor(n * 0.25)]
+  const median = s[Math.floor(n * 0.5)]
+  const q3 = s[Math.floor(n * 0.75)]
+  const iqr = q3 - q1
+  return {
+    min: Math.max(s[0], q1 - 1.5 * iqr),
+    q1,
+    median,
+    q3,
+    max: Math.min(s[n - 1], q3 + 1.5 * iqr),
+    mean: s.reduce((a, b) => a + b, 0) / n,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
+/** Five-number summary a box plot is drawn from (Tukey whiskers). */
+export interface BoxStats {
+  min: number
+  q1: number
+  median: number
+  q3: number
+  max: number
+  mean: number
+}
+
 interface KpiChart {
   type: string
   data: { label?: string; count?: number; name?: string; value?: number }[]
+  /** Box plots carry a summary instead of a series; `data` is empty for them. */
+  stats?: BoxStats | null
 }
 
 interface KpiServerData {
@@ -460,9 +498,12 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
   const serverChart = server ? serverData?.chart ?? null : null
   const hasChart = chartType !== 'none' && (
     server
-      ? !!serverChart && serverChart.data.length > 0
+      // A box plot is described by `stats`, not by a series, so it has no `data`.
+      ? !!serverChart && (chartType === 'boxplot' ? !!serverChart.stats : serverChart.data.length > 0)
       : chartType === 'histogram'
         ? values.length > 0
+        // A box plot reads the column directly, so it works in proportion mode too,
+        // where `values` is empty.
         : metricRows.length > 0
   )
   const isSideChart = hasChart && chartPosition === 'side'
@@ -637,6 +678,20 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
     return []
   }, [serverChart, values, chartType, bins, xAxisStartZero, decimals, column.id, rows])
 
+  // Box plot: the server sends a summary, front-only computes the same one here.
+  // The numbers come from the column itself rather than from `values`, which is
+  // empty in proportion mode — the server summarises the column either way, and the
+  // two modes must not disagree.
+  const boxStats = useMemo(() => {
+    if (chartType !== 'boxplot') return null
+    if (serverChart) return serverChart.stats ?? null
+    if (values.length > 0) return computeBoxStats(values)
+    const nums = rows
+      .map((r) => Number(r[column.id]))
+      .filter((v) => Number.isFinite(v))
+    return computeBoxStats(nums)
+  }, [chartType, serverChart, values, rows, column.id])
+
   // Total count for proportion calculation in tooltips. Histogram front-only uses the
   // raw value count; server mode (values empty) sums the bin counts instead.
   const totalCount = useMemo(() => {
@@ -664,6 +719,26 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
       </div>
     )
   }, [chartType, totalCount]) as unknown as ContentType<ValueType, NameType>
+
+  // Checked before the `data` guard: a box plot is described by its summary and
+  // carries no series.
+  if (chartType === 'boxplot') {
+    if (!boxStats) return null
+    return (
+      <div className="px-1 pt-2">
+        <BoxPlot
+          min={boxStats.min}
+          p25={boxStats.q1}
+          median={boxStats.median}
+          p75={boxStats.q3}
+          max={boxStats.max}
+          mean={boxStats.mean}
+          height={44}
+          color={palette[0]}
+        />
+      </div>
+    )
+  }
 
   if (data.length === 0) return null
 

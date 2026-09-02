@@ -441,7 +441,8 @@ function ColumnPicker({
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch('') }}>
       <PopoverTrigger asChild>
-        <button className="flex h-7 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors">
+        {/* h-8 to match the SelectTriggers it sits between in the filter dialog. */}
+        <button className="flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors">
           <span className={cn('truncate', !selected && 'text-muted-foreground')}>
             {selected ? selected.name : placeholder}
           </span>

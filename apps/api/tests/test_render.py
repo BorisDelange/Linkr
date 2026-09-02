@@ -224,6 +224,32 @@ def test_key_indicator_string_column_keeps_its_casing():
     assert out["matchCount"] == 2
 
 
+def test_key_indicator_boxplot_uses_tukey_whiskers():
+    """The whiskers pull back to 1.5*IQR, so one extreme value can't flatten the box.
+    Mirrors computeBoxStats in KeyIndicatorComponent.tsx (same nearest-rank quartiles)."""
+    import pandas as pd
+
+    df = pd.DataFrame({"v": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 500]})
+    out = _run_kpi({"column": {"name": "v", "numeric": True},
+                    "aggregate": "mean", "chartType": "boxplot"}, df)
+    stats = out["chart"]["stats"]
+    assert out["chart"]["type"] == "boxplot"
+    assert out["chart"]["data"] == []  # described by stats, not a series
+    assert (stats["q1"], stats["median"], stats["q3"]) == (3, 6, 9)
+    assert stats["max"] == 18.0  # q3 + 1.5*iqr, not the raw 500
+    assert stats["min"] == 1
+
+
+def test_key_indicator_boxplot_on_a_constant_column():
+    import pandas as pd
+
+    out = _run_kpi({"column": {"name": "v", "numeric": True},
+                    "aggregate": "mean", "chartType": "boxplot"},
+                   pd.DataFrame({"v": [5, 5, 5, 5]}))
+    stats = out["chart"]["stats"]
+    assert stats["min"] == stats["max"] == stats["median"] == 5
+
+
 def test_plot_builder_rejects_an_unknown_outlier_method():
     with pytest.raises(ValueError):
         plot_builder.validate_spec({"plotType": "scatter", "x": "a", "y": "b",

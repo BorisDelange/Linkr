@@ -20,9 +20,18 @@ export interface BoxPlotProps {
   max: number
   mean?: number
   height?: number
+  /** Box and median colour. Defaults to the theme primary; pass a palette entry
+   *  when the caller draws several charts that must share one colour scheme. */
+  color?: string
+  /** Hide the min/Q1/median/Q3/max value labels under the box — for a small
+   *  chart where they would collide. */
+  hideLabels?: boolean
 }
 
-export function BoxPlot({ min, p25, median, p75, max, mean, height = 40 }: BoxPlotProps) {
+export function BoxPlot({
+  min, p25, median, p75, max, mean, height = 40,
+  color = 'var(--color-primary)', hideLabels = false,
+}: BoxPlotProps) {
   // Fed by two callers with untrusted numeric input (server stats that may be
   // absent → NaN, free-form concept-stat parsing). A NaN quartile would make every
   // pct() "NaN%" and render garbage; bail instead. clamp guards a max < min case.
@@ -41,7 +50,7 @@ export function BoxPlot({ min, p25, median, p75, max, mean, height = 40 }: BoxPl
   // The axis labels sit BELOW the box, so the drawing surface has to be taller
   // than the box itself — writing them at y = height put their baseline on the
   // bottom edge, where a clipping parent cut them off.
-  const LABEL_ROW = 11
+  const LABEL_ROW = hideLabels ? 0 : 11
   const boxHeight = height
   const cy = boxHeight / 2
 
@@ -56,20 +65,24 @@ export function BoxPlot({ min, p25, median, p75, max, mean, height = 40 }: BoxPl
       {/* IQR box */}
       <rect
         x={pct(p25)} y={cy - 10} width={widthPct(p25, p75)} height={20}
-        fill="var(--color-primary)" fillOpacity={0.15} stroke="var(--color-primary)" strokeWidth={1.5} rx={2}
+        fill={color} fillOpacity={0.15} stroke={color} strokeWidth={1.5} rx={2}
       />
       {/* Median line */}
-      <line x1={pct(median)} y1={cy - 10} x2={pct(median)} y2={cy + 10} stroke="var(--color-primary)" strokeWidth={2} />
+      <line x1={pct(median)} y1={cy - 10} x2={pct(median)} y2={cy + 10} stroke={color} strokeWidth={2} />
       {/* Mean dot */}
       {mean !== undefined && (
         <circle cx={pct(mean)} cy={cy} r={3} fill="#fb923c" />
       )}
       {/* Axis labels */}
-      <text x={pct(min)} y={boxHeight + LABEL_ROW - 2} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(min)}</text>
-      <text x={pct(p25)} y={boxHeight + LABEL_ROW - 2} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(p25)}</text>
-      <text x={pct(median)} y={boxHeight + LABEL_ROW - 2} textAnchor="middle" fontSize={9} fill="var(--color-primary)">{fmtNum(median)}</text>
-      <text x={pct(p75)} y={boxHeight + LABEL_ROW - 2} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(p75)}</text>
-      <text x={pct(max)} y={boxHeight + LABEL_ROW - 2} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(max)}</text>
+      {!hideLabels && (
+        <>
+          <text x={pct(min)} y={boxHeight + LABEL_ROW - 2} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(min)}</text>
+          <text x={pct(p25)} y={boxHeight + LABEL_ROW - 2} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(p25)}</text>
+          <text x={pct(median)} y={boxHeight + LABEL_ROW - 2} textAnchor="middle" fontSize={9} fill={color}>{fmtNum(median)}</text>
+          <text x={pct(p75)} y={boxHeight + LABEL_ROW - 2} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(p75)}</text>
+          <text x={pct(max)} y={boxHeight + LABEL_ROW - 2} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(max)}</text>
+        </>
+      )}
     </svg>
   )
 }
