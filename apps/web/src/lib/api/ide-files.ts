@@ -67,6 +67,13 @@ export const apiIdeFileStorage: IdeFileStorage = {
     // The synthetic "scripts" root already exists on disk as scripts/ — skip it.
     if (file.name === 'scripts' && file.parentId === null && file.type === 'folder') return
     const path = childPath(file.parentId, file.name)
+    // Remember this node under the CALLER's id, not the backend's. An import
+    // writes a whole tree in one pass with client-derived ids (deterministicId)
+    // that no scan has ever returned, so a nested file's `parentId` resolves to
+    // nothing and the file lands flat at the scripts root — `sql/cohort.sql`
+    // became `cohort.sql`. Parents are created before their children, so
+    // recording the folder here is what lets the next call build `sql/cohort.sql`.
+    _meta.set(file.id, { projectUid: file.projectUid, path })
     await apiRequest(BASE, {
       method: 'POST',
       body: JSON.stringify({
