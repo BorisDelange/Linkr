@@ -1,14 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
+import { FieldError } from '@/components/ui/field-error'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { DatabaseSelect } from '@/components/ui/database-select'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
+import { useUniqueName } from '@/hooks/use-unique-name'
 import { buildPointer } from '@/lib/import-identity'
 import { localizedRaw, seedLocalizedForEditing, setLocalized } from '@/lib/localized'
+import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
+import { useCohortStore } from '@/stores/cohort-store'
 import type { DataSourceRef, LocalizedString } from '@/types'
 
 export interface CohortFormData {
@@ -27,6 +31,7 @@ interface CreateCohortDialogProps {
    *  Its version is carried through untouched — a cohort belongs to a project and is
    *  not versioned on its own. */
   editing?: {
+    id: string
     name: LocalizedString
     description?: LocalizedString
     version?: string
@@ -51,6 +56,7 @@ export function CreateCohortDialog({
   const [description, setDescription] = useState('')
   const [dataSourceId, setDataSourceId] = useState<string | undefined>()
   const databases = useDatabaseOptions(workspaceId, projectUid)
+  const cohorts = useCohortStore((s) => s.cohorts)
 
   // Only the active language is shown and edited. Seeding from the other one
   // (rather than blank) keeps a cohort named in English from looking untitled
@@ -65,8 +71,21 @@ export function CreateCohortDialog({
     }
   }, [open, editing, language])
 
+  // Two cohorts sharing a name also collide on export, where the filename is the
+  // slug of the name — the disambiguation there is the safety net, this is the cause.
+  const siblings = useMemo(
+    () => cohorts.filter((c) => c.projectUid === projectUid),
+    [cohorts, projectUid],
+  )
+  const { nameError, canSubmit } = useUniqueName({
+    name,
+    siblings,
+    exceptId: editing?.id,
+    errorKey: 'cohorts.name_exists',
+  })
+
   const handleSubmit = () => {
-    if (!name.trim()) return
+    if (!canSubmit) return
     onSubmit({
       // Merged into the existing map, so editing one language leaves the other
       // untouched instead of replacing the whole name.
@@ -92,7 +111,7 @@ export function CreateCohortDialog({
       dataSourceId: editing?.dataSourceId,
     },
     onSave: handleSubmit,
-    canSave: name.trim().length > 0,
+    canSave: canSubmit,
     enabled: open,
   })
 
@@ -104,16 +123,20 @@ export function CreateCohortDialog({
       description={isEditing ? t('cohorts.edit_description') : t('cohorts.create_description')}
       onConfirm={handleSubmit}
       confirmLabel={isEditing ? t('common.save') : t('common.create')}
-      confirmDisabled={!name.trim()}
+      confirmDisabled={!canSubmit}
     >
       <FormField label={t('cohorts.field_name')} required>
         {({ id }) => (
-          <Input id={id}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t('cohorts.field_name_placeholder')}
-            autoFocus
-          />
+          <>
+            <Input id={id}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t('cohorts.field_name_placeholder')}
+              className={cn(nameError && 'border-destructive')}
+              autoFocus
+            />
+            <FieldError message={nameError} />
+          </>
         )}
       </FormField>
 

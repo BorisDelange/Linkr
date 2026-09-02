@@ -1,4 +1,21 @@
 /**
+ * Whether `candidate` collides with one of the names already in use.
+ *
+ * The counterpart to `uniqueName` below, sharing its comparison rule so a name a
+ * form rejects is exactly one `uniqueName` would have skipped. Blank is never a
+ * collision — an empty required field is the "name is missing" error, not this one.
+ *
+ * Callers pass the siblings in the language the user is typing in: a clash in
+ * another translation is not a clash on the screen they are looking at.
+ */
+export function isNameTaken(candidate: string, taken: Iterable<string>): boolean {
+  const norm = (s: string) => s.trim().toLowerCase()
+  const trimmed = norm(candidate)
+  if (!trimmed) return false
+  return [...taken].some((n) => norm(n) === trimmed)
+}
+
+/**
  * First name in the "Foo", "Foo (2)", "Foo (3)"… series that is not taken.
  *
  * Used when an action re-creates something from an existing template: the base

@@ -32,6 +32,7 @@ export function useCohortActions(): CohortActions {
         open
         onOpenChange={onOpenChange}
         editing={{
+          id: item.id,
           name: item.name,
           description: item.description,
           version: item.version,

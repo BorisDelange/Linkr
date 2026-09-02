@@ -2,9 +2,11 @@ import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useUniqueName } from '@/hooks/use-unique-name'
+import { FieldError } from '@/components/ui/field-error'
 import type { Dashboard } from '@/types'
 import { paths } from '@/lib/paths'
-import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil, TriangleAlert, Copy } from 'lucide-react'
+import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
@@ -92,21 +94,15 @@ export function LabDashboardsPage() {
 
   const selection = useCardSelection(useMemo(() => filteredDashboards.map((d) => d.id), [filteredDashboards]))
 
-  // Compared in the ACTIVE language: that is what the user typed and what the
-  // list shows, so a clash in another translation isn't a clash here.
-  const nameError = useMemo(() => {
-    const trimmed = createName.trim().toLowerCase()
-    if (!trimmed) return null
-    const taken = projectDashboards.some(
-      (d) => localized(d.name, language).trim().toLowerCase() === trimmed,
-    )
-    return taken ? t('dashboard.dashboard_name_exists') : null
-  }, [createName, projectDashboards, language, t])
-  const isNameValid = createName.trim().length > 0 && !nameError
+  const { nameError, canSubmit: isNameValid } = useUniqueName({
+    name: createName,
+    siblings: projectDashboards,
+    errorKey: 'dashboard.dashboard_name_exists',
+  })
 
   const handleCreate = async () => {
     const name = createName.trim()
-    if (!name || nameError) return
+    if (!isNameValid) return
     const description = createDescription.trim()
     const id = await createDashboard(
       projectUid,
@@ -283,12 +279,7 @@ export function LabDashboardsPage() {
                 className={cn(nameError && 'border-destructive')}
                 autoFocus
               />
-              {nameError && (
-                <p className="flex items-center gap-1 text-[10px] text-destructive">
-                  <TriangleAlert size={10} />
-                  {nameError}
-                </p>
-              )}
+              <FieldError message={nameError} />
             </div>
             <div className="space-y-2">
               <Label>{t('common.description')}</Label>

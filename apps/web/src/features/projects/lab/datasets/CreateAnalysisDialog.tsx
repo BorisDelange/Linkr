@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { ArrowLeft, TriangleAlert } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   Dialog,
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { FieldError } from '@/components/ui/field-error'
 import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
 import { PythonLogo, RLogo } from '@/components/ui/language-icon'
@@ -171,12 +172,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
         placeholder={t('datasets.new_analysis')}
         className={cn(nameError && 'border-destructive')}
       />
-      {nameError && (
-        <p className="text-[10px] text-destructive flex items-center gap-1">
-          <TriangleAlert size={10} />
-          {nameError}
-        </p>
-      )}
+      <FieldError message={nameError} />
     </div>
   )
 

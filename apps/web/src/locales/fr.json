@@ -974,6 +974,7 @@
     "delete_confirm_description": "Cette action supprimera définitivement « {{name}} » et ses résultats. Cette action est irréversible.",
     "field_name": "Nom de la cohorte",
     "field_name_placeholder": "ex. Patients sepsis > 65 ans",
+    "name_exists": "Une cohorte porte déjà ce nom.",
     "field_description": "Description",
     "field_description_placeholder": "Brève description de cette cohorte...",
     "field_database": "Base de données",

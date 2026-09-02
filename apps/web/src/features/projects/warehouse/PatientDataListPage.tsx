@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Plus, User, TriangleAlert } from 'lucide-react'
+import { Plus, User } from 'lucide-react'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
 import { useCardSelection } from '@/components/ui/use-card-selection'
 import { Card } from '@/components/ui/card'
@@ -30,6 +30,8 @@ import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useAppStore } from '@/stores/app-store'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useUniqueName } from '@/hooks/use-unique-name'
+import { FieldError } from '@/components/ui/field-error'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { DatabaseSelect } from '@/components/ui/database-select'
@@ -95,21 +97,15 @@ export function PatientDataListPage() {
 
   const selection = useCardSelection(useMemo(() => filteredBoards.map((b) => b.id), [filteredBoards]))
 
-  // Compared in the ACTIVE language: that is the string the user typed and the
-  // one the list shows them, so a clash in another translation isn't a clash here.
-  const nameError = useMemo(() => {
-    const trimmed = createName.trim().toLowerCase()
-    if (!trimmed) return null
-    const taken = projectBoards.some(
-      (d) => localized(d.name, language).trim().toLowerCase() === trimmed,
-    )
-    return taken ? t('patient_data.board_name_exists') : null
-  }, [createName, projectBoards, language, t])
-  const isNameValid = createName.trim().length > 0 && !nameError
+  const { nameError, canSubmit: isNameValid } = useUniqueName({
+    name: createName,
+    siblings: projectBoards,
+    errorKey: 'patient_data.board_name_exists',
+  })
 
   const handleCreate = async () => {
     const name = createName.trim()
-    if (!name || nameError) return
+    if (!isNameValid) return
     const id = await createDashboard(projectUid, name, createDescription.trim() || undefined, {
       dataSourceId: createDatabaseId,
       dataSourceRef: buildPointer(databases, createDatabaseId),
@@ -250,12 +246,7 @@ export function PatientDataListPage() {
                 className={cn(nameError && 'border-destructive')}
                 autoFocus
               />
-              {nameError && (
-                <p className="flex items-center gap-1 text-[10px] text-destructive">
-                  <TriangleAlert size={10} />
-                  {nameError}
-                </p>
-              )}
+              <FieldError message={nameError} />
             </div>
             <div className="space-y-2">
               <Label>{t('common.description')}</Label>

@@ -171,7 +171,7 @@ export function CohortListPage() {
         open={!!editingCohort}
         onOpenChange={(open) => { if (!open) setEditingCohort(null) }}
         onSubmit={handleEditSubmit}
-        editing={editingCohort ? { name: editingCohort.name, description: editingCohort.description, version: editingCohort.version, dataSourceId: editingCohort.dataSourceId } : undefined}
+        editing={editingCohort ? { id: editingCohort.id, name: editingCohort.name, description: editingCohort.description, version: editingCohort.version, dataSourceId: editingCohort.dataSourceId } : undefined}
         workspaceId={wsUid}
         projectUid={uid}
       />

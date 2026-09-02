@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import { useSplitPreferredSize } from '@/hooks/use-split-preferred-size'
 import 'allotment/dist/style.css'
-import { ArrowLeft, Database, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, Database } from 'lucide-react'
 import { PythonLogo, RLogo } from '@/components/ui/language-icon'
 import { cn } from '@/lib/utils'
 import type { DashboardWidgetSource } from '@/types'
@@ -22,6 +22,7 @@ import { PluginPicker } from '@/components/PluginPicker'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { FieldError } from '@/components/ui/field-error'
 import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
@@ -288,12 +289,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
         placeholder={t('dashboard.widget_name_placeholder')}
         className={cn('h-8 text-sm', nameError && 'border-destructive')}
       />
-      {nameError && (
-        <p className="text-[10px] text-destructive flex items-center gap-1">
-          <TriangleAlert size={10} />
-          {nameError}
-        </p>
-      )}
+      <FieldError message={nameError} />
     </div>
   )
 

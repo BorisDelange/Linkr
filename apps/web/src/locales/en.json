@@ -974,6 +974,7 @@
     "delete_confirm_description": "This will permanently delete \"{{name}}\" and its results. This action cannot be undone.",
     "field_name": "Cohort name",
     "field_name_placeholder": "e.g. Sepsis patients over 65",
+    "name_exists": "A cohort with this name already exists.",
     "field_description": "Description",
     "field_description_placeholder": "Brief description of this cohort...",
     "field_database": "Database",

@@ -1,13 +1,16 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
+import { FieldError } from '@/components/ui/field-error'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { DatabaseSelect } from '@/components/ui/database-select'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
+import { useUniqueName } from '@/hooks/use-unique-name'
 import { localized, setLocalized } from '@/lib/localized'
 import { buildPointer } from '@/lib/import-identity'
+import { cn } from '@/lib/utils'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -31,6 +34,17 @@ export function PatientBoardEditDialog({
   const [dataSourceId, setDataSourceId] = useState(item.dataSourceId)
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const databases = useDatabaseOptions(workspaceId, item.projectUid)
+  const allBoards = usePatientChartStore((s) => s.dashboards)
+  const siblings = useMemo(
+    () => allBoards.filter((d) => d.projectUid === item.projectUid),
+    [allBoards, item.projectUid],
+  )
+  const { nameError, canSubmit } = useUniqueName({
+    name,
+    siblings,
+    exceptId: item.id,
+    errorKey: 'patient_data.board_name_exists',
+  })
 
   const doSave = () => {
     updateDashboard(item.id, {
@@ -47,7 +61,7 @@ export function PatientBoardEditDialog({
     current: { name: name.trim(), description: description.trim(), dataSourceId },
     baseline: { name: initialName, description: initialDescription, dataSourceId: item.dataSourceId },
     onSave: doSave,
-    canSave: name.trim().length > 0,
+    canSave: canSubmit,
   })
 
   return (
@@ -64,12 +78,15 @@ export function PatientBoardEditDialog({
     >
           <FormField label={t('common.name')} required>
             {({ id }) => (
-              <Input id={id}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="h-8 text-sm"
-                autoFocus
-              />
+              <>
+                <Input id={id}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className={cn('h-8 text-sm', nameError && 'border-destructive')}
+                  autoFocus
+                />
+                <FieldError message={nameError} />
+              </>
             )}
           </FormField>
           <FormField label={t('common.description')}>
