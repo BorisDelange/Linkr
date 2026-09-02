@@ -15,7 +15,8 @@ import { isWidgetPluginStale } from './plugin-drift'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
 import { DashboardDataProvider } from './DashboardDataProvider'
-import { resolveWidgetFilters, buildFilterChips, buildFilterLabelMap } from './dashboard-filters'
+import { resolveWidgetFilters, buildFilterChips, buildFilterLabelMap, FILTER_DEBOUNCE_MS } from './dashboard-filters'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { Filter } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
@@ -205,7 +206,11 @@ function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUi
   // A bare useDashboardStore() would subscribe to the whole store, so every action — including
   // setActiveTab — would re-render every kept-alive grid on each tab switch (the ~1s freeze).
   // Actions are stable references, so selecting them individually never triggers a re-render.
-  const activeFilters = useDashboardStore((s) => s.activeFilters)
+  const liveFilters = useDashboardStore((s) => s.activeFilters)
+  // Widgets re-render — and in server mode re-query — on every filter change, so a
+  // dragged slider or a typed number would fire one request per step, per widget.
+  // The controls themselves stay live; only what the widgets read settles first.
+  const activeFilters = useDebouncedValue(liveFilters, FILTER_DEBOUNCE_MS)
   const tabs = useDashboardStore((s) => s.tabs)
   const updateWidgetLayout = useDashboardStore((s) => s.updateWidgetLayout)
   const removeWidget = useDashboardStore((s) => s.removeWidget)

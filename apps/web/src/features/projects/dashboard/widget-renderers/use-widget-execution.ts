@@ -38,15 +38,23 @@ export function useWidgetExecution({ widgetId, signature, ready, alwaysReload, r
   const runRef = useRef(run)
   runRef.current = run
 
+  // Identifies the run whose result may still be shown. Runs are not cancellable
+  // (a plain POST), so a superseded one still finishes — without this, a slow
+  // earlier run resolving last would overwrite the newer result on screen.
+  const currentRunRef = useRef(0)
+
   const execute = useCallback(async () => {
+    const runId = ++currentRunRef.current
     setLoading(true)
     setResult(null)
     try {
       const output = await runRef.current()
+      // Still cache it: the result is valid for ITS signature, so going back to
+      // those filters is a hit rather than another round trip.
       resultCache.set(cacheKey, output)
-      setResult(output)
+      if (runId === currentRunRef.current) setResult(output)
     } finally {
-      setLoading(false)
+      if (runId === currentRunRef.current) setLoading(false)
     }
   }, [cacheKey])
 

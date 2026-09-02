@@ -2,6 +2,14 @@ import type { Dashboard, DashboardWidget, FilterValue } from '@/types'
 import { localized } from '@/lib/localized'
 import { FILTER_NONE } from './DashboardDataProvider'
 
+/**
+ * How long filter changes settle before widgets act on them. A continuous control
+ * (a dragged slider, a typed number) otherwise fires one recompute — and in server
+ * mode one request — per step, per widget. Long enough to swallow a drag, short
+ * enough that the dashboard doesn't feel stalled.
+ */
+export const FILTER_DEBOUNCE_MS = 400
+
 /** Resolve which filters apply to a given widget, keyed by column ID. `widgetParentTabId` is the
  *  parent of the widget's tab (when it's a sub-tab), so a tab-scoped filter targeting a container
  *  tab also reaches the widgets living in its sub-tabs. */
