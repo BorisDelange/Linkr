@@ -105,6 +105,54 @@ describe('validateDashboards', () => {
     expect(issues.filter((i) => i.code === 'unknown-column')).toEqual([])
   })
 
+  it('flags a root tab key whose prefix is not the dashboard key', () => {
+    // What a rename after the fact leaves behind: the dashboard is now "Overview
+    // 2026" (key overview-2026) while its tabs still say overview/…. On import
+    // every tab resolves to a dashboard that does not exist and is dropped,
+    // widgets included — silently, because the filters still come through.
+    const issues = runDashboards({
+      'dashboards/overview.json': JSON.stringify({
+        dashboard: { name: { en: 'Overview 2026' }, gridV: 2, filterConfig: [] },
+        tabs: [{ name: { en: 'Main' }, key: 'overview/main', parentKey: null }],
+        widgets: [],
+      }),
+    })
+    const issue = issues.find((i) => i.pointer === '/tabs/0/key')
+    expect(issue?.code).toBe('unknown-reference')
+    expect(issue?.message).toContain('overview-2026')
+  })
+
+  it('does not flag sub-tabs, which are qualified by their parent', () => {
+    // A sub-tab's key starts with its PARENT's key, never the dashboard's, so
+    // checking every tab alike would report each of these as stale.
+    expect(
+      runDashboards({
+        'dashboards/overview.json': JSON.stringify({
+          dashboard: { name: { en: 'Overview' }, gridV: 2, filterConfig: [] },
+          tabs: [
+            { name: { en: 'Main' }, key: 'overview/main', parentKey: null },
+            { name: { en: 'Activity' }, key: 'overview/main/activity', parentKey: 'overview/main' },
+            { name: { en: 'Stays' }, key: 'overview/main/stays', parentKey: 'overview/main' },
+          ],
+          widgets: [],
+        }),
+      }),
+    ).toEqual([])
+  })
+
+  it('leaves a legacy id-keyed dashboard alone', () => {
+    // Legacy files address tabs by uuid; there is no key prefix to check.
+    expect(
+      runDashboards({
+        'dashboards/overview.json': JSON.stringify({
+          dashboard: { name: { en: 'Overview 2026' }, gridV: 2, filterConfig: [] },
+          tabs: [{ name: { en: 'Main' }, id: 'tab-1', parentTabId: null }],
+          widgets: [],
+        }),
+      }),
+    ).toEqual([])
+  })
+
   it('flags a widget spanning past the grid', () => {
     const issues = runDashboards({
       'dashboards/overview.json': dashboardDoc({

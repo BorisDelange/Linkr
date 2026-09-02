@@ -17,6 +17,7 @@
 import { checkArray, checkLocalized, checkNumber, checkString, isObject, readLocalized } from '../check.js'
 import type { IssueBag } from '../issue.js'
 import { listHint } from '../issue.js'
+import { dashboardKey } from '../keys.js'
 import { filesIn, readJson, type EntityTree } from '../tree.js'
 import type { DatasetIndex } from './datasets.js'
 
@@ -59,7 +60,9 @@ function validateDashboardFile(
   if (!checkArray(bag, path, '/tabs', doc.tabs, { required: true, label: '`tabs`' })) return
   if (!checkArray(bag, path, '/widgets', doc.widgets, { required: true, label: '`widgets`' })) return
 
-  const tabs = validateTabs(bag, path, doc.tabs)
+  // readLocalized first: `name` is still `unknown` here (checkLocalized only
+  // reports on it), and dashboardKey takes a localized value, not any value.
+  const tabs = validateTabs(bag, path, doc.tabs, dashboardKey(readLocalized(dashboard.name, 'en')))
   validateWidgets(bag, path, doc.widgets, tabs, datasets, gridColumns)
   validateFilters(bag, path, dashboard.filterConfig, tabs, datasets)
 
@@ -75,7 +78,7 @@ interface TabIndex {
   style: 'key' | 'id' | 'mixed' | 'none'
 }
 
-function validateTabs(bag: IssueBag, path: string, raw: unknown[]): TabIndex {
+function validateTabs(bag: IssueBag, path: string, raw: unknown[], dashKey: string): TabIndex {
   const refs = new Set<string>()
   const names = new Map<string, string>()
   let keyed = 0
@@ -119,7 +122,26 @@ function validateTabs(bag: IssueBag, path: string, raw: unknown[]): TabIndex {
   raw.forEach((tab, i) => {
     if (!isObject(tab)) return
     const parent = tab.parentKey ?? tab.parentTabId
-    if (parent == null) return
+    if (parent == null) {
+      // A ROOT tab's key is `<dashboardKey>/<slug>`, and the import resolves the
+      // owning dashboard from that first segment. Rename the dashboard after its
+      // tabs exist and the segment goes stale: every tab is then attached to a
+      // dashboard that does not exist and silently disappears, taking its widgets
+      // with it, while the filters — which carry no hierarchical key — still come
+      // through. Only root tabs are checked: a sub-tab is qualified by its
+      // parent's key, not by the dashboard's.
+      if (style !== 'id' && typeof tab.key === 'string') {
+        const prefix = tab.key.split('/')[0]
+        if (prefix !== dashKey) {
+          bag.error(path, `/tabs/${i}/key`, 'unknown-reference',
+            `Root tab key starts with "${prefix}" but this dashboard's key is ` +
+            `"${dashKey}"; on import the tab and its widgets would be dropped.`,
+            `rename the tab keys to "${dashKey}/…", or rename the dashboard so ` +
+            `the slug of its English name is "${prefix}"`)
+        }
+      }
+      return
+    }
     if (typeof parent !== 'string') {
       bag.error(path, `/tabs/${i}/parentKey`, 'wrong-type', 'A parent reference must be a string.')
       return
