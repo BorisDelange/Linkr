@@ -36,6 +36,39 @@ retired; as-built documented in `docs/architecture.md` (Fullstack section). Only
 |----|------|--------|
 | 💤 | Optional: surface long code runs as `kind="run"` jobs in the panel (Stop + streaming already work) | S |
 
+## IDE — web apps — [web-apps-plan.md](web-apps-plan.md)
+
+Run a **long-lived web server** from project code (Shiny, Streamlit, Dash, Gradio, plumber,
+FastAPI/Flask, Panel, Marimo) and show it in an iframe inside Linkr. Server mode only.
+Nothing exists yet; the closest prior art is `pty_kernel.py` (the only detached long-lived
+child process). Framework-agnostic by construction: frameworks are **presets** (a name, a
+detection rule, an argv template with `{port}`), the runtime only knows "a process that will
+listen on 127.0.0.1". A raw custom command with `$PORT` is the primitive underneath.
+
+**An app never blocks the IDE**: it is its own detached process, never a kernel run, so the R
+or Python session stays warm and usable while it serves. `AppManager` owns the lifecycle; a
+`kind="app"` job row shadows it so a running app stays visible (and stoppable) in the Jobs
+panel after its tab is closed — but never goes through `jobs.launch()`, whose semaphore is
+bounded at 2.
+
+Two things need arbitration before step 6: **same-origin iframes** — an app can read
+`linkr-access-token`, which is why the plan refuses to make apps shareable until a
+wildcard-subdomain split exists — and the **dev-only COEP `credentialless`** header in
+`vite.config.ts`.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🤔 | Arbitrate the plan (same-origin iframe + no sharing; `/api/v1/apps/…` prefix; registry owns lifecycle, job row only shadows) | S |
+| 🔜 | 1. Extract `runtime_spec()` from `kernel._make()` — kernels and apps resolve interpreter/env identically | S |
+| 🔜 | 2. `web_apps.py`: `AppManager` (detached spawn, port probe, background readiness, log tail, killpg teardown, quota, idle sweep) — also fixes the same killpg leak in `pty_kernel.py` | M |
+| 🔜 | 3. Presets table + detection (name + content regex) + custom `$PORT` command | S |
+| 🔜 | 4. `routes/apps.py`: start / stop / list / logs behind `ide:execute` | S |
+| 🔜 | 5. Job-row shadow (`kind="app"`) + cancel hook reaching `AppManager.stop()` | S |
+| 🔜 | 6. The proxy: HTTP streaming + WS pump + `<base>` injection + `Location` rewrite | M |
+| 🔜 | 7. Frontend: `AppTab` (full tab, `TerminalTab` model), toolbar + logs drawer, `RunButton` entry, apps in `JobsIndicator` | M |
+| 🔜 | 8. nginx `proxy_buffering off`, dev COEP, `docs/architecture.md` | S |
+| 🔜 | 9. **[TO TEST]** Matrix across all 6 frameworks — one proxy for all, and the session stays usable throughout | M |
+
 ## Dataset edit layer — [dataset-edit-layer-plan.md](dataset-edit-layer-plan.md)
 
 | St | Item | Effort |
