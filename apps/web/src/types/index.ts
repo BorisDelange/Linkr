@@ -935,6 +935,14 @@ export interface DatasetColumn {
   valueLabels?: Record<string, string>
 }
 
+/** Union of possible table filter values per column type. */
+export type ColumnFilterValue =
+  | string                              // string/unknown text search, boolean select
+  | { min?: number; max?: number }      // number range
+  | { from?: string; to?: string }      // date/datetime range
+  | { in: string[] }                    // categorical multi-select (list mode)
+  | undefined
+
 export interface DatasetParseOptions {
   delimiter?: string
   encoding?: string

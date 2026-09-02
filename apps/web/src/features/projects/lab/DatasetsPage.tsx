@@ -54,6 +54,9 @@ import { CreateAnalysisDialog } from './datasets/CreateAnalysisDialog'
 import { getPlugin } from '@/lib/plugins/registry'
 import type { AnalysisLanguage } from '@/types'
 
+/** Stable empty array so the hidden-columns selector doesn't fire on every render. */
+const EMPTY_HIDDEN: string[] = []
+
 const LANG_BADGE: Record<string, { label: string; color: string }> = {
   python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
   r: { label: 'R', color: 'text-blue-500 bg-blue-500/10' },
@@ -249,7 +252,21 @@ export function DatasetsPage() {
   const [statsVisible, setStatsVisible] = useState(true)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null)
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set())
+  // Hidden columns live in the per-file table view (store), like the other view
+  // state, so they survive leaving the page. Kept as a Set at the UI boundary.
+  const hiddenColumnIds = useDatasetStore(
+    (s) => (selectedFileId ? s.tableViews[selectedFileId]?.hiddenColumns : undefined) ?? EMPTY_HIDDEN,
+  )
+  const patchTableView = useDatasetStore((s) => s.patchTableView)
+  const hiddenColumns = useMemo(() => new Set(hiddenColumnIds), [hiddenColumnIds])
+  const setHiddenColumns = useCallback(
+    (updater: (prev: Set<string>) => Set<string>) => {
+      if (!selectedFileId) return
+      const prev = new Set(useDatasetStore.getState().getTableView(selectedFileId).hiddenColumns)
+      patchTableView(selectedFileId, { hiddenColumns: [...updater(prev)] })
+    },
+    [selectedFileId, patchTableView],
+  )
 
   // Load datasets when the project changes, and re-scan when the datasets_path
   // binding changes (the same project now maps to a new server folder). The store
@@ -267,7 +284,6 @@ export function DatasetsPage() {
       loadAnalyses(selectedFileId)
       setSelectedColumnId(null)
       selectAnalysis(null)
-      setHiddenColumns(new Set())
     }
   }, [selectedFileId, loadFileData, loadAnalyses, selectAnalysis])
 

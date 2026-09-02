@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus } from 'lucide-react'
+import { Plus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { getPlugin } from '@/lib/plugins/registry'
@@ -104,6 +104,7 @@ function ScriptAnalysis({
 }) {
   const { t } = useTranslation()
   const { files } = useDatasetStore()
+  const metaLoading = useDatasetStore(s => s.metaLoadingIds.includes(analysis.datasetFileId))
 
   const plugin = getPlugin(analysis.type)!
   const file = files.find(f => f.id === analysis.datasetFileId)
@@ -119,9 +120,11 @@ function ScriptAnalysis({
   )
 
   if (columns.length === 0) {
+    // Columns arrive lazily in server mode — don't call the dataset empty while they load.
     return (
-      <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
-        {t('datasets.empty_dataset')}
+      <div className="flex items-center justify-center gap-2 p-8 text-xs text-muted-foreground">
+        {metaLoading && <Loader2 size={14} className="animate-spin text-primary" />}
+        {t(metaLoading ? 'datasets.loading_dataset' : 'datasets.empty_dataset')}
       </div>
     )
   }

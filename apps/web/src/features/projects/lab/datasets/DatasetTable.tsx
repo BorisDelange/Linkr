@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ChevronLeft,
@@ -13,6 +13,7 @@ import {
   Pin,
   PinOff,
   Tag,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useDatasetStore } from '@/stores/dataset-store'
+import { useDatasetStore, emptyTableView, type DatasetTableView } from '@/stores/dataset-store'
 import { isServerMode } from '@/lib/api-client'
 import { useServerDatasetRows } from './use-server-dataset-rows'
 import { cn } from '@/lib/utils'
@@ -62,10 +63,37 @@ interface DatasetTableProps {
 
 const PAGE_SIZES = [25, 50, 100, 250, 500]
 
+/** Shared default so a file with no stored view doesn't get a new object each render. */
+const EMPTY_VIEW = emptyTableView()
+
+/**
+ * A `useState`-shaped setter over one field of the store-held table view, so the
+ * table's existing handlers (including functional updates) work unchanged.
+ */
+function useViewSetter<K extends keyof DatasetTableView>(
+  fileId: string,
+  key: K,
+  patchView: (fileId: string, changes: Partial<DatasetTableView>) => void,
+) {
+  return useCallback(
+    (value: DatasetTableView[K] | ((prev: DatasetTableView[K]) => DatasetTableView[K])) => {
+      const prev = useDatasetStore.getState().getTableView(fileId)[key]
+      const next =
+        typeof value === 'function'
+          ? (value as (p: DatasetTableView[K]) => DatasetTableView[K])(prev)
+          : value
+      patchView(fileId, { [key]: next } as Partial<DatasetTableView>)
+    },
+    [fileId, key, patchView],
+  )
+}
+
 export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenColumns, onHiddenColumnsChange }: DatasetTableProps) {
   const { t } = useTranslation()
   const booleanLabels = useBooleanLabels()
   const { files, getFileRows, setColumnType, setColumnFilterMode, _dirtyVersion } = useDatasetStore()
+
+  const metaLoading = useDatasetStore((s) => s.metaLoadingIds.includes(fileId))
 
   const file = files.find((f) => f.id === fileId)
   const columns = file?.columns ?? []
@@ -75,25 +103,23 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
   // re-render on change). Server mode fetches one page at a time (see below).
   const rows = !server && _dirtyVersion >= 0 ? getFileRows(fileId) : []
 
-  const [page, setPage] = useState(0)
-  const [pageSize, setPageSize] = useState(100)
-  const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterValue>>({})
-  const [naFilters, setNaFilters] = useState<Record<string, 'exclude' | 'only'>>({})
-  const [sort, setSort] = useState<{ colId: string; dir: 'asc' | 'desc' } | null>(null)
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
-  const [resizing, setResizing] = useState<{ colId: string; startX: number; startW: number } | null>(null)
-  const [pinnedColumns, setPinnedColumns] = useState<string[]>([])
-  const [metaColumn, setMetaColumn] = useState<DatasetColumn | null>(null)
+  // Filters/sort/paging live in the store, keyed by file id, so they survive
+  // navigating away from the Datasets page and back. Keyed state also makes the
+  // old "reset on file switch" effect unnecessary: each file has its own entry.
+  const view = useDatasetStore((s) => s.tableViews[fileId]) ?? EMPTY_VIEW
+  const patchView = useDatasetStore((s) => s.patchTableView)
+  const { page, pageSize, columnFilters, naFilters, sort, columnWidths, pinnedColumns } = view
 
-  // Reset state when switching files
-  useEffect(() => {
-    setPage(0)
-    setColumnFilters({})
-    setNaFilters({})
-    setSort(null)
-    setColumnWidths({})
-    setPinnedColumns([])
-  }, [fileId])
+  const setPage = useViewSetter(fileId, 'page', patchView)
+  const setPageSize = useViewSetter(fileId, 'pageSize', patchView)
+  const setColumnFilters = useViewSetter(fileId, 'columnFilters', patchView)
+  const setNaFilters = useViewSetter(fileId, 'naFilters', patchView)
+  const setSort = useViewSetter(fileId, 'sort', patchView)
+  const setColumnWidths = useViewSetter(fileId, 'columnWidths', patchView)
+  const setPinnedColumns = useViewSetter(fileId, 'pinnedColumns', patchView)
+
+  const [resizing, setResizing] = useState<{ colId: string; startX: number; startW: number } | null>(null)
+  const [metaColumn, setMetaColumn] = useState<DatasetColumn | null>(null)
 
   // Visible columns — pinned ones first (in pin order), then the rest in natural order
   const visibleColumns = useMemo(() => {
@@ -394,6 +420,16 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
   }
 
   if (columns.length === 0) {
+    // Server mode fetches the columns lazily on open: an empty dataset and one
+    // still loading look alike, so only call it empty once the fetch is done.
+    if (metaLoading) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+          <Loader2 size={20} className="animate-spin text-primary" />
+          <p className="text-xs text-muted-foreground">{t('datasets.loading_dataset')}</p>
+        </div>
+      )
+    }
     return (
       <div className="flex h-full flex-col items-center justify-center text-center p-6">
         <p className="text-sm text-muted-foreground">{t('datasets.empty_dataset')}</p>

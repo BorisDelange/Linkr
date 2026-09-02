@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import type { DatasetColumn } from '@/types'
+import type { ColumnFilterValue, DatasetColumn } from '@/types'
 import { parseBoolean } from '@/lib/dataset-utils'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 
@@ -9,13 +9,7 @@ const INPUT_CLASS =
 const HALF_INPUT_CLASS =
   'h-6 w-1/2 rounded border border-dashed bg-transparent px-1 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
-/** Union of possible filter values per column type. */
-export type ColumnFilterValue =
-  | string                              // string/unknown text search, boolean select
-  | { min?: number; max?: number }      // number range
-  | { from?: string; to?: string }      // date/datetime range
-  | { in: string[] }                    // categorical multi-select (list mode)
-  | undefined
+export type { ColumnFilterValue }
 
 /** A categorical (list-mode) filter value: an `{ in: [...] }` selection. */
 export function isCategoricalFilter(v: ColumnFilterValue): v is { in: string[] } {

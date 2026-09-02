@@ -1,11 +1,35 @@
 import { create } from 'zustand'
-import type { DatasetFile, DatasetAnalysis, DatasetColumn } from '@/types'
+import type { ColumnFilterValue, DatasetFile, DatasetAnalysis, DatasetColumn } from '@/types'
 import { getStorage } from '@/lib/storage'
 import { uniqueColumnId } from '@/lib/column-id'
 import { coerceValue } from '@/lib/dataset-utils'
 import { isServerMode } from '@/lib/api-client'
 import { duplicateDataset, fetchDatasetMeta, reimportDataset } from '@/lib/api/datasets'
 import { stampAuthored } from '@/stores/app-store'
+
+/** Per-file table view state (filters, sort, paging, layout). Held in the store rather
+ *  than in the table component so it survives navigating away from the Datasets page. */
+export interface DatasetTableView {
+  page: number
+  pageSize: number
+  columnFilters: Record<string, ColumnFilterValue>
+  naFilters: Record<string, 'exclude' | 'only'>
+  sort: { colId: string; dir: 'asc' | 'desc' } | null
+  columnWidths: Record<string, number>
+  pinnedColumns: string[]
+  hiddenColumns: string[]
+}
+
+export const emptyTableView = (): DatasetTableView => ({
+  page: 0,
+  pageSize: 100,
+  columnFilters: {},
+  naFilters: {},
+  sort: null,
+  columnWidths: {},
+  pinnedColumns: [],
+  hiddenColumns: [],
+})
 
 export interface UndoAction {
   id: string
@@ -42,6 +66,15 @@ interface DatasetState {
   selectFile: (id: string | null) => void
   openFile: (id: string) => void
   ensureServerMeta: (id: string) => void
+  /** Files whose lazy column meta is being fetched — an empty `columns` means
+   *  "not loaded yet" while the id is in here, "genuinely empty" once it is out. */
+  metaLoadingIds: string[]
+
+  /** Table view state per file id — survives leaving and re-entering the page. */
+  tableViews: Record<string, DatasetTableView>
+  getTableView: (fileId: string) => DatasetTableView
+  patchTableView: (fileId: string, changes: Partial<DatasetTableView>) => void
+  resetTableView: (fileId: string) => void
   closeFile: (id: string) => void
   reorderOpenFiles: (fromIndex: number, toIndex: number) => void
   toggleFolder: (id: string) => void
@@ -124,6 +157,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   selectedFileId: null,
   activeProjectUid: null,
   openFileIds: [],
+  metaLoadingIds: [],
+  tableViews: {},
 
   analyses: [],
   openAnalysisIds: [],
@@ -533,6 +568,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     if (!isServerMode()) return
     const file = get().files.find((f) => f.id === id)
     if (!file || file.type !== 'file' || (file.columns && file.columns.length > 0)) return
+    if (get().metaLoadingIds.includes(id)) return
+    set((s) => ({ metaLoadingIds: [...s.metaLoadingIds, id] }))
     fetchDatasetMeta(id)
       .then((meta) => {
         set((s) => ({
@@ -542,7 +579,24 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         }))
       })
       .catch((e) => console.warn('[dataset-store] meta fetch error:', e))
+      .finally(() => set((s) => ({ metaLoadingIds: s.metaLoadingIds.filter((m) => m !== id) })))
   },
+
+  getTableView: (fileId) => get().tableViews[fileId] ?? emptyTableView(),
+
+  patchTableView: (fileId, changes) =>
+    set((s) => ({
+      tableViews: {
+        ...s.tableViews,
+        [fileId]: { ...(s.tableViews[fileId] ?? emptyTableView()), ...changes },
+      },
+    })),
+
+  resetTableView: (fileId) =>
+    set((s) => {
+      const { [fileId]: _dropped, ...rest } = s.tableViews
+      return { tableViews: rest }
+    }),
 
   closeFile: (id) =>
     set((s) => {
