@@ -7,6 +7,7 @@ from app.services.execution import render
 from app.services.execution.render import (
     cox,
     key_indicator,
+    plot_builder,
     regression,
     statistical_tests,
     survey_question,
@@ -223,6 +224,19 @@ def test_key_indicator_string_column_keeps_its_casing():
     assert out["matchCount"] == 2
 
 
+def test_plot_builder_rejects_an_unknown_outlier_method():
+    with pytest.raises(ValueError):
+        plot_builder.validate_spec({"plotType": "scatter", "x": "a", "y": "b",
+                                    "outlierMethod": "wat"})
+
+
+def test_plot_builder_clamps_a_negative_outlier_coefficient():
+    # A negative coefficient would invert the fence and drop every row.
+    out = plot_builder.validate_spec({"plotType": "scatter", "x": "a", "y": "b",
+                                      "outlierMethod": "iqr", "outlierCoef": -2})
+    assert out["outlierCoef"] == 0
+
+
 def _run_plot(spec_extra, df):
     """Execute the plot-builder render program against a DataFrame and return the
     parsed JSON result (the program prints one JSON line)."""
@@ -239,6 +253,66 @@ def _run_plot(spec_extra, df):
     with redirect_stdout(buf):
         exec(code, ns)  # noqa: S102 — server-owned program, test-only
     return json.loads(buf.getvalue().strip().splitlines()[-1])
+
+
+def _scatter_xs(out):
+    return sorted(p["x"] for s in out["series"] for p in s["data"])
+
+
+def test_plot_builder_outlier_iqr_drops_the_extreme_and_reports_it():
+    """The fence must drop the outlier AND say how many rows went, so the chart can
+    tell the reader the distribution is trimmed."""
+    import pandas as pd
+
+    df = pd.DataFrame({"a": list(range(1, 11)) + [1000], "b": list(range(1, 12))})
+    out = _run_plot({"plotType": "scatter", "x": "a", "y": "b",
+                     "outlierMethod": "iqr", "outlierCoef": 1.5}, df)
+    assert out["outliersExcluded"] == 1
+    assert 1000 not in _scatter_xs(out)
+    assert len(_scatter_xs(out)) == 10
+
+
+def test_plot_builder_outlier_none_keeps_everything():
+    import pandas as pd
+
+    df = pd.DataFrame({"a": list(range(1, 11)) + [1000], "b": list(range(1, 12))})
+    out = _run_plot({"plotType": "scatter", "x": "a", "y": "b",
+                     "outlierMethod": "none"}, df)
+    assert out["outliersExcluded"] == 0
+    assert 1000 in _scatter_xs(out)
+
+
+def test_plot_builder_outlier_percentile_trims_both_tails():
+    import pandas as pd
+
+    df = pd.DataFrame({"a": list(range(1, 101)), "b": list(range(1, 101))})
+    out = _run_plot({"plotType": "scatter", "x": "a", "y": "b",
+                     "outlierMethod": "percentile", "outlierCoef": 10}, df)
+    xs = _scatter_xs(out)
+    assert 1 not in xs and 100 not in xs
+    assert 50 in xs
+
+
+def test_plot_builder_outlier_flat_column_excludes_nothing():
+    """Zero spread: a naive fence would reject every value but the centre. Both ends
+    return no bounds instead (mirror of the outliers.ts test)."""
+    import pandas as pd
+
+    df = pd.DataFrame({"a": [7] * 6, "b": list(range(6))})
+    for method, coef in (("iqr", 1.5), ("sd", 3)):
+        out = _run_plot({"plotType": "scatter", "x": "a", "y": "b",
+                         "outlierMethod": method, "outlierCoef": coef}, df)
+        assert out["outliersExcluded"] == 0, method
+
+
+def test_plot_builder_outlier_ignores_a_non_numeric_axis():
+    """A categorical X has no fence to fail; only the numeric axis is filtered."""
+    import pandas as pd
+
+    df = pd.DataFrame({"a": ["x", "y", "z", "w"], "b": [1, 2, 3, 900]})
+    out = _run_plot({"plotType": "scatter", "x": "a", "y": "b",
+                     "outlierMethod": "iqr", "outlierCoef": 1.5}, df)
+    assert out["outliersExcluded"] == 1
 
 
 def test_plot_builder_unique_per_median_aggregates_per_entity():

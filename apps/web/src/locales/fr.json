@@ -2715,6 +2715,8 @@
   },
   "plugins": {
     "builtin_badge": "Intégré",
+    "outliers_excluded": "{{count}} valeur aberrante exclue",
+    "outliers_excluded_plural": "{{count}} valeurs aberrantes exclues",
     "sankey": {
       "configure": "Choisissez les colonnes qui décrivent chaque flux pour construire le diagramme.",
       "no_flows": "Aucun flux à afficher avec les réglages actuels.",

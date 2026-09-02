@@ -21,6 +21,7 @@ import type { TooltipContentProps } from 'recharts'
 import { cn } from '@/lib/utils'
 import { niceTicks } from '@/lib/chart-ticks'
 import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PALETTES, resolvePalette } from '@/lib/plugins/shared-styles'
+import { outlierBounds, isWithinBounds, type OutlierMethod } from '@/lib/outliers'
 import { TruncatedTick, TruncatedNumericTick, CategoryAxisLabel } from './chart-axis-helpers'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
@@ -36,6 +37,9 @@ interface PlotServerData {
   data?: Record<string, unknown>[]
   isCategorical?: boolean
   colorByCategory?: boolean
+  /** Rows dropped by the outlier filter, so server mode can report the same
+   *  notice the client computes locally. */
+  outliersExcluded?: number
 }
 
 
@@ -468,6 +472,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
   const barMode = (config.barMode as string) ?? 'grouped'
   const histogramOrientation = (config.histogramOrientation as string) ?? 'vertical'
   const excludeNA = (config.excludeNA as boolean) ?? true
+  const outlierMethod = ((config.outlierMethod as string) ?? 'none') as OutlierMethod
+  const outlierCoef = (config.outlierCoef as number) ?? 1.5
   const pointSize = (config.pointSize as number) ?? 4
   const opacityPct = (config.opacity as number) ?? 70
   const xLabelMaxLen = (config.xLabelMaxLen as number) ?? 20
@@ -514,7 +520,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
   }, [rows, uniquePerId, uniqueAggregation])
 
   // Filter out NA / missing values if excludeNA is enabled
-  const sourceRows = useMemo(() => {
+  const naFilteredRows = useMemo(() => {
     if (!excludeNA) return aggregatedRows
     return aggregatedRows.filter(row => {
       if (xCol) {
@@ -528,6 +534,34 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
       return true
     })
   }, [aggregatedRows, excludeNA, xCol, yCol])
+
+  // Drop outliers on the numeric axes. Bounds are computed per column over the
+  // NA-filtered rows, then a row is kept only if every bounded axis is inside its
+  // own fence — the excluded rows leave the computation entirely, so aggregates and
+  // counts reflect the trimmed data. `excludedCount` feeds the notice under the chart.
+  const { sourceRows, outliersExcluded } = useMemo(() => {
+    if (outlierMethod === 'none') return { sourceRows: naFilteredRows, outliersExcluded: 0 }
+    const axes = [xCol, yCol].filter((c): c is string => !!c)
+    const boundsByCol = new Map<string, { lo: number; hi: number } | null>()
+    for (const colId of axes) {
+      const isNumeric = columns.find(c => c.id === colId)?.type === 'number'
+      if (!isNumeric) continue
+      const values = naFilteredRows
+        .map(r => Number(r[colId]))
+        .filter(v => Number.isFinite(v))
+      boundsByCol.set(colId, outlierBounds(values, outlierMethod, outlierCoef))
+    }
+    if (boundsByCol.size === 0) return { sourceRows: naFilteredRows, outliersExcluded: 0 }
+    const kept = naFilteredRows.filter(row => {
+      for (const [colId, bounds] of boundsByCol) {
+        const v = Number(row[colId])
+        // A non-numeric cell has no fence to fail; NA handling stays excludeNA's job.
+        if (Number.isFinite(v) && !isWithinBounds(v, bounds)) return false
+      }
+      return true
+    })
+    return { sourceRows: kept, outliersExcluded: naFilteredRows.length - kept.length }
+  }, [naFilteredRows, outlierMethod, outlierCoef, xCol, yCol, columns])
 
   // Resolve group names
   const groupNames = useMemo(() => {
@@ -663,6 +697,15 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
     return <AnalysisLoading icon={ChartScatter} name={pluginName} compact={compact} />
   }
   const sd = server ? serverData : null
+
+  // A chart that silently drops points misreads as the full distribution, so say how
+  // many were excluded. Server mode reports its own count (it did the filtering).
+  const excludedCount = server ? sd?.outliersExcluded ?? 0 : outliersExcluded
+  const outlierNotice = excludedCount > 0 ? (
+    <p className="shrink-0 px-1 pt-1 text-[10px] text-muted-foreground">
+      {t('plugins.outliers_excluded', { count: excludedCount })}
+    </p>
+  ) : null
 
   // --- Build the chart body (without title) ---
   const chartBody = (
@@ -846,6 +889,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
         <div className="flex-1 min-h-0 px-2 pb-2">
           {chartBody}
         </div>
+        {outlierNotice}
       </div>
     )
   }
@@ -859,6 +903,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
       <div className="flex-1 min-h-0">
         {chartBody}
       </div>
+      {outlierNotice}
     </div>
   )
 }

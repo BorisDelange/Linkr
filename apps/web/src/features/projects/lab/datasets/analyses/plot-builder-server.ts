@@ -11,6 +11,8 @@ export interface PlotBuilderSpec {
   uniquePer: string | null
   uniqueAggregation: string
   excludeNA: boolean
+  outlierMethod: string
+  outlierCoef: number
   binMode: string
   bins: number
   binWidth: number
@@ -49,6 +51,8 @@ export function buildPlotBuilderSpec(columns: DatasetColumn[], config: Record<st
     uniquePer: config.uniquePer ? colName(config.uniquePer as string) : null,
     uniqueAggregation: (config.uniqueAggregation as string) ?? 'first',
     excludeNA: (config.excludeNA as boolean) ?? true,
+    outlierMethod: (config.outlierMethod as string) ?? 'none',
+    outlierCoef: (config.outlierCoef as number) ?? 1.5,
     binMode: (config.binMode as string) ?? 'count',
     bins: (config.bins as number) ?? 20,
     binWidth: (config.binWidth as number) ?? 5,

@@ -13,6 +13,7 @@ _ALLOWED_PLOT_TYPES = {"scatter", "line", "bar", "histogram", "boxplot", "violin
 _ALLOWED_BIN_MODES = {"count", "width"}
 _ALLOWED_ORIENTATIONS = {"vertical", "horizontal"}
 _ALLOWED_AGGREGATIONS = {"first", "last", "mean", "median", "min", "max", "sum"}
+_ALLOWED_OUTLIER_METHODS = {"none", "iqr", "sd", "percentile"}
 
 
 def _opt_str(value, field: str):
@@ -50,6 +51,10 @@ def validate_spec(spec: dict) -> dict:
     if aggregation not in _ALLOWED_AGGREGATIONS:
         raise ValueError("plot-builder spec.uniqueAggregation is invalid")
 
+    outlier_method = spec.get("outlierMethod", "none")
+    if outlier_method not in _ALLOWED_OUTLIER_METHODS:
+        raise ValueError("plot-builder spec.outlierMethod is invalid")
+
     return {
         "plotType": plot_type,
         "x": _opt_str(spec.get("x"), "x"),
@@ -61,6 +66,9 @@ def validate_spec(spec: dict) -> dict:
         "uniquePer": _opt_str(spec.get("uniquePer"), "uniquePer"),
         "uniqueAggregation": aggregation,
         "excludeNA": bool(spec.get("excludeNA", True)),
+        "outlierMethod": outlier_method,
+        # Clamped: a negative coefficient would invert the fence and drop everything.
+        "outlierCoef": max(0, _num(spec.get("outlierCoef"), "outlierCoef", 1.5)),
         "binMode": bin_mode,
         "bins": _num(spec.get("bins"), "bins", 20),
         "binWidth": _num(spec.get("binWidth"), "binWidth", 5),
@@ -201,6 +209,44 @@ def _linkr_categorical_grouped(df, col, gcol, group_names):
         out.append(row)
     return out
 
+def _linkr_percentile(sorted_vals, p):
+    # Linear interpolation between ranks, matching percentile() in
+    # apps/web/src/lib/column-stats.ts so both ends fence on the same value.
+    if not sorted_vals:
+        return 0.0
+    idx = (p / 100.0) * (len(sorted_vals) - 1)
+    lo = int(_math.floor(idx))
+    hi = int(_math.ceil(idx))
+    if lo == hi:
+        return float(sorted_vals[lo])
+    return float(sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * (idx - lo))
+
+def _linkr_outlier_bounds(values, method, coef):
+    # Inclusive (lo, hi) fence, or None when nothing should be excluded. Mirror of
+    # outlierBounds in apps/web/src/lib/outliers.ts - keep both in step.
+    vals = [float(v) for v in values if v is not None and not _math.isnan(float(v))]
+    if method == "none" or not vals:
+        return None
+    s = sorted(vals)
+    if method == "iqr":
+        q1 = _linkr_percentile(s, 25)
+        q3 = _linkr_percentile(s, 75)
+        iqr = q3 - q1
+        if iqr <= 0:
+            return None
+        return (q1 - coef * iqr, q3 + coef * iqr)
+    if method == "sd":
+        n = len(s)
+        mean = sum(s) / n
+        sd = _math.sqrt(sum((v - mean) ** 2 for v in s) / n)
+        if sd <= 0:
+            return None
+        return (mean - coef * sd, mean + coef * sd)
+    p = min(max(coef, 0), 50)
+    if p <= 0:
+        return None
+    return (_linkr_percentile(s, p), _linkr_percentile(s, 100 - p))
+
 def _linkr_boxplot_stats(values):
     if not values:
         return None
@@ -281,6 +327,27 @@ def _linkr_print_plot(dataset, spec):
             mask &= ~df[y].map(_empty)
         df = df[mask]
 
+    # Outlier exclusion, mirroring apps/web/src/lib/outliers.ts (outlierBounds): fences
+    # per numeric axis over the NA-filtered rows, then keep a row only if every bounded
+    # axis is inside its own fence. A degenerate spread (zero IQR/SD) excludes nothing
+    # rather than everything. The dropped count travels back so the chart can say so.
+    outlier_method = spec.get("outlierMethod", "none")
+    outlier_coef = spec.get("outlierCoef", 1.5)
+    outliers_excluded = 0
+    if outlier_method != "none":
+        before = len(df)
+        mask = _pd.Series(True, index=df.index)
+        for col in [c for c in (x, y) if c and c in df.columns]:
+            nums = _pd.to_numeric(df[col], errors="coerce")
+            bounds = _linkr_outlier_bounds(nums.dropna(), outlier_method, outlier_coef)
+            if bounds is None:
+                continue
+            lo, hi = bounds
+            # A non-numeric cell has no fence to fail; NA handling stays excludeNA's job.
+            mask &= nums.isna() | ((nums >= lo) & (nums <= hi))
+        df = df[mask]
+        outliers_excluded = before - len(df)
+
     # group names (sorted string set over non-null values).
     group_names = None
     if group and group in df.columns:
@@ -290,7 +357,7 @@ def _linkr_print_plot(dataset, spec):
                 vals.add(str(v))
         group_names = sorted(vals)
 
-    result = {"plotType": plot_type, "groupNames": group_names}
+    result = {"plotType": plot_type, "groupNames": group_names, "outliersExcluded": outliers_excluded}
 
     if plot_type in ("scatter", "line"):
         if not x or not y or x not in df.columns or y not in df.columns:

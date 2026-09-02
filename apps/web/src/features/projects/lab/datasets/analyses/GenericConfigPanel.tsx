@@ -1100,8 +1100,12 @@ function SelectField({
         changes[b] = config[a]
       }
     }
+    // Re-seed companion fields whose sensible default depends on the chosen option.
+    if (field.setFieldsOnChange && v !== current) {
+      Object.assign(changes, field.setFieldsOnChange[v] ?? {})
+    }
     onConfigChange(changes)
-  }, [fieldKey, field.swapFieldsOnChange, current, config, onConfigChange])
+  }, [fieldKey, field.swapFieldsOnChange, field.setFieldsOnChange, current, config, onConfigChange])
 
   return (
     <div className="space-y-1.5">

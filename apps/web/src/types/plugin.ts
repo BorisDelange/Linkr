@@ -60,6 +60,11 @@ export interface PluginConfigField {
   /** For `select`: when the value changes, swap the values of these config-key pairs
    *  (e.g. swap X/Y column + labels when flipping orientation). */
   swapFieldsOnChange?: [string, string][]
+  /** For `select`: when the value changes, set other fields to a value that depends on
+   *  the newly chosen option — keyed by option value, then by config key. Use it when a
+   *  companion field's sensible default follows this one (e.g. an outlier threshold
+   *  whose conventional value differs per method). */
+  setFieldsOnChange?: Record<string, Record<string, unknown>>
   /** Fields sharing the same row value are rendered side-by-side. */
   row?: string
   /** Collapsible section this field belongs to. Fields with the same section are grouped under a header. */

@@ -516,6 +516,82 @@
         "fr": "Supprime les lignes où les valeurs X ou Y sont nulles, vides ou NA avant de tracer."
       }
     },
+    "outlierMethod": {
+      "type": "select",
+      "label": {
+        "en": "Exclude outliers",
+        "fr": "Exclure les valeurs aberrantes"
+      },
+      "default": "none",
+      "row": "outlierRow",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Drop extreme values before plotting. Excluded rows are removed from the computation, and the count is shown under the chart.",
+        "fr": "Écarte les valeurs extrêmes avant de tracer. Les lignes exclues sont retirées du calcul, et leur nombre est indiqué sous le graphique."
+      },
+      "setFieldsOnChange": {
+        "iqr": { "outlierCoef": 1.5 },
+        "sd": { "outlierCoef": 3 },
+        "percentile": { "outlierCoef": 1 }
+      },
+      "options": [
+        {
+          "value": "none",
+          "label": {
+            "en": "Keep all",
+            "fr": "Tout garder"
+          }
+        },
+        {
+          "value": "iqr",
+          "label": {
+            "en": "IQR (Tukey)",
+            "fr": "IQR (Tukey)"
+          }
+        },
+        {
+          "value": "sd",
+          "label": {
+            "en": "Standard deviation",
+            "fr": "Écart-type"
+          }
+        },
+        {
+          "value": "percentile",
+          "label": {
+            "en": "Percentiles",
+            "fr": "Percentiles"
+          }
+        }
+      ]
+    },
+    "outlierCoef": {
+      "type": "number",
+      "label": {
+        "en": "Threshold",
+        "fr": "Seuil"
+      },
+      "default": 1.5,
+      "min": 0,
+      "max": 50,
+      "step": 0.5,
+      "row": "outlierRow",
+      "visibleWhen": {
+        "field": "outlierMethod",
+        "values": ["iqr", "sd", "percentile"]
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "IQR: k in Q1−k·IQR / Q3+k·IQR (1.5 = Tukey). Standard deviation: k in mean ± k·SD (3 = the 3σ rule). Percentiles: the tail percentage cut from each side (1 = keep the 1st–99th).",
+        "fr": "IQR : k dans Q1−k·IQR / Q3+k·IQR (1,5 = Tukey). Écart-type : k dans moyenne ± k·SD (3 = règle des 3σ). Percentiles : pourcentage écarté de chaque côté (1 = garder du 1er au 99e)."
+      }
+    },
     "cardIcon": {
       "type": "icon-select",
       "label": {
@@ -523,19 +599,6 @@
         "fr": "Icône"
       },
       "default": "__none__",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "centerTitle": {
-      "type": "boolean",
-      "label": {
-        "en": "Center title",
-        "fr": "Centrer le titre"
-      },
-      "default": true,
       "section": {
         "en": "Style",
         "fr": "Style",
@@ -626,28 +689,14 @@
         "value": true
       }
     },
-    "xAxisStartZero": {
+    "centerTitle": {
       "type": "boolean",
       "label": {
-        "en": "X axis starts at 0",
-        "fr": "Axe X commence à 0"
+        "en": "Center title",
+        "fr": "Centrer le titre"
       },
-      "default": false,
-      "row": "checksRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "yAxisStartZero": {
-      "type": "boolean",
-      "label": {
-        "en": "Y axis starts at 0",
-        "fr": "Axe Y commence à 0"
-      },
-      "default": false,
-      "row": "checksRow",
+      "default": true,
+      "row": "togglesRow",
       "section": {
         "en": "Style",
         "fr": "Style",
@@ -661,7 +710,7 @@
         "fr": "Grille"
       },
       "default": true,
-      "row": "checksRow",
+      "row": "togglesRow",
       "section": {
         "en": "Style",
         "fr": "Style",
@@ -675,7 +724,35 @@
         "fr": "Légende"
       },
       "default": true,
-      "row": "checksRow",
+      "row": "togglesRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "xAxisStartZero": {
+      "type": "boolean",
+      "label": {
+        "en": "X axis starts at 0",
+        "fr": "Axe X commence à 0"
+      },
+      "default": false,
+      "row": "axisZeroRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "yAxisStartZero": {
+      "type": "boolean",
+      "label": {
+        "en": "Y axis starts at 0",
+        "fr": "Axe Y commence à 0"
+      },
+      "default": false,
+      "row": "axisZeroRow",
       "section": {
         "en": "Style",
         "fr": "Style",
