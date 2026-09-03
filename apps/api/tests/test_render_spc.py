@@ -239,6 +239,32 @@ def test_returns_null_when_there_is_nothing_to_chart():
     assert run_spc([{"date": "bogus", "flag": "Oui"}], {"statisticType": "proportion"}) is None
 
 
+def test_a_low_volume_unit_is_steered_off_a_monthly_proportion():
+    """The shape of the real NeoCLIP data: a few patients a month, a handful of
+    events a year. A monthly p-chart then flags nearly every period — not because
+    the unit is unstable but because the statistic is noise — while the g-chart of
+    the interval between events reads it as the stable process it is."""
+    # 36 months of 4 patients, a death every third month or so — enough events
+    # for intervals, far too few for a monthly proportion.
+    death_months = {2, 5, 9, 12, 16, 19, 23, 26, 30, 33}
+    rows = []
+    for m in range(36):
+        year, month = 2024 + m // 12, (m % 12) + 1
+        for k in range(4):
+            died = k == 0 and m in death_months
+            rows.append({"date": f"{year}-{month:02d}-15", "flag": "Oui" if died else "Non"})
+
+    monthly_chart = run_spc(rows, {"statisticType": "proportion", "chartType": "p", "eventValues": ["Oui"]})
+    assert "rare-events-prefer-g" in [w["code"] for w in monthly_chart["warnings"]]
+
+    g_chart = run_spc(rows, {"statisticType": "rare-event", "eventValues": ["Oui"]})
+    assert g_chart["chartType"] == "g"
+    assert len(g_chart["points"]) == len(death_months) - 1
+    # Regular intervals in a stable process: nothing to flag, nothing to warn.
+    assert not any(pt["signals"] for pt in g_chart["points"])
+    assert not g_chart["warnings"]
+
+
 def test_deduplicates_to_one_row_per_stay():
     rows = [
         {"visit": "a", "date": "2024-01-05", "flag": "Oui"},

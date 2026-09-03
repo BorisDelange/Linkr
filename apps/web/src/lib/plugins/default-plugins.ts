@@ -38,10 +38,10 @@ export function buildPlugin(
   return { manifest, templates }
 }
 
-// Adding/removing/renaming a Lab plugin (or changing its column-select config
-// keys) also invalidates the create-project skill's built-in widget inventory:
-// keep .claude/skills/create-project/{references/dashboards.md,assets/build_zip.py}
-// (PLUGIN_COLUMN_KEYS) in sync.
+// A Lab plugin is declared in three places that must agree: its manifest under
+// packages/default-plugins/analyses/, the registerComponent + registerPlugin pair
+// below, and — when it computes on the server — a kind in the backend's
+// render/__init__.py _BUILDERS allow-list.
 export function registerDefaultPlugins() {
   // Component-based lab plugins
   registerComponent('table1', () => import('@/features/projects/lab/datasets/analyses/Table1Component').then(m => ({ default: m.Table1Component })), { supportsServer: true })

@@ -113,22 +113,19 @@ the **licensing review** are finished research, moved to [../ecrf-formats-licens
 
 ## SPC / control charts plugin — [spc-plugin-plan.md](spc-plugin-plan.md)
 
-Research + design done, **nothing written**. Two RiCDC projects already do SPC by hand:
-NeoCLIP carries **two** generic R scripts copy-pasted inline into **39 widgets** (~1 MB in one
-dashboard document) — 20 EWMA + 19 Shewhart u-chart, where 14 of the 24 parameters never vary
-and only 3 lines differ between two EWMA widgets. It has **already drifted**: widget 27
-(CLABSI) is a fork carrying a `device_days` denominator the other 18 will never get, and the
-u-chart script's `p`/`np`/`c`/`t` modes are written but reachable only by editing a string.
-micu-clip adds `spc_gchart.R` + a "which chart for which indicator" doctrine in
-`INDICATEURS_CANDIDATS.md`. One component plugin (`linkr-analysis-spc`) replaces all of it.
+**Built, needs manual testing in the app.** Replaces the two generic R scripts NeoCLIP
+copy-pasted inline into 39 widgets (~1 MB in one dashboard document, already drifted: the
+CLABSI widget forked to add a device-days denominator the other 18 never got). One
+component plugin, `linkr-analysis-spc`: p/P'/u/U'/c/np/I-MR/EWMA/g/t, NHSN overlap and
+device-days denominators, Anhoj runs rules, Phase I/II baseline. Pure maths in `lib/spc/`
+(92 Vitest) + server parity in `render/spc.py` (125 pytest asserting on printed values).
 
 | St | Item | Effort |
 |----|------|--------|
-| 🤔 | **Arbitrate §6**: (a) one plugin vs one per chart + v1 chart list · (b) explicit statistic type vs auto-detection (today's auto-detect makes `denominator` silently dead on 18/20 widgets) · (c) Phase I/II default · (d) risk adjustment via an expected-value column · (e) server parity | — |
-| 🔜 | Manifest + `SpcComponent.tsx` + pure compute in `lib/spc/` with unit tests against `qicharts2` | L |
-| 🔜 | Python parity `render/spc.py` + `_BUILDERS` kind | M |
-| 🔜 | Migrate NeoCLIP's 39 inline widgets + delete micu-clip's `_sources` scripts — the real acceptance test | M |
-| 💤 | Xbar-S, CUSUM, funnel plot (Spiegelhalter) | M |
+| 🔜 | **[TO TEST]** Load it in the app: add the widget to a dashboard, both client and server mode. No plugin has a validator — this is the only check that exists | S |
+| 🔜 | Migrate NeoCLIP's 39 inline widgets; **18 of the 20 EWMA ones will change numbers** (they set a denominator the R script silently ignored) — a conversation to have with their readers | M |
+| 🔜 | Delete micu-clip's `_sources/spc_*.R` once the widgets are migrated | S |
+| 💤 | Xbar-S, CUSUM, funnel plot (Spiegelhalter), risk-adjusted VLAD via the expected column | M |
 
 ## Cohorts — patient review tab — [cohort-patient-review-plan.md](cohort-patient-review-plan.md)
 

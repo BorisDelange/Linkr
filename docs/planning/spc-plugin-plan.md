@@ -1,8 +1,23 @@
 # SPC / control-chart plugin — theory, chart choice, and design
 
-Status: **research + design. Nothing written yet.** This note is what to read, which
-chart to use when, and what the plugin should look like. It needs your arbitration on
-§6 before any code.
+Status: **built, not yet exercised in the running app.** §6 was arbitrated (one plugin,
+auto-detect with an explicit override, all-data baseline by default, risk adjustment via
+an optional expected column, both compute paths). What ships:
+
+- `apps/web/src/lib/spc/` — the pure computation, 92 Vitest tests
+- `packages/default-plugins/analyses/spc/plugin.json` + `SpcComponent.tsx` + `spc-server.ts`
+- `apps/api/…/render/spc.py` + the `spc` kind, 125 pytest tests **that run the emitted
+  program and assert on the numbers it prints**, against the same references as the TS
+
+Verified against the real NeoCLIP dataset: the plugin reproduces an independent pandas
+computation exactly (centre 0.06667 over 47 periods, limits to 1e-9), and steers a
+low-volume unit off a monthly proportion onto the g-chart — which reads it as the stable
+process it is (12 intervals, no signal) where the p-chart flagged all 47 periods.
+
+**What remains: running it in the app** (no plugin has a validator — loading it and using
+it is the only check that exists), then migrating the NeoCLIP widgets. Kept below: the
+reading path, the chart-selection tree and the formulas, which are the reference for
+reviewing what was built.
 
 > Prior art in this repo: two projects already do SPC by hand —
 > `@Linkr private portal RiCDC/projects/micu-clip` (`_sources/spc_ewma_pavm.R`,
