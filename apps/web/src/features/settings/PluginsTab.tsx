@@ -48,25 +48,17 @@ import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog
 import { getPluginIcon, getPluginIconColorProps } from './plugin-icon'
 import { getPlugin } from '@/lib/plugins/registry'
 import { hasPluginReadme } from '@/lib/plugins/plugin-readme'
+import { LANG_BADGE, PLUGIN_CHIP_CLASS } from '@/lib/plugins/plugin-badges'
 import { PluginReadmeSheet } from '@/components/PluginReadme'
 import type { Plugin } from '@/types/plugin'
 import { PluginSettingsDialog } from './PluginSettingsDialog'
 import { usePluginActions } from './use-plugin-actions'
 import { PluginEditor } from './PluginEditor'
 
-const LANG_BADGE: Record<string, { label: string; color: string }> = {
-  python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
-  r: { label: 'R', color: 'text-blue-500 bg-blue-500/10' },
-}
-
 function LanguageBadge({ language }: { language: string }) {
   const badge = LANG_BADGE[language]
   if (!badge) return null
-  return (
-    <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight', badge.color)}>
-      {badge.label}
-    </span>
-  )
+  return <span className={cn(PLUGIN_CHIP_CLASS, badge.color)}>{badge.label}</span>
 }
 
 
@@ -122,7 +114,7 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
       }}
     >
       <div className="flex flex-1 flex-col px-4 pt-5">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
               {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
@@ -132,9 +124,14 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
               {plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.id}
             </span>
           </div>
+          {/* Every chip that describes the plugin sits here, at one height —
+              what it does, what it runs on, and where it comes from. */}
           <div className="flex shrink-0 items-center gap-1.5">
+            {plugin.manifest.languages?.map((l) => (
+              <LanguageBadge key={l} language={l} />
+            ))}
             {readOnly && (
-              <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight text-muted-foreground bg-muted">
+              <span className={cn(PLUGIN_CHIP_CLASS, 'text-muted-foreground bg-muted')}>
                 {plugin.isSystemPlugin ? t('plugins.system_plugin') : t('plugins.builtin_badge')}
               </span>
             )}
@@ -178,7 +175,7 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
             )}
           </div>
         </div>
-        <div className="mt-0.5 h-4">
+        <div className="mt-2 h-4">
           {(plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en) && (
             <TruncatedText
               text={plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en ?? ''}
@@ -187,12 +184,8 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
             />
           )}
         </div>
-        <BadgeStrip badges={plugin.manifest.badges ?? []} className="mt-2 h-5" />
-        {/* Languages + version pinned to the bottom-right, just above the footer bar. */}
-        <div className="mt-auto flex items-center justify-end gap-1.5 pt-2">
-          {plugin.manifest.languages?.map((l) => (
-            <LanguageBadge key={l} language={l} />
-          ))}
+        <BadgeStrip badges={plugin.manifest.badges ?? []} className="mt-1.5 h-5" />
+        <div className="mt-auto flex items-center justify-end pt-2">
           <span className="shrink-0 text-[10px] text-muted-foreground">
             v{plugin.manifest.version ?? '1.0.0'}
           </span>

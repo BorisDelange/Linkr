@@ -76,6 +76,9 @@ export function registerDefaultPlugins() {
       version: '1.1.0',
       category: 'visualization',
       tags: ['kpi', 'indicator', 'dashboard'],
+      badges: [
+        { id: 'data-visualization', label: { en: 'Data visualization', fr: 'Visualisation' }, color: 'violet' },
+      ],
       runtime: ['component'],
       languages: [],
       icon: 'Gauge',

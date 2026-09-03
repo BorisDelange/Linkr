@@ -9,7 +9,7 @@
     "fr": "Le tableau descriptif d'un article : une ligne par variable, une colonne par groupe, mis en forme comme dans une revue. Les variables qualitatives ont une ligne indentée par modalité, les quantitatives une médiane [IQR] ou moyenne ± ET."
   },
   "version": "2.0.0",
-  "category": "analysis",
+  "category": "statistics",
   "tags": [
     "descriptive",
     "table",
@@ -221,5 +221,15 @@
         "fr": "Désactivé par défaut : des hauteurs de lignes irrégulières cassent la lecture verticale d'une colonne de chiffres. Le texte long est tronqué, la valeur complète au survol."
       }
     }
-  }
+  },
+  "badges": [
+    {
+      "id": "statistics",
+      "label": {
+        "en": "Statistics",
+        "fr": "Statistiques"
+      },
+      "color": "blue"
+    }
+  ]
 }

@@ -4,6 +4,8 @@ import * as LucideIcons from 'lucide-react'
 import { BookOpen, Info, Puzzle, Search } from 'lucide-react'
 import { PluginReadmeSheet } from '@/components/PluginReadme'
 import { hasPluginReadme } from '@/lib/plugins/plugin-readme'
+import { LANG_BADGE, PLUGIN_CHIP_CLASS } from '@/lib/plugins/plugin-badges'
+import { isBuiltinPluginId } from '@/lib/plugins/default-plugins'
 import { Input } from '@/components/ui/input'
 import {
   Tooltip,
@@ -13,6 +15,7 @@ import {
 import { cn } from '@/lib/utils'
 import { localized } from '@/lib/localized'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { BadgeStrip } from '@/components/ui/badge-strip'
 import type { Plugin, PluginBadge } from '@/types/plugin'
 import type { BadgeColor } from '@/types'
 
@@ -43,10 +46,6 @@ function getIconColorProps(iconColor?: BadgeColor): { className?: string; style?
 // Language badge constants
 // ---------------------------------------------------------------------------
 
-export const LANG_BADGE: Record<string, { label: string; color: string }> = {
-  python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
-  r: { label: 'R', color: 'text-blue-500 bg-blue-500/10' },
-}
 
 // ---------------------------------------------------------------------------
 // Fuzzy match helper
@@ -174,6 +173,7 @@ export function PluginPicker({
             const fullDesc = m.description[lang] ?? m.description.en ?? ''
             const deps = m.dependencies
             const hasReadme = hasPluginReadme(plugin)
+            const isBuiltIn = isBuiltinPluginId(m.id)
             return (
               <button
                 key={m.id}
@@ -189,6 +189,16 @@ export function PluginPicker({
                   <span className="text-sm font-medium truncate flex-1">
                     {m.name[lang] ?? m.name.en}
                   </span>
+                  {/* Same chips, same place, same height as the Plugins page. */}
+                  {m.languages?.map((l) => {
+                    const lb = LANG_BADGE[l]
+                    if (!lb) return null
+                    return (
+                      <span key={l} className={cn(PLUGIN_CHIP_CLASS, lb.color)}>
+                        {lb.label}
+                      </span>
+                    )
+                  })}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       {/* A plugin with a README turns this into a way into it;
@@ -242,31 +252,18 @@ export function PluginPicker({
                 <p className="text-xs text-muted-foreground line-clamp-2">
                   {fullDesc}
                 </p>
-                <div className="flex items-center gap-1 flex-wrap">
-                  {m.runtime?.includes('component') && (
-                    <span className="shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none text-emerald-500 bg-emerald-500/10">
+                {/* The author's own badges stay here; what the plugin *is* has
+                    moved up beside the title. `isBuiltIn` reads the registry,
+                    not `runtime`: a user plugin can be a component too, and used
+                    to be mislabelled built-in. */}
+                <div className="mt-auto flex items-center gap-1.5 pt-1">
+                  {isBuiltIn && (
+                    <span className={cn(PLUGIN_CHIP_CLASS, 'text-muted-foreground bg-muted')}>
                       {t('plugins.builtin_badge')}
                     </span>
                   )}
-                  {m.languages?.map((l) => {
-                    const lb = LANG_BADGE[l]
-                    if (!lb) return null
-                    return (
-                      <span key={l} className={cn('shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none', lb.color)}>
-                        {lb.label}
-                      </span>
-                    )
-                  })}
-                  {m.badges?.map((badge) => (
-                    <span
-                      key={badge.id}
-                      className={cn('shrink-0 rounded-full px-1.5 py-px text-[9px] font-medium leading-none', getBadgeClasses(badge.color))}
-                      style={getBadgeStyle(badge.color)}
-                    >
-                      {localized(badge.label, lang)}
-                    </span>
-                  ))}
-                  <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
+                  <BadgeStrip badges={m.badges ?? []} className="h-5 min-w-0 flex-1" />
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
                     v{m.version ?? '1.0.0'}
                   </span>
                 </div>

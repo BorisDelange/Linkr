@@ -169,5 +169,15 @@
         "fr": "Marque les cases dont p est sous α. Une forte corrélation sur peu de paires peut ne pas passer le seuil quand une très faible sur des milliers le franchit — le repère le signale."
       }
     }
-  }
+  },
+  "badges": [
+    {
+      "id": "statistics",
+      "label": {
+        "en": "Statistics",
+        "fr": "Statistiques"
+      },
+      "color": "blue"
+    }
+  ]
 }

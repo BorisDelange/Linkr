@@ -865,5 +865,15 @@
         }
       ]
     }
-  }
+  },
+  "badges": [
+    {
+      "id": "statistics",
+      "label": {
+        "en": "Statistics",
+        "fr": "Statistiques"
+      },
+      "color": "blue"
+    }
+  ]
 }
