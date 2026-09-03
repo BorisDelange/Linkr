@@ -46,6 +46,10 @@ import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
 import { getPluginIcon, getPluginIconColorProps } from './plugin-icon'
+import { getPlugin } from '@/lib/plugins/registry'
+import { hasPluginReadme } from '@/lib/plugins/plugin-readme'
+import { PluginReadmeSheet } from '@/components/PluginReadme'
+import type { Plugin } from '@/types/plugin'
 import { PluginSettingsDialog } from './PluginSettingsDialog'
 import { usePluginActions } from './use-plugin-actions'
 import { PluginEditor } from './PluginEditor'
@@ -84,6 +88,8 @@ interface PluginCardProps {
   license?: EntityLicense | null
   /** Opens the README/licence dialog on `tab`. Absent for read-only plugins. */
   onOpenDocs?: (tab: DocsTab) => void
+  /** Opens a read-only README for a plugin that has no editor to open. */
+  onOpenReadme: (plugin: PluginListItem) => void
   /** Part of a multi-selection — greys the card out. */
   selected?: boolean
   /** Returns true when the click was consumed as a selection gesture, so the card skips opening. */
@@ -91,21 +97,28 @@ interface PluginCardProps {
   t: (key: string) => string
 }
 
-function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate, onDelete, onVersioning, license, onOpenDocs, selected, onSelectClick, t }: PluginCardProps) {
+function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate, onDelete, onVersioning, license, onOpenDocs, onOpenReadme, selected, onSelectClick, t }: PluginCardProps) {
   const Icon = getPluginIcon(plugin.manifest.icon)
   const readOnly = plugin.readOnly
   const iconProps = getPluginIconColorProps(plugin.manifest.iconColor)
+  // A read-only plugin has no editor to open, but it can still have a README —
+  // so it stays clickable when there is documentation to show, and inert when
+  // there is none.
+  const registered = getPlugin(plugin.manifestId)
+  const readOnlyDocs = readOnly && hasPluginReadme(registered)
+  const clickable = !readOnly || readOnlyDocs
   return (
     <Card
       key={plugin.id}
       className={cn(
         'relative flex min-h-44 flex-col gap-0 py-0 transition-colors',
-        readOnly ? 'cursor-default' : 'cursor-pointer hover:bg-accent',
+        clickable ? 'cursor-pointer hover:bg-accent' : 'cursor-default',
         selected && selectedCardClass,
       )}
-      onClick={readOnly ? undefined : (e) => {
+      onClick={!clickable ? undefined : (e) => {
         if (onSelectClick?.(e)) return
-        onOpen(plugin.id)
+        if (readOnly) onOpenReadme(plugin)
+        else onOpen(plugin.id)
       }}
     >
       <div className="flex flex-1 flex-col px-4 pt-5">
@@ -229,6 +242,8 @@ export function PluginsTab() {
   const pluginActions = usePluginActions()
   // A card's licence chip opens the shared readme/licence dialog on its License tab.
   const [docsTarget, setDocsTarget] = useState<{ id: string; tab: DocsTab } | null>(null)
+  // A read-only plugin's documentation, shown in the same sheet the pickers use.
+  const [readmeTarget, setReadmeTarget] = useState<Plugin | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editTargetId, setEditTargetId] = useState<string | null>(null)
@@ -456,6 +471,7 @@ export function PluginsTab() {
             onVersioning={(id, tab) => setVersioningTarget({ id, tab })}
             license={pluginActions.docs.getLicense({ id: plugin.id, name: plugin.manifest.name ?? plugin.id })}
             onOpenDocs={plugin.readOnly ? undefined : (tab) => setDocsTarget({ id: plugin.id, tab })}
+            onOpenReadme={(p) => setReadmeTarget(getPlugin(p.manifestId) ?? null)}
             selected={selection.isSelected(plugin.id)}
             onSelectClick={(e) => selection.onCardClick(e, plugin.id)}
             t={t}
@@ -591,6 +607,14 @@ export function PluginsTab() {
           />
         )
       })()}
+
+      {/* A built-in's README: read-only, so the sheet rather than EntityDocsDialog,
+          which offers editing and attachments the bundle cannot take. */}
+      <PluginReadmeSheet
+        plugin={readmeTarget}
+        open={readmeTarget !== null}
+        onOpenChange={(open) => { if (!open) setReadmeTarget(null) }}
+      />
 
       {/* Export & versioning (git remote) — same dialog as other entities */}
       {versioningTarget && (

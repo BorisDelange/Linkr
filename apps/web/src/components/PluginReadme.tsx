@@ -1,14 +1,24 @@
 import { useTranslation } from 'react-i18next'
-import { BookOpen } from 'lucide-react'
+import { BookOpen, X } from 'lucide-react'
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
+import { useResizableSidebar } from '@/hooks/use-resizable-sidebar'
 import { localized } from '@/lib/localized'
 import type { Plugin } from '@/types/plugin'
+
+// Wider than the dashboard sidebars: this one holds prose, and a tutorial read
+// at 340px is a column of broken sentences. Half the viewport, as the concept
+// sheets do, bounded so it stays sane on a very small or very wide screen.
+const README_MIN_WIDTH = 360
+const README_MAX_WIDTH = 1400
+const readmeDefaultWidth = () =>
+  Math.max(README_MIN_WIDTH, Math.min(README_MAX_WIDTH, Math.round(window.innerWidth * 0.5)))
 
 /**
  * A plugin's README, rendered read-only. Used both inside the picker's sheet and
@@ -55,16 +65,40 @@ export function PluginReadmeSheet({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { width, handleProps } = useResizableSidebar(
+    readmeDefaultWidth(),
+    README_MAX_WIDTH,
+    README_MIN_WIDTH,
+  )
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
-        <SheetHeader className="shrink-0 border-b px-4 py-3">
-          <SheetTitle className="flex items-center gap-2">
-            <BookOpen size={15} className="shrink-0 text-muted-foreground" />
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="flex flex-col gap-0 p-0"
+        style={{ width, minWidth: README_MIN_WIDTH, maxWidth: README_MAX_WIDTH }}
+      >
+        {/* Drag handle on the left edge, as the dashboard sidebars do. */}
+        <div
+          {...handleProps}
+          className="absolute left-0 top-0 z-10 h-full w-1 -translate-x-1/2 cursor-col-resize hover:bg-primary/30"
+        />
+        <SheetHeader className="shrink-0 flex-row items-center gap-2 space-y-0 border-b px-4 py-2.5">
+          <BookOpen size={15} className="shrink-0 text-muted-foreground" />
+          <SheetTitle className="min-w-0 flex-1 truncate leading-normal">
             {plugin ? localized(plugin.manifest.name, i18n.language) : ''}
           </SheetTitle>
+          {/* The circled grey hover of DialogContent's close, which the default
+              sheet close does not carry — centred in the header rather than
+              floating at top-4 right-4, so it lines up with the title. */}
+          <SheetClose
+            aria-label={t('common.close')}
+            className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-70 transition-[opacity,background-color] hover:bg-muted hover:text-foreground hover:opacity-100 focus:outline-hidden"
+          >
+            <X size={16} />
+          </SheetClose>
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {plugin && <PluginReadmeContent plugin={plugin} />}

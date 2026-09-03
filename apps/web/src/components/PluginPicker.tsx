@@ -215,20 +215,26 @@ export function PluginPicker({
                         {hasReadme ? <BookOpen size={13} /> : <Info size={13} />}
                       </span>
                     </TooltipTrigger>
+                    {/* The tooltip paints `bg-foreground text-background`, so the
+                        secondary text dims with the background colour rather than
+                        `text-muted-foreground`, which is near-invisible on it. */}
                     <TooltipContent side="right" className="max-w-xs text-xs space-y-1.5 p-3">
                       <p className="font-medium">{m.name[lang] ?? m.name.en}</p>
-                      <p className="text-muted-foreground">{fullDesc}</p>
-                      <div className="flex items-center gap-2 text-muted-foreground">
+                      <p className="text-background/70">{fullDesc}</p>
+                      <div className="flex items-center gap-2 text-background/70">
                         <span>v{m.version ?? '1.0.0'}</span>
                         {m.category && <span>· {m.category}</span>}
                       </div>
                       {deps && Object.keys(deps).length > 0 && (
-                        <p className="text-muted-foreground">
+                        <p className="text-background/70">
                           Deps: {Object.entries(deps).map(([k, v]) => `${k}${v ? `@${v}` : ''}`).join(', ')}
                         </p>
                       )}
                       {hasReadme && (
-                        <p className="font-medium text-primary">{t('plugins.read_docs')}</p>
+                        <p className="flex items-center gap-1 font-medium">
+                          <BookOpen size={11} className="shrink-0" />
+                          {t('plugins.read_docs')}
+                        </p>
                       )}
                     </TooltipContent>
                   </Tooltip>

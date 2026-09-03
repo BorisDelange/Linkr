@@ -133,7 +133,8 @@ bonne nouvelle.
 
 ## Pour aller plus loin
 
-- Mohammed MA et al., *Plotting basic control charts* — le tutoriel de référence.
-- Anhøj J, *Diagnostic value of run chart analysis* — les règles utilisées ici.
-- Laney DB, *Improved control charts for attributes* — la correction P′/U′.
-- Provost & Murray, *The Health Care Data Guide* — le manuel de référence.
+- [Mohammed MA et al., *Plotting basic control charts*](https://qualitysafety.bmj.com/content/17/2/137) — le tutoriel de référence.
+- [Anhøj J, *Diagnostic value of run chart analysis*](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0121349) — les règles utilisées ici.
+- [Laney DB, *Improved control charts for attributes*](https://doi.org/10.1080/08982112.2002.11980180) — la correction P′/U′.
+- [Provost & Murray, *The Health Care Data Guide*](https://www.wiley.com/en-us/The+Health+Care+Data+Guide%3A+Learning+from+Data+for+Improvement%2C+2nd+Edition-p-9781119690139) — le manuel de référence.
+- [NHS England, *Making data count*](https://www.england.nhs.uk/publication/making-data-count/) — la MSP pour les équipes qualité, avec des exemples travaillés.

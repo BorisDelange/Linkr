@@ -10,8 +10,15 @@ const MAX_WIDTH = 640
  *
  * Spread `handleProps` onto a thin absolutely-positioned strip on that edge, and
  * apply `width` to the sidebar's own style.
+ *
+ * `maxWidth` is raised by panels holding prose rather than form fields, where
+ * the dashboard sidebars' 640px would force an uncomfortably narrow measure.
  */
-export function useResizableSidebar(defaultWidth: number = SIDEBAR_DEFAULT_WIDTH) {
+export function useResizableSidebar(
+  defaultWidth: number = SIDEBAR_DEFAULT_WIDTH,
+  maxWidth: number = MAX_WIDTH,
+  minWidth: number = MIN_WIDTH,
+) {
   const [width, setWidth] = useState(defaultWidth)
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
 
@@ -25,7 +32,7 @@ export function useResizableSidebar(defaultWidth: number = SIDEBAR_DEFAULT_WIDTH
       if (!dragRef.current) return
       // Dragging left (smaller clientX) widens the right-anchored sidebar.
       const delta = dragRef.current.startX - e.clientX
-      setWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, dragRef.current.startW + delta)))
+      setWidth(Math.max(minWidth, Math.min(maxWidth, dragRef.current.startW + delta)))
     },
     onPointerUp: (e: React.PointerEvent) => {
       dragRef.current = null

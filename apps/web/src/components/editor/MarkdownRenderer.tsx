@@ -11,6 +11,7 @@ import {
   Lightbulb,
   AlertTriangle,
   AlertCircle,
+  ExternalLink,
 } from 'lucide-react'
 
 // --- Shared config (also used by SummaryReadmeTab) ---
@@ -226,6 +227,26 @@ export function MarkdownRenderer({
         )
       }
       return <code {...props}>{children}</code>
+    },
+    // An off-site link opens in a new tab and says so, so following a reference
+    // never loses the page underneath. In-page anchors (the TOC, heading links)
+    // and app-relative links keep navigating in place.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    a: ({ node: _node, href, children, ...props }: any) => {
+      const isExternal = typeof href === 'string' && /^(https?|mailto):/i.test(href)
+      if (!isExternal) return <a href={href} {...props}>{children}</a>
+      return (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-baseline gap-0.5"
+          {...props}
+        >
+          {children}
+          <ExternalLink size={11} className="shrink-0 translate-y-px opacity-70" aria-hidden />
+        </a>
+      )
     },
     // Add IDs to headings for TOC linking
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

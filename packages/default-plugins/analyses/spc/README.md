@@ -125,7 +125,8 @@ measure, and a rising line is good news.
 
 ## Further reading
 
-- Mohammed MA et al., *Plotting basic control charts* — the standard tutorial.
-- Anhøj J, *Diagnostic value of run chart analysis* — the runs rules used here.
-- Laney DB, *Improved control charts for attributes* — the P′/U′ correction.
-- Provost & Murray, *The Health Care Data Guide* — the reference textbook.
+- [Mohammed MA et al., *Plotting basic control charts*](https://qualitysafety.bmj.com/content/17/2/137) — the standard tutorial.
+- [Anhøj J, *Diagnostic value of run chart analysis*](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0121349) — the runs rules used here.
+- [Laney DB, *Improved control charts for attributes*](https://doi.org/10.1080/08982112.2002.11980180) — the P′/U′ correction.
+- [Provost & Murray, *The Health Care Data Guide*](https://www.wiley.com/en-us/The+Health+Care+Data+Guide%3A+Learning+from+Data+for+Improvement%2C+2nd+Edition-p-9781119690139) — the reference textbook.
+- [NHS England, *Making data count*](https://www.england.nhs.uk/publication/making-data-count/) — SPC for improvement teams, with worked examples.
