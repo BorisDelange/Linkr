@@ -1,544 +1,442 @@
 # AI agents — design
 
-Two distinct products under one name. Keep them separate in the code; they share
-only the Skills entity and the LLM provider config.
+**One agent, one sidebar, server mode only.** An external agent binary (OpenCode by
+default) supplies the agentic loop, memory and context compaction; Linkr supplies the
+UI, the actions and the safety frame. They meet over two open protocols:
 
-1. **CLI agent in the IDE** — OpenCode (plus Claude Code, Gemini CLI…) running in
-   the project's server-side working directory, driven from an IDE panel.
-2. **Conversational product agent** — a copilot in a right sidebar on Dashboard /
-   Cohorts / Patient data, calling *tools* that map to the actions a user performs
-   with the mouse. Mental model: Claude inside PowerPoint, not Claude Code.
+- **ACP** (Agent Client Protocol) — the agent streams typed events to our own UI, and
+  asks *us* for permission. No TUI, no ANSI parsing.
+- **MCP** — how the agent acts: on a running instance (`linkr-live`) and on entity
+  trees on disk (`linkr-authoring`).
 
-Feasibility: **yes, and the app is well positioned** — three heavy pieces already
-exist (permission-gated PTY terminal over WS, permission catalogue, fully
-action-based dashboard store). The real cost is UI/UX and safety, not LLM plumbing.
+Mental model: Zed's agent panel, but the tools drive Linkr instead of a code editor.
+
+> **Superseded (2026-09-02).** Earlier revisions of this plan described two separate
+> products — a per-page conversational copilot with an in-house agentic loop, and a
+> CLI agent in the IDE. Both the split and the in-house loop are dropped; see §10 for
+> what was removed and why.
 
 ---
 
-## 0. What already exists and gets reused
+## 0. Architecture
 
-| Building block | Where | What it gives us |
+```
+Sidebar (project-wide) — two render modes: clinician / developer
+   │  WebSocket — ACP events relayed
+   ▼
+FastAPI — subprocess broker
+   │  spawn (stdio) ──▶ opencode acp
+   │                       │  session/new { mcpServers: [...] }
+   │                       ├─ MCP linkr-live      (http + session token)
+   │                       ├─ files + shell       (native to the agent)
+   │                       └─ skills on disk      .agents/skills/
+   └── WS notification ──▶ front store reloads after a write
+```
+
+Three action surfaces compose:
+
+| Surface | Source | Reach |
 |---|---|---|
-| PTY terminal over WebSocket | [execution.py:587-680](../../apps/api/app/api/v1/routes/execution.py#L587) | `_terminal_pty_loop`: bash PTY, resize, native Ctrl+C, gated on `ide:execute` + `enable_code_execution`. **A CLI agent is just one more process in that PTY.** |
-| xterm.js | `@xterm/xterm` + `@xterm/addon-fit`, already a dependency | terminal rendering, already wired |
-| Permission catalogue | [permissions.py:26](../../apps/api/app/core/permissions.py#L26) | `WORKSPACE_CATALOGUE`, `"resource:action"`, `has_project_permission`, `require_project_permission` |
-| UI gate | [use-context-role.ts](../../apps/web/src/hooks/use-context-role.ts) | `can('skills:write')` — one line to gate a button |
-| "File collection" entity | `SqlScriptCollection` / `SqlScriptFile` in [sql_script.py](../../apps/api/app/models/sql_script.py) | the exact pattern to clone for Skills |
-| Path-keyed versioned tree | [entity-tree.ts](../../apps/web/src/lib/entity-tree.ts) | `_tree.json` keyed by path + `deterministicId` → git-friendly, no id churn |
-| Action-based dashboard store | [dashboard-store.ts:31-76](../../apps/web/src/stores/dashboard-store.ts#L31) | ~25 atomic, id-addressed actions — **this is already a tool API** |
-| Provenance / catalog | lineageId, author, org on the 7 exportables | Skills inherits it for free and becomes publishable to the catalog |
+| Files + shell | agent-native | write/edit/run code in the project IDE |
+| App actions | MCP `linkr-live` | widgets, tabs, cohorts, datasets, filters |
+| Offline content | MCP `linkr-authoring` | entity trees on disk (already built) |
 
-Nothing to invent on the execution side. On the LLM side, `apps/api` has **no** AI
-dependency today: blank page, free choice.
+### What already exists and gets reused
+
+| Building block | Where | What it gives |
+|---|---|---|
+| PTY over WebSocket | [execution.py:638](../../apps/api/app/api/v1/routes/execution.py#L638) | the subprocess-broker pattern the ACP relay clones |
+| `LlmProvider` + proxy | `models/llm_provider.py`, `routes/llm_proxy.py` | provider config, Fernet-encrypted keys, per-surface approval — **done** |
+| Permission catalogue | [permissions.py:26](../../apps/api/app/core/permissions.py#L26) | `"resource:action"`, `require_project_permission` |
+| `@linkr/mcp` | [packages/linkr-mcp](../../packages/linkr-mcp) | a working MCP server over `@linkr/format` — becomes `linkr-authoring` |
+| Action-based dashboard store | [dashboard-store.ts:31](../../apps/web/src/stores/dashboard-store.ts#L31) | ~25 atomic, id-addressed actions — the tool vocabulary for `linkr-live` |
+| "File collection" entity | `SqlScriptCollection` / `SqlScriptFile` | the exact pattern to clone for Skills |
+| Path-keyed versioned tree | [entity-tree.ts](../../apps/web/src/lib/entity-tree.ts) | `_tree.json` keyed by path — git-friendly, no id churn |
 
 ---
 
 ## 1. Skills entity (workspace-scoped)
 
-A skill is a folder with `SKILL.md` plus optional files. This is an **open standard**
-(agentskills.io) read by Claude Code, OpenCode, Codex, Cursor and 20+ other agents.
-Minimal frontmatter: `name` and `description` required, everything else optional.
-No runtime, no build step.
+A skill is a folder with `SKILL.md` plus optional files — the agentskills.io open
+standard, read by OpenCode, Claude Code, Codex, Cursor and 20+ others. No runtime, no
+build step. **Do not invent a format.**
 
-So: **do not invent a format.** Store folders, write them to disk, let agents read
-them.
+Value is not tied to Linkr's own agent: a skill published to the catalog ("how to map
+an OMOP concept in Linkr") is read by any harness, on anyone's machine. This is the
+highest-leverage, lowest-risk piece of the whole plan.
 
-### Model
+### Model — a strict clone of SQL collections
 
-A strict clone of SQL collections:
-
-**Decided: one entity = one skill** (one folder with its `SKILL.md`), not a bundle.
-So the entity is called `Skill`, **not** `SkillCollection` — unlike SQL collections,
-where one collection holds N scripts. Getting the vocabulary right here matters: it
-keeps 1 entity = 1 publishable/installable unit for the catalog, with its own semver
-`version` and `lineage_id`, consistent with the other exportables.
+**One entity = one skill** (one folder with its `SKILL.md`), so the entity is `Skill`,
+not `SkillCollection`. That keeps 1 entity = 1 publishable/installable catalog unit
+with its own semver `version` and `lineage_id`, consistent with the other exportables.
 
 - `Skill` — workspace_id, entity_id, name/description LocalizedString,
   git_remote_config, version, created_by*, organization, lineage_id, parent_lineage_id
-- `SkillFile` — id, skill_id, name, type (`file` | `folder`), parent_id, content,
-  order
+- `SkillFile` — id, skill_id, name, type (`file` | `folder`), parent_id, content, order
 
-Consequence to accept: no files shared between skills (no `shared/refs.csv` across a
-pack). The standard pushes towards self-contained skills anyway, so this is not a
-real loss. A "skill pack" is a workspace, or a future grouping.
+Consequence to accept: no files shared between skills. The standard pushes towards
+self-contained skills anyway. A "skill pack" is a workspace.
 
-### Implementation checklist (mirrors sql-scripts)
+### Implementation checklist
 
 **Backend** — `models/skill.py`, `schemas/skill.py`, `api/v1/routes/skills.py` (the
-same 10 routes as [sql_scripts.py](../../apps/api/app/api/v1/routes/sql_scripts.py):
-skill CRUD + file CRUD + purge), alembic migration, router registration.
+same 10 routes as [sql_scripts.py](../../apps/api/app/api/v1/routes/sql_scripts.py)),
+alembic migration, router registration.
 
 **Frontend** — `stores/skills-store.ts`, `lib/api/skills.ts`, pages under
-`features/warehouse/skills/` (List / Editor / FileTree / create dialogs) following
-`features/warehouse/sql-scripts/`, sidebar entry, i18n EN+FR.
+`features/warehouse/skills/` following `features/warehouse/sql-scripts/`, sidebar
+entry, i18n EN+FR.
 
-**Cross-cutting** — `entity-io.ts` (export/import + `_tree.json` via
-`entity-tree.ts`), golden test `skill-export-golden.test.ts`, seed loader +
-manifest, catalog (one more `type: "skill"` per `catalog-plan.md`), versioning /
-git-link.
+**Cross-cutting** — `entity-io.ts` export/import + `_tree.json`, golden test
+`skill-export-golden.test.ts`, seed loader + manifest, catalog (`type: "skill"`),
+versioning / git-link.
 
 **Permissions** — add `"skills": RWD` to `WORKSPACE_CATALOGUE`.
 
-Effort: **M**. Well-trodden ground — the only real work is frontmatter validation
-and the Markdown editor.
+Validate `SKILL.md` (frontmatter present, `name`/`description` non-empty) and surface
+the result in the list — an invalid skill is silently ignored by agents, which is
+painful to diagnose.
 
-Worth adding: validate `SKILL.md` (frontmatter present, `name`/`description`
-non-empty) and surface the result in the list. An invalid skill is silently ignored
-by agents, which is painful to diagnose.
+### 1b. Project selection
 
-### 1b. Selecting skills per project (captured 2026-08-22)
+Skills are authored at the **workspace**; a **project picks** which it uses. The picked
+set is materialised into the project's IDE working directory (§4), and **travels with
+the project export as references, not copies** — a copy would fork the skill and defeat
+workspace authoring. A missing referenced skill on import is flagged ("missing skills"
+state) and offered from the catalog, never a hard failure.
 
-Skills are authored in the **workspace** (an AI Skills page next to the other
-workspace entities); a **project picks** which of them it uses. The picked set then:
+### 1c. `AGENTS.md` is not a Skill
 
-- is materialised into the project's IDE working directory, so opening the terminal
-  gives the agent access with no further action (§3 already specifies the path, and
-  that it is generated + gitignored — the pick is what decides *which* skills land there);
-- **travels with the project export**, as a list of references, not copies. A copy
-  would fork the skill and defeat the workspace-level authoring; a reference means an
-  imported project states what it needs and the missing skills are installable from the
-  catalog, which is exactly the mechanism `catalog-plan.md` already provides.
+- **`SKILL.md`** — one folder = one capability, shareable, versionable, publishable.
+- **`AGENTS.md`** — a single file describing *this project* to any agent. A property of
+  the project, not a catalog entity.
 
-Open: what an import does when a referenced skill is absent — flag it in the project
-(a "missing skills" state) rather than failing the import, on the "simple tolerant read"
-preference. Confirm at build time.
-
-This answers §9 question 1: **workspace-scoped authoring + project-level selection**,
-rather than project-scoped skills.
-
-### 1c. Beyond `SKILL.md` — `AGENTS.md` and non-Claude runtimes
-
-Two things not to conflate:
-
-- **`SKILL.md`** — one folder = one capability, the agentskills.io standard, already
-  the model above. Read by Claude Code, OpenCode, Codex, Cursor and others.
-- **`AGENTS.md`** — a single repo-root file describing *the project* to any agent
-  (build commands, conventions, layout). Different unit, different lifetime: it is a
-  property of the project, not a shareable, versionable, catalog-publishable entity.
-
-So `AGENTS.md` is **not** a Skill. It is best generated per project into the IDE working
-directory alongside the skills tree — from the project's own metadata (name,
-description, datasets, schema mapping, IDE paths), with a user-editable override. Worth
-one item, not an entity.
-
-**Non-Anthropic models are already covered.** `LlmProvider.kind` includes `mistral`,
-`openai`, `gemini` and `local-openai-compatible` (§2), and the provider config is
-**done** — OpenRouter is an OpenAI-compatible `base_url`, so it needs no new kind, at
-most a preset in the provider dialog. What determines whether a given model can *use*
-skills is the agent binary (OpenCode, Claude Code…), not the provider — and OpenCode
-reads `.agents/skills/` whatever model sits behind it. Nothing to investigate on the
-protocol side; the open item is only which agent binaries we test against.
-
-| St | Item | Effort |
-|----|------|--------|
-| 🔜 | Project-level skill selection (picker + reference list in the project export) | M |
-| 🤔 | Import with a missing referenced skill: flag, offer catalog install, never fail | S |
-| 🔜 | Generated `AGENTS.md` per project (from project metadata) + user override | S |
-| 💤 | OpenRouter preset in the provider dialog (no new `kind` needed) | S |
+So `AGENTS.md` is **generated** per project from its metadata (name, description,
+datasets, schema mapping, IDE paths), with a user-editable override.
 
 ---
 
-## 2. LLM providers & permissions (the foundation for both tracks)
+## 2. LLM providers — done, and the safety frame
 
-Do this **before** either UI. This is where the health-data risk is decided.
+**Scope: workspace.** `LlmProvider.workspace_id` with `ondelete="CASCADE"`, consistent
+with every other entity. Configured by an **admin** (owner), gated on
+`llm-config:write`, enforced server-side.
 
-### Three new permissions
+**Status: built.** Model, routes, proxy, settings tab, per-surface approval
+(`surfaces`) all exist. What follows is the contract to preserve, not work to do.
+
+### Permissions
 
 ```python
 "skills": RWD,                    # workspace
-"llm-config": ["read", "write"],  # workspace — manage providers
+"llm-config": ["read", "write"],  # workspace — owner only
 "agents": ["read", "execute"],    # project  — use an agent
 ```
 
-`llm-config:write` is the sensitive right requested: **who may enable an LLM**.
-Deliberately separate from `agents:execute` (who may use one). Defaults:
+`llm-config:write` (who may enable an LLM) is deliberately separate from
+`agents:execute` (who may use one). It must be **explicitly excluded** from
+`_catalogue_perms("write")`, the way `_MEMBER_RESOURCES` already excludes membership
+writes — otherwise editors inherit it.
 
-- viewer → `agents:read`
-- editor → `agents:execute` (via the `write ⊇ execute` ladder)
-- owner only → `llm-config:write`
+### Health data and the remote guardrail
 
-⚠️ The current `_LADDER` grants `execute` to anyone holding `write`. For
-`llm-config` we declare no `execute` action, so there is no leak there — but
-`_catalogue_perms("write")` would still hand `llm-config:write` to editors by
-default. It must be **explicitly excluded**, the same way `_MEMBER_RESOURCES`
-already excludes membership writes. Same mechanism, one line.
+**Decided: the agent may reach health data when the admin has configured a local,
+secured provider.** That is the point of the design — a local model behind
+`LINKR_ALLOW_REMOTE_LLM=false` means prompts never leave the institution, so there is
+no reason to cripple the assistant. The guardrail is the *provider*, not the tool set.
 
-### Provider model
+The mechanisms that make that safe, all already built:
 
-`LlmProvider` — workspace_id, name, kind, base_url, model, api_key_encrypted,
-is_local, enabled, created_by… API key encrypted with **Fernet via `crypto.py`** and
-never returned by the API; the secrets-at-rest pattern already exists for database
-passwords.
+- `is_local` **derived server-side** from `base_url` (localhost / 127.0.0.1 / ::1 /
+  RFC1918 / no public TLD), never declared by the client.
+- Non-local provider creation requires a recorded acknowledgement
+  (`acknowledged_by_id`, `acknowledged_at`, `acknowledgement_text`) — an audit trail.
+- A permanent red **External API** badge wherever the provider appears, including the
+  sidebar header while it is active.
+- `LINKR_ALLOW_REMOTE_LLM=false` by default — an institution admin structurally forbids
+  egress rather than relying on user discipline. **This is the strongest guarantee in
+  the design.**
 
-`kind` ∈ `local-openai-compatible` (Ollama / LM Studio / llama.cpp / vLLM),
-`anthropic`, `openai`, `mistral`, `gemini`, `custom`.
-
-**Status: done.** `LlmProvider` has its routes, the settings tab lives under the
-workspace and is gated on `llm-config:write` (owner-only, enforced server-side),
-and providers are approved per surface. `lib/agent/settings.ts` picks its backing
-at call time: the server when there is one, `localStorage` for client-only (WASM)
-deployments, which have no backend to hold a provider list and nowhere safer to
-keep a key. The API key is never returned by the API — responses carry
-`hasApiKey`.
-
-### The remote-model guardrail
-
-OpenCode talks to any OpenAI-compatible endpoint through `options.baseURL`, so a
-local model is literally `baseURL: http://localhost:11434/v1`. **Local is therefore
-the natural default**, not an extra effort.
-
-Product rules:
-
-- `is_local` is **derived, never declared** — computed server-side from the URL
-  (localhost / 127.0.0.1 / ::1 / RFC1918 private ranges / hostname without a public
-  TLD). A user must not be able to tick "local" on `api.openai.com`.
-- Creating a non-local provider requires a dedicated confirmation dialog: red
-  border, explicit wording about health data leaving the local infrastructure, a
-  checkbox ("I understand data sent will leave the institution"), and retyping the
-  provider name. Recorded in the database as `acknowledged_by_id`,
-  `acknowledged_at`, `acknowledgement_text` — a decision trail, useful for audit.
-- A permanent red "External API" badge wherever that provider is listed, and in the
-  agent panel header while it is active.
-- Instance-level setting `LINKR_ALLOW_REMOTE_LLM=false` (default **false**) blocking
-  creation of non-local providers server-side. An institution admin can then
-  structurally forbid data egress instead of relying on user discipline. **This is
-  the strongest guarantee in the design** — the checkbox only protects against
-  accidents.
-
-> Worth keeping in mind: the execution sandbox. A CLI agent in the PTY runs with the
-> server process's rights, including access to project datasets. A remote model plus
-> an autonomous agent means patient data can be exfiltrated through prompt content
-> itself, not only through files. Hence the restrictive default.
+Corollary that does *not* change: with a **remote** provider approved, dataset rows must
+not be sent as context — schema and aggregates only. With a local provider that
+restriction is a product choice, not a safety one.
 
 ---
 
-## 3. Track A — CLI agent in the IDE
+## 3. ACP — the client
 
-### Materialising skills on disk
+### Protocol facts (verified 2026-09-02)
 
-An "Import skills" button in the IDE writes the selected skills into the project
-working directory. OpenCode scans these three locations equally, walking up to the
-git worktree:
-
-```
-.opencode/skills/<name>/SKILL.md
-.claude/skills/<name>/SKILL.md
-.agents/skills/<name>/SKILL.md
-```
-
-**Decided: `.agents/skills/<name>/` is the default.** It is the vendor-neutral path,
-and OpenCode — the priority target — resolves it exactly like the other two, so
-nothing is lost. Writing a competitor's brand directory into a Linkr project working
-dir just to run OpenCode would also make Linkr a carrier of an Anthropic convention,
-against the "local and open first" priority.
-
-Claude Code, however, reads **only** `.claude/skills/`. So the path is **derived from
-the selected agent** rather than fixed:
-
-| Agent | Directory written |
+| | |
 |---|---|
-| OpenCode (default) | `.agents/skills/` |
-| Claude Code | `.claude/skills/` |
-| others | `.agents/skills/` |
+| SDK | **`@agentclientprotocol/sdk`** v1.4.0, Apache-2.0, ~7.1M downloads/week. Use the fluent `client()` API; `ClientSideConnection` is deprecated. |
+| Deprecated package | `@zed-industries/agent-client-protocol` — renamed, do not use |
+| Version | **Target v1.** v2 is published but *draft*: it removes the client filesystem API, terminal execution and session modes, and changes the prompt lifecycle (`session/prompt` no longer ends the turn). Supporting both means two code paths. |
+| Transport | **stdio only.** The streamable-HTTP/WebSocket transport is an RFD, not shipped. |
+| Governance | `github.com/agentclientprotocol`, Zed + JetBrains |
 
-This costs almost nothing: the directory is **generated** from the Skill entity
-(the database stays the source of truth) and gitignored, so it is a per-agent output
-path, not a stored layout. By default we never write `.claude/`.
+### Agent choice
 
-The generated tree needs an explicit re-sync action from the Skills page.
-
-### Server prerequisites (decided)
-
-`opencode`, `claude`, `gemini` are **executables on the machine running the API**.
-Linkr cannot ship them from the browser: when the user types `opencode` in the PTY,
-either a binary is there or they get `command not found`. Same for the model runtime
-— OpenCode is useless without a reachable Ollama / LM Studio.
-
-**Decision: documented prerequisite + detection on page load.** Run
-`opencode --version` (and the equivalent per agent) when the panel mounts, and render
-an explicit empty state with a link to the install docs when it is missing — never a
-raw `command not found` in the terminal. Same probe for the local model endpoint.
-
-Rejected alternatives, for the record:
-
-- *Bundle the binaries in the Docker image* — Linkr would embed, version and track
-  third-party tools, and the image grows for an optional feature.
-- *Install on demand via the managed uv environments* — elegant, but requires
-  outbound network access from the server, usually absent in a hospital setting.
-
-The hospital context (closed network, DSI-controlled images) is what makes
-auto-install illusory and the documented prerequisite the honest choice.
-
-### Launching the agent
-
-Two levels, in this order:
-
-**A1 — Terminal (nearly free, do this first).**
-The CLI agent is a binary. The PTY exists. Generate an `opencode.json` in the
-working directory from the active provider and permissions, and the user types
-`opencode`. The TUI renders in xterm.
-
-Actual work: detect the installed binary (`opencode --version`), generate the
-config, inject the API key as a PTY environment variable (never into a readable
-file), show a clear message when missing. Effort **S/M**. This already delivers most
-of the value for power users.
-
-The generated `opencode.json` also carries the **agent's own permissions** —
-OpenCode has an `allow`/`ask`/`deny` system per tool and per pattern, last match
-wins:
-
-```json
-{
-  "permission": {
-    "bash": { "*": "ask", "rm *": "deny", "git push *": "deny" },
-    "edit": { "*": "ask", "datasets/**": "deny" },
-    "webfetch": "deny"
-  }
-}
-```
-
-Map Linkr permissions onto those rules: a user without `ide:write` gets
-`"edit": "deny"`. And `webfetch`/`websearch` default to `deny` in a health context.
-
-**A2 — Structured agent panel (the real product).**
-The problem raised — "avoid the Claude Code / OpenCode flood" — is solved by **ACP
-(Agent Client Protocol)**, designed for exactly this: an open standard created by
-Zed (August 2025), JSON-RPC 2.0 over stdin/stdout, community-governed, adopted by
-JetBrains. Claude Code, Gemini CLI and Goose implement it.
-
-Instead of parsing ANSI TUI output (fragile, unreadable), we receive typed events:
-
-| Method | Purpose |
-|---|---|
-| `initialize` / `authenticate` | capability negotiation |
-| `session/new`, `session/load`, `session/prompt`, `session/cancel` | lifecycle |
-| `session/update` (notification) | `agent_message_chunk`, `tool_call`, `tool_call_update`, `plan`, `user_message_chunk` |
-| `session/request_permission` | **the agent asks, we render our own dialog** |
-| `fs/read_text_file`, `fs/write_text_file` | we keep control of I/O |
-| `terminal/create`, `output`, `wait_for_exit`, `kill`, `release` | commands |
-
-This is precisely the interface that enables clean rendering: conversation bubbles,
-tool calls collapsed to one line ("Read `cohort.sql`", "Ran 3 tests"), plans as
-checklists, and **our** permission dialogs instead of the TUI's.
-
-Architecture: the backend spawns the agent as a subprocess, relays JSON-RPC over a
-WebSocket (next to `/terminal`), the frontend renders the events. The raw PTY stays
-available for users who prefer it.
-
-Effort **L**. Only start it after A1, and after Track B if resources are tight — A1
-already covers the power-user need.
-
----
-
-## 4. Track B — Conversational agent (right sidebar)
-
-**Highest product value, and simpler than it looks.**
-
-Reason: `dashboard-store.ts` is already a tool API. Every action is atomic,
-id-addressed, and DOM-independent:
-
-```ts
-addTab(dashboardId)                      removeTab(tabId)
-addSubTab(parentTabId, moveWidgets?)     updateTab(tabId, {name, description})
-reorderTabs(dashboardId, orderedIds)     setActiveTab(dashboardId, tabId)
-addWidget(tabId, source, name, datasetFileId?)
-removeWidget(widgetId)                   moveWidget(widgetId, newTabId)
-duplicateWidget(widgetId, targetTabId?)  updateWidgetLayout(widgetId, {x,y,w,h})
-updateWidgetSource(widgetId, source)     updateWidget(widgetId, {name, description})
-updateWidgetDataset(widgetId, fileId)    setFilter(filterId, value)
-```
-
-→ **The tool schema derives almost mechanically from these signatures.** No refactor
-needed. This is the best news in the plan.
-
-### Background-then-refresh, or live?
-
-**Live, without hesitation.** Three reasons:
-
-1. State lives in a Zustand store, so mutations are **already reactive**. An
-   `addWidget()` called by the agent re-renders the dashboard exactly like a click.
-   "Live" costs nothing extra; it is "background then refresh" that would require
-   additional work.
-2. It matches the mental model cited (Claude in PowerPoint / Canva): you watch the
-   slide being built.
-3. Seeing the action happen is a **control**: the user spots a mistake immediately
-   and interrupts.
-
-Necessary corollary: **an undo**. An agent making 6 mutations must be reversible in
-one gesture. The store has no history today. Simplest approach: snapshot the
-dashboard before the agent turn, offer "Undo these changes". No general undo/redo
-stack needed — per-turn rollback is enough, roughly 50 lines.
-
-### Architecture
-
-```
-Right sidebar (Sheet / resizable panel)
-   │  messages + collapsed tool calls + Undo / Stop
-   ▼
-useAgentChat()  ── WS ──▶  /api/v1/projects/{uid}/agent/chat
-   │                            │
-   │                            ├─ LLM provider (local by default)
-   │                            ├─ tool definitions (JSON Schema)
-   │                            └─ context: current dashboard, datasets, columns
-   ▼
-Tools execute CLIENT-SIDE against dashboard-store
-```
-
-Key architectural point: **the LLM runs server-side, but tools execute
-client-side** against the store. The server returns "call `add_widget` with these
-args", the client executes it, renders it, and sends the result back for the next
-turn. This keeps a single source of truth (the store) and avoids duplicating
-dashboard logic in Python.
-
-In WASM/static mode (no backend), the same client can hit a local OpenAI-compatible
-endpoint directly — Track B keeps working, consistent with the app's dual
-deployment.
-
-### Spike result (2026-08-05) — local tool-calling is viable
-
-Batch 3 ran against Ollama with `llama3.1:8b`, temperature 0, tools derived from the
-real store signatures, 3 trials per scenario. **12/15 overall, but the split is what
-matters:**
-
-| Scenario | Score | What it exercises |
+| Agent | ACP | Note |
 |---|---|---|
-| Create a tab | 3/3 | simple tool |
-| Add a widget | 3/3 | inferring the right dataset (`ds_labs`) from "lactate" |
-| Move a widget | 3/3 | name → id resolution ("Sex ratio" → `wid_sex`) |
-| Resize a widget | 3/3 | numeric args (`w=12`) |
-| Refuse out-of-scope | **0/3** | guardrail |
+| **OpenCode** | first-party native (`opencode acp`) | **Default.** Open source, any OpenAI-compatible `baseURL`, so Ollama is first-class. |
+| Gemini CLI | first-party native | The docs call it the reference implementation. Google-oriented. |
+| Goose | first-party, **labeled experimental** by Block | |
+| Claude Agent / Codex | adapters | Claude Code the CLI has **no** first-party ACP — the entry is an adapter over the Claude Agent SDK. |
 
-**The 4 real tasks scored 12/12.** An 8B model handles name→id resolution and dataset
-inference — exactly what the copilot needs. Track B is not blocked by local model
-capability.
+ACP makes this reversible: the client speaks the protocol, not OpenCode. An agent is a
+name plus an `argv`. **Ship two presets** (OpenCode + Gemini CLI) to prove the
+abstraction holds.
 
-The 0/3 is **not** a model defect to fix, it is an architecture requirement. Asked to
-"delete every patient older than 80", the model has no tool for that and grabs the
-nearest one (`add_widget`). Small models do this, and prompt engineering does not
-fix it reliably. Therefore:
+Binaries are a **documented prerequisite**, probed on mount (`opencode --version`) with
+an explicit empty state — never a raw `command not found`. No bundling (image bloat for
+an optional feature), no auto-install (hospital networks are closed).
 
-> **Safety must never rest on the model refusing.** The guardrail belongs in the
-> execution layer: an out-of-scope or unknown tool call is rejected silently rather
-> than executed, and every tool re-checks its permission. The whitelist below is a
-> demonstrated necessity, not a precaution.
+### The broker
 
-### Tool safety
+stdio-only means the agent is a subprocess of its client, and our client is a browser.
+So FastAPI brokers: spawn the agent, speak ACP on its pipes, relay events over a
+WebSocket. `execution.py` already does exactly this shape for the PTY.
 
-- Strict whitelist: store actions only, never arbitrary code execution through this
-  path.
-- Every tool re-checks its permission (`dashboards:write`) before acting — an LLM
-  must not exceed the rights of the user driving it.
-- Destructive actions (`removeTab`, `removeWidget`) go through a confirmation, or
-  are excluded from the first batch.
-- **Never send patient data in the context.** Send the *schema* (column names,
-  types, aggregate stats), never rows. State this explicitly in the code, with a
-  test.
+Two traps:
 
-### SDK choice
+- **stdout is protocol-only.** An agent logging to stdout corrupts the JSON-RPC stream
+  irrecoverably, and messages must not contain embedded newlines. Logs go to stderr.
+- **`killpg` at teardown** — the same leak already present in `pty_kernel.py`. Fix both.
 
-The agentic loop (call → tool_use → result → call again) has to be written once. The
-Anthropic SDK ships a `tool_runner` that provides it turnkey, but locks us to
-Anthropic — contradicting the "local first" priority.
+### Session setup
 
-Recommendation: **a small in-house loop over the OpenAI-compatible API**
-(`/v1/chat/completions` + `tools`), the common denominator of Ollama, LM Studio,
-llama.cpp, vLLM, Mistral and OpenAI, plus an Anthropic adapter if needed. ~200
-lines, no heavy dependency, and local stays first-class. Verify early that a
-reasonable local model (recent Qwen/Llama) calls tools reliably — **this is the main
-technical risk of Track B**, to be tested before investing in the UI.
+`session/new` takes an `mcpServers` array (core protocol feature, v1 and v2), with
+`stdio` and `http` transports each gated by a capability in the `initialize` response —
+check `session.mcp.http` before sending, and degrade if absent.
 
-### Extending to Cohorts / Patient data
-
-Same engine, different tool set per page. Do **Dashboard only** first; the other
-pages follow once the pattern is proven.
+**This is where the profile is enforced.** A clinician session is handed `linkr-live`
+and nothing else: no shell, no file tools. The agent then *cannot* produce code —
+an architectural guarantee, not a prompt instruction.
 
 ---
 
-## 5. UI: the panel
+## 4. MCP — two servers
 
-Right sidebar, opened by a persistent button, resizable width (`allotment` is
-already a dependency). Not a modal: the dashboard must stay visible while the agent
-works.
+Not two versions of one server: two different targets.
 
-Anti-flood principle: **one collapsed line per action, by default.**
+| | `linkr-authoring` | `linkr-live` |
+|---|---|---|
+| Acts on | **files** (entity trees) | a **running instance** |
+| Transport | stdio | http + session token |
+| Needs | nothing | a server + a session |
+| Use | author content offline, seed a portal | drive the open project |
+| Status | **built** (rename) | to build |
+
+Merging them would produce a server needing a token for half its tools and a disk path
+for the other — incoherent to configure and to document.
+
+### Rename
+
+`@linkr/mcp` stays the npm package; what changes is the **name announced to the MCP
+client** ([server.ts:56](../../packages/linkr-mcp/src/server.ts#L56)), since that is what
+the agent sees and what prefixes the tools:
+
+- `linkr` → **`linkr-authoring`** (files)
+- new: **`linkr-live`** (instance)
+
+Update in the same change: the server `name`, the docs, and the `linkr-authoring` skill
+that references it.
+
+### `linkr-live`
+
+HTTP MCP server exposing the app actions, backed by the REST API. Tool vocabulary
+derives from the stores — `dashboard-store.ts` is already an id-addressed action API,
+so the schema comes out nearly mechanically. First tranche: dashboard (tabs, widgets,
+layout, filters), then cohorts, datasets.
+
+**The token carries the session's own rights.** Every tool re-checks its permission
+server-side: a user without `dashboards:write` drives an agent that cannot write a
+widget. An LLM never exceeds the user driving it.
+
+### Live refresh
+
+The stores are optimistic-write: they mutate local state and push to `getStorage()`
+fire-and-forget, and only ever read back at `loadProjectDashboards()`. Nothing listens
+to the database, so an agent writing through the API leaves the open tab stale.
+
+Fix: a **notification WebSocket**. After an MCP write the server publishes
+`{project_uid, entity}`; the front reloads the affected store. It carries a signal
+only — never tool calls — so it stays far simpler than a bidirectional bridge.
+
+---
+
+## 5. The sidebar
+
+Project-wide, not per page: a dashboard request needs datasets, which come from the
+pipeline, which comes from the warehouse. One conversation, one history. The tool set
+is filtered by the active page, and a `navigate_to` tool lets the agent move.
+
+**A sidebar, not a page** — the agent must not modify a dashboard the user can no
+longer see. Watching the change land *is* the control. Resizable (`allotment` is
+already a dependency), pattern from `DashboardFilterSidebar.tsx`.
+
+### Two render modes, one event stream
+
+Same ACP events, two verbosity levels. A `name → i18n phrase` table produces the
+clinician mode; a tool with no entry falls back to raw. A render component, not a
+second application.
+
+**Clinician** — one business-language line per action:
 
 ```
 ┌─────────────────────────────────┐
 │ 🤖 Assistant     ⚠️ External API │
 ├─────────────────────────────────┤
-│ Add an age distribution chart   │
+│ Add a mortality-by-age chart    │
 │                                 │
-│ Looking at the dataset…         │
-│  ▸ Read patients.parquet        │
-│  ▸ Created "Age distribution"   │
+│   Reading the patients dataset  │
+│   Created "Mortality by age"    │
+│   Added to the Demographics tab │
 │                                 │
-│ Added to the Demographics tab   │
-│              [Undo]             │
+│ The chart is in place.  [Undo]  │
 ├─────────────────────────────────┤
 │ [Ask something…]            [↑] │
 └─────────────────────────────────┘
 ```
 
-- Agent text as markdown (`react-markdown` is already there).
-- Tool calls are **one clickable line**, expandable for details. Never a dump.
-- A plan (if the agent emits one) renders as a checklist that ticks off.
-- Stop always visible while running.
-- Provider badge in the header, red for an external API.
-- Reuse the pattern from `DashboardFilterSidebar.tsx`, already a side panel on this
-  page.
+**Developer** — the same events expanded: JSON arguments, command output, file diffs,
+the full plan. The raw PTY stays available alongside.
+
+### Permissions and undo
+
+`session/request_permission` blocks the agent and renders **our** dialog — the
+confirmation UI already exists at
+[DashboardAgentSidebar.tsx:622](../../apps/web/src/features/projects/dashboard/agent/DashboardAgentSidebar.tsx#L622)
+and is worth salvaging before that file is deleted (§10).
+
+**Decided: script execution is *confirmed*, not free and not forbidden.** An agent that
+writes an analysis script may run it, but every execution goes through
+`session/request_permission` with the script shown first. ACP is built for this, the
+mechanism is already there, and it keeps the usefulness without taking away control.
+
+Per-turn **undo** is still to build: snapshot before the agent's turn, offer "Undo these
+changes". No general undo/redo stack — roughly 50 lines.
 
 ---
 
-## 6. Proposed order
+## 6. What the agent cannot do
+
+**Forbidden by design** — and must stay so:
+
+- manage permissions and members (an LLM granting access to health data: risk with no
+  upside);
+- create or edit an LLM provider (`llm-config:write` stays owner-only);
+- delete a project or a workspace;
+- push to a git remote;
+- read secrets — database passwords are Fernet-encrypted and never returned by the API.
+
+**Never more than the user** — the session token carries the caller's rights, and every
+tool re-checks its permission server-side.
+
+**Bounded by protocol or environment** — no browser control (it cannot click the UI for
+the user); no network egress when `LINKR_ALLOW_REMOTE_LLM=false`; no operation outside
+server mode.
+
+**Allowed, deliberately**: reaching health data, when the admin has configured a local
+secured provider (§2).
+
+---
+
+## 7. Workspace agent — deliberately narrow
+
+Same engine, different tool set. Not symmetric with the project agent: workspace
+actions are administrative (create a project, install from the catalog, describe the
+workspace), rarer and far more sensitive.
+
+Ship it **after** the project agent, with a narrow tool set, and **never** permissions
+or members.
+
+---
+
+## 8. Order
 
 | # | Batch | Effort | Why here |
 |---|---|---|---|
-| 1 | `skills` / `llm-config` / `agents` permissions + `LlmProvider` model + encryption + acknowledgement dialog + `LINKR_ALLOW_REMOTE_LLM` | M | Foundation for both tracks. Safety frame **before** any capability. |
-| 2 | Skills entity (CRUD, pages, export/import, catalog) | M | Standalone, useful even without agents (shareable skills in the catalog). |
-| 3 | Spike: local-model tool-calling (Ollama/LM Studio) on 3 dashboard tools | S | **De-risks Track B before investing in UI.** Do this early. |
-| 4 | Track A1: generated `opencode.json` + skills → `.claude/skills/` + launch in the PTY | S/M | The PTY exists. Immediate value for power users. |
-| 5 | Track B: sidebar + agent loop + dashboard tools + per-turn undo | L | The main product work. |
-| 6 | Track B extended: Cohorts, Patient data | M | Replicating a proven pattern. |
-| 7 | Track A2: structured ACP panel | L | Comfort; A1 already covers the need. |
+| 1 | `Skill` entity — CRUD, workspace page, export/import, catalog | M | Standalone value, no dependency on the rest. Well-trodden (clone of SQL collections). |
+| 2 | Project selection + generated `AGENTS.md` + materialise `.agents/skills/` | S/M | Completes 1, prepares the agent. |
+| 3 | MCP `linkr-live` (http, session token, dashboard tools first) + rename the existing one | M | The action surface, testable on its own from any MCP client. |
+| 4 | ACP broker in FastAPI (stdio spawn, WS relay, session lifecycle) | L | The heavy piece. `execution.py` is the model. |
+| 5 | Sidebar: event rendering, `request_permission`, undo, dual mode | L | The product work. |
+| 6 | Notification WS + store reload | S/M | Closes the live loop. |
+| 7 | `linkr-live` extended: cohorts, datasets | M | Replicating a proven pattern. |
+| 8 | Workspace agent (narrow tools) | M | After, and deliberately limited. |
 
-Batches 1–2 are well-trodden. Batch 3 is the real decision point.
+Batches 1–3 are independently useful and de-risk nothing away; 4–5 are where the real
+cost sits.
 
 ---
 
-## 7. Decisions taken
+## 9. Skills materialised on disk
 
-- **One entity = one skill** — entity named `Skill`, not `SkillCollection`. Keeps the
-  catalog/versioning unit aligned; no shared files across skills.
-- **`.agents/skills/` by default**, path derived from the selected agent
-  (`.claude/skills/` only for Claude Code). Never write a brand directory by default.
-- **Agent binaries + local model runtime: documented prerequisite**, with detection
-  on page load and an explicit empty state. No bundling, no auto-install.
+An explicit re-sync action writes the project's selected skills into its IDE working
+directory. The tree is **generated** from the Skill entity (the database stays the
+source of truth) and gitignored.
 
-## 8. Deferred
+**`.agents/skills/<name>/` is the default** — the vendor-neutral path, which OpenCode
+resolves exactly like the others. Writing a competitor's brand directory by default
+would make Linkr a carrier of one vendor's convention, against the "local and open
+first" priority.
 
-- **LLM-managed memory** — the copilot has no memory beyond the current
-  conversation. `lib/agent/memory.ts` and its `memoryNotes` plumbing were
-  deleted rather than left dormant: the UI was already gone, so it was a dead
-  path injecting into every prompt. The intended design remains a memory the
-  MODEL maintains itself, exposed as an option rather than always on, and it
-  starts from scratch when taken up.
-  The reason to be careful: in a clinical setting an auto-written memory will
-  eventually capture patient detail, and that record outlives the session and is
-  re-sent to the model — a remote one included — on every later request. So
-  whatever the model writes must stay visible and deletable.
-  Note this is NOT the same thing as conversation history, which is built:
-  a stored transcript is replayed for the user to read, never re-sent to the
-  model as context.
-- **Widening beyond plot-builder** — the derived plugin docs are only validated
-  against one manifest so far.
-- **Other surfaces** — datasets, IDE, script collections share the endpoint
-  config but have no assistant panel yet.
+| Agent | Directory |
+|---|---|
+| OpenCode (default) | `.agents/skills/` |
+| Claude Code | `.claude/skills/` (it reads only this one) |
+| others | `.agents/skills/` |
 
-## 9. Open questions
+---
 
-1. **Skills workspace-scoped only**, or project-scoped too? (workspace first,
-   consistent with SQL collections)
-2. **`LINKR_ALLOW_REMOTE_LLM` defaulting to `false`** — confirm? Restrictive, but the
-   right default in a health context.
-3. Should Track B work in **WASM/static mode** (browser → local LLM directly), or
-   server mode only?
+## 10. Removed, and why
+
+**The WASM/static assistant is deleted.** `lib/agent/` (in-house loop, dashboard tools,
+contexts, conversations, bench) and `DashboardAgentSidebar.tsx` — ~1500 lines with 8
+test files and a validated Ollama tool-calling bench.
+
+The reason is not that it failed: it worked, and the spike scored 12/12 on real tasks.
+It is that ACP cannot run in WASM (stdio-only transport, a binary to execute, a REST API
+that does not exist there), so keeping it would mean maintaining two engines for a
+secondary deployment mode, with the static one permanently behind — dashboard only, no
+long-term memory.
+
+**Salvage before deleting**: the confirmation and undo UI, the collapsed-tool-line
+rendering, and `dashboard-tools.ts` as the tool vocabulary for `linkr-live`.
+
+Consequence to accept: **a static/WASM build has no assistant.** That is a demo or
+portal deployment, not a hospital data scientist's workstation.
+
+**Also dropped**: the per-page copilot (replaced by one project-wide sidebar), and the
+in-house agentic loop (replaced by the agent binary, which brings memory and context
+compaction for free).
+
+**Deferred**: LLM-managed memory. In a clinical setting an auto-written memory
+eventually captures patient detail, and that record outlives the session and is re-sent
+on every later request. Whatever a model writes must stay visible and deletable. Note
+this is *not* conversation history, which the agent handles natively.
+
+---
+
+## 11. Decisions taken
+
+1. **One project-wide sidebar**, not a per-page copilot and not a page.
+2. **ACP v1** + `@agentclientprotocol/sdk`, fluent `client()` API. v2 is draft.
+3. **OpenCode by default**, agent configurable; Gemini CLI as the second preset.
+4. **Two MCP servers**: `linkr-authoring` (files, renamed) and `linkr-live` (instance).
+5. **Server mode only.** The WASM assistant is deleted (§10).
+6. **Skills workspace-scoped**, project-selected, catalog-publishable.
+7. **The clinician profile is defined by the MCP servers passed to `session/new`**, not
+   by prompting.
+8. **LLM providers are workspace-scoped**, admin-configured, `llm-config:write`
+   owner-only. Already built.
+9. **Health data is reachable** when the admin configured a local secured provider.
+   `LINKR_ALLOW_REMOTE_LLM=false` by default.
+10. **Script execution is confirmed** through `session/request_permission`, not free and
+    not forbidden.
+11. **One entity = one skill**; `.agents/skills/` by default.
+12. **Agent binaries: documented prerequisite** with probing, no bundling, no
+    auto-install.
