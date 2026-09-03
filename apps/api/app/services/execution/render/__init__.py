@@ -23,6 +23,7 @@ from app.services.execution.render import (
     plot_builder,
     regression,
     sankey,
+    spc,
     statistical_tests,
     survey_question,
     table1,
@@ -43,6 +44,7 @@ _BUILDERS: dict[str, tuple[Callable[[dict], dict], Callable[[dict], str]]] = {
     "plot-builder": (plot_builder.validate_spec, plot_builder.build_code),
     "statistical-tests": (statistical_tests.validate_spec, statistical_tests.build_code),
     "survey-question": (survey_question.validate_spec, survey_question.build_code),
+    "spc": (spc.validate_spec, spc.build_code),
 }
 
 

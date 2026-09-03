@@ -31,6 +31,7 @@ _KINDS = {
     "plot-builder": {"plotType": "scatter", "x": "a", "y": "b"},
     "statistical-tests": {"group": "g", "values": [{"name": "x", "type": "number"}]},
     "survey-question": {"kind": "numeric", "column": "x", "choices": []},
+    "spc": {"date": "d", "value": "v", "statisticType": "proportion", "chartType": "p"},
 }
 
 
