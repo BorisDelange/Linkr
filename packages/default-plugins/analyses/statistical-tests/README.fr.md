@@ -167,4 +167,4 @@ des raisons que ce tableau ne sait pas démêler.
 - [Amrhein V, Greenland S & McShane B, *Scientists rise up against statistical significance*](https://www.nature.com/articles/d41586-019-00857-9) — pourquoi la coupure à 0,05 induit en erreur.
 - [Bland JM & Altman DG, *Multiple significance tests: the Bonferroni method*](https://www.bmj.com/content/310/6973/170) — une page sur les comparaisons multiples.
 - [Altman DG & Bland JM, *Absence of evidence is not evidence of absence*](https://www.bmj.com/content/311/7003/485) — comment lire un résultat non significatif.
-- [de Boer MR et al., *Testing for baseline differences in randomized controlled trials*](https://pmc.ncbi.nlm.nih.gov/articles/PMC4029520/) — pourquoi les p-values du tableau 1 d'un essai sont inutiles.
+- [Assmann SF et al., *Subgroup analysis and other (mis)uses of baseline data*](https://pubmed.ncbi.nlm.nih.gov/10744093/) — pourquoi les p-values du tableau 1 d'un essai sont inutiles.

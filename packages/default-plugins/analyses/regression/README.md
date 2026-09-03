@@ -179,5 +179,5 @@ the age column, and see whether the estimates settle.
 - [Bland JM & Altman DG, *The odds ratio*](https://www.bmj.com/content/320/7247/1468) — one page, and the source of most of the confusion this note tries to prevent.
 - [Bland JM & Altman DG, *Regression towards the mean*](https://www.bmj.com/content/308/6942/1499) — the trap in before/after comparisons.
 - [Peduzzi P et al., *A simulation study of the number of events per variable in logistic regression*](https://pubmed.ncbi.nlm.nih.gov/8970487/) — where the 10-events-per-variable rule comes from.
-- [Schisterman EF et al., *Overadjustment bias and unnecessary adjustment*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3888622/) — mediators, colliders, and what adjusting on them destroys.
+- [Schisterman EF et al., *Overadjustment bias and unnecessary adjustment*](https://pmc.ncbi.nlm.nih.gov/articles/PMC2744485/) — mediators, colliders, and what adjusting on them destroys.
 - [Sedgwick P, *Understanding confidence intervals*](https://www.bmj.com/content/349/bmj.g6051) — why the interval says more than the p-value.

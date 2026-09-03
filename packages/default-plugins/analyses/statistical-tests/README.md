@@ -150,4 +150,4 @@ sicker for reasons this table cannot separate.
 - [Amrhein V, Greenland S & McShane B, *Scientists rise up against statistical significance*](https://www.nature.com/articles/d41586-019-00857-9) — why the dichotomy at 0.05 misleads.
 - [Bland JM & Altman DG, *Multiple significance tests: the Bonferroni method*](https://www.bmj.com/content/310/6973/170) — one page on the multiplicity problem.
 - [Altman DG & Bland JM, *Absence of evidence is not evidence of absence*](https://www.bmj.com/content/311/7003/485) — how to read a non-significant result.
-- [de Boer MR et al., *Testing for baseline differences in randomized controlled trials*](https://pmc.ncbi.nlm.nih.gov/articles/PMC4029520/) — why Table 1 p-values in a trial are unhelpful.
+- [Assmann SF et al., *Subgroup analysis and other (mis)uses of baseline data*](https://pubmed.ncbi.nlm.nih.gov/10744093/) — why Table 1 p-values in a trial are unhelpful.

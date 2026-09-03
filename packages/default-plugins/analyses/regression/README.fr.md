@@ -198,5 +198,5 @@ se stabilisent.
 - [Bland JM & Altman DG, *The odds ratio*](https://www.bmj.com/content/320/7247/1468) — une page, et la source de la plupart des confusions que cette note cherche à éviter.
 - [Bland JM & Altman DG, *Regression towards the mean*](https://www.bmj.com/content/308/6942/1499) — le piège des comparaisons avant/après.
 - [Peduzzi P et al., *A simulation study of the number of events per variable in logistic regression*](https://pubmed.ncbi.nlm.nih.gov/8970487/) — l'origine de la règle des 10 événements par variable.
-- [Schisterman EF et al., *Overadjustment bias and unnecessary adjustment*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3888622/) — médiateurs, colliders, et ce que l'ajustement sur eux détruit.
+- [Schisterman EF et al., *Overadjustment bias and unnecessary adjustment*](https://pmc.ncbi.nlm.nih.gov/articles/PMC2744485/) — médiateurs, colliders, et ce que l'ajustement sur eux détruit.
 - [Sedgwick P, *Understanding confidence intervals*](https://www.bmj.com/content/349/bmj.g6051) — pourquoi l'intervalle en dit plus que la p-value.

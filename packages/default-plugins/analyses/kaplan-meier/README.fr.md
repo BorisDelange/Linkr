@@ -119,4 +119,4 @@ en soi un résultat.
 
 - [Clark TG et al., *Survival analysis part I: basic concepts*](https://www.nature.com/articles/6601118) — l'introduction de référence.
 - [Bland JM & Altman DG, *The logrank test*](https://www.bmj.com/content/328/7447/1073) — une page, sans algèbre.
-- [Ranganathan P et al., *Common pitfalls in survival analysis*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5813628/) — ce qui déraille en pratique.
+- [Ranganathan P & Pramesh CS, *Censoring in survival analysis: potential for bias*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3275994/) — ce qui déraille en pratique.

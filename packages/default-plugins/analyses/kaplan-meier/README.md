@@ -107,4 +107,4 @@ protocol's effect changes over time, which is a finding in itself.
 
 - [Clark TG et al., *Survival analysis part I: basic concepts*](https://www.nature.com/articles/6601118) — the standard primer.
 - [Bland JM & Altman DG, *The logrank test*](https://www.bmj.com/content/328/7447/1073) — one page, no algebra.
-- [Ranganathan P et al., *Common pitfalls in survival analysis*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5813628/) — what goes wrong in practice.
+- [Ranganathan P & Pramesh CS, *Censoring in survival analysis: potential for bias*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3275994/) — what goes wrong in practice.
