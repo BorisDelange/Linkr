@@ -9,7 +9,7 @@ import {
   unregisterPlugin,
 } from '@/lib/plugins/registry'
 import { SYSTEM_PLUGIN_IDS } from '@/lib/plugins/builtin-widget-plugins'
-import { buildPlugin, isBuiltinPluginId } from '@/lib/plugins/default-plugins'
+import { buildPlugin, isBuiltinPluginId, seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { computePluginContentHash } from '@/lib/plugin-hash'
 import { useWorkspaceStore } from './workspace-store'
 import { useOrganizationStore } from './organization-store'
@@ -194,6 +194,11 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     // Only show plugins from IDB (user-added or added from defaults)
     const storage = getStorage()
     const wsId = useWorkspaceStore.getState().activeWorkspaceId
+    // Catch up on built-ins that shipped after this workspace was created: the
+    // seed otherwise runs only at creation, so a plugin added in a later release
+    // would never appear here. Idempotent per plugin — it adds the missing rows
+    // and leaves the rest alone.
+    if (wsId) await seedBuiltinPluginsForWorkspace(wsId)
     const userPlugins = wsId
       ? await storage.userPlugins.getByWorkspace(wsId)
       : await storage.userPlugins.getAll()
