@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { ServerPathPickerDialog } from '@/components/ui/server-path-picker-dialog'
+import { useTallestPanel } from '@/hooks/use-tallest-panel'
 import { isServerMode } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
 
@@ -14,6 +15,11 @@ import { cn } from '@/lib/utils'
  *  nothing — the only workable option for a warehouse too big to upload, and the
  *  server-side analogue of the front-only zero-copy FS Access handles. */
 export type FileOrigin = 'upload' | 'server'
+
+/** The inactive origin, kept mounted so it can be measured: absolute so it adds
+ *  no height, invisible so nothing inside it paints (a drop zone would otherwise
+ *  show through), pointer-events-none so its hidden file input can't be hit. */
+const HIDDEN_PANEL = 'pointer-events-none invisible absolute inset-x-0 top-0'
 
 interface OriginChoiceProps {
   value: FileOrigin
@@ -77,6 +83,7 @@ export function DatabaseFileSource({
 }: Props) {
   const { t } = useTranslation()
   const [pickerOpen, setPickerOpen] = useState(false)
+  const { containerProps, measuredPanelProps } = useTallestPanel()
 
   // Client-only: there is no server filesystem to point at, so the choice would
   // be a dead control. Render the upload UI exactly as before.
@@ -86,10 +93,23 @@ export function DatabaseFileSource({
     <div className="space-y-3">
       <OriginChoice value={origin} onChange={onOriginChange} />
 
-      {origin === 'upload' ? (
-        children
-      ) : (
-        <div className="space-y-2">
+      {/* Both origins are measured and the taller one sets the height, so
+          switching between them never resizes the dialog. Matching the two by
+          hand is not enough: each side changes height on its own (a chosen path
+          row, a file list, the Parquet tables summary), so only measuring holds. */}
+      <div className="relative" {...containerProps}>
+        <div
+          {...measuredPanelProps('upload')}
+          inert={origin !== 'upload'}
+          className={cn(origin !== 'upload' && HIDDEN_PANEL)}
+        >
+          {children}
+        </div>
+        <div
+          {...measuredPanelProps('server')}
+          inert={origin !== 'server'}
+          className={cn('space-y-2', origin !== 'server' && HIDDEN_PANEL)}
+        >
           <Label>
             {t(expect === 'dir' ? 'databases.server_folder' : 'databases.server_file')}
             <RequiredMark />
@@ -124,7 +144,7 @@ export function DatabaseFileSource({
             />
           )}
         </div>
-      )}
+      </div>
 
       {pickerOpen && (
         <ServerPathPickerDialog
