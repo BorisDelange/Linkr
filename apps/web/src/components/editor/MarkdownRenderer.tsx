@@ -166,6 +166,7 @@ const calloutStyles: Record<string, { icon: React.ReactNode; border: string; bg:
   caution: { icon: <AlertTriangle size={16} />, border: 'border-red-500/40', bg: 'bg-red-500/5' },
 }
 
+
 // --- Main Renderer ---
 
 interface MarkdownRendererProps {
@@ -266,8 +267,10 @@ export function MarkdownRenderer({
     },
   }), [])
 
+  // `prose-a:` rather than a class on the anchor: Tailwind Typography styles
+  // links as `.prose a`, which outranks a plain utility class.
   return (
-    <div className={`prose prose-sm dark:prose-invert max-w-none ${className ?? ''}`}>
+    <div className={`prose prose-sm dark:prose-invert max-w-none prose-a:transition-colors hover:prose-a:text-muted-foreground ${className ?? ''}`}>
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}

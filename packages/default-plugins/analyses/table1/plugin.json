@@ -23,6 +23,7 @@
   ],
   "languages": [],
   "icon": "TableIcon",
+  "iconColor": "emerald",
   "configSchema": {
     "selectedColumns": {
       "type": "column-select",

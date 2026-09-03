@@ -22,15 +22,45 @@ import surveyQuestionManifest from '@default-plugins/analyses/survey-question/pl
 import spcManifest from '@default-plugins/analyses/spc/plugin.json'
 
 // --- Plugin READMEs (markdown) ---
-// A built-in's user documentation, bundled beside its manifest. Shown in the
-// picker and in the widget editor's Doc tab, and seeded onto the workspace row
-// so it exports with the plugin like any other entity's README.
-import spcReadmeEn from '@default-plugins/analyses/spc/README.md?raw'
-import spcReadmeFr from '@default-plugins/analyses/spc/README.fr.md?raw'
+// A built-in's user documentation, bundled beside its manifest: `README.md` is
+// English, `README.<lang>.md` a translation. Shown in the picker and in the
+// widget editor's Doc tab, and seeded onto the workspace row so it exports with
+// the plugin like any other entity's README.
+//
+// Globbed rather than imported one by one, so dropping a README beside a
+// manifest is all it takes for that plugin to have documentation.
+const readmeModules = import.meta.glob<string>('@default-plugins/*/*/README*.md', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+})
 
-/** READMEs by manifest id. A plugin with no entry simply shows no documentation. */
-const BUILTIN_READMES: Record<string, LocalizedString> = {
-  'linkr-analysis-spc': { en: spcReadmeEn, fr: spcReadmeFr },
+/** READMEs by plugin FOLDER name. A plugin with no README shows no documentation. */
+const READMES_BY_FOLDER: Record<string, LocalizedString> = {}
+for (const [path, text] of Object.entries(readmeModules)) {
+  const m = /\/([^/]+)\/README(?:\.([a-z]{2}))?\.md$/.exec(path)
+  if (!m) continue
+  const [, folder, lang] = m
+  ;(READMES_BY_FOLDER[folder] ??= {})[lang ?? 'en'] = text
+}
+
+/**
+ * Manifest id → folder, for the folders whose name is not simply the id's last
+ * segment. Only the exceptions need listing.
+ */
+const README_FOLDER_OVERRIDES: Record<string, string> = {
+  'linkr-analysis-table1': 'table1',
+  'linkr-widget-patient-overview': 'overview',
+  'linkr-widget-notes': 'notes',
+  'linkr-widget-timeline': 'timeline',
+  'linkr-widget-patient-summary': 'patient-summary',
+}
+
+/** The bundled README for a manifest id, if one was shipped beside its manifest. */
+function builtinReadme(manifestId: string): LocalizedString | undefined {
+  const folder = README_FOLDER_OVERRIDES[manifestId]
+    ?? manifestId.replace(/^linkr-(analysis|widget)-/, '')
+  return READMES_BY_FOLDER[folder]
 }
 
 /** Normalise a manifest from JSON (runtime may be string or array). */
@@ -494,9 +524,10 @@ export function registerDefaultPlugins() {
   // Attach the bundled READMEs once every built-in is registered, lab and
   // warehouse alike — and before the snapshot below, so the seeder carries them
   // onto each workspace's rows.
-  for (const [manifestId, readme] of Object.entries(BUILTIN_READMES)) {
-    const plugin = getPlugin(manifestId)
-    if (plugin) plugin.readme = readme
+  for (const plugin of getAllPlugins()) {
+    if (plugin.workspaceId) continue
+    const readme = builtinReadme(plugin.manifest.id)
+    if (readme) plugin.readme = readme
   }
 
   // Snapshot the canonical built-ins now, before any workspace-scoped user plugin
