@@ -4566,7 +4566,10 @@
     "extract_section_frequency_desc": "Typical delay between two records for the same patient: continuous monitoring, hourly, daily.",
     "extract_section_temporal_desc": "Date range covered, and the share of records per year. Shows when a concept started or stopped being collected.",
     "extract_section_hospitalUnits_desc": "The wards where the concept is recorded, as a share of records. A ward of the hospital, not a unit of measure.",
-    "extract_done_hint_travels": "They travel with the project on export and git sync."
+    "extract_done_hint_travels": "They travel with the project on export and git sync.",
+    "vocab_import_select_server_folder": "Choose on the server",
+    "vocab_import_no_tables_found": "No vocabulary table found in this folder.",
+    "vocab_import_server_needs_parquet": "This folder holds CSV vocabulary tables. A server folder is read as Parquet — convert them, or upload the folder instead."
   },
   "data_catalog": {
     "title": "Data Catalog",

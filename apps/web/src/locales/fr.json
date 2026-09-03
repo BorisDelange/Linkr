@@ -4566,7 +4566,10 @@
     "extract_section_frequency_desc": "Délai typique entre deux enregistrements pour un même patient : monitorage continu, horaire, quotidien.",
     "extract_section_temporal_desc": "Période couverte et part des enregistrements par année. Montre quand un concept a commencé ou cessé d'être recueilli.",
     "extract_section_hospitalUnits_desc": "Les unités de soins où le concept est enregistré, en part des enregistrements. Un service de l'hôpital, pas une unité de mesure.",
-    "extract_done_hint_travels": "Ils voyagent avec le projet à l'export et lors de la synchronisation git."
+    "extract_done_hint_travels": "Ils voyagent avec le projet à l'export et lors de la synchronisation git.",
+    "vocab_import_select_server_folder": "Choisir sur le serveur",
+    "vocab_import_no_tables_found": "Aucune table de vocabulaire trouvée dans ce dossier.",
+    "vocab_import_server_needs_parquet": "Ce dossier contient des tables de vocabulaire en CSV. Un dossier serveur est lu en Parquet — convertissez-les, ou téléversez le dossier."
   },
   "data_catalog": {
     "title": "Catalogue de données",

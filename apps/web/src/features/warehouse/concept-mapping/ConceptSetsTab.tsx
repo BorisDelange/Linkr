@@ -10,9 +10,13 @@ import {
 import {
   Plus, BookOpen, Trash2, RefreshCw, Upload, Search, Loader2,
   Info, Check, CheckCheck, X, History, FolderOpen, CheckCircle2, ChevronLeft, ChevronRight, Pencil, SquareX,
-  Settings2, SlidersHorizontal,
+  Settings2, SlidersHorizontal, Server,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ServerPathPickerDialog } from '@/components/ui/server-path-picker-dialog'
+import { fsBrowse } from '@/lib/api/fs-browser'
+import { isServerMode } from '@/lib/api-client'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -185,15 +189,20 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const [updateAllRunning, setUpdateAllRunning] = useState(false)
   const [updateAllResult, setUpdateAllResult] = useState<{ updated: number; total: number } | null>(null)
 
-  // Vocabulary reference import
+  // Vocabulary reference import. The checklist only ever reads a name and a size,
+  // so one list serves both origins: uploaded File objects, or entries listed from
+  // a server folder (which carries `vocabServerPath` and copies nothing).
   const vocabInputRef = useRef<HTMLInputElement>(null)
-  const [vocabFiles, setVocabFiles] = useState<File[]>([])
+  const [vocabFiles, setVocabFiles] = useState<{ name: string; size: number }[]>([])
+  const [vocabServerPath, setVocabServerPath] = useState('')
+  const [vocabPickerOpen, setVocabPickerOpen] = useState(false)
   // Files the user unticked. Kept as the exclusion set rather than the inclusion
   // one so a newly detected file is imported by default.
   const [vocabExcluded, setVocabExcluded] = useState<Set<string>>(new Set())
   const [vocabImporting, setVocabImporting] = useState(false)
   const [vocabError, setVocabError] = useState<string | null>(null)
   const [vocabRemoveOpen, setVocabRemoveOpen] = useState(false)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const addDataSource = useDataSourceStore((s) => s.addDataSource)
   const removeDataSource = useDataSourceStore((s) => s.removeDataSource)
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -729,8 +738,41 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     const files = Array.from(e.target.files ?? [])
     const vocabOnly = files.filter((f) => isVocabFile(f.name))
     setVocabFiles(vocabOnly)
+    setVocabServerPath('')
     setVocabExcluded(new Set())
     setVocabError(null)
+  }
+
+  /** An ATHENA folder already on the server: list it, keep the vocabulary tables,
+   *  and feed the same checklist the upload path fills. Nothing is copied. */
+  const handleVocabServerFolder = async (path: string) => {
+    setVocabError(null)
+    try {
+      const listing = await fsBrowse(
+        { kind: 'workspace', workspaceId: activeWorkspaceId ?? '' },
+        path,
+        { includeFiles: true },
+      )
+      const vocabEntries = listing.entries.filter((e) => e.isDir === false && isVocabFile(e.name))
+      // Server-side, a folder source is attached through read_parquet: a CSV
+      // vocabulary would import as an empty reference. Say so instead.
+      const found = vocabEntries
+        .filter((e) => /\.(parquet|pq)$/i.test(e.name))
+        .map((e) => ({ name: e.name, size: e.size ?? 0 }))
+      if (found.length === 0) {
+        setVocabError(
+          t(vocabEntries.length > 0
+            ? 'concept_mapping.vocab_import_server_needs_parquet'
+            : 'concept_mapping.vocab_import_no_tables_found'),
+        )
+        return
+      }
+      setVocabFiles(found)
+      setVocabServerPath(path)
+      setVocabExcluded(new Set())
+    } catch (err) {
+      setVocabError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   /** Files that will actually be imported (everything ticked). */
@@ -760,7 +802,10 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         name: toLocalized(`ATHENA Vocabulary — ${localized(project.name, i18n.language)}`),
         description: toLocalized('OHDSI ATHENA vocabulary reference for concept mapping.'),
         sourceType: 'database',
-        connectionConfig: { engine: 'duckdb' as const },
+        connectionConfig: {
+          engine: 'duckdb' as const,
+          ...(vocabServerPath ? { serverPath: vocabServerPath } : {}),
+        },
         // knownTables must describe what this reference HOLDS, not what the app
         // accepts: the ETL script generator reads it to decide which parts it
         // can emit.
@@ -768,7 +813,8 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
           ...ATHENA_SCHEMA_MAPPING,
           knownTables: vocabSelected.map((f) => tableNameOf(f.name)),
         },
-        files: vocabSelected,
+        // A server folder is read where it lies, so there is nothing to upload.
+        files: vocabServerPath ? undefined : (vocabSelected as File[]),
         isVocabularyReference: true,
       })
       // Read from the store rather than the render's `dataSources`: the database
@@ -778,6 +824,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         vocabularyDataSourceRef: buildPointer(useDataSourceStore.getState().dataSources, dsId),
       })
       setVocabFiles([])
+      setVocabServerPath('')
       setVocabExcluded(new Set())
       if (vocabInputRef.current) vocabInputRef.current.value = ''
     } catch (err) {
@@ -1849,6 +1896,19 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                       <FolderOpen size={14} />
                       {t('concept_mapping.vocab_import_select_folder')}
                     </Button>
+                    {/* An ATHENA download is several GB: on a server deployment
+                        it is normally already there, and uploading it is the
+                        slow way round. */}
+                    {isServerMode() && (
+                      <Button
+                        variant="outline"
+                        onClick={() => setVocabPickerOpen(true)}
+                        disabled={vocabImporting}
+                      >
+                        <Server size={14} />
+                        {t('concept_mapping.vocab_import_select_server_folder')}
+                      </Button>
+                    )}
                     <Button
                       onClick={handleVocabImport}
                       disabled={vocabSelected.length === 0 || vocabImporting}
@@ -1928,6 +1988,17 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {vocabPickerOpen && (
+        <ServerPathPickerDialog
+          open
+          mode="folder"
+          scope={{ kind: 'workspace', workspaceId: activeWorkspaceId ?? '' }}
+          initialPath={vocabServerPath || undefined}
+          onClose={() => setVocabPickerOpen(false)}
+          onPick={(p) => { void handleVocabServerFolder(p) }}
+        />
+      )}
 
       {/* Vocabulary remove dialog */}
       <AlertDialog open={vocabRemoveOpen} onOpenChange={setVocabRemoveOpen}>
