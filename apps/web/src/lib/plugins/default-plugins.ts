@@ -18,6 +18,7 @@ import kaplanMeierManifest from '@default-plugins/analyses/kaplan-meier/plugin.j
 import correlationMatrixManifest from '@default-plugins/analyses/correlation-matrix/plugin.json'
 import sankeyManifest from '@default-plugins/analyses/sankey/plugin.json'
 import surveyQuestionManifest from '@default-plugins/analyses/survey-question/plugin.json'
+import spcManifest from '@default-plugins/analyses/spc/plugin.json'
 
 /** Normalise a manifest from JSON (runtime may be string or array). */
 function normaliseManifest(raw: Record<string, unknown>): PluginManifest {
@@ -462,6 +463,13 @@ export function registerDefaultPlugins() {
     manifest: normaliseManifest(sankeyManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'sankey',
+  })
+
+  registerComponent('spc', () => import('@/features/projects/lab/datasets/analyses/SpcComponent').then(m => ({ default: m.SpcComponent })), { supportsServer: true })
+  registerPlugin({
+    manifest: normaliseManifest(spcManifest as unknown as Record<string, unknown>),
+    templates: null,
+    componentId: 'spc',
   })
 
   // Warehouse system plugins (built-in patient data widgets)

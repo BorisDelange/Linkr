@@ -1,0 +1,869 @@
+{
+  "id": "linkr-analysis-spc",
+  "name": {
+    "en": "Control chart (SPC)",
+    "fr": "Carte de contrôle (SPC)"
+  },
+  "description": {
+    "en": "Statistical process control: p, u, c and individuals charts, Laney's overdispersion-corrected P′/U′, EWMA for slow drifts, and g/t charts for rare events — with control limits that follow each period's denominator and automatic signal detection.",
+    "fr": "Maîtrise statistique des processus : cartes p, u, c et individuelles, cartes P′/U′ de Laney corrigées de la surdispersion, EWMA pour les dérives lentes, cartes g/t pour les événements rares — avec des limites de contrôle qui suivent le dénominateur de chaque période et une détection automatique des signaux."
+  },
+  "version": "1.0.0",
+  "category": "statistics",
+  "tags": [
+    "spc",
+    "control-chart",
+    "shewhart",
+    "ewma",
+    "quality-improvement",
+    "surveillance",
+    "statistics"
+  ],
+  "runtime": [
+    "component"
+  ],
+  "languages": [],
+  "icon": "LineChart",
+  "iconColor": "sky",
+  "configSchema": {
+    "statisticType": {
+      "type": "select",
+      "label": {
+        "en": "What is being charted",
+        "fr": "Nature de l'indicateur"
+      },
+      "default": "auto",
+      "hint": {
+        "en": "required",
+        "fr": "requis"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "This choice sets the variance model, and so the control limits themselves: binomial for a proportion, Poisson for a rate, Gaussian for a measurement. It is the one setting that changes what the limits mean, which is why it comes first. Left on Auto, the plugin infers it and says what it inferred.",
+        "fr": "Ce choix fixe le modèle de variance, donc les limites de contrôle elles-mêmes : binomial pour une proportion, Poisson pour un taux, gaussien pour une mesure. C'est le seul réglage qui change la signification des limites, d'où sa place en premier. Laissé sur Auto, le plugin le déduit et annonce ce qu'il a déduit."
+      },
+      "options": [
+        {
+          "value": "auto",
+          "label": {
+            "en": "Auto-detect",
+            "fr": "Détection automatique"
+          }
+        },
+        {
+          "value": "proportion",
+          "label": {
+            "en": "Proportion of cases",
+            "fr": "Proportion de cas"
+          }
+        },
+        {
+          "value": "rate",
+          "label": {
+            "en": "Rate per exposure time",
+            "fr": "Taux par temps d'exposition"
+          }
+        },
+        {
+          "value": "measurement",
+          "label": {
+            "en": "Measured quantity",
+            "fr": "Grandeur mesurée"
+          }
+        },
+        {
+          "value": "rare-event",
+          "label": {
+            "en": "Time between rare events",
+            "fr": "Délai entre événements rares"
+          }
+        }
+      ]
+    },
+    "dateColumn": {
+      "type": "column-select",
+      "label": {
+        "en": "Date",
+        "fr": "Date"
+      },
+      "hint": {
+        "en": "required",
+        "fr": "requis"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "The date each row is charted under. Pick the one that matches the question: an admission cohort is followed on the admission date, mortality on the discharge date.",
+        "fr": "La date sous laquelle chaque ligne est placée. Choisissez celle qui correspond à la question : une cohorte d'admission se suit sur la date d'admission, la mortalité sur la date de sortie."
+      }
+    },
+    "period": {
+      "type": "select",
+      "label": {
+        "en": "Period",
+        "fr": "Période"
+      },
+      "default": "month",
+      "row": "timeRow",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Longer periods give steadier points and fewer of them. A chart needs roughly 20 periods before its limits are worth trusting, so a rare event usually wants quarters where a common one takes months.",
+        "fr": "Des périodes plus longues donnent des points plus stables, mais moins nombreux. Une carte demande environ 20 périodes avant que ses limites soient fiables : un événement rare appelle donc des trimestres là où un événement fréquent se suit au mois."
+      },
+      "options": [
+        {
+          "value": "day",
+          "label": {
+            "en": "Day",
+            "fr": "Jour"
+          }
+        },
+        {
+          "value": "week",
+          "label": {
+            "en": "Week",
+            "fr": "Semaine"
+          }
+        },
+        {
+          "value": "month",
+          "label": {
+            "en": "Month",
+            "fr": "Mois"
+          }
+        },
+        {
+          "value": "quarter",
+          "label": {
+            "en": "Quarter",
+            "fr": "Trimestre"
+          }
+        },
+        {
+          "value": "year",
+          "label": {
+            "en": "Year",
+            "fr": "Année"
+          }
+        }
+      ]
+    },
+    "valueColumn": {
+      "type": "column-select",
+      "label": {
+        "en": "Variable",
+        "fr": "Variable"
+      },
+      "hint": {
+        "en": "required",
+        "fr": "requis"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "The event flag to count, or the quantity to measure.",
+        "fr": "L'indicateur d'événement à compter, ou la grandeur à mesurer."
+      }
+    },
+    "eventValues": {
+      "type": "column-value-select",
+      "multi": true,
+      "columnField": "valueColumn",
+      "label": {
+        "en": "Values counted as the event",
+        "fr": "Valeurs comptées comme événement"
+      },
+      "optional": true,
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Which values of the variable count as the event — several may. Left empty on a 0/1 flag, any non-zero counts.",
+        "fr": "Quelles valeurs de la variable comptent comme événement — il peut y en avoir plusieurs. Laissé vide sur un indicateur 0/1, toute valeur non nulle compte."
+      }
+    },
+    "aggregation": {
+      "type": "select",
+      "label": {
+        "en": "Aggregation",
+        "fr": "Agrégation"
+      },
+      "default": "median",
+      "visibleWhen": {
+        "field": "statisticType",
+        "value": "measurement"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "How the measurements of one period become the single point plotted for it.",
+        "fr": "Comment les mesures d'une période deviennent le point unique qui la représente."
+      },
+      "options": [
+        {
+          "value": "median",
+          "label": {
+            "en": "Median",
+            "fr": "Médiane"
+          }
+        },
+        {
+          "value": "mean",
+          "label": {
+            "en": "Mean",
+            "fr": "Moyenne"
+          }
+        },
+        {
+          "value": "sum",
+          "label": {
+            "en": "Sum",
+            "fr": "Somme"
+          }
+        },
+        {
+          "value": "min",
+          "label": {
+            "en": "Minimum",
+            "fr": "Minimum"
+          }
+        },
+        {
+          "value": "max",
+          "label": {
+            "en": "Maximum",
+            "fr": "Maximum"
+          }
+        }
+      ]
+    },
+    "denominatorMode": {
+      "type": "select",
+      "label": {
+        "en": "Denominator",
+        "fr": "Dénominateur"
+      },
+      "default": "cases",
+      "visibleWhen": {
+        "field": "statisticType",
+        "values": [
+          "auto",
+          "proportion",
+          "rate"
+        ]
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "The population at risk. For a device-associated infection this is device-days, not admissions: the patients at risk are those with a line in place. Patient-days and device-days clip each stay to the period, so a 90-day stay counts in all three months it spans.",
+        "fr": "La population à risque. Pour une infection liée à un dispositif, ce sont des jours-dispositif et non des admissions : les patients à risque sont ceux qui portent un cathéter. Les jours-patients et jours-dispositif découpent chaque séjour par période : un séjour de 90 jours compte dans les trois mois qu'il traverse."
+      },
+      "options": [
+        {
+          "value": "cases",
+          "label": {
+            "en": "Cases (one per row)",
+            "fr": "Cas (un par ligne)"
+          }
+        },
+        {
+          "value": "exposure-column",
+          "label": {
+            "en": "A duration column",
+            "fr": "Une colonne de durée"
+          }
+        },
+        {
+          "value": "patient-days",
+          "label": {
+            "en": "Patient-days (overlap)",
+            "fr": "Jours-patients (chevauchement)"
+          }
+        },
+        {
+          "value": "device-days",
+          "label": {
+            "en": "Device-days (overlap)",
+            "fr": "Jours-dispositif (chevauchement)"
+          }
+        }
+      ]
+    },
+    "exposureColumn": {
+      "type": "column-select",
+      "label": {
+        "en": "Duration column",
+        "fr": "Colonne de durée"
+      },
+      "filter": "numeric",
+      "visibleWhen": {
+        "field": "denominatorMode",
+        "value": "exposure-column"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "A per-stay duration already computed, summed over each period.",
+        "fr": "Une durée par séjour déjà calculée, sommée sur chaque période."
+      }
+    },
+    "admissionColumn": {
+      "type": "column-select",
+      "label": {
+        "en": "Admission date",
+        "fr": "Date d'admission"
+      },
+      "row": "stayBounds",
+      "visibleWhen": {
+        "field": "denominatorMode",
+        "value": "patient-days"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      }
+    },
+    "dischargeColumn": {
+      "type": "column-select",
+      "label": {
+        "en": "Discharge date",
+        "fr": "Date de sortie"
+      },
+      "row": "stayBounds",
+      "visibleWhen": {
+        "field": "denominatorMode",
+        "value": "patient-days"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Left blank, or empty on a row, the stay is treated as still ongoing and counted up to the last date observed.",
+        "fr": "Vide, ou absente sur une ligne, le séjour est considéré comme en cours et compté jusqu'à la dernière date observée."
+      }
+    },
+    "deviceStartColumn": {
+      "type": "column-select",
+      "label": {
+        "en": "Device inserted",
+        "fr": "Pose du dispositif"
+      },
+      "row": "deviceBounds",
+      "visibleWhen": {
+        "field": "denominatorMode",
+        "value": "device-days"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      }
+    },
+    "deviceEndColumn": {
+      "type": "column-select",
+      "label": {
+        "en": "Device removed",
+        "fr": "Retrait du dispositif"
+      },
+      "row": "deviceBounds",
+      "visibleWhen": {
+        "field": "denominatorMode",
+        "value": "device-days"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      }
+    },
+    "rateBasis": {
+      "type": "number",
+      "label": {
+        "en": "Rate per",
+        "fr": "Taux pour"
+      },
+      "default": 1000,
+      "min": 1,
+      "max": 100000,
+      "row": "rateRow",
+      "visibleWhen": {
+        "field": "denominatorMode",
+        "values": [
+          "exposure-column",
+          "patient-days",
+          "device-days"
+        ]
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "The scale the rate is expressed on. NHSN and ECDC report per 1000 days.",
+        "fr": "L'échelle d'expression du taux. Le NHSN et l'ECDC rapportent pour 1000 jours."
+      }
+    },
+    "deduplicateBy": {
+      "type": "column-select",
+      "label": {
+        "en": "One row per",
+        "fr": "Une ligne par"
+      },
+      "optional": true,
+      "row": "rateRow",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Keep a single row per stay or per patient before counting, so a stay with several rows is not counted several times. Usually the stay identifier.",
+        "fr": "Ne garder qu'une ligne par séjour ou par patient avant de compter, pour qu'un séjour à plusieurs lignes ne soit pas compté plusieurs fois. Généralement l'identifiant de séjour."
+      }
+    },
+    "chartType": {
+      "type": "select",
+      "label": {
+        "en": "Chart",
+        "fr": "Carte"
+      },
+      "default": "auto",
+      "section": {
+        "en": "Chart",
+        "fr": "Carte"
+      },
+      "description": {
+        "en": "Auto picks from the statistic and the data: a prime chart when denominators are large, a plain one otherwise. Choose explicitly to override — an EWMA to catch a slow drift, a g-chart when events are too rare for a rate to mean anything.",
+        "fr": "Auto choisit selon l'indicateur et les données : une carte « prime » quand les dénominateurs sont grands, sinon une carte simple. Choisissez explicitement pour forcer — une EWMA pour capter une dérive lente, une carte g quand les événements sont trop rares pour qu'un taux ait un sens."
+      },
+      "options": [
+        {
+          "value": "auto",
+          "label": {
+            "en": "Auto",
+            "fr": "Auto"
+          }
+        },
+        {
+          "value": "p",
+          "label": {
+            "en": "p — proportion",
+            "fr": "p — proportion"
+          }
+        },
+        {
+          "value": "p-prime",
+          "label": {
+            "en": "P′ — proportion, overdispersion-corrected",
+            "fr": "P′ — proportion, corrigée de la surdispersion"
+          }
+        },
+        {
+          "value": "np",
+          "label": {
+            "en": "np — event count, equal denominators",
+            "fr": "np — nombre d'événements, dénominateurs égaux"
+          }
+        },
+        {
+          "value": "u",
+          "label": {
+            "en": "u — rate per exposure",
+            "fr": "u — taux par exposition"
+          }
+        },
+        {
+          "value": "u-prime",
+          "label": {
+            "en": "U′ — rate, overdispersion-corrected",
+            "fr": "U′ — taux, corrigé de la surdispersion"
+          }
+        },
+        {
+          "value": "c",
+          "label": {
+            "en": "c — count, constant denominator",
+            "fr": "c — comptage, dénominateur constant"
+          }
+        },
+        {
+          "value": "i-mr",
+          "label": {
+            "en": "I — individual measurements",
+            "fr": "I — mesures individuelles"
+          }
+        },
+        {
+          "value": "ewma",
+          "label": {
+            "en": "EWMA — slow drifts",
+            "fr": "EWMA — dérives lentes"
+          }
+        },
+        {
+          "value": "g",
+          "label": {
+            "en": "g — days between rare events",
+            "fr": "g — jours entre événements rares"
+          }
+        },
+        {
+          "value": "t",
+          "label": {
+            "en": "t — time between rare events",
+            "fr": "t — délai entre événements rares"
+          }
+        }
+      ]
+    },
+    "limitSigma": {
+      "type": "number",
+      "label": {
+        "en": "Limit width (sigma)",
+        "fr": "Largeur des limites (sigma)"
+      },
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "row": "limitRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Carte"
+      },
+      "description": {
+        "en": "3 is the Shewhart convention — not a significance test but a trade-off, giving about one false alarm every 370 points. Narrower limits catch more, and cry wolf more.",
+        "fr": "3 est la convention de Shewhart — non pas un test de significativité mais un compromis, donnant environ une fausse alarme tous les 370 points. Des limites plus étroites détectent davantage, et crient au loup davantage."
+      }
+    },
+    "lambda": {
+      "type": "number",
+      "label": {
+        "en": "Smoothing (λ)",
+        "fr": "Lissage (λ)"
+      },
+      "default": 0.2,
+      "min": 0.05,
+      "max": 1,
+      "row": "limitRow",
+      "visibleWhen": {
+        "field": "chartType",
+        "value": "ewma"
+      },
+      "section": {
+        "en": "Chart",
+        "fr": "Carte"
+      },
+      "description": {
+        "en": "How much weight the newest period carries. 0.2 is the convention; smaller means longer memory and better sensitivity to a tiny drift, at the cost of reacting slowly to a real jump.",
+        "fr": "Le poids accordé à la période la plus récente. 0,2 est la convention ; plus petit signifie une mémoire plus longue et une meilleure sensibilité aux dérives infimes, au prix d'une réaction lente à un saut réel."
+      }
+    },
+    "target": {
+      "type": "number",
+      "label": {
+        "en": "Target centre line",
+        "fr": "Ligne centrale cible"
+      },
+      "optional": true,
+      "section": {
+        "en": "Chart",
+        "fr": "Carte"
+      },
+      "description": {
+        "en": "Judge against a target rather than against the process's own past. Left empty, the centre line is estimated from the baseline — which is what a control chart normally does.",
+        "fr": "Juger par rapport à une cible plutôt que par rapport au passé du processus. Laissé vide, la ligne centrale est estimée sur la période de référence — ce que fait normalement une carte de contrôle."
+      }
+    },
+    "baselineUntil": {
+      "type": "string",
+      "label": {
+        "en": "Freeze limits after (YYYY-MM-DD)",
+        "fr": "Figer les limites après (AAAA-MM-JJ)"
+      },
+      "section": {
+        "en": "Chart",
+        "fr": "Carte"
+      },
+      "description": {
+        "en": "Fit the limits on the periods up to this date, then hold them fixed. Without it every period informs the limits, so a slow drift carries them along with it and the chart absorbs the very deterioration it should reveal. Set it to the end of a period you consider representative.",
+        "fr": "Ajuster les limites sur les périodes jusqu'à cette date, puis les maintenir fixes. Sans cela, chaque période alimente les limites : une dérive lente les entraîne avec elle et la carte absorbe la dégradation qu'elle devrait révéler. À fixer à la fin d'une période que vous jugez représentative."
+      }
+    },
+    "runsRules": {
+      "type": "select",
+      "label": {
+        "en": "Signal rules",
+        "fr": "Règles de signal"
+      },
+      "default": "anhoj",
+      "section": {
+        "en": "Signals",
+        "fr": "Signaux"
+      },
+      "description": {
+        "en": "Beyond points outside the limits, patterns that stay inside them: a long run on one side, too few crossings of the centre line. The Anhøj rules scale their thresholds with the series length, where a fixed run length applies one number to a series of any size. Every added rule detects more and false-alarms more.",
+        "fr": "Au-delà des points hors limites, les motifs qui restent à l'intérieur : une longue série du même côté, trop peu de franchissements de la ligne centrale. Les règles d'Anhøj adaptent leurs seuils à la longueur de la série, là où une longueur fixe applique un seul nombre à une série de n'importe quelle taille. Chaque règle ajoutée détecte plus, et déclenche plus de fausses alarmes."
+      },
+      "options": [
+        {
+          "value": "anhoj",
+          "label": {
+            "en": "Anhøj (recommended)",
+            "fr": "Anhøj (recommandé)"
+          }
+        },
+        {
+          "value": "fixed",
+          "label": {
+            "en": "Fixed run length",
+            "fr": "Longueur de série fixe"
+          }
+        },
+        {
+          "value": "none",
+          "label": {
+            "en": "Out-of-limit points only",
+            "fr": "Points hors limites seulement"
+          }
+        }
+      ]
+    },
+    "runLength": {
+      "type": "number",
+      "label": {
+        "en": "Run length",
+        "fr": "Longueur de série"
+      },
+      "default": 6,
+      "min": 3,
+      "max": 12,
+      "visibleWhen": {
+        "field": "runsRules",
+        "value": "fixed"
+      },
+      "section": {
+        "en": "Signals",
+        "fr": "Signaux"
+      }
+    },
+    "showBaselineSplit": {
+      "type": "boolean",
+      "label": {
+        "en": "Mark the baseline",
+        "fr": "Marquer la référence"
+      },
+      "default": true,
+      "row": "signalToggles",
+      "section": {
+        "en": "Signals",
+        "fr": "Signaux"
+      }
+    },
+    "showRawData": {
+      "type": "boolean",
+      "label": {
+        "en": "Raw points behind EWMA",
+        "fr": "Points bruts sous l'EWMA"
+      },
+      "default": true,
+      "row": "signalToggles",
+      "visibleWhen": {
+        "field": "chartType",
+        "value": "ewma"
+      },
+      "section": {
+        "en": "Signals",
+        "fr": "Signaux"
+      }
+    },
+    "title": {
+      "type": "string",
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "yLabel": {
+      "type": "string",
+      "label": {
+        "en": "Y axis label",
+        "fr": "Libellé de l'axe Y"
+      },
+      "row": "labelsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "decimals": {
+      "type": "number",
+      "label": {
+        "en": "Decimals",
+        "fr": "Décimales"
+      },
+      "default": 1,
+      "min": 0,
+      "max": 6,
+      "row": "labelsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "cardIcon": {
+      "type": "icon-select",
+      "label": {
+        "en": "Icon",
+        "fr": "Icône"
+      },
+      "default": "__none__",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "centerTitle": {
+      "type": "boolean",
+      "label": {
+        "en": "Center title",
+        "fr": "Centrer le titre"
+      },
+      "default": true,
+      "row": "togglesRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "showGrid": {
+      "type": "boolean",
+      "label": {
+        "en": "Show grid",
+        "fr": "Grille"
+      },
+      "default": true,
+      "row": "togglesRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "showLegend": {
+      "type": "boolean",
+      "label": {
+        "en": "Show legend",
+        "fr": "Légende"
+      },
+      "default": true,
+      "row": "togglesRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "lineColor": {
+      "type": "color-select",
+      "label": {
+        "en": "Line",
+        "fr": "Courbe"
+      },
+      "default": "blue",
+      "row": "colorsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "signalColor": {
+      "type": "color-select",
+      "label": {
+        "en": "Signals",
+        "fr": "Signaux"
+      },
+      "default": "red",
+      "row": "colorsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Colour of the points a rule flags.",
+        "fr": "Couleur des points signalés par une règle."
+      }
+    },
+    "bgColor": {
+      "type": "color-select",
+      "label": {
+        "en": "Background",
+        "fr": "Fond"
+      },
+      "default": "none",
+      "row": "colorsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "options": [
+        {
+          "value": "none",
+          "label": {
+            "en": "None",
+            "fr": "Aucun"
+          }
+        }
+      ]
+    },
+    "titleColor": {
+      "type": "color-select",
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
+      "default": "auto",
+      "row": "colorsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "options": [
+        {
+          "value": "auto",
+          "label": {
+            "en": "Auto",
+            "fr": "Auto"
+          }
+        }
+      ]
+    }
+  }
+}
