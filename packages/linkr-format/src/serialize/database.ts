@@ -11,7 +11,7 @@
  * hospital (`buildDataSourceFolder` in entity-io.ts). Authoring one here is
  * allowed because this runs outside that context — which is exactly why the
  * rule attached to it matters: synthetic or public open data only, never a
- * connected database. See docs/planning/default-data-repos-plan.md §11.
+ * connected database. See docs/architecture.md § Format package & MCP authoring.
  */
 import { canonicalSchemaMapping } from '../schema-mapping.js'
 import type { CopyFile, LocalizedInput, SerializedTree, WriteFile } from './project.js'

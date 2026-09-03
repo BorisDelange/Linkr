@@ -14,7 +14,7 @@
  *   - `linkr-catalog`'s `scan.mjs` and `linkr-portal`'s `build.sh`, which live in
  *     other repos entirely — and whose CI runs on a bare node/bash with no install,
  *     so they restate ENTITY_MANIFEST and the legacy names with a pointer back here.
- * All three are noted in docs/planning/export-format-harmonization-plan.md.
+ * All three are noted in docs/architecture.md § Export format.
  */
 
 /** Every entity kind that has a standalone export tree. */

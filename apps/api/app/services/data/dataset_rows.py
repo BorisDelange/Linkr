@@ -2,7 +2,7 @@
 
 Rows are stored **columnar in Parquet**, not as a JSON blob, so the server can
 paginate/sort/filter/aggregate with DuckDB without materialising the whole
-dataset (see docs/planning/fullstack-storage-plan.html §04). This is the write
+dataset (see docs/architecture.md § Fullstack Storage & Compute). This is the write
 format for the ``data_sha`` blob; the original upload keeps its own format under
 ``raw_sha``.
 

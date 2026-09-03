@@ -122,8 +122,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     }
     await getStorage().workspaces.create(workspace)
     // No schema presets are created here any more: a schema is an ordinary entity,
-    // installed from the catalog or imported like anything else. See
-    // docs/planning/default-data-repos-plan.md §11.10.
+    // installed from the catalog or imported like anything else.
     // Seed a copy of every built-in plugin so the workspace lists them in its
     // Plugins page.
     await seedBuiltinPluginsForWorkspace(id)

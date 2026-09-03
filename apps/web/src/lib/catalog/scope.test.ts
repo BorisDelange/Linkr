@@ -34,7 +34,7 @@ describe('catalogTypeForScope', () => {
 
   it('publishes a workspace, so its import dialog offers the catalog too', () => {
     // The demo/default content ships as one curated workspace pulling its children
-    // in through their git links (default-data-repos-plan.md, decision 6).
+    // in through their git links.
     expect(catalogTypeForScope('workspaces')).toBe('workspace')
   })
 

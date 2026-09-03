@@ -1,5 +1,5 @@
 """Persistent execution kernels — long-lived R/Python processes whose variable
-namespace survives across runs (see docs/planning/fullstack-storage-plan.md §07).
+namespace survives across runs (see docs/architecture.md § Fullstack Storage & Compute).
 
 Unlike the stateless runner (runtime.py), a kernel is a subprocess that stays
 alive: the parent sends one code request at a time over stdin and reads its

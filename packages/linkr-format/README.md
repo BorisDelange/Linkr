@@ -4,7 +4,7 @@ What a valid Linkr entity **is**: schemas, id derivation and validation, with no
 I/O and no dependencies — so the same rules serve the app (browser, including the
 WASM build), the MCP authoring server (Node) and CI.
 
-Design and roadmap: [`docs/planning/mcp-authoring-plan.md`](../../docs/planning/mcp-authoring-plan.md).
+Design: [`docs/architecture.md`](../../docs/architecture.md) § Format package & MCP authoring.
 
 > ⚠️ **This package is a second description of the export format.** Change what
 > `apps/web/src/lib/entity-io.ts` writes and you must teach the schemas here about it in

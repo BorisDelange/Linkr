@@ -7,7 +7,7 @@
  * a manuscript, so reusing it would mean fighting it to hide most of what it
  * does. `ui-patterns.md` §6 says extend the shared component when it *almost*
  * fits; here it does not, because the goal is a typeset table rather than a
- * datatable. See docs/planning/descriptive-table-plan.md §3.
+ * datatable.
  *
  * The style is `booktabs` — what LaTeX's package of that name, gtsummary and the
  * NEJM/Lancet all produce:

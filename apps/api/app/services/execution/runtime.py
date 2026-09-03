@@ -1,5 +1,5 @@
 """Server-side execution output contract — the counterpart to the browser's
-Pyodide / WebR engines (see docs/planning/fullstack-storage-plan.html §06).
+Pyodide / WebR engines (see docs/architecture.md § Fullstack Storage & Compute).
 
 The streaming kernels (kernel.py) produce a ``RuntimeOutput`` mirroring the
 browser engines' capture contract:

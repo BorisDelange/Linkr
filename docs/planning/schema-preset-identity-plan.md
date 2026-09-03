@@ -217,6 +217,6 @@ lives in `schemaSource.lineageId` — already true for databases.
 - **`String(36)` on the PK column** ([schema_preset.py:11](../../apps/api/app/models/schema_preset.py#L11))
   is uuid-width but currently holds slugs. Fine for a uuid `id`; `entityId` needs its own
   column with a length that fits a slug.
-- Whether the **built-in `SCHEMA_PRESETS` table** disappears first (plan §10 of
-  `default-data-repos-plan.md`) or after. It only holds `omop-5.4` and `mimic-iv`, kept
-  alive for seeded databases; doing that first removes 11 literal sites from this effort.
+- Whether the **built-in `SCHEMA_PRESETS` table** (`lib/schema-presets.ts`) disappears
+  first or after. It only holds `omop-5.4` and `mimic-iv`, kept alive for seeded
+  databases; doing that first removes 11 literal sites from this effort.

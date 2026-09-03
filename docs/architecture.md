@@ -238,7 +238,8 @@ fork. Publish one.
 `uid?, entityId, type, name, createdAt?, lineageId, gitRemoteConfig`. `lineageId` is
 written even when null — omitting it is what made a pointer re-import as a duplicate.
 
-Full history and rationale: `docs/planning/export-format-harmonization-plan.md`.
+This section is the reference: the harmonization effort that produced it is finished and
+its plan retired.
 
 ## Format package & MCP authoring (as-built)
 
@@ -283,8 +284,8 @@ A **database** is the one tree carrying data, so its serializer returns `{ files
 rather than files alone: Parquet is binary and megabytes wide, and this package has no
 I/O — it declares where each file goes and the MCP tool performs the copy. The app can
 **import** such a tree (`applyClonedDatabase`) but never **writes** one: see the
-asymmetry recorded in `docs/planning/default-data-repos-plan.md` §11, and
-`INSTALL_ONLY_TYPES` in `lib/catalog/scope.ts`, which is what keeps a push button off it.
+asymmetry enforced by `INSTALL_ONLY_TYPES` in `lib/catalog/scope.ts`, which is what keeps
+a push button off it.
 
 A schema preset's canonical key order lives in `src/schema-mapping.ts` and is imported by
 `entity-io.ts` rather than duplicated — the writer must reproduce an exported preset byte
@@ -298,8 +299,7 @@ the other's schema and report a pile of nonsense.
 The validator also runs on **import** (`parseProjectZip` → `lib/import-validation.ts`),
 reported after a successful import and never blocking: reads stay tolerant by design.
 
-Details and roadmap → `docs/planning/mcp-authoring-plan.md`. Authoring guidance for
-agents → `.claude/skills/linkr-authoring/`.
+Authoring guidance for agents → `.claude/skills/linkr-authoring/`.
 
 ---
 
@@ -417,7 +417,7 @@ Two deployment modes; `isServerMode()` (= `!!VITE_API_URL`) decides where comput
 - **Datasets**: raw files on disk are immutable; server-paginated preview/rows (`LIMIT/OFFSET`, `ORDER BY`/`WHERE`) + per-column stats as DuckDB aggregates; `datasets/` surfaced read-only in the IDE tree. A per-dataset sidecar `projects/<uid>/dataset-meta/<hash>.json` carries column metadata (label/description/valueLabels) + `parseOptions` (columnTypes/filterMode/delimiter), merged in `dataset_fs.resolve_cache` and travelling on export/git.
 - **Server-side export builders**: in server mode the backend assembles export/versioning ZIPs itself for projects / workspaces / mapping-projects / settings, and has standalone builders for the six workspace-child scopes (`apps/api/app/services/*_export*.py`); the TS builders remain the front-only path (bypassed, never deleted). TS↔Python byte parity is pinned by **golden tests**: one frozen `expected/` extracted tree per scope, checked by a twin TS test + Python test, compared per extracted file (never zip-container bytes).
 
-Remaining work: `docs/planning/fullstack-storage-plan.md`.
+Remaining work: `docs/planning/README.md` (Fullstack backlog).
 
 ---
 
@@ -426,7 +426,7 @@ Remaining work: `docs/planning/fullstack-storage-plan.md`.
 - **Three tiers** — Global / Workspace / Project — over a resources × actions catalogue (`apps/api/app/core/permissions.py`): most resources carry `read/write/delete`. `execute` is split by risk: `ide:execute` = run **arbitrary** code (the RCE-sensitive one), while `patient-data`/`datasets`/`dashboards` carry a **view-time** `execute` (running a widget/analysis, not free-form code). Global resources: `workspaces` (= create), `users`, `roles`, `organizations`, `app-database`, plus cross-cutting `all-workspaces` / `all-projects`; `reports` is reserved (stub page) so roles can pre-grant.
 - **Resolution**: global admin > project override (`project_members` — may broaden, restrict, or set `none` = project hidden) > inherited workspace role. Roles are permission bundles (viewer < editor < owner, plus custom roles).
 - **Enforcement is server-side** (atomic `resource:action` checks — `require_project_permission` / `check_workspace_permission`; 403). UI gating is cosmetic only: `my-role` returns the effective permission list, the `can('resource:action')` hook disables/hides controls (front-only and admin → always true).
-- **PO end-to-end validation of the catalogue is still pending** — see `docs/planning/users-authorizations-audit.md`.
+- **PO end-to-end validation of the catalogue is still pending** — see `docs/planning/README.md` (Permissions).
 
 ---
 
@@ -446,7 +446,7 @@ Built-in analysis widgets never send code in server mode: the client posts `{kin
 
 - **Pull, as redesigned (2026-08-12)**: the panel is **bidirectional** — when the remote is ahead, the push file list and commit box are *hidden* and the same panel shows what is coming in, in both tabs (cards in Quick actions, files in Details). Four cards are shared by both directions (all / general info / mappings / source concepts), differing only in the verb ("Sync" out, "Pull" in). Two cursors, not one: `synced_oid` = "we hold this commit's content" (the 3-way base, advances only on a *complete* pull) and `reviewed_oid` = "every incoming item got an explicit decision" (what gates the push, and what `behind` is measured against). That split is what makes a *partial* pull expressible — take some items, keep your version of the rest, and the declined ones simply reappear as local changes to push. Finalizing is gated on every item having a verdict: **accepting and declining are both decisions, an untouched row is not**. Conflicts never resolve in bulk (`PullMappingsTable` for mappings, inline sub-rows for metadata fields). The pull diff is a **projection of the merge plan**, not a file diff — only candidate fields/objects are rendered, so a raw `uid`/`createdAt` never appears and a 61 925-row CSV renders as its row tally. `source-concept-ids/` is merged monotonically on every pull with no user choice (local id wins, `nextId = max`) — it was pushed but never pulled, so badge allocations diverged silently. Similarity scores are gone from the pull entirely (gitignored, so never in a repo). Code: `lib/pull-plan.ts`, `lib/concept-mapping/pull-plan-builder.ts` / `pull-diff.ts` / `pull-source-concept-ids.ts`, `components/versioning/PullPanel.tsx` + `PullFileRow` + `PullDiffDialog` + `MappingProjectPull`.
 
-Remaining work (step 9: generalising the pull shell to the other scopes; `attachments/`): `docs/planning/versioning-plan.md`.
+Remaining work (generalising the pull shell to the push-only scopes; `attachments/`): `docs/planning/README.md` (Versioning).
 
 ## Entity documentation: README / LICENSE / attachments (as-built)
 

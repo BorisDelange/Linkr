@@ -1,12 +1,10 @@
-# Databases — full page with tabs, and derived sub-databases (datamarts)
+# Databases — derived sub-databases (datamarts)
 
 Idea captured 2026-08-22. Not yet arbitrated.
 
-Two things at once, which is why they share a plan:
-
-1. Replace the right-hand **detail sheet** with a real **database page with tabs**.
-2. Add the ability to derive a **sub-database / datamart** from the main one, by
-   selecting patients exactly as the cohort builder does.
+Derive a **sub-database / datamart** from a main database by selecting patients
+exactly as the cohort builder does, then projecting every event table onto that
+patient set.
 
 Status legend as in [README.md](README.md): 🔜 ready · 🤔 needs a decision · 💤 later.
 
@@ -14,14 +12,13 @@ Status legend as in [README.md](README.md): 🔜 ready · 🤔 needs a decision 
 
 ## 1. Where we stand
 
-Clicking a database opens `DatabaseDetailSheet.tsx` (364 l.) — a shadcn `Sheet
-side="right"`, `sm:max-w-xl`, with **two tabs** (l.89-122): *Overview* (status,
-a button opening `SchemaBrowserDialog`, connection fields, dates) and *Statistics*
-(`DatabaseStatsDashboard.tsx`, 614 l.). It is shared by the project-scoped
-`DatabasesPage.tsx:213` and the workspace-scoped `AppDatabasesPage.tsx:446`.
-
-A sheet at `max-w-xl` is the constraint: the schema browser is already pushed out
-into a dialog *from inside a sheet*, which is the symptom.
+**The page with tabs is done.** `DatabaseDetailPage.tsx` replaced the old
+right-hand `DatabaseDetailSheet` (the sheet is gone, not kept alongside — two
+surfaces showing the same thing was the divergence risk `docs/ui-patterns.md` §6
+is about). Its tabs today: *Overview*, *Statistics*, *Schema* (inline, no longer a
+dialog-inside-a-sheet), plus the shared secondary tabs README / License /
+Versioning. What this plan still adds to it is a **Datamarts** tab, and possibly a
+**Data quality** one (§3).
 
 **There is no notion of a sub-database today.** One `DataSource` = one flat namespace.
 `DataSource.alias` becomes the DuckDB attach/schema name (`types/index.ts:328-329`),
@@ -38,24 +35,16 @@ project every event table onto that patient set.**
 
 Naming to settle (§5.1). This plan uses **datamart** provisionally.
 
-## 3. Full page with tabs
-
-Route alongside the existing list: `…/warehouse/databases/:dataSourceId`. Tabs:
+## 3. The two tabs still to add
 
 | Tab | Content | Reuses |
 |---|---|---|
-| Overview | what the sheet's `OverviewTab` shows, un-cramped | `DatabaseDetailSheet.tsx:128+` |
-| Schema | the schema browser inline, no longer a dialog-inside-a-sheet | `SchemaBrowser.tsx` |
-| Statistics | as today | `DatabaseStatsDashboard.tsx` |
 | Datamarts | list + builder (§4) | cohort builder components |
 | Data quality | apply a DQ rule set to this database and see the result | the DQ rule-set entity |
 
 The Data quality tab is the least settled — DQ rule sets exist as an entity, but
 whether a *database* page is the right place to run them (vs the existing Data quality
 page, which is project-scoped) needs deciding. Marked 🤔 below.
-
-Keep the sheet or drop it? **Drop it.** Two surfaces showing the same thing is the
-divergence risk `docs/ui-patterns.md` §6 is about. The card click navigates to the page.
 
 ## 4. Datamarts — reuse the cohort builder, near-identically
 
@@ -110,8 +99,8 @@ actually is. Since the criteria tree is stored, the datamart is also *re-buildab
 
 | St | Item | Effort |
 |----|------|--------|
+| ✅ | Database detail **page** with tabs (Overview / Statistics / Schema), sheet retired | M |
 | 🤔 | Arbitrate naming, entity shape, and the cohort/datamart line — §5.1-5.3 | S (decision) |
-| 🔜 | Database detail **page** with tabs (Overview / Schema / Statistics), sheet retired | M |
 | 🔜 | Extract the cohort criteria builder into a shared, consumer-agnostic component | M |
 | 🔜 | Datamart entity + builder tab + provenance (parent, criteria, built-at) | L |
 | 🔜 | Mode (a): materialise to a new Parquet-backed `DataSource` | M |

@@ -599,8 +599,7 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
   const wsId = workspace.id
 
   // Schema presets are NOT seeded: they are ordinary entities now, installed from
-  // the catalog or shipped in the seed folder like any other entity. See
-  // docs/planning/default-data-repos-plan.md §11.10.
+  // the catalog or shipped in the seed folder like any other entity.
   //
   // `getSchemaPreset` below is a separate matter and still reads the compiled table:
   // a seeded database declares its schema inline or by preset id ("omop-5.4"), and

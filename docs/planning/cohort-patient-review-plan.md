@@ -60,7 +60,7 @@ than clone it. The one thing to check first is whether the export/import key sch
 since the key is derived from the name, but a reserved slug is worth pinning.
 
 Either way the board is **project-scoped and travels with the project**, like the
-patient boards themselves (patient-data-plan §9.1).
+patient boards themselves.
 
 ## 4. Open questions
 

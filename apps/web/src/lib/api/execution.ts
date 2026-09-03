@@ -21,7 +21,7 @@ export function activeSessionFor(projectUid: string | null, language: RuntimeLan
  * Run R/Python on the server (server mode) and return the same RuntimeOutput the
  * browser engines produce — so callers (IDE, analyses, dashboards) are agnostic
  * to where the code ran. Only the rendered result crosses the wire, never the
- * underlying data (see docs/planning/fullstack-storage-plan.html §03/§06).
+ * underlying data (see docs/architecture.md § Fullstack Storage & Compute).
  */
 export function executeOnServer(
   language: RuntimeLanguage,

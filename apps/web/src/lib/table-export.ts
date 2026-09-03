@@ -5,7 +5,7 @@
  *  - HTML, which is what Word and Google Docs accept as a real table;
  *  - tab-separated text, the plain-text fallback and what a spreadsheet reads;
  *  - LaTeX `booktabs`, which is the source form of the style the table is drawn
- *    in (docs/planning/descriptive-table-plan.md §3.1).
+ *    in (see `components/ui/publication-table.tsx`).
  *
  * Pure string work, kept out of the components so it can be tested directly.
  */

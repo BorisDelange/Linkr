@@ -372,7 +372,7 @@ export async function buildProjectSourceConceptIds(
     // `source_concepts` view); reproducing that here — CSV quoting, QUALIFY dedup,
     // terminology-column fallback — would risk a THIRD, divergent behaviour, so a
     // mixed front-only/server team still sees entries.json churn on a shared
-    // remote. Tracked as a known limitation (docs/planning/versioning-plan.md §8).
+    // remote. Known limitation, deliberately not worked around here.
     if (range) ranges.push(reconcileRangeWithEntries(range, es))
     entries.push(...es)
   }

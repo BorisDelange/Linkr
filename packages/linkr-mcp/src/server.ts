@@ -7,7 +7,7 @@
  * validated. It contains **no format knowledge**: every tool parses its
  * arguments, calls into `@linkr/format`, and reports what came back. A tool that
  * starts building a JSON shape by hand has broken the layering — see
- * docs/planning/mcp-authoring-plan.md §2.
+ * docs/architecture.md § Format package & MCP authoring.
  *
  * The server writes FILES, not to a running Linkr instance: that is what makes
  * authoring work offline, and it produces exactly the tree shape the

@@ -3,7 +3,7 @@
  *
  * Schemas, id derivation and validation, with **no I/O and no dependencies**, so
  * the same rules serve the app (browser, including the WASM build), the MCP
- * authoring server (Node) and CI. See docs/planning/mcp-authoring-plan.md.
+ * authoring server (Node) and CI. See docs/architecture.md § Format package & MCP authoring.
  */
 export type { Issue, IssueCode, Severity } from './issue.js'
 export { formatIssues, hasErrors, IssueBag, listHint } from './issue.js'

@@ -2,10 +2,10 @@
  * Id and key derivation, mirroring the app.
  *
  * These are faithful twins of `apps/web/src/lib/column-id.ts` and the `slugify`
- * in `apps/web/src/lib/entity-io.ts`. They are duplicated here on purpose and
- * only until step 4 of docs/planning/mcp-authoring-plan.md, which makes the app
- * import them from this package instead — at which point these become the single
- * definition and the app-side copies are deleted.
+ * in `apps/web/src/lib/entity-io.ts`. The duplication is deliberate — this package
+ * must stay dependency-free for the WASM build — and is what `ids.parity.test.ts`
+ * guards against drift. Content-key derivation went the other way: `keys.ts` is the
+ * single definition and `entity-io.ts` imports it.
  *
  * Parity is not cosmetic: `columnId` already has a Python twin
  * (apps/api/app/services/data/column_id.py) guarded by a shared fixture, because

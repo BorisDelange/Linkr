@@ -8,8 +8,7 @@
  * the browser — so its copy is assembled here, at build time, and shipped as the
  * seed under `apps/web/public/data/seed/`.
  *
- * One source of truth, two ways of reaching it. See
- * docs/planning/default-data-repos-plan.md §0.
+ * One source of truth, two ways of reaching it.
  *
  *   clone the workspace repo
  *     → read git-links.json

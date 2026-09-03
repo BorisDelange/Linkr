@@ -403,8 +403,7 @@ const mimicIV: SchemaMapping = {
  * Schemas a *seeded* database may name by id.
  *
  * This is no longer a catalogue of presets offered to the user: schema presets are
- * ordinary entities now, installed from the community catalog (see
- * docs/planning/default-data-repos-plan.md §11.10). Nothing in the UI reads this table
+ * ordinary entities now, installed from the community catalog. Nothing in the UI reads this table
  * — the Schemas page and both database dialogs list the workspace's stored presets.
  *
  * What keeps it alive is the seed: a seeded database declares its schema inline or by

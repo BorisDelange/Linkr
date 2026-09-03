@@ -48,7 +48,7 @@ interface GitSyncPanelProps {
    * list with this while the remote is ahead, instead of opening a dialog.
    *
    * Preferred over `renderPullDialog` — deciding item by item beside the file list
-   * is the whole point of the redesign (docs/planning/versioning-plan.md, Part II).
+   * is the whole point of the redesign (docs/architecture.md § Versioning).
    * `refresh` runs after a successful pull so the scope can reload whatever the
    * pull wrote straight into the DB behind its stores.
    */

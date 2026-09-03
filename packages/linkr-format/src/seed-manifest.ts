@@ -16,8 +16,6 @@
  * What it does NOT do: fetch, clone, copy files, or resolve git links. The caller
  * assembles the tree — splicing each git-linked child's repo over its pointer —
  * and hands the finished thing here to be indexed.
- *
- * See docs/planning/default-data-repos-plan.md §0.
  */
 
 import { CONTENT_FILE, ENTITY_MANIFEST, MANIFEST } from './layout.js'

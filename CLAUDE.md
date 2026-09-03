@@ -15,7 +15,7 @@ Linkr is a healthcare data visualization platform (React + FastAPI). v2 is a ful
 
 - **`../linkr-portal`** — template for deploying a pre-seeded Linkr instance (e.g. on GitLab Pages). It aggregates this app + workspace/project git repos as submodules, then `scripts/build.sh` bakes the workspace data into `apps/web/public/data/seed/` and builds a static site. The seed loader (`apps/web/src/lib/seed-loader.ts`) reads that data on startup. When an entity (project, mapping project, SQL collection, ETL pipeline) is git-linked, the workspace export emits only its metadata + a git pointer (+ a root `git-links.json`); the portal clones the linked repo and reconstitutes the full content at build time. Keep the export layout (`buildWorkspaceZip`/`buildProjectZip` in `lib/entity-io.ts`), the seed loader, and the portal's `build.sh`/`sync-git-links.sh` in sync. (`../linkr-portal-ricdc` is one concrete deployment, not the template.)
 
-- **[`linkr-catalog`](https://framagit.org/interhop/linkr/linkr-catalog)** — the community catalog index repo. Holds `entries/` (one JSON per published entity) and a `build.mjs` that generates `catalog.json` + `catalog-index.json`, which the app fetches through the GitLab API v4 raw route (the only route sending `access-control-allow-origin: *`, so browsing works in static/WASM mode). App side lives in `apps/web/src/lib/catalog/`; entries must be **publicly clonable** (installs pass no credentials). This is also the registry for the default data — see `docs/planning/default-data-repos-plan.md`.
+- **[`linkr-catalog`](https://framagit.org/interhop/linkr/linkr-catalog)** — the community catalog index repo. Holds `entries/` (one JSON per published entity) and a `build.mjs` that generates `catalog.json` + `catalog-index.json`, which the app fetches through the GitLab API v4 raw route (the only route sending `access-control-allow-origin: *`, so browsing works in static/WASM mode). App side lives in `apps/web/src/lib/catalog/`; entries must be **publicly clonable** (installs pass no credentials). This is also the registry for the default data (the `demo-workspace` entry).
 
 - **[`linkr-public-content`](https://framagit.org/interhop/linkr/linkr-public-content)** — GitLab group holding the **public default content**, one repo per entity, grouped by type (`database-schemas/`, `etl-pipelines/`, …). Each repo is a plain Linkr entity export tree (e.g. a schema preset is `entity.json` + `mapping.json` + `schema.ddl` + `README.md` + `LICENSE.md`), so the normal import path reads it with no special-casing. These are the repos the catalog indexes and the build bakes into the seed. Working copies: `../@Linkr public content/`.
 
@@ -99,8 +99,7 @@ Server mode installs it through the catalog (setup wizard, step 3); a client-onl
 build has no git client, so CI runs `npm run data:fetch` before `vite build` to clone
 it and bake it into `apps/web/public/data/seed/` — that whole folder is a build
 artefact and is gitignored. `npm run dev` does **not** fetch (no network required):
-run `data:fetch` once if you want the demo content locally. Details →
-`docs/planning/default-data-repos-plan.md`.
+run `data:fetch` once if you want the demo content locally.
 
 ## Rules (apply to every task)
 

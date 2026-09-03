@@ -3,8 +3,7 @@
  *
  * The numbers come from `lib/stats/descriptive-table`, which is pure and
  * shared; this file resolves widget config into that call and renders the
- * result through `PublicationTable`. Design notes and the reasons behind the
- * layout live in docs/planning/descriptive-table-plan.md.
+ * result through `PublicationTable`.
  *
  * Two things this deliberately does NOT do:
  *  - use `ConceptDataTable`: its filters, visibility menu and paging are chrome

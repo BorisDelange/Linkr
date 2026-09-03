@@ -54,7 +54,7 @@ build/
 # The default data is no longer committed: it is one published workspace
 # (`demo-workspace`), fetched and baked into the seed at build time by
 # `npm run data:fetch`. So this whole folder is a build artefact — including the
-# seed-hashes.json the vite plugin writes. See docs/planning/default-data-repos-plan.md.
+# seed-hashes.json the vite plugin writes.
 apps/web/public/data/
 
 # ETL test directory

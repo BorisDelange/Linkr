@@ -271,8 +271,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // the same one on another machine) came in "unseeded" and re-ran the whole seed
     // THROUGH THE API, writing a duplicate copy of the demo content into a shared
     // instance. The server-mode baseline is the setup wizard's default-data step
-    // (one catalog install, recorded in `app_settings`); see
-    // `docs/planning/default-data-repos-plan.md` §0.
+    // (one catalog install, recorded in `app_settings`).
     const workspaces = await storage.workspaces.getAll()
     if (!isServerMode() && projects.length === 0 && workspaces.length === 0 && !isSeeded()) {
       try {

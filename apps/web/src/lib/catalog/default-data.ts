@@ -14,7 +14,7 @@
  *
  * Client-only (WASM) builds never come through here: there is no git client in the
  * browser, so their default data is baked into `public/data/seed/` at build time
- * from the same published workspace. See `docs/planning/default-data-repos-plan.md` §0.
+ * from the same published workspace (`scripts/fetch-default-data.ts`).
  */
 
 import { apiRequest, isServerMode } from '@/lib/api-client'

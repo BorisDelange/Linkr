@@ -6,9 +6,8 @@
  * column. This package adds a third implementation, so it runs the SAME fixture:
  * the copy here cannot quietly diverge from the one the app and the server use.
  *
- * The duplication is temporary — step 4 of docs/planning/mcp-authoring-plan.md
- * makes the app import from this package and deletes its copy. Until then this
- * test is what makes the duplication safe.
+ * The duplication is deliberate (this package stays dependency-free for the WASM
+ * build), so this test is what makes it safe.
  */
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'

@@ -6,7 +6,7 @@ validated against the real format.
 
 It contains no format knowledge. Every tool parses its arguments, calls into
 [`@linkr/format`](../linkr-format), and reports what came back. Design:
-[`docs/planning/mcp-authoring-plan.md`](../../docs/planning/mcp-authoring-plan.md).
+[`docs/architecture.md`](../../docs/architecture.md) § Format package & MCP authoring.
 
 It writes **files**, never to a running Linkr instance — so it works offline, and it
 produces exactly the tree shape the `linkr-public-content` repos use, which the normal
