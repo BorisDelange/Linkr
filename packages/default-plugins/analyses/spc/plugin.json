@@ -81,26 +81,8 @@
             "fr": "Délai entre événements rares"
           }
         }
-      ]
-    },
-    "dateColumn": {
-      "type": "column-select",
-      "label": {
-        "en": "Date",
-        "fr": "Date"
-      },
-      "hint": {
-        "en": "required",
-        "fr": "requis"
-      },
-      "section": {
-        "en": "Data",
-        "fr": "Données"
-      },
-      "description": {
-        "en": "The date each row is charted under. Pick the one that matches the question: an admission cohort is followed on the admission date, mortality on the discharge date.",
-        "fr": "La date sous laquelle chaque ligne est placée. Choisissez celle qui correspond à la question : une cohorte d'admission se suit sur la date d'admission, la mortalité sur la date de sortie."
-      }
+      ],
+      "row": "statRow"
     },
     "period": {
       "type": "select",
@@ -109,7 +91,7 @@
         "fr": "Période"
       },
       "default": "month",
-      "row": "timeRow",
+      "row": "statRow",
       "section": {
         "en": "Data",
         "fr": "Données"
@@ -156,6 +138,26 @@
         }
       ]
     },
+    "dateColumn": {
+      "type": "column-select",
+      "label": {
+        "en": "Date",
+        "fr": "Date"
+      },
+      "hint": {
+        "en": "required",
+        "fr": "requis"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "The date each row is charted under. Pick the one that matches the question: an admission cohort is followed on the admission date, mortality on the discharge date.",
+        "fr": "La date sous laquelle chaque ligne est placée. Choisissez celle qui correspond à la question : une cohorte d'admission se suit sur la date d'admission, la mortalité sur la date de sortie."
+      },
+      "row": "dataCols"
+    },
     "valueColumn": {
       "type": "column-select",
       "label": {
@@ -173,7 +175,8 @@
       "description": {
         "en": "The event flag to count, or the quantity to measure.",
         "fr": "L'indicateur d'événement à compter, ou la grandeur à mesurer."
-      }
+      },
+      "row": "dataCols"
     },
     "eventValues": {
       "type": "column-value-select",
@@ -191,6 +194,16 @@
       "description": {
         "en": "Which values of the variable count as the event — several may. Left empty on a 0/1 flag, any non-zero counts.",
         "fr": "Quelles valeurs de la variable comptent comme événement — il peut y en avoir plusieurs. Laissé vide sur un indicateur 0/1, toute valeur non nulle compte."
+      },
+      "row": "eventRow",
+      "visibleWhen": {
+        "field": "statisticType",
+        "values": [
+          "auto",
+          "proportion",
+          "rate",
+          "rare-event"
+        ]
       }
     },
     "aggregation": {
@@ -248,7 +261,25 @@
             "fr": "Maximum"
           }
         }
-      ]
+      ],
+      "row": "eventRow"
+    },
+    "deduplicateBy": {
+      "type": "column-select",
+      "label": {
+        "en": "One row per",
+        "fr": "Une ligne par"
+      },
+      "optional": true,
+      "row": "eventRow",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Keep a single row per stay or per patient before counting, so a stay with several rows is not counted several times. Usually the stay identifier.",
+        "fr": "Ne garder qu'une ligne par séjour ou par patient avant de compter, pour qu'un séjour à plusieurs lignes ne soit pas compté plusieurs fois. Généralement l'identifiant de séjour."
+      }
     },
     "denominatorMode": {
       "type": "select",
@@ -302,7 +333,35 @@
             "fr": "Jours-dispositif (chevauchement)"
           }
         }
-      ]
+      ],
+      "row": "denomRow"
+    },
+    "rateBasis": {
+      "type": "number",
+      "label": {
+        "en": "Rate per",
+        "fr": "Taux pour"
+      },
+      "default": 1000,
+      "min": 1,
+      "max": 100000,
+      "row": "denomRow",
+      "visibleWhen": {
+        "field": "denominatorMode",
+        "values": [
+          "exposure-column",
+          "patient-days",
+          "device-days"
+        ]
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "The scale the rate is expressed on. NHSN and ECDC report per 1000 days.",
+        "fr": "L'échelle d'expression du taux. Le NHSN et l'ECDC rapportent pour 1000 jours."
+      }
     },
     "exposureColumn": {
       "type": "column-select",
@@ -390,50 +449,6 @@
       "section": {
         "en": "Data",
         "fr": "Données"
-      }
-    },
-    "rateBasis": {
-      "type": "number",
-      "label": {
-        "en": "Rate per",
-        "fr": "Taux pour"
-      },
-      "default": 1000,
-      "min": 1,
-      "max": 100000,
-      "row": "rateRow",
-      "visibleWhen": {
-        "field": "denominatorMode",
-        "values": [
-          "exposure-column",
-          "patient-days",
-          "device-days"
-        ]
-      },
-      "section": {
-        "en": "Data",
-        "fr": "Données"
-      },
-      "description": {
-        "en": "The scale the rate is expressed on. NHSN and ECDC report per 1000 days.",
-        "fr": "L'échelle d'expression du taux. Le NHSN et l'ECDC rapportent pour 1000 jours."
-      }
-    },
-    "deduplicateBy": {
-      "type": "column-select",
-      "label": {
-        "en": "One row per",
-        "fr": "Une ligne par"
-      },
-      "optional": true,
-      "row": "rateRow",
-      "section": {
-        "en": "Data",
-        "fr": "Données"
-      },
-      "description": {
-        "en": "Keep a single row per stay or per patient before counting, so a stay with several rows is not counted several times. Usually the stay identifier.",
-        "fr": "Ne garder qu'une ligne par séjour ou par patient avant de compter, pour qu'un séjour à plusieurs lignes ne soit pas compté plusieurs fois. Généralement l'identifiant de séjour."
       }
     },
     "chartType": {
@@ -529,7 +544,8 @@
             "fr": "t — délai entre événements rares"
           }
         }
-      ]
+      ],
+      "row": "chartRow"
     },
     "limitSigma": {
       "type": "number",
@@ -540,7 +556,7 @@
       "default": 3,
       "min": 1,
       "max": 5,
-      "row": "limitRow",
+      "row": "chartRow",
       "section": {
         "en": "Chart",
         "fr": "Carte"
@@ -559,7 +575,7 @@
       "default": 0.2,
       "min": 0.05,
       "max": 1,
-      "row": "limitRow",
+      "row": "lambdaRow",
       "visibleWhen": {
         "field": "chartType",
         "value": "ewma"
@@ -587,7 +603,8 @@
       "description": {
         "en": "Judge against a target rather than against the process's own past. Left empty, the centre line is estimated from the baseline — which is what a control chart normally does.",
         "fr": "Juger par rapport à une cible plutôt que par rapport au passé du processus. Laissé vide, la ligne centrale est estimée sur la période de référence — ce que fait normalement une carte de contrôle."
-      }
+      },
+      "row": "lambdaRow"
     },
     "baselineUntil": {
       "type": "string",
@@ -641,7 +658,8 @@
             "fr": "Points hors limites seulement"
           }
         }
-      ]
+      ],
+      "row": "rulesRow"
     },
     "runLength": {
       "type": "number",
@@ -659,7 +677,8 @@
       "section": {
         "en": "Signals",
         "fr": "Signaux"
-      }
+      },
+      "row": "rulesRow"
     },
     "showBaselineSplit": {
       "type": "boolean",
@@ -701,7 +720,22 @@
         "en": "Style",
         "fr": "Style",
         "defaultOpen": false
-      }
+      },
+      "row": "titleRow"
+    },
+    "cardIcon": {
+      "type": "icon-select",
+      "label": {
+        "en": "Icon",
+        "fr": "Icône"
+      },
+      "default": "__none__",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "row": "titleRow"
     },
     "yLabel": {
       "type": "string",
@@ -726,19 +760,6 @@
       "min": 0,
       "max": 6,
       "row": "labelsRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "cardIcon": {
-      "type": "icon-select",
-      "label": {
-        "en": "Icon",
-        "fr": "Icône"
-      },
-      "default": "__none__",
       "section": {
         "en": "Style",
         "fr": "Style",
