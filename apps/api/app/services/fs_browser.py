@@ -1,9 +1,17 @@
-"""Server file-browser for the project Folders settings — lets an authorized user
-pick the absolute server folder a project's IDE working dir / datasets dir binds
-to. This exposes the server filesystem, so every route using it is gated on
-``project-settings:write`` and every path is validated against the configured
-browse roots (``settings.fs_browse_roots``; empty = whole filesystem, which is the
-deployment's responsibility to mount safely — the RStudio Server model)."""
+"""Server file-browser. Two callers, two shapes:
+
+- the project **Folders** settings pick a folder to bind the IDE working dir /
+  datasets dir to (``validate_binding_path``);
+- a **database** points at data already on the server — a DuckDB/SQLite file or a
+  Parquet folder — instead of uploading it (``validate_source_path``).
+
+This exposes the server filesystem, so every route using it is permission-gated
+(``project-settings:write`` for a binding, ``databases:write`` for a source) and
+every path is validated against the configured browse roots
+(``settings.fs_browse_roots``; empty = whole filesystem, which is the deployment's
+responsibility to mount safely — the RStudio Server model). Picker-side checks are
+a convenience: the boundary is re-enforced wherever a path is persisted.
+"""
 
 import os
 import shutil
@@ -65,29 +73,144 @@ def _resolve(path: str) -> Path:
     return target
 
 
-def list_dir(path: str) -> dict:
-    """List the immediate subdirectories of `path` (directories only — the picker
-    chooses folders, not files). Returns the resolved path, its parent (None at a
-    root boundary), and the child dirs sorted case-insensitively."""
+def _matches_extensions(name: str, extensions: list[str] | None) -> bool:
+    if not extensions:
+        return True
+    lowered = name.lower()
+    return any(lowered.endswith(ext) for ext in extensions)
+
+
+def _normalize_extensions(extensions: list[str] | None) -> list[str] | None:
+    """Lowercase, dot-prefixed suffixes. A display filter only — never a security
+    control (the caller still validates the chosen path)."""
+    if not extensions:
+        return None
+    out = []
+    for raw in extensions:
+        ext = raw.strip().lower()
+        if not ext:
+            continue
+        out.append(ext if ext.startswith(".") else f".{ext}")
+    return out or None
+
+
+def list_dir(
+    path: str,
+    include_files: bool = False,
+    extensions: list[str] | None = None,
+) -> dict:
+    """List the immediate children of `path`. Subdirectories are always listed;
+    files only when `include_files` (the folder picker hides them, the file picker
+    shows them, and both list dirs first so navigation stays identical). Files may
+    be narrowed to `extensions` — a display filter, not a boundary. Returns the
+    resolved path, its parent (None at a root boundary), and the children sorted
+    case-insensitively with directories first."""
     target = _resolve(path)
     if not target.exists():
         raise FsBrowseError("Folder not found")
     if not target.is_dir():
         raise FsBrowseError("Not a folder")
+    exts = _normalize_extensions(extensions)
     try:
-        entries = sorted(
-            (e for e in target.iterdir() if e.is_dir() and not e.name.startswith(".")),
-            key=lambda e: e.name.lower(),
+        children = [e for e in target.iterdir() if not e.name.startswith(".")]
+        dirs = sorted((e for e in children if e.is_dir()), key=lambda e: e.name.lower())
+        files = (
+            sorted(
+                (e for e in children if e.is_file() and _matches_extensions(e.name, exts)),
+                key=lambda e: e.name.lower(),
+            )
+            if include_files
+            else []
         )
     except PermissionError as exc:
         raise FsBrowseError("Permission denied") from exc
     parent = target.parent
     parent_str = str(parent) if parent != target and _within_roots(parent) else None
+
+    def _entry(e: Path, is_dir: bool) -> dict:
+        row = {"name": e.name, "path": str(e), "isDir": is_dir}
+        if not is_dir:
+            # A file listed but unreadable is shown disabled rather than hidden,
+            # so a wrong-permissions mount is diagnosable from the picker.
+            try:
+                row["size"] = e.stat().st_size
+            except OSError:
+                row["size"] = None
+            row["readable"] = os.access(e, os.R_OK)
+        return row
+
     return {
         "path": str(target),
         "parent": parent_str,
-        "entries": [{"name": e.name, "path": str(e)} for e in entries],
+        "entries": [_entry(e, True) for e in dirs] + [_entry(e, False) for e in files],
     }
+
+
+def validate_file(path: str, extensions: list[str] | None = None) -> dict:
+    """Check a chosen file is usable as a data source: inside the browse roots,
+    an existing readable file, and (when given) one of `extensions`. Mirrors
+    `validate_dir`'s machine-readable reasons so the UI can localize."""
+    if not path:
+        return {"ok": False, "reason": "empty"}
+    try:
+        target = _resolve(path)
+    except FsBrowseError:
+        return {"ok": False, "reason": "outside_roots"}
+    if not target.exists():
+        return {"ok": False, "reason": "not_found", "path": str(target)}
+    if not target.is_file():
+        return {"ok": False, "reason": "not_a_file", "path": str(target)}
+    if not os.access(target, os.R_OK):
+        return {"ok": False, "reason": "not_readable", "path": str(target)}
+    if not _matches_extensions(target.name, _normalize_extensions(extensions)):
+        return {"ok": False, "reason": "wrong_extension", "path": str(target)}
+    return {"ok": True, "path": str(target)}
+
+
+def validate_readable_dir(path: str) -> dict:
+    """Like `validate_dir`, but requires only READ access. A Parquet folder is
+    attached read-only, so demanding write permission (as a project binding does)
+    would reject a perfectly good read-only data mount."""
+    if not path:
+        return {"ok": False, "reason": "empty"}
+    try:
+        target = _resolve(path)
+    except FsBrowseError:
+        return {"ok": False, "reason": "outside_roots"}
+    if not target.exists():
+        return {"ok": False, "reason": "not_found", "path": str(target)}
+    if not target.is_dir():
+        return {"ok": False, "reason": "not_a_dir", "path": str(target)}
+    if not os.access(target, os.R_OK):
+        return {"ok": False, "reason": "not_readable", "path": str(target)}
+    return {"ok": True, "path": str(target)}
+
+
+def validate_source_path(path: str) -> None:
+    """Enforce the browse-root boundary where a database's `serverPath` is
+    PERSISTED (create and update alike). The picker's validation is a convenience,
+    not a control: the config is written by a plain create/PATCH, so without this
+    a hand-made request could point a source at any server file and read it back
+    through the query route. Accepts a file (DuckDB/SQLite) or a directory (a
+    Parquet folder).
+
+    Deliberately NOT gated on `enable_code_execution`, unlike
+    `validate_binding_path`: binding a project's IDE folder *is* code execution,
+    whereas attaching a database read-only is not — a deployment that turned the
+    IDE off must still be able to point Linkr at its own data.
+
+    Raises FsBrowseError (surfaced as 400) on rejection."""
+    if not path:
+        return
+    target = Path(path).expanduser().resolve()
+    if not _within_roots(target):
+        raise FsBrowseError("Path is outside the allowed browse roots")
+    if not target.exists():
+        raise FsBrowseError("Server path does not exist")
+    if not (target.is_file() or target.is_dir()):
+        raise FsBrowseError("Server path is neither a file nor a folder")
+    if not os.access(target, os.R_OK):
+        raise FsBrowseError("Server path is not readable by the server")
 
 
 def validate_dir(path: str) -> dict:
