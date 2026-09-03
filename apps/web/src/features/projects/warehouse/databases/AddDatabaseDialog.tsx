@@ -49,7 +49,7 @@ import { FieldInfo } from '@/components/ui/field-info'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { DatabaseFileSource, type FileOrigin } from '@/components/ui/database-file-source'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { BadgeEditor } from '@/components/ui/badge-editor'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { VersionField } from '@/components/ui/version-field'
@@ -762,107 +762,95 @@ export function AddDatabaseDialog({
 
         {step === 2 && selectedType && (
           <div className="mt-2">
-            <Tabs value={dbTab} onValueChange={(v) => setDbTab(v as DbTab)}>
-              <TabsList className="w-full">
-                <TabsTrigger value="general" className="flex-1 gap-1.5">
-                  {t('databases.tab_general')}
-                  {generalMissing.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}
-                </TabsTrigger>
-                <TabsTrigger value="connection" className="flex-1 gap-1.5">
-                  {t('databases.tab_connection')}
-                  {connectionMissing.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}
-                </TabsTrigger>
-                <TabsTrigger value="metadata" className="flex-1">
-                  {t('common.tab_metadata')}
-                </TabsTrigger>
-                {/* Editing only: a new database is authored by whoever creates it,
-                    so there is nothing to re-attribute yet. */}
-                {isEditMode && (
-                  <TabsTrigger value="attribution" className="flex-1">
-                    {t('common.tab_attribution')}
-                  </TabsTrigger>
-                )}
-              </TabsList>
-
-              <TabsContent value="general" className="space-y-4 pt-3">
-            {/* Common fields */}
-            <div className="space-y-2">
-              <Label>{t('databases.field_name')}<RequiredMark /></Label>
-              <Input
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value)
-                  if (!aliasManuallyEdited) setAlias(generateAlias(e.target.value))
-                }}
-                placeholder={t('databases.field_name_placeholder')}
-                autoFocus
-              />
-              {nameIsDuplicate && (
-                <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
+            <EntityDialogTabs
+              value={dbTab}
+              onValueChange={(v) => setDbTab(v as DbTab)}
+              generalIncomplete={generalMissing.length > 0}
+              general={(
+                <>
+                  {/* Common fields */}
+                  <div className="space-y-2">
+                    <Label>{t('databases.field_name')}<RequiredMark /></Label>
+                    <Input
+                      value={name}
+                      onChange={(e) => {
+                        setName(e.target.value)
+                        if (!aliasManuallyEdited) setAlias(generateAlias(e.target.value))
+                      }}
+                      placeholder={t('databases.field_name_placeholder')}
+                      autoFocus
+                    />
+                    {nameIsDuplicate && (
+                      <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Label className="flex items-center gap-1.5">
+                        {t('databases.field_identifier')}
+                        <FieldInfo text={t('databases.field_alias_hint')} />
+                      </Label>
+                      <TooltipProvider>
+                        <Tooltip delayDuration={200}>
+                          <TooltipTrigger asChild>
+                            <span className="text-muted-foreground">
+                              <Info size={12} />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs text-xs">
+                            {t('databases.identifier_info')}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    {/* Fixed after creation: the alias is the DuckDB schema name
+                        (`ds_<alias>`), so changing it would orphan every script and
+                        saved query that addresses this database. */}
+                    <Input
+                      value={alias}
+                      onChange={(e) => {
+                        setAlias(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+                        setAliasManuallyEdited(true)
+                      }}
+                      placeholder="mimic_iv_raw"
+                      className="font-mono text-xs"
+                      readOnly={isEditMode}
+                      disabled={isEditMode}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('databases.field_description')}</Label>
+                    <Input
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder={t('databases.field_description_placeholder')}
+                    />
+                  </div>
+                </>
               )}
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Label className="flex items-center gap-1.5">
-                  {t('databases.field_identifier')}
-                  <FieldInfo text={t('databases.field_alias_hint')} />
-                </Label>
-                <TooltipProvider>
-                  <Tooltip delayDuration={200}>
-                    <TooltipTrigger asChild>
-                      <span className="text-muted-foreground">
-                        <Info size={12} />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs text-xs">
-                      {t('databases.identifier_info')}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              {/* Fixed after creation: the alias is the DuckDB schema name
-                  (`ds_<alias>`), so changing it would orphan every script and
-                  saved query that addresses this database. */}
-              <Input
-                value={alias}
-                onChange={(e) => {
-                  setAlias(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
-                  setAliasManuallyEdited(true)
-                }}
-                placeholder="mimic_iv_raw"
-                className="font-mono text-xs"
-                readOnly={isEditMode}
-                disabled={isEditMode}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{t('databases.field_description')}</Label>
-              <Input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder={t('databases.field_description_placeholder')}
-              />
-            </div>
-              </TabsContent>
-
-              <TabsContent value="connection" className="space-y-4 pt-3">
-            {/* Database-specific fields */}
-            {selectedType === 'database' && (
-              <>
-                <div className="space-y-2">
-                  <Label>{t('databases.field_engine')}</Label>
-                  <Select value={dbEngine} onValueChange={(v) => { setDbEngine(v as DatabaseEngine); setUploadedFiles([]) }}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {/* Only engines the current deployment mode can actually run:
-                          front-only (WASM) → file engines; server → + external DBs.
-                          Order: network DBs first (server mode), then file engines. */}
-                      {isServerMode() && (
-                        <>
-                          <SelectItem value="postgresql">PostgreSQL</SelectItem>
-                          <SelectItem value="mysql">MySQL</SelectItem>
+              extraTabs={[{
+                value: 'connection',
+                label: t('databases.tab_connection'),
+                incomplete: connectionMissing.length > 0,
+                content: (
+                  <>
+                    {/* Database-specific fields */}
+                    {selectedType === 'database' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>{t('databases.field_engine')}</Label>
+                          <Select value={dbEngine} onValueChange={(v) => { setDbEngine(v as DatabaseEngine); setUploadedFiles([]) }}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {/* Only engines the current deployment mode can actually run:
+                                  front-only (WASM) → file engines; server → + external DBs.
+                                  Order: network DBs first (server mode), then file engines. */}
+                              {isServerMode() && (
+                                <>
+                                  <SelectItem value="postgresql">PostgreSQL</SelectItem>
+                                  <SelectItem value="mysql">MySQL</SelectItem>
                         </>
                       )}
                       <SelectItem value="duckdb">DuckDB</SelectItem>
@@ -1033,32 +1021,32 @@ export function AddDatabaseDialog({
                 />
               </div>
             )}
-              </TabsContent>
-
-              <TabsContent value="metadata" className="space-y-4 pt-3">
-                <BadgeEditor
-                  categories={badgeCategories}
-                  value={badges}
-                  onChange={setBadges}
-                  suggestions={badgeSuggestions}
-                />
-                <VersionField value={version} onChange={setVersion} />
-              </TabsContent>
-
-              {isEditMode && editingSource && (
-                <TabsContent value="attribution" className="space-y-4 pt-3">
-                  <AuthoringFields
-                    value={{
-                      createdById: 'createdById' in authoring ? authoring.createdById : editingSource.createdById,
-                      createdBy: authoring.createdBy ?? editingSource.createdBy,
-                      createdByDetails: authoring.createdByDetails ?? editingSource.createdByDetails,
-                      organization: authoring.organization ?? editingSource.organization,
-                    }}
-                    onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+                  </>
+                ),
+              }]}
+              metadata={(
+                <>
+                  <BadgeEditor
+                    categories={badgeCategories}
+                    value={badges}
+                    onChange={setBadges}
+                    suggestions={badgeSuggestions}
                   />
-                </TabsContent>
+                  <VersionField value={version} onChange={setVersion} />
+                </>
               )}
-            </Tabs>
+              attribution={isEditMode && editingSource ? (
+                <AuthoringFields
+                  value={{
+                    createdById: 'createdById' in authoring ? authoring.createdById : editingSource.createdById,
+                    createdBy: authoring.createdBy ?? editingSource.createdBy,
+                    createdByDetails: authoring.createdByDetails ?? editingSource.createdByDetails,
+                    organization: authoring.organization ?? editingSource.organization,
+                  }}
+                  onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+                />
+              ) : undefined}
+            />
           </div>
         )}
 

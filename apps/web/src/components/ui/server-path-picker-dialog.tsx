@@ -184,6 +184,9 @@ export function ServerPathPickerDialog({
       open={open}
       onOpenChange={(o) => !o && onClose()}
       kind="workbench"
+      // Narrower than a workbench's 5xl: this is one column of file names, and at
+      // full width the rows were mostly empty space between a name and its size.
+      className="sm:max-w-2xl"
       title={title ?? t(pickingFile ? 'server_picker.pick_file' : 'project_folders.pick_folder')}
       onConfirm={confirm}
       confirmLabel={t(pickingFile ? 'server_picker.select_file' : 'project_folders.select_folder')}
@@ -209,7 +212,9 @@ export function ServerPathPickerDialog({
       }
     >
       <div className="space-y-2">
-        <div className="relative">
+        {/* Enter here navigates to the typed path; it must NOT reach the shell's
+            confirm-on-Enter, which would select whatever is currently highlighted. */}
+        <div className="relative" data-no-enter-submit>
           <Folder
             size={14}
             className="absolute left-2.5 top-1/2 -translate-y-1/2 text-amber-500"
@@ -237,7 +242,8 @@ export function ServerPathPickerDialog({
           <p className="text-xs text-destructive">{t('server_picker.path_not_found')}</p>
         )}
 
-        <div className="relative">
+        {/* Same reason: Enter while filtering must not pick the highlighted row. */}
+        <div className="relative" data-no-enter-submit>
           <Search
             size={14}
             className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
