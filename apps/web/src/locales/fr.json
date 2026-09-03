@@ -2391,6 +2391,11 @@
     "stats_visits_per_patient_median": "Hospitalisations/patient (médiane)",
     "stats_visits_per_patient_range": "Hospitalisations/patient (étendue)"
   },
+  "server_picker": {
+    "pick_file": "Choisir un fichier sur le serveur",
+    "select_file": "Sélectionner ce fichier",
+    "search": "Rechercher dans ce dossier"
+  },
   "project_folders": {
     "title": "Dossiers",
     "description": "Choisissez les dossiers serveur utilisés par l'IDE et les datasets de ce projet. Ces chemins sont propres à ce serveur et ne sont jamais inclus dans les exports.",
@@ -2642,12 +2647,6 @@
     "general_db_test_success": "Connexion réussie",
     "general_db_test_error_status": "Le serveur a répondu avec le statut {{status}}",
     "general_db_test_error_unreachable": "Impossible de joindre le serveur backend",
-    "general_db_browse": "Parcourir",
-    "general_db_browse_title": "Sélectionner le fichier de base de données",
-    "general_db_browse_error": "Impossible de parcourir le système de fichiers du serveur. Vérifiez que le backend est lancé.",
-    "general_db_browse_empty": "Dossier vide",
-    "general_db_browse_use_folder": "Utiliser ce dossier",
-    "general_db_browse_select": "Sélectionner le fichier",
     "general_db_query": "Requêter la base",
     "db_tab_sql": "SQL",
     "db_tab_schema": "Schéma",

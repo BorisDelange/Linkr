@@ -2391,6 +2391,11 @@
     "stats_visits_per_patient_median": "Visits/patient (median)",
     "stats_visits_per_patient_range": "Visits/patient (range)"
   },
+  "server_picker": {
+    "pick_file": "Choose a file on the server",
+    "select_file": "Select this file",
+    "search": "Search this folder"
+  },
   "project_folders": {
     "title": "Folders",
     "description": "Choose which server folders this project's IDE and datasets use. These paths are specific to this server and are never included in exports.",
@@ -2642,12 +2647,6 @@
     "general_db_test_success": "Connection successful",
     "general_db_test_error_status": "Server responded with status {{status}}",
     "general_db_test_error_unreachable": "Cannot reach the backend server",
-    "general_db_browse": "Browse",
-    "general_db_browse_title": "Select database file",
-    "general_db_browse_error": "Cannot browse server filesystem. Make sure the backend is running.",
-    "general_db_browse_empty": "Empty folder",
-    "general_db_browse_use_folder": "Use this folder",
-    "general_db_browse_select": "Select file",
     "general_db_query": "Query database",
     "db_tab_sql": "SQL",
     "db_tab_schema": "Schema",

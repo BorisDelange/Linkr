@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Database, CheckCircle2, XCircle, Loader2, FolderOpen, ChevronRight, Folder, File, ArrowLeft } from 'lucide-react'
+import { Database, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { useHasGlobalPermission } from '@/stores/auth-store'
 import { AppDatabaseDialog } from '@/features/settings/AppDatabaseDialog'
@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Select,
   SelectContent,
@@ -71,164 +70,6 @@ function saveConfig(config: DbConnectionConfig) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  File browser types & component                                     */
-/* ------------------------------------------------------------------ */
-
-interface FsEntry {
-  name: string
-  type: 'directory' | 'file'
-}
-
-function FileBrowserDialog({
-  open,
-  onOpenChange,
-  onSelect,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onSelect: (path: string) => void
-}) {
-  const { t } = useTranslation()
-  const [currentPath, setCurrentPath] = useState('/')
-  const [entries, setEntries] = useState<FsEntry[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [selectedFile, setSelectedFile] = useState<string | null>(null)
-
-  const fetchEntries = async (dirPath: string) => {
-    setLoading(true)
-    setError('')
-    setSelectedFile(null)
-    try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-      const res = await fetch(`${baseUrl}/api/v1/filesystem/browse?path=${encodeURIComponent(dirPath)}`)
-      if (!res.ok) throw new Error(`${res.status}`)
-      const data: FsEntry[] = await res.json()
-      setEntries(data)
-      setCurrentPath(dirPath)
-    } catch {
-      setError(t('settings.general_db_browse_error'))
-      setEntries([])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleOpen = () => {
-    if (open) fetchEntries(currentPath)
-  }
-
-  useState(() => { if (open) fetchEntries(currentPath) })
-
-  const navigateUp = () => {
-    const parent = currentPath === '/' ? '/' : currentPath.replace(/\/[^/]+\/?$/, '') || '/'
-    fetchEntries(parent)
-  }
-
-  const navigateTo = (entry: FsEntry) => {
-    if (entry.type === 'directory') {
-      const next = currentPath === '/' ? `/${entry.name}` : `${currentPath}/${entry.name}`
-      fetchEntries(next)
-    } else {
-      const full = currentPath === '/' ? `/${entry.name}` : `${currentPath}/${entry.name}`
-      setSelectedFile(full)
-    }
-  }
-
-  const handleConfirm = () => {
-    if (selectedFile) {
-      onSelect(selectedFile)
-      onOpenChange(false)
-    }
-  }
-
-  // Also allow selecting the current directory (for "create new db here")
-  const handleSelectFolder = () => {
-    onSelect(currentPath === '/' ? '/linkr.db' : `${currentPath}/linkr.db`)
-    onOpenChange(false)
-  }
-
-  return (
-    <DialogShell
-      open={open}
-      onOpenChange={(v) => { onOpenChange(v); if (v) handleOpen() }}
-      kind="settings"
-      title={t('settings.general_db_browse_title')}
-      onConfirm={handleConfirm}
-      confirmLabel={t('settings.general_db_browse_select')}
-      confirmDisabled={!selectedFile}
-      footerExtra={
-        <Button variant="outline" size="sm" onClick={handleSelectFolder}>
-          {t('settings.general_db_browse_use_folder')}
-        </Button>
-      }
-    >
-        {/* Current path breadcrumb */}
-        <div className="flex items-center gap-1 rounded-md bg-muted px-3 py-1.5 text-xs font-mono text-muted-foreground">
-          <span className="truncate">{currentPath}</span>
-        </div>
-
-        {/* File list */}
-        <div className="h-64 overflow-auto rounded-md border">
-          {/* Go up */}
-          {currentPath !== '/' && (
-            <button
-              className="flex w-full items-center gap-2 border-b px-3 py-2 text-sm hover:bg-muted/50"
-              onClick={navigateUp}
-            >
-              <ArrowLeft size={14} className="text-muted-foreground" />
-              <span className="text-muted-foreground">..</span>
-            </button>
-          )}
-
-          {loading && (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 size={16} className="animate-spin text-muted-foreground" />
-            </div>
-          )}
-
-          {error && (
-            <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-              {error}
-            </div>
-          )}
-
-          {!loading && !error && entries.length === 0 && (
-            <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-              {t('settings.general_db_browse_empty')}
-            </div>
-          )}
-
-          {!loading && entries.map((entry) => (
-            <button
-              key={entry.name}
-              className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 ${
-                entry.type === 'file' && selectedFile?.endsWith(`/${entry.name}`)
-                  ? 'bg-primary/10'
-                  : ''
-              }`}
-              onClick={() => navigateTo(entry)}
-            >
-              {entry.type === 'directory' ? (
-                <>
-                  <Folder size={14} className="shrink-0 text-primary" />
-                  <span className="truncate">{entry.name}</span>
-                  <ChevronRight size={12} className="ml-auto shrink-0 text-muted-foreground" />
-                </>
-              ) : (
-                <>
-                  <File size={14} className="shrink-0 text-muted-foreground" />
-                  <span className="truncate">{entry.name}</span>
-                </>
-              )}
-            </button>
-          ))}
-        </div>
-    </DialogShell>
-  )
-}
-
-/* ------------------------------------------------------------------ */
 /*  Main GeneralTab                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -238,7 +79,6 @@ export function GeneralTab() {
   const [savedConfig, setSavedConfig] = useState<DbConnectionConfig>(loadConfig)
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [testMessage, setTestMessage] = useState('')
-  const [browseOpen, setBrowseOpen] = useState(false)
   const [queryOpen, setQueryOpen] = useState(false)
   const canQueryAppDb = useHasGlobalPermission('app-database:read')
 
@@ -332,23 +172,12 @@ export function GeneralTab() {
             {config.engine === 'sqlite' && (
               <div className="space-y-2 sm:col-span-2">
                 <Label>{t('settings.general_db_sqlite_path')}</Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={config.sqlitePath}
-                    onChange={(e) => updateField('sqlitePath', e.target.value)}
-                    placeholder="./linkr.db"
-                    className="sm:w-96"
-                  />
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="shrink-0"
-                    onClick={() => setBrowseOpen(true)}
-                    title={t('settings.general_db_browse')}
-                  >
-                    <FolderOpen size={16} />
-                  </Button>
-                </div>
+                <Input
+                  value={config.sqlitePath}
+                  onChange={(e) => updateField('sqlitePath', e.target.value)}
+                  placeholder="./linkr.db"
+                  className="sm:w-96"
+                />
                 <p className="text-xs text-muted-foreground">
                   {t('settings.general_db_sqlite_hint')}
                 </p>
@@ -441,13 +270,6 @@ export function GeneralTab() {
           </div>
         </CardContent>
       </Card>
-
-      {/* File browser dialog */}
-      <FileBrowserDialog
-        open={browseOpen}
-        onOpenChange={setBrowseOpen}
-        onSelect={(path) => updateField('sqlitePath', path)}
-      />
 
       {/* Query / browse the app database (admin, server mode) */}
       <AppDatabaseDialog open={queryOpen} onOpenChange={setQueryOpen} />

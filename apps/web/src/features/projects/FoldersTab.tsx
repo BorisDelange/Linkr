@@ -23,7 +23,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import { fsValidateDir, fsRebindCopy, type FsConflictStrategy, type FsValidation } from '@/lib/api/fs-browser'
 import { formatApiError } from '@/lib/api-client'
-import { ServerFolderPickerDialog } from './files/ServerFolderPickerDialog'
+import { ServerPathPickerDialog } from '@/components/ui/server-path-picker-dialog'
 
 interface Props {
   projectUid: string
@@ -162,9 +162,10 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
       </Card>
 
       {pickerFor && (
-        <ServerFolderPickerDialog
-          projectUid={projectUid}
+        <ServerPathPickerDialog
           open
+          mode="folder"
+          scope={{ kind: 'project', projectUid }}
           initialPath={currentOf(pickerFor)}
           defaultPath={defaultFor(pickerFor)}
           onClose={() => setPickerFor(null)}
