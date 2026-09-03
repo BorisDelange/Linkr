@@ -111,6 +111,25 @@ the **licensing review** are finished research, moved to [../ecrf-formats-licens
 | 🤔 | (b) user-overridable `measure` · (d) in-place chart switching (priority-based, as SurveyJS) | S / M |
 | 💤 | LimeSurvey / Qualtrics / Castor / OpenClinica — **CDISC ODM is the highest-value target** (buys Castor + OpenClinica, MIT schemas) | L |
 
+## SPC / control charts plugin — [spc-plugin-plan.md](spc-plugin-plan.md)
+
+Research + design done, **nothing written**. Two RiCDC projects already do SPC by hand:
+NeoCLIP carries **two** generic R scripts copy-pasted inline into **39 widgets** (~1 MB in one
+dashboard document) — 20 EWMA + 19 Shewhart u-chart, where 14 of the 24 parameters never vary
+and only 3 lines differ between two EWMA widgets. It has **already drifted**: widget 27
+(CLABSI) is a fork carrying a `device_days` denominator the other 18 will never get, and the
+u-chart script's `p`/`np`/`c`/`t` modes are written but reachable only by editing a string.
+micu-clip adds `spc_gchart.R` + a "which chart for which indicator" doctrine in
+`INDICATEURS_CANDIDATS.md`. One component plugin (`linkr-analysis-spc`) replaces all of it.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🤔 | **Arbitrate §6**: (a) one plugin vs one per chart + v1 chart list · (b) explicit statistic type vs auto-detection (today's auto-detect makes `denominator` silently dead on 18/20 widgets) · (c) Phase I/II default · (d) risk adjustment via an expected-value column · (e) server parity | — |
+| 🔜 | Manifest + `SpcComponent.tsx` + pure compute in `lib/spc/` with unit tests against `qicharts2` | L |
+| 🔜 | Python parity `render/spc.py` + `_BUILDERS` kind | M |
+| 🔜 | Migrate NeoCLIP's 39 inline widgets + delete micu-clip's `_sources` scripts — the real acceptance test | M |
+| 💤 | Xbar-S, CUSUM, funnel plot (Spiegelhalter) | M |
+
 ## Cohorts — patient review tab — [cohort-patient-review-plan.md](cohort-patient-review-plan.md)
 
 A third tab after Attrition showing the **patient charts of the current result set**,
