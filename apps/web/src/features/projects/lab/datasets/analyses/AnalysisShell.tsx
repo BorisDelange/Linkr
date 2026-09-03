@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Play, RotateCcw, Settings, Code2, Eye, EyeOff, Save } from 'lucide-react'
+import { Play, RotateCcw, Settings, Code2, Eye, EyeOff, Save, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -27,7 +27,9 @@ import { useAppStore } from '@/stores/app-store'
 import { isServerMode } from '@/lib/api-client'
 import { executeOnServer } from '@/lib/api/execution'
 import { executeAnalysisCode, executeAnalysisCodeR } from '../analysis-executor'
-import { ensurePluginDependencies } from '@/lib/plugins/registry'
+import { ensurePluginDependencies, getPlugin } from '@/lib/plugins/registry'
+import { PluginReadmeContent } from '@/components/PluginReadme'
+import { hasPluginReadme } from '@/lib/plugins/plugin-readme'
 import { PluginOutputRenderer } from './PluginOutputRenderer'
 import type { DatasetAnalysis } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
@@ -48,8 +50,11 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
 
   const autoRun = (analysis.config.autoRun as boolean) ?? false
 
-  // null = left pane hidden; 'config' | 'code' = left pane visible with that tab
-  const [activeTab, setActiveTab] = useState<'config' | 'code' | null>(autoRun ? null : initialTab)
+  const plugin = getPlugin(analysis.type)
+  const hasDocs = hasPluginReadme(plugin)
+
+  // null = left pane hidden; 'config' | 'code' | 'docs' = left pane visible with that tab
+  const [activeTab, setActiveTab] = useState<'config' | 'code' | 'docs' | null>(autoRun ? null : initialTab)
   const [isExecuting, setIsExecuting] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [installedDeps, setInstalledDeps] = useState<string[]>([])
@@ -240,6 +245,26 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
               </Badge>
             )}
           </button>
+          {hasDocs && (
+            <button
+              onClick={() => {
+                if (activeTab === 'docs') {
+                  if (rightVisible) setActiveTab(null)
+                } else {
+                  setActiveTab('docs')
+                }
+              }}
+              className={cn(
+                'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+                activeTab === 'docs'
+                  ? 'bg-accent text-accent-foreground font-medium'
+                  : 'text-muted-foreground hover:bg-accent/50',
+              )}
+            >
+              <BookOpen size={12} />
+              {t('plugins.docs_tab')}
+            </button>
+          )}
 
           <div className="ml-auto flex items-center gap-1">
             {isDirty && (
@@ -332,6 +357,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
                       onRunFile={handleRun}
                     />
                   )}
+                  {activeTab === 'docs' && plugin && <PluginReadmeContent plugin={plugin} />}
                 </div>
               </div>
             </Allotment.Pane>

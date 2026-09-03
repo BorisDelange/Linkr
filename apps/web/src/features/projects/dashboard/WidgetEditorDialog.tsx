@@ -2,7 +2,9 @@ import { useState, useCallback, useRef, useEffect, useMemo, Suspense } from 'rea
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Play, RotateCcw, Settings, Code2, X, Database, Terminal, Check } from 'lucide-react'
+import { Play, RotateCcw, Settings, Code2, X, Database, Terminal, Check, BookOpen } from 'lucide-react'
+import { PluginReadmeContent } from '@/components/PluginReadme'
+import { hasPluginReadme } from '@/lib/plugins/plugin-readme'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -229,7 +231,8 @@ function WidgetEditorBody({
   const hasConfigSchema = plugin?.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
   const hasBothLanguages = _isPlugin && !isComponentPlugin && plugin?.templates?.python && plugin?.templates?.r
 
-  const [activeTab, setActiveTab] = useState<'config' | 'code' | null>(hasConfigSchema ? 'config' : 'code')
+  const hasDocs = hasPluginReadme(plugin ?? undefined)
+  const [activeTab, setActiveTab] = useState<'config' | 'code' | 'docs' | null>(hasConfigSchema ? 'config' : 'code')
 
   // Execution state
   const [result, setResult] = useState<RuntimeOutput | null>(null)
@@ -456,6 +459,20 @@ function WidgetEditorBody({
             )}
           </button>
         )}
+        {hasDocs && (
+          <button
+            onClick={() => setActiveTab(activeTab === 'docs' ? null : 'docs')}
+            className={cn(
+              'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+              activeTab === 'docs'
+                ? 'bg-accent text-accent-foreground font-medium'
+                : 'text-muted-foreground hover:bg-accent/50',
+            )}
+          >
+            <BookOpen size={12} />
+            {t('plugins.docs_tab')}
+          </button>
+        )}
 
         <div className="ml-auto flex items-center gap-1">
           {!isComponentPlugin && (
@@ -511,6 +528,7 @@ function WidgetEditorBody({
                     onRunSelectionOrLine={handleRunSelectionOrLine}
                   />
                 )}
+                {activeTab === 'docs' && plugin && <PluginReadmeContent plugin={plugin} />}
               </div>
             </div>
           </Allotment.Pane>

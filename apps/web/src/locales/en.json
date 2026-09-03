@@ -2717,6 +2717,9 @@
   },
   "plugins": {
     "builtin_badge": "Built-in",
+    "read_docs": "Read the documentation",
+    "docs_tab": "Doc",
+    "no_readme": "This plugin has no documentation yet.",
     "reset_zoom": "Reset zoom",
     "outliers_excluded": "{{count}} outlier excluded",
     "outliers_excluded_plural": "{{count}} outliers excluded",

@@ -1,4 +1,5 @@
 import type { Plugin, PluginManifest } from '@/types/plugin'
+import type { LocalizedString } from '@/types'
 import { registerPlugin, getPlugin, getAllPlugins } from './registry'
 import { registerComponent } from './component-registry'
 import { registerBuiltinWidgetPlugins, SYSTEM_PLUGIN_IDS } from './builtin-widget-plugins'
@@ -19,6 +20,18 @@ import correlationMatrixManifest from '@default-plugins/analyses/correlation-mat
 import sankeyManifest from '@default-plugins/analyses/sankey/plugin.json'
 import surveyQuestionManifest from '@default-plugins/analyses/survey-question/plugin.json'
 import spcManifest from '@default-plugins/analyses/spc/plugin.json'
+
+// --- Plugin READMEs (markdown) ---
+// A built-in's user documentation, bundled beside its manifest. Shown in the
+// picker and in the widget editor's Doc tab, and seeded onto the workspace row
+// so it exports with the plugin like any other entity's README.
+import spcReadmeEn from '@default-plugins/analyses/spc/README.md?raw'
+import spcReadmeFr from '@default-plugins/analyses/spc/README.fr.md?raw'
+
+/** READMEs by manifest id. A plugin with no entry simply shows no documentation. */
+const BUILTIN_READMES: Record<string, LocalizedString> = {
+  'linkr-analysis-spc': { en: spcReadmeEn, fr: spcReadmeFr },
+}
 
 /** Normalise a manifest from JSON (runtime may be string or array). */
 function normaliseManifest(raw: Record<string, unknown>): PluginManifest {
@@ -475,18 +488,30 @@ export function registerDefaultPlugins() {
   // Warehouse system plugins (built-in patient data widgets)
   registerBuiltinWidgetPlugins()
 
+  // Attach the bundled READMEs once every built-in is registered, lab and
+  // warehouse alike — and before the snapshot below, so the seeder carries them
+  // onto each workspace's rows.
+  for (const [manifestId, readme] of Object.entries(BUILTIN_READMES)) {
+    const plugin = getPlugin(manifestId)
+    if (plugin) plugin.readme = readme
+  }
+
   // Snapshot the canonical built-ins now, before any workspace-scoped user plugin
   // is registered on top (registerUserPlugins overwrites same-id entries with a
   // workspaceId set). The seeder must not rely on the mutable registry, otherwise
   // built-ins look "workspace-scoped" and stop being seeded from the 2nd workspace on.
   builtinSnapshot = getAllPlugins()
     .filter((p) => !p.workspaceId)
-    .map((p) => ({ manifest: p.manifest, templates: p.templates }))
+    .map((p) => ({ manifest: p.manifest, templates: p.templates, readme: p.readme }))
   builtinManifestIds = new Set(builtinSnapshot.map((p) => p.manifest.id))
 }
 
 /** Frozen list of built-in plugins captured at registration time (see above). */
-let builtinSnapshot: { manifest: import('@/types/plugin').PluginManifest; templates: Record<string, string> | null }[] = []
+let builtinSnapshot: {
+  manifest: import('@/types/plugin').PluginManifest
+  templates: Record<string, string> | null
+  readme?: LocalizedString
+}[] = []
 /** Manifest ids of every app-provided built-in (lab components + warehouse widgets). */
 let builtinManifestIds = new Set<string>()
 
@@ -528,7 +553,7 @@ export async function seedBuiltinPluginsForWorkspace(workspaceId: string): Promi
   // built-ins in the registry gain a workspaceId and would be skipped otherwise.
   const builtins = builtinSnapshot.length > 0
     ? builtinSnapshot
-    : getAllPlugins().filter((p) => !p.workspaceId).map((p) => ({ manifest: p.manifest, templates: p.templates }))
+    : getAllPlugins().filter((p) => !p.workspaceId).map((p) => ({ manifest: p.manifest, templates: p.templates, readme: p.readme }))
   const now = new Date().toISOString()
   for (const plugin of builtins) {
     if (seededManifestIds.has(plugin.manifest.id)) continue
@@ -545,6 +570,7 @@ export async function seedBuiltinPluginsForWorkspace(workspaceId: string): Promi
         id: crypto.randomUUID(),
         entityId: plugin.manifest.id,
         files,
+        readme: plugin.readme,
         createdAt: now,
         updatedAt: now,
         workspaceId,
@@ -569,6 +595,7 @@ export async function registerUserPlugins() {
         }
         const plugin = buildPlugin(rawManifest, Object.keys(templates).length > 0 ? templates : null)
         plugin.workspaceId = up.workspaceId
+        plugin.readme = up.readme
         // Don't overwrite built-in component plugins with IDB copies that lack componentId
         const existing = getPlugin(plugin.manifest.id)
         if (existing?.componentId && !plugin.componentId) continue
@@ -583,6 +610,9 @@ export async function registerUserPlugins() {
         if (existing && isBuiltinPluginId(plugin.manifest.id)) {
           plugin.manifest = existing.manifest
           plugin.componentId = plugin.componentId ?? existing.componentId
+          // Same reasoning as the manifest: the bundled README is the current
+          // one, the workspace copy a snapshot that never refreshes.
+          plugin.readme = existing.readme ?? plugin.readme
         } else if (existing && SYSTEM_PLUGIN_IDS.has(plugin.manifest.id)) {
           // System widgets (e.g. timeline) own functional fields like configSchema
           // in code; persisted copies only carry editable metadata. Preserve the

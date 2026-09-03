@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as LucideIcons from 'lucide-react'
-import { Info, Puzzle, Search } from 'lucide-react'
+import { BookOpen, Info, Puzzle, Search } from 'lucide-react'
+import { PluginReadmeSheet } from '@/components/PluginReadme'
+import { hasPluginReadme } from '@/lib/plugins/plugin-readme'
 import { Input } from '@/components/ui/input'
 import {
   Tooltip,
@@ -82,6 +84,7 @@ export function PluginPicker({
   const { t } = useTranslation()
   const [searchQuery, setSearchQuery] = useState('')
   const [activeBadgeFilters, setActiveBadgeFilters] = useState<Set<string>>(new Set())
+  const [readmePlugin, setReadmePlugin] = useState<Plugin | null>(null)
 
   // Collect all unique badges across plugins
   const allBadges = useMemo(() => {
@@ -170,6 +173,7 @@ export function PluginPicker({
             const isSelected = selectedPluginId === m.id
             const fullDesc = m.description[lang] ?? m.description.en ?? ''
             const deps = m.dependencies
+            const hasReadme = hasPluginReadme(plugin)
             return (
               <button
                 key={m.id}
@@ -187,11 +191,28 @@ export function PluginPicker({
                   </span>
                   <Tooltip>
                     <TooltipTrigger asChild>
+                      {/* A plugin with a README turns this into a way into it;
+                          without one it stays the hover summary it has always been. */}
                       <span
-                        className="shrink-0 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-                        onClick={(e) => e.stopPropagation()}
+                        role={hasReadme ? 'button' : undefined}
+                        tabIndex={hasReadme ? 0 : undefined}
+                        aria-label={hasReadme ? t('plugins.read_docs') : undefined}
+                        className={cn(
+                          'shrink-0 text-muted-foreground/50 transition-colors hover:text-muted-foreground',
+                          hasReadme && 'cursor-pointer hover:text-primary',
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (hasReadme) setReadmePlugin(plugin)
+                        }}
+                        onKeyDown={(e) => {
+                          if (!hasReadme || (e.key !== 'Enter' && e.key !== ' ')) return
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setReadmePlugin(plugin)
+                        }}
                       >
-                        <Info size={13} />
+                        {hasReadme ? <BookOpen size={13} /> : <Info size={13} />}
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="right" className="max-w-xs text-xs space-y-1.5 p-3">
@@ -205,6 +226,9 @@ export function PluginPicker({
                         <p className="text-muted-foreground">
                           Deps: {Object.entries(deps).map(([k, v]) => `${k}${v ? `@${v}` : ''}`).join(', ')}
                         </p>
+                      )}
+                      {hasReadme && (
+                        <p className="font-medium text-primary">{t('plugins.read_docs')}</p>
                       )}
                     </TooltipContent>
                   </Tooltip>
@@ -251,6 +275,12 @@ export function PluginPicker({
           </div>
         )}
       </div>
+
+      <PluginReadmeSheet
+        plugin={readmePlugin}
+        open={readmePlugin !== null}
+        onOpenChange={(open) => { if (!open) setReadmePlugin(null) }}
+      />
     </div>
   )
 }
