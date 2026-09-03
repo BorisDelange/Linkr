@@ -151,8 +151,9 @@ def _linkr_histogram(values, bin_mode, bins_cfg, bin_width_cfg, start_at_zero, d
     return buckets
 
 def _linkr_histogram_grouped(df, xcol, gcol, bin_mode, bins_cfg, bin_width_cfg, group_names, start_at_zero, decimals):
-    all_vals = [_linkr_to_num(v) for v in df[xcol]]
-    all_vals = [v for v in all_vals if not _math.isnan(v)]
+    import pandas as _pd
+    _nums = _linkr_num_series(df[xcol])
+    all_vals = _nums.dropna().tolist()
     if not all_vals:
         return []
     vmin = min(all_vals); vmax = max(all_vals)
@@ -168,16 +169,31 @@ def _linkr_histogram_grouped(df, xcol, gcol, bin_mode, bins_cfg, bin_width_cfg, 
                  "lo": start + i * bw, "hi": start + (i + 1) * bw}
         for g in group_names: entry[g] = 0
         buckets.append(entry)
-    for _, row in df.iterrows():
-        v = _linkr_to_num(row[xcol])
-        if _math.isnan(v): continue
-        idx = int(_math.floor((v - start) / bw))
-        if idx < 0: idx = 0
-        if idx >= count: idx = count - 1
-        g = str(row[gcol]) if row[gcol] is not None else ""
-        if g in buckets[idx]:
-            buckets[idx][g] += 1
+    # Vectorised bin assignment + a groupby, rather than iterrows() with a per-value
+    # conversion: on a date column that was seconds, not milliseconds.
+    _idx = ((_nums - start) // bw).clip(0, count - 1)
+    _groups = df[gcol].astype(str).where(df[gcol].notna(), "")
+    _pairs = _pd.DataFrame({"i": _idx, "g": _groups})[_nums.notna()]
+    for (i, g), n in _pairs.groupby(["i", "g"]).size().items():
+        entry = buckets[int(i)]
+        if g in entry:
+            entry[g] += int(n)
     return buckets
+
+def _linkr_num_series(col):
+    # Vectorised _linkr_to_num: same result (datetimes as MILLISECONDS, matching the
+    # bin bounds), without a Python call and a to_datetime parse per row.
+    import pandas as _pd
+    if _pd.api.types.is_datetime64_any_dtype(col):
+        return col.astype("int64").where(col.notna()) // 1_000_000
+    num = _pd.to_numeric(col, errors="coerce")
+    if num.notna().any() or len(col) == 0:
+        return num
+    # All-unparseable as numbers: it may still be date strings.
+    parsed = _pd.to_datetime(col, errors="coerce")
+    if parsed.notna().any():
+        return parsed.astype("int64").where(parsed.notna()) // 1_000_000
+    return num
 
 def _linkr_is_categorical(df, col):
     total = 0; numeric = 0
@@ -470,17 +486,21 @@ def _linkr_print_plot(dataset, spec):
         # Mirrors the client path in PlotBuilderComponent.tsx.
         zoom_lo = spec.get("zoomLo"); zoom_hi = spec.get("zoomHi")
         if zoom_lo is not None and zoom_hi is not None:
-            _hnum = _pd.to_numeric(df[hist], errors="coerce")
+            # Must go through _linkr_to_num, the same conversion the bins use: it maps
+            # datetimes to MILLISECONDS, while pd.to_numeric on a datetime column
+            # yields nanoseconds. Mixing the two put the bounds off by 10^6 and
+            # filtered every row away, leaving an empty chart.
+            _hnum = _linkr_num_series(df[hist])
             df = df[_hnum.notna() & (_hnum >= zoom_lo) & (_hnum <= zoom_hi)]
             # Asking for more bins than the range holds distinct values would leave
             # every other bar empty - a comb implying gaps that are not in the data.
-            _distinct = len(set(v for v in (_linkr_to_num(v) for v in df[hist]) if not _math.isnan(v)))
+            _distinct = int(_linkr_num_series(df[hist]).nunique())
             if _distinct > 0:
                 bins_cfg = max(1, min(bins_cfg, _distinct))
             # Padding the axis to 0 inside a zoom would pull the view back out.
             saz = False
         if not eff_group_names or eff_group not in df.columns:
-            values = [v for v in (_linkr_to_num(v) for v in df[hist]) if not _math.isnan(v)]
+            values = _linkr_num_series(df[hist]).dropna().tolist()
             data = _linkr_histogram(values, bin_mode, bins_cfg, bin_width_cfg, saz, decimals)
             print(_json.dumps({**result, "data": data, "series": ["count"], "isCategorical": False, "colorByCategory": color_by_cat})); return
         data = _linkr_histogram_grouped(df, hist, eff_group, bin_mode, bins_cfg, bin_width_cfg, eff_group_names, saz, decimals)

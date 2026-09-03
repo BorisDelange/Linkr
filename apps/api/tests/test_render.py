@@ -359,6 +359,38 @@ def test_plot_builder_zoom_rebins_the_selected_range():
     assert zoomed["data"][-1]["hi"] == pytest.approx(50, abs=0.5)
 
 
+def test_plot_builder_zoom_on_a_date_column_keeps_its_rows():
+    """Bin bounds express datetimes in MILLISECONDS (what _linkr_to_num produces).
+    Filtering the zoom with pd.to_numeric instead yielded nanoseconds, so the bounds
+    were off by 10^6, every row was filtered away and the chart came back empty."""
+    import pandas as pd
+
+    df = pd.DataFrame({"d": pd.date_range("2150-01-01", periods=2000, freq="D")})
+    full = _run_plot({"plotType": "histogram", "hist": "d", "bins": 20}, df.copy())
+    lo, hi = full["data"][5]["lo"], full["data"][9]["hi"]
+
+    zoomed = _run_plot({"plotType": "histogram", "hist": "d", "bins": 20,
+                        "zoomLo": lo, "zoomHi": hi}, df.copy())
+    assert len(zoomed["data"]) > 0
+    total = sum(d["count"] for d in zoomed["data"])
+    assert total > 0
+    assert total < sum(d["count"] for d in full["data"])
+
+
+def test_plot_builder_zoom_on_date_strings_keeps_its_rows():
+    """Same for dates stored as text, which _linkr_to_num parses per value."""
+    import pandas as pd
+
+    days = [str(d.date()) for d in pd.date_range("2150-01-01", periods=500, freq="D")]
+    df = pd.DataFrame({"d": days})
+    full = _run_plot({"plotType": "histogram", "hist": "d", "bins": 10}, df.copy())
+    lo, hi = full["data"][2]["lo"], full["data"][5]["hi"]
+
+    zoomed = _run_plot({"plotType": "histogram", "hist": "d", "bins": 10,
+                        "zoomLo": lo, "zoomHi": hi}, df.copy())
+    assert sum(d["count"] for d in zoomed["data"]) > 0
+
+
 def test_plot_builder_zoom_caps_bins_at_distinct_values():
     """20 bins over the integers 1..10 would leave every other bar empty — a comb
     implying gaps the data doesn't have."""
