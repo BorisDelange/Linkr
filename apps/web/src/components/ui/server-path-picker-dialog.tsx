@@ -90,6 +90,10 @@ export function ServerPathPickerDialog({
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [selectedFile, setSelectedFile] = useState<FsEntry | null>(null)
+  /** The path bar is editable: `pathDraft` is what the user is typing, `current`
+   *  is the folder actually listed. They differ only mid-edit. */
+  const [pathDraft, setPathDraft] = useState('')
+  const [pathError, setPathError] = useState(false)
 
   const extKey = extensions?.join(',') ?? ''
   const load = useCallback(
@@ -99,15 +103,18 @@ export function ServerPathPickerDialog({
       setSearch('')  // a fresh folder starts unfiltered
       setSelectedFile(null)  // ...and the previous folder's pick is void
       try {
-        setListing(
-          await fsBrowse(scope, path, {
-            includeFiles: true,
-            extensions: extKey ? extKey.split(',') : undefined,
-          }),
-        )
+        // Every file is listed, `extensions` only decides which are selectable.
+        // Filtering server-side made a folder holding no match look empty — the
+        // root, with no .duckdb in it, read as "folders only".
+        const next = await fsBrowse(scope, path, { includeFiles: true })
+        setListing(next)
+        setPathDraft(next.path)
+        setPathError(false)
+        return true
       } catch (e) {
         const fe = formatApiError(e)
         setError(fe.summary ?? fe.detail ?? String(e))
+        return false
       } finally {
         setLoading(false)
       }
@@ -119,8 +126,31 @@ export function ServerPathPickerDialog({
   )
 
   useEffect(() => {
-    if (open) load(initialPath ?? '')
+    if (open) void load(initialPath ?? '')
   }, [open, initialPath, load])
+
+  /** Navigate to whatever was typed in the path bar. A path that does not exist
+   *  (or sits outside the browse roots) leaves the current folder listed and
+   *  flags the input — losing the listing over a typo would be worse. */
+  const goToPath = async () => {
+    const target = pathDraft.trim()
+    if (!target || target === current) {
+      setPathDraft(current)
+      setPathError(false)
+      return
+    }
+    setPathError(false)
+    try {
+      const next = await fsBrowse(scope, target, { includeFiles: true })
+      setListing(next)
+      setPathDraft(next.path)
+      setSearch('')
+      setSelectedFile(null)
+      setError(null)
+    } catch {
+      setPathError(true)
+    }
+  }
 
   const current = listing?.path ?? ''
   const filteredEntries = useMemo(() => {
@@ -128,6 +158,17 @@ export function ServerPathPickerDialog({
     const entries = listing?.entries ?? []
     return q ? entries.filter((e) => e.name.toLowerCase().includes(q)) : entries
   }, [listing, search])
+
+  /** Whether a file may be picked, given the caller's extension filter. Every
+   *  file is listed either way; this only decides what is clickable. */
+  const matchesExtension = (name: string) => {
+    if (!extensions?.length) return true
+    const lower = name.toLowerCase()
+    return extensions.some((ext) => {
+      const suffix = ext.trim().toLowerCase()
+      return suffix && lower.endsWith(suffix.startsWith('.') ? suffix : `.${suffix}`)
+    })
+  }
 
   const pickingFile = mode === 'file'
   const chosen = pickingFile ? selectedFile?.path : current
@@ -149,8 +190,10 @@ export function ServerPathPickerDialog({
       confirmDisabled={!chosen}
       // The workbench body scrolls as one block by default; here the path bar and
       // the search stay put and only the listing scrolls, so it becomes a flex
-      // column that owns its own spacing.
-      contentClassName="flex flex-col gap-3 overflow-hidden"
+      // column that owns its own spacing. `overflow-visible` matters: the inputs'
+      // focus ring is drawn outside their border box, and a clipping body cut it
+      // off against the dialog's left and right edges.
+      contentClassName="flex flex-col gap-3 overflow-visible"
       footerExtra={
         defaultPath ? (
           <Button
@@ -165,29 +208,52 @@ export function ServerPathPickerDialog({
         ) : undefined
       }
     >
-      <div className="flex min-w-0 items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
-        <Folder size={14} className="shrink-0 text-amber-500" />
-        <span className="min-w-0 flex-1 truncate" title={chosen || current}>
-          {chosen || current || '—'}
-        </span>
-      </div>
+      <div className="space-y-2">
+        <div className="relative">
+          <Folder
+            size={14}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-amber-500"
+          />
+          <Input
+            value={pathDraft}
+            onChange={(e) => { setPathDraft(e.target.value); setPathError(false) }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); void goToPath() }
+              // Escape reverts the draft rather than closing the dialog.
+              if (e.key === 'Escape' && pathDraft !== current) {
+                e.preventDefault()
+                e.stopPropagation()
+                setPathDraft(current)
+                setPathError(false)
+              }
+            }}
+            onBlur={() => { if (pathDraft !== current) void goToPath() }}
+            spellCheck={false}
+            aria-invalid={pathError}
+            className="h-8 pl-8 font-mono text-xs"
+          />
+        </div>
+        {pathError && (
+          <p className="text-xs text-destructive">{t('server_picker.path_not_found')}</p>
+        )}
 
-      <div className="relative">
-        <Search
-          size={14}
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-        />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder={t(pickingFile ? 'server_picker.search' : 'project_folders.search_folders')}
-          className="h-8 pl-8 text-sm"
-        />
+        <div className="relative">
+          <Search
+            size={14}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t(pickingFile ? 'server_picker.search' : 'project_folders.search_folders')}
+            className="h-8 pl-8 text-sm"
+          />
+        </div>
       </div>
 
       {/* Takes the rest of the dialog: a fixed-height list left the lower half of
           a workbench dialog empty while the folder above it scrolled. */}
-      <div className="min-h-0 flex-1 rounded-md border">
+      <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
         {loading ? (
           <div className="flex h-full items-center justify-center text-muted-foreground">
             <Loader2 className="animate-spin" size={20} />
@@ -198,7 +264,9 @@ export function ServerPathPickerDialog({
           </div>
         ) : (
           <ScrollArea className="h-full">
-            <div className="py-1">
+            {/* pr-3 clears the scrollbar: it is an overlay, so it sat on top of
+                the chevrons and the file sizes at the right edge. */}
+            <div className="py-1 pr-3">
               {listing?.parent != null && !search && (
                 <button
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
@@ -210,17 +278,17 @@ export function ServerPathPickerDialog({
               )}
               {filteredEntries.length === 0 && (
                 <p className="px-2 py-3 text-xs text-muted-foreground">
-                  {search
-                    ? t('project_folders.no_matching_folder')
-                    : t('project_folders.empty_folder')}
+                  {search ? t('server_picker.no_match') : t('server_picker.empty')}
                 </p>
               )}
               {filteredEntries.map((e) => {
                 const isDir = e.isDir !== false
                 // In folder mode a file is context, not a target; an unreadable
-                // file is shown disabled rather than hidden, so a wrong-permissions
-                // mount is diagnosable from here.
-                const selectable = isDir || (pickingFile && e.readable !== false)
+                // file, or one the extension filter excludes, is shown disabled
+                // rather than hidden — so a wrong-permissions mount stays
+                // diagnosable and a folder never looks empty when it is not.
+                const selectable =
+                  isDir || (pickingFile && e.readable !== false && matchesExtension(e.name))
                 const isSelected = !isDir && selectedFile?.path === e.path
                 return (
                   <button

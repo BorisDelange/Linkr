@@ -2400,7 +2400,10 @@
   "server_picker": {
     "pick_file": "Choose a file on the server",
     "select_file": "Select this file",
-    "search": "Search this folder"
+    "search": "Search this folder",
+    "path_not_found": "This folder does not exist, or is outside the allowed folders.",
+    "no_match": "Nothing matches your search.",
+    "empty": "This folder is empty."
   },
   "project_folders": {
     "title": "Folders",
@@ -2419,9 +2422,7 @@
     "pick_folder": "Choose a server folder",
     "select_this_folder": "Select this folder",
     "reset_to_default": "Reset to default",
-    "empty_folder": "This folder has no subfolders.",
     "search_folders": "Filter folders…",
-    "no_matching_folder": "No folder matches your search.",
     "err_not_found": "This folder does not exist. Create it on the server first.",
     "err_not_a_dir": "This path is not a folder.",
     "err_not_writable": "This folder is not writable by the server.",
