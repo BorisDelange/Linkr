@@ -114,6 +114,9 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
       }}
     >
       <div className="flex flex-1 flex-col px-4 pt-5">
+       {/* Centred as the project card centres its own, so the description sits
+           off the title instead of clinging to it. */}
+       <div className="flex flex-1 flex-col justify-center">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
@@ -185,11 +188,7 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
           )}
         </div>
         <BadgeStrip badges={plugin.manifest.badges ?? []} className="mt-1.5 h-5" />
-        <div className="mt-auto flex items-center justify-end pt-2">
-          <span className="shrink-0 text-[10px] text-muted-foreground">
-            v{plugin.manifest.version ?? '1.0.0'}
-          </span>
-        </div>
+       </div>
         <CardMetaFooter
           createdById={plugin.createdById}
           createdBy={plugin.createdBy}
@@ -200,6 +199,11 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
           updatedAt={plugin.updatedAt}
           license={license}
           onOpenLicense={onOpenDocs && (() => onOpenDocs('license'))}
+          trailing={
+            <span className="text-[10px] text-muted-foreground">
+              v{plugin.manifest.version ?? '1.0.0'}
+            </span>
+          }
         />
       </div>
     </Card>

@@ -240,11 +240,11 @@ export function MarkdownRenderer({
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-baseline gap-0.5"
+          className="inline-flex items-baseline gap-1"
           {...props}
         >
           {children}
-          <ExternalLink size={11} className="shrink-0 translate-y-px opacity-70" aria-hidden />
+          <ExternalLink size={11} className="ml-px shrink-0 translate-y-px opacity-70" aria-hidden />
         </a>
       )
     },
