@@ -805,7 +805,14 @@
     "creating_may_take_a_while": "Création de la base en cours — cela peut prendre un moment…",
     "created_from_schema_note": "Cette base a été créée à partir d'un schéma — ses tables sont gérées par Linkr, il n'y a ni fichier à importer ni connexion à configurer.",
     "stats_table_name": "Table",
-    "stats_row_count": "Lignes"
+    "stats_row_count": "Lignes",
+    "file_origin_label": "Où sont les données ?",
+    "file_origin_upload": "Téléverser depuis mon ordinateur",
+    "file_origin_server": "Choisir sur le serveur",
+    "server_file": "Fichier serveur",
+    "server_folder": "Dossier serveur",
+    "server_path_hint": "Parcourir le serveur pour choisir les données",
+    "server_path_note": "Les données restent où elles sont — rien n'est copié ni téléversé."
   },
   "reports": {
     "title": "Rapports",

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, localizedRaw, setLocalized } from '@/lib/localized'
 import { commonDirPrefix, extractTableName, generateAlias } from '@/lib/duckdb/engine'
@@ -46,6 +47,7 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { FieldInfo } from '@/components/ui/field-info'
 import { RequiredMark } from '@/components/ui/required-mark'
+import { DatabaseFileSource, type FileOrigin } from '@/components/ui/database-file-source'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BadgeEditor } from '@/components/ui/badge-editor'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
@@ -162,6 +164,7 @@ export function AddDatabaseDialog({
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const { wsUid } = useResolvedParams()
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const { addDataSource, updateDataSource, removeDataSource, retestDataSource, dataSources } = useDataSourceStore()
   const [step, setStep] = useState<1 | 2>(1)
   const [dbTab, setDbTab] = useState<DbTab>('general')
@@ -221,7 +224,17 @@ export function AddDatabaseDialog({
       if (editingSource.sourceType === 'database') {
         const config = editingSource.connectionConfig as DatabaseConnectionConfig
         setDbEngine(config.engine)
-        setImportMode(config.fileIds ? 'parquet' : 'duckdb')
+        if (config.serverPath) {
+          setFileOrigin('server')
+          setServerPath(config.serverPath)
+        }
+        // A server path carries no fileIds, so the Parquet mode is read from the
+        // path itself (a folder) rather than from the uploaded-file markers.
+        setImportMode(
+          config.fileIds || (config.serverPath && !/\.(duckdb|sqlite|db)$/i.test(config.serverPath))
+            ? 'parquet'
+            : 'duckdb',
+        )
         if (config.host) setDbHost(config.host)
         if (config.port) setDbPort(String(config.port))
         if (config.database) setDbDatabase(config.database)
@@ -253,7 +266,9 @@ export function AddDatabaseDialog({
   // Schema preset
   const [schemaPresetId, setSchemaPresetId] = useState<SchemaPresetId>('__none__')
 
-  // File upload
+  // File upload — or, in server mode, a path to data already on the server.
+  const [fileOrigin, setFileOrigin] = useState<FileOrigin>('upload')
+  const [serverPath, setServerPath] = useState('')
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   /** File System Access API handles — stored alongside File objects for zero-copy. */
   const [fsHandles, setFsHandles] = useState<{ fileName: string; handle: FileSystemFileHandle; fileSize: number }[]>([])
@@ -287,6 +302,8 @@ export function AddDatabaseDialog({
     setDescription('')
     setUploadedFiles([])
     setFsHandles([])
+    setFileOrigin('upload')
+    setServerPath('')
     setImportMode('duckdb')
     setSchemaPresetId('__none__')
     setDbEngine(defaultEngine)
@@ -453,6 +470,20 @@ export function AddDatabaseDialog({
               ...(dbPassword ? { password: dbPassword } : {}),
             }
             changes.connectionConfig = connectionConfig
+          } else if (bothDatabases) {
+            // Re-pointing at a different server path is a config change, not a
+            // re-import: no bytes move, so it never goes through the
+            // remove-and-recreate path that new files take.
+            const prev = editingSource.connectionConfig as DatabaseConnectionConfig
+            const nextPath = usesServerPath ? serverPath : undefined
+            if ((prev.serverPath ?? undefined) !== nextPath) {
+              const { serverPath: _dropped, ...rest } = prev
+              changes.connectionConfig = {
+                ...rest,
+                engine: dbEngine,
+                ...(nextPath ? { serverPath: nextPath } : {}),
+              }
+            }
           }
           await updateDataSource(editingSource.id, changes)
 
@@ -476,6 +507,7 @@ export function AddDatabaseDialog({
       if (selectedType === 'database') {
         const connectionConfig: DatabaseConnectionConfig = {
           engine: dbEngine,
+          ...(usesServerPath ? { serverPath } : {}),
           ...(!isFileEngine(dbEngine)
             ? {
                 host: dbHost,
@@ -547,6 +579,14 @@ export function AddDatabaseDialog({
     return '*'
   }
 
+  /** The same extensions the upload input accepts, as a picker filter. A Parquet
+   *  source picks the folder itself, so it filters nothing. */
+  const pickerExtensions = (() => {
+    if (isParquetMode) return undefined
+    const accept = getFileAccept()
+    return accept === '*' ? undefined : accept.split(',')
+  })()
+
   // A database created from a schema owns its storage (a managed server file, or
   // the browser's own DuckDB): there is no file to upload and no host to reach,
   // so editing it must not demand either.
@@ -576,9 +616,13 @@ export function AddDatabaseDialog({
   const nameIsDuplicate = !uploading && name.trim()
     && dataSources.some(ds => localized(ds.name, language).toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id)
 
+  // Pointing at server data replaces the upload entirely: nothing is copied, so
+  // the file requirement is satisfied by the path instead.
+  const usesServerPath = isServerMode() && fileOrigin === 'server' && !!serverPath
+
   const isNameValid = !!name.trim() && !nameIsDuplicate
   const isConnectionValid =
-    (!needsFileUpload || uploadedFiles.length > 0 || hasExistingFiles) &&
+    (!needsFileUpload || uploadedFiles.length > 0 || hasExistingFiles || usesServerPath) &&
     (selectedType !== 'fhir' || !!fhirBaseUrl.trim()) &&
     !isSizeBlocked
 
@@ -895,40 +939,56 @@ export function AddDatabaseDialog({
                       <CurrentFilesInfo source={editingSource} t={t} />
                     )}
 
-                    {isParquetMode ? (
-                      <FolderUploadArea
-                        files={uploadedFiles}
-                        tables={parquetTables}
-                        folderPath={parquetFolderPath}
-                        inputRef={fileInputRef}
-                        onFilesSelected={handleFilesSelected}
-                        onFolderEntries={(entries) => {
-                          setUploadedFiles(entries.map((e) => e.file))
-                          // FS Access zero-copy handles are a front-only optimization
-                          // (data stays in the browser). In server mode the bytes are
-                          // uploaded, so we don't keep handles.
-                          if (!isServerMode()) {
-                            setFsHandles(entries.map((e) => ({
-                              fileName: e.relativePath,
-                              handle: e.handle,
-                              fileSize: e.file.size,
-                            })))
-                          }
-                        }}
-                        onClear={() => { setUploadedFiles([]); setFsHandles([]) }}
-                        t={t}
-                      />
-                    ) : (
-                      <FileUploadArea
-                        files={uploadedFiles}
-                        accept={getFileAccept()}
-                        multiple={isMultiFile}
-                        inputRef={fileInputRef}
-                        onFilesSelected={handleFilesSelected}
-                        onRemoveFile={handleRemoveFile}
-                        t={t}
-                      />
-                    )}
+                    <DatabaseFileSource
+                      workspaceId={activeWorkspaceId ?? ''}
+                      origin={fileOrigin}
+                      onOriginChange={(o) => {
+                        setFileOrigin(o)
+                        // The two origins are exclusive: keeping the other one's
+                        // state would submit both an upload and a path.
+                        if (o === 'server') { setUploadedFiles([]); setFsHandles([]) }
+                        else setServerPath('')
+                      }}
+                      expect={isParquetMode ? 'dir' : 'file'}
+                      extensions={pickerExtensions}
+                      serverPath={serverPath}
+                      onServerPathChange={setServerPath}
+                    >
+                      {isParquetMode ? (
+                        <FolderUploadArea
+                          files={uploadedFiles}
+                          tables={parquetTables}
+                          folderPath={parquetFolderPath}
+                          inputRef={fileInputRef}
+                          onFilesSelected={handleFilesSelected}
+                          onFolderEntries={(entries) => {
+                            setUploadedFiles(entries.map((e) => e.file))
+                            // FS Access zero-copy handles are a front-only optimization
+                            // (data stays in the browser). In server mode the bytes are
+                            // uploaded, so we don't keep handles.
+                            if (!isServerMode()) {
+                              setFsHandles(entries.map((e) => ({
+                                fileName: e.relativePath,
+                                handle: e.handle,
+                                fileSize: e.file.size,
+                              })))
+                            }
+                          }}
+                          onClear={() => { setUploadedFiles([]); setFsHandles([]) }}
+                          t={t}
+                        />
+                      ) : (
+                        <FileUploadArea
+                          files={uploadedFiles}
+                          accept={getFileAccept()}
+                          multiple={isMultiFile}
+                          inputRef={fileInputRef}
+                          onFilesSelected={handleFilesSelected}
+                          onRemoveFile={handleRemoveFile}
+                          t={t}
+                        />
+                      )}
+                    </DatabaseFileSource>
                   </>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">

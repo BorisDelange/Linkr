@@ -9,8 +9,10 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
+import { DatabaseFileSource, type FileOrigin } from '@/components/ui/database-file-source'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import {
   Select,
   SelectContent,
@@ -52,10 +54,13 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
   const [importMode, setImportMode] = useState<'duckdb' | 'parquet'>('duckdb')
   const [uploading, setUploading] = useState(false)
 
-  // File upload
+  // File upload — or, in server mode, a path to data already on the server.
+  const [fileOrigin, setFileOrigin] = useState<FileOrigin>('upload')
+  const [serverPath, setServerPath] = useState('')
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   const [fsHandles, setFsHandles] = useState<{ fileName: string; handle: FileSystemFileHandle; fileSize: number }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
 
   // Remote connection fields
   const [dbHost, setDbHost] = useState('')
@@ -75,6 +80,8 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
     setUploading(false)
     setUploadedFiles([])
     setFsHandles([])
+    setFileOrigin('upload')
+    setServerPath('')
     setDbHost('')
     setDbPort('')
     setDbDatabase('')
@@ -122,15 +129,27 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
     return '*'
   }
 
+  /** The same extensions the upload input accepts, as a picker filter. A Parquet
+   *  source picks the folder itself, so it filters nothing. */
+  const pickerExtensions = (() => {
+    if (isParquetMode) return undefined
+    const accept = getFileAccept()
+    return accept === '*' ? undefined : accept.split(',')
+  })()
+
   const totalFileSize = uploadedFiles.reduce((s, f) => s + f.size, 0)
   const hasFileHandles = fsHandles.length > 0
   const isSizeBlocked = totalFileSize > SIZE_DANGER_THRESHOLD && !hasFileHandles
+
+  // Pointing at server data replaces the upload entirely: nothing is copied, so
+  // the file requirement is satisfied by the path instead.
+  const usesServerPath = isServerMode() && fileOrigin === 'server' && !!serverPath
 
   const canSubmit =
     name.trim() &&
     !isSizeBlocked &&
     (isLocalEngine
-      ? uploadedFiles.length > 0
+      ? uploadedFiles.length > 0 || usesServerPath
       : dbHost.trim())
 
   const handleSubmit = async () => {
@@ -145,6 +164,7 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
           engine,
           files: fsHandles.length > 0 ? undefined : (uploadedFiles.length > 0 ? uploadedFiles : undefined),
           fileHandles: fsHandles.length > 0 ? fsHandles : undefined,
+          serverPath: usesServerPath ? serverPath : undefined,
         })
       } else {
         await addCustomConnection({
@@ -251,38 +271,62 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
                 </div>
               )}
 
-              {isParquetMode ? (
-                <FolderUploadArea
-                  files={uploadedFiles}
-                  inputRef={fileInputRef}
-                  onFilesSelected={handleFilesSelected}
-                  onFolderEntries={(entries) => {
-                    setUploadedFiles(entries.map((e) => e.file))
-                    setFsHandles(entries.map((e) => ({
-                      fileName: e.relativePath,
-                      handle: e.handle,
-                      fileSize: e.file.size,
-                    })))
-                    // Auto-fill name
-                    if (!name && entries.length > 0) {
-                      const dirName = entries[0].relativePath.split('/')[0] || 'parquet-data'
-                      setName(dirName)
-                    }
-                  }}
-                  onClear={() => { setUploadedFiles([]); setFsHandles([]) }}
-                  t={t}
-                />
-              ) : (
-                <FileUploadArea
-                  files={uploadedFiles}
-                  accept={getFileAccept()}
-                  multiple={isParquetMode}
-                  inputRef={fileInputRef}
-                  onFilesSelected={handleFilesSelected}
-                  onRemoveFile={handleRemoveFile}
-                  t={t}
-                />
-              )}
+              <DatabaseFileSource
+                workspaceId={activeWorkspaceId ?? ''}
+                origin={fileOrigin}
+                onOriginChange={(o) => {
+                  setFileOrigin(o)
+                  // The two origins are exclusive: keeping the other one's state
+                  // would submit both an upload and a path.
+                  if (o === 'server') { setUploadedFiles([]); setFsHandles([]) }
+                  else setServerPath('')
+                }}
+                expect={isParquetMode ? 'dir' : 'file'}
+                extensions={pickerExtensions}
+                serverPath={serverPath}
+                onServerPathChange={(p) => {
+                  setServerPath(p)
+                  // Same courtesy as the folder upload: name the connection after
+                  // what was picked, when the user hasn't typed one.
+                  if (!name) {
+                    const base = p.replace(/\/+$/, '').split('/').pop() ?? ''
+                    if (base) setName(base.replace(/\.(duckdb|sqlite|db)$/i, ''))
+                  }
+                }}
+              >
+                {isParquetMode ? (
+                  <FolderUploadArea
+                    files={uploadedFiles}
+                    inputRef={fileInputRef}
+                    onFilesSelected={handleFilesSelected}
+                    onFolderEntries={(entries) => {
+                      setUploadedFiles(entries.map((e) => e.file))
+                      setFsHandles(entries.map((e) => ({
+                        fileName: e.relativePath,
+                        handle: e.handle,
+                        fileSize: e.file.size,
+                      })))
+                      // Auto-fill name
+                      if (!name && entries.length > 0) {
+                        const dirName = entries[0].relativePath.split('/')[0] || 'parquet-data'
+                        setName(dirName)
+                      }
+                    }}
+                    onClear={() => { setUploadedFiles([]); setFsHandles([]) }}
+                    t={t}
+                  />
+                ) : (
+                  <FileUploadArea
+                    files={uploadedFiles}
+                    accept={getFileAccept()}
+                    multiple={isParquetMode}
+                    inputRef={fileInputRef}
+                    onFilesSelected={handleFilesSelected}
+                    onRemoveFile={handleRemoveFile}
+                    t={t}
+                  />
+                )}
+              </DatabaseFileSource>
             </>
           )}
 

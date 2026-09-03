@@ -805,7 +805,14 @@
     "creating_may_take_a_while": "Creating the database — this may take a moment…",
     "created_from_schema_note": "This database was created from a schema — its tables are managed by Linkr, there is no file to upload or connection to configure.",
     "stats_table_name": "Table",
-    "stats_row_count": "Rows"
+    "stats_row_count": "Rows",
+    "file_origin_label": "Where is the data?",
+    "file_origin_upload": "Upload from my computer",
+    "file_origin_server": "Choose on the server",
+    "server_file": "Server file",
+    "server_folder": "Server folder",
+    "server_path_hint": "Browse the server to choose the data",
+    "server_path_note": "The data stays where it is — nothing is copied or uploaded."
   },
   "reports": {
     "title": "Reports",
