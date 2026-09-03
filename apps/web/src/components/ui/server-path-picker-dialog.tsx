@@ -147,6 +147,10 @@ export function ServerPathPickerDialog({
       onConfirm={confirm}
       confirmLabel={t(pickingFile ? 'server_picker.select_file' : 'project_folders.select_folder')}
       confirmDisabled={!chosen}
+      // The workbench body scrolls as one block by default; here the path bar and
+      // the search stay put and only the listing scrolls, so it becomes a flex
+      // column that owns its own spacing.
+      contentClassName="flex flex-col gap-3 overflow-hidden"
       footerExtra={
         defaultPath ? (
           <Button
@@ -181,17 +185,19 @@ export function ServerPathPickerDialog({
         />
       </div>
 
-      <div className="min-h-[24rem] flex-1">
+      {/* Takes the rest of the dialog: a fixed-height list left the lower half of
+          a workbench dialog empty while the folder above it scrolled. */}
+      <div className="min-h-0 flex-1 rounded-md border">
         {loading ? (
-          <div className="flex h-96 items-center justify-center text-muted-foreground">
+          <div className="flex h-full items-center justify-center text-muted-foreground">
             <Loader2 className="animate-spin" size={20} />
           </div>
         ) : error ? (
-          <div className="flex h-96 items-center justify-center px-4 text-center text-sm text-destructive">
+          <div className="flex h-full items-center justify-center px-4 text-center text-sm text-destructive">
             {error}
           </div>
         ) : (
-          <ScrollArea className="h-96">
+          <ScrollArea className="h-full">
             <div className="py-1">
               {listing?.parent != null && !search && (
                 <button

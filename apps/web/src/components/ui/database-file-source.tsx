@@ -4,6 +4,7 @@ import { Database, FolderOpen, Laptop, Server, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
+import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { ServerPathPickerDialog } from '@/components/ui/server-path-picker-dialog'
 import { isServerMode } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
@@ -115,18 +116,13 @@ export function DatabaseFileSource({
               </button>
             </div>
           ) : (
-            <button
-              type="button"
+            <FileDropZone
+              icon={<Server size={20} className="text-muted-foreground" />}
+              label={t('databases.server_path_hint')}
+              hint={extensions?.join(', ')}
               onClick={() => setPickerOpen(true)}
-              className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 bg-muted/30 px-4 py-6 transition-colors hover:border-muted-foreground/40 hover:bg-muted/50"
-            >
-              <Server size={20} className="text-muted-foreground" />
-              <p className="text-xs text-muted-foreground">{t('databases.server_path_hint')}</p>
-            </button>
+            />
           )}
-          <p className="text-[10px] text-muted-foreground">
-            {t('databases.server_path_note')}
-          </p>
         </div>
       )}
 

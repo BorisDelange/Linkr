@@ -811,8 +811,7 @@
     "file_origin_server": "Choisir sur le serveur",
     "server_file": "Fichier serveur",
     "server_folder": "Dossier serveur",
-    "server_path_hint": "Parcourir le serveur pour choisir les données",
-    "server_path_note": "Les données restent où elles sont — rien n'est copié ni téléversé."
+    "server_path_hint": "Parcourir le serveur pour choisir les données"
   },
   "reports": {
     "title": "Rapports",

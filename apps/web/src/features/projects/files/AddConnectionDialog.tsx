@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { DatabaseFileSource, type FileOrigin } from '@/components/ui/database-file-source'
+import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -389,17 +390,12 @@ function FileUploadArea({
   return (
     <div className="space-y-2">
       <Label>{multiple ? t('connections.upload_files') : t('connections.upload_file')}</Label>
-      <button
-        type="button"
+      <FileDropZone
+        icon={<Upload size={20} className="text-muted-foreground" />}
+        label={t('connections.upload_drop_hint')}
+        hint={accept}
         onClick={() => inputRef.current?.click()}
-        className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 bg-muted/30 px-4 py-6 transition-colors hover:border-muted-foreground/40 hover:bg-muted/50"
-      >
-        <Upload size={20} className="text-muted-foreground" />
-        <p className="text-xs text-muted-foreground">
-          {t('connections.upload_drop_hint')}
-        </p>
-        <p className="text-[11px] text-muted-foreground/60">{accept}</p>
-      </button>
+      />
       <input
         ref={inputRef}
         type="file"
@@ -504,16 +500,11 @@ function FolderUploadArea({
     <div className="space-y-2">
       <Label>{t('connections.select_folder')}</Label>
       {files.length === 0 ? (
-        <button
-          type="button"
+        <FileDropZone
+          icon={<FolderOpen size={20} className="text-muted-foreground" />}
+          label={t('connections.select_folder_hint')}
           onClick={handlePickFolder}
-          className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 bg-muted/30 px-4 py-6 transition-colors hover:border-muted-foreground/40 hover:bg-muted/50"
-        >
-          <FolderOpen size={20} className="text-muted-foreground" />
-          <p className="text-xs text-muted-foreground">
-            {t('connections.select_folder_hint')}
-          </p>
-        </button>
+        />
       ) : (
         <div className="rounded-lg border bg-muted/30 px-4 py-3">
           <div className="flex items-center justify-between">
