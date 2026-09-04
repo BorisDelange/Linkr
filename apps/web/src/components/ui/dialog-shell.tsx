@@ -180,7 +180,11 @@ export function DialogShell({
           {description ? <DialogDescription>{description}</DialogDescription> : null}
         </DialogHeader>
 
-        <div className={cn(BODY_CLASS[kind], contentClassName)}>{children}</div>
+        {/* min-w-0: DialogContent is a grid, and a grid item defaults to
+            min-width:auto — it refuses to shrink below its content. Without this
+            one unbreakable string (a long file path, a URL) widens the whole
+            dialog past its max-w instead of truncating inside it. */}
+        <div className={cn('min-w-0', BODY_CLASS[kind], contentClassName)}>{children}</div>
 
         {!hideFooter && (
           <DialogFooter

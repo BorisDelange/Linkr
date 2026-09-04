@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ChevronRight,
@@ -94,6 +94,10 @@ export function ServerPathPickerDialog({
    *  is the folder actually listed. They differ only mid-edit. */
   const [pathDraft, setPathDraft] = useState('')
   const [pathError, setPathError] = useState(false)
+  // Read inside `load` without making the callback depend on the listing (which
+  // would rebuild it on every navigation and re-fire the open effect).
+  const listingRef = useRef<FsListing | null>(null)
+  listingRef.current = listing
 
   const extKey = extensions?.join(',') ?? ''
   const load = useCallback(
@@ -112,8 +116,12 @@ export function ServerPathPickerDialog({
         setPathError(false)
         return true
       } catch (e) {
+        // Keep the folder we were in: a directory the server may not read (/home
+        // on a Mac is the classic one) used to replace the whole list with an
+        // error, taking the ".." row with it and leaving nowhere to go back to.
         const fe = formatApiError(e)
         setError(fe.summary ?? fe.detail ?? String(e))
+        setPathDraft(listingRef.current?.path ?? '')
         return false
       } finally {
         setLoading(false)
@@ -221,7 +229,11 @@ export function ServerPathPickerDialog({
           />
           <Input
             value={pathDraft}
-            onChange={(e) => { setPathDraft(e.target.value); setPathError(false) }}
+            onChange={(e) => {
+              setPathDraft(e.target.value)
+              setPathError(false)
+              setError(null)  // a stale navigation error is no longer about this path
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') { e.preventDefault(); void goToPath() }
               // Escape reverts the draft rather than closing the dialog.
@@ -241,6 +253,9 @@ export function ServerPathPickerDialog({
         {pathError && (
           <p className="text-xs text-destructive">{t('server_picker.path_not_found')}</p>
         )}
+        {/* A failed navigation reports here rather than replacing the listing, so
+            the folder we came from — and its ".." row — stay reachable. */}
+        {error && !pathError && <p className="text-xs text-destructive">{error}</p>}
 
         {/* Same reason: Enter while filtering must not pick the highlighted row. */}
         <div className="relative" data-no-enter-submit>
@@ -264,7 +279,9 @@ export function ServerPathPickerDialog({
           <div className="flex h-full items-center justify-center text-muted-foreground">
             <Loader2 className="animate-spin" size={20} />
           </div>
-        ) : error ? (
+        ) : error && !listing ? (
+          // Only when there is nothing to fall back to — the very first load
+          // failing. Otherwise the error shows above and the listing stays.
           <div className="flex h-full items-center justify-center px-4 text-center text-sm text-destructive">
             {error}
           </div>

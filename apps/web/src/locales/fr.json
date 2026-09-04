@@ -809,7 +809,7 @@
     "file_origin_server": "Choisir sur le serveur",
     "server_file": "Fichier serveur",
     "server_folder": "Dossier serveur",
-    "server_path_hint": "Parcourir le serveur pour choisir les données"
+    "server_path_hint": "Cliquez pour parcourir le serveur"
   },
   "reports": {
     "title": "Rapports",

@@ -91,7 +91,7 @@ export function EntityDialogTabs({
           panel 12px short of the floor and grow the dialog anyway. */}
       <div className="pt-3">
         <div className="relative" {...containerProps}>
-          <div {...measuredPanelProps(tab)} className="flex flex-col gap-4">
+          <div {...measuredPanelProps(tab)} className="flex min-w-0 flex-col gap-4">
             {tabs.find((tb) => tb.value === tab)?.content}
           </div>
           {tabs.filter((tb) => tb.value !== tab).map((tb) => (

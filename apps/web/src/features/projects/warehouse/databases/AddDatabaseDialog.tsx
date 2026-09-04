@@ -761,7 +761,10 @@ export function AddDatabaseDialog({
         )}
 
         {step === 2 && selectedType && (
-          <div className="mt-2">
+          // min-w-0: a direct grid item of DialogContent, which defaults to
+          // min-width:auto — without it a long server path refuses to shrink and
+          // widens the whole dialog instead of truncating inside it.
+          <div className="mt-2 min-w-0">
             <EntityDialogTabs
               value={dbTab}
               onValueChange={(v) => setDbTab(v as DbTab)}

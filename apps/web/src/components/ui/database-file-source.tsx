@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Database, FolderOpen, Server, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { ServerPathPickerDialog } from '@/components/ui/server-path-picker-dialog'
 import { isServerMode } from '@/lib/api-client'
 
@@ -55,6 +56,13 @@ export function DatabaseFileSource({
 }: Props) {
   const { t } = useTranslation()
   const [pickerOpen, setPickerOpen] = useState(false)
+  /** Where the browser was last left, so reopening resumes there instead of
+   *  starting over at the root. Survives a cancelled browse; `serverPath` alone
+   *  would not, since cancelling leaves it empty. */
+  const [lastBrowsedPath, setLastBrowsedPath] = useState('')
+  /** Set by onPick, read by onClose — both fire in the same tick, so state would
+   *  still hold its pre-pick value there. */
+  const pickedRef = useRef(false)
 
   // Client-only: there is no server filesystem to point at, so the second zone
   // would be a dead control. Render the upload UI exactly as before.
@@ -70,21 +78,27 @@ export function DatabaseFileSource({
   /** The chosen path, taking the full row: the decision is made, so a live
    *  picker for the road not taken would only be noise. */
   const chosenPathRow = (
-    <div className="space-y-2">
+    // min-w-0: a flex item defaults to min-width:auto, so without it the path —
+    // which can be any length — refuses to shrink and widens the whole dialog
+    // instead of truncating.
+    <div className="min-w-0 space-y-2">
       <Label>
         {t(expect === 'dir' ? 'databases.server_folder' : 'databases.server_file')}
         <RequiredMark />
       </Label>
-      <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
+      <div className="flex min-w-0 items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
         {expect === 'dir' ? (
           <FolderOpen size={14} className="shrink-0 text-amber-500" />
         ) : (
           <Database size={14} className="shrink-0 text-violet-500" />
         )}
-        <span className="min-w-0 flex-1 truncate font-mono text-xs" title={serverPath}>
-          {serverPath}
-        </span>
-        <Button variant="ghost" size="sm" onClick={() => setPickerOpen(true)}>
+        {/* TruncatedText only raises its tooltip when the path is actually cut
+            off, and brings a copy button — handy for a path meant to be pasted
+            into a script or a shell. */}
+        <div className="min-w-0 flex-1">
+          <TruncatedText text={serverPath} className="font-mono text-xs" />
+        </div>
+        <Button variant="ghost" size="sm" className="shrink-0" onClick={() => setPickerOpen(true)}>
           {t('project_folders.change')}
         </Button>
         <button
@@ -111,10 +125,13 @@ export function DatabaseFileSource({
         <div className="grid grid-cols-2 items-start gap-3">
           <div className="min-w-0">{children}</div>
           <div className="min-w-0 space-y-2">
-            {/* No RequiredMark: the pair is one required choice, and the upload
-                side already carries the mark. Two marks would read as two
-                mandatory fields when either alone is enough. */}
-            <Label>{t('databases.file_origin_server')}</Label>
+            {/* Both sides are marked even though either one alone satisfies the
+                form: marking only the left made the right look optional, which
+                is the opposite of true — one of the two is required. */}
+            <Label>
+              {t('databases.file_origin_server')}
+              <RequiredMark />
+            </Label>
             <FileDropZone
               icon={<Server size={20} className="text-muted-foreground" />}
               label={t('databases.server_path_hint')}
@@ -131,14 +148,25 @@ export function DatabaseFileSource({
           mode={expect === 'dir' ? 'folder' : 'file'}
           scope={{ kind: 'workspace', workspaceId }}
           extensions={extensions}
-          initialPath={serverPath || undefined}
+          // Reopens where it was left, so a browse cancelled by accident does not
+          // start over from the filesystem root.
+          initialPath={serverPath || lastBrowsedPath || undefined}
           onClose={() => {
             setPickerOpen(false)
-            // Cancelled without picking: fall back to the upload side rather than
-            // leaving the form in a server origin with no path.
-            if (!serverPath) onOriginChange('upload')
+            // Falling back to the upload side is only right when the browse was
+            // opened from the empty zone and cancelled: leaving a server origin
+            // with no path would strand the form. Re-browsing an already chosen
+            // path and cancelling must keep it — the ref (not `serverPath`, which
+            // is still the pre-pick value in this same tick) says whether a pick
+            // just happened.
+            if (!pickedRef.current && !serverPath) onOriginChange('upload')
+            pickedRef.current = false
           }}
-          onPick={onServerPathChange}
+          onPick={(path) => {
+            pickedRef.current = true
+            setLastBrowsedPath(path)
+            onServerPathChange(path)
+          }}
         />
       )}
     </>

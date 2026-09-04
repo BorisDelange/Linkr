@@ -13,6 +13,7 @@ import { DatabaseFileSource, type FileOrigin } from '@/components/ui/database-fi
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import {
   Select,
@@ -204,7 +205,7 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
     >
           {/* Connection name */}
           <div className="space-y-2">
-            <Label>{t('connections.field_name')}</Label>
+            <Label>{t('connections.field_name')}<RequiredMark /></Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -336,7 +337,7 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
           {!isLocalEngine && (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>{t('connections.field_host')}</Label>
+                <Label>{t('connections.field_host')}<RequiredMark /></Label>
                 <Input value={dbHost} onChange={(e) => setDbHost(e.target.value)} placeholder="localhost" />
               </div>
               <div className="space-y-2">
@@ -390,7 +391,10 @@ function FileUploadArea({
 }) {
   return (
     <div className="space-y-2">
-      <Label>{multiple ? t('connections.upload_files') : t('connections.upload_file')}</Label>
+      <Label>
+        {multiple ? t('connections.upload_files') : t('connections.upload_file')}
+        <RequiredMark />
+      </Label>
       <FileDropZone
         icon={<Upload size={20} className="text-muted-foreground" />}
         label={t('connections.upload_drop_hint')}
@@ -499,7 +503,7 @@ function FolderUploadArea({
 
   return (
     <div className="space-y-2">
-      <Label>{t('connections.select_folder')}</Label>
+      <Label>{t('connections.select_folder')}<RequiredMark /></Label>
       {files.length === 0 ? (
         <FileDropZone
           icon={<FolderOpen size={20} className="text-muted-foreground" />}
