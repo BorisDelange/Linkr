@@ -942,6 +942,7 @@ export function AddDatabaseDialog({
                       extensions={pickerExtensions}
                       serverPath={serverPath}
                       onServerPathChange={setServerPath}
+                      hasUpload={uploadedFiles.length > 0}
                     >
                       {isParquetMode ? (
                         <FolderUploadArea

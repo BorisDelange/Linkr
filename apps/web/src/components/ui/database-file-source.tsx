@@ -1,57 +1,18 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Database, FolderOpen, Laptop, Server, X } from 'lucide-react'
+import { Database, FolderOpen, Server, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { ServerPathPickerDialog } from '@/components/ui/server-path-picker-dialog'
-import { useTallestPanel } from '@/hooks/use-tallest-panel'
 import { isServerMode } from '@/lib/api-client'
-import { cn } from '@/lib/utils'
 
 /** Where a file-backed database gets its data. `upload` copies bytes from the
  *  user's machine; `server` points at data already on the server and copies
  *  nothing — the only workable option for a warehouse too big to upload, and the
  *  server-side analogue of the front-only zero-copy FS Access handles. */
 export type FileOrigin = 'upload' | 'server'
-
-/** The inactive origin, kept mounted so it can be measured: absolute so it adds
- *  no height, invisible so nothing inside it paints (a drop zone would otherwise
- *  show through), pointer-events-none so its hidden file input can't be hit. */
-const HIDDEN_PANEL = 'pointer-events-none invisible absolute inset-x-0 top-0'
-
-interface OriginChoiceProps {
-  value: FileOrigin
-  onChange: (origin: FileOrigin) => void
-}
-
-/** Only rendered in server mode: a client-only build has no server to browse. */
-function OriginChoice({ value, onChange }: OriginChoiceProps) {
-  const { t } = useTranslation()
-  const option = (origin: FileOrigin, icon: ReactNode, label: string) => (
-    <button
-      type="button"
-      onClick={() => onChange(origin)}
-      className={cn(
-        'flex flex-1 items-center gap-2 rounded-lg border p-2.5 text-left text-xs transition-colors',
-        value === origin ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-accent',
-      )}
-    >
-      {icon}
-      {label}
-    </button>
-  )
-  return (
-    <div className="space-y-2">
-      <Label>{t('databases.file_origin_label')}</Label>
-      <div className="flex gap-2">
-        {option('upload', <Laptop size={14} />, t('databases.file_origin_upload'))}
-        {option('server', <Server size={14} />, t('databases.file_origin_server'))}
-      </div>
-    </div>
-  )
-}
 
 interface Props {
   /** Which workspace's `databases:write` authorizes the browse. */
@@ -64,13 +25,23 @@ interface Props {
   extensions?: string[]
   serverPath: string
   onServerPathChange: (path: string) => void
-  /** The upload UI, rendered when the chosen origin is `upload`. */
+  /** True once files have been picked from the machine, so the upload side takes
+   *  the row and the server zone steps aside. */
+  hasUpload?: boolean
+  /** The upload UI — its own label and drop zone. */
   children: ReactNode
 }
 
-/** The "where does this database's data come from" field, shared by the two
- *  add-database dialogs (warehouse and IDE connections) so the server-path option
- *  exists once rather than in each of them. */
+/**
+ * Where a file-backed database's data comes from, shared by the two add-database
+ * dialogs (warehouse and IDE connections).
+ *
+ * The two origins sit **side by side** rather than behind a mode switch: they are
+ * alternatives of the same kind, so showing both makes the server option
+ * discoverable and costs one click instead of two. Once either side holds
+ * something, it takes the full row and the other steps aside — the choice has
+ * been made, and a live picker for the road not taken is only noise.
+ */
 export function DatabaseFileSource({
   workspaceId,
   origin,
@@ -79,72 +50,80 @@ export function DatabaseFileSource({
   extensions,
   serverPath,
   onServerPathChange,
+  hasUpload,
   children,
 }: Props) {
   const { t } = useTranslation()
   const [pickerOpen, setPickerOpen] = useState(false)
-  const { containerProps, measuredPanelProps } = useTallestPanel()
 
-  // Client-only: there is no server filesystem to point at, so the choice would
-  // be a dead control. Render the upload UI exactly as before.
+  // Client-only: there is no server filesystem to point at, so the second zone
+  // would be a dead control. Render the upload UI exactly as before.
   if (!isServerMode()) return <>{children}</>
 
-  return (
-    <div className="space-y-3">
-      <OriginChoice value={origin} onChange={onOriginChange} />
+  const openPicker = () => {
+    onOriginChange('server')
+    setPickerOpen(true)
+  }
 
-      {/* Both origins are measured and the taller one sets the height, so
-          switching between them never resizes the dialog. Matching the two by
-          hand is not enough: each side changes height on its own (a chosen path
-          row, a file list, the Parquet tables summary), so only measuring holds. */}
-      <div className="relative" {...containerProps}>
-        <div
-          {...measuredPanelProps('upload')}
-          inert={origin !== 'upload'}
-          className={cn(origin !== 'upload' && HIDDEN_PANEL)}
+  const serverChosen = origin === 'server' && !!serverPath
+
+  /** The chosen path, taking the full row: the decision is made, so a live
+   *  picker for the road not taken would only be noise. */
+  const chosenPathRow = (
+    <div className="space-y-2">
+      <Label>
+        {t(expect === 'dir' ? 'databases.server_folder' : 'databases.server_file')}
+        <RequiredMark />
+      </Label>
+      <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
+        {expect === 'dir' ? (
+          <FolderOpen size={14} className="shrink-0 text-amber-500" />
+        ) : (
+          <Database size={14} className="shrink-0 text-violet-500" />
+        )}
+        <span className="min-w-0 flex-1 truncate font-mono text-xs" title={serverPath}>
+          {serverPath}
+        </span>
+        <Button variant="ghost" size="sm" onClick={() => setPickerOpen(true)}>
+          {t('project_folders.change')}
+        </Button>
+        <button
+          type="button"
+          onClick={() => { onServerPathChange(''); onOriginChange('upload') }}
+          className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
         >
-          {children}
-        </div>
-        <div
-          {...measuredPanelProps('server')}
-          inert={origin !== 'server'}
-          className={cn('space-y-2', origin !== 'server' && HIDDEN_PANEL)}
-        >
-          <Label>
-            {t(expect === 'dir' ? 'databases.server_folder' : 'databases.server_file')}
-            <RequiredMark />
-          </Label>
-          {serverPath ? (
-            <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
-              {expect === 'dir' ? (
-                <FolderOpen size={14} className="shrink-0 text-amber-500" />
-              ) : (
-                <Database size={14} className="shrink-0 text-violet-500" />
-              )}
-              <span className="min-w-0 flex-1 truncate font-mono text-xs" title={serverPath}>
-                {serverPath}
-              </span>
-              <Button variant="ghost" size="sm" onClick={() => setPickerOpen(true)}>
-                {t('project_folders.change')}
-              </Button>
-              <button
-                type="button"
-                onClick={() => onServerPathChange('')}
-                className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          ) : (
+          <X size={12} />
+        </button>
+      </div>
+    </div>
+  )
+
+  return (
+    <>
+      {serverChosen ? (
+        chosenPathRow
+      ) : hasUpload ? (
+        children
+      ) : (
+        // Equal halves: the two origins are alternatives of the same kind. Each
+        // column keeps its own label — the upload side already carries one — so
+        // the zones line up whatever those labels wrap to.
+        <div className="grid grid-cols-2 items-start gap-3">
+          <div className="min-w-0">{children}</div>
+          <div className="min-w-0 space-y-2">
+            {/* No RequiredMark: the pair is one required choice, and the upload
+                side already carries the mark. Two marks would read as two
+                mandatory fields when either alone is enough. */}
+            <Label>{t('databases.file_origin_server')}</Label>
             <FileDropZone
               icon={<Server size={20} className="text-muted-foreground" />}
               label={t('databases.server_path_hint')}
               hint={extensions?.join(', ')}
-              onClick={() => setPickerOpen(true)}
+              onClick={openPicker}
             />
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {pickerOpen && (
         <ServerPathPickerDialog
@@ -153,10 +132,15 @@ export function DatabaseFileSource({
           scope={{ kind: 'workspace', workspaceId }}
           extensions={extensions}
           initialPath={serverPath || undefined}
-          onClose={() => setPickerOpen(false)}
+          onClose={() => {
+            setPickerOpen(false)
+            // Cancelled without picking: fall back to the upload side rather than
+            // leaving the form in a server origin with no path.
+            if (!serverPath) onOriginChange('upload')
+          }}
           onPick={onServerPathChange}
         />
       )}
-    </div>
+    </>
   )
 }

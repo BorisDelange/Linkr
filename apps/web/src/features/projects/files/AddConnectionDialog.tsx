@@ -294,6 +294,7 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
                     if (base) setName(base.replace(/\.(duckdb|sqlite|db)$/i, ''))
                   }
                 }}
+                hasUpload={uploadedFiles.length > 0}
               >
                 {isParquetMode ? (
                   <FolderUploadArea
