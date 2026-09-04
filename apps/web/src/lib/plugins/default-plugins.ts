@@ -1,5 +1,6 @@
 import type { Plugin, PluginManifest } from '@/types/plugin'
 import type { LocalizedString } from '@/types'
+import { pluginFolder } from './plugin-readme'
 import { registerPlugin, getPlugin, getAllPlugins } from './registry'
 import { registerComponent } from './component-registry'
 import { registerBuiltinWidgetPlugins, SYSTEM_PLUGIN_IDS } from './builtin-widget-plugins'
@@ -44,23 +45,9 @@ for (const [path, text] of Object.entries(readmeModules)) {
   ;(READMES_BY_FOLDER[folder] ??= {})[lang ?? 'en'] = text
 }
 
-/**
- * Manifest id → folder, for the folders whose name is not simply the id's last
- * segment. Only the exceptions need listing.
- */
-const README_FOLDER_OVERRIDES: Record<string, string> = {
-  'linkr-analysis-table1': 'table1',
-  'linkr-widget-patient-overview': 'overview',
-  'linkr-widget-notes': 'notes',
-  'linkr-widget-timeline': 'timeline',
-  'linkr-widget-patient-summary': 'patient-summary',
-}
-
 /** The bundled README for a manifest id, if one was shipped beside its manifest. */
 function builtinReadme(manifestId: string): LocalizedString | undefined {
-  const folder = README_FOLDER_OVERRIDES[manifestId]
-    ?? manifestId.replace(/^linkr-(analysis|widget)-/, '')
-  return READMES_BY_FOLDER[folder]
+  return READMES_BY_FOLDER[pluginFolder(manifestId)]
 }
 
 /** Normalise a manifest from JSON (runtime may be string or array). */

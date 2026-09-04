@@ -150,6 +150,14 @@ are drawn muted.
 Read the plot for *widths* first: a row with a long bar is a variable your data
 has little to say about, whatever its p-value.
 
+![A logistic regression of in-hospital death on age, minimum GCS and maximum
+lactate: the coefficients table above, the odds-ratio forest plot
+below.](attachments/output.png)
+
+Above: in-hospital mortality against age, lowest GCS and highest lactate, on 111
+ICU stays. Every interval crosses 1, and the banner says why the answer is so
+uncertain — 38 of the 111 rows were dropped for a missing value somewhere.
+
 ## A worked example
 
 *Which factors are associated with in-hospital death?*

@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/sheet'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import { useResizableSidebar } from '@/hooks/use-resizable-sidebar'
+import { pluginFolder, resolvePluginAttachments } from '@/lib/plugins/plugin-readme'
 import { localized } from '@/lib/localized'
 import type { Plugin } from '@/types/plugin'
 
@@ -33,7 +34,10 @@ export function PluginReadmeContent({
   className?: string
 }) {
   const { t, i18n } = useTranslation()
-  const content = localized(plugin.readme, i18n.language)
+  const content = resolvePluginAttachments(
+    localized(plugin.readme, i18n.language),
+    pluginFolder(plugin.manifest.id),
+  )
 
   if (!content.trim()) {
     return (
