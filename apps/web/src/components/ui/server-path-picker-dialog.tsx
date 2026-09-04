@@ -189,7 +189,7 @@ export function ServerPathPickerDialog({
       className="sm:max-w-2xl"
       title={title ?? t(pickingFile ? 'server_picker.pick_file' : 'project_folders.pick_folder')}
       onConfirm={confirm}
-      confirmLabel={t(pickingFile ? 'server_picker.select_file' : 'project_folders.select_folder')}
+      confirmLabel={t(pickingFile ? 'server_picker.select_file' : 'project_folders.select_this_folder')}
       confirmDisabled={!chosen}
       // The workbench body scrolls as one block by default; here the path bar and
       // the search stay put and only the listing scrolls, so it becomes a flex
