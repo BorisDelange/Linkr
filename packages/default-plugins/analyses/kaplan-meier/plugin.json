@@ -364,5 +364,15 @@
         "fr": "Désactivé par défaut : des hauteurs de lignes irrégulières cassent la lecture verticale d'une colonne de chiffres. Le texte long est tronqué, la valeur complète au survol."
       }
     }
-  }
+  },
+  "badges": [
+    {
+      "id": "statistics",
+      "label": {
+        "en": "Statistics",
+        "fr": "Statistiques"
+      },
+      "color": "blue"
+    }
+  ]
 }

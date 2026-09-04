@@ -46,23 +46,19 @@ import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
 import { getPluginIcon, getPluginIconColorProps } from './plugin-icon'
+import { getPlugin } from '@/lib/plugins/registry'
+import { hasPluginReadme } from '@/lib/plugins/plugin-readme'
+import { LANG_BADGE, PLUGIN_CHIP_CLASS } from '@/lib/plugins/plugin-badges'
+import { PluginReadmeSheet } from '@/components/PluginReadme'
+import type { Plugin } from '@/types/plugin'
 import { PluginSettingsDialog } from './PluginSettingsDialog'
 import { usePluginActions } from './use-plugin-actions'
 import { PluginEditor } from './PluginEditor'
 
-const LANG_BADGE: Record<string, { label: string; color: string }> = {
-  python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
-  r: { label: 'R', color: 'text-blue-500 bg-blue-500/10' },
-}
-
 function LanguageBadge({ language }: { language: string }) {
   const badge = LANG_BADGE[language]
   if (!badge) return null
-  return (
-    <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight', badge.color)}>
-      {badge.label}
-    </span>
-  )
+  return <span className={cn(PLUGIN_CHIP_CLASS, badge.color)}>{badge.label}</span>
 }
 
 
@@ -84,6 +80,8 @@ interface PluginCardProps {
   license?: EntityLicense | null
   /** Opens the README/licence dialog on `tab`. Absent for read-only plugins. */
   onOpenDocs?: (tab: DocsTab) => void
+  /** Opens a read-only README for a plugin that has no editor to open. */
+  onOpenReadme: (plugin: PluginListItem) => void
   /** Part of a multi-selection — greys the card out. */
   selected?: boolean
   /** Returns true when the click was consumed as a selection gesture, so the card skips opening. */
@@ -91,25 +89,35 @@ interface PluginCardProps {
   t: (key: string) => string
 }
 
-function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate, onDelete, onVersioning, license, onOpenDocs, selected, onSelectClick, t }: PluginCardProps) {
+function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate, onDelete, onVersioning, license, onOpenDocs, onOpenReadme, selected, onSelectClick, t }: PluginCardProps) {
   const Icon = getPluginIcon(plugin.manifest.icon)
   const readOnly = plugin.readOnly
   const iconProps = getPluginIconColorProps(plugin.manifest.iconColor)
+  // A read-only plugin has no editor to open, but it can still have a README —
+  // so it stays clickable when there is documentation to show, and inert when
+  // there is none.
+  const registered = getPlugin(plugin.manifestId)
+  const readOnlyDocs = readOnly && hasPluginReadme(registered)
+  const clickable = !readOnly || readOnlyDocs
   return (
     <Card
       key={plugin.id}
       className={cn(
         'relative flex min-h-44 flex-col gap-0 py-0 transition-colors',
-        readOnly ? 'cursor-default' : 'cursor-pointer hover:bg-accent',
+        clickable ? 'cursor-pointer hover:bg-accent' : 'cursor-default',
         selected && selectedCardClass,
       )}
-      onClick={readOnly ? undefined : (e) => {
+      onClick={!clickable ? undefined : (e) => {
         if (onSelectClick?.(e)) return
-        onOpen(plugin.id)
+        if (readOnly) onOpenReadme(plugin)
+        else onOpen(plugin.id)
       }}
     >
       <div className="flex flex-1 flex-col px-4 pt-5">
-        <div className="flex items-start justify-between gap-2">
+       {/* Centred as the project card centres its own, so the description sits
+           off the title instead of clinging to it. */}
+       <div className="flex flex-1 flex-col justify-center">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
               {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
@@ -119,9 +127,14 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
               {plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.id}
             </span>
           </div>
+          {/* Every chip that describes the plugin sits here, at one height —
+              what it does, what it runs on, and where it comes from. */}
           <div className="flex shrink-0 items-center gap-1.5">
+            {plugin.manifest.languages?.map((l) => (
+              <LanguageBadge key={l} language={l} />
+            ))}
             {readOnly && (
-              <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight text-muted-foreground bg-muted">
+              <span className={cn(PLUGIN_CHIP_CLASS, 'text-muted-foreground bg-muted')}>
                 {plugin.isSystemPlugin ? t('plugins.system_plugin') : t('plugins.builtin_badge')}
               </span>
             )}
@@ -165,7 +178,7 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
             )}
           </div>
         </div>
-        <div className="mt-0.5 h-4">
+        <div className="mt-2 h-4">
           {(plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en) && (
             <TruncatedText
               text={plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en ?? ''}
@@ -174,16 +187,8 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
             />
           )}
         </div>
-        <BadgeStrip badges={plugin.manifest.badges ?? []} className="mt-2 h-5" />
-        {/* Languages + version pinned to the bottom-right, just above the footer bar. */}
-        <div className="mt-auto flex items-center justify-end gap-1.5 pt-2">
-          {plugin.manifest.languages?.map((l) => (
-            <LanguageBadge key={l} language={l} />
-          ))}
-          <span className="shrink-0 text-[10px] text-muted-foreground">
-            v{plugin.manifest.version ?? '1.0.0'}
-          </span>
-        </div>
+        <BadgeStrip badges={plugin.manifest.badges ?? []} className="mt-1.5 h-5" />
+       </div>
         <CardMetaFooter
           createdById={plugin.createdById}
           createdBy={plugin.createdBy}
@@ -194,6 +199,11 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
           updatedAt={plugin.updatedAt}
           license={license}
           onOpenLicense={onOpenDocs && (() => onOpenDocs('license'))}
+          trailing={
+            <span className="text-[10px] text-muted-foreground">
+              v{plugin.manifest.version ?? '1.0.0'}
+            </span>
+          }
         />
       </div>
     </Card>
@@ -229,6 +239,8 @@ export function PluginsTab() {
   const pluginActions = usePluginActions()
   // A card's licence chip opens the shared readme/licence dialog on its License tab.
   const [docsTarget, setDocsTarget] = useState<{ id: string; tab: DocsTab } | null>(null)
+  // A read-only plugin's documentation, shown in the same sheet the pickers use.
+  const [readmeTarget, setReadmeTarget] = useState<Plugin | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editTargetId, setEditTargetId] = useState<string | null>(null)
@@ -456,6 +468,7 @@ export function PluginsTab() {
             onVersioning={(id, tab) => setVersioningTarget({ id, tab })}
             license={pluginActions.docs.getLicense({ id: plugin.id, name: plugin.manifest.name ?? plugin.id })}
             onOpenDocs={plugin.readOnly ? undefined : (tab) => setDocsTarget({ id: plugin.id, tab })}
+            onOpenReadme={(p) => setReadmeTarget(getPlugin(p.manifestId) ?? null)}
             selected={selection.isSelected(plugin.id)}
             onSelectClick={(e) => selection.onCardClick(e, plugin.id)}
             t={t}
@@ -591,6 +604,14 @@ export function PluginsTab() {
           />
         )
       })()}
+
+      {/* A built-in's README: read-only, so the sheet rather than EntityDocsDialog,
+          which offers editing and attachments the bundle cannot take. */}
+      <PluginReadmeSheet
+        plugin={readmeTarget}
+        open={readmeTarget !== null}
+        onOpenChange={(open) => { if (!open) setReadmeTarget(null) }}
+      />
 
       {/* Export & versioning (git remote) — same dialog as other entities */}
       {versioningTarget && (

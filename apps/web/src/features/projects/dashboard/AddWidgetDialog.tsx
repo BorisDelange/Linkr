@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import { useSplitPreferredSize } from '@/hooks/use-split-preferred-size'
 import 'allotment/dist/style.css'
-import { ArrowLeft, Database } from 'lucide-react'
+import { ArrowLeft, BookOpen, Database, Settings } from 'lucide-react'
+import { PluginReadmeContent } from '@/components/PluginReadme'
+import { hasPluginReadme } from '@/lib/plugins/plugin-readme'
 import { PythonLogo, RLogo } from '@/components/ui/language-icon'
 import { cn } from '@/lib/utils'
 import type { DashboardWidgetSource } from '@/types'
@@ -177,6 +179,10 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
 
   // Plugin config step
   const [configPlugin, setConfigPlugin] = useState<Plugin | null>(null)
+  // Which pane the left side shows while configuring — the same Config/Doc pair
+  // the widget editor offers, so the documentation is readable while the widget
+  // is being set up for the first time, with the preview still live beside it.
+  const [configTab, setConfigTab] = useState<'config' | 'docs'>('config')
   const [pluginConfig, setPluginConfig] = useState<Record<string, unknown>>({})
   const [pluginLanguage, setPluginLanguage] = useState<'python' | 'r'>('python')
 
@@ -214,6 +220,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
 
     if (hasConfig || hasBothLangs) {
       setConfigPlugin(plugin)
+      setConfigTab('config')
       setPluginConfig({})
       setPluginLanguage(defaultLang)
     } else {
@@ -333,6 +340,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
     const pluginName = configPlugin.manifest.name[lang] ?? configPlugin.manifest.name.en ?? configPlugin.manifest.id
     const configHasBothLangs = !!(configPlugin.templates?.python && configPlugin.templates?.r)
     const hasConfigSchema = configPlugin.manifest.configSchema && Object.keys(configPlugin.manifest.configSchema).length > 0
+    const configHasDocs = hasPluginReadme(configPlugin)
     const isComponentPlugin = !!(configPlugin.componentId && configPlugin.manifest.runtime.includes('component'))
     const PreviewComponent = isComponentPlugin && configPlugin.componentId ? getComponent(configPlugin.componentId) : null
     const rows = datasetFileId ? getFileRows(datasetFileId) : []
@@ -355,13 +363,44 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
               <h2 className="text-sm font-semibold truncate">{pluginName}</h2>
               <p className="text-xs text-muted-foreground">{t('dashboard.plugin_configure_description')}</p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setConfigPlugin(null)}>
+            <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => setConfigPlugin(null)}>
               {t('common.back')}
             </Button>
-            <Button size="sm" onClick={handleConfirmPlugin} disabled={!isNameValid}>
+            <Button size="sm" className="h-6 text-xs" onClick={handleConfirmPlugin} disabled={!isNameValid}>
               {t('dashboard.add_widget')}
             </Button>
           </div>
+
+          {/* Config/Doc toggle, as in the widget editor. Only when there is a
+              README — otherwise the lone Config tab would be a decoration. */}
+          {configHasDocs && (
+            <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
+              <button
+                onClick={() => setConfigTab('config')}
+                className={cn(
+                  'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+                  configTab === 'config'
+                    ? 'bg-accent text-accent-foreground font-medium'
+                    : 'text-muted-foreground hover:bg-accent/50',
+                )}
+              >
+                <Settings size={12} />
+                {t('datasets.analysis_config_tab')}
+              </button>
+              <button
+                onClick={() => setConfigTab('docs')}
+                className={cn(
+                  'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+                  configTab === 'docs'
+                    ? 'bg-accent text-accent-foreground font-medium'
+                    : 'text-muted-foreground hover:bg-accent/50',
+                )}
+              >
+                <BookOpen size={12} />
+                {t('plugins.docs_tab')}
+              </button>
+            </div>
+          )}
 
           {/* Split: config (left) + preview (right) */}
           <div ref={splitRef} className="flex-1 min-h-0">
@@ -372,6 +411,9 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
               {/* Left: config panel */}
               <Allotment.Pane preferredSize={configPaneSize} minSize={280}>
                 <ScrollArea className="h-full">
+                  {configTab === 'docs' ? (
+                    <PluginReadmeContent plugin={configPlugin} />
+                  ) : (
                   <div className="space-y-4 p-4">
                     {nameInput}
                     {datasetSelector}
@@ -405,6 +447,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
                       </div>
                     )}
                   </div>
+                  )}
                 </ScrollArea>
               </Allotment.Pane>
 

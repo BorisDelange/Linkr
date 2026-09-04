@@ -1,7 +1,11 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import * as LucideIcons from 'lucide-react'
-import { Info, Puzzle, Search } from 'lucide-react'
+import { BookOpen, Puzzle, Search } from 'lucide-react'
+import { getPluginIcon, getPluginIconColorProps } from '@/features/settings/plugin-icon'
+import { PluginReadmeSheet } from '@/components/PluginReadme'
+import { hasPluginReadme } from '@/lib/plugins/plugin-readme'
+import { LANG_BADGE, PLUGIN_CHIP_CLASS } from '@/lib/plugins/plugin-badges'
+import { isBuiltinPluginId } from '@/lib/plugins/default-plugins'
 import { Input } from '@/components/ui/input'
 import {
   Tooltip,
@@ -11,40 +15,13 @@ import {
 import { cn } from '@/lib/utils'
 import { localized } from '@/lib/localized'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { BadgeStrip } from '@/components/ui/badge-strip'
 import type { Plugin, PluginBadge } from '@/types/plugin'
-import type { BadgeColor } from '@/types'
-
-// ---------------------------------------------------------------------------
-// Icon helpers
-// ---------------------------------------------------------------------------
-
-function getPluginIcon(iconName: string): LucideIcons.LucideIcon {
-  const icon = (LucideIcons as Record<string, unknown>)[iconName]
-  if (typeof icon === 'object' && icon !== null) return icon as LucideIcons.LucideIcon
-  return Puzzle
-}
-
-const ICON_COLOR_CLASS: Record<string, string> = {
-  red: 'text-red-500', blue: 'text-blue-500', green: 'text-green-500',
-  violet: 'text-violet-500', amber: 'text-amber-500', rose: 'text-rose-500',
-  cyan: 'text-cyan-500', slate: 'text-slate-500',
-}
-
-function getIconColorProps(iconColor?: BadgeColor): { className?: string; style?: React.CSSProperties } {
-  if (!iconColor) return {}
-  const tw = ICON_COLOR_CLASS[iconColor]
-  if (tw) return { className: tw }
-  return { style: { color: iconColor } }
-}
 
 // ---------------------------------------------------------------------------
 // Language badge constants
 // ---------------------------------------------------------------------------
 
-export const LANG_BADGE: Record<string, { label: string; color: string }> = {
-  python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
-  r: { label: 'R', color: 'text-blue-500 bg-blue-500/10' },
-}
 
 // ---------------------------------------------------------------------------
 // Fuzzy match helper
@@ -82,6 +59,7 @@ export function PluginPicker({
   const { t } = useTranslation()
   const [searchQuery, setSearchQuery] = useState('')
   const [activeBadgeFilters, setActiveBadgeFilters] = useState<Set<string>>(new Set())
+  const [readmePlugin, setReadmePlugin] = useState<Plugin | null>(null)
 
   // Collect all unique badges across plugins
   const allBadges = useMemo(() => {
@@ -166,10 +144,11 @@ export function PluginPicker({
           {filteredPlugins.map((plugin) => {
             const m = plugin.manifest
             const Icon = getPluginIcon(m.icon)
-            const iconColorProps = getIconColorProps(m.iconColor)
+            const iconColorProps = getPluginIconColorProps(m.iconColor)
             const isSelected = selectedPluginId === m.id
             const fullDesc = m.description[lang] ?? m.description.en ?? ''
-            const deps = m.dependencies
+            const hasReadme = hasPluginReadme(plugin)
+            const isBuiltIn = isBuiltinPluginId(m.id)
             return (
               <button
                 key={m.id}
@@ -185,58 +164,59 @@ export function PluginPicker({
                   <span className="text-sm font-medium truncate flex-1">
                     {m.name[lang] ?? m.name.en}
                   </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span
-                        className="shrink-0 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Info size={13} />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs text-xs space-y-1.5 p-3">
-                      <p className="font-medium">{m.name[lang] ?? m.name.en}</p>
-                      <p className="text-muted-foreground">{fullDesc}</p>
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <span>v{m.version ?? '1.0.0'}</span>
-                        {m.category && <span>· {m.category}</span>}
-                      </div>
-                      {deps && Object.keys(deps).length > 0 && (
-                        <p className="text-muted-foreground">
-                          Deps: {Object.entries(deps).map(([k, v]) => `${k}${v ? `@${v}` : ''}`).join(', ')}
-                        </p>
-                      )}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <p className="text-xs text-muted-foreground line-clamp-2">
-                  {fullDesc}
-                </p>
-                <div className="flex items-center gap-1 flex-wrap">
-                  {m.runtime?.includes('component') && (
-                    <span className="shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none text-emerald-500 bg-emerald-500/10">
-                      {t('plugins.builtin_badge')}
-                    </span>
-                  )}
+                  {/* Same chips, same place, same height as the Plugins page. */}
                   {m.languages?.map((l) => {
                     const lb = LANG_BADGE[l]
                     if (!lb) return null
                     return (
-                      <span key={l} className={cn('shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none', lb.color)}>
+                      <span key={l} className={cn(PLUGIN_CHIP_CLASS, lb.color)}>
                         {lb.label}
                       </span>
                     )
                   })}
-                  {m.badges?.map((badge) => (
-                    <span
-                      key={badge.id}
-                      className={cn('shrink-0 rounded-full px-1.5 py-px text-[9px] font-medium leading-none', getBadgeClasses(badge.color))}
-                      style={getBadgeStyle(badge.color)}
-                    >
-                      {localized(badge.label, lang)}
+                  {/* Only the way into the README. The old info tooltip repeated
+                      the description, version and badges the card already shows. */}
+                  {hasReadme && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          aria-label={t('plugins.read_docs')}
+                          className="shrink-0 cursor-pointer text-muted-foreground/60 transition-colors hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setReadmePlugin(plugin)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter' && e.key !== ' ') return
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setReadmePlugin(plugin)
+                          }}
+                        >
+                          <BookOpen size={14} />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">{t('plugins.read_docs')}</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground line-clamp-2">
+                  {fullDesc}
+                </p>
+                {/* The author's own badges stay here; what the plugin *is* has
+                    moved up beside the title. `isBuiltIn` reads the registry,
+                    not `runtime`: a user plugin can be a component too, and used
+                    to be mislabelled built-in. */}
+                <div className="mt-auto flex items-center gap-1.5 pt-1">
+                  {isBuiltIn && (
+                    <span className={cn(PLUGIN_CHIP_CLASS, 'text-muted-foreground bg-muted')}>
+                      {t('plugins.builtin_badge')}
                     </span>
-                  ))}
-                  <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
+                  )}
+                  <BadgeStrip badges={m.badges ?? []} className="h-5 min-w-0 flex-1" />
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
                     v{m.version ?? '1.0.0'}
                   </span>
                 </div>
@@ -251,6 +231,12 @@ export function PluginPicker({
           </div>
         )}
       </div>
+
+      <PluginReadmeSheet
+        plugin={readmePlugin}
+        open={readmePlugin !== null}
+        onOpenChange={(open) => { if (!open) setReadmePlugin(null) }}
+      />
     </div>
   )
 }

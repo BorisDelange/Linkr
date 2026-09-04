@@ -462,5 +462,15 @@
         }
       ]
     }
-  }
+  },
+  "badges": [
+    {
+      "id": "data-visualization",
+      "label": {
+        "en": "Data visualization",
+        "fr": "Visualisation"
+      },
+      "color": "violet"
+    }
+  ]
 }

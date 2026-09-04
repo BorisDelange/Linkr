@@ -2,7 +2,9 @@ import { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, BookOpen, Settings } from 'lucide-react'
+import { PluginReadmeContent } from '@/components/PluginReadme'
+import { hasPluginReadme } from '@/lib/plugins/plugin-readme'
 import { cn } from '@/lib/utils'
 import {
   Dialog,
@@ -59,6 +61,9 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
   const plugins = useMemo(() => getLabPlugins(), [])
   const [activeTab, setActiveTab] = useState('plugin')
   const [selectedPluginId, setSelectedPluginId] = useState('')
+  // Which pane the left side shows — the widget editor's Config/Doc pair, so the
+  // documentation is readable while the analysis is first set up.
+  const [configTab, setConfigTab] = useState<'config' | 'docs'>('config')
   const [name, setName] = useState('')
 
   // Second view: plugin config + live preview
@@ -125,6 +130,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
 
     if (hasConfig || hasBothLangs) {
       setConfigPlugin(plugin)
+      setConfigTab('config')
       setPluginConfig({})
       setPluginLanguage(defaultLang)
     } else {
@@ -182,6 +188,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
     const configHasBothLangs = !!(configPlugin.templates?.python && configPlugin.templates?.r)
     const hasConfigSchema = configPlugin.manifest.configSchema && Object.keys(configPlugin.manifest.configSchema).length > 0
     const isComponentPlugin = !!(configPlugin.componentId && configPlugin.manifest.runtime.includes('component'))
+    const configHasDocs = hasPluginReadme(configPlugin)
     const PreviewComponent = isComponentPlugin && configPlugin.componentId ? getComponent(configPlugin.componentId) : null
 
     return (
@@ -197,18 +204,51 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
               <h2 className="text-sm font-semibold truncate">{pluginName}</h2>
               <p className="text-xs text-muted-foreground">{t('dashboard.plugin_configure_description')}</p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setConfigPlugin(null)}>
+            <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => setConfigPlugin(null)}>
               {t('common.back')}
             </Button>
-            <Button size="sm" onClick={handleConfirmPlugin} disabled={!isNameValid}>
+            <Button size="sm" className="h-6 text-xs" onClick={handleConfirmPlugin} disabled={!isNameValid}>
               {t('common.create')}
             </Button>
           </div>
+
+          {/* Config/Doc toggle, as in the widget editor. */}
+          {configHasDocs && (
+            <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
+              <button
+                onClick={() => setConfigTab('config')}
+                className={cn(
+                  'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+                  configTab === 'config'
+                    ? 'bg-accent text-accent-foreground font-medium'
+                    : 'text-muted-foreground hover:bg-accent/50',
+                )}
+              >
+                <Settings size={12} />
+                {t('datasets.analysis_config_tab')}
+              </button>
+              <button
+                onClick={() => setConfigTab('docs')}
+                className={cn(
+                  'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+                  configTab === 'docs'
+                    ? 'bg-accent text-accent-foreground font-medium'
+                    : 'text-muted-foreground hover:bg-accent/50',
+                )}
+              >
+                <BookOpen size={12} />
+                {t('plugins.docs_tab')}
+              </button>
+            </div>
+          )}
 
           <div className="flex-1 min-h-0">
             <Allotment proportionalLayout={false}>
               <Allotment.Pane preferredSize="45%" minSize={280}>
                 <ScrollArea className="h-full">
+                  {configTab === 'docs' ? (
+                    <PluginReadmeContent plugin={configPlugin} />
+                  ) : (
                   <div className="space-y-4 p-4">
                     {nameInput}
                     {configHasBothLangs && (
@@ -236,6 +276,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
                       </div>
                     )}
                   </div>
+                  )}
                 </ScrollArea>
               </Allotment.Pane>
 

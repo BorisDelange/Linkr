@@ -163,4 +163,10 @@ export interface Plugin {
   componentId?: string
   /** Workspace this plugin belongs to (undefined for built-in plugins). */
   workspaceId?: string
+  /**
+   * The plugin's user documentation, shown where the plugin is chosen and
+   * configured. For a built-in it is bundled from README.md / README.<lang>.md
+   * beside the manifest; a user plugin carries its own on the entity row.
+   */
+  readme?: LocalizedString
 }

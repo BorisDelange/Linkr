@@ -11,6 +11,7 @@ import {
   Lightbulb,
   AlertTriangle,
   AlertCircle,
+  ExternalLink,
 } from 'lucide-react'
 
 // --- Shared config (also used by SummaryReadmeTab) ---
@@ -165,6 +166,7 @@ const calloutStyles: Record<string, { icon: React.ReactNode; border: string; bg:
   caution: { icon: <AlertTriangle size={16} />, border: 'border-red-500/40', bg: 'bg-red-500/5' },
 }
 
+
 // --- Main Renderer ---
 
 interface MarkdownRendererProps {
@@ -227,6 +229,26 @@ export function MarkdownRenderer({
       }
       return <code {...props}>{children}</code>
     },
+    // An off-site link opens in a new tab and says so, so following a reference
+    // never loses the page underneath. In-page anchors (the TOC, heading links)
+    // and app-relative links keep navigating in place.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    a: ({ node: _node, href, children, ...props }: any) => {
+      const isExternal = typeof href === 'string' && /^(https?|mailto):/i.test(href)
+      if (!isExternal) return <a href={href} {...props}>{children}</a>
+      return (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-baseline gap-1"
+          {...props}
+        >
+          {children}
+          <ExternalLink size={11} className="ml-px shrink-0 translate-y-px opacity-70" aria-hidden />
+        </a>
+      )
+    },
     // Add IDs to headings for TOC linking
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     h1: ({ children, ...props }: any) => {
@@ -245,8 +267,10 @@ export function MarkdownRenderer({
     },
   }), [])
 
+  // `prose-a:` rather than a class on the anchor: Tailwind Typography styles
+  // links as `.prose a`, which outranks a plain utility class.
   return (
-    <div className={`prose prose-sm dark:prose-invert max-w-none ${className ?? ''}`}>
+    <div className={`prose prose-sm dark:prose-invert max-w-none prose-a:transition-colors hover:prose-a:text-muted-foreground ${className ?? ''}`}>
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
