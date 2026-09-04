@@ -16,7 +16,13 @@ from app.schemas.data_source import (
     DataSourceUpdate,
     ParquetTablePath,
 )
-from app.services import author_provenance, blob_store, concept_stats_cache_service, git_secret
+from app.services import (
+    author_provenance,
+    blob_store,
+    concept_stats_cache_service,
+    fs_browser,
+    git_secret,
+)
 from app.services.data import (
     concept_cache_fs,
     connection_pool,
@@ -30,8 +36,39 @@ _EXTERNAL_ENGINES = ("postgresql", "mysql")
 _FILE_ENGINES = ("duckdb", "sqlite")
 
 
+_PARQUET_SUFFIXES = (".parquet", ".pq")
+
+
+def _server_path_files(path: str) -> list[tuple[str, str]]:
+    """(file_name, absolute_path) for a `serverPath` source. A file is itself the
+    single entry; a directory contributes its Parquet files, recursively — the
+    layout ETL tools emit (one subfolder per table, possibly sharded).
+
+    Unlike the blob store, these are real paths in a real folder, so the names
+    carry their true extension and `_is_parquet_folder` / `group_parquet_tables`
+    classify them exactly as they do an upload."""
+    target = Path(path)
+    if target.is_file():
+        return [(target.name, str(target))]
+    if not target.is_dir():
+        return []
+    found = sorted(
+        (p for p in target.rglob("*") if p.is_file() and p.suffix.lower() in _PARQUET_SUFFIXES),
+        key=lambda p: str(p).lower(),
+    )
+    # Relative names so a nested layout groups by table the way an upload's
+    # webkitRelativePath does.
+    return [(str(p.relative_to(target)), str(p)) for p in found]
+
+
 async def _source_files(db: AsyncSession, source: DataSource) -> list[tuple[str, str]]:
-    """(file_name, blob_path) for each file backing the source, in insertion order."""
+    """(file_name, path) for each file backing the source, in insertion order.
+
+    Three origins, one contract: a `serverPath` source reads the server filesystem
+    in place, a managed database its own file, everything else the blob store."""
+    path = server_path(source)
+    if path:
+        return _server_path_files(path)
     files = await list_files(db, source.id)
     return [(f.file_name, str(blob_store.path_for(f.content_hash))) for f in files]
 
@@ -73,6 +110,30 @@ def strip_secrets(config: dict | None) -> dict:
     return {k: v for k, v in config.items() if k not in _SECRET_KEYS}
 
 
+def server_path(source_or_config) -> str | None:
+    """The absolute server path this source points at, if it is a `serverPath`
+    source (data already on the server, never uploaded). Accepts a DataSource or
+    a raw config dict."""
+    config = (
+        source_or_config
+        if isinstance(source_or_config, dict)
+        else (source_or_config.connection_config or {})
+    )
+    raw = config.get("serverPath")
+    return str(raw) if raw else None
+
+
+def enforce_server_path(config: dict | None) -> None:
+    """Re-enforce the browse-root boundary wherever a config is PERSISTED. The
+    picker validates client-side, but create/update take a plain JSON config — so
+    without this a hand-made request could point a source at any file the server
+    can read (/etc/passwd, another tenant's data) and read it back through the
+    query route. Raises FsBrowseError, surfaced as 400 by the routes."""
+    path = server_path(config or {})
+    if path:
+        fs_browser.validate_source_path(path)
+
+
 def _extract_secret(config: dict | None) -> str | None:
     """The first secret credential present in the config (password or token)."""
     if not config:
@@ -112,6 +173,7 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     # stamp_creator derives the right local id (ORCID/email match, or NULL).
     payload.pop("created_by_id", None)
     config = payload.get("connection_config")
+    enforce_server_path(config)
     secret = _extract_secret(config)
     payload["connection_config"] = strip_secrets(config)
     # The git access token never lands in the entity's JSON column (it would be
@@ -134,6 +196,7 @@ async def update(
 ) -> DataSource:
     changes = data.model_dump(exclude_unset=True)
     if "connection_config" in changes:
+        enforce_server_path(changes["connection_config"])
         # A password present in the update re-encrypts; its absence leaves the
         # stored secret untouched (editing other fields won't wipe credentials).
         secret = _extract_secret(changes["connection_config"])
@@ -271,6 +334,33 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
         path = managed_db.path_for(source.id)
         return DatabaseConnectionInfo(
             engine="duckdb", kind="file", path=str(path), exists=path.exists()
+        )
+
+    sp = server_path(source)
+    if sp:
+        target = Path(sp)
+        pairs = _server_path_files(sp)
+        if target.is_file():
+            return DatabaseConnectionInfo(
+                engine=engine, kind="file", path=sp, exists=True, file_names=[target.name]
+            )
+        # A real folder, unlike the blob store: `path` is meaningful here (the
+        # files keep their names and extensions), so a client library can glob it.
+        groups = parquet_table_paths(source, pairs)
+        return DatabaseConnectionInfo(
+            engine=engine,
+            kind="parquet-folder",
+            path=sp,
+            exists=target.is_dir(),
+            file_names=[name for name, _ in pairs],
+            tables=[
+                ParquetTablePath(
+                    table=table,
+                    paths=table_paths,
+                    exists=all(Path(p).is_file() for p in table_paths),
+                )
+                for table, table_paths in sorted(groups.items())
+            ],
         )
 
     files = await list_files(db, source.id)
@@ -509,6 +599,10 @@ async def query(db: AsyncSession, source: DataSource, sql: str) -> list[dict]:
     if engine in _FILE_ENGINES:
         files = await _source_files(db, source)
         if not files:
+            if server_path(source):
+                raise ValueError(
+                    "the server path holds no readable database file; check it still exists"
+                )
             raise ValueError("no database file uploaded for this source")
         if _is_parquet_folder(config, files):
             known = _known_tables(source)

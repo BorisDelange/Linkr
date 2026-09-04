@@ -489,6 +489,19 @@ hint `text-xs text-muted-foreground`, `RequiredMark` for required fields. Use
 `components/ui/` still do, so copying a neighbour is not a safe guide here.
 Reach for `SearchableSelect` when a `<Select>` gets long.
 
+### File drop zones: `FileDropZone`
+
+The dashed "choose a file" area is `components/ui/file-drop-zone.tsx` — icon,
+label, optional `hint` (the accepted extensions). Its height is **fixed**
+(`h-28`), and the hint line is rendered even when empty.
+
+That is the whole point: these zones sit side by side across the add-database
+dialogs (upload a file · upload a folder · pick a server path) and used to be
+five copies of one class string whose height followed their content. A zone with
+an extra hint line rendered taller than its neighbour, so the box visibly resized
+when the user switched engine or origin. Pass a `hint` or don't — the box does
+not move.
+
 ### Buttons
 
 `Button` already defines `xs` / `sm` / `lg` / `icon-xs` / `icon-sm` / `icon-lg`,

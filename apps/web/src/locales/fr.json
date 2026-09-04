@@ -805,7 +805,11 @@
     "creating_may_take_a_while": "Création de la base en cours — cela peut prendre un moment…",
     "created_from_schema_note": "Cette base a été créée à partir d'un schéma — ses tables sont gérées par Linkr, il n'y a ni fichier à importer ni connexion à configurer.",
     "stats_table_name": "Table",
-    "stats_row_count": "Lignes"
+    "stats_row_count": "Lignes",
+    "file_origin_server": "Choisir sur le serveur",
+    "server_file": "Fichier serveur",
+    "server_folder": "Dossier serveur",
+    "server_path_hint": "Cliquez pour parcourir le serveur"
   },
   "reports": {
     "title": "Rapports",
@@ -2391,6 +2395,14 @@
     "stats_visits_per_patient_median": "Hospitalisations/patient (médiane)",
     "stats_visits_per_patient_range": "Hospitalisations/patient (étendue)"
   },
+  "server_picker": {
+    "pick_file": "Choisir un fichier sur le serveur",
+    "select_file": "Sélectionner ce fichier",
+    "search": "Rechercher dans ce dossier",
+    "path_not_found": "Ce dossier n'existe pas, ou est hors des dossiers autorisés.",
+    "no_match": "Aucun résultat pour cette recherche.",
+    "empty": "Ce dossier est vide."
+  },
   "project_folders": {
     "title": "Dossiers",
     "description": "Choisissez les dossiers serveur utilisés par l'IDE et les datasets de ce projet. Ces chemins sont propres à ce serveur et ne sont jamais inclus dans les exports.",
@@ -2408,9 +2420,7 @@
     "pick_folder": "Choisir un dossier serveur",
     "select_this_folder": "Sélectionner ce dossier",
     "reset_to_default": "Revenir au dossier par défaut",
-    "empty_folder": "Ce dossier ne contient aucun sous-dossier.",
     "search_folders": "Filtrer les dossiers…",
-    "no_matching_folder": "Aucun dossier ne correspond à votre recherche.",
     "err_not_found": "Ce dossier n'existe pas. Créez-le d'abord sur le serveur.",
     "err_not_a_dir": "Ce chemin n'est pas un dossier.",
     "err_not_writable": "Ce dossier n'est pas accessible en écriture par le serveur.",
@@ -2642,12 +2652,6 @@
     "general_db_test_success": "Connexion réussie",
     "general_db_test_error_status": "Le serveur a répondu avec le statut {{status}}",
     "general_db_test_error_unreachable": "Impossible de joindre le serveur backend",
-    "general_db_browse": "Parcourir",
-    "general_db_browse_title": "Sélectionner le fichier de base de données",
-    "general_db_browse_error": "Impossible de parcourir le système de fichiers du serveur. Vérifiez que le backend est lancé.",
-    "general_db_browse_empty": "Dossier vide",
-    "general_db_browse_use_folder": "Utiliser ce dossier",
-    "general_db_browse_select": "Sélectionner le fichier",
     "general_db_query": "Requêter la base",
     "db_tab_sql": "SQL",
     "db_tab_schema": "Schéma",
@@ -4563,7 +4567,10 @@
     "extract_section_frequency_desc": "Délai typique entre deux enregistrements pour un même patient : monitorage continu, horaire, quotidien.",
     "extract_section_temporal_desc": "Période couverte et part des enregistrements par année. Montre quand un concept a commencé ou cessé d'être recueilli.",
     "extract_section_hospitalUnits_desc": "Les unités de soins où le concept est enregistré, en part des enregistrements. Un service de l'hôpital, pas une unité de mesure.",
-    "extract_done_hint_travels": "Ils voyagent avec le projet à l'export et lors de la synchronisation git."
+    "extract_done_hint_travels": "Ils voyagent avec le projet à l'export et lors de la synchronisation git.",
+    "vocab_import_select_server_folder": "Choisir sur le serveur",
+    "vocab_import_no_tables_found": "Aucune table de vocabulaire trouvée dans ce dossier.",
+    "vocab_import_server_needs_parquet": "Ce dossier contient des tables de vocabulaire en CSV. Un dossier serveur est lu en Parquet — convertissez-les, ou téléversez le dossier."
   },
   "data_catalog": {
     "title": "Catalogue de données",

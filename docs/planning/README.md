@@ -140,6 +140,26 @@ Patient data widgets — one configuration per project, not several boards.
 | 🔜 | Board configuration reusing `PatientChartGrid` | M |
 | 💤 | Cohort-level (aggregate) widgets — different props contract | L |
 
+## Server file picker — [server-file-picker-plan.md](server-file-picker-plan.md)
+
+**Lot 1 built, needs manual testing in the app.** In server mode a file database
+could only be created by uploading bytes from the user's machine — impossible for
+data an admin already put on the server, and blocked outright past the 2 GB
+ceiling. `serverPath` now points a database at data where it lies (no copy),
+through one shared `ServerPathPickerDialog` that also lists files (the old folder
+picker showed directories only). Boundary: `fs_browse_roots`, re-enforced where
+the config is persisted, never an ETL target, stripped from exports.
+
+The inventory of all 32 file-entry points is in the plan: 3 done, 5 candidates
+(category B), ~24 upload-only by design.
+
+| St | Item | Effort |
+|----|------|--------|
+| ✅ | Service + scoped routes + shared picker + `serverPath` end to end + ATHENA folder | L |
+| 🔜 | **[TO TEST]** End to end in the running app, server mode (plan §6) | S |
+| 🔜 | Category B: datasets, mapping source, scores, IDE and ETL uploads — each needs a "read a server file" backend path | M |
+| 🤔 | `fs_browse_roots` empty = the whole filesystem: keep, or default to a root? | S |
+
 ## Databases — datamarts — [database-page-datamarts-plan.md](database-page-datamarts-plan.md)
 
 The database detail **page with tabs** shipped (Overview / Statistics / Schema; the old

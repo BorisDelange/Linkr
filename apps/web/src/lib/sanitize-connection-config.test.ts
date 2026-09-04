@@ -23,6 +23,7 @@ describe('sanitizeConnectionConfig', () => {
     fileIds: ['f1', 'f2'],
     fileNames: ['patients.parquet'],
     fileHandleIds: ['h1'],
+    serverPath: '/mnt/chu-data/omop/warehouse.duckdb',
   }
 
   it('keeps only the engine out of a full connection', () => {
@@ -36,6 +37,9 @@ describe('sanitizeConnectionConfig', () => {
       'db.chu-rennes.fr', '5432', 'omop_prod', 'cdm',
       'fhir.example.org', 'bearer',
       'f1', 'f2', 'patients.parquet', 'h1',
+      // A server path is machine-local (like a project's folder bindings) and
+      // maps out the server's filesystem — never publishable.
+      '/mnt/chu-data', 'warehouse.duckdb',
     ]) {
       expect(out).not.toContain(secret)
     }

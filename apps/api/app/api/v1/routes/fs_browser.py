@@ -6,10 +6,12 @@ there. Server mode only — front-only has no server filesystem to browse."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import require_project_permission
+from app.core.permissions import check_workspace_permission, require_project_permission
 from app.models.project import Project
 from app.models.user import User
 from app.services import fs_browser, project_fs
@@ -48,15 +50,24 @@ def _guard() -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "File browsing is disabled")
 
 
+def _split_extensions(raw: str | None) -> list[str] | None:
+    """Comma-separated query value → list; a display filter, never a boundary."""
+    if not raw:
+        return None
+    return [p for p in (part.strip() for part in raw.split(",")) if p]
+
+
 @router.get("/list-dir")
 async def list_dir(
     path: str = Query("", description="Absolute server path; empty = a browse root"),
+    include_files: bool = Query(False, alias="includeFiles"),
+    extensions: str | None = Query(None, description="Comma-separated, e.g. .parquet,.csv"),
     _project: Project = Depends(require_project_permission("project-settings:write")),
     _user: User = Depends(get_current_user),
 ):
     _guard()
     try:
-        return fs_browser.list_dir(path)
+        return fs_browser.list_dir(path, include_files, _split_extensions(extensions))
     except fs_browser.FsBrowseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
@@ -94,3 +105,52 @@ async def rebind_copy(
         return fs_browser.copy_tree(body.src, body.dst, body.on_conflict)
     except fs_browser.FsBrowseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+# --- Workspace-scoped browsing (databases pointing at server data) -------------
+# A database is workspace-scoped, so it cannot ride the project routes above.
+# These carry their own workspace + permission rather than widening the project
+# ones: browsing the filesystem always answers to *some* explicit authority.
+# Deliberately NOT behind `_guard()` — see `fs_browser.validate_source_path`:
+# attaching a database read-only is not code execution, and a deployment with the
+# IDE turned off must still be able to point Linkr at its own data.
+
+ws_router = APIRouter(prefix="/workspaces/{workspace_id}/fs", tags=["fs-browser"])
+
+
+@ws_router.get("/list-dir")
+async def ws_list_dir(
+    workspace_id: str,
+    path: str = Query("", description="Absolute server path; empty = a browse root"),
+    include_files: bool = Query(False, alias="includeFiles"),
+    extensions: str | None = Query(None, description="Comma-separated, e.g. .parquet,.csv"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await check_workspace_permission(db, workspace_id, user, "databases:write")
+    try:
+        return fs_browser.list_dir(path, include_files, _split_extensions(extensions))
+    except fs_browser.FsBrowseError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+class ValidatePathBody(BaseModel):
+    path: str
+    extensions: list[str] | None = None
+    # A Parquet source is a folder, a DuckDB/SQLite source is a file.
+    expect: str = "file"
+
+
+@ws_router.post("/validate-path")
+async def ws_validate_path(
+    workspace_id: str,
+    body: ValidatePathBody,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await check_workspace_permission(db, workspace_id, user, "databases:write")
+    if body.expect == "dir":
+        # Not `validate_dir`: that one demands a WRITABLE folder (it validates a
+        # project binding the IDE writes into). A Parquet source is only ever read.
+        return fs_browser.validate_readable_dir(body.path)
+    return fs_browser.validate_file(body.path, body.extensions)

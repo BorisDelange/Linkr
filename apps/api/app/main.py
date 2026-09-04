@@ -35,6 +35,7 @@ from app.api.v1.routes.environments import router as environments_router
 from app.api.v1.routes.git import router as git_router
 from app.api.v1.routes.dataset_files import router as dataset_files_router
 from app.api.v1.routes.fs_browser import router as fs_browser_router
+from app.api.v1.routes.fs_browser import ws_router as fs_browser_ws_router
 from app.api.v1.routes.ide_files import router as ide_files_router
 from app.api.v1.routes.health import router as health_router
 from app.api.v1.routes.members import router as members_router
@@ -179,6 +180,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
 app.include_router(projects_router, prefix="/api/v1")
 app.include_router(fs_browser_router, prefix="/api/v1")
+app.include_router(fs_browser_ws_router, prefix="/api/v1")
 app.include_router(members_router, prefix="/api/v1")
 app.include_router(organizations_router, prefix="/api/v1")
 app.include_router(schema_presets_router, prefix="/api/v1")

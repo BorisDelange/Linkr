@@ -39,6 +39,8 @@ interface ConnectionState {
     engine: DatabaseEngine
     files?: File[]
     fileHandles?: { fileName: string; handle: FileSystemFileHandle; fileSize: number }[]
+    /** Server mode: read data where it already lies instead of uploading it. */
+    serverPath?: string
     remoteConfig?: {
       host: string
       port?: number
@@ -138,7 +140,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     const isLocal = source.engine === 'duckdb' || source.engine === 'sqlite'
 
     const useFileHandles = !!(source.fileHandles && source.fileHandles.length > 0)
-    const connectionConfig: DatabaseConnectionConfig = { engine: source.engine }
+    const connectionConfig: DatabaseConnectionConfig = {
+      engine: source.engine,
+      ...(source.serverPath ? { serverPath: source.serverPath } : {}),
+    }
 
     const storedHandles: StoredFileHandle[] = []
     const storedFiles: StoredFile[] = []

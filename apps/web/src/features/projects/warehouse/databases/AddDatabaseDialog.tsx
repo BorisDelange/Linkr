@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, localizedRaw, setLocalized } from '@/lib/localized'
 import { commonDirPrefix, extractTableName, generateAlias } from '@/lib/duckdb/engine'
@@ -46,7 +47,9 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { FieldInfo } from '@/components/ui/field-info'
 import { RequiredMark } from '@/components/ui/required-mark'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { FileDropZone } from '@/components/ui/file-drop-zone'
+import { DatabaseFileSource, type FileOrigin } from '@/components/ui/database-file-source'
+import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { BadgeEditor } from '@/components/ui/badge-editor'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { VersionField } from '@/components/ui/version-field'
@@ -162,6 +165,7 @@ export function AddDatabaseDialog({
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const { wsUid } = useResolvedParams()
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const { addDataSource, updateDataSource, removeDataSource, retestDataSource, dataSources } = useDataSourceStore()
   const [step, setStep] = useState<1 | 2>(1)
   const [dbTab, setDbTab] = useState<DbTab>('general')
@@ -221,7 +225,17 @@ export function AddDatabaseDialog({
       if (editingSource.sourceType === 'database') {
         const config = editingSource.connectionConfig as DatabaseConnectionConfig
         setDbEngine(config.engine)
-        setImportMode(config.fileIds ? 'parquet' : 'duckdb')
+        if (config.serverPath) {
+          setFileOrigin('server')
+          setServerPath(config.serverPath)
+        }
+        // A server path carries no fileIds, so the Parquet mode is read from the
+        // path itself (a folder) rather than from the uploaded-file markers.
+        setImportMode(
+          config.fileIds || (config.serverPath && !/\.(duckdb|sqlite|db)$/i.test(config.serverPath))
+            ? 'parquet'
+            : 'duckdb',
+        )
         if (config.host) setDbHost(config.host)
         if (config.port) setDbPort(String(config.port))
         if (config.database) setDbDatabase(config.database)
@@ -253,7 +267,9 @@ export function AddDatabaseDialog({
   // Schema preset
   const [schemaPresetId, setSchemaPresetId] = useState<SchemaPresetId>('__none__')
 
-  // File upload
+  // File upload — or, in server mode, a path to data already on the server.
+  const [fileOrigin, setFileOrigin] = useState<FileOrigin>('upload')
+  const [serverPath, setServerPath] = useState('')
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   /** File System Access API handles — stored alongside File objects for zero-copy. */
   const [fsHandles, setFsHandles] = useState<{ fileName: string; handle: FileSystemFileHandle; fileSize: number }[]>([])
@@ -287,6 +303,8 @@ export function AddDatabaseDialog({
     setDescription('')
     setUploadedFiles([])
     setFsHandles([])
+    setFileOrigin('upload')
+    setServerPath('')
     setImportMode('duckdb')
     setSchemaPresetId('__none__')
     setDbEngine(defaultEngine)
@@ -453,6 +471,20 @@ export function AddDatabaseDialog({
               ...(dbPassword ? { password: dbPassword } : {}),
             }
             changes.connectionConfig = connectionConfig
+          } else if (bothDatabases) {
+            // Re-pointing at a different server path is a config change, not a
+            // re-import: no bytes move, so it never goes through the
+            // remove-and-recreate path that new files take.
+            const prev = editingSource.connectionConfig as DatabaseConnectionConfig
+            const nextPath = usesServerPath ? serverPath : undefined
+            if ((prev.serverPath ?? undefined) !== nextPath) {
+              const { serverPath: _dropped, ...rest } = prev
+              changes.connectionConfig = {
+                ...rest,
+                engine: dbEngine,
+                ...(nextPath ? { serverPath: nextPath } : {}),
+              }
+            }
           }
           await updateDataSource(editingSource.id, changes)
 
@@ -476,6 +508,7 @@ export function AddDatabaseDialog({
       if (selectedType === 'database') {
         const connectionConfig: DatabaseConnectionConfig = {
           engine: dbEngine,
+          ...(usesServerPath ? { serverPath } : {}),
           ...(!isFileEngine(dbEngine)
             ? {
                 host: dbHost,
@@ -547,6 +580,14 @@ export function AddDatabaseDialog({
     return '*'
   }
 
+  /** The same extensions the upload input accepts, as a picker filter. A Parquet
+   *  source picks the folder itself, so it filters nothing. */
+  const pickerExtensions = (() => {
+    if (isParquetMode) return undefined
+    const accept = getFileAccept()
+    return accept === '*' ? undefined : accept.split(',')
+  })()
+
   // A database created from a schema owns its storage (a managed server file, or
   // the browser's own DuckDB): there is no file to upload and no host to reach,
   // so editing it must not demand either.
@@ -576,9 +617,13 @@ export function AddDatabaseDialog({
   const nameIsDuplicate = !uploading && name.trim()
     && dataSources.some(ds => localized(ds.name, language).toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id)
 
+  // Pointing at server data replaces the upload entirely: nothing is copied, so
+  // the file requirement is satisfied by the path instead.
+  const usesServerPath = isServerMode() && fileOrigin === 'server' && !!serverPath
+
   const isNameValid = !!name.trim() && !nameIsDuplicate
   const isConnectionValid =
-    (!needsFileUpload || uploadedFiles.length > 0 || hasExistingFiles) &&
+    (!needsFileUpload || uploadedFiles.length > 0 || hasExistingFiles || usesServerPath) &&
     (selectedType !== 'fhir' || !!fhirBaseUrl.trim()) &&
     !isSizeBlocked
 
@@ -716,108 +761,99 @@ export function AddDatabaseDialog({
         )}
 
         {step === 2 && selectedType && (
-          <div className="mt-2">
-            <Tabs value={dbTab} onValueChange={(v) => setDbTab(v as DbTab)}>
-              <TabsList className="w-full">
-                <TabsTrigger value="general" className="flex-1 gap-1.5">
-                  {t('databases.tab_general')}
-                  {generalMissing.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}
-                </TabsTrigger>
-                <TabsTrigger value="connection" className="flex-1 gap-1.5">
-                  {t('databases.tab_connection')}
-                  {connectionMissing.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}
-                </TabsTrigger>
-                <TabsTrigger value="metadata" className="flex-1">
-                  {t('common.tab_metadata')}
-                </TabsTrigger>
-                {/* Editing only: a new database is authored by whoever creates it,
-                    so there is nothing to re-attribute yet. */}
-                {isEditMode && (
-                  <TabsTrigger value="attribution" className="flex-1">
-                    {t('common.tab_attribution')}
-                  </TabsTrigger>
-                )}
-              </TabsList>
-
-              <TabsContent value="general" className="space-y-4 pt-3">
-            {/* Common fields */}
-            <div className="space-y-2">
-              <Label>{t('databases.field_name')}<RequiredMark /></Label>
-              <Input
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value)
-                  if (!aliasManuallyEdited) setAlias(generateAlias(e.target.value))
-                }}
-                placeholder={t('databases.field_name_placeholder')}
-                autoFocus
-              />
-              {nameIsDuplicate && (
-                <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
+          // min-w-0: a direct grid item of DialogContent, which defaults to
+          // min-width:auto — without it a long server path refuses to shrink and
+          // widens the whole dialog instead of truncating inside it.
+          <div className="mt-2 min-w-0">
+            <EntityDialogTabs
+              value={dbTab}
+              onValueChange={(v) => setDbTab(v as DbTab)}
+              generalIncomplete={generalMissing.length > 0}
+              general={(
+                <>
+                  {/* Common fields */}
+                  <div className="space-y-2">
+                    <Label>{t('databases.field_name')}<RequiredMark /></Label>
+                    <Input
+                      value={name}
+                      onChange={(e) => {
+                        setName(e.target.value)
+                        if (!aliasManuallyEdited) setAlias(generateAlias(e.target.value))
+                      }}
+                      placeholder={t('databases.field_name_placeholder')}
+                      autoFocus
+                    />
+                    {nameIsDuplicate && (
+                      <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Label className="flex items-center gap-1.5">
+                        {t('databases.field_identifier')}
+                        <FieldInfo text={t('databases.field_alias_hint')} />
+                      </Label>
+                      <TooltipProvider>
+                        <Tooltip delayDuration={200}>
+                          <TooltipTrigger asChild>
+                            <span className="text-muted-foreground">
+                              <Info size={12} />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs text-xs">
+                            {t('databases.identifier_info')}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    {/* Fixed after creation: the alias is the DuckDB schema name
+                        (`ds_<alias>`), so changing it would orphan every script and
+                        saved query that addresses this database. */}
+                    <Input
+                      value={alias}
+                      onChange={(e) => {
+                        setAlias(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+                        setAliasManuallyEdited(true)
+                      }}
+                      placeholder="mimic_iv_raw"
+                      className="font-mono text-xs"
+                      readOnly={isEditMode}
+                      disabled={isEditMode}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('databases.field_description')}</Label>
+                    <Input
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder={t('databases.field_description_placeholder')}
+                    />
+                  </div>
+                </>
               )}
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Label className="flex items-center gap-1.5">
-                  {t('databases.field_identifier')}
-                  <FieldInfo text={t('databases.field_alias_hint')} />
-                </Label>
-                <TooltipProvider>
-                  <Tooltip delayDuration={200}>
-                    <TooltipTrigger asChild>
-                      <span className="text-muted-foreground">
-                        <Info size={12} />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs text-xs">
-                      {t('databases.identifier_info')}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              {/* Fixed after creation: the alias is the DuckDB schema name
-                  (`ds_<alias>`), so changing it would orphan every script and
-                  saved query that addresses this database. */}
-              <Input
-                value={alias}
-                onChange={(e) => {
-                  setAlias(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
-                  setAliasManuallyEdited(true)
-                }}
-                placeholder="mimic_iv_raw"
-                className="font-mono text-xs"
-                readOnly={isEditMode}
-                disabled={isEditMode}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{t('databases.field_description')}</Label>
-              <Input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder={t('databases.field_description_placeholder')}
-              />
-            </div>
-              </TabsContent>
-
-              <TabsContent value="connection" className="space-y-4 pt-3">
-            {/* Database-specific fields */}
-            {selectedType === 'database' && (
-              <>
-                <div className="space-y-2">
-                  <Label>{t('databases.field_engine')}</Label>
-                  <Select value={dbEngine} onValueChange={(v) => { setDbEngine(v as DatabaseEngine); setUploadedFiles([]) }}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {/* Only engines the current deployment mode can actually run:
-                          front-only (WASM) → file engines; server → + external DBs.
-                          Order: network DBs first (server mode), then file engines. */}
-                      {isServerMode() && (
-                        <>
-                          <SelectItem value="postgresql">PostgreSQL</SelectItem>
-                          <SelectItem value="mysql">MySQL</SelectItem>
+              extraTabs={[{
+                value: 'connection',
+                label: t('databases.tab_connection'),
+                incomplete: connectionMissing.length > 0,
+                content: (
+                  <>
+                    {/* Database-specific fields */}
+                    {selectedType === 'database' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>{t('databases.field_engine')}</Label>
+                          <Select value={dbEngine} onValueChange={(v) => { setDbEngine(v as DatabaseEngine); setUploadedFiles([]) }}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {/* Only engines the current deployment mode can actually run:
+                                  front-only (WASM) → file engines; server → + external DBs.
+                                  Order: network DBs first (server mode), then file engines. */}
+                              {isServerMode() && (
+                                <>
+                                  <SelectItem value="postgresql">PostgreSQL</SelectItem>
+                                  <SelectItem value="mysql">MySQL</SelectItem>
                         </>
                       )}
                       <SelectItem value="duckdb">DuckDB</SelectItem>
@@ -895,40 +931,57 @@ export function AddDatabaseDialog({
                       <CurrentFilesInfo source={editingSource} t={t} />
                     )}
 
-                    {isParquetMode ? (
-                      <FolderUploadArea
-                        files={uploadedFiles}
-                        tables={parquetTables}
-                        folderPath={parquetFolderPath}
-                        inputRef={fileInputRef}
-                        onFilesSelected={handleFilesSelected}
-                        onFolderEntries={(entries) => {
-                          setUploadedFiles(entries.map((e) => e.file))
-                          // FS Access zero-copy handles are a front-only optimization
-                          // (data stays in the browser). In server mode the bytes are
-                          // uploaded, so we don't keep handles.
-                          if (!isServerMode()) {
-                            setFsHandles(entries.map((e) => ({
-                              fileName: e.relativePath,
-                              handle: e.handle,
-                              fileSize: e.file.size,
-                            })))
-                          }
-                        }}
-                        onClear={() => { setUploadedFiles([]); setFsHandles([]) }}
-                        t={t}
-                      />
-                    ) : (
-                      <FileUploadArea
-                        files={uploadedFiles}
-                        accept={getFileAccept()}
-                        multiple={isMultiFile}
-                        inputRef={fileInputRef}
-                        onFilesSelected={handleFilesSelected}
-                        onRemoveFile={handleRemoveFile}
-                        t={t}
-                      />
-                    )}
+                    <DatabaseFileSource
+                      workspaceId={activeWorkspaceId ?? ''}
+                      origin={fileOrigin}
+                      onOriginChange={(o) => {
+                        setFileOrigin(o)
+                        // The two origins are exclusive: keeping the other one's
+                        // state would submit both an upload and a path.
+                        if (o === 'server') { setUploadedFiles([]); setFsHandles([]) }
+                        else setServerPath('')
+                      }}
+                      expect={isParquetMode ? 'dir' : 'file'}
+                      extensions={pickerExtensions}
+                      serverPath={serverPath}
+                      onServerPathChange={setServerPath}
+                      hasUpload={uploadedFiles.length > 0}
+                    >
+                      {isParquetMode ? (
+                        <FolderUploadArea
+                          files={uploadedFiles}
+                          tables={parquetTables}
+                          folderPath={parquetFolderPath}
+                          inputRef={fileInputRef}
+                          onFilesSelected={handleFilesSelected}
+                          onFolderEntries={(entries) => {
+                            setUploadedFiles(entries.map((e) => e.file))
+                            // FS Access zero-copy handles are a front-only optimization
+                            // (data stays in the browser). In server mode the bytes are
+                            // uploaded, so we don't keep handles.
+                            if (!isServerMode()) {
+                              setFsHandles(entries.map((e) => ({
+                                fileName: e.relativePath,
+                                handle: e.handle,
+                                fileSize: e.file.size,
+                              })))
+                            }
+                          }}
+                          onClear={() => { setUploadedFiles([]); setFsHandles([]) }}
+                          t={t}
+                        />
+                      ) : (
+                        <FileUploadArea
+                          files={uploadedFiles}
+                          accept={getFileAccept()}
+                          multiple={isMultiFile}
+                          inputRef={fileInputRef}
+                          onFilesSelected={handleFilesSelected}
+                          onRemoveFile={handleRemoveFile}
+                          t={t}
+                        />
+                      )}
+                    </DatabaseFileSource>
                   </>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
@@ -972,32 +1025,32 @@ export function AddDatabaseDialog({
                 />
               </div>
             )}
-              </TabsContent>
-
-              <TabsContent value="metadata" className="space-y-4 pt-3">
-                <BadgeEditor
-                  categories={badgeCategories}
-                  value={badges}
-                  onChange={setBadges}
-                  suggestions={badgeSuggestions}
-                />
-                <VersionField value={version} onChange={setVersion} />
-              </TabsContent>
-
-              {isEditMode && editingSource && (
-                <TabsContent value="attribution" className="space-y-4 pt-3">
-                  <AuthoringFields
-                    value={{
-                      createdById: 'createdById' in authoring ? authoring.createdById : editingSource.createdById,
-                      createdBy: authoring.createdBy ?? editingSource.createdBy,
-                      createdByDetails: authoring.createdByDetails ?? editingSource.createdByDetails,
-                      organization: authoring.organization ?? editingSource.organization,
-                    }}
-                    onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+                  </>
+                ),
+              }]}
+              metadata={(
+                <>
+                  <BadgeEditor
+                    categories={badgeCategories}
+                    value={badges}
+                    onChange={setBadges}
+                    suggestions={badgeSuggestions}
                   />
-                </TabsContent>
+                  <VersionField value={version} onChange={setVersion} />
+                </>
               )}
-            </Tabs>
+              attribution={isEditMode && editingSource ? (
+                <AuthoringFields
+                  value={{
+                    createdById: 'createdById' in authoring ? authoring.createdById : editingSource.createdById,
+                    createdBy: authoring.createdBy ?? editingSource.createdBy,
+                    createdByDetails: authoring.createdByDetails ?? editingSource.createdByDetails,
+                    organization: authoring.organization ?? editingSource.organization,
+                  }}
+                  onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+                />
+              ) : undefined}
+            />
           </div>
         )}
 
@@ -1141,19 +1194,12 @@ function FileUploadArea({
   return (
     <div className="space-y-2">
       <Label>{multiple ? t('databases.upload_files') : t('databases.upload_file')}<RequiredMark /></Label>
-      <button
-        type="button"
+      <FileDropZone
+        icon={<Upload size={20} className="text-muted-foreground" />}
+        label={t('databases.upload_drop_hint')}
+        hint={accept}
         onClick={() => inputRef.current?.click()}
-        className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 bg-muted/30 px-4 py-6 transition-colors hover:border-muted-foreground/40 hover:bg-muted/50"
-      >
-        <Upload size={20} className="text-muted-foreground" />
-        <p className="text-xs text-muted-foreground">
-          {t('databases.upload_drop_hint')}
-        </p>
-        <p className="text-[11px] text-muted-foreground/60">
-          {accept}
-        </p>
-      </button>
+      />
       <input
         ref={inputRef}
         type="file"
@@ -1263,16 +1309,11 @@ function FolderUploadArea({
     <div className="space-y-2">
       <Label>{t('databases.select_folder')}<RequiredMark /></Label>
       {files.length === 0 ? (
-        <button
-          type="button"
+        <FileDropZone
+          icon={<FolderOpen size={20} className="text-muted-foreground" />}
+          label={t('databases.select_folder_hint')}
           onClick={handlePickFolder}
-          className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 bg-muted/30 px-4 py-6 transition-colors hover:border-muted-foreground/40 hover:bg-muted/50"
-        >
-          <FolderOpen size={20} className="text-muted-foreground" />
-          <p className="text-xs text-muted-foreground">
-            {t('databases.select_folder_hint')}
-          </p>
-        </button>
+        />
       ) : (
         <div className="rounded-lg border bg-muted/30 px-4 py-3">
           <div className="flex items-start justify-between gap-2">
