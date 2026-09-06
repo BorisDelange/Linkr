@@ -43,7 +43,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getStatusClasses, getStatusDotClass } from '@/features/projects/ProjectSettingsPage'
-import { ReadmeEditor, remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { ReadmeEditor, remarkPlugins, rehypePlugins, urlTransform, markdownComponents } from '@/components/editor/ReadmeEditor'
 import { LicenseEditor } from '@/components/editor/LicenseEditor'
 import { Paperclip } from 'lucide-react'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
@@ -520,7 +520,7 @@ function ReadmePreview({ readme, resolveUrls, onViewFull }: { readme: string; re
       <div className="mt-3 min-h-0 flex-1 overflow-auto">
         {readme.trim() ? (
           <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
-            <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
+            <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={markdownComponents}>
               {resolved}
             </ReactMarkdown>
           </div>

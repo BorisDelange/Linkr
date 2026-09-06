@@ -3305,7 +3305,11 @@
     "bump_patch": "Patch",
     "all_selected": "All selected",
     "none_selected": "None selected",
-    "more": "More"
+    "more": "More",
+    "zoom_in": "Zoom in",
+    "zoom_out": "Zoom out",
+    "enlarge": "Click to enlarge",
+    "image": "Image"
   },
   "user_menu": {
     "profile": "User settings",

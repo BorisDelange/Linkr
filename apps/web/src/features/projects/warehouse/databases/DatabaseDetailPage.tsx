@@ -55,7 +55,7 @@ import {
   useDatabaseStats,
 } from './DatabaseStatsDashboard'
 import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
-import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { remarkPlugins, rehypePlugins, urlTransform, markdownComponents } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -885,6 +885,7 @@ function ReadmePreview({
               remarkPlugins={remarkPlugins}
               rehypePlugins={rehypePlugins}
               urlTransform={urlTransform}
+              components={markdownComponents}
             >
               {resolved}
             </ReactMarkdown>

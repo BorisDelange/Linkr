@@ -557,7 +557,22 @@ Check this table before writing any form field.
 | `CopySelectButton` | The "Copy SELECT" button in every database schema view. |
 | `CopyablePath` / `ParquetFilesDialog` | A server path shown as copyable code, and the "N files" + Show dialog listing a Parquet source's table → blob paths (ETL sidebar, database Connection card). |
 | `CustomSqlDot` | Marks a widget whose SQL was hand-edited; its tooltip carries the consequence (regenerating discards the edit). |
+| `ImageLightbox` / `ZoomableImage` | The full-screen image viewer (zoom, pan, reset) and the click-to-enlarge `<img>` built on it. **Every markdown view already enlarges its images** via `markdownComponents` (below) — you only reach for these directly for an image outside markdown, as `CellOutput` does for notebook figures. |
 | `LinkrLogo` | The logo. |
+
+### Rendering markdown
+
+Two entry points, and both need the shared renderer overrides:
+
+- **`MarkdownRenderer`** — the composed component (callouts, mermaid, TOC,
+  heading anchors, external-link icons). Prefer it; it already carries them.
+- **Raw `ReactMarkdown`**, for a view that needs its own wrapper: import
+  `remarkPlugins`, `rehypePlugins`, `urlTransform` **and `markdownComponents`**
+  from `components/editor/ReadmeEditor`, and pass all four.
+
+`markdownComponents` is what makes every image in rendered markdown clickable to
+full screen. Omit it and that one view silently loses the behaviour while every
+other keeps it.
 
 ### Tooltips
 

@@ -27,7 +27,7 @@ import { Button } from '@/components/ui/button'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
-import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { remarkPlugins, rehypePlugins, urlTransform, markdownComponents } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { makeReinstall } from '@/lib/entity-reinstall'
@@ -486,6 +486,7 @@ function MappingProjectReadmePreview({
               remarkPlugins={remarkPlugins}
               rehypePlugins={rehypePlugins}
               urlTransform={urlTransform}
+              components={markdownComponents}
             >
               {resolved}
             </ReactMarkdown>

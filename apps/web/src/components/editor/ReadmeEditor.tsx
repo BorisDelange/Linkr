@@ -28,6 +28,10 @@ import {
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import { SplitEditorPreview } from '@/components/editor/SplitEditorPreview'
+// Re-exported so the pages rendering raw ReactMarkdown get their plugins and
+// their renderer overrides from the same import.
+export { markdownComponents } from '@/components/editor/markdown-components'
+import { markdownComponents } from '@/components/editor/markdown-components'
 
 // ---------------------------------------------------------------------------
 // Markdown plugins & sanitization
@@ -287,7 +291,7 @@ export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEd
             }
             preview={
               <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
-                <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
+                <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={markdownComponents}>
                   {resolvedContent}
                 </ReactMarkdown>
               </div>
@@ -299,7 +303,7 @@ export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEd
           <div className="h-full overflow-auto p-4">
             {readme ? (
               <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
-                <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
+                <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={markdownComponents}>
                   {resolvedContent}
                 </ReactMarkdown>
               </div>

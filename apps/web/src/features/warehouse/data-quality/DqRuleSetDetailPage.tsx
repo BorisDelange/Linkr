@@ -24,7 +24,7 @@ import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import ReactMarkdown from 'react-markdown'
-import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { remarkPlugins, rehypePlugins, urlTransform, markdownComponents } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { makeReinstall } from '@/lib/entity-reinstall'
@@ -349,6 +349,7 @@ function DqReadmePreview({
               remarkPlugins={remarkPlugins}
               rehypePlugins={rehypePlugins}
               urlTransform={urlTransform}
+              components={markdownComponents}
             >
               {resolved}
             </ReactMarkdown>

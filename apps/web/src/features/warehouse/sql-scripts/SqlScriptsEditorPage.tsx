@@ -57,7 +57,7 @@ import { Badge } from '@/components/ui/badge'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import ReactMarkdown from 'react-markdown'
-import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { remarkPlugins, rehypePlugins, urlTransform, markdownComponents } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import type { SqlScriptCollection } from '@/types'
 import { useUrlTab } from '@/hooks/use-url-tab'
@@ -1121,6 +1121,7 @@ function SqlReadmePreview({
               remarkPlugins={remarkPlugins}
               rehypePlugins={rehypePlugins}
               urlTransform={urlTransform}
+              components={markdownComponents}
             >
               {resolved}
             </ReactMarkdown>
