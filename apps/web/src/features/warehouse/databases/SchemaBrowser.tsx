@@ -31,7 +31,7 @@ import { SearchInput } from '@/components/ui/search-input'
 import { cn } from '@/lib/utils'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { getStorage } from '@/lib/storage'
-import { compactCount, escSql, quoteIdent } from '@/lib/format-helpers'
+import { compactCount, escSql, quoteIdent, quoteTableRef } from '@/lib/format-helpers'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { countAllTables as countAll, subscribeTableCounts } from '@/lib/duckdb/table-counts'
@@ -298,13 +298,13 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
       let total: number | null = null
       const map: NullCounts = new Map()
       if (withStats) {
-        const countRows = await duckdbEngine.queryDataSource(dataSourceId, `SELECT COUNT(*) as cnt FROM ${quoteIdent(table)}`)
+        const countRows = await duckdbEngine.queryDataSource(dataSourceId, `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`)
         total = Number(countRows[0]?.cnt ?? 0)
 
         // Null + distinct counts per column, in one batched round-trip.
         if (cols.length > 0 && total > 0) {
           const parts = cols.map((c) =>
-            `SELECT '${escSql(c.column_name)}' as col, COUNT(*) - COUNT(${quoteIdent(c.column_name)}) as null_count, COUNT(DISTINCT ${quoteIdent(c.column_name)}) as distinct_count FROM ${quoteIdent(table)}`
+            `SELECT '${escSql(c.column_name)}' as col, COUNT(*) - COUNT(${quoteIdent(c.column_name)}) as null_count, COUNT(DISTINCT ${quoteIdent(c.column_name)}) as distinct_count FROM ${quoteTableRef(table)}`
           )
           const batchRows = await duckdbEngine.queryDataSource(dataSourceId, parts.join(' UNION ALL '))
           for (const row of batchRows) {
@@ -379,7 +379,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
         // Catalog-derived names (quoted + escaped): a `"` in a table/column name
         // cannot break out of the identifier quoting.
         const c = quoteIdent(colName)
-        const tbl = quoteIdent(tableName)
+        const tbl = quoteTableRef(tableName)
 
         const basicRows = await duckdbEngine.queryDataSource(
           dataSourceId,

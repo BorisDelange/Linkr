@@ -1,5 +1,5 @@
 import { queryDataSource, discoverTables } from './engine'
-import { escSql, quoteIdent } from '@/lib/format-helpers'
+import { escSql, quoteTableRef } from '@/lib/format-helpers'
 import type {
   DatabaseStatsCache,
   AgePyramidBucket,
@@ -43,7 +43,7 @@ export async function computeDatabaseStats(
 
 async function safeQueryCount(dsId: string, table: string): Promise<number> {
   try {
-    const rows = await queryDataSource(dsId, `SELECT COUNT(*) as cnt FROM ${quoteIdent(table)}`)
+    const rows = await queryDataSource(dsId, `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`)
     return Number(rows[0]?.cnt ?? 0)
   } catch {
     return 0

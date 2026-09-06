@@ -1,6 +1,6 @@
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { getStorage } from '@/lib/storage'
-import { quoteIdent } from '@/lib/format-helpers'
+import { quoteTableRef } from '@/lib/format-helpers'
 import type { DatabaseStatsCache, TableRowCount } from '@/types'
 
 /**
@@ -122,7 +122,7 @@ export async function countAllTables(
     const rows = await Promise.all(batch.map(async (table) => {
       try {
         const r = await duckdbEngine.queryDataSource(
-          dataSourceId, `SELECT COUNT(*) as cnt FROM ${quoteIdent(table)}`,
+          dataSourceId, `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`,
         )
         return [table, Number(r[0]?.cnt ?? 0)] as const
       } catch {

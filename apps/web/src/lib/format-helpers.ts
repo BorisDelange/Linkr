@@ -237,6 +237,23 @@ export function quoteIdent(name: string): string {
 }
 
 /**
+ * Quote a possibly schema-qualified table reference: `hosp.admissions` becomes
+ * `"hosp"."admissions"`, two identifiers rather than one.
+ *
+ * `quoteIdent` alone would emit `"hosp.admissions"`, which names a table whose
+ * name *contains a dot* — DuckDB then reports it as missing. That is a silent
+ * failure wherever the caller swallows the error to show a count of zero, so a
+ * qualified name must never go through `quoteIdent`.
+ *
+ * Only splits on a dot when both sides look like plain identifiers: a name that
+ * genuinely contains a dot (an uploaded file's table) stays one identifier.
+ */
+export function quoteTableRef(name: string): string {
+  const m = /^([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)$/.exec(name)
+  return m ? `${quoteIdent(m[1])}.${quoteIdent(m[2])}` : quoteIdent(name)
+}
+
+/**
  * Validate that all values in an array are finite numbers.
  * Use before joining IDs into an IN (...) clause.
  */

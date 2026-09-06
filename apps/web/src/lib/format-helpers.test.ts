@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   escSql,
   isSafeIdentifier,
+  quoteTableRef,
   validateIntegerIds,
   columnLabel,
   capitalize,
@@ -295,5 +296,33 @@ describe('humanBytes unit boundaries', () => {
   it('counts in octets in French', () => {
     expect(humanBytes(1048575, 'fr')).toBe('1.0 Mo')
     expect(humanBytes(512, 'fr')).toBe('512 o')
+  })
+})
+
+describe('quoteTableRef', () => {
+  // `quoteIdent` alone emits `"hosp.patients"`, which names a table whose name
+  // CONTAINS a dot — DuckDB reports it missing, and a caller that swallows the
+  // error shows a count of zero instead. That was the Table overview bug.
+  it('quotes a qualified name as two identifiers', () => {
+    expect(quoteTableRef('hosp.patients')).toBe('"hosp"."patients"')
+    expect(quoteTableRef('EDBM_EDS.EHOP_PATIENT')).toBe('"EDBM_EDS"."EHOP_PATIENT"')
+  })
+
+  it('leaves a bare name as one identifier', () => {
+    expect(quoteTableRef('patients')).toBe('"patients"')
+  })
+
+  it('keeps a name that genuinely contains a dot in one piece', () => {
+    // An uploaded file can produce this; splitting it would invent a schema.
+    expect(quoteTableRef('my table.v2')).toBe('"my table.v2"')
+    expect(quoteTableRef('2020.data')).toBe('"2020.data"')
+  })
+
+  it('still escapes embedded double quotes', () => {
+    expect(quoteTableRef('we"ird')).toBe('"we""ird"')
+  })
+
+  it('does not split more than one dot', () => {
+    expect(quoteTableRef('a.b.c')).toBe('"a.b.c"')
   })
 })
