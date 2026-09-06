@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BookOpen, FileCode, Loader2, AlertCircle, Check, Table2 } from 'lucide-react'
+import { FileCode, Loader2, AlertCircle, Check, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -771,14 +771,6 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
   return (
     <div className="h-full overflow-auto p-6">
       <div className="mx-auto w-full max-w-3xl space-y-4">
-        <div className="flex items-start gap-2.5">
-          <BookOpen size={18} className="mt-0.5 shrink-0 text-muted-foreground" />
-          <div className="min-w-0">
-            <h3 className="text-sm font-medium">{t('etl.vocab_title')}</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">{t('etl.vocab_description')}</p>
-          </div>
-        </div>
-
         {notices.length > 0 && (
           <div className="space-y-1.5 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
             {notices.map((notice) => (

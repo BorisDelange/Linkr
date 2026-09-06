@@ -35,9 +35,15 @@ interface OutputPanelProps {
   onClose?: () => void
   /** When true, hides the internal tab bar (tabs rendered externally). */
   hideTabBar?: boolean
+  /**
+   * Which tab to render, when it is not the globally active one — an output
+   * moved to the editor group is shown there while the right pane keeps its
+   * own selection.
+   */
+  tabId?: string
 }
 
-export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
+export function OutputPanel({ onClose, hideTabBar, tabId }: OutputPanelProps) {
   const { t } = useTranslation()
   const {
     outputTabs,
@@ -50,7 +56,8 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
     clearExecutionResults,
   } = useFileStore()
 
-  const isConsoleTab = activeOutputTab === '__exec_console__'
+  const shownTabId = tabId ?? activeOutputTab
+  const isConsoleTab = shownTabId === '__exec_console__'
   const showExecContent = isConsoleTab
 
   // Follow the console output as it streams, but release the moment the reader
@@ -132,7 +139,7 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
     el.scrollBy({ left: dir === 'left' ? -120 : 120, behavior: 'smooth' })
   }, [])
 
-  const activeTab = outputTabs.find((tab) => tab.id === activeOutputTab)
+  const activeTab = outputTabs.find((tab) => tab.id === shownTabId)
 
   // --- Early return for empty state (all hooks above) ---
   if (outputTabOrder.length === 0) {

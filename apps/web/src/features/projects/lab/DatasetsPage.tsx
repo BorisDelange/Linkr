@@ -17,23 +17,10 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import { restrictToHorizontalAxis } from '@dnd-kit/modifiers'
-import {
-  SortableContext,
-  horizontalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { cn } from '@/lib/utils'
 import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
+import { TabScrollArrow, useTabScroll } from '@/components/editor/use-tab-scroll'
+import { TabInsertCaret, useTabReorder } from '@/components/editor/use-tab-reorder'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
@@ -81,48 +68,49 @@ function LanguageBadge({ language, type }: { language?: AnalysisLanguage; type: 
   )
 }
 
-function SortableFileTab({
-  id,
+type TabDragProps = ReturnType<ReturnType<typeof useTabReorder>['tabProps']>
+
+function DatasetTab({
   name,
   isActive,
   isDirty,
+  isDragging,
+  caretLeft,
+  caretRight,
+  dragProps,
   onActivate,
   onClose,
   onCloseOthers,
   onCloseAll,
 }: {
-  id: string
   name: string
   isActive: boolean
   isDirty: boolean
+  isDragging: boolean
+  caretLeft: boolean
+  caretRight: boolean
+  dragProps: TabDragProps
   onActivate: () => void
   onClose: () => void
   onCloseOthers: () => void
   onCloseAll: () => void
 }) {
   const { t } = useTranslation()
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.5 : 1,
-  }
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <button
-          ref={setNodeRef}
-          style={style}
-          {...attributes}
-          {...listeners}
+          {...dragProps}
           onClick={onActivate}
+          title={name}
           className={cn(
-            'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0 select-none',
+            'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0 select-none',
             isActive ? 'bg-background text-foreground' : 'text-muted-foreground hover:bg-accent/50',
-            isDragging && 'cursor-grabbing',
+            isDragging && 'opacity-40',
           )}
         >
+          {caretLeft && <TabInsertCaret side="left" />}
+          {caretRight && <TabInsertCaret side="right" />}
           <span className="max-w-[140px] truncate">{name}</span>
           {isDirty && <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />}
           <span
@@ -145,52 +133,51 @@ function SortableFileTab({
   )
 }
 
-function SortableAnalysisTab({
-  id,
+function AnalysisTab({
   name,
   language,
   type,
   autoRun,
   isActive,
+  isDragging,
+  caretLeft,
+  caretRight,
+  dragProps,
   onActivate,
   onClose,
   onCloseOthers,
   onCloseAll,
 }: {
-  id: string
   name: string
   language?: AnalysisLanguage
   type: string
   autoRun?: boolean
   isActive: boolean
+  isDragging: boolean
+  caretLeft: boolean
+  caretRight: boolean
+  dragProps: TabDragProps
   onActivate: () => void
   onClose: () => void
   onCloseOthers: () => void
   onCloseAll: () => void
 }) {
   const { t } = useTranslation()
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.5 : 1,
-  }
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <button
-          ref={setNodeRef}
-          style={style}
-          {...attributes}
-          {...listeners}
+          {...dragProps}
           onClick={onActivate}
+          title={name}
           className={cn(
-            'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0 select-none',
+            'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0 select-none',
             isActive ? 'bg-background text-foreground' : 'text-muted-foreground hover:bg-accent/50',
-            isDragging && 'cursor-grabbing',
+            isDragging && 'opacity-40',
           )}
         >
+          {caretLeft && <TabInsertCaret side="left" />}
+          {caretRight && <TabInsertCaret side="right" />}
           <BarChart3 size={12} className="shrink-0 text-violet-500" />
           <span className="max-w-[140px] truncate">{name}</span>
           <LanguageBadge language={language} type={type} />
@@ -359,28 +346,15 @@ export function DatasetsPage() {
     }
   }, [closeAnalysis])
 
-  const tabSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
-
-  // How the file and analysis tab groups share the bar's width.
+  // How the dataset and analysis tab groups share the bar's width, how each one
+  // scrolls its own overflow, and how a tab is dragged within its group.
   const tabSplit = useTabGroupSplit('datasets')
   const hasBothTabGroups =
     openFileIds.length > 0 && !!selectedFileId && openAnalysisIds.length > 0
-
-  const handleFileTabDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const from = openFileIds.indexOf(active.id as string)
-    const to = openFileIds.indexOf(over.id as string)
-    if (from !== -1 && to !== -1) reorderOpenFiles(from, to)
-  }, [openFileIds, reorderOpenFiles])
-
-  const handleAnalysisTabDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const from = openAnalysisIds.indexOf(active.id as string)
-    const to = openAnalysisIds.indexOf(over.id as string)
-    if (from !== -1 && to !== -1) reorderOpenAnalyses(from, to)
-  }, [openAnalysisIds, reorderOpenAnalyses])
+  const { scrollRef: fileTabScrollRef, arrows: fileTabArrows } = useTabScroll([openFileIds.length])
+  const { scrollRef: analysisTabScrollRef, arrows: analysisTabArrows } = useTabScroll([openAnalysisIds.length])
+  const fileDrag = useTabReorder('dataset-tab-id', reorderOpenFiles)
+  const analysisDrag = useTabReorder('analysis-tab-id', reorderOpenAnalyses)
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -586,41 +560,37 @@ export function DatasetsPage() {
               {/* File tabs + analysis tabs */}
               {openFileIds.length > 0 && (
                 <div className="flex items-center border-b bg-muted/30">
+                  <TabScrollArrow dir="left" scroll={fileTabArrows} />
                   <div
+                    ref={fileTabScrollRef}
                     className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
                     style={{ flex: tabSplit.flexFor('left', hasBothTabGroups) }}
                   >
-                    <DndContext
-                      sensors={tabSensors}
-                      collisionDetection={closestCenter}
-                      modifiers={[restrictToHorizontalAxis]}
-                      onDragEnd={handleFileTabDragEnd}
-                    >
-                      <SortableContext items={openFileIds} strategy={horizontalListSortingStrategy}>
-                        {openFileIds.map((fid) => {
-                          const node = files.find((n) => n.id === fid)
-                          if (!node) return null
-                          return (
-                            <SortableFileTab
-                              key={fid}
-                              id={fid}
-                              name={node.name}
-                              isActive={fid === selectedFileId && !selectedAnalysisId}
-                              isDirty={_dirtyVersion >= 0 && isFileDirty(fid)}
-                              onActivate={() => {
-                                selectFile(fid)
-                                selectAnalysis(null)
-                              }}
-                              onClose={() => handleCloseFile(fid)}
-                              onCloseOthers={() => handleCloseOtherFiles(fid)}
-                              onCloseAll={handleCloseAllFiles}
-                            />
-                          )
-                        })}
-                      </SortableContext>
-                    </DndContext>
-
+                    {openFileIds.map((fid) => {
+                      const node = files.find((n) => n.id === fid)
+                      if (!node) return null
+                      return (
+                        <DatasetTab
+                          key={fid}
+                          name={node.name}
+                          isActive={fid === selectedFileId && !selectedAnalysisId}
+                          isDirty={_dirtyVersion >= 0 && isFileDirty(fid)}
+                          isDragging={fileDrag.dragId === fid}
+                          caretLeft={fileDrag.insertCaret(fid, 'left')}
+                          caretRight={fileDrag.insertCaret(fid, 'right')}
+                          dragProps={fileDrag.tabProps(fid, openFileIds)}
+                          onActivate={() => {
+                            selectFile(fid)
+                            selectAnalysis(null)
+                          }}
+                          onClose={() => handleCloseFile(fid)}
+                          onCloseOthers={() => handleCloseOtherFiles(fid)}
+                          onCloseAll={handleCloseAllFiles}
+                        />
+                      )
+                    })}
                   </div>
+                  <TabScrollArrow dir="right" scroll={fileTabArrows} />
 
                   {hasBothTabGroups && (
                     <TabGroupSplitter
@@ -631,44 +601,41 @@ export function DatasetsPage() {
 
                   {/* Analysis tabs for the selected file */}
                   {selectedFileId && openAnalysisIds.length > 0 && (
-                    <div
-                      className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
-                      style={{ flex: tabSplit.flexFor('right', hasBothTabGroups) }}
-                    >
-                        <DndContext
-                          sensors={tabSensors}
-                          collisionDetection={closestCenter}
-                          modifiers={[restrictToHorizontalAxis]}
-                          onDragEnd={handleAnalysisTabDragEnd}
-                        >
-                          <SortableContext items={openAnalysisIds} strategy={horizontalListSortingStrategy}>
-                            {openAnalysisIds.map((aid) => {
-                              const analysis = analyses.find((a) => a.id === aid)
-                              if (!analysis) return null
-                              return (
-                                <SortableAnalysisTab
-                                  key={analysis.id}
-                                  id={analysis.id}
-                                  name={analysis.name}
-                                  language={analysis.config.language as AnalysisLanguage | undefined}
-                                  type={analysis.type}
-                                  autoRun={analysis.config.autoRun as boolean | undefined}
-                                  isActive={analysis.id === selectedAnalysisId}
-                                  onActivate={() =>
-                                    selectAnalysis(analysis.id === selectedAnalysisId ? null : analysis.id)
-                                  }
-                                  onClose={() => handleCloseAnalysis(analysis.id)}
-                                  onCloseOthers={() => handleCloseOtherAnalyses(analysis.id)}
-                                  onCloseAll={handleCloseAllAnalyses}
-                                />
-                              )
-                            })}
-                          </SortableContext>
-                        </DndContext>
-                    </div>
+                    <>
+                      <TabScrollArrow dir="left" scroll={analysisTabArrows} />
+                      <div
+                        ref={analysisTabScrollRef}
+                        className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
+                        style={{ flex: tabSplit.flexFor('right', hasBothTabGroups) }}
+                      >
+                        {openAnalysisIds.map((aid) => {
+                          const analysis = analyses.find((a) => a.id === aid)
+                          if (!analysis) return null
+                          return (
+                            <AnalysisTab
+                              key={analysis.id}
+                              name={analysis.name}
+                              language={analysis.config.language as AnalysisLanguage | undefined}
+                              type={analysis.type}
+                              autoRun={analysis.config.autoRun as boolean | undefined}
+                              isActive={analysis.id === selectedAnalysisId}
+                              isDragging={analysisDrag.dragId === analysis.id}
+                              caretLeft={analysisDrag.insertCaret(analysis.id, 'left')}
+                              caretRight={analysisDrag.insertCaret(analysis.id, 'right')}
+                              dragProps={analysisDrag.tabProps(analysis.id, openAnalysisIds)}
+                              onActivate={() =>
+                                selectAnalysis(analysis.id === selectedAnalysisId ? null : analysis.id)
+                              }
+                              onClose={() => handleCloseAnalysis(analysis.id)}
+                              onCloseOthers={() => handleCloseOtherAnalyses(analysis.id)}
+                              onCloseAll={handleCloseAllAnalyses}
+                            />
+                          )
+                        })}
+                      </div>
+                      <TabScrollArrow dir="right" scroll={analysisTabArrows} />
+                    </>
                   )}
-
-                  {/* Column visibility — moved to DatasetTable footer */}
                 </div>
               )}
 
