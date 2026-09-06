@@ -85,10 +85,11 @@ arbitrated 2026-08-05; `xl-*` exporters are GPL-3.0 (compatible, no commercial l
 A source rarely lives in one namespace — MIMIC-IV is `hosp` + `icu` + `note`, eHOP spreads
 56 tables over 11 Oracle schemas — but a mapping addresses a table by a bare name and a
 Parquet import drops the folder it came from. Lossy, not cosmetic: eHOP 4.4 has two
-different `EHOP_PATIENT` (de-identified `EDBM_EDS`, nominative `EDBM_ZPAT`), so one is
-simply unreachable and ships commented out of `schema.ddl`. DuckDB handles this fine; the
-limit is ours — we emit `"schema.table"` as **one** quoted identifier, which names a table
-containing a dot.
+different `EHOP_PATIENT` (de-identified `EDBM_EDS`, nominative `EDBM_ZPAT`), so one was
+simply unreachable and shipped commented out of `schema.ddl`. DuckDB handles this fine; the
+limit was ours — we emitted `"schema.table"` as **one** quoted identifier, which names a
+table containing a dot. **Steps 1–6 are done**; what remains is confirming the chain in the
+app and pushing the presets.
 
 **`search_path` first, qualification second**: with the source's schemas on the path, every
 existing bare-name mapping *and* the `source.<table>` of both ETL pipelines keeps resolving
@@ -99,12 +100,21 @@ fails and **both pipelines break**.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | 1. `search_path` from the attached schemas in `_attach_role` (+ deterministic order) — ship first | S |
-| 🔜 | 2. `_table_of` + `extractTableName` return `(schema, table)`, views per schema (flat folders unchanged) | M |
-| 🔜 | 3. `schema?` on the mapping + `qualify()` + the ~91 `FROM "${…}"` call sites + editor + `linkr-format` | M/L |
-| 🔜 | 4. Fix MIMIC-IV `knownTables` — `radiology`, `radiology_detail`, `discharge_detail` missing; `demo_subject_id` stale | S |
-| 🔜 | 5. **[TO TEST]** MIMIC-IV Parquet re-laid as `hosp/` `icu/` `note/`, DDL with `CREATE SCHEMA`, re-import | M |
-| 🔜 | 6. Rebuild the eHOP presets with their 11 schemas; restore 4.4's nominative table | M |
+| ✅ | 1. `search_path` from the attached schemas in `_attach_role` (+ deterministic order) | S |
+| ✅ | 2. `_table_of` + `extractTableName` return `(schema, table)`, views per schema (flat folders unchanged) | M |
+| ✅ | 3a. Client mode mounts a folder as a catalog, not a schema — `role-prefix.ts` needed no change | S |
+| ✅ | 3. `schema?` on the mapping + `qualify()` + the 161 call sites + editor + `linkr-format` (+ its Python twin) | M/L |
+| ✅ | 4. MIMIC-IV `knownTables` matches the tables the schema declares | S |
+| ✅ | 5. MIMIC-IV DDL declares hosp/icu/note and qualifies its 35 tables + 75 constraints; mapping names them | M |
+| ✅ | 6. The five eHOP presets carry their Oracle schemas; 4.4's nominative EHOP_PATIENT is declared again | M |
+| 🔜 | **[TO TEST]** Re-import both folders in the app: table counts, Patient Data, and both ETL pipelines | M |
+| 🔜 | Push the schema presets once the whole chain is confirmed in the app | S |
+
+Two things to know when testing. A folder imported in **client mode before this**
+was mounted as a schema, so it needs unmounting and remounting; server mode is
+unaffected. And a bare table name still resolves to whichever schema comes first
+on the search path — which is why the eHOP presets qualify, and why a preset whose
+source has homonyms should too.
 
 ## Schema preset identity — [schema-preset-identity-plan.md](schema-preset-identity-plan.md)
 
