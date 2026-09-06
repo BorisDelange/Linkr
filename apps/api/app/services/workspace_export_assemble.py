@@ -991,6 +991,9 @@ async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]
 # are appended sorted. Mirrors EVENT_TABLE_FIELD_ORDER in entity-io.ts — both
 # ends must emit identical bytes or the export golden tests fail.
 _EVENT_TABLE_FIELD_ORDER = [
+    # Ahead of `table` because it qualifies it: `schema` would otherwise be sorted
+    # in among the columns, splitting the table reference across the file.
+    "schema",
     "table",
     "conceptIdColumn",
     "sourceConceptIdColumn",

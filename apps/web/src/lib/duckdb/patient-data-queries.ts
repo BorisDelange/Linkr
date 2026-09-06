@@ -1,7 +1,7 @@
 import type { Cohort } from '@/types'
 import type { SchemaMapping, EventTable } from '@/types/schema-mapping'
 import { buildCohortQueryParts, escapeLikeTerm, escPatternLiteral } from './cohort-query'
-import { getDictionaryForEvent, buildConceptJoinCondition } from '@/lib/schema-helpers'
+import { buildConceptJoinCondition, getDictionaryForEvent, qualify, qualifyIn } from '@/lib/schema-helpers'
 import { pickUnitColumn } from '@/lib/duckdb/patient-overview-queries'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 
@@ -84,7 +84,7 @@ export function buildVisitListQuery(
 
   return `SELECT "${vt.idColumn}" AS visit_id,
   "${vt.startDateColumn}" AS start_date${endCol}${typeCol}
-FROM "${vt.table}"
+FROM ${qualify(vt)}
 WHERE "${vt.patientIdColumn}" = '${escSql(patientId)}'
 ORDER BY "${vt.startDateColumn}"`
 }
@@ -117,12 +117,12 @@ export function buildVisitDetailListQuery(
       ? `, vd."${vdt.unitColumn}" AS unit`
       : ''
   const unitJoin = hasUnitJoin
-    ? `\nLEFT JOIN "${vdt.unitNameTable}" un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"`
+    ? `\nLEFT JOIN ${qualifyIn(vdt, vdt.unitNameTable)} un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"`
     : ''
 
   return `SELECT vd."${vdt.idColumn}" AS visit_detail_id,
   vd."${vdt.startDateColumn}" AS start_date${endCol}${unitCol}
-FROM "${vdt.table}" vd${unitJoin}
+FROM ${qualify(vdt)} vd${unitJoin}
 WHERE vd."${vdt.visitIdColumn}" = '${escSql(visitId)}'
 ORDER BY vd."${vdt.startDateColumn}"`
 }
@@ -151,7 +151,7 @@ export function buildPatientDemographicsQuery(
     deathCol = `, p."${pt.deathDateColumn}" AS death_date`
   } else if (mapping.deathTable) {
     const dt = mapping.deathTable
-    deathCol = `, (SELECT MIN(_d."${dt.dateColumn}") FROM "${dt.table}" _d WHERE _d."${dt.patientIdColumn}" = p."${pt.idColumn}") AS death_date`
+    deathCol = `, (SELECT MIN(_d."${dt.dateColumn}") FROM ${qualify(dt)} _d WHERE _d."${dt.patientIdColumn}" = p."${pt.idColumn}") AS death_date`
   }
   const deathGroupBy = pt.deathDateColumn ? `, p."${pt.deathDateColumn}"` : ''
 
@@ -159,15 +159,15 @@ export function buildPatientDemographicsQuery(
     const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
     // Age relative to selected visit start date, or first visit if none selected
     const refDate = visitId
-      ? `(SELECT "${vt.startDateColumn}" FROM "${vt.table}" WHERE "${vt.idColumn}" = '${escSql(visitId)}')`
+      ? `(SELECT "${vt.startDateColumn}" FROM ${qualify(vt)} WHERE "${vt.idColumn}" = '${escSql(visitId)}')`
       : `MIN(v."${vt.startDateColumn}")`
     const ageExpr = buildAgeExprAlias('p', pt, refDate)
     const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
 
     return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathCol},
   COUNT(v."${vt.idColumn}") AS visit_count
-FROM "${pt.table}" p
-LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
+FROM ${qualify(pt)} p
+LEFT JOIN ${qualify(vt)} v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
 WHERE p."${pt.idColumn}" = '${escSql(patientId)}'
 GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathGroupBy}${buildBirthGroupBy('p', pt)}`
   }
@@ -177,7 +177,7 @@ GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}$
   const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
 
   return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathCol}
-FROM "${pt.table}" p
+FROM ${qualify(pt)} p
 WHERE p."${pt.idColumn}" = '${escSql(patientId)}'`
 }
 
@@ -208,7 +208,7 @@ export function buildPatientSummaryQuery(
   } else if (mapping.deathTable) {
     const dt = mapping.deathTable
     deathCol = `, d."${dt.dateColumn}" AS death_date`
-    deathJoin = `\nLEFT JOIN "${dt.table}" d ON p."${pt.idColumn}" = d."${dt.patientIdColumn}"`
+    deathJoin = `\nLEFT JOIN ${qualify(dt)} d ON p."${pt.idColumn}" = d."${dt.patientIdColumn}"`
   }
 
   if (vt) {
@@ -221,7 +221,7 @@ export function buildPatientSummaryQuery(
     const vdt = mapping.visitDetailTable
     let vdCountCol = ''
     if (vdt) {
-      vdCountCol = `, (SELECT COUNT(*) FROM "${vdt.table}" WHERE "${vdt.patientIdColumn}" = '${escSql(patientId)}') AS visit_detail_count`
+      vdCountCol = `, (SELECT COUNT(*) FROM ${qualify(vdt)} WHERE "${vdt.patientIdColumn}" = '${escSql(patientId)}') AS visit_detail_count`
     }
 
     // Total hospitalization length of stay (sum of per-visit LOS in days).
@@ -240,8 +240,8 @@ export function buildPatientSummaryQuery(
   MIN(v."${vt.startDateColumn}") AS first_visit_start,
   MAX(v."${vt.startDateColumn}") AS last_visit_start${ageFirstCol}${ageLastCol},
   COUNT(DISTINCT v."${vt.idColumn}") AS visit_count${vdCountCol}${totalLosCol}
-FROM "${pt.table}" p
-LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"${deathJoin}
+FROM ${qualify(pt)} p
+LEFT JOIN ${qualify(vt)} v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"${deathJoin}
 WHERE p."${pt.idColumn}" = '${escSql(patientId)}'
 GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathGroupBy}${buildBirthGroupBy('p', pt)}`
   }
@@ -251,7 +251,7 @@ GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}$
   const ageCol = ageExpr ? `, ${ageExpr} AS age_first_visit` : ''
 
   return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${deathCol}${ageCol}
-FROM "${pt.table}" p${deathJoin}
+FROM ${qualify(pt)} p${deathJoin}
 WHERE p."${pt.idColumn}" = '${escSql(patientId)}'`
 }
 
@@ -284,7 +284,7 @@ export function buildPatientVisitSummaryQuery(
   NULL AS visit_detail_id,
   "${vt.startDateColumn}" AS start_date${endCol}${typeCol},
   NULL AS unit${losExpr}
-FROM "${vt.table}"
+FROM ${qualify(vt)}
 WHERE "${vt.patientIdColumn}" = '${escSql(patientId)}'`)
 
   const vdt = mapping.visitDetailTable
@@ -304,7 +304,7 @@ WHERE "${vt.patientIdColumn}" = '${escSql(patientId)}'`)
         ? `, vd."${vdt.unitColumn}" AS unit`
         : ', NULL AS unit'
     const unitJoin = hasUnitJoin
-      ? `\nLEFT JOIN "${vdt.unitNameTable}" un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"`
+      ? `\nLEFT JOIN ${qualifyIn(vdt, vdt.unitNameTable)} un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"`
       : ''
 
     parts.push(`SELECT 'visit_detail' AS row_type,
@@ -312,7 +312,7 @@ WHERE "${vt.patientIdColumn}" = '${escSql(patientId)}'`)
   vd."${vdt.idColumn}" AS visit_detail_id,
   vd."${vdt.startDateColumn}" AS start_date${vdEndCol},
   NULL AS visit_type${unitCol}${vdLosExpr}
-FROM "${vdt.table}" vd${unitJoin}
+FROM ${qualify(vdt)} vd${unitJoin}
 WHERE vd."${vdt.patientIdColumn}" = '${escSql(patientId)}'`)
   }
 
@@ -374,7 +374,7 @@ export function buildTimelineQuery(
     const srcUnitCol = pickUnitColumn(et)
     const unitJoin =
       et.valueUnitConceptIdColumn && dict
-        ? `\nLEFT JOIN "${dict.table}" uc ON uc."${dict.idColumn}" = e."${et.valueUnitConceptIdColumn}"`
+        ? `\nLEFT JOIN ${qualify(dict)} uc ON uc."${dict.idColumn}" = e."${et.valueUnitConceptIdColumn}"`
         : ''
     const unitExpr =
       srcUnitCol && unitJoin
@@ -387,7 +387,7 @@ export function buildTimelineQuery(
 
     const routeJoin =
       et.routeConceptIdColumn && dict
-        ? `\nLEFT JOIN "${dict.table}" rc ON rc."${dict.idColumn}" = e."${et.routeConceptIdColumn}"`
+        ? `\nLEFT JOIN ${qualify(dict)} rc ON rc."${dict.idColumn}" = e."${et.routeConceptIdColumn}"`
         : ''
     const routeExpr =
       et.routeColumn && routeJoin
@@ -406,7 +406,7 @@ export function buildTimelineQuery(
 
     const nameExpr = dict ? `c."${dict.nameColumn}"` : `CAST(e."${et.conceptIdColumn}" AS VARCHAR)`
     const join = dict
-      ? `\nINNER JOIN "${dict.table}" c ON ${buildConceptJoinCondition('e', 'c', et, dict)}`
+      ? `\nINNER JOIN ${qualify(dict)} c ON ${buildConceptJoinCondition('e', 'c', et, dict)}`
       : ''
 
     parts.push(`SELECT e."${et.conceptIdColumn}" AS concept_id,
@@ -417,7 +417,7 @@ export function buildTimelineQuery(
   ${routeExpr} AS route,
   e."${et.dateColumn}" AS event_date,
   ${endExpr} AS end_date
-FROM "${et.table}" e${join}${unitJoin}${routeJoin}
+FROM ${qualify(et)} e${join}${unitJoin}${routeJoin}
 WHERE e."${patientIdCol}" = '${escSql(patientId)}'
   AND (${conceptMatch})
   AND (${presence})${visitFilter}`)
@@ -460,7 +460,7 @@ export function buildNotesQuery(
   return `SELECT "${nt.idColumn}" AS note_id,
   "${nt.dateColumn}" AS note_date${titleCol},
   "${nt.textColumn}" AS note_text${typeCol}${visitCol}
-FROM "${nt.table}"
+FROM ${qualify(nt)}
 WHERE "${nt.patientIdColumn}" = '${escSql(patientId)}'${visitFilter}
 ORDER BY "${nt.dateColumn}" DESC`
 }
@@ -486,7 +486,7 @@ function buildPatientBaseQuery(
   // Optional stay count per patient via correlated subquery (no GROUP BY impact).
   const stayCountExpr = (patientIdExpr: string): string =>
     vdt
-      ? `, (SELECT COUNT(*) FROM "${vdt.table}" _vd WHERE _vd."${vdt.patientIdColumn}" = ${patientIdExpr}) AS stay_count`
+      ? `, (SELECT COUNT(*) FROM ${qualify(vdt)} _vd WHERE _vd."${vdt.patientIdColumn}" = ${patientIdExpr}) AS stay_count`
       : ''
 
   // Optional death_date per patient. From the patient table directly, or via a
@@ -497,7 +497,7 @@ function buildPatientBaseQuery(
     }
     if (mapping.deathTable) {
       const dt = mapping.deathTable
-      return `, (SELECT MIN(_d."${dt.dateColumn}") FROM "${dt.table}" _d WHERE _d."${dt.patientIdColumn}" = ${patientIdExpr}) AS death_date`
+      return `, (SELECT MIN(_d."${dt.dateColumn}") FROM ${qualify(dt)} _d WHERE _d."${dt.patientIdColumn}" = ${patientIdExpr}) AS death_date`
     }
     return ', NULL AS death_date'
   }
@@ -522,15 +522,15 @@ function buildPatientBaseQuery(
       return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol},
   COUNT(DISTINCT v."${vt.idColumn}") AS visit_count${stayCountExpr(`p."${pt.idColumn}"`)}${deathDateExpr('p', `p."${pt.idColumn}"`)},
   MIN(v."${vt.startDateColumn}") AS first_admission
-FROM "${pt.table}" p
-LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
+FROM ${qualify(pt)} p
+LEFT JOIN ${qualify(vt)} v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
 ${whereIn}
 GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathDateGroupBy('p')}${buildBirthGroupBy('p', pt)}`
     }
     const ageExpr = buildAgeExprAlias('p', pt, 'CURRENT_DATE')
     const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
     return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathDateExpr('p', `p."${pt.idColumn}"`)}
-FROM "${pt.table}" p
+FROM ${qualify(pt)} p
 ${whereIn}`
   }
 
@@ -539,21 +539,21 @@ ${whereIn}`
     if (!parts) return null
 
     if (cohort.level === 'patient') {
-      const genderCol = pt.genderColumn ? `, "${pt.table}"."${pt.genderColumn}" AS gender` : ''
+      const genderCol = pt.genderColumn ? `, ${qualify(pt)}."${pt.genderColumn}" AS gender` : ''
       if (vt) {
         const ageExpr = buildAgeExpr(pt, `MIN(v_age."${vt.startDateColumn}")`)
         const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
-        return `SELECT "${pt.table}"."${pt.idColumn}" AS patient_id${genderCol}${ageCol},
-  COUNT(DISTINCT v_age."${vt.idColumn}") AS visit_count${stayCountExpr(`"${pt.table}"."${pt.idColumn}"`)}${deathDateExpr(`"${pt.table}"`, `"${pt.table}"."${pt.idColumn}"`)},
+        return `SELECT ${qualify(pt)}."${pt.idColumn}" AS patient_id${genderCol}${ageCol},
+  COUNT(DISTINCT v_age."${vt.idColumn}") AS visit_count${stayCountExpr(`${qualify(pt)}."${pt.idColumn}"`)}${deathDateExpr(`${qualify(pt)}`, `${qualify(pt)}."${pt.idColumn}"`)},
   MIN(v_age."${vt.startDateColumn}") AS first_admission
 FROM ${parts.from}
-LEFT JOIN "${vt.table}" v_age ON "${pt.table}"."${pt.idColumn}" = v_age."${vt.patientIdColumn}"
+LEFT JOIN ${qualify(vt)} v_age ON ${qualify(pt)}."${pt.idColumn}" = v_age."${vt.patientIdColumn}"
 ${parts.whereClause}
-GROUP BY "${pt.table}"."${pt.idColumn}"${pt.genderColumn ? `, "${pt.table}"."${pt.genderColumn}"` : ''}${deathDateGroupBy(`"${pt.table}"`)}${buildBirthGroupBy(`"${pt.table}"`, pt)}`
+GROUP BY ${qualify(pt)}."${pt.idColumn}"${pt.genderColumn ? `, ${qualify(pt)}."${pt.genderColumn}"` : ''}${deathDateGroupBy(`${qualify(pt)}`)}${buildBirthGroupBy(`${qualify(pt)}`, pt)}`
       }
       const ageExpr = buildAgeExpr(pt, 'CURRENT_DATE')
       const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
-      return `SELECT DISTINCT "${pt.table}"."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathDateExpr(`"${pt.table}"`, `"${pt.table}"."${pt.idColumn}"`)}
+      return `SELECT DISTINCT ${qualify(pt)}."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathDateExpr(`${qualify(pt)}`, `${qualify(pt)}."${pt.idColumn}"`)}
 FROM ${parts.from}
 ${parts.whereClause}`
     }
@@ -564,14 +564,14 @@ ${parts.whereClause}`
     const ageExpr = buildAgeExprAlias('p2', pt, `MIN(v_age."${vt.startDateColumn}")`)
     const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
 
-    return `SELECT "${vt.table}"."${vt.patientIdColumn}" AS patient_id${genderCol}${ageCol},
+    return `SELECT ${qualify(vt)}."${vt.patientIdColumn}" AS patient_id${genderCol}${ageCol},
   COUNT(DISTINCT v_age."${vt.idColumn}") AS visit_count${stayCountExpr(`p2."${pt.idColumn}"`)}${deathDateExpr('p2', `p2."${pt.idColumn}"`)},
   MIN(v_age."${vt.startDateColumn}") AS first_admission
 FROM ${parts.from}
-INNER JOIN "${pt.table}" p2 ON "${vt.table}"."${vt.patientIdColumn}" = p2."${pt.idColumn}"
-LEFT JOIN "${vt.table}" v_age ON p2."${pt.idColumn}" = v_age."${vt.patientIdColumn}"
+INNER JOIN ${qualify(pt)} p2 ON ${qualify(vt)}."${vt.patientIdColumn}" = p2."${pt.idColumn}"
+LEFT JOIN ${qualify(vt)} v_age ON p2."${pt.idColumn}" = v_age."${vt.patientIdColumn}"
 ${parts.whereClause}
-GROUP BY "${vt.table}"."${vt.patientIdColumn}", p2."${pt.idColumn}"${pt.genderColumn ? `, p2."${pt.genderColumn}"` : ''}${deathDateGroupBy('p2')}${buildBirthGroupBy('p2', pt)}`
+GROUP BY ${qualify(vt)}."${vt.patientIdColumn}", p2."${pt.idColumn}"${pt.genderColumn ? `, p2."${pt.genderColumn}"` : ''}${deathDateGroupBy('p2')}${buildBirthGroupBy('p2', pt)}`
   }
 
   // No cohort
@@ -583,15 +583,15 @@ GROUP BY "${vt.table}"."${vt.patientIdColumn}", p2."${pt.idColumn}"${pt.genderCo
     return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol},
   COUNT(DISTINCT v."${vt.idColumn}") AS visit_count${stayCountExpr(`p."${pt.idColumn}"`)}${deathDateExpr('p', `p."${pt.idColumn}"`)},
   MIN(v."${vt.startDateColumn}") AS first_admission
-FROM "${pt.table}" p
-LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
+FROM ${qualify(pt)} p
+LEFT JOIN ${qualify(vt)} v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
 GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathDateGroupBy('p')}${buildBirthGroupBy('p', pt)}`
   }
 
   const ageExpr = buildAgeExprAlias('p', pt, 'CURRENT_DATE')
   const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
   return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathDateExpr('p', `p."${pt.idColumn}"`)}
-FROM "${pt.table}" p`
+FROM ${qualify(pt)} p`
 }
 
 /** Build WHERE clause for patient filters applied to the CTE. */

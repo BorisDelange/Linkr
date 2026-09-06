@@ -1,8 +1,5 @@
 import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
-import {
-  getEventTablesForDictionary,
-  buildConceptMatchCondition,
-} from '@/lib/schema-helpers'
+import { buildConceptMatchCondition, getEventTablesForDictionary, qualify } from '@/lib/schema-helpers'
 import { escSql as esc } from '@/lib/format-helpers'
 import { buildFuzzySearchSql, type FuzzySearchSql } from '@/lib/fuzzy-search'
 
@@ -293,11 +290,11 @@ function buildCountsSubquery(
     const patientSelect = patientCol ? `"${patientCol}"` : 'NULL'
 
     parts.push(
-      `SELECT "${et.conceptIdColumn}" AS cid, ${patientSelect} AS pid FROM "${et.table}"`,
+      `SELECT "${et.conceptIdColumn}" AS cid, ${patientSelect} AS pid FROM ${qualify(et)}`,
     )
     if (et.sourceConceptIdColumn) {
       parts.push(
-        `SELECT "${et.sourceConceptIdColumn}" AS cid, ${patientSelect} AS pid FROM "${et.table}"`,
+        `SELECT "${et.sourceConceptIdColumn}" AS cid, ${patientSelect} AS pid FROM ${qualify(et)}`,
       )
     }
   }
@@ -365,7 +362,7 @@ function buildSelectForDict(
     ? `LEFT JOIN ${countsSubquery} _counts ON c."${dict.idColumn}" = _counts.concept_id`
     : ''
 
-  return `SELECT ${cols.join(', ')} FROM "${dict.table}" c ${joinClause} ${where}`
+  return `SELECT ${cols.join(', ')} FROM ${qualify(dict)} c ${joinClause} ${where}`
 }
 
 export function buildConceptsQuery(
@@ -452,13 +449,13 @@ export function buildConceptsCountQuery(
   if (activeDicts.length === 1) {
     const dict = activeDicts[0]
     const where = buildWhereClause(dict, filters, allColumns)
-    return `SELECT COUNT(*)::INTEGER AS cnt FROM "${dict.table}" ${where}`
+    return `SELECT COUNT(*)::INTEGER AS cnt FROM ${qualify(dict)} ${where}`
   }
 
   // Multi-dict: sum counts
   const parts = activeDicts.map((dict) => {
     const where = buildWhereClause(dict, filters, allColumns)
-    return `SELECT COUNT(*)::INTEGER AS cnt FROM "${dict.table}" ${where}`
+    return `SELECT COUNT(*)::INTEGER AS cnt FROM ${qualify(dict)} ${where}`
   })
 
   return `SELECT SUM(cnt)::INTEGER AS cnt FROM (${parts.join(' UNION ALL ')}) _counts`
@@ -480,7 +477,7 @@ export function buildFilterOptionsQuery(
   for (const dict of dicts) {
     const actual = resolveActualColumn(dict, columnId)
     if (actual) {
-      parts.push(`SELECT DISTINCT "${actual}" AS val FROM "${dict.table}" WHERE "${actual}" IS NOT NULL`)
+      parts.push(`SELECT DISTINCT "${actual}" AS val FROM ${qualify(dict)} WHERE "${actual}" IS NOT NULL`)
     }
   }
 
@@ -604,18 +601,18 @@ export function buildConceptFullQuery(
   if (dictKey) {
     const dict = dicts.find((d) => d.key === dictKey)
     if (!dict) return null
-    return `SELECT ${selectExpr(dict)} FROM "${dict.table}" c WHERE c."${dict.idColumn}" = ${conceptId}`
+    return `SELECT ${selectExpr(dict)} FROM ${qualify(dict)} c WHERE c."${dict.idColumn}" = ${conceptId}`
   }
 
   // Otherwise, try each dict (concept_id might not be unique across dicts, but typically is)
   if (dicts.length === 1) {
     const dict = dicts[0]
-    return `SELECT ${selectExpr(dict)} FROM "${dict.table}" c WHERE c."${dict.idColumn}" = ${conceptId}`
+    return `SELECT ${selectExpr(dict)} FROM ${qualify(dict)} c WHERE c."${dict.idColumn}" = ${conceptId}`
   }
 
   // Multi-dict: UNION ALL with _dict_key, take first match
   const parts = dicts.map(
-    (d) => `SELECT ${selectExpr(d)}, '${esc(d.key)}' AS _dict_key FROM "${d.table}" c WHERE c."${d.idColumn}" = ${conceptId}`,
+    (d) => `SELECT ${selectExpr(d)}, '${esc(d.key)}' AS _dict_key FROM ${qualify(d)} c WHERE c."${d.idColumn}" = ${conceptId}`,
   )
   return `${parts.join(' UNION ALL ')} LIMIT 1`
 }
@@ -635,8 +632,8 @@ export function buildDomainCountQuery(
   // Sum across all event tables for this dict
   const parts: string[] = []
   for (const { eventTable: et } of eventEntries) {
-    const matchCond = buildConceptMatchCondition(`"${et.table}"`, et, String(conceptId))
-    parts.push(`SELECT COUNT(*)::INTEGER AS cnt FROM "${et.table}" WHERE ${matchCond}`)
+    const matchCond = buildConceptMatchCondition(`${qualify(et)}`, et, String(conceptId))
+    parts.push(`SELECT COUNT(*)::INTEGER AS cnt FROM ${qualify(et)} WHERE ${matchCond}`)
   }
 
   if (parts.length === 1) return parts[0]
@@ -665,8 +662,8 @@ function valueSourceUnion(
   const parts = getEventTablesForDictionary(mapping, dictKey)
     .filter((e) => e.eventTable.valueColumn)
     .map(({ eventTable: et }) => {
-      const matchCond = buildConceptMatchCondition(`"${et.table}"`, et, String(conceptId))
-      return `SELECT "${et.valueColumn}" AS v FROM "${et.table}" WHERE (${matchCond}) AND "${et.valueColumn}" IS NOT NULL`
+      const matchCond = buildConceptMatchCondition(`${qualify(et)}`, et, String(conceptId))
+      return `SELECT "${et.valueColumn}" AS v FROM ${qualify(et)} WHERE (${matchCond}) AND "${et.valueColumn}" IS NOT NULL`
     })
   return parts.length === 0 ? null : parts.join(' UNION ALL ')
 }

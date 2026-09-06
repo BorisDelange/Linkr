@@ -45,6 +45,9 @@ export const MAPPING_FIELD_ORDER = [
 
 /** Event-table fields in declared order; unlisted keys are appended sorted. */
 export const EVENT_TABLE_FIELD_ORDER = [
+  // Ahead of `table` because it qualifies it: `schema` would otherwise be sorted
+  // in among the columns, splitting the table reference across the file.
+  'schema',
   'table',
   'conceptIdColumn',
   'sourceConceptIdColumn',

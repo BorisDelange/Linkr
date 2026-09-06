@@ -1,5 +1,5 @@
 import type { SchemaMapping, EventTable, ConceptDictionary } from '@/types/schema-mapping'
-import { getDictionaryForEvent, buildConceptJoinCondition } from '@/lib/schema-helpers'
+import { buildConceptJoinCondition, getDictionaryForEvent, qualify, qualifyIn } from '@/lib/schema-helpers'
 import { escSql } from '@/lib/format-helpers'
 
 /**
@@ -87,7 +87,7 @@ function buildInventoryPart(
   const srcUnitCol = pickUnitColumn(et)
   const unitJoin =
     et.valueUnitConceptIdColumn && dict
-      ? `\nLEFT JOIN "${dict.table}" uc ON uc."${dict.idColumn}" = e."${et.valueUnitConceptIdColumn}"`
+      ? `\nLEFT JOIN ${qualify(dict)} uc ON uc."${dict.idColumn}" = e."${et.valueUnitConceptIdColumn}"`
       : ''
   const srcUnitExpr = srcUnitCol ? `MAX(e."${srcUnitCol}")` : null
   const stdUnitExpr = unitJoin ? `MAX(uc."${dict!.nameColumn}")` : null
@@ -119,7 +119,7 @@ function buildInventoryPart(
   const codeExpr = dict?.codeColumn ? `MAX(c."${dict.codeColumn}")` : 'NULL'
   const join =
     (dict
-      ? `\nLEFT JOIN "${dict.table}" c ON ${buildConceptJoinCondition('e', 'c', et, dict)}`
+      ? `\nLEFT JOIN ${qualify(dict)} c ON ${buildConceptJoinCondition('e', 'c', et, dict)}`
       : '') + unitJoin
 
   return `SELECT '${escSql(label)}' AS table_label,
@@ -133,7 +133,7 @@ function buildInventoryPart(
   MIN(e."${et.dateColumn}") AS first_event,
   MAX(COALESCE(${endExpr}, e."${et.dateColumn}")) AS last_event,
   ${et.endDateColumn ? 'TRUE' : 'FALSE'} AS durational
-FROM "${et.table}" e${join}
+FROM ${qualify(et)} e${join}
 WHERE e."${patientIdCol}" = '${escSql(patientId)}'
   AND e."${et.dateColumn}" IS NOT NULL${visitFilter}
 GROUP BY e."${et.conceptIdColumn}"`
@@ -177,7 +177,7 @@ export function buildOverviewDensityQuery(
     parts.push(`SELECT '${escSql(row.key)}' AS row_key,
   ${bucket} AS bucket,
   COUNT(*) AS n
-FROM "${et.table}" e
+FROM ${qualify(et)} e
 WHERE e."${patientIdCol}" = '${escSql(patientId)}'
   AND e."${et.dateColumn}" >= TIMESTAMP '${escSql(from)}'
   AND e."${et.dateColumn}" <= TIMESTAMP '${escSql(to)}'${visitFilter}${conceptFilter}
@@ -240,7 +240,7 @@ export function buildOverviewEventsQuery(
   const dict = getDictionaryForEvent(mapping, et)
   const routeJoin =
     et.routeConceptIdColumn && dict
-      ? `\nLEFT JOIN "${dict.table}" rc ON rc."${dict.idColumn}" = e."${et.routeConceptIdColumn}"`
+      ? `\nLEFT JOIN ${qualify(dict)} rc ON rc."${dict.idColumn}" = e."${et.routeConceptIdColumn}"`
       : ''
   // Source text first: it keeps distinctions the vocabulary drops (IV DRIP and
   // IV BOLUS are both `Intravenous`), and some models have no route concept.
@@ -264,7 +264,7 @@ export function buildOverviewEventsQuery(
   ${valExpr} AS value_number,
   CAST(${strExpr} AS VARCHAR) AS value_string,
   CAST(${routeExpr} AS VARCHAR) AS route
-FROM "${et.table}" e${routeJoin}
+FROM ${qualify(et)} e${routeJoin}
 WHERE e."${patientIdCol}" = '${escSql(patientId)}'
   AND ${overlap}${visitFilter}${conceptFilter}
 ORDER BY e."${et.dateColumn}"
@@ -289,7 +289,7 @@ export function buildOverviewUnitStaysQuery(
 
   const hasLookup = !!(vdt.unitColumn && vdt.unitNameTable && vdt.unitNameIdColumn && vdt.unitNameColumn)
   const join = hasLookup
-    ? `\nLEFT JOIN "${vdt.unitNameTable}" un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"`
+    ? `\nLEFT JOIN ${qualifyIn(vdt, vdt.unitNameTable)} un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"`
     : ''
   const endCol = vdt.endDateColumn ? `vd."${vdt.endDateColumn}"` : 'NULL'
   const visitFilter = visitId
@@ -319,7 +319,7 @@ export function buildOverviewUnitStaysQuery(
   ${endCol} AS stay_end,
   ${nameExpr} AS unit_name,
   ${categoryExpr} AS unit_category
-FROM "${vdt.table}" vd${join}
+FROM ${qualify(vdt)} vd${join}
 WHERE vd."${vdt.patientIdColumn}" = '${escSql(patientId)}'
   AND vd."${vdt.startDateColumn}" IS NOT NULL${visitFilter}
 ORDER BY vd."${vdt.startDateColumn}"`
@@ -341,7 +341,7 @@ export function buildOverviewStayWindowQuery(
   const endCol = vdt.endDateColumn ? `vd."${vdt.endDateColumn}"` : 'NULL'
   return `SELECT vd."${vdt.startDateColumn}" AS stay_start,
   ${endCol} AS stay_end
-FROM "${vdt.table}" vd
+FROM ${qualify(vdt)} vd
 WHERE vd."${vdt.idColumn}" = '${escSql(visitDetailId)}'
 LIMIT 1`
 }
@@ -356,7 +356,7 @@ export function buildOverviewDeathQuery(
   // the rest of the patient-data queries already follow.
   if (pt?.deathDateColumn) {
     return `SELECT "${pt.deathDateColumn}" AS death_date
-FROM "${pt.table}"
+FROM ${qualify(pt)}
 WHERE "${pt.idColumn}" = '${escSql(patientId)}'
   AND "${pt.deathDateColumn}" IS NOT NULL
 LIMIT 1`
@@ -364,7 +364,7 @@ LIMIT 1`
   const dt = mapping.deathTable
   if (!dt) return null
   return `SELECT "${dt.dateColumn}" AS death_date
-FROM "${dt.table}"
+FROM ${qualify(dt)}
 WHERE "${dt.patientIdColumn}" = '${escSql(patientId)}'
   AND "${dt.dateColumn}" IS NOT NULL
 LIMIT 1`

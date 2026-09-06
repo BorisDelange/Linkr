@@ -1,6 +1,6 @@
 import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
 import type { DimensionConfig, ServiceMappingRule, PeriodConfig } from '@/types/catalog'
-import { getEventTablesForDictionary } from '@/lib/schema-helpers'
+import { getEventTablesForDictionary, qualify, qualifyIn } from '@/lib/schema-helpers'
 import { escSql as esc } from '@/lib/format-helpers'
 
 /**
@@ -87,7 +87,7 @@ function buildCareSiteExpr(
     const joins: string[] = []
     if (vd.unitNameTable && vd.unitNameIdColumn && vd.unitNameColumn) {
       joins.push(
-        `LEFT JOIN "${vd.unitNameTable}" csn ON vd."${vd.unitColumn}" = csn."${vd.unitNameIdColumn}"`,
+        `LEFT JOIN ${qualifyIn(vd, vd.unitNameTable)} csn ON vd."${vd.unitColumn}" = csn."${vd.unitNameIdColumn}"`,
       )
       nameExpr = `csn."${vd.unitNameColumn}"`
     } else {
@@ -262,7 +262,7 @@ export function buildBatchedCatalogQueries(
     // 1. Concept list query
     conceptListQueries.push({
       dictKey: dict.key,
-      sql: `SELECT DISTINCT "${dict.idColumn}" AS cid FROM "${dict.table}"`,
+      sql: `SELECT DISTINCT "${dict.idColumn}" AS cid FROM ${qualify(dict)}`,
       table: dict.table,
       idColumn: dict.idColumn,
     })
@@ -306,8 +306,8 @@ SELECT
     COUNT(DISTINCT e.pid)::INTEGER AS patient_count,
     COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS visit_count
 FROM events e
-JOIN "${pt.table}" p ON e.pid = p."${pt.idColumn}"
-JOIN "${vt.table}" v ON e.pid = v."${vt.patientIdColumn}"
+JOIN ${qualify(pt)} p ON e.pid = p."${pt.idColumn}"
+JOIN ${qualify(vt)} v ON e.pid = v."${vt.patientIdColumn}"
 JOIN concept_names cn ON e.cid = cn.cid
 GROUP BY ${conceptColsStr}`
       },
@@ -342,8 +342,8 @@ SELECT
     COUNT(DISTINCT e.pid)::INTEGER AS patient_count,
     COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS visit_count${dimSelectStr}
 FROM events e
-JOIN "${pt.table}" p ON e.pid = p."${pt.idColumn}"
-JOIN "${vt.table}" v ON e.pid = v."${vt.patientIdColumn}"
+JOIN ${qualify(pt)} p ON e.pid = p."${pt.idColumn}"
+JOIN ${qualify(vt)} v ON e.pid = v."${vt.patientIdColumn}"
 ${vdJoin}${extraJoinStr}
 ${globalGroupByClause}`
 
@@ -364,11 +364,11 @@ function buildEventPartsForDict(
   for (const { eventTable: et } of eventEntries) {
     const patientCol = et.patientIdColumn ?? defaultPatientIdColumn
     parts.push(
-      `SELECT "${et.conceptIdColumn}" AS cid, "${patientCol}" AS pid FROM "${et.table}"`,
+      `SELECT "${et.conceptIdColumn}" AS cid, "${patientCol}" AS pid FROM ${qualify(et)}`,
     )
     if (et.sourceConceptIdColumn) {
       parts.push(
-        `SELECT "${et.sourceConceptIdColumn}" AS cid, "${patientCol}" AS pid FROM "${et.table}"`,
+        `SELECT "${et.sourceConceptIdColumn}" AS cid, "${patientCol}" AS pid FROM ${qualify(et)}`,
       )
     }
   }
@@ -386,7 +386,7 @@ function buildConceptNameSql(
   const subcatCol = subcategoryColumn ? resolveDictColumn(dict, subcategoryColumn) : undefined
   const catExpr = catCol ? `"${catCol}"` : 'NULL'
   const subcatExpr = subcatCol ? `"${subcatCol}"` : 'NULL'
-  return `SELECT "${dict.idColumn}" AS cid, "${dict.nameColumn}" AS cname${hasCategory ? `, ${catExpr} AS ccat` : ''}${hasSubcategory ? `, ${subcatExpr} AS csubcat` : ''} FROM "${dict.table}"`
+  return `SELECT "${dict.idColumn}" AS cid, "${dict.nameColumn}" AS cname${hasCategory ? `, ${catExpr} AS ccat` : ''}${hasSubcategory ? `, ${subcatExpr} AS csubcat` : ''} FROM ${qualify(dict)}`
 }
 
 // ---------------------------------------------------------------------------
@@ -465,7 +465,7 @@ export function generatePeriodIntervals(
 export function buildDateRangeQuery(mapping: SchemaMapping): string | null {
   const vt = mapping.visitTable
   if (!vt) return null
-  return `SELECT MIN("${vt.startDateColumn}"::TIMESTAMP)::VARCHAR AS min_date, MAX("${vt.startDateColumn}"::TIMESTAMP)::VARCHAR AS max_date FROM "${vt.table}" WHERE "${vt.startDateColumn}" IS NOT NULL`
+  return `SELECT MIN("${vt.startDateColumn}"::TIMESTAMP)::VARCHAR AS min_date, MAX("${vt.startDateColumn}"::TIMESTAMP)::VARCHAR AS max_date FROM ${qualify(vt)} WHERE "${vt.startDateColumn}" IS NOT NULL`
 }
 
 /**
@@ -511,7 +511,7 @@ export function buildPeriodRowQuery(
     const vd = mapping.visitDetailTable
     if (vd.unitColumn) {
       if (vd.unitNameTable && vd.unitNameIdColumn && vd.unitNameColumn) {
-        serviceJoin = `LEFT JOIN "${vd.unitNameTable}" csn ON vd."${vd.unitColumn}" = csn."${vd.unitNameIdColumn}"`
+        serviceJoin = `LEFT JOIN ${qualifyIn(vd, vd.unitNameTable)} csn ON vd."${vd.unitColumn}" = csn."${vd.unitNameIdColumn}"`
         serviceExpr = applyPeriodServiceMapping(`csn."${vd.unitNameColumn}"`, smRules)
       } else {
         serviceExpr = applyPeriodServiceMapping(`vd."${vd.unitColumn}"`, smRules)
@@ -536,11 +536,11 @@ export function buildPeriodRowQuery(
       for (const { eventTable: et } of eventEntries) {
         const patCol = et.patientIdColumn ?? pt.idColumn
         allEventParts.push(
-          `SELECT e."${patCol}" AS pid, d."${catCol}" AS cat FROM "${et.table}" e JOIN "${dict.table}" d ON e."${et.conceptIdColumn}" = d."${dict.idColumn}" WHERE d."${catCol}" IS NOT NULL`,
+          `SELECT e."${patCol}" AS pid, d."${catCol}" AS cat FROM ${qualify(et)} e JOIN ${qualify(dict)} d ON e."${et.conceptIdColumn}" = d."${dict.idColumn}" WHERE d."${catCol}" IS NOT NULL`,
         )
         if (et.sourceConceptIdColumn) {
           allEventParts.push(
-            `SELECT e."${patCol}" AS pid, d."${catCol}" AS cat FROM "${et.table}" e JOIN "${dict.table}" d ON e."${et.sourceConceptIdColumn}" = d."${dict.idColumn}" WHERE d."${catCol}" IS NOT NULL`,
+            `SELECT e."${patCol}" AS pid, d."${catCol}" AS cat FROM ${qualify(et)} e JOIN ${qualify(dict)} d ON e."${et.sourceConceptIdColumn}" = d."${dict.idColumn}" WHERE d."${catCol}" IS NOT NULL`,
           )
         }
       }
@@ -614,13 +614,13 @@ export function buildPeriodRowQuery(
 
   return `WITH base_visits AS (
   SELECT v."${vt.idColumn}" AS vid, v."${patIdCol}" AS pid
-  FROM "${vt.table}" v
+  FROM ${qualify(vt)} v
   WHERE ${whereClause}
 )${eventsCte}
 SELECT
   ${selects.join(',\n  ')}
-FROM "${vt.table}" v
-JOIN "${pt.table}" p ON v."${patIdCol}" = p."${pt.idColumn}"
+FROM ${qualify(vt)} v
+JOIN ${qualify(pt)} p ON v."${patIdCol}" = p."${pt.idColumn}"
 ${vdJoin}
 ${serviceJoin}
 ${evJoin}
@@ -650,16 +650,16 @@ export function buildServiceLabelsQuery(
     if (!vd.unitColumn) return null
     let expr: string
     if (vd.unitNameTable && vd.unitNameIdColumn && vd.unitNameColumn) {
-      return `SELECT DISTINCT ${applyPeriodServiceMapping(`csn."${vd.unitNameColumn}"`, smRules)} AS svc_label FROM "${vd.table}" vd JOIN "${vd.unitNameTable}" csn ON vd."${vd.unitColumn}" = csn."${vd.unitNameIdColumn}" WHERE vd."${vd.unitColumn}" IS NOT NULL ORDER BY svc_label`
+      return `SELECT DISTINCT ${applyPeriodServiceMapping(`csn."${vd.unitNameColumn}"`, smRules)} AS svc_label FROM ${qualify(vd)} vd JOIN ${qualifyIn(vd, vd.unitNameTable)} csn ON vd."${vd.unitColumn}" = csn."${vd.unitNameIdColumn}" WHERE vd."${vd.unitColumn}" IS NOT NULL ORDER BY svc_label`
     } else {
       expr = applyPeriodServiceMapping(`vd."${vd.unitColumn}"`, smRules)
-      return `SELECT DISTINCT ${expr} AS svc_label FROM "${vd.table}" vd WHERE vd."${vd.unitColumn}" IS NOT NULL ORDER BY svc_label`
+      return `SELECT DISTINCT ${expr} AS svc_label FROM ${qualify(vd)} vd WHERE vd."${vd.unitColumn}" IS NOT NULL ORDER BY svc_label`
     }
   }
   const vt = mapping.visitTable
   if (!vt?.typeColumn) return null
   const expr = applyPeriodServiceMapping(`v."${vt.typeColumn}"`, smRules)
-  return `SELECT DISTINCT ${expr} AS svc_label FROM "${vt.table}" v WHERE v."${vt.typeColumn}" IS NOT NULL ORDER BY svc_label`
+  return `SELECT DISTINCT ${expr} AS svc_label FROM ${qualify(vt)} v WHERE v."${vt.typeColumn}" IS NOT NULL ORDER BY svc_label`
 }
 
 /** Query to get all distinct category values for a given category column key. */
@@ -672,5 +672,5 @@ export function buildCategoryLabelsQuery(
   if (!dict) return null
   const catCol = resolveDictColumn(dict, categoryColumn)
   if (!catCol) return null
-  return `SELECT DISTINCT "${catCol}" AS cat_label FROM "${dict.table}" WHERE "${catCol}" IS NOT NULL ORDER BY cat_label`
+  return `SELECT DISTINCT "${catCol}" AS cat_label FROM ${qualify(dict)} WHERE "${catCol}" IS NOT NULL ORDER BY cat_label`
 }

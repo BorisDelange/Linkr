@@ -17,6 +17,7 @@ import type {
 } from '@/types'
 import type { SchemaMapping, EventTable } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
+import { qualify } from '@/lib/schema-helpers'
 
 // ---------------------------------------------------------------------------
 // Untrusted-input guards
@@ -353,7 +354,7 @@ function buildAgeCriteria(
   const pt = mapping.patientTable
   if (!pt) return '1=1'
 
-  const personRef = level === 'patient' ? `"${pt.table}"` : 'p'
+  const personRef = level === 'patient' ? `${qualify(pt)}` : 'p'
 
   let dateRef: string
   if (config.ageReference === 'admission') {
@@ -361,7 +362,7 @@ function buildAgeCriteria(
       // Patient level: use earliest visit start date via subquery
       const vt = mapping.visitTable
       if (vt?.startDateColumn) {
-        dateRef = `(SELECT MIN("${vt.startDateColumn}") FROM "${vt.table}" WHERE "${vt.table}"."${vt.patientIdColumn}" = "${pt.table}"."${pt.idColumn}")`
+        dateRef = `(SELECT MIN("${vt.startDateColumn}") FROM ${qualify(vt)} WHERE ${qualify(vt)}."${vt.patientIdColumn}" = ${qualify(pt)}."${pt.idColumn}")`
       } else {
         dateRef = 'CURRENT_DATE'
       }
@@ -428,7 +429,7 @@ function buildSexCriteria(
   if (config.values.length === 0) return '1=1'
   const pt = mapping.patientTable
   if (!pt?.genderColumn) return '1=1'
-  const personRef = level === 'patient' ? `"${pt.table}"` : 'p'
+  const personRef = level === 'patient' ? `${qualify(pt)}` : 'p'
   const vals = config.values.map((v) => `'${escSql(v)}'`).join(', ')
   return `${personRef}."${pt.genderColumn}" IN (${vals})`
 }
@@ -442,7 +443,7 @@ function buildDeathCriteria(
   baseTable: string,
 ): string {
   const pt = mapping.patientTable
-  const personRef = level === 'patient' ? (pt ? `"${pt.table}"` : null) : 'p'
+  const personRef = level === 'patient' ? (pt ? `${qualify(pt)}` : null) : 'p'
   if (!personRef) return '1=1'
 
   // Check patient table death date column first
@@ -470,14 +471,14 @@ function buildDeathCriteria(
       return `${deathCol} IS NOT NULL AND ${deathCol} BETWEEN "${baseTable}"."${windowTable.startDateColumn}" AND "${baseTable}"."${windowTable.endDateColumn}"`
     }
     const patientIdCol = getPatientIdColumn(level, mapping) ?? pt.idColumn
-    return `${deathCol} IS NOT NULL AND EXISTS (SELECT 1 FROM "${windowTable.table}" w WHERE w."${windowTable.patientIdColumn}" = "${baseTable}"."${patientIdCol}" AND ${deathCol} BETWEEN w."${windowTable.startDateColumn}" AND w."${windowTable.endDateColumn}")`
+    return `${deathCol} IS NOT NULL AND EXISTS (SELECT 1 FROM ${qualify(windowTable)} w WHERE w."${windowTable.patientIdColumn}" = "${baseTable}"."${patientIdCol}" AND ${deathCol} BETWEEN w."${windowTable.startDateColumn}" AND w."${windowTable.endDateColumn}")`
   }
 
   // Fall back to separate death table
   const dt = mapping.deathTable
   if (dt) {
     const patientIdCol = pt?.idColumn ?? 'person_id'
-    const subquery = `SELECT 1 FROM "${dt.table}" WHERE "${dt.table}"."${dt.patientIdColumn}" = ${personRef}."${patientIdCol}"`
+    const subquery = `SELECT 1 FROM ${qualify(dt)} WHERE ${qualify(dt)}."${dt.patientIdColumn}" = ${personRef}."${patientIdCol}"`
     return config.isDead ? `EXISTS (${subquery})` : `NOT EXISTS (${subquery})`
   }
 
@@ -505,8 +506,8 @@ function buildPeriodCriteria(
     if (config.endDate) conditions.push(`"${vt.startDateColumn}" <= '${escSql(config.endDate)}'`)
     return [
       `EXISTS (`,
-      `    SELECT 1 FROM "${vt.table}"`,
-      `    WHERE "${vt.table}"."${vt.patientIdColumn}" = "${baseTable}"."${pt.idColumn}"`,
+      `    SELECT 1 FROM ${qualify(vt)}`,
+      `    WHERE ${qualify(vt)}."${vt.patientIdColumn}" = "${baseTable}"."${pt.idColumn}"`,
       `      AND ${conditions.join(' AND ')}`,
       `)`,
     ].join('\n')
@@ -619,7 +620,7 @@ function buildTextCriteria(
     links.push(`n."${nt.visitIdColumn}" = "${baseTable}"."${mapping.visitTable.idColumn}"`)
   }
 
-  return `EXISTS (SELECT 1 FROM "${nt.table}" n WHERE ${links.join(' AND ')} AND (${combined}))`
+  return `EXISTS (SELECT 1 FROM ${qualify(nt)} n WHERE ${links.join(' AND ')} AND (${combined}))`
 }
 
 function buildDurationCriteria(
@@ -821,7 +822,7 @@ function buildConceptCriteria(
     return [
       `"${baseTable}"."${patientIdCol}" IN (`,
       `    SELECT e."${pidCol}"`,
-      `    FROM "${et.table}" e`,
+      `    FROM ${qualify(et)} e`,
       `    WHERE ${whereStr}`,
       `    GROUP BY e."${pidCol}"`,
       `    HAVING COUNT(*) ${ocOperator} ${ocCount}`,
@@ -833,7 +834,7 @@ function buildConceptCriteria(
   return [
     `EXISTS (`,
     `    SELECT 1`,
-    `    FROM "${et.table}" e`,
+    `    FROM ${qualify(et)} e`,
     `    WHERE ${whereStr}`,
     `)`,
   ].join('\n')
@@ -861,7 +862,7 @@ function buildFromClause(
   if (level !== 'patient' && pt && (forcePatientJoin || (tree && needsPatientJoin(tree)))) {
     const patientIdCol = getPatientIdColumn(level, mapping) ?? pt.idColumn
     parts.push(
-      `INNER JOIN "${pt.table}" p\n    ON "${baseTable}"."${patientIdCol}" = p."${pt.idColumn}"`,
+      `INNER JOIN ${qualify(pt)} p\n    ON "${baseTable}"."${patientIdCol}" = p."${pt.idColumn}"`,
     )
   }
 
@@ -1030,7 +1031,7 @@ function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTabl
       // Patient level: use earliest visit start date
       const vt = mapping.visitTable
       if (vt?.startDateColumn) {
-        dateRef = `(SELECT MIN("${vt.startDateColumn}") FROM "${vt.table}" WHERE "${vt.table}"."${vt.patientIdColumn}" = "${baseTable}"."${pt.idColumn}")`
+        dateRef = `(SELECT MIN("${vt.startDateColumn}") FROM ${qualify(vt)} WHERE ${qualify(vt)}."${vt.patientIdColumn}" = "${baseTable}"."${pt.idColumn}")`
         ageLabel = 'age_at_admission'
       } else {
         dateRef = 'CURRENT_DATE'

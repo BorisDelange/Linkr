@@ -39,6 +39,14 @@ export interface SchemaMapping {
   templateId?: SchemaPresetId
 
   patientTable?: {
+    /**
+     * Schema holding the table, for a source published as several — MIMIC-IV's
+     * `hosp`/`icu`, eHOP's Oracle schemas. Omitted means "wherever the search
+     * path finds it", which is how every preset written before schemas worked
+     * and still works. Set it when two schemas of one source hold the same table
+     * name: there the bare name resolves to whichever comes first, silently.
+     */
+    schema?: string
     table: string
     idColumn: string
     birthDateColumn?: string
@@ -49,6 +57,7 @@ export interface SchemaMapping {
   }
 
   visitTable?: {
+    schema?: string
     table: string
     idColumn: string
     patientIdColumn: string
@@ -71,6 +80,7 @@ export interface SchemaMapping {
    * OMOP CDM: note. MIMIC-III: noteevents.
    */
   noteTable?: {
+    schema?: string
     table: string
     idColumn: string
     patientIdColumn: string
@@ -88,6 +98,7 @@ export interface SchemaMapping {
    * MIMIC-III: icustays / transfers within an admission.
    */
   visitDetailTable?: {
+    schema?: string
     table: string
     idColumn: string
     visitIdColumn: string
@@ -122,6 +133,7 @@ export interface SchemaMapping {
    * If patientTable.deathDateColumn is set, it takes precedence.
    */
   deathTable?: {
+    schema?: string
     table: string
     patientIdColumn: string
     dateColumn: string
@@ -182,6 +194,8 @@ export interface SchemaMapping {
 export interface ConceptDictionary {
   /** Unique key to reference this dictionary from eventTables (e.g. 'concept', 'd_items'). */
   key: string
+  /** Schema holding the table, when the source has several. See `patientTable.schema`. */
+  schema?: string
   /** Table name (concept, d_items, dwh_thesaurus_data, concept). */
   table: string
   /** Primary key column (concept_id, itemid, thesaurus_data_num). Optional for code-only tables (e.g. d_icd_diagnoses). */
@@ -216,6 +230,8 @@ export interface ConceptDictionary {
  * that reference a concept dictionary.
  */
 export interface EventTable {
+  /** Schema holding the table, when the source has several. See `patientTable.schema`. */
+  schema?: string
   /** Table name (measurement, chartevents, dwh_data, document_data). */
   table: string
   /** Column that references the concept dictionary PK (measurement_concept_id, itemid, thesaurus_data_num). */

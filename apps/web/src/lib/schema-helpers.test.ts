@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sanitizeSchemaMapping } from './schema-helpers'
+import { qualify, qualifyIn, sanitizeSchemaMapping } from './schema-helpers'
 import { SCHEMA_PRESETS } from './schema-presets'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
@@ -119,5 +119,47 @@ describe('sanitizeSchemaMapping leaves the built-in presets alone', () => {
       const before = JSON.stringify(mapping)
       expect(JSON.stringify(sanitizeSchemaMapping(mapping)), id).toBe(before)
     }
+  })
+})
+
+describe('qualify', () => {
+  it('emits two identifiers when a schema is named', () => {
+    // NOT `"hosp.patients"`: that names a table whose name contains a dot, which
+    // DuckDB reports as missing — silently, wherever the caller swallows it.
+    expect(qualify({ schema: 'hosp', table: 'patients' })).toBe('"hosp"."patients"')
+  })
+
+  it('emits one identifier without a schema, as every preset did before', () => {
+    expect(qualify({ table: 'patients' })).toBe('"patients"')
+    expect(qualify({ schema: undefined, table: 'patients' })).toBe('"patients"')
+  })
+
+  it('keeps the two eHOP homonyms apart', () => {
+    expect(qualify({ schema: 'EDBM_EDS', table: 'EHOP_PATIENT' }))
+      .not.toBe(qualify({ schema: 'EDBM_ZPAT', table: 'EHOP_PATIENT' }))
+  })
+
+  it('lets a lookup table inherit the schema of the descriptor naming it', () => {
+    expect(qualifyIn({ schema: 'hosp' }, 'care_site')).toBe('"hosp"."care_site"')
+    expect(qualifyIn({}, 'care_site')).toBe('"care_site"')
+  })
+})
+
+describe('sanitizeSchemaMapping — schema field', () => {
+  it('drops a schema that is not a safe identifier', () => {
+    // `schema` ends in neither `table` nor `column`, so the suffix pattern alone
+    // would have let it reach SQL unchecked.
+    const m = sanitizeSchemaMapping({
+      patientTable: { schema: 'bad"name', table: 'patients', idColumn: 'id' },
+    } as unknown as SchemaMapping)
+    expect(m?.patientTable?.schema).toBeUndefined()
+    expect(m?.patientTable?.table).toBe('patients')
+  })
+
+  it('keeps a safe schema', () => {
+    const m = sanitizeSchemaMapping({
+      patientTable: { schema: 'hosp', table: 'patients', idColumn: 'id' },
+    } as unknown as SchemaMapping)
+    expect(m?.patientTable?.schema).toBe('hosp')
   })
 })

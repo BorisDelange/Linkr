@@ -27,6 +27,7 @@ import {
 } from './concept-profile'
 import { csvEscape } from './export'
 import { escSql } from '@/lib/format-helpers'
+import { qualify } from '@/lib/schema-helpers'
 
 /** Execute SQL against the source database and return its rows. */
 export type QueryFn = (sql: string) => Promise<Record<string, unknown>[]>
@@ -168,7 +169,7 @@ export function buildConceptCountsQuery(source: ProfileSource): string {
   return `SELECT ${key} AS concept_id,
     COUNT(*) AS record_count,
     ${patientCol ? `COUNT(DISTINCT e."${patientCol}")` : 'NULL'} AS patient_count
-  FROM "${et.table}" e
+  FROM ${qualify(et)} e
   WHERE ${key} IS NOT NULL
   GROUP BY ${key}`
 }
@@ -264,7 +265,7 @@ export function buildDictionaryPageQuery(
     d."${dict.nameColumn}" AS concept_name,
     ${vocabCol ? `CAST(d."${vocabCol}" AS VARCHAR)` : `'${escSql(dict.table)}'`} AS vocabulary_id,
     ${dict.categoryColumn ? `CAST(d."${dict.categoryColumn}" AS VARCHAR)` : 'NULL'} AS category
-  FROM "${dict.table}" d`
+  FROM ${qualify(dict)} d`
 
   if (orderedIds) {
     // The ranking already IS the page: take its slice and fetch those concepts,

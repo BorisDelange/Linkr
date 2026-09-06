@@ -40,6 +40,7 @@ import {
 } from '@/lib/dcat-ap/schema'
 import { buildJsonLd } from '@/lib/dcat-ap/jsonld'
 import type { DataCatalog, CatalogResultCache } from '@/types'
+import { qualify } from '@/lib/schema-helpers'
 
 interface Props {
   catalog: DataCatalog
@@ -176,8 +177,8 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
                   SELECT MIN(age)::INTEGER as age_min, MAX(age)::INTEGER as age_max
                   FROM (
                     SELECT p."${pt.idColumn}", ${birthExpr} as age
-                    FROM "${pt.table}" p
-                    JOIN "${vt.table}" vo ON vo."${vt.patientIdColumn}" = p."${pt.idColumn}"
+                    FROM ${qualify(pt)} p
+                    JOIN ${qualify(vt)} vo ON vo."${vt.patientIdColumn}" = p."${pt.idColumn}"
                     WHERE vo."${vt.startDateColumn}" IS NOT NULL
                     GROUP BY p."${pt.idColumn}"${pt.birthDateColumn ? `, p."${pt.birthDateColumn}"` : ''}${pt.birthYearColumn ? `, p."${pt.birthYearColumn}"` : ''}
                   ) sub WHERE age >= 0 AND age < 150
@@ -202,7 +203,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
                 SELECT
                   MIN("${vt.startDateColumn}")::VARCHAR as date_min,
                   MAX("${vt.startDateColumn}")::VARCHAR as date_max
-                FROM "${vt.table}" WHERE "${vt.startDateColumn}" IS NOT NULL
+                FROM ${qualify(vt)} WHERE "${vt.startDateColumn}" IS NOT NULL
               `
               const rows = await queryDataSource(catalog.dataSourceId, dateSql)
               if (rows[0]?.date_min && rows[0]?.date_max) {
@@ -219,7 +220,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
             for (const cd of schemaMapping.conceptTables ?? []) {
               if (cd.vocabularyColumn) {
                 try {
-                  const vocabSql = `SELECT DISTINCT "${cd.vocabularyColumn}" as v FROM "${cd.table}" WHERE "${cd.vocabularyColumn}" IS NOT NULL LIMIT 100`
+                  const vocabSql = `SELECT DISTINCT "${cd.vocabularyColumn}" as v FROM ${qualify(cd)} WHERE "${cd.vocabularyColumn}" IS NOT NULL LIMIT 100`
                   const rows = await queryDataSource(catalog.dataSourceId, vocabSql)
                   for (const r of rows) {
                     if (r.v) vocabNames.add(String(r.v).toLowerCase())

@@ -23,9 +23,12 @@ import { isSafeIdentifier } from '@/lib/format-helpers'
 
 /** Fields holding a SQL identifier, by suffix. Matches `table`, `idColumn`,
  *  `careSiteNameTable`, `valueColumn`, … without enumerating all ~40 of them,
- *  so a field added later is covered by default rather than by remembering. */
+ *  so a field added later is covered by default rather than by remembering.
+ *
+ *  `schema` is named outright: it is interpolated exactly like a table name but
+ *  ends in neither suffix, so the pattern alone would let it through unchecked. */
 function isIdentifierField(key: string): boolean {
-  return /(^|[a-z])(table|column)s?$/i.test(key)
+  return key === 'schema' || /(^|[a-z])(table|column)s?$/i.test(key)
 }
 
 /** A `Record<string, string>` whose VALUES are identifiers — `extraColumns`,
@@ -101,6 +104,37 @@ function getDefaultConceptDictionary(mapping: SchemaMapping): ConceptDictionary 
 /** Get a concept dictionary by key. */
 function getConceptDictionary(mapping: SchemaMapping, key: string): ConceptDictionary | undefined {
   return mapping.conceptTables?.find((d) => d.key === key)
+}
+
+/**
+ * A table reference for SQL: `"patients"`, or `"hosp"."patients"` when the
+ * mapping names a schema.
+ *
+ * TWO quoted identifiers, never one — `"hosp.patients"` names a table whose name
+ * *contains* a dot, which DuckDB reports as missing. That is the bug this whole
+ * area exists to avoid, and it is silent wherever the caller turns an error into
+ * an empty result.
+ *
+ * Names are already validated by `sanitizeSchemaMapping`, so quoting here is
+ * belt-and-braces rather than the trust boundary.
+ */
+export function qualify(ref: { schema?: string; table: string }): string {
+  const table = `"${ref.table}"`
+  return ref.schema ? `"${ref.schema}".${table}` : table
+}
+
+/**
+ * Same, for a lookup table named by a sibling field (`careSiteNameTable`,
+ * `unitNameTable`): it has no `schema` of its own, so it inherits the one of the
+ * descriptor that names it — they come from the same source, and a lookup in a
+ * different schema than its table would need its own field.
+ */
+export function qualifyIn(ref: { schema?: string }, table: string | undefined): string {
+  // `undefined` is accepted because every call sits behind a guard that already
+  // checked the field (`hasLookup`), which TypeScript cannot narrow through a
+  // boolean. Emitting `""` there would be a syntax error, not a wrong table, so
+  // it surfaces immediately rather than querying something unintended.
+  return qualify({ schema: ref.schema, table: table ?? '' })
 }
 
 /** Get the concept dictionary for a given event table. */

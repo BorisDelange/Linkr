@@ -26,7 +26,7 @@
  */
 
 import type { SchemaMapping, ConceptDictionary, EventTable } from '@/types/schema-mapping'
-import { buildConceptMatchCondition, getEventTablesForDictionary } from '@/lib/schema-helpers'
+import { buildConceptMatchCondition, getEventTablesForDictionary, qualify, qualifyIn } from '@/lib/schema-helpers'
 
 // ---------------------------------------------------------------------------
 // Options
@@ -221,7 +221,7 @@ function resolveWardExpr(mapping: SchemaMapping, et: EventTable): WardJoin | nul
   // Without a date there is nothing to contain it.
   if (!et.dateColumn) return null
 
-  const stayJoin = `LEFT JOIN "${vd.table}" vd
+  const stayJoin = `LEFT JOIN ${qualify(vd)} vd
       ON vd."${vd.patientIdColumn}" = e."${patientCol}"
      AND e."${et.dateColumn}" >= vd."${vd.startDateColumn}"
      ${vd.endDateColumn ? `AND e."${et.dateColumn}" <= vd."${vd.endDateColumn}"` : ''}`
@@ -233,7 +233,7 @@ function resolveWardExpr(mapping: SchemaMapping, et: EventTable): WardJoin | nul
     return {
       expr: `cs."${vd.unitNameColumn}"`,
       joins: `${stayJoin}
-    LEFT JOIN "${vd.unitNameTable}" cs ON cs."${vd.unitNameIdColumn}" = vd."${vd.unitColumn}"`,
+    LEFT JOIN ${qualifyIn(vd, vd.unitNameTable)} cs ON cs."${vd.unitNameIdColumn}" = vd."${vd.unitColumn}"`,
     }
   }
   if (vd.unitColumn) {
@@ -257,7 +257,7 @@ function resolveWardExpr(mapping: SchemaMapping, et: EventTable): WardJoin | nul
  */
 function eventScope(et: EventTable, conceptId: number): string {
   const match = buildConceptMatchCondition('e', et, String(Math.trunc(conceptId)))
-  return `FROM "${et.table}" e WHERE (${match})`
+  return `FROM ${qualify(et)} e WHERE (${match})`
 }
 
 /** Records and distinct patients for one concept. Always computed. */
@@ -645,7 +645,7 @@ export function buildHospitalUnitsQuery(
   const match = buildConceptMatchCondition('e', et, String(Math.trunc(conceptId)))
   return `SELECT unit, ROUND(count * 100.0 / SUM(count) OVER (), 1) AS percentage FROM (
     SELECT ${ward.expr} AS unit, COUNT(*) AS count
-    FROM "${et.table}" e
+    FROM ${qualify(et)} e
     ${ward.joins}
     WHERE (${match}) AND ${ward.expr} IS NOT NULL
     GROUP BY ${ward.expr}

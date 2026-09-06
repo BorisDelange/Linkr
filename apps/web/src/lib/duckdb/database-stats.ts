@@ -9,6 +9,7 @@ import type {
   DescriptiveStats,
 } from '@/types'
 import type { SchemaMapping } from '@/types'
+import { qualify } from '@/lib/schema-helpers'
 
 /**
  * Compute the "fast" database statistics — everything except per-table row
@@ -85,7 +86,7 @@ async function computeGenderDistribution(
         SUM(CASE WHEN "${pt.genderColumn}" = '${escSql(gv.male)}' THEN 1 ELSE 0 END)::INTEGER as male,
         SUM(CASE WHEN "${pt.genderColumn}" = '${escSql(gv.female)}' THEN 1 ELSE 0 END)::INTEGER as female,
         SUM(CASE WHEN "${pt.genderColumn}" NOT IN ('${escSql(gv.male)}', '${escSql(gv.female)}') THEN 1 ELSE 0 END)::INTEGER as other
-      FROM "${pt.table}"
+      FROM ${qualify(pt)}
     `
     const rows = await queryDataSource(dsId, sql)
     if (rows[0]) {
@@ -150,7 +151,7 @@ async function computeAgePyramid(
         END as age_group,
         p."${pt.genderColumn}"
       FROM "${visitTable}" v
-      JOIN "${pt.table}" p ON v."${patientIdCol}" = p."${pt.idColumn}"
+      JOIN ${qualify(pt)} p ON v."${patientIdCol}" = p."${pt.idColumn}"
       CROSS JOIN LATERAL (
         SELECT ${birthExpr} as age
       ) ages
@@ -183,7 +184,7 @@ async function computeAdmissionTimeline(
     SELECT
       STRFTIME("${vt.startDateColumn}"::TIMESTAMP, '%Y-%m') as month,
       COUNT(*)::INTEGER as count
-    FROM "${vt.table}"
+    FROM ${qualify(vt)}
     WHERE "${vt.startDateColumn}" IS NOT NULL
     GROUP BY month
     ORDER BY month
@@ -231,8 +232,8 @@ async function computeDescriptiveStats(
           SELECT
             p."${pt.idColumn}",
             ${birthExpr} as age
-          FROM "${pt.table}" p
-          JOIN "${vt.table}" vo ON vo."${vt.patientIdColumn}" = p."${pt.idColumn}"
+          FROM ${qualify(pt)} p
+          JOIN ${qualify(vt)} vo ON vo."${vt.patientIdColumn}" = p."${pt.idColumn}"
           WHERE vo."${vt.startDateColumn}" IS NOT NULL
           GROUP BY p."${pt.idColumn}"${pt.birthDateColumn ? `, p."${pt.birthDateColumn}"` : ''}${pt.birthYearColumn ? `, p."${pt.birthYearColumn}"` : ''}
         ) sub
@@ -256,7 +257,7 @@ async function computeDescriptiveStats(
       SELECT
         MIN("${vt.startDateColumn}")::VARCHAR as date_min,
         MAX("${vt.startDateColumn}")::VARCHAR as date_max
-      FROM "${vt.table}"
+      FROM ${qualify(vt)}
       WHERE "${vt.startDateColumn}" IS NOT NULL
     `
     const rows = await queryDataSource(dsId, dateSql)
@@ -275,7 +276,7 @@ async function computeDescriptiveStats(
           MAX("${vt.endDateColumn}")::VARCHAR as discharge_max,
           ROUND(AVG(DATEDIFF('day', "${vt.startDateColumn}"::TIMESTAMP, "${vt.endDateColumn}"::TIMESTAMP)), 1) as los_mean,
           ROUND(MEDIAN(DATEDIFF('day', "${vt.startDateColumn}"::TIMESTAMP, "${vt.endDateColumn}"::TIMESTAMP)), 1) as los_median
-        FROM "${vt.table}"
+        FROM ${qualify(vt)}
         WHERE "${vt.startDateColumn}" IS NOT NULL
           AND "${vt.endDateColumn}" IS NOT NULL
       `
@@ -299,7 +300,7 @@ async function computeDescriptiveStats(
         MAX(visit_count)::INTEGER as vp_max
       FROM (
         SELECT "${vt.patientIdColumn}", COUNT(*)::INTEGER as visit_count
-        FROM "${vt.table}"
+        FROM ${qualify(vt)}
         GROUP BY "${vt.patientIdColumn}"
       ) sub
     `
@@ -320,7 +321,7 @@ async function computeDescriptiveStats(
         SELECT
           ROUND(AVG(DATEDIFF('day', "${vdt.startDateColumn}"::TIMESTAMP, "${vdt.endDateColumn}"::TIMESTAMP)), 1) as los_mean,
           ROUND(MEDIAN(DATEDIFF('day', "${vdt.startDateColumn}"::TIMESTAMP, "${vdt.endDateColumn}"::TIMESTAMP)), 1) as los_median
-        FROM "${vdt.table}"
+        FROM ${qualify(vdt)}
         WHERE "${vdt.startDateColumn}" IS NOT NULL
           AND "${vdt.endDateColumn}" IS NOT NULL
       `

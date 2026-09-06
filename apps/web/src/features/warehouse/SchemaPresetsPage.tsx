@@ -276,6 +276,7 @@ function ConceptDictionarySection({ dict }: { dict: ConceptDictionary }) {
     <div className="rounded-md border bg-muted/30 px-3 py-2">
       <span className="text-xs font-medium text-foreground">{dict.key}</span>
       <div className="mt-1">
+        {dict.schema && <DetailRow label="Schema" value={dict.schema} />}
         <DetailRow label="Table" value={dict.table} />
         <DetailRow label="ID column" value={dict.idColumn} />
         <DetailRow label="Name column" value={dict.nameColumn} />
@@ -299,6 +300,7 @@ function EventTableSection({ label, et }: { label: string; et: EventTable }) {
     <div className="rounded-md border bg-muted/30 px-3 py-2">
       <span className="text-xs font-medium text-foreground">{label}</span>
       <div className="mt-1">
+        {et.schema && <DetailRow label="Schema" value={et.schema} />}
         <DetailRow label="Table" value={et.table} />
         <DetailRow label="Concept ID" value={et.conceptIdColumn} />
         {et.sourceConceptIdColumn && (
@@ -506,6 +508,7 @@ function EditablePatientTable({
     <div>
       <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_patient_table')}</h5>
       <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
+        <EditableField label="Schema" value={val.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
         <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="person" />
         <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="person_id" />
         <EditableField label="Birth date" value={val.birthDateColumn ?? ''} onChange={(v) => update('birthDateColumn', v)} placeholder="birth_datetime" />
@@ -536,6 +539,7 @@ function EditableDeathTable({
     <div>
       <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_death_table')}</h5>
       <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
+        <EditableField label="Schema" value={val.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
         <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="death" />
         <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
         <EditableField label="Date column" value={val.dateColumn} onChange={(v) => update('dateColumn', v)} placeholder="death_datetime" />
@@ -563,6 +567,7 @@ function EditableNoteTable({
     <div>
       <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_note_table')}</h5>
       <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
+        <EditableField label="Schema" value={val.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
         <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="note" />
         <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="note_id" />
         <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
@@ -595,6 +600,7 @@ function EditableVisitTable({
     <div>
       <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_visit_table')}</h5>
       <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
+        <EditableField label="Schema" value={val.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
         <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="visit_occurrence" />
         <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="visit_occurrence_id" />
         <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
@@ -663,6 +669,7 @@ function EditableEventTable({
           <X size={12} />
         </Button>
       </div>
+      <EditableField label="Schema" value={et.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
       <EditableField suggestions={knownTables} label="Table" value={et.table} onChange={(v) => update('table', v)} placeholder="measurement" />
       <EditableField label="Concept ID" value={et.conceptIdColumn} onChange={(v) => update('conceptIdColumn', v)} placeholder="measurement_concept_id" />
       <EditableField label="Source ID" value={et.sourceConceptIdColumn ?? ''} onChange={(v) => update('sourceConceptIdColumn', v)} />
@@ -699,6 +706,7 @@ function EditableVisitDetailTable({
     <div>
       <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_visit_detail_table')}</h5>
       <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
+        <EditableField label="Schema" value={val.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
         <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="visit_detail" />
         <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="visit_detail_id" />
         <EditableField label="Hospitalization ID" value={val.visitIdColumn} onChange={(v) => update('visitIdColumn', v)} placeholder="visit_occurrence_id" />
@@ -810,6 +818,7 @@ function EditableConceptDict({
           <X size={12} />
         </Button>
       </div>
+      <EditableField label="Schema" value={dict.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
       <EditableField suggestions={knownTables} label="Table" value={dict.table} onChange={(v) => update('table', v)} placeholder="concept" />
       <EditableField label="ID column" value={dict.idColumn ?? ''} onChange={(v) => update('idColumn', v)} placeholder="concept_id" />
       <EditableField label="Name column" value={dict.nameColumn} onChange={(v) => update('nameColumn', v)} placeholder="concept_name" />

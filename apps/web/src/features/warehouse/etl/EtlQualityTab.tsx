@@ -56,6 +56,7 @@ import {
 } from './quality-diff'
 import type { DatabaseStatsCache, DataSource, TableRowCount } from '@/types'
 import { localized } from '@/lib/localized'
+import { qualify } from '@/lib/schema-helpers'
 
 type QualityTab = 'statistics' | 'concepts'
 
@@ -851,7 +852,7 @@ async function countConcepts(
         SELECT "${col}" AS cid,
                COUNT(DISTINCT person_id)::INTEGER AS patients,
                COUNT(*)::INTEGER AS rows
-        FROM "${ct.table}"
+        FROM ${qualify(ct)}
         WHERE "${col}" IN (${idList})
         GROUP BY "${col}"
       `)

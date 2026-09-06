@@ -43,6 +43,7 @@ import { ExportAtlasDialog } from './atlas/ExportAtlasDialog'
 import { formatDateTime } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import type { CohortLevel, CriteriaGroupNode } from '@/types'
+import { qualify } from '@/lib/schema-helpers'
 
 const levelOptions: { value: CohortLevel; labelKey: string }[] = [
   { value: 'patient', labelKey: 'cohorts.level_patient' },
@@ -93,7 +94,7 @@ export function CohortBuilderPage() {
     if (!activeSource || !mapping?.visitTable) return
     const vt = mapping.visitTable
     if (!vt.startDateColumn) return
-    const sql = `SELECT MIN("${vt.startDateColumn}")::DATE::TEXT AS min_date, MAX("${vt.startDateColumn}")::DATE::TEXT AS max_date FROM "${vt.table}"`
+    const sql = `SELECT MIN("${vt.startDateColumn}")::DATE::TEXT AS min_date, MAX("${vt.startDateColumn}")::DATE::TEXT AS max_date FROM ${qualify(vt)}`
     engine.queryDataSource(activeSource.id, sql).then((rows) => {
       if (rows[0]?.min_date && rows[0]?.max_date) {
         setVisitDateRange({

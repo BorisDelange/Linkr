@@ -1,6 +1,7 @@
 import { queryDataSource, discoverTables, schemaName } from './engine'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DqCustomCheck } from '@/types'
+import { qualify } from '@/lib/schema-helpers'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -187,7 +188,7 @@ function generateSchemaChecks(
     checks.push({
       id: `schema_orphan_visits_${vt.table}`,
       name: 'orphanRecords',
-      description: `Visits in "${vt.table}" referencing non-existent patients`,
+      description: `Visits in ${qualify(vt)} referencing non-existent patients`,
       category: 'consistency',
       severity: 'error',
       level: 'table',
@@ -196,9 +197,9 @@ function generateSchemaChecks(
       threshold: 0,
       sql: `
         SELECT COUNT(*)::BIGINT AS violated_rows,
-               (SELECT COUNT(*)::BIGINT FROM "${vt.table}") AS total_rows
-        FROM "${vt.table}" v
-        LEFT JOIN "${pt.table}" p ON v."${vt.patientIdColumn}" = p."${pt.idColumn}"
+               (SELECT COUNT(*)::BIGINT FROM ${qualify(vt)}) AS total_rows
+        FROM ${qualify(vt)} v
+        LEFT JOIN ${qualify(pt)} p ON v."${vt.patientIdColumn}" = p."${pt.idColumn}"
         WHERE p."${pt.idColumn}" IS NULL
       `,
     })
@@ -208,7 +209,7 @@ function generateSchemaChecks(
       checks.push({
         id: `schema_temporal_order_${vt.table}`,
         name: 'temporalOrder',
-        description: `Visit start date ≤ end date in "${vt.table}"`,
+        description: `Visit start date ≤ end date in ${qualify(vt)}`,
         category: 'plausibility',
         severity: 'warning',
         level: 'table',
@@ -242,9 +243,9 @@ function generateSchemaChecks(
         threshold: 0,
         sql: `
           SELECT COUNT(*)::BIGINT AS violated_rows,
-                 (SELECT COUNT(*)::BIGINT FROM "${vt.table}") AS total_rows
-          FROM "${vt.table}" v
-          JOIN "${pt.table}" p ON v."${vt.patientIdColumn}" = p."${pt.idColumn}"
+                 (SELECT COUNT(*)::BIGINT FROM ${qualify(vt)}) AS total_rows
+          FROM ${qualify(vt)} v
+          JOIN ${qualify(pt)} p ON v."${vt.patientIdColumn}" = p."${pt.idColumn}"
           WHERE v."${vt.startDateColumn}" IS NOT NULL
             AND (${birthExpr} < 0 OR ${birthExpr} > 130)
         `,
@@ -260,7 +261,7 @@ function generateSchemaChecks(
       checks.push({
         id: `schema_orphan_events_${et.table}`,
         name: 'orphanRecords',
-        description: `Records in "${et.table}" (${label}) referencing non-existent patients`,
+        description: `Records in ${qualify(et)} (${label}) referencing non-existent patients`,
         category: 'consistency',
         severity: 'error',
         level: 'table',
@@ -269,9 +270,9 @@ function generateSchemaChecks(
         threshold: 0,
         sql: `
           SELECT COUNT(*)::BIGINT AS violated_rows,
-                 (SELECT COUNT(*)::BIGINT FROM "${et.table}") AS total_rows
-          FROM "${et.table}" e
-          LEFT JOIN "${pt.table}" p ON e."${patCol}" = p."${pt.idColumn}"
+                 (SELECT COUNT(*)::BIGINT FROM ${qualify(et)}) AS total_rows
+          FROM ${qualify(et)} e
+          LEFT JOIN ${qualify(pt)} p ON e."${patCol}" = p."${pt.idColumn}"
           WHERE p."${pt.idColumn}" IS NULL
         `,
       })
@@ -293,7 +294,7 @@ function generateSchemaChecks(
         checks.push({
           id: `schema_event_after_birth_${et.table}`,
           name: 'eventAfterBirth',
-          description: `Events in "${et.table}" (${label}) occur after patient birth`,
+          description: `Events in ${qualify(et)} (${label}) occur after patient birth`,
           category: 'plausibility',
           severity: 'error',
           level: 'table',
@@ -302,9 +303,9 @@ function generateSchemaChecks(
           threshold: 0,
           sql: `
             SELECT COUNT(*)::BIGINT AS violated_rows,
-                   (SELECT COUNT(*)::BIGINT FROM "${et.table}") AS total_rows
-            FROM "${et.table}" e
-            JOIN "${pt.table}" p ON e."${patCol}" = p."${pt.idColumn}"
+                   (SELECT COUNT(*)::BIGINT FROM ${qualify(et)}) AS total_rows
+            FROM ${qualify(et)} e
+            JOIN ${qualify(pt)} p ON e."${patCol}" = p."${pt.idColumn}"
             WHERE e."${et.dateColumn}" IS NOT NULL
               AND ${birthCheck}
           `,
@@ -321,7 +322,7 @@ function generateSchemaChecks(
       checks.push({
         id: `schema_patient_coverage_${et.table}`,
         name: 'patientCoverage',
-        description: `% of patients with ≥1 record in "${et.table}" (${label})`,
+        description: `% of patients with ≥1 record in ${qualify(et)} (${label})`,
         category: 'completeness',
         severity: 'notice',
         level: 'table',
@@ -334,9 +335,9 @@ function generateSchemaChecks(
             total_patients::BIGINT AS total_rows
           FROM (
             SELECT
-              (SELECT COUNT(*) FROM "${pt.table}") AS total_patients,
+              (SELECT COUNT(*) FROM ${qualify(pt)}) AS total_patients,
               COUNT(DISTINCT e."${patCol}") AS patients_with_records
-            FROM "${et.table}" e
+            FROM ${qualify(et)} e
           ) sub
         `,
       })
