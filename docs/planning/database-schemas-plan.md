@@ -114,13 +114,33 @@ and `packages/linkr-format` must carry `schema` through
 (`schema-mapping.ts` field order, `serialize/entities.ts`) — CLAUDE.md's
 "export format has a second home" rule.
 
-**Client mode needs care.** `role-prefix.ts` rewrites a role qualifier into the
-source's schema: `source.` → `"<schema>".`. That is correct for the two-part form,
-but a three-part `source.hosp.patients` would become `"<schema>".hosp.patients` —
-a schema where a catalog is expected. Since a WASM source is *itself* mounted as
-one schema, the role's schema and the source's schema occupy the same slot, and
-the rewrite has to fold them (`source.hosp.` → `"<schema>_hosp".`, or one schema
-per module at mount time). Decide this before step 3 touches the client path.
+### 3a. Mount a WASM folder as a catalog, not a schema — decided
+
+`role-prefix.ts` rewrites a role qualifier into the source's schema: `source.` →
+`"<schema>".`. Fine for the two-part form, but `source.hosp.patients` would become
+`"<schema>".hosp.patients` — a schema where a catalog is expected — because a WASM
+folder source is mounted as a *schema* `ds_<id>` inside the single `memory`
+database, which uses up the only level available.
+
+DuckDB is not the constraint: three levels work in WASM as anywhere else, and the
+client **already** ATTACHes a database per source for the single-file case
+(`engine.ts:208`). Only the folder path uses `CREATE SCHEMA`.
+
+So: mount a folder with `ATTACH ':memory:' AS ds_<id>` too, and put the module
+schemas inside it. Both modes then agree — a source is a catalog, its modules are
+schemas — and `role-prefix.ts` needs no change at all: `source.hosp.patients`
+becomes `"ds_abc".hosp.patients`, which is valid. Verified against the same mount
+shape: three-part names, the bare name via `search_path`, and `ds_abc.patients`
+all resolve, and two modules may hold the same table name.
+
+Rejected: folding the two levels into `"<schema>_hosp".`. It invents schema names
+that exist nowhere in the source and makes the client diverge from the server.
+
+Watch two things: the places that assume "schema-based **or** ATTACHed"
+(`discoverTables`, `safeDropSchema`, the `attached` flag, the four `search_path`
+sites), and `mountEmptyFromDDL`, which has the same one-level assumption *and*
+swallows failed statements in a `console.warn` — so a regression there would be
+silent. Fixing it is also the prerequisite for step 5's schema-qualified DDL.
 
 ### 4. Content — MIMIC-IV first
 

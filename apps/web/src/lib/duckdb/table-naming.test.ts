@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commonDirPrefix, extractTableName, extractTableRef } from './engine'
+import { commonDirPrefix, extractTableName, extractTableRef, groupFilesByTable } from './engine'
 
 const MIMIC_IV_FILES = [
   'admissions', 'caregiver', 'chartevents', 'd_hcpcs', 'd_icd_diagnoses',
@@ -120,6 +120,57 @@ describe('extractTableRef', () => {
     ]) {
       expect(extractTableRef(p, '').table).toBe(extractTableName(p))
     }
+  })
+})
+
+describe('groupFilesByTable', () => {
+  const file = (fileName: string) => ({ fileName, data: new ArrayBuffer(0) } as never)
+
+  it('keys a flat folder by the bare table name', () => {
+    const g = groupFilesByTable([
+      file('mimic-iv-raw-parquet/patients.parquet'),
+      file('mimic-iv-raw-parquet/admissions.parquet'),
+    ])
+    expect([...g.keys()].sort()).toEqual(['admissions', 'patients'])
+  })
+
+  it('keys a module folder by schema.table', () => {
+    const g = groupFilesByTable([
+      file('mimic-iv/hosp/patients.parquet'),
+      file('mimic-iv/icu/icustays.parquet'),
+    ])
+    expect([...g.keys()].sort()).toEqual(['hosp.patients', 'icu.icustays'])
+  })
+
+  it('keeps two same-named tables of different schemas apart', () => {
+    // Flattened, one of these silently swallowed the other's file.
+    const g = groupFilesByTable([
+      file('ehop/EDBM_EDS/EHOP_PATIENT.parquet'),
+      file('ehop/EDBM_ZPAT/EHOP_PATIENT.parquet'),
+    ])
+    expect([...g.keys()].sort()).toEqual(['edbm_eds.ehop_patient', 'edbm_zpat.ehop_patient'])
+    expect(g.get('edbm_eds.ehop_patient')).toHaveLength(1)
+  })
+
+  it('still groups the shards of one table together', () => {
+    const g = groupFilesByTable([
+      file('wh/icu/chartevents/part-00000.parquet'),
+      file('wh/icu/chartevents/part-00001.parquet'),
+      file('wh/hosp/patients.parquet'),
+    ])
+    expect([...g.keys()].sort()).toEqual(['hosp.patients', 'icu.chartevents'])
+    expect(g.get('icu.chartevents')).toHaveLength(2)
+  })
+
+  it('selecting a single table\'s shard directory yields no schema', () => {
+    // The root is whatever the selection shares, so picking `wh/icu/chartevents`
+    // itself leaves nothing above the table — and no schema to read.
+    const g = groupFilesByTable([
+      file('wh/icu/chartevents/part-00000.parquet'),
+      file('wh/icu/chartevents/part-00001.parquet'),
+    ])
+    expect([...g.keys()]).toEqual(['chartevents'])
+    expect(g.get('chartevents')).toHaveLength(2)
   })
 })
 

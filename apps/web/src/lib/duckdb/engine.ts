@@ -198,9 +198,10 @@ export async function mountDataSource(
     await safeDropSchema(conn, dataSource.id)
 
     if (config.fileIds && config.fileIds.length > 0) {
-      // Multi-file folder mode -> create schema + views per table
+      // Multi-file folder mode -> ATTACH a catalog + views per table
       const knownTables = dataSource.schemaMapping?.knownTables
       await mountFileFolder(db, conn, schema, files, knownTables)
+      attachedSources.add(dataSource.id)
     } else if (files.length > 0) {
       // Single file -> ATTACH (DuckDB or SQLite)
       const file = files[0]
@@ -251,9 +252,13 @@ export async function mountEmptyFromDDL(
     // Clean up any leftover schema
     await safeDropSchema(conn, dataSourceId)
 
-    // Create schema + set search path so CREATE TABLE goes into it
-    await conn.query(`CREATE SCHEMA "${schema}"`)
-    await conn.query(`SET search_path TO "${schema}"`)
+    // ATTACH rather than CREATE SCHEMA, so the source is a catalog here as it is
+    // everywhere else. A DDL that declares its own schemas (`CREATE SCHEMA hosp;
+    // CREATE TABLE hosp.patients …`) then lands inside the source instead of
+    // spilling into `memory`, and unqualified statements still land in its main.
+    await conn.query(`ATTACH ':memory:' AS "${schema}"`)
+    attachedSources.add(dataSourceId)
+    await conn.query(`SET search_path TO "${schema}".main`)
 
     // Execute DDL statement by statement, skipping unsupported ALTER TABLE constraints
     const statements = ddl.split(';').map((s) => s.trim()).filter(Boolean)
@@ -281,6 +286,35 @@ export async function mountEmptyFromDDL(
 
 // --- Query ---
 
+/**
+ * `SET search_path` for an ATTACHed source: its `main`, then every module schema
+ * it carries, so a bare table name resolves whether or not the folder had module
+ * directories. Sorted, so which schema wins a name present in two of them never
+ * depends on mount order.
+ *
+ * The whole list is ONE single-quoted literal: `SET search_path` takes a scalar,
+ * and a bare comma-separated list is a parser error. Schema names come from the
+ * catalog and are identifiers, so they cannot carry a quote to escape.
+ */
+async function catalogSearchPath(
+  conn: duckdb.AsyncDuckDBConnection,
+  catalog: string,
+): Promise<string> {
+  try {
+    const rows = await conn.query(
+      `SELECT schema_name FROM information_schema.schemata
+       WHERE catalog_name = '${catalog}' AND schema_name <> 'main'
+       ORDER BY schema_name`,
+    )
+    const schemas = rows.toArray().map((r: Record<string, unknown>) => String(r.schema_name))
+    const path = [`${catalog}.main`, ...schemas.map((s) => `${catalog}.${s}`)].join(',')
+    return `'${path}'`
+  } catch {
+    // Older mount or no catalog yet — the plain form is what always worked.
+    return `'${catalog}.main'`
+  }
+}
+
 /** Discover table names in a mounted data source. */
 export async function discoverTables(dataSourceId: string): Promise<string[]> {
   // Server mode: the source's own catalog (not DuckDB's information_schema,
@@ -295,16 +329,24 @@ export async function discoverTables(dataSourceId: string): Promise<string[]> {
 
   try {
     // A source can be either schema-based (tables under a schema named `<schema>`)
-    // OR ATTACHed as a single file (tables under `<schema>.main`). The `attached`
-    // flag can flip mid-session (queryDataSource's fallback promotes a source to
-    // attached), which is why a second scan saw zero tables while the first saw
-    // them. Match BOTH layouts so discovery is stable regardless of the flag.
+    // OR ATTACHed as its own catalog. The `attached` flag can flip mid-session
+    // (queryDataSource's fallback promotes a source to attached), which is why a
+    // second scan saw zero tables while the first saw them. Match BOTH layouts so
+    // discovery is stable regardless of the flag.
+    //
+    // A module directory becomes a schema inside the catalog, so a table there is
+    // reported as `hosp.patients` — the same qualified name the server reports,
+    // and the one `quoteTableRef` knows how to quote back.
     const result = await conn.query(
-      `SELECT DISTINCT table_name FROM information_schema.tables
-       WHERE table_schema = '${schema}' OR (table_catalog = '${schema}' AND table_schema = 'main')
-       ORDER BY table_name`,
+      `SELECT DISTINCT table_schema, table_name FROM information_schema.tables
+       WHERE table_schema = '${schema}' OR table_catalog = '${schema}'
+       ORDER BY table_schema, table_name`,
     )
-    return result.toArray().map((row: Record<string, unknown>) => String(row.table_name))
+    return result.toArray().map((row: Record<string, unknown>) => {
+      const s = String(row.table_schema)
+      const t = String(row.table_name)
+      return s === schema || s === 'main' ? t : `${s}.${t}`
+    })
   } finally {
     await conn.close()
   }
@@ -446,13 +488,13 @@ export async function queryDataSource(
   try {
     // Try schema-based path first, fall back to catalog.main for ATTACHed databases
     if (attachedSources.has(dataSourceId)) {
-      await conn.query(`SET search_path TO "${schema}".main`)
+      await conn.query(`SET search_path TO ${await catalogSearchPath(conn, schema)}`)
     } else {
       try {
         await conn.query(`SET search_path TO "${schema}"`)
       } catch {
         // Schema might be an ATTACHed catalog — retry with catalog.main
-        await conn.query(`SET search_path TO "${schema}".main`)
+        await conn.query(`SET search_path TO ${await catalogSearchPath(conn, schema)}`)
         attachedSources.add(dataSourceId)
       }
     }
@@ -692,6 +734,42 @@ export function extractTableRef(
 }
 
 /**
+ * A grouping key that survives a Map: `table`, or `schema.table`.
+ *
+ * Two modules may hold the same table name (eHOP's de-identified and nominative
+ * EHOP_PATIENT), so the schema has to be part of the key or one silently
+ * swallows the other's files.
+ */
+function tableKey(ref: { schema: string | undefined; table: string }): string {
+  return ref.schema ? `${ref.schema}.${ref.table}` : ref.table
+}
+
+/** Split a `tableKey` back into its parts. */
+function splitTableKey(key: string): { schema?: string; table: string } {
+  const i = key.indexOf('.')
+  return i < 0 ? { table: key } : { schema: key.slice(0, i), table: key.slice(i + 1) }
+}
+
+/**
+ * `CREATE VIEW` for one grouped table inside the source's catalog, creating the
+ * module schema on the way. `main` is the home of a folder that carried no
+ * module directories — the shape every source imported before schemas existed.
+ */
+async function createSourceView(
+  conn: duckdb.AsyncDuckDBConnection,
+  catalog: string,
+  key: string,
+  reader: string,
+): Promise<void> {
+  const { schema, table } = splitTableKey(key)
+  const target = schema ?? 'main'
+  if (schema) await conn.query(`CREATE SCHEMA IF NOT EXISTS "${catalog}"."${schema}"`)
+  await conn.query(
+    `CREATE OR REPLACE VIEW "${catalog}"."${target}"."${table}" AS SELECT * FROM ${reader}`,
+  )
+}
+
+/**
  * Deepest directory shared by every path — what a folder picker selected.
  * Returns '' when the paths are bare file names (no directory component).
  */
@@ -710,12 +788,13 @@ export function commonDirPrefix(paths: string[]): string {
 
 /** Group StoredFile entries by table name. */
 export function groupFilesByTable(files: StoredFile[], knownTables?: string[]): Map<string, StoredFile[]> {
+  const root = commonDirPrefix(files.map((f) => f.fileName))
   const map = new Map<string, StoredFile[]>()
   for (const file of files) {
-    const table = extractTableName(file.fileName, knownTables)
-    const group = map.get(table) ?? []
+    const key = tableKey(extractTableRef(file.fileName, root, knownTables))
+    const group = map.get(key) ?? []
     group.push(file)
-    map.set(table, group)
+    map.set(key, group)
   }
   return map
 }
@@ -735,7 +814,14 @@ function buildReaderExpr(fileNames: string[]): string {
   return `${fn}([${list}])`
 }
 
-/** Mount a folder of data files (Parquet or CSV) as views in a DuckDB schema. */
+/**
+ * Mount a folder of data files (Parquet or CSV) as views in the source's catalog.
+ *
+ * ATTACHed rather than created as a schema, so a source is a *catalog* here as it
+ * is on the server, and its module directories can be schemas inside it. A plain
+ * schema would use up the only level available and leave `source.hosp.patients`
+ * with nowhere to put `hosp`.
+ */
 async function mountFileFolder(
   db: duckdb.AsyncDuckDB,
   conn: duckdb.AsyncDuckDBConnection,
@@ -743,10 +829,10 @@ async function mountFileFolder(
   files: StoredFile[],
   knownTables?: string[],
 ): Promise<void> {
-  await conn.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`)
+  await conn.query(`ATTACH ':memory:' AS "${schema}"`)
   const byTable = groupFilesByTable(files, knownTables)
 
-  for (const [tableName, tableFiles] of byTable) {
+  for (const [key, tableFiles] of byTable) {
     // Register all files for this table
     const registeredNames: string[] = []
     for (const f of tableFiles) {
@@ -754,10 +840,7 @@ async function mountFileFolder(
       registeredNames.push(f.fileName)
     }
 
-    const reader = buildReaderExpr(registeredNames)
-    await conn.query(
-      `CREATE VIEW "${schema}"."${tableName}" AS SELECT * FROM ${reader}`,
-    )
+    await createSourceView(conn, schema, key, buildReaderExpr(registeredNames))
   }
 }
 
@@ -783,14 +866,18 @@ export async function requestHandlePermissions(
   return true
 }
 
-/** Group StoredFileHandle entries by table name. */
-function groupHandlesByTable(handles: StoredFileHandle[], knownTables?: string[]): Map<string, StoredFileHandle[]> {
+/** Group StoredFileHandle entries by the (schema, table) their path stands for. */
+function groupHandlesByTable(
+  handles: StoredFileHandle[],
+  knownTables?: string[],
+): Map<string, StoredFileHandle[]> {
+  const root = commonDirPrefix(handles.map((h) => h.fileName))
   const map = new Map<string, StoredFileHandle[]>()
   for (const h of handles) {
-    const table = extractTableName(h.fileName, knownTables)
-    const group = map.get(table) ?? []
+    const key = tableKey(extractTableRef(h.fileName, root, knownTables))
+    const group = map.get(key) ?? []
     group.push(h)
-    map.set(table, group)
+    map.set(key, group)
   }
   return map
 }
@@ -818,12 +905,13 @@ export async function mountDataSourceFromHandles(
     await safeDropSchema(conn, dataSource.id)
 
     if (config.fileIds && config.fileIds.length > 0) {
-      // Multi-file folder mode
-      await conn.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`)
+      // Multi-file folder mode -> ATTACH a catalog, as the IDB path does
+      await conn.query(`ATTACH ':memory:' AS "${schema}"`)
+      attachedSources.add(dataSource.id)
       const knownTables = dataSource.schemaMapping?.knownTables
       const byTable = groupHandlesByTable(handles, knownTables)
 
-      for (const [tableName, tableHandles] of byTable) {
+      for (const [key, tableHandles] of byTable) {
         const registeredNames: string[] = []
         for (const h of tableHandles) {
           const file = await h.handle.getFile()
@@ -836,10 +924,7 @@ export async function mountDataSourceFromHandles(
           registeredNames.push(h.fileName)
         }
 
-        const reader = buildReaderExpr(registeredNames)
-        await conn.query(
-          `CREATE VIEW "${schema}"."${tableName}" AS SELECT * FROM ${reader}`,
-        )
+        await createSourceView(conn, schema, key, buildReaderExpr(registeredNames))
       }
     } else if (handles.length > 0) {
       // Single file -> ATTACH
