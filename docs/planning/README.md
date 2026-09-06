@@ -80,6 +80,32 @@ arbitrated 2026-08-05; `xl-*` exporters are GPL-3.0 (compatible, no commercial l
 | 🔜 | 6. Presentation mode (port `splitBlocksIntoSlides` + `computeFitScale`, overlay, shortcuts) | M |
 | 🔜 | 7. Exports (md/HTML → DOCX/ODT/PDF via XL → PPTX via `pptxgenjs`) | L |
 
+## Database schemas — [database-schemas-plan.md](database-schemas-plan.md)
+
+A source rarely lives in one namespace — MIMIC-IV is `hosp` + `icu` + `note`, eHOP spreads
+56 tables over 11 Oracle schemas — but a mapping addresses a table by a bare name and a
+Parquet import drops the folder it came from. Lossy, not cosmetic: eHOP 4.4 has two
+different `EHOP_PATIENT` (de-identified `EDBM_EDS`, nominative `EDBM_ZPAT`), so one is
+simply unreachable and ships commented out of `schema.ddl`. DuckDB handles this fine; the
+limit is ours — we emit `"schema.table"` as **one** quoted identifier, which names a table
+containing a dot.
+
+**`search_path` first, qualification second**: with the source's schemas on the path, every
+existing bare-name mapping *and* the `source.<table>` of both ETL pipelines keeps resolving
+untouched, so nothing migrates on day one and migration is then per-script (a three-part and
+a two-part name join in one query). Measured on the real 36-file MIMIC-IV folder, in Python
+and R alike. Step 1 is not optional: with schemas but no `search_path`, `source.patients`
+fails and **both pipelines break**.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | 1. `search_path` from the attached schemas in `_attach_role` (+ deterministic order) — ship first | S |
+| 🔜 | 2. `_table_of` + `extractTableName` return `(schema, table)`, views per schema (flat folders unchanged) | M |
+| 🔜 | 3. `schema?` on the mapping + `qualify()` + the ~91 `FROM "${…}"` call sites + editor + `linkr-format` | M/L |
+| 🔜 | 4. Fix MIMIC-IV `knownTables` — `radiology`, `radiology_detail`, `discharge_detail` missing; `demo_subject_id` stale | S |
+| 🔜 | 5. **[TO TEST]** MIMIC-IV Parquet re-laid as `hosp/` `icu/` `note/`, DDL with `CREATE SCHEMA`, re-import | M |
+| 🔜 | 6. Rebuild the eHOP presets with their 11 schemas; restore 4.4's nominative table | M |
+
 ## Schema preset identity — [schema-preset-identity-plan.md](schema-preset-identity-plan.md)
 
 Schema presets were the only entity whose `presetId` played all three roles at once (local

@@ -963,8 +963,10 @@ def run_etl_sql(
             _lock_down_user_sql(con)
 
             # Unqualified names must not silently fall back to another attached
-            # database: keep the writable target first.
-            search_path = "target,memory"
+            # database: keep the writable target first. The role schemas trail it,
+            # so `source.patients` resolves without `patients` alone ever reaching
+            # a read-only role.
+            search_path = ",".join(["target", "memory", *_role_schema_path(con)])
             return _run_statements(con, search_path, sql, on_statement=on_statement)
         except duckdb.InterruptException as e:
             # Only a cancel raises this — report it as such rather than as a SQL
@@ -1024,6 +1026,33 @@ def _already_attached_as(spec: dict, attached: dict[str, str]) -> str | None:
     if spec.get("kind") != "file":
         return None
     return attached.get(_real_path(spec["path"]))
+
+
+def _role_schema_path(con: duckdb.DuckDBPyConnection) -> list[str]:
+    """`catalog.schema` for every non-main schema of the attached role databases.
+
+    A source published as several schemas (MIMIC-IV's `hosp`/`icu`, eHOP's eleven
+    Oracle schemas) would otherwise be unreachable through the two-part
+    `source.<table>` that the shipped pipelines use everywhere: DuckDB resolves
+    that form through the catalog search path, and a role's schemas were never on
+    it. Qualifying only reaches `role.schema.table`, so without this a
+    multi-schema source breaks ~24 references per pipeline.
+
+    `main` is deliberately absent: `role.table` already resolves there, and adding
+    it would put a read-only role's tables in reach of an unqualified name.
+    Ordered by catalog then schema so a run is reproducible — with two schemas
+    holding the same table name, the winner must not depend on attach order."""
+    rows = con.execute(
+        "SELECT DISTINCT catalog_name, schema_name FROM information_schema.schemata "
+        "WHERE catalog_name NOT IN ('system', 'temp', 'memory', 'target') "
+        "AND schema_name NOT IN ('main', 'information_schema', 'pg_catalog') "
+        "ORDER BY catalog_name, schema_name"
+    ).fetchall()
+    return [
+        f'"{_require_ident(str(cat), "catalog name")}".'
+        f'"{_require_ident(str(schema), "schema name")}"'
+        for cat, schema in rows
+    ]
 
 
 def _alias_role(con: duckdb.DuckDBPyConnection, role: str, target_db: str) -> None:
