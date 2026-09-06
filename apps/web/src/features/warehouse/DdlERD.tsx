@@ -21,29 +21,28 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import type { ErdGroup } from '@/types/schema-mapping'
+import {
+  parseDdl, matchesTableName, lookupByTableName,
+  type ParsedColumn, type ParsedTable,
+} from '@/lib/ddl-parse'
 import { DdlERDGroupPanel } from './DdlERDGroupPanel'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface ParsedColumn {
-  name: string
-  type: string
-  nullable: boolean
-  isPk: boolean
-}
-
-export interface ParsedTable {
-  name: string
-  columns: ParsedColumn[]
-  pkColumns: string[]
-  fks: { columns: string[]; refTable: string; refColumns: string[] }[]
-}
-
+/**
+ * A table node's data.
+ *
+ * The node's React Flow **id** is the table's qualified name, so two tables of
+ * the same name in different schemas stay two nodes; `label` is the bare name and
+ * `schema` is rendered beside it, which keeps the box readable while the id stays
+ * unambiguous.
+ */
 interface DdlNodeData {
   [key: string]: unknown
   label: string
+  schema?: string
   columns: ParsedColumn[]
   fks: ParsedTable['fks']
 }
@@ -53,113 +52,6 @@ interface DdlGroupNodeData {
   label: string
   color: string
   groupId: string
-}
-
-// ---------------------------------------------------------------------------
-// DDL Parser
-// ---------------------------------------------------------------------------
-
-export function parseDdl(ddl: string): ParsedTable[] {
-  const tables: ParsedTable[] = []
-  const tableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?\.)?(?:"?(\w+)"?)\s*\(([\s\S]*?)\);/gi
-  let match
-
-  while ((match = tableRegex.exec(ddl)) !== null) {
-    const tableName = match[2] || match[1]
-    if (!tableName) continue
-
-    const body = match[3]
-    const columns: ParsedColumn[] = []
-    const pkColumns: string[] = []
-    const fks: ParsedTable['fks'] = []
-
-    for (const line of body.split('\n')) {
-      const trimmed = line.trim().replace(/,$/, '')
-      if (!trimmed) continue
-
-      // Table-level PRIMARY KEY constraint
-      const pkMatch = trimmed.match(/^PRIMARY\s+KEY\s*\(([^)]+)\)/i)
-      if (pkMatch) {
-        pkMatch[1].split(',').forEach((c) => {
-          const col = c.trim().replace(/"/g, '')
-          if (col && !pkColumns.includes(col)) pkColumns.push(col)
-        })
-        continue
-      }
-
-      // Table-level FOREIGN KEY constraint
-      const fkMatch = trimmed.match(
-        /^(?:CONSTRAINT\s+\w+\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)/i,
-      )
-      if (fkMatch) {
-        fks.push({
-          columns: fkMatch[1].split(',').map((c) => c.trim().replace(/"/g, '')),
-          refTable: fkMatch[2],
-          refColumns: fkMatch[3].split(',').map((c) => c.trim().replace(/"/g, '')),
-        })
-        continue
-      }
-
-      // Skip other constraints
-      if (/^(CONSTRAINT|UNIQUE|CHECK|INDEX)/i.test(trimmed)) continue
-
-      // Column definition
-      const colMatch = trimmed.match(/^"?(\w+)"?\s+(\w+(?:\s*\([^)]*\))?)\s*(NOT\s+NULL\s*)?(NULL\s*)?(PRIMARY\s+KEY)?/i)
-      if (colMatch) {
-        const colName = colMatch[1]
-        const colType = colMatch[2].trim()
-        const notNull = !!colMatch[3]
-        const isPk = !!colMatch[5]
-
-        columns.push({ name: colName, type: colType, nullable: !notNull && !isPk, isPk })
-        if (isPk && !pkColumns.includes(colName)) pkColumns.push(colName)
-      }
-    }
-
-    // Mark columns as PK from table-level constraint
-    for (const col of columns) {
-      if (pkColumns.includes(col.name)) col.isPk = true
-    }
-
-    tables.push({ name: tableName, columns, pkColumns, fks })
-  }
-
-  // Build lookup for ALTER TABLE statements
-  const tableMap = new Map<string, ParsedTable>()
-  for (const t of tables) tableMap.set(t.name.toLowerCase(), t)
-
-  // Parse ALTER TABLE ... ADD CONSTRAINT ... PRIMARY KEY (col1, col2)
-  const alterPkRegex = /ALTER\s+TABLE\s+(?:"?(\w+)"?\.)?(?:"?(\w+)"?)\s+ADD\s+CONSTRAINT\s+\w+\s+PRIMARY\s+KEY\s*\(([^)]+)\)/gi
-  while ((match = alterPkRegex.exec(ddl)) !== null) {
-    const tName = (match[2] || match[1])?.toLowerCase()
-    if (!tName) continue
-    const table = tableMap.get(tName)
-    if (!table) continue
-    for (const raw of match[3].split(',')) {
-      const col = raw.trim().replace(/"/g, '')
-      if (col && !table.pkColumns.includes(col)) table.pkColumns.push(col)
-      const colDef = table.columns.find((c) => c.name.toLowerCase() === col.toLowerCase())
-      if (colDef) colDef.isPk = true
-    }
-  }
-
-  // Parse ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY (col) REFERENCES refTable (refCol)
-  const alterFkRegex = /ALTER\s+TABLE\s+(?:"?(\w+)"?\.)?(?:"?(\w+)"?)\s+ADD\s+CONSTRAINT\s+\w+\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+(?:"?(\w+)"?\.)?(?:"?(\w+)"?)\s*\(([^)]+)\)/gi
-  while ((match = alterFkRegex.exec(ddl)) !== null) {
-    const tName = (match[2] || match[1])?.toLowerCase()
-    if (!tName) continue
-    const table = tableMap.get(tName)
-    if (!table) continue
-    const refTable = match[5] || match[4]
-    if (!refTable) continue
-    table.fks.push({
-      columns: match[3].split(',').map((c) => c.trim().replace(/"/g, '')),
-      refTable: refTable.toLowerCase(),
-      refColumns: match[6].split(',').map((c) => c.trim().replace(/"/g, '')),
-    })
-  }
-
-  return tables
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +94,11 @@ function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
       <div className="rounded-lg border-2 shadow-lg bg-card border-border" style={{ width: 260 }}>
         <div className="flex items-center gap-2 rounded-t-md px-3 py-2 bg-muted/60">
           <Table2 size={13} className="text-muted-foreground shrink-0" />
+          {/* The schema prefixes the name rather than replacing it: on a DDL with
+              homonyms it is the only thing telling two identical boxes apart. */}
+          {data.schema && (
+            <span className="text-xs text-muted-foreground shrink-0">{data.schema}.</span>
+          )}
           <span className="text-xs font-bold text-foreground truncate">{data.label}</span>
           <span className="ml-auto text-[10px] text-muted-foreground">{data.columns.length}</span>
         </div>
@@ -312,14 +209,6 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
   const tables = hiddenTables ? allTables.filter((t) => !hiddenTables.has(t.name.toLowerCase())) : allTables
   const nodes: Node[] = []
 
-  // Build table name → group lookup (case-insensitive)
-  const tableGroupMap = new Map<string, ErdGroup>()
-  for (const group of erdGroups ?? []) {
-    for (const t of group.tables) {
-      tableGroupMap.set(t.toLowerCase(), group)
-    }
-  }
-
   const hasLayout = erdLayout && Object.keys(erdLayout).length > 0
   const groups = erdGroups ?? []
 
@@ -329,19 +218,21 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
     // Create table nodes first to compute group bounding boxes
     const tableNodes: Node[] = []
     for (const t of tables) {
-      const pos = erdLayout[t.name] ?? erdLayout[t.name.toLowerCase()]
+      const pos = lookupByTableName(erdLayout, t)
       tableNodes.push({
         id: t.name,
         type: 'ddlTable',
         position: pos ?? { x: 0, y: 0 },
-        data: { label: t.name, columns: t.columns, fks: t.fks } as DdlNodeData,
+        data: { label: t.bareName, schema: t.schema, columns: t.columns, fks: t.fks } as DdlNodeData,
       })
     }
 
     // Create group nodes from bounding boxes of their children
     for (const group of groups) {
-      const groupTableNames = new Set(group.tables.map((t) => t.toLowerCase()))
-      const children = tableNodes.filter((n) => groupTableNames.has(n.id.toLowerCase()))
+      const children = tableNodes.filter((n) => {
+        const t = tables.find((tt) => tt.name === n.id)
+        return !!t && group.tables.some((g) => matchesTableName(t, g))
+      })
       if (children.length === 0) continue
 
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
@@ -383,10 +274,8 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
   } else {
     // --- Auto-layout mode: arrange tables within groups ---
 
-    const groupedTableNames = new Set<string>()
-    for (const g of groups) {
-      for (const t of g.tables) groupedTableNames.add(t.toLowerCase())
-    }
+    const isGrouped = (t: ParsedTable) =>
+      groups.some((g) => g.tables.some((name) => matchesTableName(t, name)))
 
     let metaX = 0
     let metaY = 0
@@ -395,8 +284,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
     let metaColIdx = 0
 
     for (const group of groups) {
-      const groupTableNames = new Set(group.tables.map((t) => t.toLowerCase()))
-      const groupTables = tables.filter((t) => groupTableNames.has(t.name.toLowerCase()))
+      const groupTables = tables.filter((t) => group.tables.some((g) => matchesTableName(t, g)))
       if (groupTables.length === 0) continue
 
       // Layout tables in a mini-grid inside the group
@@ -413,7 +301,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
           id: t.name,
           type: 'ddlTable',
           position: { x: gx, y: gy },
-          data: { label: t.name, columns: t.columns, fks: t.fks } as DdlNodeData,
+          data: { label: t.bareName, schema: t.schema, columns: t.columns, fks: t.fks } as DdlNodeData,
           parentId: `group-${group.id}`,
           expandParent: true,
         })
@@ -457,7 +345,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
     }
 
     // Ungrouped tables in a flat grid below groups
-    const ungrouped = tables.filter((t) => !groupedTableNames.has(t.name.toLowerCase()))
+    const ungrouped = tables.filter((t) => !isGrouped(t))
     if (ungrouped.length > 0) {
       let ux = 0
       let uy = metaY + metaRowH + NODE_GAP_Y * 2
@@ -471,7 +359,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
           id: t.name,
           type: 'ddlTable',
           position: { x: ux, y: uy },
-          data: { label: t.name, columns: t.columns, fks: t.fks } as DdlNodeData,
+          data: { label: t.bareName, schema: t.schema, columns: t.columns, fks: t.fks } as DdlNodeData,
         })
         uRowH = Math.max(uRowH, h)
         uColIdx++
@@ -605,12 +493,10 @@ function ErdFilterSheet({ groups, allTables, hiddenGroups, hiddenTables, open, o
   const { t } = useTranslation()
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
 
-  const groupedTableNames = useMemo(() => {
-    const set = new Set<string>()
-    for (const g of groups) for (const tbl of g.tables) set.add(tbl.toLowerCase())
-    return set
-  }, [groups])
-  const ungrouped = allTables.filter((tbl) => !groupedTableNames.has(tbl.name.toLowerCase()))
+  const ungrouped = useMemo(
+    () => allTables.filter((tbl) => !groups.some((g) => g.tables.some((name) => matchesTableName(tbl, name)))),
+    [allTables, groups],
+  )
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -629,7 +515,7 @@ function ErdFilterSheet({ groups, allTables, hiddenGroups, hiddenTables, open, o
             {groups.map((group) => {
               const groupHidden = hiddenGroups.has(group.id)
               const isExpanded = expandedGroupId === group.id
-              const groupTables = allTables.filter((tbl) => group.tables.some((gt) => gt.toLowerCase() === tbl.name.toLowerCase()))
+              const groupTables = allTables.filter((tbl) => group.tables.some((gt) => matchesTableName(tbl, gt)))
 
               return (
                 <div key={group.id} className="rounded-lg border bg-muted/30">
@@ -754,15 +640,22 @@ export function DdlERD({
   const [hiddenTableNames, setHiddenTableNames] = useState<Set<string>>(new Set())
 
   // Compute effective hidden tables (hidden groups + individually hidden tables)
+  // Hiding is keyed on the QUALIFIED name, because that is a node's identity. A
+  // group lists its tables by whichever name its author wrote — usually the bare
+  // one — so each is resolved against the parsed tables rather than added as-is,
+  // which otherwise hid nothing at all on a schema-qualified DDL.
   const hiddenTables = useMemo(() => {
     const set = new Set(hiddenTableNames)
     for (const group of erdGroups ?? []) {
-      if (hiddenGroups.has(group.id)) {
-        for (const t of group.tables) set.add(t.toLowerCase())
+      if (!hiddenGroups.has(group.id)) continue
+      for (const name of group.tables) {
+        for (const table of tables) {
+          if (matchesTableName(table, name)) set.add(table.name.toLowerCase())
+        }
       }
     }
     return set.size > 0 ? set : undefined
-  }, [hiddenGroups, hiddenTableNames, erdGroups])
+  }, [hiddenGroups, hiddenTableNames, erdGroups, tables])
 
   const toggleGroup = useCallback((groupId: string) => {
     setHiddenGroups((prev) => {
