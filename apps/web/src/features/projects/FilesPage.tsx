@@ -19,8 +19,6 @@ import {
   Lock,
   Eye,
   EyeOff,
-  ChevronLeft,
-  ChevronRight,
   Play,
   ChevronDown,
   Plus,
@@ -66,6 +64,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
+import { TabScrollArrow, useTabScroll } from '@/components/editor/use-tab-scroll'
 import { CodeEditor, type PendingEdits } from '@/components/editor/CodeEditor'
 import { useFileStore } from '@/stores/file-store'
 import { useAppStore } from '@/stores/app-store'
@@ -105,7 +104,7 @@ import { useSessionStore } from '@/stores/session-store'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
 import { DocumentationDialog } from './files/DocumentationDialog'
 import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
-import { EditorSettingsDialog } from './files/EditorSettingsDialog'
+import { IdeSettingsDialog } from './files/IdeSettingsDialog'
 import { ConnectionsPanel } from './files/ConnectionsPanel'
 import { ConnectionDropdown } from './files/ConnectionDropdown'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
@@ -177,6 +176,7 @@ export function FilesPage() {
   const datasetFiles = useDatasetStore((s) => s.files)
   const { nodes } = useProjectTree(activeProjectUid)
   const idePath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.idePath)
+  const reuseOutputTabs = useAppStore((s) => s.editorSettings.reuseOutputTabs)
   const resolvedDirs = useResolvedDirs(activeProjectUid, idePath ?? '')
 
   const [createFileOpen, setCreateFileOpen] = useState(false)
@@ -188,7 +188,7 @@ export function FilesPage() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [docsOpen, setDocsOpen] = useState(false)
   const [schemaDialogOpen, setSchemaDialogOpen] = useState(false)
-  const [editorSettingsOpen, setEditorSettingsOpen] = useState(false)
+  const [ideSettingsOpen, setIdeSettingsOpen] = useState(false)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [explorerVisible, setExplorerVisible] = useState(true)
   const fileSearch = useSidebarSearch()
@@ -199,63 +199,11 @@ export function FilesPage() {
   const [dropOutputInsert, setDropOutputInsert] = useState<{ id: string; side: 'left' | 'right' } | null>(null)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
 
-  // --- Tab scroll with arrows (file tabs) ---
-  // How the file and output tab groups share the bar's width.
+  // How the file and output tab groups share the bar's width, and how each one
+  // scrolls its own overflow.
   const tabSplit = useTabGroupSplit('ide')
-  const fileTabScrollRef = useRef<HTMLDivElement>(null)
-  const [fileTabCanScrollLeft, setFileTabCanScrollLeft] = useState(false)
-  const [fileTabCanScrollRight, setFileTabCanScrollRight] = useState(false)
-
-  const updateFileTabScroll = useCallback(() => {
-    const el = fileTabScrollRef.current
-    if (!el) return
-    setFileTabCanScrollLeft(el.scrollLeft > 0)
-    setFileTabCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
-  }, [])
-
-  useEffect(() => {
-    updateFileTabScroll()
-    const el = fileTabScrollRef.current
-    if (!el) return
-    el.addEventListener('scroll', updateFileTabScroll)
-    const ro = new ResizeObserver(updateFileTabScroll)
-    ro.observe(el)
-    return () => {
-      el.removeEventListener('scroll', updateFileTabScroll)
-      ro.disconnect()
-    }
-  }, [updateFileTabScroll, openFileIds.length])
-
-  // --- Tab scroll with arrows (output tabs) ---
-  const outputTabScrollRef = useRef<HTMLDivElement>(null)
-  const [outputTabCanScrollLeft, setOutputTabCanScrollLeft] = useState(false)
-  const [outputTabCanScrollRight, setOutputTabCanScrollRight] = useState(false)
-
-  const updateOutputTabScroll = useCallback(() => {
-    const el = outputTabScrollRef.current
-    if (!el) return
-    setOutputTabCanScrollLeft(el.scrollLeft > 0)
-    setOutputTabCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
-  }, [])
-
-  useEffect(() => {
-    updateOutputTabScroll()
-    const el = outputTabScrollRef.current
-    if (!el) return
-    el.addEventListener('scroll', updateOutputTabScroll)
-    const ro = new ResizeObserver(updateOutputTabScroll)
-    ro.observe(el)
-    return () => {
-      el.removeEventListener('scroll', updateOutputTabScroll)
-      ro.disconnect()
-    }
-  }, [updateOutputTabScroll, outputTabOrder.length])
-
-  const scrollTabs = useCallback((ref: React.RefObject<HTMLDivElement | null>, dir: 'left' | 'right') => {
-    const el = ref.current
-    if (!el) return
-    el.scrollBy({ left: dir === 'left' ? -120 : 120, behavior: 'smooth' })
-  }, [])
+  const { scrollRef: fileTabScrollRef, arrows: fileTabArrows } = useTabScroll([openFileIds.length])
+  const { scrollRef: outputTabScrollRef, arrows: outputTabArrows } = useTabScroll([outputTabOrder.length])
 
   // Load connections, files, and other stores when the project changes. Re-scan
   // files when the ide_path binding changes (same project → new folder); the store
@@ -653,21 +601,29 @@ export function FilesPage() {
       })
 
       const addFiguresAndTable = (result: RuntimeOutput) => {
-        for (const fig of result.figures) {
-          addOutputTab({ id: fig.id, label: `${fig.label} — ${fileName}`, type: 'figure', content: fig.data })
-          setActiveOutputTab(fig.id)
-        }
+        // With reuse on, the id is the kind itself, so `addOutputTab` upserts
+        // the one tab of that kind instead of stacking a new one per run — the
+        // engines stamp Date.now() into every id, so nothing would ever match.
+        // Figures stay indexed by position: a run drawing several plots needs
+        // one tab each, and the next run replaces them pairwise.
+        const outputId = (kind: string, unique: string) => (reuseOutputTabs ? kind : unique)
+
+        result.figures.forEach((fig, i) => {
+          const id = outputId(`figure-${i}`, fig.id)
+          addOutputTab({ id, label: `${fig.label} — ${fileName}`, type: 'figure', content: fig.data })
+          setActiveOutputTab(id)
+        })
         if (result.table) {
           // Focused like a figure or a widget: the console has already printed
           // the frame as text, so leaving the panel there hides the very table
           // that was just built.
-          const id = `table-${Date.now()}`
+          const id = outputId('table', `table-${Date.now()}`)
           addOutputTab({ id, label: `Result — ${fileName}`, type: 'table', content: result.table })
           setActiveOutputTab(id)
         }
         // A rich HTML widget (plotly / leaflet / DT…) → its own tab (iframe).
         if (result.html) {
-          const id = `html-${Date.now()}`
+          const id = outputId('html', `html-${Date.now()}`)
           addOutputTab({ id, label: `Widget — ${fileName}`, type: 'html', content: result.html })
           setActiveOutputTab(id)
         }
@@ -781,7 +737,7 @@ export function FilesPage() {
         finishExecution()
       }
     },
-    [activeConnectionId, activeProjectUid, t, startExecution, finishExecution, addExecutionResult, updateExecutionResult, addOutputTab, setActiveOutputTab]
+    [activeConnectionId, activeProjectUid, t, startExecution, finishExecution, addExecutionResult, updateExecutionResult, addOutputTab, setActiveOutputTab, reuseOutputTabs]
   )
 
   // Stop: abort the run. In server mode, aborting closes the kernel WebSocket,
@@ -1562,19 +1518,19 @@ export function FilesPage() {
                 )}
 
                 <div className="ml-auto flex items-center gap-1">
-                  {/* Order: editor settings, keyboard shortcuts, connections, terminal. */}
+                  {/* Order: settings, keyboard shortcuts, connections, terminal. */}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        onClick={() => setEditorSettingsOpen(true)}
+                        onClick={() => setIdeSettingsOpen(true)}
                       >
                         <Settings2 size={14} />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {t('files.editor_settings')}
+                      {t('files.settings')}
                     </TooltipContent>
                   </Tooltip>
 
@@ -1686,18 +1642,7 @@ export function FilesPage() {
                 <div className="flex items-center border-b bg-muted/30">
                   {/* File tabs */}
                   {openFileIds.length > 0 && (
-                    <button
-                      onClick={() => scrollTabs(fileTabScrollRef, 'left')}
-                      disabled={!fileTabCanScrollLeft}
-                      className={cn(
-                        'shrink-0 px-0.5 py-1.5 transition-colors',
-                        fileTabCanScrollLeft
-                          ? 'text-muted-foreground hover:text-foreground'
-                          : 'text-muted-foreground/25 cursor-default'
-                      )}
-                    >
-                      <ChevronLeft size={12} />
-                    </button>
+                    <TabScrollArrow dir="left" scroll={fileTabArrows} />
                   )}
                   <div
                     ref={fileTabScrollRef}
@@ -1819,18 +1764,7 @@ export function FilesPage() {
                     })}
                   </div>
                   {openFileIds.length > 0 && (
-                    <button
-                      onClick={() => scrollTabs(fileTabScrollRef, 'right')}
-                      disabled={!fileTabCanScrollRight}
-                      className={cn(
-                        'shrink-0 px-0.5 py-1.5 transition-colors',
-                        fileTabCanScrollRight
-                          ? 'text-muted-foreground hover:text-foreground'
-                          : 'text-muted-foreground/25 cursor-default'
-                      )}
-                    >
-                      <ChevronRight size={12} />
-                    </button>
+                    <TabScrollArrow dir="right" scroll={fileTabArrows} />
                   )}
 
                   {/* Vertical separator between file tabs and output tabs */}
@@ -1843,18 +1777,7 @@ export function FilesPage() {
 
                   {/* Output tabs */}
                   {outputTabOrder.length > 0 && (
-                    <button
-                      onClick={() => scrollTabs(outputTabScrollRef, 'left')}
-                      disabled={!outputTabCanScrollLeft}
-                      className={cn(
-                        'shrink-0 px-0.5 py-1.5 transition-colors',
-                        outputTabCanScrollLeft
-                          ? 'text-muted-foreground hover:text-foreground'
-                          : 'text-muted-foreground/25 cursor-default'
-                      )}
-                    >
-                      <ChevronLeft size={12} />
-                    </button>
+                    <TabScrollArrow dir="left" scroll={outputTabArrows} />
                   )}
                   <div
                     ref={outputTabScrollRef}
@@ -2030,18 +1953,7 @@ export function FilesPage() {
                     })}
                   </div>
                   {outputTabOrder.length > 0 && (
-                    <button
-                      onClick={() => scrollTabs(outputTabScrollRef, 'right')}
-                      disabled={!outputTabCanScrollRight}
-                      className={cn(
-                        'shrink-0 px-0.5 py-1.5 transition-colors',
-                        outputTabCanScrollRight
-                          ? 'text-muted-foreground hover:text-foreground'
-                          : 'text-muted-foreground/25 cursor-default'
-                      )}
-                    >
-                      <ChevronRight size={12} />
-                    </button>
+                    <TabScrollArrow dir="right" scroll={outputTabArrows} />
                   )}
                 </div>
               )}
@@ -2290,9 +2202,9 @@ export function FilesPage() {
             dataSourceId={activeConnectionId}
           />
         )}
-        <EditorSettingsDialog
-          open={editorSettingsOpen}
-          onOpenChange={setEditorSettingsOpen}
+        <IdeSettingsDialog
+          open={ideSettingsOpen}
+          onOpenChange={setIdeSettingsOpen}
         />
         {activeProjectUid && (
           <ConnectionsPanel

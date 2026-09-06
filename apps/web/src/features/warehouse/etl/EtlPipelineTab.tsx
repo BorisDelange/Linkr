@@ -249,19 +249,9 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
     return file ? { type: 'script' as const, file, log } : null
   }, [selectedNodeId, sourceDs, targetDs, files, scriptStatuses])
 
-  // Empty state
-  if (sqlFiles.length === 0 && !hasSource && !hasTarget) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <Workflow size={32} className="mx-auto text-muted-foreground/50" />
-          <p className="mt-3 text-sm text-muted-foreground">{t('etl.pipeline_empty')}</p>
-          <p className="mt-1 text-xs text-muted-foreground/70">{t('etl.pipeline_empty_hint')}</p>
-        </div>
-      </div>
-    )
-  }
-
+  // An empty pipeline still renders: the source and target widgets, and above
+  // all the database pickers that fill them, live inside this view — replacing
+  // it with a placeholder hid the only way out of the empty state.
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full flex-col">

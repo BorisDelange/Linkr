@@ -79,6 +79,11 @@ export interface EditorSettings {
   theme: EditorTheme
   autoSave: boolean
   autoSaveDelay: number
+  /**
+   * Reuse one output tab per kind (table, figure, widget) instead of opening a
+   * fresh one on every run — re-running the same script otherwise piles up tabs.
+   */
+  reuseOutputTabs: boolean
 }
 
 // --- Preferences persistence (localStorage) ---
@@ -223,6 +228,7 @@ const defaultEditorSettings: EditorSettings = {
   theme: 'linkr-auto',
   autoSave: false,
   autoSaveDelay: 1000,
+  reuseOutputTabs: true,
 }
 
 const prefs = loadPreferences()
@@ -739,7 +745,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
 
   // Editor settings
-  editorSettings: prefs.editorSettings ?? defaultEditorSettings,
+  // Merged, not substituted: preferences stored before a setting existed carry
+  // no value for it, and a bare `??` would leave it undefined.
+  editorSettings: { ...defaultEditorSettings, ...prefs.editorSettings },
   updateEditorSettings: (settings) =>
     set((s) => ({
       editorSettings: { ...s.editorSettings, ...settings },
