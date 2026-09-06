@@ -1262,13 +1262,17 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   clearSelection: () => set({ selection: EMPTY_SELECTION }),
 
+  // Picking a file or terminal makes it the editor group's active tab, so an
+  // output parked there gives the pane back — otherwise it keeps covering the
+  // editor and the click looks ignored.
   selectFile: (id) => {
     if (id === null) {
-      set({ selectedFileId: null })
+      set({ selectedFileId: null, editorGroupOutputTab: null })
       return
     }
     set((s) => ({
       selectedFileId: id,
+      editorGroupOutputTab: null,
       openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
     }))
   },
@@ -1276,6 +1280,7 @@ export const useFileStore = create<FileState>((set, get) => ({
   openFile: (id) =>
     set((s) => ({
       selectedFileId: id,
+      editorGroupOutputTab: null,
       openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
     })),
 
@@ -1412,10 +1417,11 @@ export const useFileStore = create<FileState>((set, get) => ({
       return {
         terminalTabs: [...s.terminalTabs, tab],
         selectedFileId: id,  // the unified tab bar makes it the active tab
+        editorGroupOutputTab: null,
       }
     }),
 
-  selectTerminalTab: (id) => set({ selectedFileId: id }),
+  selectTerminalTab: (id) => set({ selectedFileId: id, editorGroupOutputTab: null }),
 
   closeTerminalTab: (id) =>
     set((s) => {

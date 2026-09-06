@@ -16,6 +16,8 @@ const reset = (over: Partial<ReturnType<typeof useFileStore.getState>> = {}) =>
     activeOutputTab: 't1',
     outputTabsInEditorGroup: [],
     editorGroupOutputTab: null,
+    openFileIds: [],
+    selectedFileId: null,
     ...over,
   })
 
@@ -73,6 +75,44 @@ describe('moving an output tab between groups', () => {
     useFileStore.getState().moveOutputTabToEditorGroup('t1')
     useFileStore.getState().moveOutputTabToOutputGroup('t1')
     expect(useFileStore.getState().outputTabOrder).toEqual(['t1', 't2', 't3'])
+  })
+})
+
+describe('giving the editor pane back to a file', () => {
+  beforeEach(() => reset())
+
+  it('drops the parked output when a file is selected', () => {
+    useFileStore.getState().moveOutputTabToEditorGroup('t1')
+    useFileStore.getState().selectFile('f1')
+    // Left set, the output would keep covering the editor and the click on a
+    // script tab would look ignored.
+    expect(useFileStore.getState().editorGroupOutputTab).toBeNull()
+    // The tab itself stays in the group, ready to be picked again.
+    expect(useFileStore.getState().outputTabsInEditorGroup).toEqual(['t1'])
+  })
+
+  it('drops it when a file is opened, and when selection is cleared', () => {
+    useFileStore.getState().moveOutputTabToEditorGroup('t1')
+    useFileStore.getState().openFile('f2')
+    expect(useFileStore.getState().editorGroupOutputTab).toBeNull()
+
+    useFileStore.getState().setEditorGroupOutputTab('t1')
+    useFileStore.getState().selectFile(null)
+    expect(useFileStore.getState().editorGroupOutputTab).toBeNull()
+  })
+
+  it('drops it when a terminal tab is selected', () => {
+    useFileStore.getState().moveOutputTabToEditorGroup('t1')
+    useFileStore.getState().selectTerminalTab('term:bash:1')
+    expect(useFileStore.getState().editorGroupOutputTab).toBeNull()
+    expect(useFileStore.getState().selectedFileId).toBe('term:bash:1')
+  })
+
+  it('re-shows the output when its tab is picked again', () => {
+    useFileStore.getState().moveOutputTabToEditorGroup('t1')
+    useFileStore.getState().selectFile('f1')
+    useFileStore.getState().setEditorGroupOutputTab('t1')
+    expect(useFileStore.getState().editorGroupOutputTab).toBe('t1')
   })
 })
 
