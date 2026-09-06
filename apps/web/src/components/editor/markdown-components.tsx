@@ -15,7 +15,7 @@ import { ZoomableImage } from '@/components/ImageLightbox'
  * outranks a plain utility class. Full size stays one click away in the
  * lightbox.
  */
-const IMG_CLASS = '!max-w-full sm:!max-w-[620px] h-auto rounded-md border'
+const IMG_CLASS = '!mx-auto !max-w-full sm:!max-w-[620px] h-auto rounded-md border'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const markdownComponents: Record<string, any> = {
