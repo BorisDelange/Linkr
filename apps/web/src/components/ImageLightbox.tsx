@@ -18,6 +18,8 @@ const ZOOM_MIN = 0.25
 const ZOOM_MAX = 5
 const ZOOM_STEP = 0.25
 const ZOOM_WHEEL_STEP = 0.15
+/** Pointer travel below which a press counts as a click rather than a drag. */
+const CLICK_SLOP = 4
 
 interface ImageLightboxProps {
   open: boolean
@@ -35,6 +37,7 @@ export function ImageLightbox({ open, onOpenChange, label, children }: ImageLigh
   const isPanning = useRef(false)
   const panStart = useRef({ x: 0, y: 0 })
   const surfaceRef = useRef<HTMLDivElement>(null)
+  const pressOrigin = useRef<{ x: number; y: number; onImage: boolean } | null>(null)
 
   const clampZoom = useCallback((z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)), [])
 
@@ -51,6 +54,14 @@ export function ImageLightbox({ open, onOpenChange, label, children }: ImageLigh
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return
     isPanning.current = true
+    // The content is `pointer-events-none` (so it never swallows a drag), which
+    // means the event target is always the wrapper. Hit-test the pointer against
+    // the rendered image box instead.
+    const box = e.currentTarget.querySelector('img, svg')?.getBoundingClientRect()
+    const onImage = !!box &&
+      e.clientX >= box.left && e.clientX <= box.right &&
+      e.clientY >= box.top && e.clientY <= box.bottom
+    pressOrigin.current = { x: e.clientX, y: e.clientY, onImage }
     panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y }
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
   }, [pan])
@@ -60,9 +71,16 @@ export function ImageLightbox({ open, onOpenChange, label, children }: ImageLigh
     setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y })
   }, [])
 
-  const handlePointerUp = useCallback(() => {
+  // Clicking the empty space around the image closes the viewer, the way a
+  // lightbox backdrop does. A drag must not: only a press that started off the
+  // image and travelled less than a few pixels counts as a click.
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
     isPanning.current = false
-  }, [])
+    const origin = pressOrigin.current
+    if (!origin || origin.onImage) return
+    const moved = Math.hypot(e.clientX - origin.x, e.clientY - origin.y)
+    if (moved <= CLICK_SLOP) onOpenChange(false)
+  }, [onOpenChange])
 
   return (
     <Dialog
@@ -82,7 +100,7 @@ export function ImageLightbox({ open, onOpenChange, label, children }: ImageLigh
           e.preventDefault()
           surfaceRef.current?.focus()
         }}
-        className="flex h-[98vh] max-h-[98vh] w-[98vw] max-w-[98vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[98vw]"
+        className="flex h-[90vh] max-h-[90vh] w-[90vw] max-w-[90vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[90vw]"
       >
         <DialogTitle className="sr-only">{label || t('common.image')}</DialogTitle>
         <TooltipProvider delayDuration={300}>
