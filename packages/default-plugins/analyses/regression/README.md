@@ -8,13 +8,16 @@ ICU are older *and* sicker *and* more often ventilated, and every one of those
 columns will look "significant" on its own. Regression is how you ask which of
 them still carries the association once the other two are accounted for.
 
-![A logistic regression of in-hospital death on age, minimum GCS and maximum
-lactate: the coefficients table above, the odds-ratio forest plot
+![A logistic regression of in-hospital death on ventilation, age, severity and
+admission type: the coefficients table above, the odds-ratio forest plot
 below.](attachments/output.png)
 
-Above: in-hospital mortality against age, lowest GCS and highest lactate, on 111
-ICU stays. Every interval crosses 1, and the banner says why the answer is so
-uncertain — 38 of the 111 rows were dropped for a missing value somewhere.
+Above: in-hospital mortality on 620 ICU stays. Mechanical ventilation carries an
+odds ratio of 3.48 with an interval well clear of 1; age and SAPS II are 1.07 per
+unit, so their diamonds sit almost on the null line even though both are strongly
+significant — a per-year effect is small by construction, which is why the
+interval matters more than the star. The admission-type levels are read against
+the omitted one, and their intervals all cross 1, so they are drawn muted.
 
 ## What you need
 

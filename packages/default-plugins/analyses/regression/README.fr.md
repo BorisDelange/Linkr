@@ -10,14 +10,18 @@ pas faire. En réanimation, les patients décédés sont plus âgés *et* plus g
 prise isolément. La régression permet de demander laquelle reste associée au
 décès une fois les deux autres prises en compte.
 
-![Régression logistique du décès hospitalier sur l'âge, le score de Glasgow
-minimal et le lactate maximal : le tableau des coefficients en haut, le forest
+![Régression logistique du décès hospitalier sur la ventilation, l'âge, la
+gravité et le motif d'admission : le tableau des coefficients en haut, le forest
 plot des rapports de cotes en bas.](attachments/output.fr.png)
 
-Ci-dessus : le décès hospitalier expliqué par l'âge, le GCS le plus bas et le
-lactate le plus haut, sur 111 séjours de réanimation. Tous les intervalles
-croisent 1, et le bandeau dit pourquoi la réponse est si incertaine — 38 des
-111 lignes ont été écartées pour une valeur manquante quelque part.
+Ci-dessus : la mortalité hospitalière sur 620 séjours de réanimation. La
+ventilation mécanique porte un rapport de cotes de 3,48, avec un intervalle
+nettement à l'écart de 1 ; l'âge et l'IGS II sont à 1,07 par unité, donc leurs
+losanges se posent presque sur la ligne nulle alors que les deux sont hautement
+significatifs — un effet par année est petit par construction, et c'est bien
+pourquoi l'intervalle compte davantage que l'étoile. Les modalités du motif
+d'admission se lisent par rapport à celle qui est omise, et leurs intervalles
+croisent tous 1 : elles sont donc tracées en gris atténué.
 
 ## Ce qu'il faut
 
