@@ -18,7 +18,7 @@ import {
   CircleDot,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { remarkPlugins, rehypePlugins, urlTransform, markdownComponents } from '@/components/editor/ReadmeEditor'
 import { localized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -299,7 +299,7 @@ function ReadmePreview({ readme, resolveUrls, onViewFull }: { readme: string; re
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
         {readme.trim() ? (
           <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
-            <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
+            <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={markdownComponents}>
               {resolved}
             </ReactMarkdown>
           </div>

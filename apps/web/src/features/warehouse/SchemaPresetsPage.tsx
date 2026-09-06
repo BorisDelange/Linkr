@@ -81,7 +81,7 @@ import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { useSchemaPresetActions, toSchemaPresetItem } from './use-schema-preset-actions'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
-import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { remarkPlugins, rehypePlugins, urlTransform, markdownComponents } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useContentBadge } from '@/components/versioning/use-content-badge'
@@ -1706,6 +1706,7 @@ function SchemaReadmePreview({
               remarkPlugins={remarkPlugins}
               rehypePlugins={rehypePlugins}
               urlTransform={urlTransform}
+              components={markdownComponents}
             >
               {resolved}
             </ReactMarkdown>

@@ -259,6 +259,7 @@ function AssistantMarkdown({ text }: { text: string }) {
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
         urlTransform={urlTransform}
+        components={markdownComponents}
       >
         {text}
       </ReactMarkdown>

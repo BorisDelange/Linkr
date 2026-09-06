@@ -4,14 +4,13 @@
  * Used by both IpynbViewer and RmdNotebook.
  */
 
-import { useState, useRef, useCallback, memo } from 'react'
+import { useState, memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ChevronsUpDown, Maximize2, ZoomIn, ZoomOut, X } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-} from '@/components/ui/dialog'
+import { ChevronsUpDown, Maximize2 } from 'lucide-react'
+import { ImageLightbox } from '@/components/ImageLightbox'
+import { markdownComponents } from '@/components/editor/markdown-components'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { sanitizeHtml } from '@/lib/sanitize'
 
@@ -37,7 +36,7 @@ export function CellOutput({ output }: CellOutputProps) {
       {/* HTML / markdown output */}
       {output.html && (
         <div className="px-2 py-1 prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{output.html}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{output.html}</ReactMarkdown>
         </div>
       )}
 
@@ -75,146 +74,51 @@ export function CellOutput({ output }: CellOutputProps) {
 // Figure output with zoomable lightbox
 // ---------------------------------------------------------------------------
 
-const ZOOM_MIN = 0.25
-const ZOOM_MAX = 5
-const ZOOM_STEP = 0.25
-const ZOOM_WHEEL_STEP = 0.15
-
 const FigureOutput = memo(function FigureOutput({ fig }: { fig: { type: string; data: string; label: string } }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-  const isPanning = useRef(false)
-  const panStart = useRef({ x: 0, y: 0 })
-
-  const resetView = useCallback(() => {
-    setZoom(1)
-    setPan({ x: 0, y: 0 })
-  }, [])
-
-  const clampZoom = useCallback((z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)), [])
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault()
-    setZoom((z) => clampZoom(z + (e.deltaY < 0 ? ZOOM_WHEEL_STEP : -ZOOM_WHEEL_STEP)))
-  }, [clampZoom])
-
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    isPanning.current = true
-    panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y }
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-  }, [pan])
-
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!isPanning.current) return
-    setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y })
-  }, [])
-
-  const handlePointerUp = useCallback(() => {
-    isPanning.current = false
-  }, [])
 
   return (
     <>
       <div className="relative group/fig bg-white rounded p-2 flex justify-center dark:invert dark:hue-rotate-180">
         {fig.type === 'svg' ? (
           <div
-            className="cursor-pointer [&>svg]:max-w-full"
+            className="cursor-zoom-in [&>svg]:max-w-full"
             dangerouslySetInnerHTML={{ __html: sanitizeHtml(fig.data) }}
-            onClick={() => { resetView(); setOpen(true) }}
+            onClick={() => setOpen(true)}
           />
         ) : (
           <img
             src={fig.data}
             alt={fig.label}
-            className="max-w-full max-h-full object-contain cursor-pointer"
-            onClick={() => { resetView(); setOpen(true) }}
+            className="max-w-full max-h-full object-contain cursor-zoom-in"
+            onClick={() => setOpen(true)}
           />
         )}
         <button
-          onClick={() => { resetView(); setOpen(true) }}
+          onClick={() => setOpen(true)}
           className="absolute top-2 right-2 p-1 rounded bg-muted/80 border border-border/50 text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent opacity-0 group-hover/fig:opacity-100 transition-opacity dark:invert dark:hue-rotate-180"
-          title="Enlarge"
+          title={t('common.enlarge')}
         >
           <Maximize2 size={12} />
         </button>
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent showCloseButton={false} className="max-w-[98vw] sm:max-w-[98vw] max-h-[98vh] w-[98vw] h-[98vh] p-0 overflow-hidden flex flex-col gap-0">
-          {/* Toolbar */}
-          <div className="flex items-center px-3 py-1.5 border-b bg-muted/30 shrink-0">
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setZoom((z) => clampZoom(z - ZOOM_STEP))}
-                disabled={zoom <= ZOOM_MIN}
-                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30"
-                title="Zoom out"
-              >
-                <ZoomOut size={14} />
-              </button>
-              <span className="text-[10px] text-muted-foreground w-8 text-center tabular-nums">
-                {Math.round(zoom * 100)}%
-              </span>
-              <button
-                onClick={() => setZoom((z) => clampZoom(z + ZOOM_STEP))}
-                disabled={zoom >= ZOOM_MAX}
-                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30"
-                title="Zoom in"
-              >
-                <ZoomIn size={14} />
-              </button>
-              <button
-                onClick={resetView}
-                className="px-2 py-0.5 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                title="Reset zoom"
-              >
-                Reset
-              </button>
-            </div>
-            <div className="flex-1" />
-            <button
-              onClick={() => setOpen(false)}
-              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              title="Close"
-            >
-              <X size={14} />
-            </button>
-          </div>
-
-          {/* Zoomable image area */}
+      <ImageLightbox open={open} onOpenChange={setOpen} label={fig.label}>
+        {fig.type === 'svg' ? (
           <div
-            className="flex-1 min-h-0 overflow-hidden cursor-grab active:cursor-grabbing select-none"
-            onWheel={handleWheel}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-          >
-            <div
-              className="w-full h-full flex items-center justify-center"
-              style={{
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                transformOrigin: 'center center',
-              }}
-            >
-              {fig.type === 'svg' ? (
-                <div
-                  className="[&>svg]:max-w-full [&>svg]:max-h-[calc(98vh-3rem)] [&>svg]:object-contain pointer-events-none dark:invert dark:hue-rotate-180"
-                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(fig.data) }}
-                />
-              ) : (
-                <img
-                  src={fig.data}
-                  alt={fig.label}
-                  className="max-w-full max-h-[calc(98vh-3rem)] object-contain pointer-events-none dark:invert dark:hue-rotate-180"
-                  draggable={false}
-                />
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+            className="[&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:object-contain pointer-events-none dark:invert dark:hue-rotate-180"
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(fig.data) }}
+          />
+        ) : (
+          <img
+            src={fig.data}
+            alt={fig.label}
+            className="max-w-full max-h-full object-contain pointer-events-none dark:invert dark:hue-rotate-180"
+            draggable={false}
+          />
+        )}
+      </ImageLightbox>
     </>
   )
 })

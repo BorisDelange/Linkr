@@ -13,6 +13,9 @@ import {
   AlertCircle,
   ExternalLink,
 } from 'lucide-react'
+import { ZoomableImage } from '@/components/ImageLightbox'
+
+export { markdownComponents } from '@/components/editor/markdown-components'
 
 // --- Shared config (also used by SummaryReadmeTab) ---
 
@@ -249,6 +252,10 @@ export function MarkdownRenderer({
         </a>
       )
     },
+    // Click an image to open it full-screen, with zoom and pan — a screenshot
+    // in a plugin README is unreadable at prose width.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    img: ({ node: _node, ...props }: any) => <ZoomableImage {...props} />,
     // Add IDs to headings for TOC linking
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     h1: ({ children, ...props }: any) => {

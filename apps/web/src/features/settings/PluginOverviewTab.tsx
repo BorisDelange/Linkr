@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
-import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { remarkPlugins, rehypePlugins, urlTransform, markdownComponents } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { localized } from '@/lib/localized'
 import type { PluginListItem } from '@/stores/plugin-editor-store'
@@ -80,6 +80,7 @@ function PluginReadmePreview({
               remarkPlugins={remarkPlugins}
               rehypePlugins={rehypePlugins}
               urlTransform={urlTransform}
+              components={markdownComponents}
             >
               {resolved}
             </ReactMarkdown>
