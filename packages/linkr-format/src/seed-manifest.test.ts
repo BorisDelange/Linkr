@@ -88,6 +88,25 @@ describe('buildSeedManifest — databases', () => {
     })
   })
 
+  // MIMIC-IV ships its tables in modules (hosp/, icu/, note/), and the loader
+  // mounts `hosp/patients` as schema `hosp`. Flattening the path here left the
+  // seeded database with only the one file that sat at the root of data/.
+  it('keeps the module folder when the repo lays its tables out in schemas', () => {
+    const m = buildSeedManifest(
+      workspace({
+        'databases/mimic-iv-demo/entity.json': manifest,
+        'databases/mimic-iv-demo/data/demo_subject_id.parquet': 'PAR1',
+        'databases/mimic-iv-demo/data/hosp/patients.parquet': 'PAR1',
+        'databases/mimic-iv-demo/data/icu/chartevents.parquet': 'PAR1',
+        'databases/mimic-iv-demo/data/note/discharge.parquet': 'PAR1',
+      }),
+      { seedBaseUrl: '/data/seed/default' },
+    )
+    expect(m.entities[0]).toMatchObject({
+      tables: ['demo_subject_id', 'hosp/patients', 'icu/chartevents', 'note/discharge'],
+    })
+  })
+
   it('stays metadata-only when no base URL is given to build a fetchable path', () => {
     expect(buildSeedManifest(workspace(withData)).entities).toEqual([])
   })

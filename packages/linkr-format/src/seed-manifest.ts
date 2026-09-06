@@ -191,12 +191,13 @@ export function buildSeedManifest(
     dbInternals.push(`${dir}/${manifest}`)
 
     // Derived, never declared: the tables ARE the Parquet files present, so this
-    // cannot drift from what the repo ships the way a hand-kept list would.
+    // cannot drift from what the repo ships the way a hand-kept list would. The
+    // path under `data/` is kept whole — a database laid out in modules
+    // (`data/hosp/patients.parquet`) mounts as schema `hosp`, table `patients`.
     const tables = tree
       .paths()
       .filter((p) => p.startsWith(`${dir}/data/`) && p.endsWith('.parquet'))
       .map((p) => p.slice(`${dir}/data/`.length).replace(/\.parquet$/, ''))
-      .filter((t) => !t.includes('/'))
       .sort()
     if (!tables.length || !options.seedBaseUrl) continue
 
