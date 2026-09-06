@@ -652,6 +652,46 @@ export function extractTableName(filePath: string, knownTables?: string[]): stri
 }
 
 /**
+ * Table name plus the schema its folder stands for.
+ *
+ * A warehouse is often published one directory per module — MIMIC-IV ships
+ * `hosp/` and `icu/`, eHOP eleven Oracle schemas — and flattening that loses
+ * real information: eHOP 4.4 has a de-identified `EDBM_EDS.EHOP_PATIENT` and a
+ * nominative `EDBM_ZPAT.EHOP_PATIENT`, so one of the two becomes unreachable.
+ *
+ * `root` is the folder the user picked (`commonDirPrefix`), and it is NOT a
+ * schema — otherwise every flat import would land in a schema named after the
+ * download folder. Only a directory *below* it is one, which leaves a flat
+ * selection with no schema at all, exactly as before.
+ */
+export function extractTableRef(
+  filePath: string,
+  root: string,
+  knownTables?: string[],
+): { schema: string | undefined; table: string } {
+  const table = extractTableName(filePath, knownTables)
+  const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean)
+  const rootParts = root.replace(/\\/g, '/').split('/').filter(Boolean)
+  // Only strip the root when it really is this path's prefix: a caller may pass
+  // the prefix of a different selection, and half-matching it would read a
+  // table directory as a schema.
+  const below = rootParts.every((p, i) => parts[i]?.toLowerCase() === p.toLowerCase())
+    ? parts.slice(rootParts.length)
+    : parts
+  // `below` is [schema?, (table dir)?, file]. Drop the file, then the directory
+  // that already gave its name to the table (the shard layout) — whatever single
+  // segment is left is the schema.
+  const dirs = below.slice(0, -1)
+  const remaining = dirs.length > 0 && dirs[dirs.length - 1].toLowerCase() === table
+    ? dirs.slice(0, -1)
+    : dirs
+  const schema = remaining.length > 0
+    ? remaining[remaining.length - 1].toLowerCase()
+    : undefined
+  return { schema, table }
+}
+
+/**
  * Deepest directory shared by every path — what a folder picker selected.
  * Returns '' when the paths are bare file names (no directory component).
  */

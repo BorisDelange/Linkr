@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commonDirPrefix, extractTableName } from './engine'
+import { commonDirPrefix, extractTableName, extractTableRef } from './engine'
 
 const MIMIC_IV_FILES = [
   'admissions', 'caregiver', 'chartevents', 'd_hcpcs', 'd_icd_diagnoses',
@@ -61,6 +61,65 @@ describe('extractTableName', () => {
   it('handles bare file names and backslash paths', () => {
     expect(extractTableName('admissions.parquet')).toBe('admissions')
     expect(extractTableName('C:\\data\\mimic\\admissions.parquet')).toBe('admissions')
+  })
+})
+
+describe('extractTableRef', () => {
+  // The root is what the user picked; a directory BELOW it is a schema. Without
+  // that distinction the selected folder itself would become a schema, and every
+  // flat import would land in `mimic-iv-raw-parquet`.
+  it('reads a module directory as the schema', () => {
+    expect(extractTableRef('mimic-iv/hosp/patients.parquet', 'mimic-iv'))
+      .toEqual({ schema: 'hosp', table: 'patients' })
+    expect(extractTableRef('mimic-iv/icu/icustays.parquet', 'mimic-iv'))
+      .toEqual({ schema: 'icu', table: 'icustays' })
+  })
+
+  it('gives no schema to a flat folder — the selected root is not a schema', () => {
+    expect(extractTableRef('mimic-iv-raw-parquet/admissions.parquet', 'mimic-iv-raw-parquet'))
+      .toEqual({ schema: undefined, table: 'admissions' })
+  })
+
+  it('keeps the shard layout working, with and without a schema', () => {
+    expect(extractTableRef('wh/icu/chartevents/part-00000.parquet', 'wh'))
+      .toEqual({ schema: 'icu', table: 'chartevents' })
+    expect(extractTableRef('wh/admissions/part-00000.parquet', 'wh'))
+      .toEqual({ schema: undefined, table: 'admissions' })
+  })
+
+  it('separates two same-named tables into their own schemas', () => {
+    // eHOP 4.4: EDBM_EDS.EHOP_PATIENT is de-identified, EDBM_ZPAT.EHOP_PATIENT
+    // is nominative. Flattened, one of them is simply lost.
+    const a = extractTableRef('ehop/EDBM_EDS/EHOP_PATIENT.parquet', 'ehop')
+    const b = extractTableRef('ehop/EDBM_ZPAT/EHOP_PATIENT.parquet', 'ehop')
+    expect(a).toEqual({ schema: 'edbm_eds', table: 'ehop_patient' })
+    expect(b).toEqual({ schema: 'edbm_zpat', table: 'ehop_patient' })
+  })
+
+  it('still honours knownTables, and does not mistake the match for a schema', () => {
+    expect(extractTableRef('mimic-iv/hosp/patients.parquet', 'mimic-iv', ['patients']))
+      .toEqual({ schema: 'hosp', table: 'patients' })
+  })
+
+  it('ignores a root that does not prefix the path, and bare names', () => {
+    expect(extractTableRef('admissions.parquet', '')).toEqual({ schema: undefined, table: 'admissions' })
+    expect(extractTableRef('hosp/patients.parquet', 'elsewhere'))
+      .toEqual({ schema: 'hosp', table: 'patients' })
+  })
+
+  it('takes only the directory just above the table, however deep the path', () => {
+    expect(extractTableRef('a/b/c/hosp/patients.parquet', 'a/b/c'))
+      .toEqual({ schema: 'hosp', table: 'patients' })
+  })
+
+  it('agrees with extractTableName on the table part', () => {
+    for (const p of [
+      'mimic-iv-raw-parquet/admissions.parquet',
+      'wh/admissions/part-00000.parquet',
+      'omop/PERSON.parquet',
+    ]) {
+      expect(extractTableRef(p, '').table).toBe(extractTableName(p))
+    }
   })
 })
 

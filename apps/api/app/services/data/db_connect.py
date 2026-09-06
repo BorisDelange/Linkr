@@ -585,18 +585,68 @@ def _table_of(file_name: str, known: list[str]) -> str:
     return stem
 
 
-def _group_parquet(files: list[tuple[str, str]], known: list[str]) -> dict[str, list[str]]:
-    groups: dict[str, list[str]] = {}
+def _common_dir(names: list[str]) -> list[str]:
+    """Deepest directory shared by every path — the folder that was selected.
+
+    Mirrors the frontend's `commonDirPrefix`. It is what tells a schema directory
+    apart from the download folder itself."""
+    dirs = [[p for p in n.replace("\\", "/").split("/") if p][:-1] for n in names]
+    if not dirs:
+        return []
+    shared: list[str] = []
+    for i in range(min(len(d) for d in dirs)):
+        seg = dirs[0][i]
+        if all(d[i].lower() == seg.lower() for d in dirs):
+            shared.append(seg)
+        else:
+            break
+    return shared
+
+
+def _table_ref_of(file_name: str, root: list[str], known: list[str]) -> tuple[str | None, str]:
+    """`(schema, table)` for a Parquet file, mirroring the frontend's
+    `extractTableRef`.
+
+    A directory *below* the selected root names a schema — MIMIC-IV's `hosp`/`icu`,
+    eHOP's Oracle schemas. The root itself never does: it is the download folder,
+    and treating it as a schema would put every flat import inside one."""
+    table = _table_of(file_name, known)
+    parts = [p for p in file_name.replace("\\", "/").split("/") if p]
+    below = (
+        parts[len(root):]
+        if len(parts) > len(root)
+        and all(parts[i].lower() == r.lower() for i, r in enumerate(root))
+        else parts
+    )
+    dirs = below[:-1]
+    # Drop the directory that already named the table (the shard layout); one
+    # remaining segment is the schema.
+    if dirs and dirs[-1].lower() == table:
+        dirs = dirs[:-1]
+    return (dirs[-1].lower() if dirs else None), table
+
+
+def _group_parquet(
+    files: list[tuple[str, str]], known: list[str]
+) -> dict[tuple[str | None, str], list[str]]:
+    """Parquet files grouped by the `(schema, table)` they belong to.
+
+    `schema` is None for a flat folder, which is the overwhelmingly common shape
+    and the one every source imported before schemas were understood."""
+    root = _common_dir([n for n, _ in files if n.lower().endswith((".parquet", ".pq"))])
+    groups: dict[tuple[str | None, str], list[str]] = {}
     for file_name, path in files:
         if not file_name.lower().endswith((".parquet", ".pq")):
             continue
-        table = _table_of(file_name, known)
-        # The table name is interpolated into a quoted identifier; a filename that
-        # doesn't yield a plain identifier is skipped rather than risking a broken
-        # (or injected) CREATE VIEW.
+        schema, table = _table_ref_of(file_name, root, known)
+        # Both are interpolated into quoted identifiers; a name that doesn't yield
+        # a plain identifier is skipped rather than risking a broken (or injected)
+        # CREATE VIEW.
         if _SAFE_IDENT.fullmatch(table) is None:
             continue
-        groups.setdefault(table, []).append(path)
+        if schema is not None and _SAFE_IDENT.fullmatch(schema) is None:
+            schema = None
+        groups.setdefault((schema, table), []).append(path)
     return groups
 
 
@@ -604,8 +654,15 @@ def group_parquet_tables(
     files: list[tuple[str, str]], known: list[str]
 ) -> dict[str, list[str]]:
     """Public view of the table grouping, for callers that need to report which
-    table maps to which blob path without opening a connection."""
-    return _group_parquet(files, known)
+    table maps to which blob path without opening a connection.
+
+    Keyed by a flat name — `schema.table` when the folder carried module
+    directories — because this feeds the table list a client library globs by
+    name, where a tuple key has no meaning."""
+    return {
+        (table if schema is None else f"{schema}.{table}"): paths
+        for (schema, table), paths in _group_parquet(files, known).items()
+    }
 
 
 def _reader(paths: list[str]) -> str:
@@ -616,15 +673,32 @@ def _reader(paths: list[str]) -> str:
 
 
 def _attach_parquet_views(
-    con: duckdb.DuckDBPyConnection, groups: dict[str, list[str]]
+    con: duckdb.DuckDBPyConnection, groups: dict[tuple[str | None, str], list[str]]
 ) -> None:
+    """Expose each Parquet group as a view under the `ext` schema.
+
+    The source's own schemas become one schema each, so `hosp.patients` reads as
+    it does in the warehouse; `ext` stays on the search path, which is what keeps
+    an unqualified `patients` resolving for every source imported flat."""
     con.execute(f"CREATE SCHEMA IF NOT EXISTS {_ATTACH_ALIAS}")
-    for table, paths in groups.items():
+    for (schema, table), paths in groups.items():
+        target = _ATTACH_ALIAS if schema is None else f'"{schema}"'
+        if schema is not None:
+            con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
         # OR REPLACE so a warm pooled connection can re-run setup idempotently.
         con.execute(
-            f'CREATE OR REPLACE VIEW {_ATTACH_ALIAS}."{table}" AS '
+            f'CREATE OR REPLACE VIEW {target}."{table}" AS '
             f"SELECT * FROM {_reader(paths)}"
         )
+
+
+def _parquet_search_path(groups: dict[tuple[str | None, str], list[str]]) -> str:
+    """Search path for a Parquet folder: `ext` first, then the source's own
+    schemas, so a bare table name resolves whether or not the folder carried
+    module directories. Sorted, so the winner of a name present in two schemas
+    never depends on file order."""
+    schemas = sorted({s for s, _ in groups if s is not None})
+    return ",".join([_ATTACH_ALIAS, "memory", *(f'"{s}"' for s in schemas)])
 
 
 def query_parquet_folder(
@@ -635,7 +709,7 @@ def query_parquet_folder(
     per table (mirrors the browser mountFileFolder path). With `pool_key`, the
     connection (views created) is kept warm across calls."""
     groups = _group_parquet(files, known)
-    search_path = f"{_ATTACH_ALIAS},memory"
+    search_path = _parquet_search_path(groups)
 
     def _setup() -> duckdb.DuckDBPyConnection:
         con = duckdb.connect()
@@ -690,7 +764,7 @@ def _source_setup(
             _attach_parquet_views(con, groups)
             return con
 
-        return _setup_pq, f"{_ATTACH_ALIAS},memory"
+        return _setup_pq, _parquet_search_path(groups)
 
     path = files[0][1]
 
@@ -756,17 +830,20 @@ def query_cached_parquet(path: str, sql: str) -> list[dict]:
 def introspect_parquet_folder(
     files: list[tuple[str, str]], known: list[str]
 ) -> list[dict]:
-    """Tables + columns for a folder of Parquet files (one table per group)."""
+    """Tables + columns for a folder of Parquet files (one table per group).
+
+    A table from a schema directory is reported as `schema.table`: two modules may
+    hold the same table name, and a flat list would show one of them twice."""
     groups = _group_parquet(files, known)
     con = duckdb.connect()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     result: list[dict] = []
     try:
-        for table, paths in groups.items():
+        for (schema, table), paths in groups.items():
             cols = con.execute(f"DESCRIBE SELECT * FROM {_reader(paths)}").fetchall()
             result.append(
                 {
-                    "name": table,
+                    "name": table if schema is None else f"{schema}.{table}",
                     "columns": [
                         {"name": str(c[0]), "type": str(c[1]), "nullable": True}
                         for c in cols
@@ -1108,10 +1185,16 @@ def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
         # would not resolve: `role.table` is looked up as schema-of-target first.
         groups = _group_parquet(spec.get("files") or [], spec.get("known") or [])
         con.execute(f'ATTACH \':memory:\' AS "{role}"')
-        for table, paths in groups.items():
+        for (schema, table), paths in groups.items():
             safe_table = _require_ident(table, "parquet table name")
+            # A folder laid out per module keeps its schemas, so `source.hosp.t`
+            # works and two modules can hold the same table name. Without one the
+            # view lands in main, where `source.t` has always found it.
+            safe_schema = "main" if schema is None else _require_ident(schema, "schema name")
+            if safe_schema != "main":
+                con.execute(f'CREATE SCHEMA IF NOT EXISTS "{role}"."{safe_schema}"')
             con.execute(
-                f'CREATE OR REPLACE VIEW "{role}".main."{safe_table}" '
+                f'CREATE OR REPLACE VIEW "{role}"."{safe_schema}"."{safe_table}" '
                 f"AS SELECT * FROM {_reader(paths)}"
             )
         return
