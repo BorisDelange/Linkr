@@ -1,5 +1,3 @@
-# Matrice de corrélation
-
 Une matrice de corrélation répond d'un coup, pour chaque paire de variables, à
 une seule question : quand celle-ci augmente, est-ce que celle-là augmente
 aussi, et avec quelle régularité ?
@@ -20,7 +18,21 @@ la durée de séjour, le 0,35 avec le score de gravité mérite d'être creusé 
 −0,05 avec la créatinine n'est pas une preuve que la créatinine ne joue aucun
 rôle, seulement qu'aucune relation *monotone* n'apparaît ici.
 
-## Ce que mesure le coefficient
+## Réglages
+
+Des colonnes numériques, au moins deux. Les identifiants sont décochés par
+défaut dans **Variables** — un identifiant patient ne corrèle avec rien d'utile
+et ne fait qu'encombrer une grille dont le côté est le nombre de variables
+retenues.
+
+Chaque paire est calculée sur les lignes où les **deux** variables sont
+renseignées : une colonne avec beaucoup de données manquantes contribue donc
+discrètement moins de paires que ses voisines. L'en-tête affiche l'effectif
+total ; le nombre de paires derrière une case donnée peut être bien inférieur.
+
+## Notes sur la méthode
+
+### Ce que mesure le coefficient
 
 Chaque case contient un coefficient compris entre −1 et +1 :
 
@@ -34,19 +46,7 @@ Chaque case contient un coefficient compris entre −1 et +1 :
 La matrice est symétrique : la case au-dessus de la diagonale et celle
 au-dessous portent le même nombre.
 
-## Ce qu'il vous faut
-
-Des colonnes numériques, au moins deux. Les identifiants sont décochés par
-défaut dans **Variables** — un identifiant patient ne corrèle avec rien d'utile
-et ne fait qu'encombrer une grille dont le côté est le nombre de variables
-retenues.
-
-Chaque paire est calculée sur les lignes où les **deux** variables sont
-renseignées : une colonne avec beaucoup de données manquantes contribue donc
-discrètement moins de paires que ses voisines. L'en-tête affiche l'effectif
-total ; le nombre de paires derrière une case donnée peut être bien inférieur.
-
-## Pearson ou Spearman
+### Pearson ou Spearman
 
 La **Méthode** est le réglage qui change ce que vous mesurez, et pas seulement
 la façon de le calculer.
@@ -70,7 +70,7 @@ Une bonne habitude : lancer les deux. Quand Pearson et Spearman divergent
 nettement, l'écart est en soi une information — il signale que quelques points
 extrêmes, ou une relation courbe, pilotent l'un des deux coefficients.
 
-## Lire la heatmap
+### Lire la heatmap
 
 La couleur porte la structure, le nombre porte l'ampleur. L'échelle va du bleu
 en −1 au rouge en +1, en passant par le blanc en 0 : un bloc de cases fortement
@@ -91,7 +91,7 @@ Il n'existe pas d'échelle universelle du « fort ». En données cliniques, un
 r ≈ 0,7 entre deux mesures distinctes est déjà élevé, et au-delà de 0,9 les deux
 colonnes mesurent en général deux fois la même chose.
 
-## Les pièges
+### Les pièges
 
 > [!WARNING]
 > **Un coefficient proche de 0 ne signifie pas « pas de relation », mais « pas
@@ -130,7 +130,7 @@ différentes : si le lactate n'est dosé que chez les patients les plus graves,
 ses corrélations décrivent ces patients-là, pas votre cohorte. Vérifiez le taux
 de remplissage de chaque colonne avant de lire sa ligne.
 
-## Un exemple
+## Un exemple travaillé
 
 *Quels paramètres biologiques suivent la durée de séjour en réanimation ?*
 

@@ -1,5 +1,3 @@
-# Régression
-
 La régression mesure l'association entre une variable à expliquer et plusieurs
 variables **simultanément**, chacune étant lue les autres étant maintenues
 constantes.
@@ -23,7 +21,7 @@ pourquoi l'intervalle compte davantage que l'étoile. Les modalités du motif
 d'admission se lisent par rapport à celle qui est omise, et leurs intervalles
 croisent tous 1 : elles sont donc tracées en gris atténué.
 
-## Ce qu'il faut
+## Réglages
 
 Deux réglages de la section **Données** sont obligatoires.
 
@@ -43,7 +41,9 @@ du jeu de données en exploration ; passez à *Personnalisé (glisser pour
 réordonner)* pour une figure, où l'exposition d'intérêt doit figurer en tête et
 les variables d'ajustement en dessous.
 
-## Linéaire ou logistique
+## Notes sur la méthode
+
+### Linéaire ou logistique
 
 Le réglage **Type de régression** découle de la nature de la variable
 dépendante, pas d'une préférence.
@@ -62,7 +62,7 @@ Forcer **Linéaire** sur une variable 0/1 revient à ajuster un modèle linéair
 probabilité, qui prédira sans état d'âme un risque de 1,3. Forcer **Logistique**
 sur une variable continue échoue franchement.
 
-## Lire un coefficient
+### Lire un coefficient
 
 **Linéaire.** Un coefficient de 0,42 pour le SOFA signifie : un point de SOFA
 supplémentaire s'accompagne de 0,42 jour de séjour en plus, à âge égal et à
@@ -81,7 +81,7 @@ OR de 2,0 sur un risque de base de 25 % correspond à un passage à environ 40 %
 pas à 50 %. Dites « cotes », écrivez « rapport de cotes », et évitez la phrase
 « deux fois plus de risque de décéder ».
 
-### L'intervalle, pas la p-value
+#### L'intervalle, pas la p-value
 
 Chaque ligne porte un intervalle de confiance au niveau fixé par **Niveau de
 confiance (%)** (95 % par défaut, ce qui fixe aussi le seuil de significativité α
@@ -104,7 +104,7 @@ données, ce que la p-value ne dit pas.
 **Surligner les significatifs** marque les lignes dont p est inférieur à α.
 C'est un repère de lecture, pas un verdict.
 
-## Prédicteurs qualitatifs
+### Prédicteurs qualitatifs
 
 Une colonne textuelle est décomposée en une ligne par modalité, moins une : la
 première modalité par ordre alphabétique est omise et sert de **référence**.
@@ -122,7 +122,7 @@ Deux conséquences à anticiper :
   champ diagnostic en texte libre doit être regroupé en quelques catégories avant
   de pouvoir entrer dans un modèle.
 
-## L'ajustement, et ce qui le fait dérailler
+### L'ajustement, et ce qui le fait dérailler
 
 « Ajusté sur l'âge » signifie que les coefficients décrivent des patients
 comparés *au même âge*. C'est toute la force de la méthode, et c'est aussi là
@@ -147,7 +147,7 @@ larges, parfois de signe inversé, alors que le modèle global s'ajuste
 correctement. Si le retrait d'un prédicteur déplace fortement l'estimation d'un
 autre, c'est de cela qu'il s'agit. Conservez-en un seul.
 
-## Combien de patients
+### Combien de patients
 
 Pour la régression logistique, la règle de travail est de **10 événements par
 prédicteur** — des événements, pas des lignes. Une cohorte de 500 séjours
@@ -162,7 +162,7 @@ l'intervalle couvrant plusieurs ordres de grandeur — le plus souvent une
 modalité ne comptant aucun événement (séparation). Regroupez les modalités, ou
 retirez la variable.
 
-## Lire le forest plot
+### Lire le forest plot
 
 Le réglage **Affichage** permet de choisir *Tableau + graphique (empilés)*,
 *Tableau + graphique (onglets)*, ou l'un des deux seul ; **Colonnes du tableau**
@@ -179,7 +179,7 @@ verticale sont tracées en gris atténué.
 Regardez d'abord les *largeurs* : une barre longue signale une variable sur
 laquelle vos données ont peu à dire, quelle que soit sa p-value.
 
-## Un exemple concret
+## Un exemple travaillé
 
 *Quels facteurs sont associés au décès hospitalier ?*
 

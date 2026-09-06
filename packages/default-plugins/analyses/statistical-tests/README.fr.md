@@ -1,5 +1,3 @@
-# Tests statistiques
-
 Comparer des groupes sur plusieurs variables à la fois, avec le test adapté
 choisi variable par variable — et avec les chiffres qui disent si la différence
 compte, pas seulement si elle est « significative ».
@@ -20,7 +18,7 @@ d'effet, pas les étoiles : l'IGS II diffère d'environ 17 points et l'âge de
 neuf ans, mais les deux ressortent « significatifs » sur 1005 séjours — et rien
 de tout cela n'est causal.
 
-## Ce qu'il faut
+## Réglages
 
 Deux réglages font l'essentiel du travail :
 
@@ -37,7 +35,9 @@ valeur de groupe est manquante sont écartées ; les valeurs manquantes d'une
 variable testée ne le sont que pour cette variable, ce qui explique que le `n`
 affiché par groupe puisse varier d'une ligne à l'autre.
 
-## Quel test, et pourquoi
+## Notes sur la méthode
+
+### Quel test, et pourquoi
 
 Le test est choisi variable par variable, d'après son type et le nombre de
 groupes :
@@ -76,7 +76,7 @@ l'option prudente. Le tableau indique quel test a été retenu et pourquoi :
 survolez son nom, ou cliquez dessus pour en fixer un autre sur cette seule
 variable.
 
-## Lire les résultats
+### Lire les résultats
 
 Chaque ligne porte, selon les **Colonnes du tableau** :
 
@@ -97,7 +97,7 @@ Chaque ligne porte, selon les **Colonnes du tableau** :
   dit l'ampleur de la différence, sur une échelle qui ne gonfle pas avec
   l'effectif.
 
-### Ce qu'une p-value ne dit pas
+#### Ce qu'une p-value ne dit pas
 
 Elle donne la probabilité d'observer une différence au moins aussi grande **si
 les groupes ne différaient pas réellement**. Elle ne donne ni la probabilité que
@@ -115,7 +115,7 @@ comparée. Il ne change que ce qui est étoilé, jamais les p-values elles-même
 L'abaisser à 0,01 rend les faux positifs plus rares et les faux négatifs plus
 fréquents : aucun réglage ne permet d'éviter les deux.
 
-## Les pièges
+### Les pièges
 
 > [!WARNING]
 > **Tester 20 variables à α = 0,05, c'est s'offrir environ un faux positif par

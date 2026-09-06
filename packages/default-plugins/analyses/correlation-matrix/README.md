@@ -1,5 +1,3 @@
-# Correlation Matrix
-
 A correlation matrix answers one question for every pair of variables at once:
 when this one goes up, does that one tend to go up too, and how reliably?
 
@@ -17,7 +15,20 @@ make each coefficient unstable. Along the length-of-stay row, 0.35 with the
 severity score is worth pursuing; the −0.05 with creatinine is not evidence
 that creatinine is irrelevant, only that no *monotonic* relation shows here.
 
-## What the coefficient measures
+## Settings
+
+Numeric columns, at least two of them. Identifiers start unticked in
+**Variables** — a patient id correlates with nothing meaningful and only crowds
+a grid that is square in the number of variables you keep.
+
+Each pair is computed on the rows where **both** variables are present, so a
+column with heavy missingness quietly contributes fewer pairs than its
+neighbours. The header shows the total n; the pairs behind an individual cell
+can be far fewer.
+
+## Notes on the method
+
+### What the coefficient measures
 
 Each cell holds a coefficient between −1 and +1:
 
@@ -31,18 +42,7 @@ Each cell holds a coefficient between −1 and +1:
 The matrix is symmetric: the cell above the diagonal and the one below it are
 the same number.
 
-## What you need
-
-Numeric columns, at least two of them. Identifiers start unticked in
-**Variables** — a patient id correlates with nothing meaningful and only crowds
-a grid that is square in the number of variables you keep.
-
-Each pair is computed on the rows where **both** variables are present, so a
-column with heavy missingness quietly contributes fewer pairs than its
-neighbours. The header shows the total n; the pairs behind an individual cell
-can be far fewer.
-
-## Pearson or Spearman
+### Pearson or Spearman
 
 **Method** is the setting that changes what you are measuring, not just how it
 is computed.
@@ -65,7 +65,7 @@ A useful habit: run both. When Pearson and Spearman disagree markedly, that gap
 is itself the information — it means a few extreme points, or a curved
 relationship, are driving one of the two numbers.
 
-## Reading the heatmap
+### Reading the heatmap
 
 Colour carries the pattern, the number carries the magnitude. The scale runs
 from blue at −1, through white at 0, to red at +1, so a block of strongly
@@ -84,7 +84,7 @@ There is no universal scale for "strong". In clinical data, r ≈ 0.7 between tw
 distinct measurements is already high, and anything above 0.9 usually means the
 two columns are measuring the same thing twice.
 
-## The traps
+### The traps
 
 > [!WARNING]
 > **A coefficient near 0 does not mean "no relationship" — it means "no *linear*

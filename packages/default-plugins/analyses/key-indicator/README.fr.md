@@ -1,5 +1,3 @@
-# Indicateur clé
-
 Un chiffre, en grand, avec une icône, un sous-titre et un mini-graphique
 optionnel. Taux de mortalité, durée moyenne de séjour, nombre de séjours,
 proportion de patients ventilés — les chiffres par lesquels s'ouvre un tableau
@@ -16,7 +14,7 @@ sous-titre, parce que le chiffre lui-même ne peut pas le porter.
 Bien employé, c'est le moyen le plus rapide de donner à un service ses propres
 chiffres. Mal employé, c'est le moyen le plus rapide d'en publier un faux.
 
-## Ce qu'il vous faut
+## Réglages
 
 Un jeu de données tabulaire et une **Colonne**. Le choix de la colonne fixe des
 valeurs par défaut sensées : une colonne numérique démarre sur *Moyenne*, une
@@ -44,7 +42,9 @@ La section **Mini-graphique** ajoute un histogramme, une boîte à moustaches, d
 barres ou un camembert à côté ou sous la valeur, et la section **Style** gère
 l'icône, les couleurs, la taille et le centrage.
 
-## « Unique par » est ce qui décide du sens
+## Notes sur la méthode
+
+### « Unique par » est ce qui décide du sens
 
 **Unique par** regroupe les lignes selon une colonne et réduit chaque groupe à
 une valeur avant le calcul de la statistique. **Fonction par entité** dit
@@ -79,7 +79,7 @@ dans l'ordre d'arrivée des lignes dans le jeu de données — le plugin ne trie
 pas. Si vous voulez dire « la dernière valeur mesurée », triez votre jeu de
 données par date en amont.
 
-## Un chiffre sans dénominateur
+### Un chiffre sans dénominateur
 
 > [!WARNING]
 > **Un pourcentage nu est la façon la plus simple de tromper avec des données
@@ -104,7 +104,7 @@ d'une carte de contrôle, qui existe dans Linkr sous forme de plugin dédié
 précisément parce que distinguer le signal du bruit demande la série, pas la
 dernière valeur.
 
-## Le sous-titre et le mini-graphique sont là où loge l'honnêteté
+### Le sous-titre et le mini-graphique sont là où loge l'honnêteté
 
 **Stats sous-titre** existe pour empêcher un chiffre unique de rester seul. Deux
 combinaisons méritent leur place sur presque toutes les tuiles :
@@ -131,7 +131,7 @@ quand elle est haute, et utilisez **Barres** sur un histogramme comme partout
 ailleurs : essayez deux ou trois valeurs, et méfiez-vous d'une structure qui
 n'apparaît qu'avec l'une d'elles.
 
-## Un exemple complet
+## Un exemple travaillé
 
 *Quelle a été notre mortalité en réanimation l'an dernier ?*
 

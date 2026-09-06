@@ -1,5 +1,3 @@
-# Descriptive table
-
 The table of population characteristics — the one that opens every clinical
 paper, before any analysis. One row per variable, one column per group, each
 group headed by its own n.
@@ -19,7 +17,7 @@ the sickest, so the two medians describe differently selected subsets. And the
 two lengths of stay barely differ (5.5 versus 6.3 days), because death ends the
 stay: a survivorship artefact, not an outcome.
 
-## What you need
+## Settings
 
 One row per subject. Not one row per measurement, not one row per stay if the
 unit of analysis is the patient — the table describes the rows it is given, so a
@@ -30,7 +28,9 @@ patient with twelve stays would count twelve times.
 - **Group by** *(optional)* — one column per level of this variable. It is never
   described as a row of itself.
 
-## How each variable is rendered
+## Notes on the method
+
+### How each variable is rendered
 
 The layout follows what journals print:
 
@@ -43,7 +43,7 @@ Levels are ordered by overall frequency, so the dominant category leads. **Max
 levels** caps how many are printed; the remainder are folded into an "Other" row
 rather than dropped, so the counts still add up. Leave it at 0 to show them all.
 
-## Median [IQR] or mean ± SD
+### Median [IQR] or mean ± SD
 
 **Numeric summary** is the setting that decides whether your table tells the
 truth about a variable.
@@ -71,7 +71,7 @@ check, an eligibility window — not for describing a typical patient.
 Whichever you choose, name it in the table caption. `12 [7–19]` and `12 ± 19`
 look similar and mean entirely different things.
 
-## Missing data
+### Missing data
 
 Percentages are computed over the subjects who **answered**, not over the group
 total, and the **Missing row** reports the rest on a line of its own.
@@ -91,7 +91,7 @@ One related behaviour: if the grouping variable itself is missing for some rows,
 those rows form their own group rather than being dropped — dropping them would
 silently change every other column's denominator.
 
-## Reading it, and the p-value question
+### Reading it, and the p-value question
 
 > [!WARNING]
 > **Do not add p-values to the baseline table of a randomised trial.** CONSORT
@@ -110,7 +110,7 @@ five-year age gap between survivors and non-survivors matters in an ICU cohort
 whether or not it clears a threshold; a difference of 0.2 kg does not, however
 small its p-value on a large cohort.
 
-## Presentation
+### Presentation
 
 **Overall column** adds a pooled column across groups. It sums counts only:
 a median cannot be pooled from group medians, so numeric rows show a dash there

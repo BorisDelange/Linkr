@@ -1,5 +1,3 @@
-# Map
-
 Plots your rows as points on an interactive map, from a latitude and a longitude
 column. Use it to see where patients come from, how cases spread across a
 territory, or how far people travel to reach your service.
@@ -15,7 +13,7 @@ Above: 28 communes, sized by how many stays each sent. The pattern is distance
 decay around the hospital's own city — and the point of the map is what breaks
 it, a distant commune sending far more patients than its distance predicts.
 
-## What you need
+## Settings
 
 Two numeric columns: **Latitude** and **Longitude**, in decimal degrees
 (48.1173, −1.6778), not degrees-minutes-seconds and not a text address. Rows
@@ -39,7 +37,9 @@ Three optional columns change what the points say:
 The map fits itself to your data on load, so you do not need to set a centre or
 a zoom.
 
-## Never map patients at their home address
+## Notes on the method
+
+### Never map patients at their home address
 
 > [!WARNING]
 > **A point at someone's home is identifying data.** A published map at street
@@ -57,7 +57,7 @@ aggregated: a single case in a village of 200 people is not much more anonymous
 than a dot on a house. Suppressing or merging cells below a small-count
 threshold is standard practice, and your data protection rules probably require it.
 
-## Counts reproduce the population map
+### Counts reproduce the population map
 
 Here is the trap that catches most disease maps. Plot raw case counts by
 municipality and you will find the biggest circles over the biggest cities. This
@@ -76,7 +76,7 @@ inference from "this district has a high rate" to "this person is at high risk"
 is the ecological fallacy, and it is a mistake worth naming out loud when a map
 is presented to clinicians.
 
-## Making a crowded map readable
+### Making a crowded map readable
 
 Points at the same location stack on top of each other and hide each other, so a
 dense map systematically under-represents its densest areas — exactly backwards.

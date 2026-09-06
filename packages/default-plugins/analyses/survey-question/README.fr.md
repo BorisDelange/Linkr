@@ -1,5 +1,3 @@
-# Questionnaire
-
 Une question d'un questionnaire, analysée correctement : combien de personnes y
 ont répondu, comment les réponses se distribuent, et le graphique réellement
 adapté au type de la question. Le plugin lit les métadonnées exportées par les
@@ -18,7 +16,7 @@ Le plugin traite délibérément une question à la fois. Un questionnaire se li
 item par item, et le nombre le plus important pour chacun — son taux de réponse
 — est propre à l'item, pas au questionnaire.
 
-## Ce qu'il vous faut
+## Réglages
 
 Un jeu de données avec une ligne par répondant, et une **Question**. Vous pouvez
 choisir n'importe quelle colonne appartenant à la question ; pour une question à
@@ -46,7 +44,9 @@ numérique, une liste de réponses pour du texte libre.
 - **Statistiques descriptives** et **Tableau** quand les chiffres comptent plus
   que la forme.
 
-## Le taux de réponse est le premier chiffre à lire
+## Notes sur la méthode
+
+### Le taux de réponse est le premier chiffre à lire
 
 **Taux de réponse** affiche n/N : combien de répondants ont répondu à *cette*
 question, sur l'ensemble du jeu de données. Laissez-le activé. C'est ce chiffre
@@ -66,7 +66,7 @@ questionnaire lui-même. Une enquête envoyée à 400 cliniciens, remplie par 18
 avec 96 personnes répondant à cet item, décrit 24 % des personnes sollicitées.
 Ces trois chiffres ont chacun leur place dans la section méthodes.
 
-## Manquant, « non applicable » et « ne souhaite pas répondre » sont trois choses différentes
+### Manquant, « non applicable » et « ne souhaite pas répondre » sont trois choses différentes
 
 > [!WARNING]
 > **Un graphique en barres écrase trois types de non-réponse en un seul vide.**
@@ -94,7 +94,7 @@ une option que personne n'a retenue est un résultat, pas du bruit visuel. Ne
 l'activez que lorsqu'une longue liste d'options rend le graphique illisible, et
 dites-le.
 
-## Choix multiples : les pourcentages ne feront pas 100
+### Choix multiples : les pourcentages ne feront pas 100
 
 Quand une question autorise plusieurs cases, le plugin réassemble ses colonnes
 et indique, pour chaque option, combien de répondants l'ont sélectionnée. Ces
@@ -114,7 +114,7 @@ présentation. Notez que sur une question à réponses multiples, « Autres » e
 sac d'options sans rapport entre elles, pas une catégorie : c'est honnête comme
 troncature visuelle et trompeur comme résultat.
 
-## Les réponses ordinales doivent conserver leur ordre
+### Les réponses ordinales doivent conserver leur ordre
 
 Un item de Likert — *jamais / rarement / parfois / souvent / toujours* — porte
 son sens dans la séquence. Le trier par fréquence produit un graphique où
@@ -135,7 +135,7 @@ effectivement vues. Cela compte quand vous suspectez un effet d'ordre, car les
 répondants choisissent de façon disproportionnée les premières options d'une
 longue liste.
 
-## Un exemple complet
+## Un exemple travaillé
 
 *À quelle fréquence nos infirmiers de réanimation utilisent-ils le protocole de sédation ?*
 

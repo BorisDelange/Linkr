@@ -1,5 +1,3 @@
-# Statistical tests
-
 Compare groups on many variables at once, with the right test picked per
 variable — and with the numbers that say whether the difference matters, not
 only whether it is "significant".
@@ -18,7 +16,7 @@ picked and why. Read the effect sizes, not the stars: SAPS II differs by some
 17 points and age by nine years, but both come back "significant" on 1005
 stays — and none of it is causal.
 
-## What you need
+## Settings
 
 Two settings do the work:
 
@@ -34,7 +32,9 @@ group value are dropped; missing values in a tested variable are dropped for
 that variable only, which is why the `n` shown per group can differ from row to
 row.
 
-## Which test, and why
+## Notes on the method
+
+### Which test, and why
 
 The test is chosen per variable, from the variable's type and the number of
 groups:
@@ -68,7 +68,7 @@ per arm) normality cannot really be checked at all, and the rank-based test is
 the prudent answer. The table tells you which was used and why: hover the test
 name, or click it to pin a different test on that one variable.
 
-## Reading the results
+### Reading the results
 
 Each row carries, depending on **Table columns**:
 
@@ -86,7 +86,7 @@ Each row carries, depending on **Table columns**:
 - **Effect size** — Cohen's *d*, rank-biserial *r*, Cramér's *V*, η². How big
   the difference is, on a scale that does not grow with your sample size.
 
-### What a p-value is not
+#### What a p-value is not
 
 It is the probability of seeing a difference at least this large **if the groups
 truly did not differ**. It is not the probability that they do not differ, and
@@ -104,7 +104,7 @@ It changes only what is marked with a star, never the p-values themselves.
 Lowering it to 0.01 makes false positives rarer and false negatives commoner;
 there is no setting that avoids both.
 
-## The traps
+### The traps
 
 > [!WARNING]
 > **Testing 20 variables at α = 0.05 buys you roughly one false positive by pure

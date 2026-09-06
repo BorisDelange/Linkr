@@ -1,5 +1,3 @@
-# Tableau descriptif
-
 Le tableau des caractéristiques de la population — celui qui ouvre tout article
 clinique, avant la moindre analyse. Une ligne par variable, une colonne par
 groupe, chaque groupe portant son propre effectif dans son en-tête.
@@ -20,7 +18,7 @@ sélectionnés différemment. Et les deux durées de séjour diffèrent à peine
 (5,5 contre 6,3 jours), parce que le décès interrompt le séjour : un artefact
 de survie, pas un résultat.
 
-## Ce qu'il vous faut
+## Réglages
 
 Une ligne par sujet. Pas une ligne par mesure, ni une ligne par séjour si
 l'unité d'analyse est le patient — le tableau décrit les lignes qu'on lui donne,
@@ -32,7 +30,9 @@ donc un patient avec douze séjours compterait douze fois.
 - **Grouper par** *(facultatif)* — une colonne par modalité de cette variable.
   Elle n'est jamais décrite comme une ligne d'elle-même.
 
-## Comment chaque variable est mise en forme
+## Notes sur la méthode
+
+### Comment chaque variable est mise en forme
 
 La présentation reprend celle des revues :
 
@@ -46,7 +46,7 @@ Les modalités sont classées par fréquence globale, la plus fréquente en têt
 dans une ligne « Autres » plutôt que supprimées, pour que les effectifs
 continuent de se sommer. Laissez 0 pour toutes les afficher.
 
-## Médiane [IQR] ou moyenne ± ET
+### Médiane [IQR] ou moyenne ± ET
 
 Le **Résumé numérique** est le réglage qui décide si votre tableau dit la vérité
 sur une variable.
@@ -76,7 +76,7 @@ description d'un patient typique.
 Quel que soit votre choix, précisez-le dans la légende du tableau. `12 [7–19]`
 et `12 ± 19` se ressemblent et ne veulent absolument pas dire la même chose.
 
-## Les données manquantes
+### Les données manquantes
 
 Les pourcentages sont calculés sur les sujets **renseignés**, et non sur
 l'effectif total du groupe, et la **Ligne manquants** rapporte le reste sur une
@@ -99,7 +99,7 @@ pour certaines lignes, celles-ci forment leur propre groupe au lieu d'être
 écartées — les écarter modifierait silencieusement le dénominateur de toutes les
 autres colonnes.
 
-## La lecture, et la question des p-values
+### La lecture, et la question des p-values
 
 > [!WARNING]
 > **N'ajoutez pas de p-values au tableau de caractéristiques initiales d'un
@@ -119,7 +119,7 @@ marqueurs. Un écart de cinq ans entre survivants et décédés compte dans une
 cohorte de réanimation, qu'il franchisse ou non un seuil ; une différence de
 0,2 kg ne compte pas, aussi petite que soit sa p-value sur un grand effectif.
 
-## Présentation
+### Présentation
 
 La **Colonne Total** ajoute une colonne cumulant tous les groupes. Elle ne somme
 que des effectifs : une médiane ne se cumule pas à partir des médianes de
@@ -138,7 +138,7 @@ question ne le mérite, `64,317` est du bruit, et une colonne de nombres longs e
 nettement plus difficile à comparer de haut en bas. Une précision supérieure à
 l'exactitude de la mesure elle-même suggère une certitude que vous n'avez pas.
 
-## Un exemple
+## Un exemple travaillé
 
 *Qu'est-ce qui distinguait les patients décédés des survivants ?*
 

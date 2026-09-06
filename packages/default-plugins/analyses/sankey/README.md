@@ -1,5 +1,3 @@
-# Sankey diagram
-
 A Sankey diagram follows *where things go*. Each band is a group of patients
 moving from one stage to the next, and the band's width is how many of them
 there are — so the eye reads the volume of a pathway directly, without doing
@@ -17,19 +15,7 @@ splits rather than the totals — the band that leaves the ward and returns to
 ICU is a readmission signal, and it is the kind of thing worth quantifying
 properly rather than concluding from the picture.
 
-## Three things it does well
-
-**Patient pathways.** Emergency → ICU → ward → discharge, with every deviation
-visible: the returns to ICU, the direct transfers, the deaths at each stage.
-
-**State transitions.** Ventilation status day 1 → day 3 → day 7, renal
-replacement started and stopped, a severity band that moves.
-
-**Inclusion funnels.** Screened → eligible → consented → analysed. Each
-narrowing is drawn to scale, and the losses are as visible as the survivors,
-which is exactly what a flow diagram in a paper is meant to show.
-
-## Getting your data into shape
+## Settings
 
 **Data shape** comes first, because it decides which other settings appear.
 
@@ -52,7 +38,21 @@ step, so a stay recorded as three consecutive rows in the same unit does not
 generate loops onto itself. **End node label**, if you fill it in, appends one
 final node with that label to every flow.
 
-## What the diagram is actually counting
+## Notes on the method
+
+### Three things it does well
+
+**Patient pathways.** Emergency → ICU → ward → discharge, with every deviation
+visible: the returns to ICU, the direct transfers, the deaths at each stage.
+
+**State transitions.** Ventilation status day 1 → day 3 → day 7, renal
+replacement started and stopped, a severity band that moves.
+
+**Inclusion funnels.** Screened → eligible → consented → analysed. Each
+narrowing is drawn to scale, and the losses are as visible as the survivors,
+which is exactly what a flow diagram in a paper is meant to show.
+
+### What the diagram is actually counting
 
 Node columns are **positional**: the first step of every flow sits in column 1,
 the second in column 2, and so on. A stage that occurs at two different points
@@ -70,7 +70,7 @@ or four times across the diagram. Turn it on and every flow's last stage is
 merged into one shared final column, giving a single "Death" node and a single
 "Discharge" node — much easier to read whenever outcomes are the point.
 
-## Keeping it readable
+### Keeping it readable
 
 > [!WARNING]
 > **Too many nodes and the diagram means nothing.** With 30 units, 12 outcomes
