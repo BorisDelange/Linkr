@@ -142,33 +142,34 @@ export function DatabaseFileSource({
         </div>
       )}
 
-      {pickerOpen && (
-        <ServerPathPickerDialog
-          open
-          mode={expect === 'dir' ? 'folder' : 'file'}
-          scope={{ kind: 'workspace', workspaceId }}
-          extensions={extensions}
-          // Reopens where it was left, so a browse cancelled by accident does not
-          // start over from the filesystem root.
-          initialPath={serverPath || lastBrowsedPath || undefined}
-          onClose={() => {
-            setPickerOpen(false)
-            // Falling back to the upload side is only right when the browse was
-            // opened from the empty zone and cancelled: leaving a server origin
-            // with no path would strand the form. Re-browsing an already chosen
-            // path and cancelling must keep it — the ref (not `serverPath`, which
-            // is still the pre-pick value in this same tick) says whether a pick
-            // just happened.
-            if (!pickedRef.current && !serverPath) onOriginChange('upload')
-            pickedRef.current = false
-          }}
-          onPick={(path) => {
-            pickedRef.current = true
-            setLastBrowsedPath(path)
-            onServerPathChange(path)
-          }}
-        />
-      )}
+      {/* Mounted unconditionally, with `open` driven by state: Radix animates the
+          closed→open transition, so a dialog conditionally mounted *already* open
+          has no starting state to animate from and appears in two paints. */}
+      <ServerPathPickerDialog
+        open={pickerOpen}
+        mode={expect === 'dir' ? 'folder' : 'file'}
+        scope={{ kind: 'workspace', workspaceId }}
+        extensions={extensions}
+        // Reopens where it was left, so a browse cancelled by accident does not
+        // start over from the filesystem root.
+        initialPath={serverPath || lastBrowsedPath || undefined}
+        onClose={() => {
+          setPickerOpen(false)
+          // Falling back to the upload side is only right when the browse was
+          // opened from the empty zone and cancelled: leaving a server origin
+          // with no path would strand the form. Re-browsing an already chosen
+          // path and cancelling must keep it — the ref (not `serverPath`, which
+          // is still the pre-pick value in this same tick) says whether a pick
+          // just happened.
+          if (!pickedRef.current && !serverPath) onOriginChange('upload')
+          pickedRef.current = false
+        }}
+        onPick={(path) => {
+          pickedRef.current = true
+          setLastBrowsedPath(path)
+          onServerPathChange(path)
+        }}
+      />
     </>
   )
 }

@@ -1989,16 +1989,14 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {vocabPickerOpen && (
-        <ServerPathPickerDialog
-          open
-          mode="folder"
-          scope={{ kind: 'workspace', workspaceId: activeWorkspaceId ?? '' }}
-          initialPath={vocabServerPath || undefined}
-          onClose={() => setVocabPickerOpen(false)}
-          onPick={(p) => { void handleVocabServerFolder(p) }}
-        />
-      )}
+      <ServerPathPickerDialog
+        open={vocabPickerOpen}
+        mode="folder"
+        scope={{ kind: 'workspace', workspaceId: activeWorkspaceId ?? '' }}
+        initialPath={vocabServerPath || undefined}
+        onClose={() => setVocabPickerOpen(false)}
+        onPick={(p) => { void handleVocabServerFolder(p) }}
+      />
 
       {/* Vocabulary remove dialog */}
       <AlertDialog open={vocabRemoveOpen} onOpenChange={setVocabRemoveOpen}>

@@ -133,9 +133,15 @@ export function ServerPathPickerDialog({
     [scope.kind, scope.kind === 'project' ? scope.projectUid : scope.workspaceId, extKey],
   )
 
+  // `initialPath` seeds the browse at each opening; it must not steer it while
+  // open. The dialog stays mounted (so Radix can animate it), so re-firing on
+  // every `initialPath` change would both reload during the close animation and
+  // yank the user back whenever a parent re-render moved it.
+  const initialPathRef = useRef(initialPath)
+  initialPathRef.current = initialPath
   useEffect(() => {
-    if (open) void load(initialPath ?? '')
-  }, [open, initialPath, load])
+    if (open) void load(initialPathRef.current ?? '')
+  }, [open, load])
 
   /** Navigate to whatever was typed in the path bar. A path that does not exist
    *  (or sits outside the browse roots) leaves the current folder listed and

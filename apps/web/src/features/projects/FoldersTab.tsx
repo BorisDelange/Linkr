@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FolderCog, FolderInput, Loader2 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -70,6 +70,10 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
   const currentOf = (w: Which) => (w === 'idePath' ? idePath : w === 'scriptsPath' ? scriptsPath : datasetsPath)
 
   const [pickerFor, setPickerFor] = useState<Which | null>(null)
+  /** Survives `pickerFor` going back to null, so the picker keeps addressing the
+   *  right binding's paths while it animates closed. */
+  const lastPickerFor = useRef<Which | null>(null)
+  if (pickerFor) lastPickerFor.current = pickerFor
   const [saving, setSaving] = useState<Which | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<PendingRebind | null>(null)
@@ -161,21 +165,24 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
         </CardContent>
       </Card>
 
-      {pickerFor && (
-        <ServerPathPickerDialog
-          open
-          mode="folder"
-          scope={{ kind: 'project', projectUid }}
-          initialPath={currentOf(pickerFor)}
-          defaultPath={defaultFor(pickerFor)}
-          onClose={() => setPickerFor(null)}
-          onPick={(path) => {
-            const which = pickerFor
-            setPickerFor(null)
-            void applyBinding(which, path)
-          }}
-        />
-      )}
+      {/* Mounted unconditionally, with `open` driven by state: Radix animates the
+          closed→open transition, so a dialog conditionally mounted *already* open
+          has no starting state to animate from and appears in two paints.
+          `lastPickerFor` keeps the binding's paths addressable through the close
+          animation, once `pickerFor` has already gone back to null. */}
+      <ServerPathPickerDialog
+        open={pickerFor != null}
+        mode="folder"
+        scope={{ kind: 'project', projectUid }}
+        initialPath={lastPickerFor.current ? currentOf(lastPickerFor.current) : undefined}
+        defaultPath={lastPickerFor.current ? defaultFor(lastPickerFor.current) : undefined}
+        onClose={() => setPickerFor(null)}
+        onPick={(path) => {
+          const which = pickerFor
+          setPickerFor(null)
+          if (which) void applyBinding(which, path)
+        }}
+      />
 
       {/* Optional copy after a rebind */}
       <Dialog open={pending != null} onOpenChange={(o) => !o && setPending(null)}>
