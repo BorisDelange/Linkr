@@ -1,5 +1,3 @@
-# Notes cliniques
-
 Une visionneuse de documents pour les notes d'un patient : comptes rendus
 d'hospitalisation, notes d'évolution, comptes rendus de radiologie — tout ce que
 votre système source écrit en texte libre et que votre ETL fait aboutir dans la
@@ -18,7 +16,7 @@ Ci-dessus : un document ouvert parmi 29, avec une recherche de `pneumonia` qui e
 fait correspondre 18 — le compteur à côté du champ de recherche donne le nombre
 de correspondances, et le terme est surligné dans le corps du texte.
 
-## Paramètres
+## Réglages
 
 Aucun. Le widget n'a rien à configurer ; tout ce qu'il propose se trouve dans sa
 propre barre d'outils, au-dessus de la liste des documents :

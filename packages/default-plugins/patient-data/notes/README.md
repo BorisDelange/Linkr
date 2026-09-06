@@ -1,5 +1,3 @@
-# Clinical notes
-
 A document viewer for one patient's notes: discharge summaries, progress notes,
 radiology reports — whatever your source system writes as free text and your ETL
 maps into the OMOP `note` table.

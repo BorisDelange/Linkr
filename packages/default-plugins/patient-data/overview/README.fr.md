@@ -1,5 +1,3 @@
-# Vue d'ensemble des données
-
 Tous les événements d'un patient, disposés sur un seul axe temporel et regroupés
 par table source d'origine et par concept enregistré. Chaque ligne est un concept
 — un analyte de laboratoire, un médicament, un signal de monitorage — et son
@@ -7,19 +5,11 @@ ombrage indique à quelle densité ce concept a été enregistré à cet instant
 Zoomez suffisamment et les bandes cessent d'être une densité pour devenir les
 événements eux-mêmes.
 
-Il répond à une question qu'il faudrait poser avant chaque analyse et qu'on ne
-peut presque jamais poser : **que contient réellement le dossier de ce patient,
-et sur quelle période ?** Une requête de cohorte vous dit qu'un patient a un
-lactate ; elle ne vous dit pas que ce lactate existe au jour 1 et au jour 9 et
-nulle part entre les deux, que les données de ventilation s'arrêtent au milieu du
-séjour, ou que toute la table des médicaments commence trois jours après
-l'admission parce que c'est à ce moment-là que l'unité est passée au logiciel de
-prescription.
-
-Lire le dossier d'un patient de bout en bout est aussi le moyen le plus rapide de
-repérer un problème d'ETL. Les contrôles qualité agrégés vous disent qu'une table
-compte 4,2 millions de lignes ; le dossier d'un seul patient vous dit que ces
-lignes arrivent sous une forme qu'aucun clinicien ne reconnaîtrait.
+Il montre **ce que contient réellement le dossier d'un patient, et sur quelle
+période** : une requête de cohorte vous dit qu'un patient a un lactate, pas que
+ce lactate existe au jour 1 et au jour 9 et nulle part entre les deux, ni que
+toute la table des médicaments commence trois jours après l'admission parce que
+c'est à ce moment-là que l'unité est passée au logiciel de prescription.
 
 ![Le widget Vue d'ensemble des données : les tables sources à gauche avec leur
 nombre de concepts, les bandes de densité sur toute la largeur, et les transferts
@@ -33,7 +23,7 @@ instant — et les interruptions visibles dans les bandes sont ce dont il faut s
 méfier : elles disent que les données s'arrêtent là, pas qu'il ne s'est rien
 passé.
 
-## Ce dont vous avez besoin
+## Réglages
 
 Rien de plus qu'un patient et un schéma mappé. Le widget lit les tables OMOP
 exposées par la base active de votre projet — mesures, observations, expositions

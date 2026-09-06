@@ -1,5 +1,3 @@
-# Chronologie
-
 Trace les mesures d'un patient en fonction du temps : la fréquence cardiaque au
 long d'un séjour, trois lactates consécutifs, un réglage de ventilateur maintenu
 deux jours. Vous choisissez les concepts, le widget retrouve chaque valeur
@@ -25,7 +23,7 @@ elle est donc dessinée sous forme de barre avec la dose et la durée dans son
 infobulle. Les deux affichent les mêmes heures parce que **Synchroniser la plage
 temporelle** est activé.
 
-## Paramètres
+## Réglages
 
 **Concepts** est le seul qui doive être renseigné. Choisissez-les dans le
 sélecteur de concepts ; chaque concept devient une série.
@@ -111,7 +109,7 @@ simple bosse, et pour les variables dont l'intervalle est loin de zéro toute la
 série se retrouve tassée en haut du graphique. Lisez les étiquettes de l'axe
 avant de lire la forme.
 
-## Un exemple concret
+## Un exemple travaillé
 
 *Tracer l'hémodynamique et les médicaments qui la soutiennent.*
 

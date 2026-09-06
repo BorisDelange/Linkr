@@ -1,5 +1,3 @@
-# Patient summary
-
 The header of a patient chart: identifier, gender, age, vital status, how many
 hospitalisations and unit stays the record holds, and a bar per stay showing
 where the patient was and when.

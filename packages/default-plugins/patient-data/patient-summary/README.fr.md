@@ -1,5 +1,3 @@
-# Résumé patient
-
 L'en-tête d'un dossier patient : identifiant, sexe, âge, statut vital, nombre
 d'hospitalisations et de séjours par unité que contient le dossier, et une barre
 par séjour indiquant où le patient se trouvait et quand.
@@ -17,7 +15,7 @@ médecine/chirurgie, SSPI, puis soins intensifs cardiologiques. Les deux âges
 affichent `—` parce que cet extrait ne porte aucune année de naissance ; le
 widget laisse la tuile vide plutôt que de calculer quelque chose.
 
-## Paramètres
+## Réglages
 
 Aucun. Les champs que votre schéma ne mappe pas n'apparaissent tout simplement
 pas — sans table de détail de visite, pas de tuile de séjours par unité ni de

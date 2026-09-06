@@ -1,23 +1,14 @@
-# Data overview
-
 Every event a patient has, laid out on one time axis and grouped by the source
 table it came from and the concept it records. Each row is a concept — a
 laboratory analyte, a drug, a monitoring signal — and the shading along it says
 how densely that concept was recorded at that moment. Zoom in far enough and the
 bands stop being a density and become the individual events.
 
-It answers a question you should ask before every analysis and almost never can:
-**what does this patient's record actually contain, and over what period?** A
-cohort query tells you a patient has a lactate; it does not tell you that the
-lactate exists on day 1 and day 9 and nowhere in between, that the ventilator
-data stops halfway through the stay, or that the whole medication table starts
+It shows **what a patient's record actually contains, and over what period**: a
+cohort query tells you a patient has a lactate, not that the lactate exists on
+day 1 and day 9 and nowhere in between, or that the whole medication table starts
 three days after admission because that is when the unit went live on the
 prescribing software.
-
-Reading one patient's record end to end is also the fastest way to catch an ETL
-problem. Aggregate quality checks tell you a table has 4.2 million rows; a
-single patient chart tells you that the rows arrive in a shape no clinician
-would recognise.
 
 ![The Data overview widget: source tables down the left with their concept
 counts, density bands across the width, and the patient's unit transfers along
@@ -29,7 +20,7 @@ their own band. The transfers strip along the top says which unit the patient
 was in at any moment — and the visible interruptions in the bands are the thing
 to be careful with: they say the data stops there, not that nothing happened.
 
-## What you need
+## Settings
 
 Nothing beyond a patient and a mapped schema. The widget reads the OMOP tables
 your project's active database exposes — measurements, observations, drug

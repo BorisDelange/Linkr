@@ -1,5 +1,3 @@
-# Timeline
-
 Draws one patient's measurements against time: heart rate over a stay, three
 consecutive lactates, a ventilator setting held for two days. You pick the
 concepts, the widget finds every recorded value for that patient and plots them
