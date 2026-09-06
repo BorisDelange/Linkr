@@ -9,6 +9,15 @@ as survivors, whatever their follow-up length. Both answers are wrong. Survival
 analysis keeps them, contributing information for exactly as long as they were
 observed.
 
+![Kaplan-Meier curves for two protocols over 90 days, with confidence bands,
+censoring marks and an at-risk table below the
+axis.](attachments/output.png)
+
+Above: two protocols, 210 stays each. The curves separate from about day 30 and
+stay apart. Read the at-risk row before believing the tail: by day 80 only 76
+and 55 patients remain, so the right-hand end of each curve rests on far fewer
+people than the left.
+
 ## Censoring, in one paragraph
 
 A patient is **censored** when follow-up ends without the event: they were still

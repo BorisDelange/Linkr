@@ -10,6 +10,15 @@ pas faire. En réanimation, les patients décédés sont plus âgés *et* plus g
 prise isolément. La régression permet de demander laquelle reste associée au
 décès une fois les deux autres prises en compte.
 
+![Régression logistique du décès hospitalier sur l'âge, le score de Glasgow
+minimal et le lactate maximal : le tableau des coefficients en haut, le forest
+plot des rapports de cotes en bas.](attachments/output.fr.png)
+
+Ci-dessus : le décès hospitalier expliqué par l'âge, le GCS le plus bas et le
+lactate le plus haut, sur 111 séjours de réanimation. Tous les intervalles
+croisent 1, et le bandeau dit pourquoi la réponse est si incertaine — 38 des
+111 lignes ont été écartées pour une valeur manquante quelque part.
+
 ## Ce qu'il faut
 
 Deux réglages de la section **Données** sont obligatoires.
@@ -165,15 +174,6 @@ verticale sont tracées en gris atténué.
 
 Regardez d'abord les *largeurs* : une barre longue signale une variable sur
 laquelle vos données ont peu à dire, quelle que soit sa p-value.
-
-![Régression logistique du décès hospitalier sur l'âge, le score de Glasgow
-minimal et le lactate maximal : le tableau des coefficients en haut, le forest
-plot des rapports de cotes en bas.](attachments/output.fr.png)
-
-Ci-dessus : le décès hospitalier expliqué par l'âge, le GCS le plus bas et le
-lactate le plus haut, sur 111 séjours de réanimation. Tous les intervalles
-croisent 1, et le bandeau dit pourquoi la réponse est si incertaine — 38 des
-111 lignes ont été écartées pour une valeur manquante quelque part.
 
 ## Un exemple concret
 

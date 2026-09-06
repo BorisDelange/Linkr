@@ -10,6 +10,16 @@ quatre patients, une p-value lue comme la probabilité que les groupes soient
 identiques : chacune de ces erreurs produit un nombre d'allure irréprochable et
 pourtant faux.
 
+![Tableau de tests statistiques automatiques comparant survivants et décédés
+sur cinq variables, chaque ligne nommant le test
+utilisé.](attachments/output.fr.png)
+
+Ci-dessus : cinq variables confrontées à la mortalité en réanimation, chacune
+avec le test retenu par le plugin et sa justification. Lisez les tailles
+d'effet, pas les étoiles : l'IGS II diffère d'environ 17 points et l'âge de
+neuf ans, mais les deux ressortent « significatifs » sur 1005 séjours — et rien
+de tout cela n'est causal.
+
 ## Ce qu'il faut
 
 Deux réglages font l'essentiel du travail :

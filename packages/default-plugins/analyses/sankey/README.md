@@ -9,6 +9,14 @@ It answers questions a table answers badly: where does the cohort split, which
 route carries most of the patients, and — usually the interesting one — where do
 they disappear.
 
+![A Sankey diagram of hospital pathways: admission sources on the left, ICU in
+the middle, and discharge outcomes on the right.](attachments/output.png)
+
+Above: 320 visits, from where they came to how they ended. Read it for the
+splits rather than the totals — the band that leaves the ward and returns to
+ICU is a readmission signal, and it is the kind of thing worth quantifying
+properly rather than concluding from the picture.
+
 ## Three things it does well
 
 **Patient pathways.** Emergency → ICU → ward → discharge, with every deviation

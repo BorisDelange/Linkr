@@ -5,6 +5,14 @@ barres, histogramme, boîte à moustaches, violon. L'intérêt de les réunir es
 passer de l'un à l'autre ne demande qu'un réglage — et changer de graphique est
 souvent la réponse honnête quand une figure ne dit pas ce qu'on croyait.
 
+![Boîtes à moustaches de la durée de séjour en réanimation par motif
+d'admission, les quatre nettement asymétriques à droite.](attachments/output.fr.png)
+
+Ci-dessus : la durée de séjour par motif d'admission, un point par séjour et
+non par ligne quotidienne. Chaque boîte est asymétrique à droite — la médiane
+est basse dans la boîte et la moustache supérieure s'étire loin — ce qui est
+déjà le résultat : c'est la médiane qu'il faut rapporter ici, pas la moyenne.
+
 ## Quel graphique pour quelle question
 
 Le type de graphique n'est pas un choix esthétique. Il découle de la question.

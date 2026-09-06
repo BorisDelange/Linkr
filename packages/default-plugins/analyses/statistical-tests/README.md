@@ -10,6 +10,14 @@ patients in a cell, a p-value read as a probability that the groups are the
 same. Each of those produces a number that looks perfectly respectable and is
 wrong.
 
+![A table of automatic statistical tests comparing survivors and non-survivors
+on five variables, each row naming the test used.](attachments/output.png)
+
+Above: five variables against ICU mortality, each with the test the plugin
+picked and why. Read the effect sizes, not the stars: SAPS II differs by some
+17 points and age by nine years, but both come back "significant" on 1005
+stays — and none of it is causal.
+
 ## What you need
 
 Two settings do the work:

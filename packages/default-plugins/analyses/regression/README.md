@@ -8,6 +8,14 @@ ICU are older *and* sicker *and* more often ventilated, and every one of those
 columns will look "significant" on its own. Regression is how you ask which of
 them still carries the association once the other two are accounted for.
 
+![A logistic regression of in-hospital death on age, minimum GCS and maximum
+lactate: the coefficients table above, the odds-ratio forest plot
+below.](attachments/output.png)
+
+Above: in-hospital mortality against age, lowest GCS and highest lactate, on 111
+ICU stays. Every interval crosses 1, and the banner says why the answer is so
+uncertain — 38 of the 111 rows were dropped for a missing value somewhere.
+
 ## What you need
 
 Two settings under **Data** are required.
@@ -149,14 +157,6 @@ are drawn muted.
 
 Read the plot for *widths* first: a row with a long bar is a variable your data
 has little to say about, whatever its p-value.
-
-![A logistic regression of in-hospital death on age, minimum GCS and maximum
-lactate: the coefficients table above, the odds-ratio forest plot
-below.](attachments/output.png)
-
-Above: in-hospital mortality against age, lowest GCS and highest lactate, on 111
-ICU stays. Every interval crosses 1, and the banner says why the answer is so
-uncertain — 38 of the 111 rows were dropped for a missing value somewhere.
 
 ## A worked example
 

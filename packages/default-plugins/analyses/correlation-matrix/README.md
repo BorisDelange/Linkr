@@ -8,6 +8,15 @@ of a table of numbers — which variables travel together, which are redundant,
 where a model will run into collinearity. Used badly, it is a machine for
 producing findings that were never there.
 
+![A correlation heatmap of eight ICU variables, with one deep-red cell at 0.95
+between CRP and ferritin.](attachments/output.png)
+
+Above: the deep-red 0.95 between CRP and ferritin is the cell to act on — two
+columns carrying the same information, so putting both into a regression would
+make each coefficient unstable. Along the length-of-stay row, 0.35 with the
+severity score is worth pursuing; the −0.05 with creatinine is not evidence
+that creatinine is irrelevant, only that no *monotonic* relation shows here.
+
 ## What the coefficient measures
 
 Each cell holds a coefficient between −1 and +1:

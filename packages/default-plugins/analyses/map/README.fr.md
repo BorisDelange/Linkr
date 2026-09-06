@@ -9,6 +9,14 @@ La géographie est l'une des rares variables qu'un tableau restitue vraiment mal
 Une carte rend évidents les bassins de recrutement, les zones non couvertes et les
 effets de distance, ce qu'une liste de codes postaux ne fera jamais.
 
+![Carte de recrutement d'une réanimation : un cercle par commune bretonne,
+dimensionné par le nombre de séjours, sur un fond OpenStreetMap.](attachments/output.fr.png)
+
+Ci-dessus : 28 communes, dimensionnées par le nombre de séjours envoyés. La
+forme attendue est une décroissance avec la distance autour de la ville du
+centre — et l'intérêt de la carte est ce qui rompt ce motif, une commune
+éloignée qui adresse bien plus que sa distance ne le laisserait attendre.
+
 ## Ce qu'il vous faut
 
 Deux colonnes numériques : **Latitude** et **Longitude**, en degrés décimaux

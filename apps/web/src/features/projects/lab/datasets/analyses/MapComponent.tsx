@@ -60,23 +60,62 @@ interface MapPoint {
   popup?: { key: string; value: string }[]
 }
 
-/** Imperatively fit the map to the data bounds whenever they change. */
+/**
+ * Fit the map to the data bounds, and keep it fitted when the container
+ * resizes.
+ *
+ * Both halves are one concern: Leaflet computes a zoom from the container's
+ * pixel size, so a fit performed while the pane is still being laid out — the
+ * analysis is created, the preview pane becomes the full widget — leaves the
+ * map zoomed to a size it no longer has. `invalidateSize()` alone does not fix
+ * it: it re-reads the size but keeps the stale zoom, which is why the map came
+ * up zoomed into a random village with every marker off-screen.
+ */
 function FitBounds({ bounds }: { bounds: LatLngBoundsExpression | null }) {
   const map = useMap()
+  // Serialised, so a fresh array with identical numbers does not re-fit and
+  // fight a zoom the user has since chosen themselves.
+  const key = bounds ? JSON.stringify(bounds) : null
+
   useEffect(() => {
-    if (bounds) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 })
-  }, [bounds, map])
+    if (!key) return
+    const target = JSON.parse(key) as LatLngBoundsExpression
+    // fitBounds fires zoomstart itself, so flag our own moves to tell them
+    // apart from the user's.
+    let fitting = false
+    const fit = () => {
+      fitting = true
+      map.invalidateSize()
+      map.fitBounds(target, { padding: [24, 24], maxZoom: 14 })
+      fitting = false
+    }
+    fit()
+
+    // Stop re-fitting as soon as the user takes control, so a resize never
+    // yanks the view back from where they panned or zoomed to.
+    let userMoved = false
+    const release = () => { if (!fitting) userMoved = true }
+    map.on('zoomstart dragstart', release)
+
+    const ro = new ResizeObserver(() => { if (!userMoved) fit() })
+    ro.observe(map.getContainer())
+    return () => {
+      ro.disconnect()
+      map.off('zoomstart dragstart', release)
+    }
+  }, [key, map])
+
   return null
 }
 
-/** Tell Leaflet to recompute its size when the container resizes (e.g. widget resize on the
- *  dashboard grid), so tiles that were outside the old viewport get loaded. */
+/** Recompute Leaflet's size on container resize, so tiles outside the old
+ *  viewport get loaded (a widget resized on the dashboard grid). Fitting is
+ *  FitBounds' job; this only keeps the tile layer honest. */
 function ResizeHandler() {
   const map = useMap()
   useEffect(() => {
-    const container = map.getContainer()
     const ro = new ResizeObserver(() => map.invalidateSize())
-    ro.observe(container)
+    ro.observe(map.getContainer())
     return () => ro.disconnect()
   }, [map])
   return null
@@ -283,10 +322,13 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
     else bgClasses = bgColor.bg
   }
 
+  // `isolate` is load-bearing: Leaflet stacks its panes and controls up to
+  // z-index 1000, well above the app's z-50 dialogs. Without its own stacking
+  // context the map floats over any modal opened while it is on screen.
   const mapBody = (
-    <div className="relative h-full w-full overflow-hidden rounded-md">
+    <div className="relative isolate h-full w-full overflow-hidden rounded-md">
       {points.length === 0 && (
-        <div className="absolute inset-0 z-[500] flex items-center justify-center bg-background/60 text-xs text-muted-foreground">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 text-xs text-muted-foreground">
           {t('datasets.map_no_points', 'No valid coordinates to display.')}
         </div>
       )}
@@ -324,7 +366,7 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
         ))}
       </MapContainer>
       {showLegend && colorScale && colorScale.size > 0 && (
-        <div className="absolute bottom-2 right-2 z-[500] max-h-[40%] overflow-auto rounded-md border bg-background/90 px-2 py-1.5 text-[10px] shadow-sm backdrop-blur">
+        <div className="absolute bottom-2 right-2 z-20 max-h-[40%] overflow-auto rounded-md border bg-background/90 px-2 py-1.5 text-[10px] shadow-sm backdrop-blur">
           {Array.from(colorScale.entries()).map(([cat, col]) => (
             <div key={cat} className="flex items-center gap-1.5 py-px">
               <span className="inline-block size-2.5 shrink-0 rounded-full" style={{ background: col }} />

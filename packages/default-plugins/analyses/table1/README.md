@@ -9,6 +9,16 @@ results apply to their patients, and whether the groups you are comparing were
 comparable in the first place. A reader who cannot see your population cannot
 use your conclusion.
 
+![A descriptive table of 1005 ICU stays, grouped into Died and Survived, with
+medians and interquartile ranges and a missing-value row for
+lactate.](attachments/output.png)
+
+Above: 1005 stays, 174 deaths. Two rows carry most of the meaning. Lactate is
+missing in 24% of survivors but only 5% of those who died — it was measured on
+the sickest, so the two medians describe differently selected subsets. And the
+two lengths of stay barely differ (5.5 versus 6.3 days), because death ends the
+stay: a survivorship artefact, not an outcome.
+
 ## What you need
 
 One row per subject. Not one row per measurement, not one row per stay if the

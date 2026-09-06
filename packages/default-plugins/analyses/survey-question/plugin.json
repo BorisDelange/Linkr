@@ -2,7 +2,7 @@
   "id": "linkr-analysis-survey-question",
   "name": {
     "en": "Survey question",
-    "fr": "Question de questionnaire"
+    "fr": "Questionnaire"
   },
   "description": {
     "en": "Analyse one questionnaire question (eCRF, Goupile, REDCap): response rate, answer distribution, and the chart that fits its type — including multiple-choice questions whose options span several columns.",

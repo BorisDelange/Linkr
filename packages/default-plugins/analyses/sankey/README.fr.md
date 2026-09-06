@@ -9,6 +9,14 @@ Il répond à des questions qu'un tableau traite mal : où la cohorte se divise-
 quel itinéraire porte le plus de patients, et — souvent le plus intéressant — où
 les perd-on.
 
+![Diagramme de Sankey des parcours hospitaliers : provenances à gauche,
+réanimation au centre, devenirs à droite.](attachments/output.fr.png)
+
+Ci-dessus : 320 séjours, de leur provenance à leur devenir. Lisez-le pour les
+bifurcations plutôt que pour les totaux — le flux qui quitte le service et
+revient en réanimation est un signal de réadmission, exactement le genre de
+chose à quantifier proprement plutôt qu'à conclure de l'image.
+
 ## Trois usages où il excelle
 
 **Les parcours patients.** Urgences → réanimation → service → sortie, avec toutes

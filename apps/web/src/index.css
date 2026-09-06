@@ -325,3 +325,21 @@ body {
 .config-section > [data-boolean-field] + [data-boolean-field] {
   margin-top: 0.125rem;
 }
+
+/* Leaflet stacks its panes up to 700 and its controls to 1000, both far above
+   the app's z-50 dialogs and sheets. Inside its own stacking context that is
+   harmless, but a map whose ancestors create none floats over any modal opened
+   on top of it — the upload dialog on the Datasets page, for one. Cap the whole
+   scale below 50 so a map can never outrank the app's chrome, wherever it is
+   rendered; the relative order Leaflet needs between its own layers is kept. */
+.leaflet-pane          { z-index: 4; }
+.leaflet-tile-pane     { z-index: 2; }
+.leaflet-overlay-pane  { z-index: 4; }
+.leaflet-shadow-pane   { z-index: 5; }
+.leaflet-marker-pane   { z-index: 6; }
+.leaflet-tooltip-pane  { z-index: 7; }
+.leaflet-popup-pane    { z-index: 8; }
+.leaflet-zoom-box      { z-index: 9; }
+.leaflet-control       { z-index: 9; }
+.leaflet-top,
+.leaflet-bottom        { z-index: 10; }

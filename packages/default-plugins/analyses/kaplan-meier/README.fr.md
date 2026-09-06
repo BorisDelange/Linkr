@@ -9,6 +9,16 @@ comme survivants, quelle que soit la durée de leur suivi. Les deux réponses so
 fausses. L'analyse de survie les conserve : ils apportent de l'information aussi
 longtemps qu'ils ont été observés.
 
+![Courbes de Kaplan-Meier pour deux protocoles sur 90 jours, avec bandes de
+confiance, marques de censure et table des effectifs à risque sous
+l'axe.](attachments/output.fr.png)
+
+Ci-dessus : deux protocoles, 210 séjours chacun. Les courbes se séparent à
+partir du 30ᵉ jour environ et ne se rejoignent plus. Lisez la ligne des
+effectifs à risque avant de croire la queue de courbe : au 80ᵉ jour il ne reste
+que 76 et 55 patients, donc l'extrémité droite repose sur bien moins de monde
+que la gauche.
+
 ## La censure, en un paragraphe
 
 Un patient est **censuré** quand son suivi s'arrête sans que l'événement soit

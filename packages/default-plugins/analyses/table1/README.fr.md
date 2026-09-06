@@ -9,6 +9,17 @@ décider si vos résultats s'appliquent à ses patients, et si les groupes que v
 comparez étaient comparables au départ. Un lecteur qui ne voit pas votre
 population ne peut pas utiliser votre conclusion.
 
+![Tableau descriptif de 1005 séjours de réanimation, groupés en Décédés et
+Survivants, avec médianes, intervalles interquartiles et une ligne de valeurs
+manquantes pour le lactate.](attachments/output.fr.png)
+
+Ci-dessus : 1005 séjours, 174 décès. Deux lignes portent l'essentiel. Le
+lactate manque chez 24 % des survivants contre 5 % des décédés — il a été dosé
+chez les plus graves, donc les deux médianes décrivent des sous-groupes
+sélectionnés différemment. Et les deux durées de séjour diffèrent à peine
+(5,5 contre 6,3 jours), parce que le décès interrompt le séjour : un artefact
+de survie, pas un résultat.
+
 ## Ce qu'il vous faut
 
 Une ligne par sujet. Pas une ligne par mesure, ni une ligne par séjour si

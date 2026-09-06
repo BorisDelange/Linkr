@@ -8,6 +8,13 @@ Geography is one of the few variables that is genuinely hard to read from a
 table. A map makes catchment areas, gaps in coverage and distance effects
 obvious in a way that a list of postcodes never will.
 
+![An ICU catchment map: one circle per commune across Brittany, sized by the
+number of stays, over an OpenStreetMap base layer.](attachments/output.png)
+
+Above: 28 communes, sized by how many stays each sent. The pattern is distance
+decay around the hospital's own city — and the point of the map is what breaks
+it, a distant commune sending far more patients than its distance predicts.
+
 ## What you need
 
 Two numeric columns: **Latitude** and **Longitude**, in decimal degrees

@@ -5,6 +5,14 @@ violin. The point of having them together is that switching between them is a
 single setting — and switching is often the honest answer when a chart is not
 saying what you thought it said.
 
+![Boxplots of ICU length of stay by admission category, all four boxes strongly
+right-skewed.](attachments/output.png)
+
+Above: length of stay by admission category, one point per stay rather than per
+daily row. Every box is right-skewed — the median sits low inside it and the
+upper whisker runs far — which is itself the finding: the median is the number
+to report here, not the mean.
+
 ## Which plot answers which question
 
 The plot type is not a style choice. It follows from the question.

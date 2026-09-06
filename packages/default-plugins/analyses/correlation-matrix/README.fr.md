@@ -10,6 +10,16 @@ ensemble, lesquelles sont redondantes, où un modèle va buter sur de la
 colinéarité. Mal utilisée, c'est une machine à produire des résultats qui
 n'existaient pas.
 
+![Heatmap de corrélation de huit variables de réanimation, avec une case rouge
+foncé à 0,95 entre la CRP et la ferritine.](attachments/output.fr.png)
+
+Ci-dessus : le 0,95 rouge foncé entre CRP et ferritine est la case sur laquelle
+agir — deux colonnes porteuses de la même information, dont l'entrée conjointe
+dans une régression rendrait les deux coefficients instables. Sur la ligne de
+la durée de séjour, le 0,35 avec le score de gravité mérite d'être creusé ; le
+−0,05 avec la créatinine n'est pas une preuve que la créatinine ne joue aucun
+rôle, seulement qu'aucune relation *monotone* n'apparaît ici.
+
 ## Ce que mesure le coefficient
 
 Chaque case contient un coefficient compris entre −1 et +1 :
