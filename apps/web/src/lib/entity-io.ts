@@ -38,7 +38,6 @@ import type {
   AuthorDetails, ProjectBadge,
 } from '@/types'
 import * as engine from '@/lib/duckdb/engine'
-import { getSchemaPreset } from '@/lib/schema-presets'
 import { localized, toLocalized } from '@/lib/localized'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -3148,19 +3147,16 @@ async function applyClonedDatabase(
   // layout a schema preset uses. A tree written before that has it inline under
   // `schema`, and still imports.
   //
-  // A bare name is the legacy form: it only resolves against the built-in preset
-  // table, which is being retired now that schemas are installed from the catalog
-  // rather than compiled in. Falling back to an empty mapping would import a
-  // database the app cannot read one table from, with nothing saying why — so a
-  // name that no longer resolves refuses instead.
+  // A bare name is the legacy form: it named a preset in the built-in table, which
+  // is gone now that schemas install from the catalog like any other entity. It no
+  // longer resolves to anything, so such a tree refuses below rather than importing
+  // a database the app cannot read one table from with nothing saying why.
   const mappingEntry = zip.files[SCHEMA_PRESET_MAPPING_FILE]
   const ddlEntry = zip.files[SCHEMA_PRESET_DDL_FILE]
   const fromFile = mappingEntry && !mappingEntry.dir
     ? JSON.parse(await mappingEntry.async('string')) as SchemaMapping
     : undefined
-  const inlineMapping = typeof meta.schema === 'string'
-    ? getSchemaPreset(meta.schema)
-    : meta.schema
+  const inlineMapping = typeof meta.schema === 'string' ? undefined : meta.schema
   const baseMapping = fromFile ?? inlineMapping
   const ddl = ddlEntry && !ddlEntry.dir ? await ddlEntry.async('string') : undefined
   const schemaMapping = baseMapping && ddl

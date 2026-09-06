@@ -217,6 +217,27 @@ lives in `schemaSource.lineageId` — already true for databases.
 - **`String(36)` on the PK column** ([schema_preset.py:11](../../apps/api/app/models/schema_preset.py#L11))
   is uuid-width but currently holds slugs. Fine for a uuid `id`; `entityId` needs its own
   column with a length that fits a slug.
-- Whether the **built-in `SCHEMA_PRESETS` table** (`lib/schema-presets.ts`) disappears
-  first or after. It only holds `omop-5.4` and `mimic-iv`, kept alive for seeded
-  databases; doing that first removes 11 literal sites from this effort.
+### Settled (2026-09-06): the built-in `SCHEMA_PRESETS` table went first
+
+It is gone, along with `lib/schema-ddl/`. Doing it before step 5 removed the literal
+sites from that step rather than adding to them.
+
+What made it safe was that the reason it was kept alive had already lapsed. A seeded
+database used to declare `schema: "omop-5.4"` for the table to resolve — but the seed
+builder has emitted the mapping **inline** since databases started carrying their own
+`mapping.json`, so no seed in the repo reaches the branch. Of the five call sites, one
+was unreachable (`AddDatabaseDialog` stopped offering built-in options), one was the
+documented legacy branch in `applyClonedDatabase`, and two of the three in the v2→v6
+IndexedDB migration asked for a key the table never held (`'none'`) — they were already
+writing `undefined`.
+
+Two behaviours changed on purpose, both replacing a silent failure with a loud one:
+
+- A **seed manifest** or **database repo** naming a preset by id is now **refused**, with
+  a message saying to rebuild the seed or install that preset. Resolving to `undefined`
+  mounted the database unmapped, which reads as "every table is empty" and says nothing.
+- A **v2–v5 IndexedDB** database migrating forward keeps the `sourceType` normalisation
+  but arrives with no mapping, to be re-pointed from the database dialog like any source
+  whose preset is not installed.
+
+`SchemaPresetId` is now plain `string`: the union listed built-in ids that name nothing.

@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { qualify, qualifyIn, sanitizeSchemaMapping } from './schema-helpers'
-import { SCHEMA_PRESETS } from './schema-presets'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 // Every table/column name in a mapping is interpolated into SQL as a bare
@@ -109,16 +108,78 @@ describe('sanitizeSchemaMapping', () => {
 })
 
 // The sanitizer drops any identifier it does not recognise, so a false positive
-// silently removes a table or column from a working database. The built-in
-// presets are the real-world sample that has to survive it untouched.
-describe('sanitizeSchemaMapping leaves the built-in presets alone', () => {
-  it('round-trips OMOP and MIMIC byte for byte', () => {
-    const all = Object.entries(SCHEMA_PRESETS)
-    expect(all.length).toBeGreaterThan(0)
-    for (const [id, mapping] of all) {
-      const before = JSON.stringify(mapping)
-      expect(JSON.stringify(sanitizeSchemaMapping(mapping)), id).toBe(before)
-    }
+// silently removes a table or column from a working database. This is a whole
+// preset in the shape the published repos use — every field kind the sanitizer
+// walks, including the ones that tripped it before: `extraColumns` (a map whose
+// VALUES are identifiers), `knownTables` (a string[]), and `schema` (an
+// identifier ending in neither `table` nor `column`).
+//
+// It is written out rather than read from the seed on purpose: the seed folder is
+// a build artefact and is gitignored, so a fixture read from it passes here and
+// fails on a clean checkout.
+const REALISTIC_PRESET = {
+  presetId: 'mimic-iv',
+  presetLabel: { en: 'MIMIC-IV', fr: 'MIMIC-IV' },
+  patientTable: {
+    schema: 'hosp',
+    table: 'patients',
+    idColumn: 'subject_id',
+    genderColumn: 'gender',
+    birthYearColumn: 'anchor_year',
+    extraColumns: { anchor_age: 'anchor_age' },
+  },
+  deathTable: { schema: 'hosp', table: 'patients', idColumn: 'subject_id', dateColumn: 'dod' },
+  visitTable: {
+    schema: 'hosp',
+    table: 'admissions',
+    idColumn: 'hadm_id',
+    patientIdColumn: 'subject_id',
+    startDateColumn: 'admittime',
+    endDateColumn: 'dischtime',
+    careSiteNameTable: 'care_site',
+    careSiteNameColumn: 'care_site_name',
+  },
+  noteTable: { schema: 'note', table: 'discharge', idColumn: 'note_id', textColumn: 'text' },
+  visitDetailTable: { schema: 'icu', table: 'icustays', idColumn: 'stay_id', patientIdColumn: 'subject_id' },
+  conceptTables: [
+    {
+      key: 'd_items',
+      schema: 'icu',
+      table: 'd_items',
+      idColumn: 'itemid',
+      nameColumn: 'label',
+      extraColumns: { category: 'category', unitname: 'unitname' },
+    },
+  ],
+  eventTables: {
+    'Chart events': {
+      schema: 'icu',
+      table: 'chartevents',
+      conceptIdColumn: 'itemid',
+      patientIdColumn: 'subject_id',
+      dateColumn: 'charttime',
+      valueColumn: 'valuenum',
+      valueUnitColumn: 'valueuom',
+    },
+  },
+  genderValues: { male: 'M', female: 'F' },
+  knownTables: ['patients', 'admissions', 'icustays', 'chartevents', 'discharge'],
+  erdGroups: [{ id: 'core', label: 'Core', color: 'blue', tables: ['patients', 'admissions'] }],
+  ddl: 'CREATE TABLE hosp.patients (subject_id INTEGER);',
+} as unknown as SchemaMapping
+
+describe('sanitizeSchemaMapping leaves a real preset alone', () => {
+  it('round-trips a full mapping byte for byte', () => {
+    const before = JSON.stringify(REALISTIC_PRESET)
+    expect(JSON.stringify(sanitizeSchemaMapping(REALISTIC_PRESET))).toBe(before)
+  })
+
+  it('keeps every schema, which is what qualifies the tables', () => {
+    const safe = sanitizeSchemaMapping(REALISTIC_PRESET)!
+    expect(safe.patientTable?.schema).toBe('hosp')
+    expect(safe.noteTable?.schema).toBe('note')
+    expect(safe.conceptTables?.[0].schema).toBe('icu')
+    expect(safe.eventTables?.['Chart events'].schema).toBe('icu')
   })
 })
 

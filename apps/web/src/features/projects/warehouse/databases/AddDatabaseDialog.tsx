@@ -7,7 +7,6 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, localizedRaw, setLocalized } from '@/lib/localized'
 import { commonDirPrefix, extractTableName, generateAlias } from '@/lib/duckdb/engine'
-import { getSchemaPreset } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
 import type {
   DataSource,
@@ -655,11 +654,9 @@ export function AddDatabaseDialog({
   if (!isConnectionValid) connectionMissing.push(t('databases.missing_connection'))
   const allMissing = [...generalMissing, ...connectionMissing]
 
-  // Resolve schema mapping: built-in, custom, or none
+  // Resolve the schema mapping from the installed presets, or none.
   const resolveMapping = () => {
     if (schemaPresetId === '__none__') return undefined
-    const builtin = getSchemaPreset(schemaPresetId)
-    if (builtin) return builtin
     const custom = customPresets.find((p) => presetKey(p) === schemaPresetId)
     return custom?.mapping
   }

@@ -2,7 +2,6 @@ import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
 import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, PatientDashboard, PatientDashboardTab, PatientDashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
 import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, EtlQualityCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, PatientDashboardStorage, PatientDashboardTabStorage, PatientDashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, EtlRunHistoryStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, DqRunHistoryStorage, ConceptSetStorage, ConceptListStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
-import { getSchemaPreset } from '@/lib/schema-presets'
 import { backfillPortableRefs, type IdbUpgradeTransaction } from './idb-portable-refs'
 import { SUGGESTION_CATEGORIES } from '@/types'
 
@@ -412,26 +411,21 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
           db.deleteObjectStore('omop_stats_cache' as never)
         }
 
-        // Migrate data sources: add schemaMapping, normalize sourceType
+        // Normalize sourceType: 'omop' / 'csv' / 'parquet' all became 'database'.
+        //
+        // This used to also assign a schemaMapping from the built-in preset table.
+        // That table is gone (schemas install from the catalog now), and two of its
+        // three branches asked it for a key it never held ('none'), so they were
+        // already writing undefined. A migrated OMOP source now arrives unmapped and
+        // is re-pointed at an installed preset from the database dialog — the same
+        // thing an operator does for any source whose preset is not installed.
         if (oldVersion >= 2) {
           const dsStore = transaction.objectStore('data_sources')
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           ;(dsStore.getAll() as Promise<any[]>).then((sources) => {
             for (const ds of sources) {
-              let changed = false
-              if (ds.sourceType === 'omop') {
+              if (ds.sourceType === 'omop' || ds.sourceType === 'csv' || ds.sourceType === 'parquet') {
                 ds.sourceType = 'database'
-                ds.schemaMapping = getSchemaPreset('omop-5.4')
-                changed = true
-              } else if (ds.sourceType === 'csv' || ds.sourceType === 'parquet') {
-                ds.sourceType = 'database'
-                ds.schemaMapping = getSchemaPreset('none')
-                changed = true
-              } else if (ds.sourceType === 'database' && !ds.schemaMapping) {
-                ds.schemaMapping = getSchemaPreset('none')
-                changed = true
-              }
-              if (changed) {
                 dsStore.put(ds)
               }
             }

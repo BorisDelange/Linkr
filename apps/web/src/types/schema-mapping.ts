@@ -2,10 +2,14 @@ import type { EntityLicense, GitRemoteConfig, LocalizedString, OrganizationInfo,
 import type { Authored, Lineaged } from './author'
 
 /**
- * Schema preset identifier.
- * Built-in presets use fixed IDs; custom presets use free-form string IDs (UUID or slug).
+ * Schema preset identifier: a free-form slug or uuid.
+ *
+ * The union used to list the built-in ids alongside `(string & {})`. There are no
+ * built-in presets any more — every schema is an installed entity — so the
+ * literals named nothing and only offered autocompletion for ids that no longer
+ * resolve. Kept as a named type because it documents what the field holds.
  */
-export type SchemaPresetId = 'omop-5.4' | 'omop-5.3' | 'mimic-iv' | 'mimic-iii' | 'none' | (string & {})
+export type SchemaPresetId = string
 
 /** A named, colored group of tables displayed on the DDL ERD. */
 export interface ErdGroup {

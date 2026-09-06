@@ -21,7 +21,6 @@ linkr/
 │   │       │   ├── runtimes/     # Pyodide + WebR execution engines + bridge + shared-fs
 │   │       │   ├── storage/      # IndexedDB persistence layer (idb)
 │   │       │   ├── plugins/      # Plugin system (registry, builtin widgets)
-│   │       │   ├── schema-ddl/   # DDL definitions (OMOP 5.4, MIMIC-III, MIMIC-IV)
 │   │       │   ├── concept-mapping/ # Concept mapping queries + export
 │   │       │   ├── dcat-ap/      # DCAT-AP catalog vocabulary, JSON-LD, HTML export
 │   │       │   ├── format-helpers.ts # Date/gender formatting, SQL escaping (escSql)

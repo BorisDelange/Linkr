@@ -1517,12 +1517,20 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     // slug, and the writing instance's `id` is stripped from every export. A
     // fixture carrying `id` hid the fact that the real parser rejected every
     // published repo.
+    //
+    // `schema` is the mapping itself. Naming a built-in preset by id was the old
+    // form and no longer resolves to anything — see the test at the end of this
+    // block, which pins the refusal.
     const META = (over: Record<string, unknown> = {}) => JSON.stringify({
       entityId: 'mimic-iv-demo',
       alias: 'mimic_iv_demo',
       name: { en: 'MIMIC-IV Demo' },
       sourceType: 'database',
-      schema: 'mimic-iv',
+      schema: {
+        presetId: 'mimic-iv',
+        presetLabel: { en: 'MIMIC-IV' },
+        patientTable: { schema: 'hosp', table: 'patients', idColumn: 'subject_id' },
+      },
       tables: ['patients', 'admissions'],
       ...over,
     })
@@ -1899,6 +1907,32 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         const id = await importParsedDatabase(parsed, store, false, 'ws1')
         expect(id).not.toBe('mimic-iv-demo')
         expect(id).toBeTruthy()
+      })
+
+      // A repo written when presets were compiled into the app names one by id.
+      // Nothing resolves that now, and a database mounted with no mapping reads as
+      // "every table is empty" with no error — so refuse, and say what to do.
+      it('refuses a repo naming a built-in preset by id, and names the fix', async () => {
+        const { store } = makeStore()
+        const zip = new JSZip()
+        zip.file('_database.json', META({ schema: 'mimic-iv' }))
+
+        await expect(applyClonedEntity(zip, 'database', 'db-target', store))
+          .rejects.toThrow(/schema "mimic-iv", which is not installed/)
+      })
+
+      it('imports a repo carrying its mapping.json, ignoring any inline schema', async () => {
+        const { store, calls } = makeStore()
+        const zip = new JSZip()
+        zip.file('_database.json', META({ schema: 'mimic-iv' }))
+        zip.file('mapping.json', JSON.stringify({
+          presetId: 'from-file',
+          patientTable: { schema: 'hosp', table: 'patients', idColumn: 'subject_id' },
+        }))
+
+        expect(await applyClonedEntity(zip, 'database', 'db-target', store)).toEqual({ ok: true })
+        const created = calls['ds.create']![0][0] as { schemaMapping: { presetId: string } }
+        expect(created.schemaMapping.presetId).toBe('from-file')
       })
     })
   })

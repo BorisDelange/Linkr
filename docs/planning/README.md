@@ -129,7 +129,7 @@ there. `presetId` still names the HTTP routes and the export format; retiring it
 |----|------|--------|
 | ✅ | Steps 1–4: id drift fixed, `id` + `entityId` added, IndexedDB v41 + server PK both keyed on `id`, URL shortened like the others | L |
 | 🔜 | Step 5: retire `presetId` — **started**: the URLs no longer carry it and the root export file drops it. Left: `mapping.presetId`, the route bodies, the Pydantic schemas (where `preset_id` is still *required* while `id`/`entity_id` are optional) and the server export path | M |
-| 🤔 | Open: retire the built-in `SCHEMA_PRESETS` table first? (removes 11 literal sites) | — |
+| ✅ | Retired the built-in `SCHEMA_PRESETS` table and `lib/schema-ddl/`: every schema is an installed entity now, so a seeded or cloned database carries its own mapping and a bare preset id is refused rather than silently unmapped | M |
 
 ## eCRF / survey plugin — [survey-plugin-plan.md](survey-plugin-plan.md)
 

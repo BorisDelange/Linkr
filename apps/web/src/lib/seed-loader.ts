@@ -17,7 +17,6 @@ import {
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
-import { getSchemaPreset } from '@/lib/schema-presets'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -34,7 +33,7 @@ import { mergeSourceConceptIdRegistry, type SourceConceptIdGroup } from '@/lib/c
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
 import type {
   Workspace, Organization, Project, CustomSchemaPreset, UserPlugin,
-  DataSource, DataSourceRef, StoredFile, DatabaseConnectionConfig, SchemaMapping, SchemaPresetId, SchemaSource,
+  DataSource, DataSourceRef, StoredFile, DatabaseConnectionConfig, SchemaMapping, SchemaSource,
   MappingProject, ConceptMapping, SourceConceptIdRange, SourceConceptIdEntry, EtlPipeline, EtlFile,
   DqRuleSet, DataCatalog, ServiceMapping,
   SqlScriptCollection, SqlScriptFile,
@@ -74,8 +73,14 @@ export interface SeedDatabase {
    *  databases, and toLocalized() files one under every language on read. */
   name: LocalizedString | string
   description?: LocalizedString | string
-  /** Schema preset id (e.g. 'omop-5.4', 'mimic-iv') or inline SchemaMapping */
-  schema: SchemaPresetId | SchemaMapping
+  /** The database's mapping, inline.
+   *
+   *  Older manifests wrote a preset id here (`'omop-5.4'`) to be resolved against
+   *  a compiled-in table. That table is gone, so a string no longer names
+   *  anything: `seedDatabase` refuses it rather than mounting a database with no
+   *  mapping, which reads as "every table is empty". The seed builder has emitted
+   *  the object form since databases started carrying their own `mapping.json`. */
+  schema: SchemaMapping
   /** Which published schema the mapping came from, for the "installed from" link. */
   schemaSource?: SchemaSource
   /** Base path relative to public/ (e.g. '/data/mimic-iv-demo-omop') */
@@ -599,13 +604,8 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
   const wsId = workspace.id
 
   // Schema presets are NOT seeded: they are ordinary entities now, installed from
-  // the catalog or shipped in the seed folder like any other entity.
-  //
-  // `getSchemaPreset` below is a separate matter and still reads the compiled table:
-  // a seeded database declares its schema inline or by preset id ("omop-5.4"), and
-  // that id must resolve to a mapping even when no preset entity is installed. It
-  // will move to the workspace's stored presets once the databases themselves ship
-  // as repos (same plan, §3bis B).
+  // the catalog or shipped in the seed folder like any other entity. A seeded
+  // database carries its own mapping inline, so nothing here resolves a preset id.
 
   // --- Seed built-in plugins for this workspace ---
   await seedBuiltinPluginsForWorkspace(wsId)
@@ -1080,9 +1080,20 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
 
   const now = new Date().toISOString()
 
+  // A string here is a manifest written against the retired built-in preset table.
+  // Nothing resolves it any more, and mounting the database without a mapping makes
+  // every table read as empty with no error — so refuse, and name the fix.
+  if (typeof db.schema === 'string') {
+    throw new Error(
+      `Seed database "${db.alias}" declares the schema preset "${db.schema}" by name. `
+      + 'Built-in presets are gone: rebuild this seed so the database carries its own '
+      + 'mapping.json, or install that schema preset and re-point the database at it.',
+    )
+  }
+
   if (db.inMemory) {
     // In-memory database (no Parquet files, e.g. ETL target)
-    const schemaMapping = typeof db.schema === 'string' ? getSchemaPreset(db.schema)! : db.schema
+    const schemaMapping = db.schema
     const connectionConfig: DatabaseConnectionConfig = {
       engine: 'duckdb',
       fileIds: [],
@@ -1149,7 +1160,7 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
   }
 
   // Create DataSource
-  const schemaMapping = typeof db.schema === 'string' ? getSchemaPreset(db.schema)! : db.schema
+  const schemaMapping = db.schema
   const connectionConfig: DatabaseConnectionConfig = {
     engine: 'duckdb',
     fileIds: storedFiles.map((f) => f.id),
