@@ -95,11 +95,13 @@ function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
         <div className="flex items-center gap-2 rounded-t-md px-3 py-2 bg-muted/60">
           <Table2 size={13} className="text-muted-foreground shrink-0" />
           {/* The schema prefixes the name rather than replacing it: on a DDL with
-              homonyms it is the only thing telling two identical boxes apart. */}
-          {data.schema && (
-            <span className="text-xs text-muted-foreground shrink-0">{data.schema}.</span>
-          )}
-          <span className="text-xs font-bold text-foreground truncate">{data.label}</span>
+              homonyms it is the only thing telling two identical boxes apart.
+              One flex child, so the header's gap-2 does not open "hosp. patients";
+              only the table name truncates, since the schema is what disambiguates. */}
+          <span className="flex items-baseline min-w-0 text-xs">
+            {data.schema && <span className="text-muted-foreground shrink-0">{data.schema}.</span>}
+            <span className="font-bold text-foreground truncate">{data.label}</span>
+          </span>
           <span className="ml-auto text-[10px] text-muted-foreground">{data.columns.length}</span>
         </div>
         <div className="px-2 py-1.5 space-y-px">
