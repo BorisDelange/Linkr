@@ -547,7 +547,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-full overflow-hidden">
+      <div className="flex h-full overflow-hidden border-t">
         <Allotment>
           {/* Explorer sidebar */}
           <Allotment.Pane preferredSize={240} minSize={140} maxSize={400} visible={explorerVisible}>

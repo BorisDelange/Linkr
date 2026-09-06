@@ -128,6 +128,18 @@ interface FileState {
   reorderAllOutputTabs: (fromIndex: number, toIndex: number) => void
   setActiveOutputTab: (id: string) => void
 
+  /**
+   * Output tabs the user moved to the editor (left) group. Group membership is
+   * held apart from `outputTabOrder` so a moved tab keeps its place in the
+   * order, and everything that creates or closes output tabs stays unchanged.
+   */
+  outputTabsInEditorGroup: string[]
+  /** The left group's active tab, when it is an output rather than a file. */
+  editorGroupOutputTab: string | null
+  moveOutputTabToEditorGroup: (id: string) => void
+  moveOutputTabToOutputGroup: (id: string) => void
+  setEditorGroupOutputTab: (id: string | null) => void
+
   outputVisible: boolean
   setOutputVisible: (v: boolean) => void
 
@@ -716,6 +728,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     // which never covered `selection`.)
     set({
       outputTabs: [], activeOutputTab: null, executionResults: [],
+      outputTabsInEditorGroup: [], editorGroupOutputTab: null,
       selection: EMPTY_SELECTION,
     })
 
@@ -1316,6 +1329,10 @@ export const useFileStore = create<FileState>((set, get) => ({
   closeOutputTab: (id) =>
     set((s) => {
       const remaining = s.outputTabs.filter((t) => t.id !== id)
+      const inEditorGroup = s.outputTabsInEditorGroup.filter((tid) => tid !== id)
+      // A closed tab must leave the editor group too, or the left pane keeps
+      // rendering content that no longer exists.
+      const editorGroupFallback = inEditorGroup[inEditorGroup.length - 1] ?? null
       return {
         outputTabs: remaining,
         activeOutputTab:
@@ -1323,6 +1340,9 @@ export const useFileStore = create<FileState>((set, get) => ({
             ? (remaining[remaining.length - 1]?.id ?? null)
             : s.activeOutputTab,
         outputTabOrder: s.outputTabOrder.filter((tid) => tid !== id),
+        outputTabsInEditorGroup: inEditorGroup,
+        editorGroupOutputTab:
+          s.editorGroupOutputTab === id ? editorGroupFallback : s.editorGroupOutputTab,
       }
     }),
 
@@ -1343,6 +1363,40 @@ export const useFileStore = create<FileState>((set, get) => ({
     }),
 
   setActiveOutputTab: (id) => set({ activeOutputTab: id }),
+
+  outputTabsInEditorGroup: [],
+  editorGroupOutputTab: null,
+
+  moveOutputTabToEditorGroup: (id) =>
+    set((s) => {
+      if (s.outputTabsInEditorGroup.includes(id)) return s
+      const moved = [...s.outputTabsInEditorGroup, id]
+      // The right pane keeps a selection of its own: hand it another tab, or
+      // none, rather than leaving it pointing at one that now lives elsewhere.
+      const stillRight = s.outputTabOrder.filter((tid) => !moved.includes(tid))
+      return {
+        outputTabsInEditorGroup: moved,
+        editorGroupOutputTab: id,
+        activeOutputTab: s.activeOutputTab === id
+          ? (stillRight[stillRight.length - 1] ?? null)
+          : s.activeOutputTab,
+      }
+    }),
+
+  moveOutputTabToOutputGroup: (id) =>
+    set((s) => {
+      if (!s.outputTabsInEditorGroup.includes(id)) return s
+      const remaining = s.outputTabsInEditorGroup.filter((tid) => tid !== id)
+      return {
+        outputTabsInEditorGroup: remaining,
+        editorGroupOutputTab: s.editorGroupOutputTab === id
+          ? (remaining[remaining.length - 1] ?? null)
+          : s.editorGroupOutputTab,
+        activeOutputTab: id,
+      }
+    }),
+
+  setEditorGroupOutputTab: (id) => set({ editorGroupOutputTab: id }),
 
   outputVisible: false,
   setOutputVisible: (v) => set({ outputVisible: v }),

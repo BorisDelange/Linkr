@@ -177,6 +177,11 @@ export function FilesPage() {
   const { nodes } = useProjectTree(activeProjectUid)
   const idePath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.idePath)
   const reuseOutputTabs = useAppStore((s) => s.editorSettings.reuseOutputTabs)
+  const outputTabsInEditorGroup = useFileStore((s) => s.outputTabsInEditorGroup)
+  const editorGroupOutputTab = useFileStore((s) => s.editorGroupOutputTab)
+  const moveOutputTabToEditorGroup = useFileStore((s) => s.moveOutputTabToEditorGroup)
+  const moveOutputTabToOutputGroup = useFileStore((s) => s.moveOutputTabToOutputGroup)
+  const setEditorGroupOutputTab = useFileStore((s) => s.setEditorGroupOutputTab)
   const resolvedDirs = useResolvedDirs(activeProjectUid, idePath ?? '')
 
   const [createFileOpen, setCreateFileOpen] = useState(false)
@@ -199,11 +204,19 @@ export function FilesPage() {
   const [dropOutputInsert, setDropOutputInsert] = useState<{ id: string; side: 'left' | 'right' } | null>(null)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
 
+  // The bar's two groups, after honouring the tabs the user moved across.
+  // `outputTabOrder` stays the single ordering, so a tab sent left and back
+  // returns to its original place.
+  const rightOutputTabIds = outputTabOrder.filter((tid) => !outputTabsInEditorGroup.includes(tid))
+  const leftOutputTabIds = outputTabOrder.filter((tid) => outputTabsInEditorGroup.includes(tid))
+  const leftGroupHasTabs = openFileIds.length > 0 || terminalTabs.length > 0 || leftOutputTabIds.length > 0
+
   // How the file and output tab groups share the bar's width, and how each one
   // scrolls its own overflow.
+
   const tabSplit = useTabGroupSplit('ide')
-  const { scrollRef: fileTabScrollRef, arrows: fileTabArrows } = useTabScroll([openFileIds.length])
-  const { scrollRef: outputTabScrollRef, arrows: outputTabArrows } = useTabScroll([outputTabOrder.length])
+  const { scrollRef: fileTabScrollRef, arrows: fileTabArrows } = useTabScroll([openFileIds.length, leftOutputTabIds.length])
+  const { scrollRef: outputTabScrollRef, arrows: outputTabArrows } = useTabScroll([rightOutputTabIds.length])
 
   // Load connections, files, and other stores when the project changes. Re-scan
   // files when the ide_path binding changes (same project → new folder); the store
@@ -277,6 +290,7 @@ export function FilesPage() {
       : 'default'
   const isVirtualFile = selectedNode?.virtual === true
   const hasOutput = outputTabs.length > 0 || executionResults.length > 0
+
   const selectedLanguage = selectedNode?.language
   const isSql = selectedLanguage === 'sql' || selectedNode?.name.endsWith('.sql')
   const isIpynbFile = selectedNode?.name.endsWith('.ipynb') ?? false
@@ -1056,6 +1070,187 @@ export function FilesPage() {
     }
   }, [outputTabs, closeOutputTab, clearExecutionResults])
 
+  /** Activate a tab within its own group; the other group keeps its selection. */
+  const activateOutputTab = (tabId: string, group: 'left' | 'right') => {
+    if (group === 'left') {
+      setEditorGroupOutputTab(tabId)
+      return
+    }
+    setActiveOutputTab(tabId)
+    if (!outputVisible) setOutputVisible(true)
+  }
+
+  const renderOutputTab = (tabId: string, group: 'left' | 'right') => {
+    const isConsole = tabId === '__exec_console__'
+    const isActive = group === 'left'
+      ? editorGroupOutputTab === tabId
+      : activeOutputTab === tabId && outputVisible
+
+    if (isConsole) {
+      return (
+        <ContextMenu key={tabId}>
+          <ContextMenuTrigger asChild>
+            <button
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData('output-tab-id', tabId)
+                e.dataTransfer.effectAllowed = 'move'
+                setDragOutputTabId(tabId)
+              }}
+              onDragOver={(e) => {
+                if (!e.dataTransfer.types.includes('output-tab-id')) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                const rect = e.currentTarget.getBoundingClientRect()
+                const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
+                setDropOutputInsert({ id: tabId, side })
+              }}
+              onDragLeave={() => setDropOutputInsert(null)}
+              onDrop={(e) => {
+                e.preventDefault()
+                const side = dropOutputInsert?.side ?? 'right'
+                setDropOutputInsert(null)
+                setDragOutputTabId(null)
+                const draggedId = e.dataTransfer.getData('output-tab-id')
+                if (!draggedId || draggedId === tabId) return
+                const fromIdx = outputTabOrder.indexOf(draggedId)
+                let toIdx = outputTabOrder.indexOf(tabId)
+                if (side === 'right') toIdx++
+                if (fromIdx < toIdx) toIdx--
+                if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
+              }}
+              onDragEnd={() => { setDragOutputTabId(null); setDropOutputInsert(null) }}
+              onClick={() => activateOutputTab(tabId, group)}
+              className={cn(
+                'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                isActive
+                  ? 'bg-primary/10 text-foreground'
+                  : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+                dragOutputTabId === tabId && 'opacity-40',
+              )}
+            >
+              {dropOutputInsert?.id === tabId && dropOutputInsert.side === 'left' && dragOutputTabId !== tabId && (
+                <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+              )}
+              {dropOutputInsert?.id === tabId && dropOutputInsert.side === 'right' && dragOutputTabId !== tabId && (
+                <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+              )}
+              <span>{t('files.console')}</span>
+              <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
+                {executionResults.length}
+              </span>
+              <span
+                onClick={(e) => {
+                  e.stopPropagation()
+                  clearExecutionResults()
+                }}
+                className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+              >
+                <X size={10} />
+              </span>
+            </button>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onClick={() => (group === 'left' ? moveOutputTabToOutputGroup(tabId) : moveOutputTabToEditorGroup(tabId))}>
+              {t(group === 'left' ? 'files.move_to_output_group' : 'files.move_to_editor_group')}
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => clearExecutionResults()}>
+              {t('files.close')}
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => handleCloseOtherOutputTabs(tabId)}>
+              {t('files.close_others')}
+            </ContextMenuItem>
+            <ContextMenuItem onClick={handleCloseAllOutputTabs}>
+              {t('files.close_all')}
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      )
+    }
+
+    const tab = outputTabs.find((ot) => ot.id === tabId)
+    if (!tab) return null
+
+    return (
+      <ContextMenu key={tab.id}>
+        <ContextMenuTrigger asChild>
+          <button
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('output-tab-id', tab.id)
+              e.dataTransfer.effectAllowed = 'move'
+              setDragOutputTabId(tab.id)
+            }}
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes('output-tab-id')) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              const rect = e.currentTarget.getBoundingClientRect()
+              const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
+              setDropOutputInsert({ id: tab.id, side })
+            }}
+            onDragLeave={() => setDropOutputInsert(null)}
+            onDrop={(e) => {
+              e.preventDefault()
+              const side = dropOutputInsert?.side ?? 'right'
+              setDropOutputInsert(null)
+              setDragOutputTabId(null)
+              const draggedId = e.dataTransfer.getData('output-tab-id')
+              if (!draggedId || draggedId === tab.id) return
+              const fromIdx = outputTabOrder.indexOf(draggedId)
+              let toIdx = outputTabOrder.indexOf(tab.id)
+              if (side === 'right') toIdx++
+              if (fromIdx < toIdx) toIdx--
+              if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
+            }}
+            onDragEnd={() => { setDragOutputTabId(null); setDropOutputInsert(null) }}
+            onClick={() => activateOutputTab(tab.id, group)}
+            className={cn(
+              'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+              isActive
+                ? 'bg-primary/10 text-foreground'
+                : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+              dragOutputTabId === tab.id && 'opacity-40',
+            )}
+          >
+            {dropOutputInsert?.id === tab.id && dropOutputInsert.side === 'left' && dragOutputTabId !== tab.id && (
+              <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+            )}
+            {dropOutputInsert?.id === tab.id && dropOutputInsert.side === 'right' && dragOutputTabId !== tab.id && (
+              <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+            )}
+            {getTabIcon(tab.type)}
+            <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
+            <span
+              onClick={(e) => {
+                e.stopPropagation()
+                closeOutputTab(tab.id)
+              }}
+              className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+            >
+              <X size={10} />
+            </span>
+          </button>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => (group === 'left' ? moveOutputTabToOutputGroup(tabId) : moveOutputTabToEditorGroup(tabId))}>
+            {t(group === 'left' ? 'files.move_to_output_group' : 'files.move_to_editor_group')}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => closeOutputTab(tab.id)}>
+            {t('files.close')}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => handleCloseOtherOutputTabs(tab.id)}>
+            {t('files.close_others')}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={handleCloseAllOutputTabs}>
+            {t('files.close_all')}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    )
+  }
+
+
   // Cmd+K from a script editor: clear ONLY the Console output tab. A terminal has
   // its own Cmd+K (handled inside xterm) that clears its scrollback, not this.
   const handleClearTerminal = useCallback(() => {
@@ -1641,13 +1836,13 @@ export function FilesPage() {
               {(openFileIds.length > 0 || terminalTabs.length > 0 || outputTabOrder.length > 0) && (
                 <div className="flex items-center border-b bg-muted/30">
                   {/* File tabs */}
-                  {openFileIds.length > 0 && (
+                  {leftGroupHasTabs && (
                     <TabScrollArrow dir="left" scroll={fileTabArrows} />
                   )}
                   <div
                     ref={fileTabScrollRef}
                     className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
-                    style={{ flex: tabSplit.flexFor('left', openFileIds.length > 0 && outputTabOrder.length > 0) }}
+                    style={{ flex: tabSplit.flexFor('left', leftGroupHasTabs && rightOutputTabIds.length > 0) }}
                   >
                     {openFileIds.map((fid) => {
                       const node = nodes.find((n) => n.id === fid)
@@ -1762,13 +1957,15 @@ export function FilesPage() {
                         </button>
                       )
                     })}
+
+                    {leftOutputTabIds.map((tabId) => renderOutputTab(tabId, 'left'))}
                   </div>
-                  {openFileIds.length > 0 && (
+                  {leftGroupHasTabs && (
                     <TabScrollArrow dir="right" scroll={fileTabArrows} />
                   )}
 
                   {/* Vertical separator between file tabs and output tabs */}
-                  {openFileIds.length > 0 && outputTabOrder.length > 0 && (
+                  {leftGroupHasTabs && rightOutputTabIds.length > 0 && (
                     <TabGroupSplitter
                       onShareChange={tabSplit.setShare}
                       onReset={tabSplit.reset}
@@ -1776,183 +1973,17 @@ export function FilesPage() {
                   )}
 
                   {/* Output tabs */}
-                  {outputTabOrder.length > 0 && (
+                  {rightOutputTabIds.length > 0 && (
                     <TabScrollArrow dir="left" scroll={outputTabArrows} />
                   )}
                   <div
                     ref={outputTabScrollRef}
                     className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
-                    style={{ flex: tabSplit.flexFor('right', openFileIds.length > 0 && outputTabOrder.length > 0) }}
+                    style={{ flex: tabSplit.flexFor('right', leftGroupHasTabs && rightOutputTabIds.length > 0) }}
                   >
-                    {outputTabOrder.map((tabId) => {
-                      const isConsole = tabId === '__exec_console__'
-                      const isActive = activeOutputTab === tabId
-
-                      if (isConsole) {
-                        return (
-                          <ContextMenu key={tabId}>
-                            <ContextMenuTrigger asChild>
-                              <button
-                                draggable
-                                onDragStart={(e) => {
-                                  e.dataTransfer.setData('output-tab-id', tabId)
-                                  e.dataTransfer.effectAllowed = 'move'
-                                  setDragOutputTabId(tabId)
-                                }}
-                                onDragOver={(e) => {
-                                  if (!e.dataTransfer.types.includes('output-tab-id')) return
-                                  e.preventDefault()
-                                  e.dataTransfer.dropEffect = 'move'
-                                  const rect = e.currentTarget.getBoundingClientRect()
-                                  const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
-                                  setDropOutputInsert({ id: tabId, side })
-                                }}
-                                onDragLeave={() => setDropOutputInsert(null)}
-                                onDrop={(e) => {
-                                  e.preventDefault()
-                                  const side = dropOutputInsert?.side ?? 'right'
-                                  setDropOutputInsert(null)
-                                  setDragOutputTabId(null)
-                                  const draggedId = e.dataTransfer.getData('output-tab-id')
-                                  if (!draggedId || draggedId === tabId) return
-                                  const fromIdx = outputTabOrder.indexOf(draggedId)
-                                  let toIdx = outputTabOrder.indexOf(tabId)
-                                  if (side === 'right') toIdx++
-                                  if (fromIdx < toIdx) toIdx--
-                                  if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
-                                }}
-                                onDragEnd={() => { setDragOutputTabId(null); setDropOutputInsert(null) }}
-                                onClick={() => {
-                                  setActiveOutputTab(tabId)
-                                  if (!outputVisible) setOutputVisible(true)
-                                }}
-                                className={cn(
-                                  'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                                  isActive && outputVisible
-                                    ? 'bg-primary/10 text-foreground'
-                                    : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
-                                  dragOutputTabId === tabId && 'opacity-40',
-                                )}
-                              >
-                                {dropOutputInsert?.id === tabId && dropOutputInsert.side === 'left' && dragOutputTabId !== tabId && (
-                                  <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
-                                )}
-                                {dropOutputInsert?.id === tabId && dropOutputInsert.side === 'right' && dragOutputTabId !== tabId && (
-                                  <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
-                                )}
-                                <span>{t('files.console')}</span>
-                                <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
-                                  {executionResults.length}
-                                </span>
-                                <span
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    clearExecutionResults()
-                                  }}
-                                  className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-                                >
-                                  <X size={10} />
-                                </span>
-                              </button>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                              <ContextMenuItem onClick={() => clearExecutionResults()}>
-                                {t('files.close')}
-                              </ContextMenuItem>
-                              <ContextMenuItem onClick={() => handleCloseOtherOutputTabs(tabId)}>
-                                {t('files.close_others')}
-                              </ContextMenuItem>
-                              <ContextMenuItem onClick={handleCloseAllOutputTabs}>
-                                {t('files.close_all')}
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        )
-                      }
-
-                      const tab = outputTabs.find((ot) => ot.id === tabId)
-                      if (!tab) return null
-
-                      return (
-                        <ContextMenu key={tab.id}>
-                          <ContextMenuTrigger asChild>
-                            <button
-                              draggable
-                              onDragStart={(e) => {
-                                e.dataTransfer.setData('output-tab-id', tab.id)
-                                e.dataTransfer.effectAllowed = 'move'
-                                setDragOutputTabId(tab.id)
-                              }}
-                              onDragOver={(e) => {
-                                if (!e.dataTransfer.types.includes('output-tab-id')) return
-                                e.preventDefault()
-                                e.dataTransfer.dropEffect = 'move'
-                                const rect = e.currentTarget.getBoundingClientRect()
-                                const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
-                                setDropOutputInsert({ id: tab.id, side })
-                              }}
-                              onDragLeave={() => setDropOutputInsert(null)}
-                              onDrop={(e) => {
-                                e.preventDefault()
-                                const side = dropOutputInsert?.side ?? 'right'
-                                setDropOutputInsert(null)
-                                setDragOutputTabId(null)
-                                const draggedId = e.dataTransfer.getData('output-tab-id')
-                                if (!draggedId || draggedId === tab.id) return
-                                const fromIdx = outputTabOrder.indexOf(draggedId)
-                                let toIdx = outputTabOrder.indexOf(tab.id)
-                                if (side === 'right') toIdx++
-                                if (fromIdx < toIdx) toIdx--
-                                if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
-                              }}
-                              onDragEnd={() => { setDragOutputTabId(null); setDropOutputInsert(null) }}
-                              onClick={() => {
-                                setActiveOutputTab(tab.id)
-                                if (!outputVisible) setOutputVisible(true)
-                              }}
-                              className={cn(
-                                'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                                tab.id === activeOutputTab && outputVisible
-                                  ? 'bg-primary/10 text-foreground'
-                                  : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
-                                dragOutputTabId === tab.id && 'opacity-40',
-                              )}
-                            >
-                              {dropOutputInsert?.id === tab.id && dropOutputInsert.side === 'left' && dragOutputTabId !== tab.id && (
-                                <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
-                              )}
-                              {dropOutputInsert?.id === tab.id && dropOutputInsert.side === 'right' && dragOutputTabId !== tab.id && (
-                                <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
-                              )}
-                              {getTabIcon(tab.type)}
-                              <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
-                              <span
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  closeOutputTab(tab.id)
-                                }}
-                                className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-                              >
-                                <X size={10} />
-                              </span>
-                            </button>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent>
-                            <ContextMenuItem onClick={() => closeOutputTab(tab.id)}>
-                              {t('files.close')}
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleCloseOtherOutputTabs(tab.id)}>
-                              {t('files.close_others')}
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={handleCloseAllOutputTabs}>
-                              {t('files.close_all')}
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      )
-                    })}
+                    {rightOutputTabIds.map((tabId) => renderOutputTab(tabId, 'right'))}
                   </div>
-                  {outputTabOrder.length > 0 && (
+                  {rightOutputTabIds.length > 0 && (
                     <TabScrollArrow dir="right" scroll={outputTabArrows} />
                   )}
                 </div>
@@ -1967,7 +1998,7 @@ export function FilesPage() {
                       {/* Editor panel — notebooks are kept alive (hidden when inactive).
                           Also visible when a terminal tab is active (terminals live in
                           this pane). */}
-                      <Allotment.Pane minSize={150} visible={editorVisible || !!activeTerminalTab}>
+                      <Allotment.Pane minSize={150} visible={editorVisible || !!activeTerminalTab || !!editorGroupOutputTab}>
                         {/* Keep-alive notebooks: render ALL open notebook files, hide inactive ones */}
                         {openFileIds.map((fid) => {
                           const node = nodes.find((n) => n.id === fid)
@@ -1975,7 +2006,7 @@ export function FilesPage() {
                           const isIpynb = node.name.endsWith('.ipynb')
                           const isRmd = /\.(rmd|qmd)$/i.test(node.name)
                           if (!isIpynb && !isRmd) return null
-                          const isActive = fid === selectedFileId
+                          const isActive = fid === selectedFileId && !editorGroupOutputTab
                           const isVirtual = node.virtual === true
                           return (
                             <div
@@ -2050,7 +2081,7 @@ export function FilesPage() {
                         })}
 
                         {/* Non-notebook files: standard CodeEditor (only the selected one) */}
-                        {selectedNode && !isIpynbFile && !isRmdNotebook && (
+                        {selectedNode && !isIpynbFile && !isRmdNotebook && !editorGroupOutputTab && (
                           <CodeEditor
                             key={`${selectedFileId}-${shortcutVersion}`}
                             value={selectedNode.content ?? ''}
@@ -2072,23 +2103,34 @@ export function FilesPage() {
                             bash shell / REPL keeps its scrollback and connection
                             across tab switches. TerminalPanel re-fits itself when
                             it becomes visible again (a hidden xterm has zero size). */}
-                        {terminalTabs.map((tt) => (
-                          <div
-                            key={tt.id}
-                            className="h-full"
-                            style={{ display: tt.id === selectedFileId ? 'block' : 'none' }}
-                          >
-                            <TerminalPanel
-                              terminalType={tt.kind}
-                              projectUid={activeProjectUid ?? undefined}
-                              sessionId={activeSessionId}
-                              active={tt.id === selectedFileId}
-                            />
+                        {terminalTabs.map((tt) => {
+                          const isActive = tt.id === selectedFileId && !editorGroupOutputTab
+                          return (
+                            <div
+                              key={tt.id}
+                              className="h-full"
+                              style={{ display: isActive ? 'block' : 'none' }}
+                            >
+                              <TerminalPanel
+                                terminalType={tt.kind}
+                                projectUid={activeProjectUid ?? undefined}
+                                sessionId={activeSessionId}
+                                active={isActive}
+                              />
+                            </div>
+                          )
+                        })}
+
+                        {/* An output the user moved to this group takes the pane
+                            over: the editor and terminals stay mounted behind it. */}
+                        {editorGroupOutputTab && (
+                          <div className="h-full">
+                            <OutputPanel tabId={editorGroupOutputTab} hideTabBar />
                           </div>
-                        ))}
+                        )}
 
                         {/* Empty state */}
-                        {!selectedNode && !activeTerminalTab && (
+                        {!selectedNode && !activeTerminalTab && !editorGroupOutputTab && (
                           <div className="flex h-full items-center justify-center">
                             <div className="text-center">
                               <FileCode
