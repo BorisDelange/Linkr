@@ -6,16 +6,10 @@ import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import 'katex/dist/katex.min.css'
-import {
-  Info,
-  Lightbulb,
-  AlertTriangle,
-  AlertCircle,
-  ExternalLink,
-} from 'lucide-react'
-import { markdownComponents } from '@/components/editor/markdown-components'
+import { ExternalLink } from 'lucide-react'
+import { markdownComponents, processCallouts } from '@/components/editor/markdown-components'
 
-export { markdownComponents } from '@/components/editor/markdown-components'
+export { markdownComponents, processCallouts } from '@/components/editor/markdown-components'
 
 // --- Shared config (also used by SummaryReadmeTab) ---
 
@@ -65,17 +59,6 @@ export function urlTransform(value: string): string {
     return value
   }
   return ''
-}
-
-// --- Callout preprocessing ---
-
-const CALLOUT_REGEX = /^> \[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*\n((?:> .*(?:\n|$))*)/gm
-
-function processCallouts(markdown: string): string {
-  return markdown.replace(CALLOUT_REGEX, (_match, type: string, body: string) => {
-    const content = body.replace(/^> ?/gm, '').trim()
-    return `<div data-callout="${type.toLowerCase()}">\n\n**${type.charAt(0) + type.slice(1).toLowerCase()}**\n\n${content}\n\n</div>\n`
-  })
 }
 
 // --- Wikilink preprocessing ---
@@ -159,16 +142,30 @@ function MermaidBlock({ code }: { code: string }) {
   return <div ref={containerRef} className="my-4 flex justify-center [&_svg]:max-w-full" />
 }
 
-// --- Callout block component ---
+// --- Read-only README renderer ---
 
-const calloutStyles: Record<string, { icon: React.ReactNode; border: string; bg: string }> = {
-  note: { icon: <Info size={16} />, border: 'border-blue-500/40', bg: 'bg-blue-500/5' },
-  tip: { icon: <Lightbulb size={16} />, border: 'border-emerald-500/40', bg: 'bg-emerald-500/5' },
-  important: { icon: <AlertCircle size={16} />, border: 'border-violet-500/40', bg: 'bg-violet-500/5' },
-  warning: { icon: <AlertTriangle size={16} />, border: 'border-amber-500/40', bg: 'bg-amber-500/5' },
-  caution: { icon: <AlertTriangle size={16} />, border: 'border-red-500/40', bg: 'bg-red-500/5' },
+/**
+ * The plain markdown view a dozen pages show for a stored README: a plugin, a
+ * database, a workspace home, a catalog entry.
+ *
+ * It exists so those pages cannot each assemble the config slightly differently
+ * — passing the plugins but forgetting `components`, or the components but not
+ * `processCallouts`, which is exactly how `> [!WARNING]` came to render as a
+ * grey quote everywhere except the editor preview. Callers own the `.prose`
+ * wrapper, since the surrounding layout differs; everything below it is fixed.
+ */
+export function ReadmeMarkdown({ children }: { children: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins}
+      urlTransform={urlTransform}
+      components={markdownComponents}
+    >
+      {processCallouts(children)}
+    </ReactMarkdown>
+  )
 }
-
 
 // --- Main Renderer ---
 
@@ -201,22 +198,8 @@ export function MarkdownRenderer({
 
   // Custom component overrides for ReactMarkdown
   const components = useCallback(() => ({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    div: ({ node: _node, ...props }: any) => {
-      const calloutType = props['data-callout']
-      if (calloutType && calloutStyles[calloutType]) {
-        const style = calloutStyles[calloutType]
-        return (
-          <div className={`my-3 rounded-lg border-l-4 ${style.border} ${style.bg} px-4 py-3`}>
-            <div className="flex items-start gap-2 [&>p]:my-0 [&>strong]:flex [&>strong]:items-center [&>strong]:gap-1.5">
-              {style.icon}
-              <div {...props} className="flex-1 [&>p]:my-1" />
-            </div>
-          </div>
-        )
-      }
-      return <div {...props} />
-    },
+    // Callouts come from the shared `markdownComponents` (spread below), so a
+    // `> [!WARNING]` renders the same here and on every raw-ReactMarkdown page.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     code: ({ node: _node, className: codeClassName, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(codeClassName || '')

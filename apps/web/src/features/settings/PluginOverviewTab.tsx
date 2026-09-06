@@ -1,10 +1,9 @@
 import { useTranslation } from 'react-i18next'
 import { FileText, Info, Pencil, Puzzle } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
-import { remarkPlugins, rehypePlugins, urlTransform, markdownComponents } from '@/components/editor/ReadmeEditor'
+import { ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { localized } from '@/lib/localized'
 import type { PluginListItem } from '@/stores/plugin-editor-store'
@@ -76,14 +75,7 @@ function PluginReadmePreview({
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
         {readme.trim() ? (
           <div className="prose prose-sm dark:prose-invert max-w-none">
-            <ReactMarkdown
-              remarkPlugins={remarkPlugins}
-              rehypePlugins={rehypePlugins}
-              urlTransform={urlTransform}
-              components={markdownComponents}
-            >
-              {resolved}
-            </ReactMarkdown>
+            <ReadmeMarkdown>{resolved}</ReadmeMarkdown>
           </div>
         ) : (
           <button

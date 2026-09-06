@@ -1,6 +1,5 @@
 import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import ReactMarkdown from 'react-markdown'
 import { Link } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
@@ -18,7 +17,7 @@ import {
   CircleDot,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { remarkPlugins, rehypePlugins, urlTransform, markdownComponents } from '@/components/editor/ReadmeEditor'
+import { ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
 import { localized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -299,9 +298,7 @@ function ReadmePreview({ readme, resolveUrls, onViewFull }: { readme: string; re
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
         {readme.trim() ? (
           <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
-            <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={markdownComponents}>
-              {resolved}
-            </ReactMarkdown>
+            <ReadmeMarkdown>{resolved}</ReadmeMarkdown>
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">{t('summary.readme_empty')}</p>

@@ -56,8 +56,6 @@ import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { Badge } from '@/components/ui/badge'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
-import ReactMarkdown from 'react-markdown'
-import { remarkPlugins, rehypePlugins, urlTransform, markdownComponents } from '@/components/editor/ReadmeEditor'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import type { SqlScriptCollection } from '@/types'
 import { useUrlTab } from '@/hooks/use-url-tab'
@@ -68,7 +66,7 @@ import { cn } from '@/lib/utils'
 import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
 import type * as Monaco from 'monaco-editor'
 import { CodeEditor } from '@/components/editor/CodeEditor'
-import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
+import { MarkdownRenderer, ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { useSqlScriptsStore, type SqlOutputTab, type SqlExecutionResult } from '@/stores/sql-scripts-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -1117,14 +1115,7 @@ function SqlReadmePreview({
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-3">
         {readme.trim() ? (
           <div className="prose prose-sm dark:prose-invert max-w-none">
-            <ReactMarkdown
-              remarkPlugins={remarkPlugins}
-              rehypePlugins={rehypePlugins}
-              urlTransform={urlTransform}
-              components={markdownComponents}
-            >
-              {resolved}
-            </ReactMarkdown>
+            <ReadmeMarkdown>{resolved}</ReadmeMarkdown>
           </div>
         ) : (
           <button

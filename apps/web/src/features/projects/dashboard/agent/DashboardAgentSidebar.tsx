@@ -17,12 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
-import ReactMarkdown from 'react-markdown'
-import {
-  remarkPlugins,
-  rehypePlugins,
-  urlTransform,
-} from '@/components/editor/MarkdownRenderer'
+import { ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
 import {
   Dialog,
   DialogContent,
@@ -255,14 +250,7 @@ function AssistantMarkdown({ text }: { text: string }) {
         '[&_code]:text-[11px] [&_table]:text-[11px] [&_table]:my-1'
       )}
     >
-      <ReactMarkdown
-        remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins}
-        urlTransform={urlTransform}
-        components={markdownComponents}
-      >
-        {text}
-      </ReactMarkdown>
+      <ReadmeMarkdown>{text}</ReadmeMarkdown>
     </div>
   )
 }
