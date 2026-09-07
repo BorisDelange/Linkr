@@ -237,6 +237,34 @@ as-built is `docs/architecture.md` § Versioning. Plan retired 2026-09-03. What 
 | 💤 | Cosmetic: drop `render` from the `/execute` purpose docs/enum | S |
 | 💤 | Optional: surface long code runs as `kind="run"` jobs in the panel (Stop + streaming already work) | S |
 
+## Dataset editing, manual collection & dataset timeline — [dataset-edit-plan.md](dataset-edit-plan.md)
+
+Arbitrated 2026-09-06 (was the 💤 "Dataset edit layer" backlog line). A dataset stops being
+a read-only import: it is edited cell by cell, filled in patient by patient from Patient
+data, and plotted next to OMOP concepts on the same timeline. One foundation carries all
+three — an **ordered replayable ops log over the immutable raw** (`raw → parse → replay →
+parquet`), living as an `ops` section of the existing `dataset-meta/<hash>.json` sidecar.
+
+The boundary with the Pipeline is **intent, not operation**: the ops log takes manual
+one-off corrections and human entry, the Pipeline takes anything expressible as a rule.
+The test — *"if the source changes tomorrow, should this re-apply by itself?"*
+
+Three constraints the code imposes: row identity does not exist (ops key on the **raw
+ordinal**, viable only because the raw is immutable); column ids are derived from names, so
+a rename is a rekey that must go through `rekey.ts`; and server mode has no rows-write
+route at all, the six store mutators being dead code behind `if (isServerMode()) return`.
+The write route **appends** ops rather than replacing the log, so two people collecting on
+different patients cannot silently drop each other's work.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | **Lot A** — foundation: `__row_ord` key, op types + inverses, sidecar `ops` section + append route, TS/Python replay under parity test, compaction, rename via `rekey.ts` | L |
+| 🔜 | **Lot B** — Datasets page: cell selection + in-place edit, add/remove/reorder rows, header DnD, log-derived undo/redo, history panel | L |
+| 🔜 | **Lot C** — Timeline over a dataset: `dataset-select` field + `renderDatasetField` seam, dataset channel on `PatientComponentPluginProps`, column → `TimelineRow` mapping | M |
+| 🔜 | **Lot D** — Manual collection: toolbar button, collection sidebar, dataset pre-seeded with the schema's real identity column names, sidebar status block, entry written through the ops log | L |
+| 🤔 | Explicit visit join column — `buildVisitFilter` assumes the visit FK is named like the visit PK; a dataset has no reason to comply | S |
+| 🤔 | `render/timeline.py` for server-mode dataset timelines, or is `queryDatasetRows` enough? No timeline render exists today | S then M |
+
 ## Patient data
 
 Several patient-data dashboards per project — shipped 2026-08-17 and documented in
@@ -341,7 +369,6 @@ The model is implemented and its surface coverage verified (2026-07-12); as-buil
 
 | St | Item | Effort |
 |----|------|--------|
-| 💤 | Dataset edit layer: spreadsheet-style edits over the immutable raw (ordered replayable ops, Dataiku/OpenRefine model). Never arbitrated against "pipeline-only transforms"; the dataset-store edit API is its unused groundwork | L |
 | 💤 | ETL `source.` / `target.` role aliases in generated SQL, so scripts stop naming `ds_<alias>` and survive a round trip. Needs cross-schema support in server mode | L |
 
 ## Code quality leftovers (from REVIEW-LOG)

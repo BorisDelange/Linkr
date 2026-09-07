@@ -14,6 +14,15 @@ export { MemoryTree, filesIn, readJson } from './tree.js'
 export { buildColumnIds, columnId, isLegacyColumnId, slugify } from './ids.js'
 
 export {
+  canonicalOp, canonicalOps, compactOps, invertOp, invertOpFull, opsHash, replayOps, ROW_ORD,
+} from './dataset-ops.js'
+export type {
+  AddColumnOp, AddRowOp, DatasetCellValue, DatasetOp, DatasetOpColumnType, DatasetOpType,
+  OpColumn, OpRow, RemoveColumnOp, RemoveRowOp, RenameColumnOp, ReorderColumnsOp, ReorderRowsOp,
+  ReplayInput, SetCellOp,
+} from './dataset-ops.js'
+
+export {
   CONTENT_FILE, ENTITY_MANIFEST, ENTITY_TYPES, MANIFEST, ROOT_FILE, SCRIPT_LANGUAGE, SCRIPTS_DIR, SIDECAR,
   isEntityType, manifestCandidates, manifestList, scriptLanguage,
 } from './layout.js'

@@ -1,0 +1,229 @@
+{
+  "_comment": "Shared TS/Python parity fixture for the dataset ops replay engine. The client replays to render, the server replays to build the Parquet cache; a drift means the two disagree about what the dataset contains. Consumed by packages/linkr-format/src/dataset-ops.parity.test.ts and apps/api/tests/test_dataset_ops.py.",
+  "canonical": {
+    "_comment": "The canonical wire form and its digest. Both sides must emit these keys, in this order, and hash to `hash` — the sidecar is written verbatim by both export builders, so a divergence here churns the git diff or silently mis-invalidates the Parquet cache.",
+    "ops": [
+      { "id": "o1", "at": 1, "type": "setCell", "row": 0, "column": "col_a", "value": null },
+      { "id": "o2", "at": 2, "type": "addRow", "row": -1, "values": { "col_b": "y", "col_a": "x" }, "after": null },
+      { "id": "o3", "at": 3, "type": "addColumn", "column": "col_c", "name": "c", "colType": "number", "index": 1 },
+      { "id": "o4", "at": 4, "type": "renameColumn", "column": "col_a", "to": "col_z", "toName": "z", "by": "u1" }
+    ],
+    "expected": [
+      { "id": "o1", "type": "setCell", "at": 1, "row": 0, "column": "col_a", "value": null },
+      { "id": "o2", "type": "addRow", "at": 2, "row": -1, "values": { "col_a": "x", "col_b": "y" }, "after": null },
+      { "id": "o3", "type": "addColumn", "at": 3, "column": "col_c", "name": "c", "colType": "number", "index": 1 },
+      { "id": "o4", "type": "renameColumn", "at": 4, "by": "u1", "column": "col_a", "to": "col_z", "toName": "z" }
+    ],
+    "hash": "f1a30f9b"
+  },
+  "cases": [
+    {
+      "name": "no ops assigns raw ordinals",
+      "input": {
+        "columns": [
+          { "id": "col_a", "name": "a", "type": "string", "order": 0 },
+          { "id": "col_b", "name": "b", "type": "number", "order": 1 }
+        ],
+        "rows": [
+          { "col_a": "x", "col_b": 1 },
+          { "col_a": "y", "col_b": 2 }
+        ]
+      },
+      "ops": [],
+      "expected": {
+        "columns": [
+          { "id": "col_a", "name": "a", "type": "string", "order": 0 },
+          { "id": "col_b", "name": "b", "type": "number", "order": 1 }
+        ],
+        "rows": [
+          { "__row_ord": 0, "col_a": "x", "col_b": 1 },
+          { "__row_ord": 1, "col_a": "y", "col_b": 2 }
+        ]
+      }
+    },
+    {
+      "name": "setCell addresses a row by ordinal after a removal",
+      "input": {
+        "columns": [
+          { "id": "col_a", "name": "a", "type": "string", "order": 0 }
+        ],
+        "rows": [{ "col_a": "one" }, { "col_a": "two" }, { "col_a": "three" }]
+      },
+      "ops": [
+        { "id": "o1", "type": "removeRow", "at": 1700000000000, "row": 0 },
+        { "id": "o2", "type": "setCell", "at": 1700000000001, "row": 2, "column": "col_a", "value": "edited" }
+      ],
+      "expected": {
+        "columns": [
+          { "id": "col_a", "name": "a", "type": "string", "order": 0 }
+        ],
+        "rows": [
+          { "__row_ord": 1, "col_a": "two" },
+          { "__row_ord": 2, "col_a": "edited" }
+        ]
+      }
+    },
+    {
+      "name": "addRow inserts after a named ordinal with null-filled columns",
+      "input": {
+        "columns": [
+          { "id": "col_a", "name": "a", "type": "string", "order": 0 },
+          { "id": "col_b", "name": "b", "type": "string", "order": 1 }
+        ],
+        "rows": [{ "col_a": "1", "col_b": "x" }, { "col_a": "2", "col_b": "y" }]
+      },
+      "ops": [
+        { "id": "o1", "type": "addRow", "at": 1700000000000, "row": -1, "values": { "col_a": "new" }, "after": 0 }
+      ],
+      "expected": {
+        "columns": [
+          { "id": "col_a", "name": "a", "type": "string", "order": 0 },
+          { "id": "col_b", "name": "b", "type": "string", "order": 1 }
+        ],
+        "rows": [
+          { "__row_ord": 0, "col_a": "1", "col_b": "x" },
+          { "__row_ord": -1, "col_a": "new", "col_b": null },
+          { "__row_ord": 1, "col_a": "2", "col_b": "y" }
+        ]
+      }
+    },
+    {
+      "name": "addColumn at an index renumbers order and null-fills",
+      "input": {
+        "columns": [
+          { "id": "col_a", "name": "a", "type": "string", "order": 0 },
+          { "id": "col_b", "name": "b", "type": "string", "order": 1 }
+        ],
+        "rows": [{ "col_a": "1", "col_b": "x" }]
+      },
+      "ops": [
+        { "id": "o1", "type": "addColumn", "at": 1700000000000, "column": "col_c", "name": "c", "colType": "number", "index": 1 }
+      ],
+      "expected": {
+        "columns": [
+          { "id": "col_a", "name": "a", "type": "string", "order": 0 },
+          { "id": "col_c", "name": "c", "type": "number", "order": 1 },
+          { "id": "col_b", "name": "b", "type": "string", "order": 2 }
+        ],
+        "rows": [{ "__row_ord": 0, "col_a": "1", "col_b": "x", "col_c": null }]
+      }
+    },
+    {
+      "name": "removeColumn drops it from every row",
+      "input": {
+        "columns": [
+          { "id": "col_a", "name": "a", "type": "string", "order": 0 },
+          { "id": "col_b", "name": "b", "type": "string", "order": 1 }
+        ],
+        "rows": [{ "col_a": "1", "col_b": "x" }, { "col_a": "2", "col_b": "y" }]
+      },
+      "ops": [
+        { "id": "o1", "type": "removeColumn", "at": 1700000000000, "column": "col_a" }
+      ],
+      "expected": {
+        "columns": [{ "id": "col_b", "name": "b", "type": "string", "order": 0 }],
+        "rows": [
+          { "__row_ord": 0, "col_b": "x" },
+          { "__row_ord": 1, "col_b": "y" }
+        ]
+      }
+    },
+    {
+      "name": "renameColumn rekeys the row data",
+      "input": {
+        "columns": [{ "id": "col_a", "name": "a", "type": "string", "order": 0 }],
+        "rows": [{ "col_a": "1" }]
+      },
+      "ops": [
+        { "id": "o1", "type": "renameColumn", "at": 1700000000000, "column": "col_a", "to": "col_z", "toName": "z" }
+      ],
+      "expected": {
+        "columns": [{ "id": "col_z", "name": "z", "type": "string", "order": 0 }],
+        "rows": [{ "__row_ord": 0, "col_z": "1" }]
+      }
+    },
+    {
+      "name": "reorderRows moves named rows into the slots they occupy",
+      "input": {
+        "columns": [{ "id": "col_a", "name": "a", "type": "string", "order": 0 }],
+        "rows": [{ "col_a": "1" }, { "col_a": "2" }, { "col_a": "3" }]
+      },
+      "ops": [
+        { "id": "o1", "type": "reorderRows", "at": 1700000000000, "order": [2, 0] }
+      ],
+      "expected": {
+        "columns": [{ "id": "col_a", "name": "a", "type": "string", "order": 0 }],
+        "rows": [
+          { "__row_ord": 2, "col_a": "3" },
+          { "__row_ord": 1, "col_a": "2" },
+          { "__row_ord": 0, "col_a": "1" }
+        ]
+      }
+    },
+    {
+      "name": "reorderColumns renumbers order",
+      "input": {
+        "columns": [
+          { "id": "col_a", "name": "a", "type": "string", "order": 0 },
+          { "id": "col_b", "name": "b", "type": "string", "order": 1 },
+          { "id": "col_c", "name": "c", "type": "string", "order": 2 }
+        ],
+        "rows": [{ "col_a": "1", "col_b": "x", "col_c": "p" }]
+      },
+      "ops": [
+        { "id": "o1", "type": "reorderColumns", "at": 1700000000000, "order": ["col_c", "col_a"] }
+      ],
+      "expected": {
+        "columns": [
+          { "id": "col_c", "name": "c", "type": "string", "order": 0 },
+          { "id": "col_b", "name": "b", "type": "string", "order": 1 },
+          { "id": "col_a", "name": "a", "type": "string", "order": 2 }
+        ],
+        "rows": [{ "__row_ord": 0, "col_a": "1", "col_b": "x", "col_c": "p" }]
+      }
+    },
+    {
+      "name": "a stale op naming a missing row or column is skipped, not fatal",
+      "input": {
+        "columns": [{ "id": "col_a", "name": "a", "type": "string", "order": 0 }],
+        "rows": [{ "col_a": "1" }]
+      },
+      "ops": [
+        { "id": "o1", "type": "setCell", "at": 1700000000000, "row": 99, "column": "col_a", "value": "no" },
+        { "id": "o2", "type": "setCell", "at": 1700000000001, "row": 0, "column": "col_gone", "value": "no" },
+        { "id": "o3", "type": "removeColumn", "at": 1700000000002, "column": "col_gone" },
+        { "id": "o4", "type": "setCell", "at": 1700000000003, "row": 0, "column": "col_a", "value": "yes" }
+      ],
+      "expected": {
+        "columns": [{ "id": "col_a", "name": "a", "type": "string", "order": 0 }],
+        "rows": [{ "__row_ord": 0, "col_a": "yes" }]
+      }
+    },
+    {
+      "name": "a full manual-collection session: add a column, fill it, add a row",
+      "input": {
+        "columns": [
+          { "id": "col_person_id", "name": "person_id", "type": "string", "order": 0 }
+        ],
+        "rows": [{ "col_person_id": "p1" }, { "col_person_id": "p2" }]
+      },
+      "ops": [
+        { "id": "o1", "type": "addColumn", "at": 1700000000000, "column": "col_vent_start", "name": "vent_start", "colType": "date" },
+        { "id": "o2", "type": "setCell", "at": 1700000000001, "row": 0, "column": "col_vent_start", "value": "2026-01-04" },
+        { "id": "o3", "type": "setCell", "at": 1700000000002, "row": 1, "column": "col_vent_start", "value": "2026-01-09" },
+        { "id": "o4", "type": "addRow", "at": 1700000000003, "row": -1, "values": { "col_person_id": "p3", "col_vent_start": "2026-01-11" } }
+      ],
+      "expected": {
+        "columns": [
+          { "id": "col_person_id", "name": "person_id", "type": "string", "order": 0 },
+          { "id": "col_vent_start", "name": "vent_start", "type": "date", "order": 1 }
+        ],
+        "rows": [
+          { "__row_ord": 0, "col_person_id": "p1", "col_vent_start": "2026-01-04" },
+          { "__row_ord": 1, "col_person_id": "p2", "col_vent_start": "2026-01-09" },
+          { "__row_ord": -1, "col_person_id": "p3", "col_vent_start": "2026-01-11" }
+        ]
+      }
+    }
+  ]
+}
