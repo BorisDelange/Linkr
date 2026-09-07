@@ -103,12 +103,19 @@ Lot A is a prerequisite for B and D. C is independent of A.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | 1. Stable row key `__row_ord` (raw ordinal, materialised in the Parquet cache; added rows take negative ordinals) | M |
-| 🔜 | 2. Op types + inverses in `packages/linkr-format` and its Python twin: `setCell`, `addRow`, `removeRow`, `reorderRows`, `addColumn`, `removeColumn`, `reorderColumns`, `renameColumn` | M |
-| 🔜 | 3. Persistence: `ops` section of the sidecar (canonicalised like `parseOptions`) + `POST /dataset-files/ops` in **append** semantics, modelled on `/columns/meta` | M |
-| 🔜 | 4. Replay engine, TS + Python, under a parity test (the discipline already in place for `column_id` and the export builders) | L |
-| 🔜 | 5. Compaction + cache invalidation on the ops-log hash (extends `resolve_cache`'s `sig`) | S |
+| ✅ | 1. Stable row key `__row_ord` (raw ordinal, materialised in the Parquet cache; added rows take negative ordinals) | M |
+| ✅ | 2. Op types + inverses in `packages/linkr-format` and its Python twin: `setCell`, `addRow`, `removeRow`, `reorderRows`, `addColumn`, `removeColumn`, `reorderColumns`, `renameColumn` | M |
+| ✅ | 3. Persistence: `ops` section of the sidecar + `POST /dataset-files/ops` in **append** semantics (`replace` for compaction / reset-to-raw), modelled on `/columns/meta` | M |
+| ✅ | 4. Replay engine, TS + Python, under a shared parity fixture — replay cases plus the canonical wire form and its digest | L |
+| ✅ | 5. Compaction + cache invalidation on the ops digest (`resolve_cache` now keys on raw sig **and** `opsSig`) | S |
 | 🔜 | 6. `renameColumn` routed through `rekey.ts` so downstream widget/filter references are repaired | M |
+| 🔜 | 7. Client-side store + API adapter: the WASM path replays in the browser, the server path posts ops | M |
+| 🔜 | 8. Export: carry `ops` through the export tree and extend `DATASET_SIDECARS` in `seed-manifest.ts` | S |
+
+Built 2026-09-06/07 (commits `f43f89bb`, `cde0f88a`): 61 tests across both languages,
+plus 12 end-to-end persistence tests. Two invariants are pinned byte-for-byte — the
+raw file is never written to (CSV **and** Parquet), and an *edited* `.parquet` stops
+aliasing its own raw, since replay would otherwise have to write the raw file.
 
 ### Lot B — Editing in the Datasets page
 

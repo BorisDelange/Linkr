@@ -258,7 +258,7 @@ different patients cannot silently drop each other's work.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | **Lot A** — foundation: `__row_ord` key, op types + inverses, sidecar `ops` section + append route, TS/Python replay under parity test, compaction, rename via `rekey.ts` | L |
+| 🔜 | **Lot A** — foundation: `__row_ord` key, op types + inverses, sidecar `ops` section + append route, TS/Python replay under a shared parity fixture, compaction, cache keyed on the ops digest — **built** (`f43f89bb`, `cde0f88a`). Left: rename via `rekey.ts`, the client-side store/adapter, `ops` through the export tree | L |
 | 🔜 | **Lot B** — Datasets page: cell selection + in-place edit, add/remove/reorder rows, header DnD, log-derived undo/redo, history panel | L |
 | 🔜 | **Lot C** — Timeline over a dataset: `dataset-select` field + `renderDatasetField` seam, dataset channel on `PatientComponentPluginProps`, column → `TimelineRow` mapping | M |
 | 🔜 | **Lot D** — Manual collection: toolbar button, collection sidebar, dataset pre-seeded with the schema's real identity column names, sidebar status block, entry written through the ops log | L |
