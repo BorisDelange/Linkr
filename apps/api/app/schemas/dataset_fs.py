@@ -74,6 +74,29 @@ class DsColumnMeta(CamelModel):
     parse_options: dict | None = None
 
 
+class DsOps(CamelModel):
+    """Edit operations to record against a dataset.
+
+    Default semantics are **append**: the client sends only the ops it just made and
+    the server concatenates, so two people editing the same dataset (a manual
+    collection filled patient by patient) cannot drop each other's work the way an
+    authoritative replace would. `replace=True` rewrites the whole log instead —
+    for compaction and for a reset to the raw file, where rewriting history is the
+    point."""
+
+    project_uid: str
+    path: str
+    ops: list[dict]
+    replace: bool = False
+
+
+class DsOpsResponse(CamelModel):
+    """The dataset node after the edit, plus the resulting log."""
+
+    node: DsNodeResponse
+    ops: list[dict]
+
+
 class DsDuplicate(CamelModel):
     project_uid: str
     path: str

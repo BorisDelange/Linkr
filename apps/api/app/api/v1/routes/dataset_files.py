@@ -28,6 +28,8 @@ from app.schemas.dataset_fs import (
     DsImport,
     DsMove,
     DsNodeResponse,
+    DsOps,
+    DsOpsResponse,
     DsPreview,
     DsPreviewPath,
     DsPreviewResponse,
@@ -348,6 +350,32 @@ async def set_column_meta(
         merged = {**(dataset_fs.read_parse_options(body.project_uid, body.path) or {}), **body.parse_options}
         dataset_fs.write_parse_options(body.project_uid, body.path, merged)
     return _file_node(body.project_uid, body.path)
+
+
+@router.post("/ops", response_model=DsOpsResponse)
+async def record_ops(
+    body: DsOps,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record edit operations against a dataset and rebuild its Parquet cache.
+
+    The raw file is never written to: the log is persisted in the sidecar and the
+    cache is re-derived as raw -> parse -> replay(ops). Appends by default so
+    concurrent editors don't clobber each other; `replace` rewrites the log, which
+    is what compaction and a reset-to-raw need."""
+    await _check_project(db, body.project_uid, user, "datasets:write")
+    if not project_fs.dataset_path(body.project_uid, body.path).is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
+
+    if body.replace:
+        ops = dataset_fs.write_ops(body.project_uid, body.path, body.ops)
+    else:
+        ops = dataset_fs.append_ops(body.project_uid, body.path, body.ops)
+    # Rebuild off-thread: replay materialises every row, so it must not block the
+    # event loop on a large dataset.
+    await asyncio.to_thread(dataset_fs.resolve_cache, body.project_uid, body.path)
+    return DsOpsResponse(node=_file_node(body.project_uid, body.path), ops=ops)
 
 
 @router.post("/duplicate", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)
