@@ -4,7 +4,13 @@ import { getStorage } from '@/lib/storage'
 import { uniqueColumnId } from '@/lib/column-id'
 import { coerceValue } from '@/lib/dataset-utils'
 import { isServerMode } from '@/lib/api-client'
-import { duplicateDataset, fetchDatasetMeta, reimportDataset } from '@/lib/api/datasets'
+import { duplicateDataset, fetchDatasetMeta, recordDatasetOps, reimportDataset } from '@/lib/api/datasets'
+import {
+  compactOps, invertOpFull, replayOps,
+  type DatasetOp, type OpColumn, type ReplayInput,
+} from '@linkr/format'
+import { unreplay } from '@/stores/dataset-ops-baseline'
+import { planColumnRename, rekeyFilter, rekeyWidgetConfig, type ColumnRenamePlan } from '@/lib/dataset-column-rename'
 import { stampAuthored } from '@/stores/app-store'
 
 /** Per-file table view state (filters, sort, paging, layout). Held in the store rather
@@ -86,7 +92,10 @@ interface DatasetState {
   removeRow: (fileId: string, rowIndex: number) => void
   addColumn: (fileId: string, name: string, type: DatasetColumn['type']) => void
   removeColumn: (fileId: string, columnId: string) => void
-  renameColumn: (fileId: string, columnId: string, newName: string) => void
+  /** Rename a column. The id is DERIVED from the name, so this rekeys the row data
+   *  and repairs every dashboard filter/widget that referenced the old id. Rejects
+   *  a name whose slug would displace another column. */
+  renameColumn: (fileId: string, columnId: string, newName: string) => Promise<void>
   /** Update a column's descriptive metadata (label, description, value labels).
    *  Metadata-only — touches `columns` not the Parquet, so it works in server mode. */
   updateColumnMeta: (fileId: string, columnId: string, meta: Pick<DatasetColumn, 'label' | 'description' | 'valueLabels'>) => void
@@ -115,6 +124,19 @@ interface DatasetState {
   closeAnalysis: (id: string) => void
   reorderOpenAnalyses: (fromIndex: number, toIndex: number) => void
   saveAnalysis: (id: string) => Promise<void>
+
+  /** Record edit ops on a dataset: appended to its log, replayed to derive rows.
+   *  The single mutation path — the raw file is never written to. */
+  applyOps: (fileId: string, ops: DatasetOp[]) => Promise<void>
+  /** Undo the last recorded op group, by appending its inverse. Serialisable and
+   *  durable, unlike the closure-based undoStack (which covers tree ops only). */
+  undoLastOps: (fileId: string) => Promise<void>
+  /** How many undoable op groups the log holds. */
+  undoableOpCount: (fileId: string) => number
+  /** Drop every op, restoring the dataset to its raw file. */
+  resetOps: (fileId: string) => Promise<void>
+  /** Compact the log in place — same result, fewer ops. */
+  compactFileOps: (fileId: string) => Promise<void>
 
   undoStack: UndoAction[]
   pushUndo: (action: UndoAction) => void
@@ -150,6 +172,126 @@ function getAllDescendants(files: DatasetFile[], parentId: string): string[] {
 
 
 const MAX_UNDO = 50
+
+// --- Edit ops -------------------------------------------------------------
+// The single mutation path for dataset content. The raw file is never written to:
+// ops are appended to the dataset's log and the rows are re-derived by replaying
+// them over the parsed raw. Server mode posts the ops and takes the rebuilt node
+// back; front-only replays in the browser and persists the result to IndexedDB.
+
+/** The unedited parsed baseline: raw rows with NO ops applied. */
+const _rawBaseline = new Map<string, ReplayInput>()
+
+function mintOp(group?: string): { id: string; at: number; group?: string } {
+  return { id: uid(), at: Date.now(), ...(group ? { group } : {}) }
+}
+
+/**
+ * The parsed-but-unedited dataset an op log replays over.
+ *
+ * Front-only keeps the baseline in memory: `_loadedData` holds the CURRENT rows
+ * (already replayed), so re-deriving from it would apply the log twice. The
+ * baseline is captured the first time a file is edited, from the current rows
+ * minus the current log.
+ */
+async function parsedInput(fileId: string): Promise<ReplayInput | null> {
+  const cached = _rawBaseline.get(fileId)
+  if (cached) return cached
+
+  const file = useDatasetStore.getState().files.find((f) => f.id === fileId)
+  if (!file || file.type !== 'file') return null
+  const columns = (file.columns ?? []) as OpColumn[]
+
+  if (isServerMode()) {
+    // The server holds the raw; rows are paged, never materialised client-side.
+    // Inverses need real cell values, so ask for the whole thing — an undo is rare
+    // and bounded by the dataset the user is actively editing.
+    const { queryDatasetRows } = await import('@/lib/api/datasets')
+    const page = await queryDatasetRows(fileId, { offset: 0, limit: file.rowCount ?? 100_000 })
+    // These rows are ALREADY replayed, so strip the log back off to get the base.
+    const baseline = unreplay({ columns, rows: page.rows }, file.ops ?? [])
+    _rawBaseline.set(fileId, baseline)
+    return baseline
+  }
+
+  const baseline = unreplay({ columns, rows: _loadedData.get(fileId) ?? [] }, file.ops ?? [])
+  _rawBaseline.set(fileId, baseline)
+  return baseline
+}
+
+/**
+ * Move every stored reference to a renamed column onto its new id.
+ *
+ * Two homes, found differently: a dashboard's `filterConfig` (a known field) and a
+ * widget's plugin config (arbitrary keys, so matched by VALUE). Both stores and
+ * both persistence layers are updated, since a dashboard already loaded in memory
+ * would otherwise keep the stale id until a reload.
+ */
+async function repairColumnRefs(fileId: string, plan: ColumnRenamePlan): Promise<void> {
+  const { useDashboardStore } = await import('@/stores/dashboard-store')
+  const storage = getStorage()
+  const dash = useDashboardStore.getState()
+
+  // rekey* return the SAME object when nothing moved, so identity marks what
+  // actually changed and only those rows are written back.
+  const widgets = dash.widgets.map((w) => rekeyWidgetConfig(w, fileId, plan.changes))
+  const changedWidgets = widgets.filter((w, i) => w !== dash.widgets[i])
+
+  const changedDashboards: typeof dash.dashboards = []
+  const dashboards = dash.dashboards.map((d) => {
+    const filterConfig = (d.filterConfig ?? []).map((f) => rekeyFilter(f, fileId, plan.changes, plan.namesById))
+    if (filterConfig.every((f, i) => f === (d.filterConfig ?? [])[i])) return d
+    const next = { ...d, filterConfig }
+    changedDashboards.push(next)
+    return next
+  })
+
+  if (!changedWidgets.length && !changedDashboards.length) return
+  useDashboardStore.setState({ widgets, dashboards })
+
+  await Promise.all([
+    ...changedWidgets.map((w) => storage.dashboardWidgets.update(w.id, { source: w.source })),
+    ...changedDashboards.map((d) => storage.dashboards.update(d.id, { filterConfig: d.filterConfig })),
+  ])
+}
+
+/** Persist ops and refresh the store's view of the file. */
+async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Promise<void> {
+  const state = useDatasetStore.getState()
+  const file = state.files.find((f) => f.id === fileId)
+  if (!file || file.type !== 'file') return
+
+  if (isServerMode()) {
+    const { file: updated } = await recordDatasetOps(fileId, ops, { replace })
+    useDatasetStore.setState((s) => ({
+      files: s.files.map((f) => (f.id === fileId ? { ...f, ...updated } : f)),
+      _dirtyVersion: s._dirtyVersion + 1,
+    }))
+    return
+  }
+
+  const log = replace ? ops : [...(file.ops ?? []), ...ops]
+  const baseline = await parsedInput(fileId)
+  if (!baseline) return
+  const { columns, rows } = replayOps(baseline, log)
+
+  _loadedData.set(fileId, rows)
+  const patch = {
+    ops: log.length ? log : undefined,
+    columns: columns as DatasetColumn[],
+    rowCount: rows.length,
+    updatedAt: new Date().toISOString(),
+  }
+  useDatasetStore.setState((s) => ({
+    files: s.files.map((f) => (f.id === fileId ? { ...f, ...patch } : f)),
+    _dirtyVersion: s._dirtyVersion + 1,
+  }))
+
+  const storage = getStorage()
+  await storage.datasetData.save({ datasetFileId: fileId, rows })
+  _savedDataSnapshot.set(fileId, JSON.stringify(rows))
+  await storage.datasetFiles.update(fileId, patch)
+}
 
 export const useDatasetStore = create<DatasetState>((set, get) => ({
   files: [],
@@ -757,15 +899,22 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     getStorage().datasetData.save({ datasetFileId: fileId, rows }).catch((e) => console.warn('[dataset-store] persist error:', e))
   },
 
-  renameColumn: (fileId, columnId, newName) => {
+  renameColumn: async (fileId, columnId, newName) => {
     const file = get().files.find((f) => f.id === fileId)
     if (!file || file.type !== 'file') return
-    const columns = file.columns ?? []
-    const updatedColumns = columns.map((c) => c.id === columnId ? { ...c, name: newName } : c)
-    set((s) => ({
-      files: s.files.map((f) => f.id === fileId ? { ...f, columns: updatedColumns, updatedAt: new Date().toISOString() } : f),
-    }))
-    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
+    // Throws on a collision that would displace an untouched column — the caller
+    // surfaces it; renaming anyway would silently repoint that column's widgets.
+    const plan = planColumnRename(file.columns ?? [], columnId, newName)
+
+    const group = uid()
+    await recordOps(fileId, [{
+      ...mintOp(group), type: 'renameColumn',
+      column: columnId, to: plan.changes.get(columnId) ?? columnId, toName: newName.trim(),
+    }], false)
+
+    // The id is derived from the name, so a rename orphans every stored reference
+    // to the old id unless they move in the same change.
+    if (plan.changes.size) await repairColumnRefs(fileId, plan)
   },
 
   updateColumnMeta: (fileId, columnId, meta) => {
@@ -1155,6 +1304,54 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     await getStorage().datasetAnalyses.update(id, { config: analysis.config, updatedAt: new Date().toISOString() })
     _savedAnalysisSnapshot.set(id, JSON.stringify(analysis.config))
     set((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
+  },
+
+  applyOps: async (fileId, ops) => {
+    if (ops.length) await recordOps(fileId, ops, false)
+  },
+
+  undoLastOps: async (fileId) => {
+    const log = get().files.find((f) => f.id === fileId)?.ops ?? []
+    if (!log.length) return
+
+    // Undo the last GROUP, not the last op: one user action can record several ops
+    // (restoring a removed column is an addColumn plus a setCell per cell), and
+    // reversing a fragment of it would leave the dataset half-changed.
+    const groupId = log[log.length - 1].group
+    const start = groupId ? log.findIndex((op) => op.group === groupId) : log.length - 1
+    const group = log.slice(start)
+
+    // An inverse is built against the state its op saw, so replay forward to each
+    // op's own vantage point and invert in reverse order.
+    const parsed = await parsedInput(fileId)
+    if (!parsed) return
+    const undoGroup = uid()
+    const inverses: DatasetOp[] = []
+    for (let i = group.length - 1; i >= 0; i--) {
+      const before = replayOps(parsed, log.slice(0, start + i))
+      inverses.push(...invertOpFull(group[i], before, () => mintOp(undoGroup)))
+    }
+    if (inverses.length) await recordOps(fileId, inverses, false)
+  },
+
+  undoableOpCount: (fileId) => {
+    const log = get().files.find((f) => f.id === fileId)?.ops ?? []
+    const groups = new Set<string>()
+    let ungrouped = 0
+    for (const op of log) {
+      if (op.group) groups.add(op.group)
+      else ungrouped++
+    }
+    return groups.size + ungrouped
+  },
+
+  resetOps: async (fileId) => {
+    await recordOps(fileId, [], true)
+  },
+
+  compactFileOps: async (fileId) => {
+    const log = get().files.find((f) => f.id === fileId)?.ops ?? []
+    if (log.length) await recordOps(fileId, compactOps(log), true)
   },
 
   undoStack: [],

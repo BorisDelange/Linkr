@@ -8,6 +8,10 @@ export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGro
 export { getDefaultDimensions } from './catalog'
 export type { AuthorDetails, Authored, Lineaged } from './author'
 import type { Authored, Lineaged } from './author'
+// The ops log is defined once, in the format package, because the replay engine
+// there is the shared contract between the client, the server and the validator.
+export type { DatasetOp } from '@linkr/format'
+import type { DatasetOp } from '@linkr/format'
 
 export interface User {
   id: number
@@ -981,6 +985,10 @@ export interface DatasetFile extends Seedable, Authored {
   columns?: DatasetColumn[]
   rowCount?: number
   parseOptions?: DatasetParseOptions
+  /** Ordered edit log replayed over the parsed raw file — the only way a dataset
+   *  is ever mutated, since the raw itself is immutable. See @linkr/format's
+   *  dataset-ops and docs/planning/dataset-edit-plan.md. */
+  ops?: DatasetOp[]
   createdAt: string
   updatedAt: string
 }

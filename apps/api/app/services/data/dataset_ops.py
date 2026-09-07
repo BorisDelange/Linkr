@@ -26,7 +26,7 @@ ROW_ORD = "__row_ord"
 # and Python export builders, so insertion order would otherwise depend on write
 # history and churn the git diff — the same reason parseOptions is canonicalised.
 _OP_KEY_ORDER = (
-    "id", "type", "at", "by",
+    "id", "type", "at", "by", "group",
     "row", "column", "value", "values", "after", "order",
     "name", "colType", "index", "to", "toName",
 )

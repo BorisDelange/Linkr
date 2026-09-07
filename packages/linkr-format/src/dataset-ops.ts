@@ -54,6 +54,13 @@ interface OpBase {
   at: number
   /** Who made the edit — a user id when known. Provenance for manual collection. */
   by?: string
+  /**
+   * Groups the ops of one user action, so undo reverses the action rather than a
+   * fragment of it: restoring a removed column records an addColumn plus a setCell
+   * per non-null cell, and reversing only the last of those would leave the column
+   * present but empty.
+   */
+  group?: string
 }
 
 export interface SetCellOp extends OpBase {
@@ -437,7 +444,7 @@ export function compactOps(ops: readonly DatasetOp[]): DatasetOp[] {
 // ---------------------------------------------------------------------------
 
 const OP_KEY_ORDER = [
-  'id', 'type', 'at', 'by',
+  'id', 'type', 'at', 'by', 'group',
   'row', 'column', 'value', 'values', 'after', 'order',
   'name', 'colType', 'index', 'to', 'toName',
 ] as const

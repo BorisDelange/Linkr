@@ -4,8 +4,8 @@
 import JSZip from 'jszip'
 import {
   CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, type LayoutKind,
-  buildTabKeyMap, buildWidgetKeyMap, canonicalSchemaMapping,
-  dashboardKey as sharedDashboardKey, slugify, type Issue,
+  buildTabKeyMap, buildWidgetKeyMap, canonicalOps, canonicalSchemaMapping,
+  dashboardKey as sharedDashboardKey, slugify, type DatasetOp, type Issue,
 } from '@linkr/format'
 import type { Storage } from '@/lib/storage'
 import { APP_VERSION } from '@/lib/version'
@@ -1045,6 +1045,14 @@ function datasetExportMeta(df: DatasetFile): Partial<DatasetFile> {
   const meta = stripInstanceFields(df) as Record<string, unknown>
   if (meta.parseOptions && typeof meta.parseOptions === 'object') {
     meta.parseOptions = canonicalParseOptions(meta.parseOptions as Record<string, unknown>)
+  }
+  // The edit log travels with the dataset — without it a re-import shows the raw
+  // file and every correction is silently lost. Canonicalised for the same reason
+  // parseOptions is: both builders emit key order verbatim. An empty log is
+  // omitted so an unedited dataset's diff is unchanged.
+  if (Array.isArray(meta.ops)) {
+    if (meta.ops.length) meta.ops = canonicalOps(meta.ops as DatasetOp[])
+    else delete meta.ops
   }
   return meta as Partial<DatasetFile>
 }

@@ -10,6 +10,7 @@ import type {
   DatasetAnalysis,
   DatasetData,
   DatasetFile,
+  DatasetOp,
   DatasetParseOptions,
   DatasetRawFile,
 } from '@/types'
@@ -34,6 +35,7 @@ interface DsNode {
   }[] | null
   rowCount?: number | null
   parseOptions?: import('@/types').DatasetParseOptions | null
+  ops?: DatasetOp[] | null
 }
 
 function dsNodeToFile(projectUid: string, n: DsNode): DatasetFile {
@@ -51,6 +53,7 @@ function dsNodeToFile(projectUid: string, n: DsNode): DatasetFile {
     columns: (n.columns ?? undefined) as DatasetFile['columns'],
     rowCount: n.rowCount ?? undefined,
     parseOptions: n.parseOptions ?? undefined,
+    ops: n.ops ?? undefined,
     createdAt: '',
     updatedAt: '',
   }
@@ -250,6 +253,26 @@ export function queryDatasetRows(
     method: 'POST',
     body: JSON.stringify(query),
   })
+}
+
+/**
+ * Record edit operations against a dataset and get the rebuilt node back.
+ *
+ * Appends by default — the server concatenates, so two people editing the same
+ * dataset never drop each other's ops. `replace` rewrites the whole log, which is
+ * what compaction and a reset-to-raw need.
+ */
+export async function recordDatasetOps(
+  datasetFileId: string,
+  ops: DatasetOp[],
+  opts?: { replace?: boolean },
+): Promise<{ file: DatasetFile; ops: DatasetOp[] }> {
+  const projectUid = _dsProject.get(datasetFileId) ?? ''
+  const res = await apiRequest<{ node: DsNode; ops: DatasetOp[] }>('/dataset-files/ops', {
+    method: 'POST',
+    body: JSON.stringify({ projectUid, path: datasetFileId, ops, replace: opts?.replace ?? false }),
+  })
+  return { file: dsNodeToFile(projectUid, res.node), ops: res.ops }
 }
 
 /**

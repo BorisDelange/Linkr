@@ -114,13 +114,14 @@ def _dataset_node(project_uid: str, node: dict) -> dict:
     ``dsNodeToFile``): id === relative path, parentId === parent path. columns /
     rowCount are omitted when absent (the adapter maps null → undefined, which
     ``JSON.stringify`` drops). createdAt/updatedAt are '' (stripped by the builder)."""
-    columns, row_count, parse_options = None, None, None
+    columns, row_count, parse_options, ops = None, None, None, None
     if node["type"] == "file":
         try:
             res = dataset_fs.resolve_cache(project_uid, node["path"])
             columns, row_count, parse_options = res["columns"], res["rowCount"], res.get("parseOptions")
+            ops = res.get("ops") or None
         except Exception:
-            columns, row_count, parse_options = None, None, None
+            columns, row_count, parse_options, ops = None, None, None, None
     path = node["path"]
     parent_path = path.rsplit("/", 1)[0] if "/" in path else None
     out: dict = {
@@ -137,6 +138,11 @@ def _dataset_node(project_uid: str, node: dict) -> dict:
         out["rowCount"] = row_count
     if parse_options is not None:
         out["parseOptions"] = parse_options
+    # The edit log travels with the dataset, or a re-import shows the raw file and
+    # every correction is lost. Already canonical on disk (append_ops/write_ops
+    # canonicalise on the way in), so it is emitted verbatim like parseOptions.
+    if ops:
+        out["ops"] = ops
     out["createdAt"] = ""
     out["updatedAt"] = ""
     return out
