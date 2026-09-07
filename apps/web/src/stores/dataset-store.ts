@@ -4,7 +4,7 @@ import { getStorage } from '@/lib/storage'
 import { uniqueColumnId } from '@/lib/column-id'
 import { coerceValue } from '@/lib/dataset-utils'
 import { isServerMode } from '@/lib/api-client'
-import { duplicateDataset, fetchDatasetMeta, recordDatasetOps, reimportDataset } from '@/lib/api/datasets'
+import { createEmptyDataset, duplicateDataset, fetchDatasetMeta, recordDatasetOps, reimportDataset } from '@/lib/api/datasets'
 import {
   compactOps, invertOpFull, replayOps,
   type DatasetOp, type OpColumn, type ReplayInput,
@@ -967,6 +967,23 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
 
   createFileWithData: async (name, parentId, columns, rows, parseOptions, rawFile) => {
     const projectUid = get().activeProjectUid ?? ''
+
+    // Server mode: datasets are disk-source-of-truth and their id IS their path,
+    // so a file has to be created on the server. Skipping this left the dataset in
+    // memory only — it looked created, then vanished on reload.
+    if (isServerMode()) {
+      const path = parentId ? `${parentId}/${name}` : name
+      const node = await createEmptyDataset(projectUid, path, columns)
+      _loadedData.set(node.id, rows)
+      set((s) => ({
+        files: [...s.files, node],
+        selectedFileId: node.id,
+        openFileIds: s.openFileIds.includes(node.id) ? s.openFileIds : [...s.openFileIds, node.id],
+        _dirtyVersion: s._dirtyVersion + 1,
+      }))
+      return node.id
+    }
+
     const id = uid()
     const now = new Date().toISOString()
     const node: DatasetFile = {

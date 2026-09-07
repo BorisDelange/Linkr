@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ChevronLeft,
@@ -13,6 +13,7 @@ import {
   Pin,
   PinOff,
   Tag,
+  Trash2,
   Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -42,11 +43,14 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
+import { Separator } from '@/components/ui/separator'
 import { ResizeGrip } from '@/components/ui/table-primitives'
 import { TypeBadge, renderTypeMenuItems } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import { useColumnDistinct } from './use-column-distinct'
+import { ROW_ORD } from '@linkr/format'
 import { useCellEditing } from './use-cell-editing'
+import { useFlashTarget } from './use-flash-target'
 import { EditColumnMetaDialog } from './EditColumnMetaDialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { hasTimeComponent, columnTint, displayColumnName, displayCellValue } from '@/lib/dataset-utils'
@@ -63,9 +67,16 @@ interface DatasetTableProps {
   /** Allow in-place cell editing. Every commit records an op; the raw file is
    *  never touched. Off by default so a viewer's table behaves exactly as before. */
   editable?: boolean
-  /** Edit controls, rendered in the footer bar. Given the selected row so its row
-   *  actions can address it. */
-  editToolbar?: React.ReactNode
+  /** Edit controls, rendered in the footer bar. Called with the current selection
+   *  so the toolbar's row actions can address it without duplicating table state. */
+  editToolbar?: (ctx: EditToolbarContext) => React.ReactNode
+}
+
+export interface EditToolbarContext {
+  /** Row ordinal of the selected cell, when one is selected. */
+  selectedRow?: number
+  /** The ordinal displayed just before the given one, for "insert above". */
+  rowBefore: (ordinal: number) => number | null
 }
 
 const PAGE_SIZES = [25, 50, 100, 250, 500]
@@ -248,6 +259,29 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
   // themselves), never by screen position — the table shows a sorted, filtered,
   // paginated slice and server mode holds only one page.
   const edit = useCellEditing({ fileId, rows: pageRows, columns: visibleColumns, enabled: editable })
+  const applyOps = useDatasetStore((s) => s.applyOps)
+  const flash = useFlashTarget(fileId)
+  /** The ordinal shown just above `ordinal`, or null at the top of the page. */
+  const rowBefore = useCallback((ordinal: number): number | null => {
+    const at = pageRows.findIndex((r) => (r[ROW_ORD] as number) === ordinal)
+    if (at <= 0) return null
+    return (pageRows[at - 1][ROW_ORD] as number) ?? null
+  }, [pageRows])
+
+  const flashRowRef = useCallback((node: HTMLTableRowElement | null) => {
+    node?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [])
+
+  // A row appended to a long dataset lands on the LAST page, so highlighting it
+  // without going there would flash a row the user cannot see.
+  useEffect(() => {
+    if (flash?.row === undefined || server) return
+    const at = sortedRows.findIndex((r) => (r[ROW_ORD] as number) === flash.row)
+    if (at >= 0) {
+      const targetPage = Math.floor(at / pageSize)
+      if (targetPage !== clampedPage) setPage(targetPage)
+    }
+  }, [flash?.row, server, sortedRows, pageSize, clampedPage, setPage])
 
   const hasActiveFilters =
     Object.values(columnFilters).some((v) => v != null) || Object.keys(naFilters).length > 0
@@ -351,6 +385,47 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
   }, [visibleColumns, pinnedColumns, getColWidth])
 
   // Shared column-action items, rendered both in the "..." dropdown and the right-click context menu.
+  /** Move a row one slot up or down, within the rows currently displayed. */
+  const moveRow = useCallback((ordinal: number, delta: number) => {
+    const order = pageRows.map((r) => edit.ordinalOf(r)).filter((o): o is number => o !== undefined)
+    const at = order.indexOf(ordinal)
+    const to = at + delta
+    if (at < 0 || to < 0 || to >= order.length) return
+    ;[order[at], order[to]] = [order[to], order[at]]
+    void applyOps(fileId, [{
+      id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
+      type: 'reorderRows', order,
+    }])
+  }, [applyOps, edit, fileId, pageRows])
+
+  const removeRow = useCallback((ordinal: number) => {
+    void applyOps(fileId, [{
+      id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
+      type: 'removeRow', row: ordinal,
+    }])
+  }, [applyOps, fileId])
+
+  /** Move a column one slot left or right. Reorder is an `order` change, never a
+   *  rekey, so nothing downstream needs repairing. */
+  const moveColumn = useCallback((colId: string, delta: number) => {
+    const order = columns.map((c) => c.id)
+    const at = order.indexOf(colId)
+    const to = at + delta
+    if (at < 0 || to < 0 || to >= order.length) return
+    ;[order[at], order[to]] = [order[to], order[at]]
+    void applyOps(fileId, [{
+      id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
+      type: 'reorderColumns', order,
+    }])
+  }, [applyOps, columns, fileId])
+
+  const removeColumn = useCallback((colId: string) => {
+    void applyOps(fileId, [{
+      id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
+      type: 'removeColumn', column: colId,
+    }])
+  }, [applyOps, fileId])
+
   const renderColumnMenuItems = (
     col: DatasetColumn,
     Item: typeof DropdownMenuItem | typeof ContextMenuItem,
@@ -360,6 +435,23 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
     const isPinned = pinnedColumns.includes(col.id)
     return (
       <>
+        {editable && (
+          <>
+            <Item onClick={() => moveColumn(col.id, -1)} className="text-xs">
+              <ChevronLeft size={13} />
+              {t('datasets.col_move_left')}
+            </Item>
+            <Item onClick={() => moveColumn(col.id, 1)} className="text-xs">
+              <ChevronRight size={13} />
+              {t('datasets.col_move_right')}
+            </Item>
+            <Item onClick={() => removeColumn(col.id)} className="text-xs" variant="destructive">
+              <Trash2 size={13} />
+              {t('datasets.col_delete')}
+            </Item>
+            <Separator />
+          </>
+        )}
         <Item onClick={() => handleSort(col.id, 'asc')} className="text-xs">
           <ArrowUp size={13} />
           {t('datasets.col_sort_asc')}
@@ -597,13 +689,41 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
               // a log (the cache only materialises the key when there is one).
               const ordinal = edit.ordinalOf(row) ?? rowOffset + rowIdx
               return (
-                <tr key={rowIdx} className="hover:bg-accent/30">
-                  <td
-                    style={{ width: ROW_NUM_WIDTH }}
-                    className="sticky left-0 z-[5] bg-background border-b border-r px-2 py-1 text-center text-muted-foreground tabular-nums"
-                  >
-                    {rowOffset + rowIdx + 1}
-                  </td>
+                <tr
+                  key={rowIdx}
+                  // A new row can land off-screen — or on another page entirely —
+                  // so the flash alone would highlight something nobody sees.
+                  ref={flash?.row === ordinal ? flashRowRef : undefined}
+                  className={cn(
+                    'hover:bg-accent/30',
+                    flash?.row === ordinal && 'animate-in fade-in bg-primary/15',
+                  )}
+                >
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild disabled={!editable}>
+                      <td
+                        style={{ width: ROW_NUM_WIDTH }}
+                        className="sticky left-0 z-[5] bg-background border-b border-r px-2 py-1 text-center text-muted-foreground tabular-nums"
+                      >
+                        {rowOffset + rowIdx + 1}
+                      </td>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem onClick={() => moveRow(ordinal, -1)} className="text-xs">
+                        <ArrowUp size={13} />
+                        {t('datasets.row_move_up')}
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => moveRow(ordinal, 1)} className="text-xs">
+                        <ArrowDown size={13} />
+                        {t('datasets.row_move_down')}
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem onClick={() => removeRow(ordinal)} className="text-xs" variant="destructive">
+                        <Trash2 size={13} />
+                        {t('datasets.row_delete')}
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                   {visibleColumns.map((col, colIdx) => {
                     const isPinned = pinnedColumns.includes(col.id)
                     const raw = row[col.id]
@@ -625,21 +745,25 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                       onDoubleClick={editable ? () => edit.beginEdit({ row: ordinal as number, column: col.id }, raw) : undefined}
                       style={{ maxWidth: getColWidth(col.id, DEFAULT_COL_WIDTH), ...(isPinned ? { left: pinnedLeft[col.id], width: getColWidth(col.id, DEFAULT_COL_WIDTH) } : {}) }}
                       className={cn(
-                        'border-b border-r px-3 py-1 whitespace-nowrap overflow-hidden text-ellipsis',
+                        'relative border-b border-r px-3 py-1 whitespace-nowrap overflow-hidden text-ellipsis',
                         isPinned
                           ? 'sticky z-20 bg-background border-r-primary/40'
                           : selectedColumnId === col.id ? 'bg-accent/20' : columnTint(colIdx),
                         editable && 'cursor-cell',
+                        flash?.column === col.id && 'bg-primary/15',
                         isSelectedCell && 'outline outline-2 -outline-offset-2 outline-primary',
                       )}
                     >
                       {isEditingCell ? (
+                        // Absolutely positioned inside a relative cell: an inline
+                        // input is a taller box than the text it replaces, and
+                        // would push the row height as you moved through cells.
                         <input
                           autoFocus
                           value={edit.draft}
                           onChange={(e) => edit.setDraft(e.target.value)}
                           onBlur={() => void edit.commitEdit()}
-                          className="h-5 w-full bg-transparent p-0 text-xs outline-none"
+                          className="absolute inset-0 w-full bg-background px-3 text-xs outline-none ring-2 ring-inset ring-primary"
                         />
                       ) : raw != null ? (
                         displayCellValue(col, raw, booleanLabels)
@@ -659,7 +783,8 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
       {/* Pagination bar + column visibility */}
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
         <div className="flex items-center gap-2">
-          {editToolbar}
+          {editToolbar?.({ selectedRow: edit.selected?.row, rowBefore })}
+          {editToolbar && <Separator orientation="vertical" className="mx-1 h-4" />}
           <span className="text-xs text-muted-foreground">
             {t('files.table_total', { count: totalCount })}
             {!server && hasActiveFilters && ` / ${rows.length}`}

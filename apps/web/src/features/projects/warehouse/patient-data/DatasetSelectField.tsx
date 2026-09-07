@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
@@ -29,10 +30,16 @@ export function DatasetSelectField({ field, value, onChange }: Props) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
   const files = useDatasetStore((s) => s.files)
+  const ensureServerMeta = useDatasetStore((s) => s.ensureServerMeta)
 
   const datasets = files.filter((f) => f.type === 'file')
   const selected = datasets.find((f) => f.id === value?.datasetFileId)
   const columns = selected?.columns ?? []
+
+  // Columns load lazily in server mode; without this the dropdowns stay empty.
+  useEffect(() => {
+    if (value?.datasetFileId) ensureServerMeta(value.datasetFileId)
+  }, [value?.datasetFileId, ensureServerMeta])
 
   const patch = (changes: Partial<DatasetTimelineMapping>) => {
     if (!value?.datasetFileId && !changes.datasetFileId) return

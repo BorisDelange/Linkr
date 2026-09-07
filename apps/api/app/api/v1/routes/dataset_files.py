@@ -3,6 +3,8 @@ Raw files (CSV/XLSX/Parquet) are scanned from disk; a derived Parquet cache powe
 pagination and column stats. Analyses (Lot 2) reconcile against this scan."""
 
 import asyncio
+import csv
+import io
 
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -22,6 +24,7 @@ from app.schemas.dataset import (
 )
 from app.schemas.dataset_fs import (
     DsColumnMeta,
+    DsCreateEmpty,
     DsCreateFolder,
     DsDelete,
     DsDuplicate,
@@ -296,6 +299,46 @@ async def import_dataset(
         parent_id=(project_fs.node_id("ds", body.path.rsplit("/", 1)[0]) if "/" in body.path else None),
         path=body.path, columns=columns, row_count=row_count,
     )
+
+
+@router.post("/create-empty", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)
+async def create_empty_dataset(
+    body: DsCreateEmpty,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create an empty dataset on disk from a column list.
+
+    A manual collection has no file to upload — it starts empty and fills row by
+    row — but it must still be a real file on disk, or it would exist only in the
+    client's memory and vanish on reload. So a CSV holding just the header is
+    written, and everything downstream (parse, cache, ops, export) treats it like
+    any other dataset."""
+    await _check_project(db, body.project_uid, user, "datasets:write")
+    try:
+        dst = project_fs.dataset_path(body.project_uid, body.path)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    if dst.exists():
+        raise HTTPException(status.HTTP_409_CONFLICT, "A dataset already exists at this path")
+
+    names = [str(c.get("name") or c.get("id") or "") for c in body.columns]
+    if not any(names):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one named column is required")
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    # csv module rather than ",".join: a column named `a,b` or holding a quote
+    # would otherwise produce a header that reparses into different columns.
+    buf = io.StringIO()
+    csv.writer(buf, lineterminator="\n").writerow(names)
+    dst.write_text(buf.getvalue(), encoding="utf-8")
+
+    try:
+        dataset_fs.resolve_cache(body.project_uid, body.path)
+    except (ValueError, RuntimeError, duckdb.Error) as e:
+        dst.unlink(missing_ok=True)
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Create failed: {e}")
+    return _file_node(body.project_uid, body.path)
 
 
 def _file_node(project_uid: str, path: str) -> DsNodeResponse:

@@ -1419,7 +1419,19 @@
     "op_remove_column": "Column {{column}} deleted",
     "op_reorder_columns": "{{count}} columns reordered",
     "op_rename_column": "Column renamed to {{to}}",
-    "rename_column_collision": "That name collides with another column. Pick a different one."
+    "rename_column_collision": "That name collides with another column. Pick a different one.",
+    "insert_above": "Above the selected row",
+    "insert_below": "Below the selected row",
+    "insert_at_end": "At the end",
+    "column_position": "Position",
+    "position_end": "At the end",
+    "position_after": "After {{name}}",
+    "col_move_left": "Move left",
+    "col_move_right": "Move right",
+    "col_delete": "Delete column",
+    "row_move_up": "Move up",
+    "row_move_down": "Move down",
+    "row_delete": "Delete row"
   },
   "survey": {
     "choice_order_hint": "Drag the answers into the order the chart should read.",
@@ -1723,7 +1735,11 @@
     "collection_dataset_placeholder": "e.g. ventilation",
     "collection_stay_column": "Stay column",
     "collection_writes_to": "Saved to {{name}}",
-    "collection_no_variables": "This dataset has no columns to fill yet. Add some in the Datasets page."
+    "collection_no_variables": "This dataset has no columns to fill yet. Add some in the Datasets page.",
+    "collection_variables": "Variables",
+    "collection_variables_hint": "Which columns to fill in from the patient chart. Add a new one to create it in the dataset.",
+    "collection_no_variables_yet": "No variables yet — add one below.",
+    "collection_new_variable": "New variable name"
   },
   "files": {
     "empty_markdown_cell": "Empty markdown cell",

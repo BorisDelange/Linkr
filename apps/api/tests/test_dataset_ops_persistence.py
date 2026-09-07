@@ -278,3 +278,76 @@ async def test_the_row_key_is_not_a_column_the_ui_sees(client, seed_roles):
     ])
     names = [c["name"] for c in r.json()["node"]["columns"]]
     assert names == ["person_id", "note"]
+
+
+async def test_create_empty_lands_a_real_file_on_disk(client, seed_roles):
+    """A manual collection has no upload behind it, but must still be a real file:
+    created only in the client's memory, it vanished on the next reload."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+
+    r = await client.post(
+        f"{API}/dataset-files/create-empty",
+        headers=h,
+        json={"projectUid": uid, "path": "vent.csv", "columns": [
+            {"id": "col_subject_id", "name": "subject_id"},
+            {"id": "col_hadm_id", "name": "hadm_id"},
+        ]},
+    )
+    assert r.status_code == 201
+    assert [c["name"] for c in r.json()["columns"]] == ["subject_id", "hadm_id"]
+    assert (_datasets(uid) / "vent.csv").read_text() == "subject_id,hadm_id\n"
+
+    listed = await client.get(f"{API}/dataset-files", headers=h, params={"projectUid": uid})
+    assert any(n["path"] == "vent.csv" for n in listed.json()), "must survive a re-listing"
+
+
+async def test_create_empty_quotes_a_column_name_that_would_break_the_header(client, seed_roles):
+    """A name holding a comma or a quote would otherwise reparse into different
+    columns than the ones asked for."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+
+    r = await client.post(
+        f"{API}/dataset-files/create-empty",
+        headers=h,
+        json={"projectUid": uid, "path": "odd.csv", "columns": [
+            {"id": "col_a", "name": 'weight, kg'},
+            {"id": "col_b", "name": 'say "hi"'},
+        ]},
+    )
+    assert r.status_code == 201
+    assert [c["name"] for c in r.json()["columns"]] == ["weight, kg", 'say "hi"']
+
+
+async def test_create_empty_refuses_to_clobber_an_existing_dataset(client, seed_roles):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "taken.csv").write_text("a\n1\n")
+
+    r = await client.post(
+        f"{API}/dataset-files/create-empty",
+        headers=h,
+        json={"projectUid": uid, "path": "taken.csv", "columns": [{"id": "col_x", "name": "x"}]},
+    )
+    assert r.status_code == 409
+    assert (_datasets(uid) / "taken.csv").read_text() == "a\n1\n"
+
+
+async def test_a_created_dataset_is_immediately_editable(client, seed_roles):
+    """The whole point: collection writes land in it through the ops log."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    await client.post(
+        f"{API}/dataset-files/create-empty",
+        headers=h,
+        json={"projectUid": uid, "path": "vent.csv", "columns": [
+            {"id": "col_subject_id", "name": "subject_id"},
+        ]},
+    )
+
+    r = await _post_ops(client, h, uid, "vent.csv", [
+        _op("o1", type="addRow", row=-1, values={"col_subject_id": "p1"}),
+    ])
+    assert r.json()["node"]["rowCount"] == 1
+    assert (await _rows(client, h, uid, "vent.csv"))[0]["col_subject_id"] == "p1"

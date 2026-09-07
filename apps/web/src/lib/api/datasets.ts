@@ -256,6 +256,25 @@ export function queryDatasetRows(
 }
 
 /**
+ * Create an empty dataset on disk from a column list.
+ *
+ * The server-mode counterpart to a locally-created file. A manual collection has
+ * no upload behind it, but it must still be a real file: without this it would
+ * live only in the client's memory and be gone on reload.
+ */
+export async function createEmptyDataset(
+  projectUid: string,
+  path: string,
+  columns: { id: string; name: string; type?: string }[],
+): Promise<DatasetFile> {
+  const node = await apiRequest<DsNode>('/dataset-files/create-empty', {
+    method: 'POST',
+    body: JSON.stringify({ projectUid, path, columns }),
+  })
+  return dsNodeToFile(projectUid, node)
+}
+
+/**
  * Record edit operations against a dataset and get the rebuilt node back.
  *
  * Appends by default — the server concatenates, so two people editing the same

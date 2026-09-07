@@ -8,6 +8,7 @@ import { columnId as deriveColumnId } from '@/lib/column-id'
 import { useDatasetStore } from '@/stores/dataset-store'
 import type { DatasetColumn } from '@/types'
 import { TypeBadge } from './TypeBadge'
+import { announceAdded } from './use-flash-target'
 
 interface Props {
   fileId: string
@@ -17,6 +18,8 @@ interface Props {
 
 const TYPES: DatasetColumn['type'][] = ['string', 'number', 'boolean', 'date']
 
+const END = '__end__'
+
 /** Add a column to a dataset. Recorded as an op, so it is undoable and travels
  *  with the dataset — the raw file is untouched. */
 export function AddColumnDialog({ fileId, open, onOpenChange }: Props) {
@@ -25,6 +28,8 @@ export function AddColumnDialog({ fileId, open, onOpenChange }: Props) {
   const file = useDatasetStore((s) => s.files.find((f) => f.id === fileId))
   const [name, setName] = useState('')
   const [type, setType] = useState<DatasetColumn['type']>('string')
+  // Where the column lands: the id of the column to sit after, or END.
+  const [after, setAfter] = useState<string>(END)
   const [busy, setBusy] = useState(false)
 
   const trimmed = name.trim()
@@ -35,12 +40,19 @@ export function AddColumnDialog({ fileId, open, onOpenChange }: Props) {
     if (!trimmed || taken) return
     setBusy(true)
     try {
+      const columns = file?.columns ?? []
+      const index = after === END
+        ? undefined
+        : columns.findIndex((c) => c.id === after) + 1
+      const column = deriveColumnId(trimmed)
       await applyOps(fileId, [{
         id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
-        type: 'addColumn', column: deriveColumnId(trimmed), name: trimmed, colType: type,
+        type: 'addColumn', column, name: trimmed, colType: type, index,
       }])
+      announceAdded({ fileId, column })
       setName('')
       setType('string')
+      setAfter(END)
       onOpenChange(false)
     } finally {
       setBusy(false)
@@ -72,6 +84,24 @@ export function AddColumnDialog({ fileId, open, onOpenChange }: Props) {
               <p className="text-xs text-destructive">{t('datasets.column_name_taken')}</p>
             )}
           </>
+        )}
+      </FormField>
+
+      <FormField label={t('datasets.column_position')}>
+        {({ id }) => (
+          <Select value={after} onValueChange={setAfter}>
+            <SelectTrigger id={id}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={END}>{t('datasets.position_end')}</SelectItem>
+              {(file?.columns ?? []).map((col) => (
+                <SelectItem key={col.id} value={col.id}>
+                  {t('datasets.position_after', { name: col.label ?? col.name })}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
       </FormField>
 

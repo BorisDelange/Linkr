@@ -56,10 +56,12 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
   const [selected, setSelected] = useState<CellAddress | null>(null)
   const [editing, setEditing] = useState<CellAddress | null>(null)
   const [draft, setDraft] = useState('')
-  // Mirrored into a ref so the commit path — and the window key handler that calls
-  // it — read the latest text without re-subscribing on every keystroke.
+  // Mirrored into refs so the commit path — and the window key handler that calls
+  // it — read the latest values without re-subscribing on every keystroke.
   const draftRef = useRef(draft)
   useEffect(() => { draftRef.current = draft }, [draft])
+  const editingRef = useRef<CellAddress | null>(editing)
+  useEffect(() => { editingRef.current = editing }, [editing])
 
   const ordinalOf = useCallback(
     (row: Record<string, unknown>) => row[ROW_ORD] as number | undefined,
@@ -69,15 +71,26 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
   const beginEdit = useCallback((address: CellAddress, current: unknown) => {
     if (!enabled) return
     setSelected(address)
+    editingRef.current = address
     setEditing(address)
     setDraft(cellInputValue(current))
   }, [enabled])
 
-  const cancelEdit = useCallback(() => setEditing(null), [])
+  const cancelEdit = useCallback(() => {
+    // Ref first, for the same reason as commitEdit: unmounting the input fires
+    // onBlur, which would otherwise commit the draft the user just discarded.
+    editingRef.current = null
+    setEditing(null)
+  }, [])
 
   const commitEdit = useCallback(async () => {
-    const target = editing
+    const target = editingRef.current
     if (!target) return
+    // Cleared through the ref too, and synchronously: ending an edit unmounts the
+    // input, whose onBlur calls straight back in here. Waiting for the state
+    // update meant the second call still saw the old target and re-committed a
+    // stale draft — which is what silently dropped an edit committed with Enter.
+    editingRef.current = null
     setEditing(null)
 
     const column = columns.find((c) => c.id === target.column)
@@ -97,7 +110,7 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
       value: next,
     }
     await applyOps(fileId, [op])
-  }, [applyOps, columns, editing, fileId, ordinalOf, rows])
+  }, [applyOps, columns, fileId, ordinalOf, rows])
 
   /** Move the selection by a delta within the current page. */
   const move = useCallback((dRow: number, dCol: number) => {
@@ -157,6 +170,7 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
         default:
           // A printable key starts an edit with that character, as a spreadsheet does.
           if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            editingRef.current = selected
             setEditing(selected)
             setDraft(e.key)
           }

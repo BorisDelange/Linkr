@@ -56,9 +56,17 @@ export function CollectionSidebar({
               <ClipboardList size={14} />
               {t('patient_data.collection')}
             </SheetTitle>
+            {/* Sheet renders its own close at top-4 right-4, so this sits clear of
+                it rather than underneath. */}
             {canWrite && (
-              <Button variant="ghost" size="xs" onClick={() => setSetupOpen(true)}>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="mr-6"
+                onClick={() => setSetupOpen(true)}
+              >
                 <Settings2 className="size-3.5" />
+                <span className="ml-1">{t('patient_data.collection_variables')}</span>
               </Button>
             )}
           </SheetHeader>

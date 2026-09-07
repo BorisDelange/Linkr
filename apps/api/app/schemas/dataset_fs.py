@@ -28,6 +28,19 @@ class DsImport(CamelModel):
     parse_options: dict | None = None
 
 
+class DsCreateEmpty(CamelModel):
+    """Create an empty dataset on disk from a column list.
+
+    The counterpart to /import for a dataset with no uploaded file behind it — a
+    manual collection starts empty and is filled row by row. A real CSV carrying
+    just the header is written, so the dataset is disk-source-of-truth like every
+    other one rather than a special case living only in the client's memory."""
+
+    project_uid: str
+    path: str
+    columns: list[dict] = []
+
+
 class DsPreview(CamelModel):
     """Parse an already-uploaded blob WITHOUT persisting it, to drive the import
     dialog's preview server-side (same parser as the eventual import)."""

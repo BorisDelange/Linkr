@@ -1419,7 +1419,19 @@
     "op_remove_column": "Colonne {{column}} supprimée",
     "op_reorder_columns": "{{count}} colonnes réordonnées",
     "op_rename_column": "Colonne renommée en {{to}}",
-    "rename_column_collision": "Ce nom entre en conflit avec une autre colonne. Choisissez-en un autre."
+    "rename_column_collision": "Ce nom entre en conflit avec une autre colonne. Choisissez-en un autre.",
+    "insert_above": "Au-dessus de la ligne sélectionnée",
+    "insert_below": "En dessous de la ligne sélectionnée",
+    "insert_at_end": "À la fin",
+    "column_position": "Position",
+    "position_end": "À la fin",
+    "position_after": "Après {{name}}",
+    "col_move_left": "Déplacer à gauche",
+    "col_move_right": "Déplacer à droite",
+    "col_delete": "Supprimer la colonne",
+    "row_move_up": "Monter",
+    "row_move_down": "Descendre",
+    "row_delete": "Supprimer la ligne"
   },
   "survey": {
     "choice_order_hint": "Glissez les réponses dans l’ordre de lecture du graphique.",
@@ -1723,7 +1735,11 @@
     "collection_dataset_placeholder": "ex. ventilation",
     "collection_stay_column": "Colonne séjour",
     "collection_writes_to": "Enregistré dans {{name}}",
-    "collection_no_variables": "Ce jeu de données n'a pas encore de colonnes à remplir. Ajoutez-en dans la page Jeux de données."
+    "collection_no_variables": "Ce jeu de données n'a pas encore de colonnes à remplir. Ajoutez-en dans la page Jeux de données.",
+    "collection_variables": "Variables",
+    "collection_variables_hint": "Les colonnes à remplir depuis le dossier patient. En ajouter une la crée dans le jeu de données.",
+    "collection_no_variables_yet": "Aucune variable — ajoutez-en une ci-dessous.",
+    "collection_new_variable": "Nom de la variable"
   },
   "files": {
     "empty_markdown_cell": "Cellule markdown vide",

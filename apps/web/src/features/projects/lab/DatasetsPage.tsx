@@ -666,13 +666,17 @@ export function DatasetsPage() {
                           onHiddenColumnsChange={setHiddenColumns}
                           editable={editingData && canEdit}
                           editToolbar={
-                            canEdit ? (
-                              <DatasetEditToolbar
-                                fileId={selectedFileId!}
-                                editing={editingData}
-                                onEditingChange={setEditingData}
-                              />
-                            ) : null
+                            canEdit
+                              ? ({ selectedRow, rowBefore }) => (
+                                  <DatasetEditToolbar
+                                    fileId={selectedFileId!}
+                                    editing={editingData}
+                                    onEditingChange={setEditingData}
+                                    selectedRow={selectedRow}
+                                    rowBefore={rowBefore}
+                                  />
+                                )
+                              : undefined
                           }
                         />
                       )}
