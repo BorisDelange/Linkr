@@ -47,6 +47,7 @@ describe('built-in patient-data plugins', () => {
     const schema = getPlugin('linkr-widget-timeline')!.manifest.configSchema!
     expect(Object.keys(schema).sort()).toEqual([
       'conceptIds',
+      'dataset',
       'engine',
       'showPoints',
       'stepPlot',
@@ -58,6 +59,10 @@ describe('built-in patient-data plugins', () => {
     // field declaration, so this is what puts Data above Chart and Style.
     expect(Object.keys(schema)[0]).toBe('conceptIds')
     expect(schema.conceptIds.type).toBe('concept-select')
+    // A timeline can be fed by concepts, by a dataset, or by both — so the dataset
+    // field sits in the same Data section, right after the concepts.
+    expect(Object.keys(schema)[1]).toBe('dataset')
+    expect(schema.dataset.type).toBe('dataset-select')
     // Labels must be bilingual — GenericConfigPanel renders them directly.
     for (const [key, field] of Object.entries(schema)) {
       expect(field.label.en, key).toBeTruthy()

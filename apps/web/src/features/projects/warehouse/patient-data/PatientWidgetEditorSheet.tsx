@@ -24,6 +24,8 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { ConceptSelectField } from './ConceptSelectField'
+import { DatasetSelectField } from './DatasetSelectField'
+import type { DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { SizedPatientWidgetPreview } from './PatientWidgetPreview'
 import { buildWidgetQueries, supportsCustomSql } from './widget-sql'
 import { localized } from '@/lib/localized'
@@ -216,6 +218,17 @@ function EditorContent({
     [conceptIds.length],
   )
 
+  const renderDatasetField = useCallback(
+    (fieldKey: string, field: PluginConfigField) => (
+      <DatasetSelectField
+        field={field}
+        value={draftConfig[fieldKey] as Partial<DatasetTimelineMapping> | undefined}
+        onChange={(value) => applyConfigChanges({ [fieldKey]: value })}
+      />
+    ),
+    [draftConfig, applyConfigChanges],
+  )
+
   const hasConfig = Object.keys(configSchema).length > 0
 
   return (
@@ -295,6 +308,7 @@ function EditorContent({
                     columns={[]}
                     onConfigChange={applyConfigChanges}
                     renderConceptField={renderConceptField}
+                    renderDatasetField={renderDatasetField}
                   />
                 ) : (
                   <p className="text-xs text-muted-foreground">

@@ -1698,7 +1698,15 @@
     "overview_hint_pan": "Faites glisser la bande ci-dessous pour naviguer · maj+molette ou ← → · 0 réinitialise",
     "overview_rows_summary": "{{rows}} lignes · {{detail}} affichant les événements",
     "overview_grouped_summary": "{{shown}} concepts affichés, {{hidden}} regroupés",
-    "overview_truncated": "Affichage des {{limit}} premiers événements de cette ligne."
+    "overview_truncated": "Affichage des {{limit}} premiers événements de cette ligne.",
+    "dataset_pick": "Choisir un jeu de données…",
+    "dataset_pick_column": "Choisir une colonne…",
+    "dataset_person_column": "Colonne patient",
+    "dataset_visit_column": "Colonne hospitalisation",
+    "dataset_date_column": "Colonne date",
+    "dataset_end_column": "Colonne date de fin",
+    "dataset_value_column": "Colonne valeur",
+    "dataset_label_column": "Colonne nom de série"
   },
   "files": {
     "empty_markdown_cell": "Cellule markdown vide",

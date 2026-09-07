@@ -1698,7 +1698,15 @@
     "overview_hint_pan": "Drag the strip below to pan · shift+scroll or ← → · 0 resets",
     "overview_rows_summary": "{{rows}} rows · {{detail}} showing individual events",
     "overview_grouped_summary": "{{shown}} concepts shown, {{hidden}} grouped",
-    "overview_truncated": "Showing the first {{limit}} events of this row."
+    "overview_truncated": "Showing the first {{limit}} events of this row.",
+    "dataset_pick": "Choose a dataset…",
+    "dataset_pick_column": "Choose a column…",
+    "dataset_person_column": "Patient column",
+    "dataset_visit_column": "Hospitalisation column",
+    "dataset_date_column": "Date column",
+    "dataset_end_column": "End date column",
+    "dataset_value_column": "Value column",
+    "dataset_label_column": "Series name column"
   },
   "files": {
     "empty_markdown_cell": "Empty markdown cell",

@@ -23,8 +23,28 @@ a bar with the dose and duration in its tooltip. Both show the same hours becaus
 
 ## Settings
 
-**Concepts** is the only one that must be filled. Pick from the concept picker;
-each concept becomes one series.
+**Concepts** and **Dataset** are the two data sources, and either one on its own
+is enough. Pick concepts from the concept picker; each becomes one series.
+
+**Dataset** plots a dataset on the *same* axis, which is the point: a variable you
+collected by hand — the ventilation start and end dates you recorded yourself —
+read against what the ventilator actually wrote to the warehouse, rather than in
+two windows side by side. A dataset has no schema mapping, so you say which of its
+columns identify the patient and carry the dates:
+
+- **Patient column** and **Date column** are required — a row that names no patient
+  or cannot be placed in time has nothing to draw.
+- **Hospitalisation column** is optional. Leave it empty for a collection made per
+  patient rather than per stay: it then shows on every stay of that patient.
+- **End date column** turns each row into a block spanning the two dates instead of
+  a point — how you draw a period of ventilation.
+- **Value column** carries the number to plot. A non-numeric value still marks the
+  event in time.
+- **Series name column** splits the dataset into one series per distinct value —
+  use it when one table holds several variables (a `parameter` column, say).
+
+Rows are matched to the patient whose chart is open, so the same widget follows you
+from patient to patient.
 
 **Renderer** decides the shape of the chart:
 

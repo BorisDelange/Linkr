@@ -12,6 +12,8 @@ import {
 } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
+import { useDatasetSeries } from './use-dataset-series'
+import type { DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { conceptColorHex } from '@/lib/concept-colors'
 import {
   subscribeTimelineSync,
@@ -192,8 +194,22 @@ export function TimelineWidget({
   /** The gutter the live dygraph was BUILT with, to tell an in-place update
    *  from a rebuild — see the create/update effect. */
   const gutterRef = useRef<number | null>(null)
-  const [data, setData] = useState<TimelineRow[]>([])
+  const [omopData, setOmopData] = useState<TimelineRow[]>([])
   const [loading, setLoading] = useState(false)
+
+  // A dataset plotted on the same axis as the concepts — the point of the feature:
+  // a hand-collected variable (ventilation start/end, say) read against what the
+  // warehouse holds, rather than in two windows.
+  const datasetMapping = config.dataset as Partial<DatasetTimelineMapping> | undefined
+  const datasetRows = useDatasetSeries(datasetMapping, patientId, visitId, visible)
+
+  const data = useMemo<TimelineRow[]>(() => {
+    if (!datasetRows.length) return omopData
+    // Merged chronologically: the chart reshapes one ordered list into series, so
+    // interleaving here is what puts both sources on a single time axis.
+    return [...omopData, ...(datasetRows as TimelineRow[])]
+      .sort((a, b) => Number(toDate(a.event_date) ?? 0) - Number(toDate(b.event_date) ?? 0))
+  }, [omopData, datasetRows])
 
   // Fetch data
   useEffect(() => {
@@ -208,7 +224,7 @@ export function TimelineWidget({
       !patientId ||
       conceptIds.length === 0
     ) {
-      setData([])
+      setOmopData([])
       setLoading(false)
       return
     }
@@ -230,18 +246,18 @@ export function TimelineWidget({
       )
 
       if (!sql) {
-        setData([])
+        setOmopData([])
         setLoading(false)
         return
       }
 
       queryDataSource(dataSourceId, sql)
         .then((rows) => {
-          if (!cancelled) setData((rows as unknown as TimelineRow[]) ?? [])
+          if (!cancelled) setOmopData((rows as unknown as TimelineRow[]) ?? [])
         })
         .catch((err) => {
           console.error('Timeline query failed:', err)
-          if (!cancelled) setData([])
+          if (!cancelled) setOmopData([])
         })
         .finally(() => {
           if (!cancelled) setLoading(false)
@@ -684,7 +700,10 @@ export function TimelineWidget({
   let overlayMessage: string | null = null
   let showConfigureButton = false
 
-  if (conceptIds.length === 0) {
+  // A timeline can now be fed by concepts, by a dataset, or by both — so "nothing
+  // configured" means neither, not just an empty concept list.
+  const hasDatasetSource = Boolean(datasetMapping?.datasetFileId && datasetMapping.dateColumn)
+  if (conceptIds.length === 0 && !hasDatasetSource) {
     overlayMessage = t('patient_data.configure_concepts')
     showConfigureButton = true
   } else if (!patientId) {

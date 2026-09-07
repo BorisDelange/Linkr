@@ -27,8 +27,32 @@ temporelle** est activé.
 
 ## Paramètres
 
-**Concepts** est le seul qui doive être renseigné. Choisissez-les dans le
-sélecteur de concepts ; chaque concept devient une série.
+**Concepts** et **Jeu de données** sont les deux sources, et l'une suffit.
+Choisissez les concepts dans le sélecteur ; chacun devient une série.
+
+**Jeu de données** trace un jeu de données sur le *même* axe, et c'est tout
+l'intérêt : une variable recueillie à la main — les dates de début et de fin de
+ventilation que vous avez notées vous-même — lue en regard de ce que le
+respirateur a réellement écrit dans l'entrepôt, plutôt que dans deux fenêtres
+côte à côte. Un jeu de données n'a pas de mapping de schéma : vous indiquez donc
+quelles colonnes identifient le patient et portent les dates.
+
+- **Colonne patient** et **Colonne date** sont obligatoires — une ligne qui ne
+  nomme aucun patient, ou qu'on ne peut pas situer dans le temps, n'a rien à
+  tracer.
+- **Colonne hospitalisation** est facultative. Laissez-la vide pour un recueil
+  fait par patient plutôt que par séjour : il s'affiche alors sur tous les
+  séjours du patient.
+- **Colonne date de fin** transforme chaque ligne en un bloc entre les deux dates
+  au lieu d'un point — c'est ainsi qu'on trace une période de ventilation.
+- **Colonne valeur** porte le nombre à tracer. Une valeur non numérique marque
+  quand même l'événement dans le temps.
+- **Colonne nom de série** découpe le jeu de données en une série par valeur
+  distincte — utile quand une même table contient plusieurs variables (une
+  colonne `paramètre`, par exemple).
+
+Les lignes sont rapprochées du patient dont le dossier est ouvert : le widget
+vous suit donc d'un patient à l'autre.
 
 **Moteur de rendu** décide de la forme du graphique :
 
