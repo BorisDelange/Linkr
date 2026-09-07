@@ -1,3 +1,5 @@
+## Introduction
+
 Tous les événements d'un patient, disposés sur un seul axe temporel et regroupés
 par table source d'origine et par concept enregistré. Chaque ligne est un concept
 — un analyte de laboratoire, un médicament, un signal de monitorage — et son
@@ -55,7 +57,9 @@ Six paramètres modifient ce qu'il affiche :
   activé, car c'est la seule chose qui vous dit quelle part du séjour vous *ne*
   regardez *pas*.
 
-## Un espace vide, ce sont des données manquantes, pas un patient tranquille
+## Notes sur le widget
+
+### Un espace vide, ce sont des données manquantes, pas un patient tranquille
 
 > [!WARNING]
 > **Un trou dans une bande signifie qu'aucune donnée n'a été écrite, pas qu'il ne
@@ -66,7 +70,7 @@ Six paramètres modifient ce qu'il affiche :
 > unité** avant de lire le moindre trou : cela vous dit au moins si le patient
 > était présent.
 
-## Lire les bandes
+### Lire les bandes
 
 L'intensité de la couleur le long d'une ligne est un nombre d'événements par
 pixel de temps : la même ligne paraît donc continue pendant une période surveillée
@@ -85,7 +89,7 @@ au-dessus et en dessous. **Hauteur de ligne** échange du détail contre de la
 couverture : *Compact* fait tenir davantage de concepts individuellement avant
 regroupement, *Grand* en montre moins mais plus lisiblement.
 
-## Vérifier un séjour après une exécution de pipeline
+### Vérifier un séjour après une exécution de pipeline
 
 Le widget est le moyen le plus rapide de voir ce que contient réellement le
 dossier d'un patient après une modification de l'ETL. Ouvrez un séjour long et
@@ -98,10 +102,3 @@ des contrôles agrégés.
 Avec **Synchroniser la plage temporelle** activé, ce widget partage sa fenêtre
 avec les chronologies du même tableau, ce qui permet d'aligner la couverture du
 dossier sur les mesures que vous tracez.
-
-## Pour aller plus loin
-
-- [The Book of OHDSI, *Data Quality*](https://ohdsi.github.io/TheBookOfOhdsi/DataQuality.html) — les contrôles systématiques sur une base OMOP, le niveau au-dessus de l'inspection patient par patient.
-- [Kahn MG et al., *A harmonized data quality assessment terminology and framework*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5051581/) — le vocabulaire conformité / complétude / plausibilité de ce que vous avez sous les yeux.
-- [Weiskopf NG & Weng C, *Methods and dimensions of electronic health record data quality assessment*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3555312/) — complétude, exactitude et actualité définies.
-- [Spécification OMOP CDM v5.4](https://ohdsi.github.io/CommonDataModel/cdm54.html) — les tables sources dont les lignes deviennent les bandes.

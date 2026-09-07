@@ -1,3 +1,5 @@
+## Introduction
+
 Une matrice de corrélation répond d'un coup, pour chaque paire de variables, à
 une seule question : quand celle-ci augmente, est-ce que celle-là augmente
 aussi, et avec quelle régularité ?

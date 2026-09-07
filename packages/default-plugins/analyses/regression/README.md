@@ -1,3 +1,5 @@
+## Introduction
+
 Regression measures the association between an outcome and several variables **at
 once**, so each one is read with the others held constant.
 

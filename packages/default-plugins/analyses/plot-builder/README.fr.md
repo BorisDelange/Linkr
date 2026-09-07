@@ -1,4 +1,4 @@
-# Constructeur de graphiques
+## Introduction
 
 Un seul plugin pour les graphiques du quotidien : nuage de points, lignes,
 barres, histogramme, boîte à moustaches, violon. L'intérêt de les réunir est que
@@ -13,7 +13,20 @@ non par ligne quotidienne. Chaque boîte est asymétrique à droite — la médi
 est basse dans la boîte et la moustache supérieure s'étire loin — ce qui est
 déjà le résultat : c'est la médiane qu'il faut rapporter ici, pas la moyenne.
 
-## Quel graphique pour quelle question
+## Réglages
+
+**Type de graphique** est le premier réglage, et les autres en découlent. Dans
+**Données**, vous donnez ses colonnes au graphique — **Variable X**, **Variable
+Y**, un **Groupe / Remplissage** facultatif — et vous décidez de ce qu'est une
+ligne avec **Unique par** et **Fonction par entité**, puis de ce qui est écarté
+avec **Exclure NA / manquants** et **Exclure les valeurs aberrantes** (et son
+**Seuil**). Les histogrammes ajoutent un **Mode bins** avec **Barres** ou
+**Largeur**, une **Orientation** et, en cas de groupe, un **Mode des barres**.
+La section **Style** porte la présentation : **Titre** et légendes d'axes,
+**Palette**, **Légende**, **Grille**, **Opacité (%)**, taille des points et des
+barres, et **Axe X / Y commence à 0**.
+
+### Quel graphique pour quelle question
 
 Le type de graphique n'est pas un choix esthétique. Il découle de la question.
 
@@ -32,7 +45,9 @@ en calcule la moyenne par catégorie — pas la somme. Les barres retiennent au 
 toute façon illisible, agrégez donc vos catégories en amont plutôt que d'espérer
 que le graphique s'en sorte.
 
-## Une ligne par patient, ou une ligne par mesure ?
+## Notes sur la méthode
+
+### Une ligne par patient, ou une ligne par mesure ?
 
 > [!WARNING]
 > **L'unité de vos lignes est l'unité de votre graphique.** Un jeu de données
@@ -61,7 +76,7 @@ Ce choix est clinique, pas technique, et il a sa place dans vos méthodes : « S
 le plus élevé des 24 premières heures » et « SOFA moyen sur le séjour » sont deux
 variables différentes, aux distributions différentes.
 
-## Lire une boîte à moustaches, et quand préférer un violon
+### Lire une boîte à moustaches, et quand préférer un violon
 
 La boîte s'étend du premier au troisième quartile — la moitié centrale de vos
 données. Le trait blanc à l'intérieur est la **médiane**, pas la moyenne. Les
@@ -88,7 +103,7 @@ Ni l'une ni l'autre n'affichent l'effectif. Avec des groupes petits ou
 déséquilibrés, mettez les effectifs dans le titre ou les légendes d'axes : une
 comparaison de 8 patients contre 400 mérite d'en avoir l'air.
 
-## Histogrammes : les classes font le récit
+### Histogrammes : les classes font le récit
 
 **Barres** (le mode par défaut, 20 classes) découpe l'étendue observée en autant
 de tranches égales. **Largeur de barre** fixe au contraire la largeur et aligne
@@ -113,7 +128,7 @@ Une colonne X non numérique n'est pas découpée du tout : l'histogramme se rab
 sur le comptage de chaque valeur distincte, triées de la plus à la moins
 fréquente.
 
-## Exclure les valeurs extrêmes
+### Exclure les valeurs extrêmes
 
 **Exclure les valeurs aberrantes** écarte des lignes avant le tracé, selon l'une
 de trois règles appliquées aux axes numériques :
@@ -137,7 +152,7 @@ Notez que les bornes sont calculées *après* **Unique par**, sur les valeurs pa
 entité. C'est le bon ordre, mais cela signifie que changer d'agrégation change
 les lignes exclues.
 
-## Des axes qui ne partent pas de zéro
+### Des axes qui ne partent pas de zéro
 
 Par défaut, les axes s'ajustent aux données, arrondis vers l'extérieur jusqu'à la
 graduation ronde suivante. **Axe X commence à 0** et **Axe Y commence à 0**
@@ -150,7 +165,7 @@ des valeurs à zéro. Sur un nuage de points ou une courbe, un axe resserré est
 légitime et souvent nécessaire — personne ne veut d'une courbe de température
 partant de 0 °C — à condition que l'axe soit légendé et l'étendue visible.
 
-## Un exemple complet
+## Un exemple travaillé
 
 *Les patients admis pour sepsis restent-ils plus longtemps que les autres ?*
 

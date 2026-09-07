@@ -1,3 +1,5 @@
+## Introduction
+
 Une question d'un questionnaire, analysée correctement : combien de personnes y
 ont répondu, comment les réponses se distribuent, et le graphique réellement
 adapté au type de la question. Le plugin lit les métadonnées exportées par les

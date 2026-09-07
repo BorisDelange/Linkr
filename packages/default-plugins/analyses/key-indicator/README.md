@@ -1,3 +1,5 @@
+## Introduction
+
 One number, large, with an icon, a subtitle and an optional mini-chart. Mortality
 rate, mean length of stay, number of stays, proportion ventilated — the figures a
 dashboard opens with and that get quoted in a meeting an hour later.

@@ -1,3 +1,5 @@
+## Introduction
+
 Survival analysis answers "how long until this happens?" while correctly
 handling the patients it has not happened to *yet*.
 

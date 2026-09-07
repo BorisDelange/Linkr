@@ -1,3 +1,5 @@
+## Introduction
+
 Un chiffre, en grand, avec une icône, un sous-titre et un mini-graphique
 optionnel. Taux de mortalité, durée moyenne de séjour, nombre de séjours,
 proportion de patients ventilés — les chiffres par lesquels s'ouvre un tableau

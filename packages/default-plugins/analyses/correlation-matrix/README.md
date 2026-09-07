@@ -1,3 +1,5 @@
+## Introduction
+
 A correlation matrix answers one question for every pair of variables at once:
 when this one goes up, does that one tend to go up too, and how reliably?
 

@@ -1,3 +1,5 @@
+## Introduction
+
 A Sankey diagram follows *where things go*. Each band is a group of patients
 moving from one stage to the next, and the band's width is how many of them
 there are — so the eye reads the volume of a pathway directly, without doing

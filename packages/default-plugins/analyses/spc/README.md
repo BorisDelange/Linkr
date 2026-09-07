@@ -1,3 +1,5 @@
+## Introduction
+
 A control chart separates the noise a process always has from a signal that
 something actually changed — so a team acts on the signals and leaves the noise
 alone.

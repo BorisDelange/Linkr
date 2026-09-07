@@ -1,3 +1,5 @@
+## Introduction
+
 Plots your rows as points on an interactive map, from a latitude and a longitude
 column. Use it to see where patients come from, how cases spread across a
 territory, or how far people travel to reach your service.

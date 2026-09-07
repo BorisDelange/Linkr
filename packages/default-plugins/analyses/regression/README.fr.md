@@ -1,3 +1,5 @@
+## Introduction
+
 La régression mesure l'association entre une variable à expliquer et plusieurs
 variables **simultanément**, chacune étant lue les autres étant maintenues
 constantes.

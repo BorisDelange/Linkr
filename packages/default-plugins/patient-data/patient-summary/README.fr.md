@@ -1,3 +1,5 @@
+## Introduction
+
 L'en-tête d'un dossier patient : identifiant, sexe, âge, statut vital, nombre
 d'hospitalisations et de séjours par unité que contient le dossier, et une barre
 par séjour indiquant où le patient se trouvait et quand.
@@ -32,7 +34,9 @@ Le sexe est la valeur codée de votre schéma traduite en masculin ou féminin, 
 la valeur brute affichée lorsqu'elle ne correspond à aucun des deux. La race et
 l'origine ethnique ne sont pas affichées.
 
-## Comment les deux âges sont calculés
+## Notes sur le widget
+
+### Comment les deux âges sont calculés
 
 > [!WARNING]
 > **L'âge est une soustraction d'années, et ce n'est pas l'âge actuel du
@@ -52,7 +56,7 @@ un extrait couvrant 2015–2024 présente un patient suivi depuis 2003 comme vu 
 la première fois en 2015. Si le schéma ne mappe aucune table de visites, un seul
 âge, calculé par rapport à la date du jour, est affiché à la place.
 
-## Ce que comptent les compteurs
+### Ce que comptent les compteurs
 
 **Hospitalisations** compte les visites distinctes ; **Séjours par unité** compte
 les lignes de la table de détail de visite. Les deux découlent directement de la
@@ -66,15 +70,9 @@ traitement.
 La vue Gantt montre la convention directement : des barres qui se rejoignent
 exactement à l'heure d'un transfert révèlent un ETL qui découpe au transfert.
 
-## Ce que signifie la tuile de décès
+### Ce que signifie la tuile de décès
 
 Elle affiche une date lorsqu'il en existe une, et « non » sinon. Ce « non »
 signifie *aucun décès enregistré dans cette base* — en général, seuls les décès
 survenus à l'hôpital sont connus, à moins que le site ne soit relié à un registre
 de décès.
-
-## Pour aller plus loin
-
-- [Spécification OMOP CDM v5.4](https://ohdsi.github.io/CommonDataModel/cdm54.html) — ce que contiennent réellement person, visit, visit detail et death, et pourquoi l'année de naissance est la seule partie de date garantie.
-- [The Book of OHDSI, *Extract, Transform, Load*](https://ohdsi.github.io/TheBookOfOhdsi/ExtractTransformLoad.html) — là où se décide la convention de visite qui sous-tend ces compteurs.
-- [El Emam K & Dankar FK, *Protecting privacy using k-anonymity*](https://pmc.ncbi.nlm.nih.gov/articles/PMC2528029/) — pourquoi les âges et les dates sont généralisés en premier lieu, et ce que cela coûte à l'analyste.

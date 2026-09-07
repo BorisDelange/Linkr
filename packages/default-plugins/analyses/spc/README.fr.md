@@ -1,3 +1,5 @@
+## Introduction
+
 Une carte de contrôle sépare le bruit qu'un processus comporte toujours d'un
 signal indiquant qu'il s'est réellement passé quelque chose — pour qu'une équipe
 agisse sur les signaux et laisse le bruit tranquille.

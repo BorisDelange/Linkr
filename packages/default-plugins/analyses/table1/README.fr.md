@@ -1,3 +1,5 @@
+## Introduction
+
 Le tableau des caractéristiques de la population — celui qui ouvre tout article
 clinique, avant la moindre analyse. Une ligne par variable, une colonne par
 groupe, chaque groupe portant son propre effectif dans son en-tête.

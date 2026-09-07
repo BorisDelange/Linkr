@@ -1,4 +1,4 @@
-# Plot Builder
+## Introduction
 
 One plugin for the everyday charts: scatter, line, bar, histogram, boxplot,
 violin. The point of having them together is that switching between them is a
@@ -13,7 +13,19 @@ daily row. Every box is right-skewed — the median sits low inside it and the
 upper whisker runs far — which is itself the finding: the median is the number
 to report here, not the mean.
 
-## Which plot answers which question
+## Settings
+
+**Plot type** is the first setting, and the rest follow from it. Under **Data**
+you give the chart its columns — **X variable**, **Y variable**, an optional
+**Group / Fill** — and control what a row means with **Unique per** and
+**Per-entity function**, then what is dropped with **Exclude NA / missing** and
+**Exclude outliers** (with its **Threshold**). Histograms add **Bin mode** with
+**Bins** or **Bin width**, plus an **Orientation** and, when grouped, a **Bar
+mode**. The **Style** section carries the presentation: **Title** and axis
+labels, **Color palette**, **Legend**, **Grid**, **Opacity (%)**, point and bar
+sizes, and **X / Y axis starts at 0**.
+
+### Which plot answers which question
 
 The plot type is not a style choice. It follows from the question.
 
@@ -31,7 +43,9 @@ column per category — not sums it. Bar charts keep at most 30 categories, boxe
 and violins at most 20; beyond that the chart is unreadable anyway, so aggregate
 your categories upstream rather than hoping the chart sorts it out.
 
-## One row per patient, or one row per measurement?
+## Notes on the method
+
+### One row per patient, or one row per measurement?
 
 > [!WARNING]
 > **The unit of your rows is the unit of your chart.** A dataset with 40
@@ -59,7 +73,7 @@ Choosing between them is a clinical decision, not a technical one, and it should
 appear in your methods: "worst SOFA in the first 24 h" and "mean SOFA over the
 stay" are different variables with different distributions.
 
-## Reading a boxplot, and when to use a violin
+### Reading a boxplot, and when to use a violin
 
 The box spans the first to the third quartile — the middle half of your data.
 The white line inside it is the **median**, not the mean. The whiskers extend to
@@ -84,7 +98,7 @@ Neither shows you *n*. With small or unequal groups, put the counts in the
 title or the axis labels — a comparison of 8 patients against 400 deserves to
 look like one.
 
-## Histograms: the bins decide the story
+### Histograms: the bins decide the story
 
 **Bins** (the default, 20 of them) splits the observed range into that many
 equal slices. **Bin width** instead fixes the width and aligns the edges on
@@ -106,7 +120,7 @@ re-binned, so a long tail stops crushing the interesting part.
 A non-numeric X column is not binned at all: the histogram falls back to
 counting each distinct value, sorted from most to least frequent.
 
-## Excluding extreme values
+### Excluding extreme values
 
 **Exclude outliers** drops rows before plotting, by one of three rules applied
 to the numeric axes:
@@ -130,7 +144,7 @@ Note that the fences are computed *after* **Unique per**, on the per-entity
 values. That is the right order, but it means changing the aggregation changes
 which rows are excluded.
 
-## Axes that do not start at zero
+### Axes that do not start at zero
 
 By default the axes fit the data, rounded outward to the next round tick.
 **X axis starts at 0** and **Y axis starts at 0** force the origin in.

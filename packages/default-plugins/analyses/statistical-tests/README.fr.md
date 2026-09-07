@@ -1,3 +1,5 @@
+## Introduction
+
 Comparer des groupes sur plusieurs variables à la fois, avec le test adapté
 choisi variable par variable — et avec les chiffres qui disent si la différence
 compte, pas seulement si elle est « significative ».

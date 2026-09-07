@@ -1,3 +1,5 @@
+## Introduction
+
 Compare groups on many variables at once, with the right test picked per
 variable — and with the numbers that say whether the difference matters, not
 only whether it is "significant".

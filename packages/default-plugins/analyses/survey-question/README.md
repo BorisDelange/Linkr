@@ -1,3 +1,5 @@
+## Introduction
+
 One question from a questionnaire, analysed properly: how many people answered
 it, how the answers are distributed, and the chart that actually fits the
 question's type. It reads the metadata exported by eCRF tools — Goupile, REDCap,

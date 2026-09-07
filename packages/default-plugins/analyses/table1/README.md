@@ -1,3 +1,5 @@
+## Introduction
+
 The table of population characteristics — the one that opens every clinical
 paper, before any analysis. One row per variable, one column per group, each
 group headed by its own n.

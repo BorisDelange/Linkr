@@ -1,3 +1,5 @@
+## Introduction
+
 Affiche vos lignes sous forme de points sur une carte interactive, à partir d'une
 colonne de latitude et d'une colonne de longitude. Utilisez-la pour voir d'où
 viennent les patients, comment des cas se répartissent sur un territoire, ou

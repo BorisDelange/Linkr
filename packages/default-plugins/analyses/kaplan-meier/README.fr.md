@@ -1,3 +1,5 @@
+## Introduction
+
 L'analyse de survie répond à « combien de temps avant que cela n'arrive ? » tout
 en traitant correctement les patients chez qui cela n'est **pas encore** arrivé.
 

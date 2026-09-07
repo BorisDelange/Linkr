@@ -1,3 +1,5 @@
+## Introduction
+
 Un diagramme de Sankey suit *où vont les choses*. Chaque ruban est un groupe de
 patients passant d'une étape à la suivante, et sa largeur est leur nombre — l'œil
 lit donc directement le volume d'un parcours, sans avoir à faire de l'arithmétique
