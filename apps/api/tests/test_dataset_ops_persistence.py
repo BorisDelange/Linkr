@@ -242,3 +242,39 @@ async def test_sidecar_keeps_column_meta_and_ops_side_by_side(client, seed_roles
 
     assert dataset_fs.read_column_meta(uid, "vent.csv") == {"col_note": {"label": "Clinical note"}}
     assert len(dataset_fs.read_ops(uid, "vent.csv")) == 1
+
+
+async def test_the_row_key_reaches_a_paged_client_only_when_edited(client, seed_roles):
+    """A paged client sees one page of a sorted, filtered slice, so it can only say
+    WHICH row an edit targets if the cache carries the row key. An unedited dataset
+    has no log to address, so it must not carry the extra column."""
+    from app.services.data.dataset_ops import ROW_ORD
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "vent.csv").write_text("person_id,note\np1,a\np2,b\n")
+
+    rows = await _rows(client, h, uid, "vent.csv")
+    assert all(ROW_ORD not in r for r in rows), "unedited cache carries no row key"
+
+    await _post_ops(client, h, uid, "vent.csv", [
+        _op("o1", type="setCell", row=1, column="col_note", value="edited"),
+    ])
+
+    rows = await _rows(client, h, uid, "vent.csv")
+    assert [r[ROW_ORD] for r in rows] == [0, 1]
+    assert rows[1]["col_note"] == "edited"
+
+
+async def test_the_row_key_is_not_a_column_the_ui_sees(client, seed_roles):
+    """It is identity, not data: it must never reach the column list the table,
+    the stats panel or an export read."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "vent.csv").write_text("person_id,note\np1,a\n")
+
+    r = await _post_ops(client, h, uid, "vent.csv", [
+        _op("o1", type="setCell", row=0, column="col_note", value="edited"),
+    ])
+    names = [c["name"] for c in r.json()["node"]["columns"]]
+    assert names == ["person_id", "note"]

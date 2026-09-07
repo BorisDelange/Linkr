@@ -265,7 +265,9 @@ def resolve_cache(
         parquet.parent.mkdir(parents=True, exist_ok=True)
         # Write the temp on the destination filesystem so the replace() below is a
         # same-device atomic rename (a mounted volume differs from /tmp in Docker).
-        tmp = dataset_rows.write_parquet(rows, columns, dir=parquet.parent)
+        # Carry the row key only for an edited dataset: an unedited one has no log
+        # to address, and the extra column would show up in every cache needlessly.
+        tmp = dataset_rows.write_parquet(rows, columns, dir=parquet.parent, row_ord=bool(ops))
         Path(tmp).replace(parquet)
         meta = {"sig": sig, "columns": columns, "rowCount": row_count, "native": False,
                 "opsSig": ops_sig}

@@ -31,6 +31,7 @@ import {
   useSidebarSearch,
 } from '@/components/SidebarSearch'
 import { DatasetTable } from './datasets/DatasetTable'
+import { DatasetEditToolbar } from './datasets/DatasetEditToolbar'
 import { ColumnStatsPanel } from './datasets/ColumnStatsPanel'
 import { AnalysesPanel } from './datasets/AnalysesPanel'
 import { AnalysisList } from './datasets/AnalysisList'
@@ -239,6 +240,9 @@ export function DatasetsPage() {
   const [statsVisible, setStatsVisible] = useState(true)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null)
+  // Editing is off by default: a dataset is read-only until asked otherwise, so a
+  // stray keystroke on a browsed table can never record an op.
+  const [editingData, setEditingData] = useState(false)
   // Hidden columns live in the per-file table view (store), like the other view
   // state, so they survive leaving the page. Kept as a Set at the UI boundary.
   const hiddenColumnIds = useDatasetStore(
@@ -660,6 +664,16 @@ export function DatasetsPage() {
                           }}
                           hiddenColumns={hiddenColumns}
                           onHiddenColumnsChange={setHiddenColumns}
+                          editable={editingData && canEdit}
+                          editToolbar={
+                            canEdit ? (
+                              <DatasetEditToolbar
+                                fileId={selectedFileId!}
+                                editing={editingData}
+                                onEditingChange={setEditingData}
+                              />
+                            ) : null
+                          }
                         />
                       )}
                     </Allotment.Pane>

@@ -46,6 +46,7 @@ import { ResizeGrip } from '@/components/ui/table-primitives'
 import { TypeBadge, renderTypeMenuItems } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import { useColumnDistinct } from './use-column-distinct'
+import { useCellEditing } from './use-cell-editing'
 import { EditColumnMetaDialog } from './EditColumnMetaDialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { hasTimeComponent, columnTint, displayColumnName, displayCellValue } from '@/lib/dataset-utils'
@@ -59,6 +60,12 @@ interface DatasetTableProps {
   onSelectColumn: (columnId: string | null) => void
   hiddenColumns: Set<string>
   onHiddenColumnsChange?: (updater: (prev: Set<string>) => Set<string>) => void
+  /** Allow in-place cell editing. Every commit records an op; the raw file is
+   *  never touched. Off by default so a viewer's table behaves exactly as before. */
+  editable?: boolean
+  /** Edit controls, rendered in the footer bar. Given the selected row so its row
+   *  actions can address it. */
+  editToolbar?: React.ReactNode
 }
 
 const PAGE_SIZES = [25, 50, 100, 250, 500]
@@ -88,7 +95,7 @@ function useViewSetter<K extends keyof DatasetTableView>(
   )
 }
 
-export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenColumns, onHiddenColumnsChange }: DatasetTableProps) {
+export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenColumns, onHiddenColumnsChange, editable = false, editToolbar }: DatasetTableProps) {
   const { t } = useTranslation()
   const booleanLabels = useBooleanLabels()
   const { files, getFileRows, setColumnType, setColumnFilterMode, _dirtyVersion } = useDatasetStore()
@@ -236,6 +243,11 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
 
   // Row number offset for the current page
   const rowOffset = clampedPage * pageSize
+
+  // In-place editing. Cells are addressed by row ordinal (carried in the rows
+  // themselves), never by screen position — the table shows a sorted, filtered,
+  // paginated slice and server mode holds only one page.
+  const edit = useCellEditing({ fileId, rows: pageRows, columns: visibleColumns, enabled: editable })
 
   const hasActiveFilters =
     Object.values(columnFilters).some((v) => v != null) || Object.keys(naFilters).length > 0
@@ -579,7 +591,12 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                 </td>
               </tr>
             ) : (
-              pageRows.map((row, rowIdx) => (
+              pageRows.map((row, rowIdx) => {
+              // The edit log addresses rows by their raw ordinal. Front-only rows
+              // carry it after a replay; server rows carry it once the dataset has
+              // a log (the cache only materialises the key when there is one).
+              const ordinal = edit.ordinalOf(row) ?? rowOffset + rowIdx
+              return (
                 <tr key={rowIdx} className="hover:bg-accent/30">
                   <td
                     style={{ width: ROW_NUM_WIDTH }}
@@ -590,6 +607,8 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                   {visibleColumns.map((col, colIdx) => {
                     const isPinned = pinnedColumns.includes(col.id)
                     const raw = row[col.id]
+                    const isSelectedCell = edit.selected?.row === ordinal && edit.selected?.column === col.id
+                    const isEditingCell = edit.editing?.row === ordinal && edit.editing?.column === col.id
                     // Native title (cheap on thousands of cells): the mapped label with the
                     // raw code in parens when a value label applies, else the full value so a
                     // truncated cell is still readable on hover.
@@ -601,23 +620,37 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                     return (
                     <td
                       key={col.id}
-                      title={cellTitle}
+                      title={isEditingCell ? undefined : cellTitle}
+                      onClick={editable ? () => edit.setSelected({ row: ordinal as number, column: col.id }) : undefined}
+                      onDoubleClick={editable ? () => edit.beginEdit({ row: ordinal as number, column: col.id }, raw) : undefined}
                       style={{ maxWidth: getColWidth(col.id, DEFAULT_COL_WIDTH), ...(isPinned ? { left: pinnedLeft[col.id], width: getColWidth(col.id, DEFAULT_COL_WIDTH) } : {}) }}
                       className={cn(
                         'border-b border-r px-3 py-1 whitespace-nowrap overflow-hidden text-ellipsis',
                         isPinned
                           ? 'sticky z-20 bg-background border-r-primary/40'
                           : selectedColumnId === col.id ? 'bg-accent/20' : columnTint(colIdx),
+                        editable && 'cursor-cell',
+                        isSelectedCell && 'outline outline-2 -outline-offset-2 outline-primary',
                       )}
                     >
-                      {raw != null
-                        ? displayCellValue(col, raw, booleanLabels)
-                        : <span className="italic text-muted-foreground/50">null</span>}
+                      {isEditingCell ? (
+                        <input
+                          autoFocus
+                          value={edit.draft}
+                          onChange={(e) => edit.setDraft(e.target.value)}
+                          onBlur={() => void edit.commitEdit()}
+                          className="h-5 w-full bg-transparent p-0 text-xs outline-none"
+                        />
+                      ) : raw != null ? (
+                        displayCellValue(col, raw, booleanLabels)
+                      ) : (
+                        <span className="italic text-muted-foreground/50">null</span>
+                      )}
                     </td>
                     )
                   })}
                 </tr>
-              ))
+              )})
             )}
           </tbody>
         </table>
@@ -626,6 +659,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
       {/* Pagination bar + column visibility */}
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
         <div className="flex items-center gap-2">
+          {editToolbar}
           <span className="text-xs text-muted-foreground">
             {t('files.table_total', { count: totalCount })}
             {!server && hasActiveFilters && ` / ${rows.length}`}

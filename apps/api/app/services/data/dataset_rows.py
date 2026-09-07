@@ -28,6 +28,7 @@ from typing import Any
 
 import duckdb
 
+from app.services.data.dataset_ops import ROW_ORD
 from app.services.data.type_inference import BOOL_FALSE, BOOL_TRUE
 
 _SQL_TYPE = {
@@ -60,7 +61,7 @@ def _sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def _read_all_varchar_spec(columns: list[dict]) -> str:
+def _read_all_varchar_spec(columns: list[dict], row_ord: bool = False) -> str:
     """DuckDB ``read_json(columns=...)`` struct entry list, every column VARCHAR.
 
     Reading as text pins the column set + order (so an all-null column isn't
@@ -69,6 +70,8 @@ def _read_all_varchar_spec(columns: list[dict]) -> str:
     SELECT (see ``_typed_projection``), so a stray non-numeric value in a column
     inferred as ``number`` becomes NULL instead of aborting the whole write."""
     parts = [f"{json.dumps(c['id'])}: 'VARCHAR'" for c in columns]
+    if row_ord:
+        parts.insert(0, f"{json.dumps(ROW_ORD)}: 'VARCHAR'")
     return "{" + ", ".join(parts) + "}"
 
 
@@ -102,7 +105,9 @@ def _effective_columns(rows: list[dict], columns: list[dict]) -> list[dict]:
     return [{"id": key, "type": "string"} for key in seen]
 
 
-def write_parquet(rows: list[dict], columns: list[dict], dir: Path | None = None) -> Path:
+def write_parquet(
+    rows: list[dict], columns: list[dict], dir: Path | None = None, row_ord: bool = False
+) -> Path:
     """Write rows to a temp Parquet file (typed by ``columns``); return its path.
 
     Caller is expected to move it into the blob store (``blob_store.store_file``),
@@ -111,7 +116,12 @@ def write_parquet(rows: list[dict], columns: list[dict], dir: Path | None = None
     Pass ``dir`` to create the temp on a specific filesystem: the caller then
     does an atomic ``os.replace`` into that same dir, which fails cross-device
     (Errno 18) when the temp is on ``/tmp`` but the destination is a mounted
-    volume (e.g. LINKR_DATA_DIR in Docker)."""
+    volume (e.g. LINKR_DATA_DIR in Docker).
+
+    Pass ``row_ord`` to carry the edit log's stable row key (``__row_ord``) into
+    the cache. It is deliberately NOT a member of ``columns`` — it is identity, not
+    data, so it must never reach the column list the UI, stats or exports read —
+    but without it a paged client has no way to say WHICH row an edit addresses."""
     columns = _effective_columns(rows, columns)
     if dir is not None:
         dir.mkdir(parents=True, exist_ok=True)
@@ -123,9 +133,12 @@ def write_parquet(rows: list[dict], columns: list[dict], dir: Path | None = None
     con = duckdb.connect()
     try:
         if columns:
-            spec = _read_all_varchar_spec(columns)
+            spec = _read_all_varchar_spec(columns, row_ord=row_ord)
+            projection = _typed_projection(columns)
+            if row_ord:
+                projection = f"try_cast({_quote_ident(ROW_ORD)} AS BIGINT) AS {_quote_ident(ROW_ORD)}, {projection}"
             source = (
-                f"SELECT {_typed_projection(columns)} "
+                f"SELECT {projection} "
                 f"FROM read_json('{json_path.as_posix()}', columns={spec})"
             )
         else:
