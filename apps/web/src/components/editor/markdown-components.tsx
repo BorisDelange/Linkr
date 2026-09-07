@@ -1,5 +1,6 @@
 import { Info, Lightbulb, AlertTriangle, AlertCircle } from 'lucide-react'
 import { ZoomableImage } from '@/components/ImageLightbox'
+import { SectionLabel } from '@/components/ui/section-label'
 
 /**
  * Renderer overrides every markdown view shares. Pass as ReactMarkdown's
@@ -77,10 +78,13 @@ export const markdownComponents: Record<string, any> = {
     if (!style) return <div {...props}>{children}</div>
     return (
       <div className={`my-3 rounded-lg border-l-4 ${style.border} ${style.bg} px-4 py-3`}>
-        <div className={`mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${style.accent}`}>
+        {/* SectionLabel carries the uppercase treatment; the accent colour and
+            the step up to text-xs are the callout's own — the label has to read
+            as the alert's severity beside a 15px icon, not as muted chrome. */}
+        <SectionLabel className={`mb-1.5 flex items-center gap-1.5 text-xs font-semibold ${style.accent}`}>
           {style.icon}
           {calloutLabels[type]}
-        </div>
+        </SectionLabel>
         <div className="[&>p:first-child]:mt-0 [&>p:last-child]:mb-0 [&>p]:my-2">{children}</div>
       </div>
     )

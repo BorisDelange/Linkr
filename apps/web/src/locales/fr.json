@@ -1804,6 +1804,7 @@
     "copy_relative_path_disabled": "Le dossier des datasets est en dehors du dossier de l'IDE : un chemin relatif ne fonctionnera pas depuis un script. Utilisez plutôt Copier le chemin.",
     "shortcuts": "Raccourcis clavier",
     "settings": "Paramètres",
+    "settings_description": "Le comportement de l'IDE de ce projet.",
     "editor_settings_link": "Les paramètres de l'éditeur (thème, police, sauvegarde auto) sont dans votre profil",
     "reuse_output_tabs": "Réutiliser les onglets de sortie",
     "reuse_output_tabs_hint": "Garder un onglet par type de sortie : réexécuter un script remplace son tableau, ses figures et ses widgets au lieu d'ouvrir de nouveaux onglets.",

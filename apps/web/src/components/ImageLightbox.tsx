@@ -82,6 +82,15 @@ export function ImageLightbox({ open, onOpenChange, label, children }: ImageLigh
     if (moved <= CLICK_SLOP) onOpenChange(false)
   }, [onOpenChange])
 
+  // A gesture the browser takes over (a pointer released outside the window, a
+  // touch turned into a scroll) fires cancel and no `pointerup` — without this
+  // the surface stays in panning mode and the image follows the cursor with no
+  // button held. Not a click either, so it must not close the viewer.
+  const handlePointerCancel = useCallback(() => {
+    isPanning.current = false
+    pressOrigin.current = null
+  }, [])
+
   return (
     <Dialog
       open={open}
@@ -171,6 +180,7 @@ export function ImageLightbox({ open, onOpenChange, label, children }: ImageLigh
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
         >
           <div
             className="flex h-full w-full items-center justify-center"

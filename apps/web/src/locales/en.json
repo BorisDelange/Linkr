@@ -1804,6 +1804,7 @@
     "copy_relative_path_disabled": "The datasets folder is outside the IDE folder, so a relative path won't resolve from a script. Use Copy path instead.",
     "shortcuts": "Keyboard shortcuts",
     "settings": "Settings",
+    "settings_description": "How this project's IDE behaves.",
     "editor_settings_link": "Editor settings (theme, font, auto-save) are in your profile",
     "reuse_output_tabs": "Reuse output tabs",
     "reuse_output_tabs_hint": "Keep one tab per output kind: running a script again replaces its table, figures and widgets instead of opening new tabs.",

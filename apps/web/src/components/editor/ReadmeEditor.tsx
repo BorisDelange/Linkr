@@ -4,7 +4,6 @@
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -28,10 +27,7 @@ import {
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import { SplitEditorPreview } from '@/components/editor/SplitEditorPreview'
-// Re-exported so the pages rendering raw ReactMarkdown get their plugins and
-// their renderer overrides from the same import.
-export { markdownComponents } from '@/components/editor/markdown-components'
-import { markdownComponents } from '@/components/editor/markdown-components'
+import { ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
 
 // ---------------------------------------------------------------------------
 // Markdown plugins & sanitization
@@ -291,9 +287,7 @@ export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEd
             }
             preview={
               <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
-                <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={markdownComponents}>
-                  {resolvedContent}
-                </ReactMarkdown>
+                <ReadmeMarkdown>{resolvedContent}</ReadmeMarkdown>
               </div>
             }
           />
@@ -303,9 +297,7 @@ export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEd
           <div className="h-full overflow-auto p-4">
             {readme ? (
               <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
-                <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={markdownComponents}>
-                  {resolvedContent}
-                </ReactMarkdown>
+                <ReadmeMarkdown>{resolvedContent}</ReadmeMarkdown>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">

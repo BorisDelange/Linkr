@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   CartesianGrid,
   ComposedChart,
@@ -204,7 +205,10 @@ function SpcChart({ result, config, compact }: ChartProps) {
             />
             <Tooltip
               {...TOOLTIP_STYLE}
-              formatter={(value: number, name: string) => [formatValue(value, decimals), t(`analyses.spc_series_${name}`, name)]}
+              formatter={(value, name) => [
+                formatValue(typeof value === 'number' ? value : Number(value), decimals),
+                t(`analyses.spc_series_${name}`, { defaultValue: String(name) }),
+              ]}
             />
 
             {firstAfterBaseline && (
@@ -279,11 +283,11 @@ function formatValue(value: number, decimals: number): string {
   return value.toFixed(decimals)
 }
 
-function chartLabel(type: SpcResult['chartType'], t: (key: string, opts?: object) => string): string {
+function chartLabel(type: SpcResult['chartType'], t: TFunction): string {
   return t(`analyses.spc_type_${type}`, { defaultValue: type })
 }
 
-function defaultYLabel(result: SpcResult, t: (key: string, opts?: object) => string): string {
+function defaultYLabel(result: SpcResult, t: TFunction): string {
   if (result.yUnit) return t('analyses.spc_y_rate', { basis: result.yUnit.replace('/', '') })
   if (result.chartType === 'g' || result.chartType === 't') return t('analyses.spc_y_interval')
   return ''
