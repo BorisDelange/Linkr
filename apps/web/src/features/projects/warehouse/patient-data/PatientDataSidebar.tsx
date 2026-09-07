@@ -20,6 +20,7 @@ import { DatePickerField } from '@/components/ui/date-picker-field'
 import { cn } from '@/lib/utils'
 import { localized } from '@/lib/localized'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { CollectionStatusBlock } from './collection/CollectionStatusBlock'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -48,7 +49,7 @@ import { daysBetween, formatDate as fmtDate, formatGender as fmtGender, formatGe
 
 export function PatientDataSidebar() {
   const { t, i18n } = useTranslation()
-  const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
+  const { projectUid, boardId, dataSourceId, schemaMapping } = usePatientChartContext()
   const { setSelectedCohort } = usePatientChartStore()
 
   const {
@@ -790,6 +791,14 @@ export function PatientDataSidebar() {
                 )}
               </div>
             )}
+
+            <CollectionStatusBlock
+              projectUid={projectUid}
+              boardId={boardId}
+              personId={patientId}
+              visitId={visitId}
+              visitDetailId={visitDetailId}
+            />
           </ScrollArea>
         </Allotment.Pane>
       </Allotment>

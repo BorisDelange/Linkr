@@ -733,11 +733,37 @@ export interface PatientDashboard extends Seedable, Authored {
   /** Let synced timelines share one window across every tab of the board, rather
    *  than one per tab. Only affects timelines that have sync turned on. */
   syncTimelinesAcrossTabs?: boolean
+  /** Manual data collection bound to this board: which dataset receives what the
+   *  clinician types, and which of its columns identify the patient. */
+  collection?: PatientCollectionConfig
   /** User-facing semver (default '0.1.0'). Portable across export/import. */
   version?: string
   displayOrder: number
   createdAt: string
   updatedAt: string
+}
+
+/**
+ * Manual data collection for a patient board.
+ *
+ * Data typed here lands in an ordinary dataset — the same one the Datasets page
+ * edits and the Timeline can plot — so a hand-collected variable is a first-class
+ * dataset from the moment it is captured, not a separate store to reconcile later.
+ * Writes go through the edit log, which is what gives collection its undo and its
+ * provenance for free.
+ */
+export interface PatientCollectionConfig {
+  /** Dataset receiving the collected rows. */
+  datasetFileId: string
+  /** Column holding the person id. Required — a row must name its patient. */
+  personColumn: string
+  /** Column holding the visit id, when collecting per hospitalisation. */
+  visitColumn?: string
+  /** Column holding the visit-detail id, when collecting per unit stay. */
+  visitDetailColumn?: string
+  /** Columns offered as fields to fill, in display order. Absent = every column
+   *  that is not one of the identity columns above. */
+  variableColumns?: string[]
 }
 
 export interface PatientDashboardTab {

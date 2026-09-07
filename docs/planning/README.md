@@ -239,31 +239,29 @@ as-built is `docs/architecture.md` § Versioning. Plan retired 2026-09-03. What 
 
 ## Dataset editing, manual collection & dataset timeline — [dataset-edit-plan.md](dataset-edit-plan.md)
 
-Arbitrated 2026-09-06 (was the 💤 "Dataset edit layer" backlog line). A dataset stops being
-a read-only import: it is edited cell by cell, filled in patient by patient from Patient
-data, and plotted next to OMOP concepts on the same timeline. One foundation carries all
-three — an **ordered replayable ops log over the immutable raw** (`raw → parse → replay →
-parquet`), living as an `ops` section of the existing `dataset-meta/<hash>.json` sidecar.
+Arbitrated 2026-09-06, **built 2026-09-06/07** (`f43f89bb` → `31341652` + the collection
+commit). A dataset is no longer a read-only import: it is edited cell by cell, filled in
+patient by patient from Patient data, and plotted next to OMOP concepts on the same
+timeline. One foundation carries all three — an **ordered replayable ops log over the
+immutable raw** (`raw → parse → replay → parquet`), living as an `ops` section of the
+existing `dataset-meta/<hash>.json` sidecar and travelling inline in `datasets/_tree.json`.
 
 The boundary with the Pipeline is **intent, not operation**: the ops log takes manual
 one-off corrections and human entry, the Pipeline takes anything expressible as a rule.
 The test — *"if the source changes tomorrow, should this re-apply by itself?"*
 
-Three constraints the code imposes: row identity does not exist (ops key on the **raw
-ordinal**, viable only because the raw is immutable); column ids are derived from names, so
-a rename is a rekey that must go through `rekey.ts`; and server mode has no rows-write
-route at all, the six store mutators being dead code behind `if (isServerMode()) return`.
-The write route **appends** ops rather than replacing the log, so two people collecting on
-different patients cannot silently drop each other's work.
+Three constraints shaped it: row identity does not exist (ops key on the **raw ordinal**,
+viable only because the raw is immutable); column ids are derived from names, so a rename
+is a rekey that must repair every widget and filter referencing the old id; and the write
+route **appends** rather than replacing, so two people collecting on different patients
+cannot silently drop each other's work.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | **Lot A** — foundation: `__row_ord` key, op types + inverses, sidecar `ops` section + append route, TS/Python replay under a shared parity fixture, compaction, cache keyed on the ops digest — **built** (`f43f89bb`, `cde0f88a`). Left: rename via `rekey.ts`, the client-side store/adapter, `ops` through the export tree | L |
-| 🔜 | **Lot B** — Datasets page: cell selection + in-place edit, add/remove/reorder rows, header DnD, log-derived undo/redo, history panel | L |
-| 🔜 | **Lot C** — Timeline over a dataset: `dataset-select` field + `renderDatasetField` seam, dataset channel on `PatientComponentPluginProps`, column → `TimelineRow` mapping | M |
-| 🔜 | **Lot D** — Manual collection: toolbar button, collection sidebar, dataset pre-seeded with the schema's real identity column names, sidebar status block, entry written through the ops log | L |
-| 🤔 | Explicit visit join column — `buildVisitFilter` assumes the visit FK is named like the visit PK; a dataset has no reason to comply | S |
-| 🤔 | `render/timeline.py` for server-mode dataset timelines, or is `queryDatasetRows` enough? No timeline render exists today | S then M |
+| 🔜 | **[TO TEST]** End to end in the app, both modes — see the plan's testing notes | M |
+| 🔜 | Column drag-reorder in the table header (the `reorderColumns` op exists, the DnD does not) | S |
+| 🔜 | Per-variable picker for a collection (`variableColumns` is modelled but has no UI; today every non-identity column is offered) | S |
+| 💤 | Benchmark replay cost on a realistic dataset — no measurement yet of where it becomes visible | S |
 
 ## Patient data
 

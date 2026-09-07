@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight } from 'lucide-react'
+import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight, ClipboardList } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -21,6 +21,7 @@ import { TabVisibilityContext } from './patient-data/TabVisibilityContext'
 import { PatientDataSidebar } from './patient-data/PatientDataSidebar'
 import { AddPatientWidgetDialog } from './patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from './patient-data/PatientDataSettingsDialog'
+import { CollectionSidebar } from './patient-data/collection/CollectionSidebar'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { resolveByIdPrefix } from '@/lib/short-id'
@@ -35,6 +36,12 @@ export function PatientDataPage() {
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [collectionOpen, setCollectionOpen] = useState(false)
+  // Narrow selectors: a bare usePatientChartStore() would re-render the whole page
+  // on every selection change.
+  const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
+  const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
+  const selectedVisitDetailId = usePatientChartStore((s) => s.selectedVisitDetailId[projectUid] ?? null)
   const [sidebarVisible, setSidebarVisible] = useState(true)
 
   // Narrow selectors: a bare usePatientChartStore() re-renders the page (and the
@@ -185,7 +192,7 @@ export function PatientDataPage() {
 
   return (
     <PatientChartContext.Provider
-      value={{ projectUid, dataSourceId, schemaMapping }}
+      value={{ projectUid, boardId: currentBoard.id, dataSourceId, schemaMapping }}
     >
       <div className="flex h-full flex-col overflow-hidden">
         {/* Tab bar + actions */}
@@ -230,6 +237,15 @@ export function PatientDataPage() {
                   {editMode ? t('dashboard.lock_layout_hint') : t('dashboard.edit_layout_hint')}
                 </TooltipContent>
               </Tooltip>
+              <Button
+                variant={collectionOpen ? 'secondary' : 'ghost'}
+                size="xs"
+                className="gap-1"
+                onClick={() => setCollectionOpen((v) => !v)}
+              >
+                <ClipboardList size={13} />
+                {t('patient_data.collection')}
+              </Button>
               <Button
                 variant="ghost"
                 size="xs"
@@ -342,6 +358,18 @@ export function PatientDataPage() {
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
           dashboardId={currentBoard.id}
+        />
+
+        <CollectionSidebar
+          open={collectionOpen}
+          onOpenChange={setCollectionOpen}
+          projectUid={projectUid}
+          boardId={currentBoard.id}
+          config={currentBoard.collection}
+          personId={selectedPatientId}
+          visitId={selectedVisitId}
+          visitDetailId={selectedVisitDetailId}
+          canWrite={canWrite}
         />
       </div>
     </PatientChartContext.Provider>

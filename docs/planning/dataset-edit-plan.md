@@ -108,9 +108,9 @@ Lot A is a prerequisite for B and D. C is independent of A.
 | ✅ | 3. Persistence: `ops` section of the sidecar + `POST /dataset-files/ops` in **append** semantics (`replace` for compaction / reset-to-raw), modelled on `/columns/meta` | M |
 | ✅ | 4. Replay engine, TS + Python, under a shared parity fixture — replay cases plus the canonical wire form and its digest | L |
 | ✅ | 5. Compaction + cache invalidation on the ops digest (`resolve_cache` now keys on raw sig **and** `opsSig`) | S |
-| 🔜 | 6. `renameColumn` routed through `rekey.ts` so downstream widget/filter references are repaired | M |
-| 🔜 | 7. Client-side store + API adapter: the WASM path replays in the browser, the server path posts ops | M |
-| 🔜 | 8. Export: carry `ops` through the export tree and extend `DATASET_SIDECARS` in `seed-manifest.ts` | S |
+| ✅ | 6. Rename repairs downstream references (live-state twin of `rekey.ts`), refusing a slug collision | M |
+| ✅ | 7. Client store + API adapter: WASM replays in the browser, server mode posts ops | M |
+| ✅ | 8. Export: `ops` travels inline in `datasets/_tree.json` beside `parseOptions`, from both builders | S |
 
 Built 2026-09-06/07 (commits `f43f89bb`, `cde0f88a`): 61 tests across both languages,
 plus 12 end-to-end persistence tests. Two invariants are pinned byte-for-byte — the
@@ -121,10 +121,17 @@ aliasing its own raw, since replay would otherwise have to write the raw file.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | 7. Cell selection model + in-place editing in `DatasetTable.tsx` (today plain read-only `<td>`s; hand-rolled table, so no TanStack to fight, but focus/keyboard/clipboard is greenfield) | L |
-| 🔜 | 8. Add/remove/reorder rows; header drag for columns (`reorderColumns` exists in the store, the table has no DnD) | M |
-| 🔜 | 9. Undo/redo derived from the log — persistent across sessions, unlike today's closure stack | M |
-| 🔜 | 10. History panel: list of ops, targeted revert, reset to raw | M |
+| ✅ | 7. Cell selection + in-place editing in `DatasetTable` (click, double-click, arrows/Tab/Enter, Delete, type-to-edit) | L |
+| ✅ | 8. Add/remove rows and columns from a footer toolbar | M |
+| ✅ | 9. Undo derived from the log, by op GROUP so one user action reverses as a whole | M |
+| ✅ | 10. History dialog: every op, human-readable, with compaction and reset-to-raw | M |
+| 🔜 | Column drag-reorder in the header (the `reorderColumns` op exists; the table has no DnD yet) | S |
+
+Editing is opt-in per dataset and gated on `datasets:write`. Building it surfaced a
+real defect in Lot A: `write_parquet` projects only the declared columns, so the row
+key was dropped from the cache and server-mode editing could not have worked. The
+cache now carries it — only for a dataset that has a log, and never as a column the
+UI, stats or exports can see.
 
 ### Lot C — Dataset-backed timeline
 
@@ -140,11 +147,52 @@ aliasing its own raw, since replay would otherwise have to write the raw file.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | 16. Toolbar button in `PatientDataPage.tsx` beside Settings, gated on `canWrite` | S |
-| 🔜 | 17. Collection sidebar: pick the dataset, map the three identity columns, add typed columns (reusing `TypeBadge` + the type menu from `DatasetTable`) | L |
-| 🔜 | 18. Create a dataset pre-seeded with the **real** identity column names from the active `schemaMapping` (`patientTable.idColumn`, `visitTable.idColumn`, `visitDetailTable.idColumn`) | M |
-| 🔜 | 19. "Recueil manuel" block at the bottom of `PatientDataSidebar.tsx`, after the demographics block: status, number of variables filled | M |
-| 🔜 | 20. Entry writes **through the ops log** — which is what makes D depend on A, and what gives collection undo and provenance for free | M |
+| ✅ | 16. Toolbar button in `PatientDataPage`, beside Settings | S |
+| ✅ | 17. Collection sheet: fields typed from the dataset's own columns, written on blur | L |
+| ✅ | 18. Create a dataset pre-seeded with the identity columns **named as the active database names them** (`subject_id`/`hadm_id` on MIMIC, not a generic `person_id`) | M |
+| ✅ | 19. Collection status block at the foot of the patient sidebar: status + variables filled | M |
+| ✅ | 20. Entry writes through the ops log, so collection inherits undo and provenance | M |
+| 🔜 | Per-variable column picker (today every non-identity column is offered; `variableColumns` is modelled but has no UI) | S |
+
+One row per (patient, visit, stay) as the config declares: filling a field for a
+patient who already has a row updates it rather than appending a second — a
+collection is a form, not a journal. The first value entered creates the row and
+its identity cells in ONE op group, so an undo removes the whole row rather than
+blanking a cell in a row that should never have existed.
+
+## 5. What to test in the app
+
+Everything below is covered by automated tests except where the app itself is the only
+check — a running UI, and the two modes behaving alike.
+
+**Editing (Datasets page).** Open a dataset → *Edit data*. Click a cell, type, Enter.
+Arrows/Tab move, Delete clears, Escape leaves. Add a row and a column, undo them. Open the
+history: each entry should read as a sentence. *Compact* should leave the table identical
+while shortening the list; *Discard all changes* should return the raw file exactly.
+
+**The invariant worth checking by hand:** the file on disk under
+`projects/<uid>/datasets/` must be byte-identical before and after all of it. Everything
+you changed lives in `projects/<uid>/dataset-meta/<hash>.json`.
+
+**Both modes.** The same dataset edited in server mode and in a client-only build must end
+up identical — that is what the parity fixture asserts in the small, and what the app
+confirms in the large.
+
+**Export round-trip.** Export the project, re-import it, and confirm the edits are still
+there and the diff is stable on a second export.
+
+**Timeline.** Add a Timeline widget, pick concepts, then a dataset with its patient and
+date columns; both should appear on one axis. Then a dataset-only timeline, with no
+concepts at all. A dataset with an end-date column draws blocks.
+
+**Collection.** *Collection* in the Patient data toolbar → set it up, creating a dataset
+from the dialog: check the identity columns are named as your database names them
+(`subject_id`/`hadm_id` on MIMIC). Fill a field; the row should appear in the Datasets
+page. Switch patient and back; the value should still be there. The sidebar's status block
+should track what is filled.
+
+**The join worth verifying on real data:** the collection's `person_id` values must match
+the ids Patient data selects by, or the sidebar will look empty while the dataset has rows.
 
 ## 5. Open questions
 
