@@ -788,7 +788,9 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                   </ContextMenu>
                   {visibleColumns.map((col, colIdx) => {
                     const isPinned = pinnedColumns.includes(col.id)
-                    const raw = row[col.id]
+                    // Through the edit layer, so a cell committed but not yet
+                    // materialised server-side shows the new value, not the old.
+                    const raw = edit.cellValue(ordinal as number, col.id, row[col.id])
                     const isSelectedCell = edit.selected?.row === ordinal && edit.selected?.column === col.id
                     const isEditingCell = edit.editing?.row === ordinal && edit.editing?.column === col.id
                     // Native title (cheap on thousands of cells): the mapped label with the
@@ -849,10 +851,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                       <ContextMenuItem
                         className="text-xs"
                         disabled={raw == null}
-                        onClick={() => void applyOps(fileId, [{
-                          id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
-                          type: 'setCell', row: ordinal as number, column: col.id, value: null,
-                        }])}
+                        onClick={() => void edit.writeCell(ordinal as number, col.id, null)}
                       >
                         <EyeOff size={13} />
                         {t('datasets.cell_clear')}

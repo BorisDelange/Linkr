@@ -8,8 +8,8 @@
  *
  * Every committed edit becomes an op; nothing here mutates rows directly.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ROW_ORD, type DatasetCellValue, type DatasetOp } from '@linkr/format'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ROW_ORD, type DatasetCellValue } from '@linkr/format'
 import { useDatasetStore } from '@/stores/dataset-store'
 import type { DatasetColumn } from '@/types'
 
@@ -51,11 +51,56 @@ interface Options {
   enabled: boolean
 }
 
+/** Row ordinals go negative (added rows) and a column id can hold anything, so the
+ *  key splits on the FIRST separator only. */
+const KEY_SEP = ':'
+export const cellKey = (row: number, column: string) => `${row}${KEY_SEP}${column}`
+
+export function parseCellKey(key: string): { row: number; column: string } {
+  const at = key.indexOf(KEY_SEP)
+  return { row: Number(key.slice(0, at)), column: key.slice(at + 1) }
+}
+
+/**
+ * Drop the overlays `rows` already agrees with; returns a NEW map only when
+ * something was dropped, so an unchanged result keeps referential identity.
+ */
+export function prune(
+  overlays: Map<string, DatasetCellValue>,
+  rows: Record<string, unknown>[],
+): Map<string, DatasetCellValue> {
+  if (overlays.size === 0) return overlays
+  const byOrdinal = new Map<number, Record<string, unknown>>()
+  for (const row of rows) {
+    const ordinal = row[ROW_ORD] as number | undefined
+    if (ordinal !== undefined) byOrdinal.set(ordinal, row)
+  }
+  const next = new Map(overlays)
+  for (const [key, value] of overlays) {
+    const { row, column } = parseCellKey(key)
+    const stored = byOrdinal.get(row)
+    // A row absent from this page cannot confirm anything — the overlay stays
+    // until a page that holds it arrives.
+    if (stored && sameCell(stored[column], value)) next.delete(key)
+  }
+  return next.size === overlays.size ? overlays : next
+}
+
 export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
   const applyOps = useDatasetStore((s) => s.applyOps)
   const [selected, setSelected] = useState<CellAddress | null>(null)
   const [editing, setEditing] = useState<CellAddress | null>(null)
   const [draft, setDraft] = useState('')
+  /**
+   * Values committed but not yet visible in `rows`.
+   *
+   * In server mode a cell is materialised from the log by the backend, so
+   * committing an edit closes the input well before the refetched page carries the
+   * new value — the cell would show the OLD one for the length of a round-trip,
+   * reading as if the edit had been rejected. Each entry is dropped as soon as the
+   * rows agree with it.
+   */
+  const [optimistic, setOptimistic] = useState<Map<string, DatasetCellValue>>(new Map())
   // Mirrored into refs so the commit path — and the window key handler that calls
   // it — read the latest values without re-subscribing on every keystroke.
   const draftRef = useRef(draft)
@@ -83,6 +128,44 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
     setEditing(null)
   }, [])
 
+  /**
+   * The overlays still worth showing: derived rather than pruned in an effect, so
+   * fresh rows and the overlays they settle land in the SAME render — pruning
+   * afterwards would blink the value between the two passes.
+   */
+  const pending = useMemo(() => prune(optimistic, rows), [optimistic, rows])
+  // Read by writeCell, which runs after an await and would otherwise prune against
+  // the page as it was when the edit started.
+  const rowsRef = useRef(rows)
+  useEffect(() => { rowsRef.current = rows }, [rows])
+  /** Record one cell write, showing the new value while the write is in flight. */
+  const writeCell = useCallback(async (
+    row: number, column: string, value: DatasetCellValue,
+  ) => {
+    const key = cellKey(row, column)
+    // Entries the current rows already confirm are dropped on the way in, which is
+    // what keeps the map from growing for the life of the session. `pending` cannot
+    // be read here — this runs from a stale closure after an await — so the prune
+    // goes through the updater, against whatever the map holds at the time.
+    setOptimistic((m) => new Map(prune(m, rowsRef.current)).set(key, value))
+    try {
+      await applyOps(fileId, [{
+        id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
+        type: 'setCell', row, column, value,
+      }])
+    } catch (e) {
+      // The write failed, so the stored value is still the true one: drop the
+      // overlay rather than leave the cell showing an edit that never landed.
+      setOptimistic((m) => {
+        if (!m.has(key)) return m
+        const next = new Map(m)
+        next.delete(key)
+        return next
+      })
+      throw e
+    }
+  }, [applyOps, fileId])
+
   const commitEdit = useCallback(async () => {
     const target = editingRef.current
     if (!target) return
@@ -101,16 +184,14 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
     // clicking through cells would otherwise fill it with noise.
     if (row && sameCell(row[target.column], next)) return
 
-    const op: DatasetOp = {
-      id: crypto.randomUUID(),
-      at: Date.now(),
-      type: 'setCell',
-      row: target.row,
-      column: target.column,
-      value: next,
-    }
-    await applyOps(fileId, [op])
-  }, [applyOps, columns, fileId, ordinalOf, rows])
+    await writeCell(target.row, target.column, next)
+  }, [columns, ordinalOf, rows, writeCell])
+
+  /** The value to display for a cell: the pending edit if there is one. */
+  const cellValue = useCallback((ordinal: number, column: string, stored: unknown): unknown => {
+    const key = cellKey(ordinal, column)
+    return pending.has(key) ? pending.get(key) : stored
+  }, [pending])
 
   /** Move the selection by a delta within the current page. */
   const move = useCallback((dRow: number, dCol: number) => {
@@ -160,10 +241,7 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
         case 'Delete':
         case 'Backspace': {
           e.preventDefault()
-          void applyOps(fileId, [{
-            id: crypto.randomUUID(), at: Date.now(), type: 'setCell',
-            row: selected.row, column: selected.column, value: null,
-          }])
+          void writeCell(selected.row, selected.column, null)
           break
         }
         case 'Escape': setSelected(null); break
@@ -179,13 +257,13 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [applyOps, beginEdit, cancelEdit, commitEdit, editing, enabled, fileId, move, ordinalOf, rows, selected])
+  }, [beginEdit, cancelEdit, commitEdit, editing, enabled, move, ordinalOf, rows, selected, writeCell])
 
   return {
     selected, setSelected,
     editing, draft, setDraft,
     beginEdit, cancelEdit, commitEdit,
-    ordinalOf,
+    ordinalOf, cellValue, writeCell,
   }
 }
 

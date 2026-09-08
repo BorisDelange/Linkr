@@ -80,7 +80,14 @@ export function useServerDatasetRows({
   const naKey = JSON.stringify(naFilters)
   const sortKey = sort ? `${sort.colId}:${sort.dir}` : ''
 
+  // The debounce exists for TYPING in a filter box. An edit is a discrete action
+  // that already happened, so making it wait out the same delay just leaves the
+  // stale value on screen for another quarter second.
+  const fetchedRevision = useRef(revision)
+
   useEffect(() => {
+    const immediate = fetchedRevision.current !== revision
+    fetchedRevision.current = revision
     const id = ++reqId.current
     const query: ServerRowsQuery = {
       offset: page * pageSize,
@@ -100,7 +107,7 @@ export function useServerDatasetRows({
           if (id !== reqId.current) return
           setState({ rows: [], total: 0, loading: false, error: String(e) })
         })
-    }, 250)
+    }, immediate ? 0 : 250)
     return () => clearTimeout(timer)
     // `revision` is what makes an EDIT visible: rows are materialised server-side
     // from the ops log, so recording one changes what this query returns without
