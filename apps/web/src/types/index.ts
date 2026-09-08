@@ -761,9 +761,33 @@ export interface PatientCollectionConfig {
   visitColumn?: string
   /** Column holding the visit-detail id, when collecting per unit stay. */
   visitDetailColumn?: string
-  /** Columns offered as fields to fill, in display order. Absent = every column
-   *  that is not one of the identity columns above. */
-  variableColumns?: string[]
+  /** The variables to fill, in display order. Absent = every non-identity column
+   *  of the dataset, so a freshly bound dataset collects everything it has. */
+  variables?: PatientCollectionVariable[]
+  /** Write each value as it is entered (the default), or hold changes until the
+   *  clinician saves. Manual suits a form filled in one sitting, where a
+   *  half-entered value should not reach the dataset. */
+  saveMode?: 'auto' | 'manual'
+}
+
+/**
+ * One variable of a collection — a REFERENCE to a dataset column, not a column
+ * itself.
+ *
+ * The distinction is what `origin` records, and it decides what removing the
+ * variable means: one created for the collection owns its column, so dropping it
+ * drops the column; one that merely points at a pre-existing column must leave
+ * that column alone, since the dataset had it first and other things may read it.
+ *
+ * A variable's label and description are the COLUMN's own metadata (the same
+ * fields the Datasets page edits), so naming a variable here names it everywhere.
+ */
+export interface PatientCollectionVariable {
+  /** The dataset column this variable fills. */
+  columnId: string
+  /** `created` = added for this collection, so removing it removes the column.
+   *  `existing` = the dataset already had it; removing only stops collecting it. */
+  origin: 'created' | 'existing'
 }
 
 export interface PatientDashboardTab {

@@ -15,6 +15,8 @@ interface Params {
   columnFilters: Record<string, ColumnFilterValue>
   naFilters: Record<string, 'exclude' | 'only'>
   columns: DatasetColumn[]
+  /** Bumped when the dataset's content changes (an edit op), to force a refetch. */
+  revision?: number
 }
 
 export interface ServerRowsState {
@@ -64,6 +66,7 @@ export function useServerDatasetRows({
   columnFilters,
   naFilters,
   columns,
+  revision = 0,
 }: Params): ServerRowsState {
   const [state, setState] = useState<ServerRowsState>({
     rows: [],
@@ -99,8 +102,12 @@ export function useServerDatasetRows({
         })
     }, 250)
     return () => clearTimeout(timer)
+    // `revision` is what makes an EDIT visible: rows are materialised server-side
+    // from the ops log, so recording one changes what this query returns without
+    // changing any of its other inputs. Without it a committed cell snapped back
+    // to the stale page still held here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId, page, pageSize, sortKey, filtersKey, naKey])
+  }, [fileId, page, pageSize, sortKey, filtersKey, naKey, revision])
 
   return state
 }

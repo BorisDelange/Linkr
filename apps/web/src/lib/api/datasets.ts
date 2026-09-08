@@ -291,7 +291,11 @@ export async function recordDatasetOps(
     method: 'POST',
     body: JSON.stringify({ projectUid, path: datasetFileId, ops, replace: opts?.replace ?? false }),
   })
-  return { file: dsNodeToFile(projectUid, res.node), ops: res.ops }
+  // The log rides beside the node, not inside it, but every consumer reads
+  // `file.ops` — leaving it unset made the client believe an edited dataset had
+  // no log, so each "add row" recomputed the same ordinal and the second was a
+  // silent no-op against a row that already existed.
+  return { file: { ...dsNodeToFile(projectUid, res.node), ops: res.ops }, ops: res.ops }
 }
 
 /**

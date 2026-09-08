@@ -88,22 +88,10 @@ async def dataset_meta(
     large file never blocks the event loop. An unparseable file still returns a
     node, without meta."""
     await _check_project(db, project_uid, user, "datasets:read")
-    columns: list[dict] | None = None
-    row_count: int | None = None
-    parse_options: dict | None = None
-    try:
-        res = await asyncio.to_thread(dataset_fs.resolve_cache, project_uid, path)
-        columns, row_count, parse_options = res["columns"], res["rowCount"], res.get("parseOptions")
-    except FileNotFoundError:
+    if not project_fs.dataset_path(project_uid, path).is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
-    except Exception:
-        pass
-    return DsNodeResponse(
-        id=project_fs.node_id("ds", path),
-        name=path.rsplit("/", 1)[-1], type="file",
-        parent_id=(project_fs.node_id("ds", path.rsplit("/", 1)[0]) if "/" in path else None),
-        path=path, columns=columns, row_count=row_count, parse_options=parse_options,
-    )
+    # Off the event loop: a big CSV's first open rebuilds the Parquet cache.
+    return await asyncio.to_thread(_file_node, project_uid, path)
 
 
 async def _resolve_file(db: AsyncSession, project_uid: str, path: str, user: User, permission: str) -> dict:
@@ -348,11 +336,14 @@ def _file_node(project_uid: str, path: str) -> DsNodeResponse:
         columns, row_count, parse_options = res["columns"], res["rowCount"], res.get("parseOptions")
     except Exception:
         pass
+    # The log travels on the node: the client addresses rows by ordinal, and
+    # minting the next one means knowing which are already taken.
+    ops = dataset_fs.read_ops(project_uid, path) or None
     return DsNodeResponse(
         id=project_fs.node_id("ds", path),
         name=path.rsplit("/", 1)[-1], type="file",
         parent_id=(project_fs.node_id("ds", path.rsplit("/", 1)[0]) if "/" in path else None),
-        path=path, columns=columns, row_count=row_count, parse_options=parse_options,
+        path=path, columns=columns, row_count=row_count, parse_options=parse_options, ops=ops,
     )
 
 

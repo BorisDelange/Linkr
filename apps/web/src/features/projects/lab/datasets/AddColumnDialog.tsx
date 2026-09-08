@@ -18,6 +18,7 @@ interface Props {
 
 const TYPES: DatasetColumn['type'][] = ['string', 'number', 'boolean', 'date']
 
+const START = '__start__'
 const END = '__end__'
 
 /** Add a column to a dataset. Recorded as an op, so it is undoable and travels
@@ -41,8 +42,9 @@ export function AddColumnDialog({ fileId, open, onOpenChange }: Props) {
     setBusy(true)
     try {
       const columns = file?.columns ?? []
-      const index = after === END
-        ? undefined
+      // `index` is the slot the column takes; omitted means append.
+      const index = after === END ? undefined
+        : after === START ? 0
         : columns.findIndex((c) => c.id === after) + 1
       const column = deriveColumnId(trimmed)
       await applyOps(fileId, [{
@@ -94,6 +96,7 @@ export function AddColumnDialog({ fileId, open, onOpenChange }: Props) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={START}>{t('datasets.position_start')}</SelectItem>
               <SelectItem value={END}>{t('datasets.position_end')}</SelectItem>
               {(file?.columns ?? []).map((col) => (
                 <SelectItem key={col.id} value={col.id}>

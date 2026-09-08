@@ -15,6 +15,10 @@ class DsNodeResponse(CamelModel):
     # Persisted parse options (columnTypes/columnFilterMode/delimiter/…) from the
     # sidecar, so the client restores them after a restart and they travel on export.
     parse_options: dict | None = None
+    # The edit log. Resolved with the rest of the meta rather than in the tree
+    # listing, which stays deliberately meta-free; the client needs it to mint the
+    # next row ordinal, so an absent log makes every added row reuse the same one.
+    ops: list[dict] | None = None
 
 
 class DsImport(CamelModel):

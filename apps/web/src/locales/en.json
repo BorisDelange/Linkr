@@ -1431,7 +1431,13 @@
     "col_delete": "Delete column",
     "row_move_up": "Move up",
     "row_move_down": "Move down",
-    "row_delete": "Delete row"
+    "row_delete": "Delete row",
+    "position_start": "At the beginning",
+    "col_move": "Move",
+    "col_move_to": "Move to…",
+    "col_move_to_description": "Choose where \"{{name}}\" should sit among the other columns.",
+    "cell_edit": "Edit",
+    "cell_clear": "Clear"
   },
   "survey": {
     "choice_order_hint": "Drag the answers into the order the chart should read.",
@@ -1739,7 +1745,22 @@
     "collection_variables": "Variables",
     "collection_variables_hint": "Which columns to fill in from the patient chart. Add a new one to create it in the dataset.",
     "collection_no_variables_yet": "No variables yet — add one below.",
-    "collection_new_variable": "New variable name"
+    "collection_new_variable": "New variable name",
+    "collection_tab_dataset": "Dataset",
+    "collection_tab_variables": "Variables",
+    "collection_pick_dataset_first": "Choose a dataset on the Dataset tab first.",
+    "collection_add_variable": "Add a variable",
+    "collection_add_variable_hint": "Create a new column, or collect one the dataset already has.",
+    "collection_use_existing": "Use an existing column…",
+    "collection_existing_column": "Existing",
+    "collection_delete_column": "Delete the column",
+    "collection_delete_column_confirm": "This column was created for the collection, so removing it deletes it from the dataset — along with the {{count}} value(s) already entered. This can be undone from the Datasets page.",
+    "collection_stop_collecting": "Stop collecting this column",
+    "collection_save_mode": "Saving",
+    "collection_save_mode_hint": "Automatic writes each value as it is entered. Manual holds changes until you save — better when a form is filled in one sitting.",
+    "collection_save_auto": "Automatic",
+    "collection_save_manual": "Manual",
+    "collection_unsaved": "Not saved yet"
   },
   "files": {
     "empty_markdown_cell": "Empty markdown cell",
@@ -3388,7 +3409,8 @@
     "zoom_in": "Zoom in",
     "zoom_out": "Zoom out",
     "enlarge": "Click to enlarge",
-    "image": "Image"
+    "image": "Image",
+    "move": "Move"
   },
   "user_menu": {
     "profile": "User settings",

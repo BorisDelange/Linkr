@@ -1431,7 +1431,13 @@
     "col_delete": "Supprimer la colonne",
     "row_move_up": "Monter",
     "row_move_down": "Descendre",
-    "row_delete": "Supprimer la ligne"
+    "row_delete": "Supprimer la ligne",
+    "position_start": "Au début",
+    "col_move": "Déplacer",
+    "col_move_to": "Déplacer vers…",
+    "col_move_to_description": "Choisissez où placer « {{name}} » parmi les autres colonnes.",
+    "cell_edit": "Modifier",
+    "cell_clear": "Vider"
   },
   "survey": {
     "choice_order_hint": "Glissez les réponses dans l’ordre de lecture du graphique.",
@@ -1739,7 +1745,22 @@
     "collection_variables": "Variables",
     "collection_variables_hint": "Les colonnes à remplir depuis le dossier patient. En ajouter une la crée dans le jeu de données.",
     "collection_no_variables_yet": "Aucune variable — ajoutez-en une ci-dessous.",
-    "collection_new_variable": "Nom de la variable"
+    "collection_new_variable": "Nom de la variable",
+    "collection_tab_dataset": "Jeu de données",
+    "collection_tab_variables": "Variables",
+    "collection_pick_dataset_first": "Choisissez d'abord un jeu de données dans l'onglet Jeu de données.",
+    "collection_add_variable": "Ajouter une variable",
+    "collection_add_variable_hint": "Créez une colonne, ou recueillez-en une que le jeu de données possède déjà.",
+    "collection_use_existing": "Utiliser une colonne existante…",
+    "collection_existing_column": "Existante",
+    "collection_delete_column": "Supprimer la colonne",
+    "collection_delete_column_confirm": "Cette colonne a été créée pour le recueil : la retirer la supprime du jeu de données, avec les {{count}} valeur(s) déjà saisies. L'opération est annulable depuis la page Jeux de données.",
+    "collection_stop_collecting": "Ne plus recueillir cette colonne",
+    "collection_save_mode": "Enregistrement",
+    "collection_save_mode_hint": "Automatique écrit chaque valeur dès la saisie. Manuel retient les modifications jusqu'à l'enregistrement — préférable quand un formulaire est rempli d'une traite.",
+    "collection_save_auto": "Automatique",
+    "collection_save_manual": "Manuel",
+    "collection_unsaved": "Non enregistré"
   },
   "files": {
     "empty_markdown_cell": "Cellule markdown vide",
@@ -3388,7 +3409,8 @@
     "zoom_in": "Zoom avant",
     "zoom_out": "Zoom arrière",
     "enlarge": "Cliquer pour agrandir",
-    "image": "Image"
+    "image": "Image",
+    "move": "Déplacer"
   },
   "user_menu": {
     "profile": "Paramètres utilisateur",

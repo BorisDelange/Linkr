@@ -87,7 +87,7 @@ export function DatasetEditToolbar({
               <span className="ml-1">{editing ? t('datasets.editing') : t('datasets.edit_data')}</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{t('datasets.edit_data_hint')}</TooltipContent>
+          <TooltipContent className="max-w-xs">{t('datasets.edit_data_hint')}</TooltipContent>
         </Tooltip>
 
         {editing && (
@@ -140,7 +140,7 @@ export function DatasetEditToolbar({
                   </Button>
                 </span>
               </TooltipTrigger>
-              <TooltipContent>{t('datasets.remove_row')}</TooltipContent>
+              <TooltipContent className="max-w-xs">{t('datasets.remove_row')}</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -156,7 +156,7 @@ export function DatasetEditToolbar({
                   </Button>
                 </span>
               </TooltipTrigger>
-              <TooltipContent>{t('datasets.undo_edit')}</TooltipContent>
+              <TooltipContent className="max-w-xs">{t('datasets.undo_edit')}</TooltipContent>
             </Tooltip>
 
             <DropdownMenu>

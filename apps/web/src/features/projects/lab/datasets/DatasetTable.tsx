@@ -14,6 +14,9 @@ import {
   PinOff,
   Tag,
   Trash2,
+  MoreHorizontal,
+  MoveHorizontal,
+  Pencil,
   Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -33,6 +36,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -40,6 +46,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
@@ -52,6 +61,7 @@ import { ROW_ORD } from '@linkr/format'
 import { useCellEditing } from './use-cell-editing'
 import { useFlashTarget } from './use-flash-target'
 import { EditColumnMetaDialog } from './EditColumnMetaDialog'
+import { MoveColumnDialog } from './MoveColumnDialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { hasTimeComponent, columnTint, displayColumnName, displayCellValue } from '@/lib/dataset-utils'
 import { useBooleanLabels } from '@/hooks/use-boolean-labels'
@@ -138,6 +148,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
 
   const [resizing, setResizing] = useState<{ colId: string; startX: number; startW: number } | null>(null)
   const [metaColumn, setMetaColumn] = useState<DatasetColumn | null>(null)
+  const [movingColumn, setMovingColumn] = useState<DatasetColumn | null>(null)
 
   // Visible columns — pinned ones first (in pin order), then the rest in natural order
   const visibleColumns = useMemo(() => {
@@ -192,6 +203,9 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
     columnFilters,
     naFilters,
     columns,
+    // Rows are materialised server-side from the ops log, so an edit changes what
+    // the query returns without changing any of its other inputs.
+    revision: _dirtyVersion,
   })
 
   // Filter rows client-side (value filters + NA filters) — front-only mode only
@@ -426,32 +440,27 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
     }])
   }, [applyOps, fileId])
 
+  /**
+   * The column menu, rendered both in the header "..." dropdown and on right-click.
+   *
+   * Ordered by how often each action is wanted: sort and filter first, then the
+   * per-column settings, with the rarer ones folded into submenus so the menu
+   * stays a glance rather than a page. Edit actions sit last — they change the
+   * data, so they should not be the thing the pointer lands on.
+   */
   const renderColumnMenuItems = (
     col: DatasetColumn,
     Item: typeof DropdownMenuItem | typeof ContextMenuItem,
     Separator: typeof DropdownMenuSeparator | typeof ContextMenuSeparator,
+    Sub: typeof DropdownMenuSub | typeof ContextMenuSub,
+    SubTrigger: typeof DropdownMenuSubTrigger | typeof ContextMenuSubTrigger,
+    SubContent: typeof DropdownMenuSubContent | typeof ContextMenuSubContent,
   ) => {
     const isSorted = sort?.colId === col.id
     const isPinned = pinnedColumns.includes(col.id)
+    const at = columns.findIndex((c) => c.id === col.id)
     return (
       <>
-        {editable && (
-          <>
-            <Item onClick={() => moveColumn(col.id, -1)} className="text-xs">
-              <ChevronLeft size={13} />
-              {t('datasets.col_move_left')}
-            </Item>
-            <Item onClick={() => moveColumn(col.id, 1)} className="text-xs">
-              <ChevronRight size={13} />
-              {t('datasets.col_move_right')}
-            </Item>
-            <Item onClick={() => removeColumn(col.id)} className="text-xs" variant="destructive">
-              <Trash2 size={13} />
-              {t('datasets.col_delete')}
-            </Item>
-            <Separator />
-          </>
-        )}
         <Item onClick={() => handleSort(col.id, 'asc')} className="text-xs">
           <ArrowUp size={13} />
           {t('datasets.col_sort_asc')}
@@ -461,17 +470,6 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
           <ArrowDown size={13} />
           {t('datasets.col_sort_desc')}
           {isSorted && sort!.dir === 'desc' && <span className="ml-auto text-primary">✓</span>}
-        </Item>
-        <Separator />
-        <Item onClick={() => handleNaFilter(col.id, 'exclude')} className="text-xs">
-          <Filter size={13} />
-          {t('datasets.col_hide_na')}
-          {naFilters[col.id] === 'exclude' && <span className="ml-auto text-primary">✓</span>}
-        </Item>
-        <Item onClick={() => handleNaFilter(col.id, 'only')} className="text-xs">
-          <Filter size={13} />
-          {t('datasets.col_only_na')}
-          {naFilters[col.id] === 'only' && <span className="ml-auto text-primary">✓</span>}
         </Item>
         <Separator />
         <Item onClick={() => togglePin(col.id)} className="text-xs">
@@ -486,38 +484,102 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
           <Tag size={13} />
           {t('datasets.col_edit_meta')}
         </Item>
-        <Separator />
-        {/* Force the column type (overrides inference; persisted in parseOptions). */}
-        {renderTypeMenuItems({
-          current: col.type,
-          onSelect: (ty) => { void setColumnType(fileId, col.id, ty) },
-          Item,
-        })}
-        {col.type === 'string' && (
+
+        {/* Type: one line that opens the choices, rather than one line per type. */}
+        <Sub>
+          <SubTrigger className="text-xs">
+            <TypeBadge type={col.type} size="sm" />
+            {t('datasets.col_treat_as')}
+          </SubTrigger>
+          <SubContent>
+            {renderTypeMenuItems({
+              current: col.type,
+              onSelect: (ty) => { void setColumnType(fileId, col.id, ty) },
+              Item,
+            })}
+          </SubContent>
+        </Sub>
+
+        {/* The rest is reached rarely; keeping it one level down keeps the menu short. */}
+        <Sub>
+          <SubTrigger className="text-xs">
+            <MoreHorizontal size={13} />
+            {t('common.more')}
+          </SubTrigger>
+          <SubContent>
+            <Item onClick={() => handleNaFilter(col.id, 'exclude')} className="text-xs">
+              <Filter size={13} />
+              {t('datasets.col_hide_na')}
+              {naFilters[col.id] === 'exclude' && <span className="ml-auto text-primary">✓</span>}
+            </Item>
+            <Item onClick={() => handleNaFilter(col.id, 'only')} className="text-xs">
+              <Filter size={13} />
+              {t('datasets.col_only_na')}
+              {naFilters[col.id] === 'only' && <span className="ml-auto text-primary">✓</span>}
+            </Item>
+            {col.type === 'string' && (
+              <Item
+                onClick={() => { void setColumnFilterMode(fileId, col.id, isListMode(col) ? 'text' : 'list') }}
+                className="text-xs"
+              >
+                <Filter size={13} />
+                {isListMode(col) ? t('datasets.col_filter_as_text') : t('datasets.col_filter_as_list')}
+              </Item>
+            )}
+            <Separator />
+            <Item onClick={() => resetColWidth(col.id)} className="text-xs">
+              <Columns2 size={13} />
+              {t('datasets.col_reset_width')}
+            </Item>
+            {onHiddenColumnsChange && (
+              <Item
+                onClick={() => onHiddenColumnsChange((prev) => new Set(prev).add(col.id))}
+                className="text-xs"
+              >
+                <EyeOff size={13} />
+                {t('datasets.col_hide')}
+              </Item>
+            )}
+          </SubContent>
+        </Sub>
+
+        {editable && (
           <>
             <Separator />
-            <Item
-              onClick={() => { void setColumnFilterMode(fileId, col.id, isListMode(col) ? 'text' : 'list') }}
-              className="text-xs"
-            >
-              <Filter size={13} />
-              {isListMode(col) ? t('datasets.col_filter_as_text') : t('datasets.col_filter_as_list')}
+            <Sub>
+              <SubTrigger className="text-xs">
+                <MoveHorizontal size={13} />
+                {t('datasets.col_move')}
+              </SubTrigger>
+              <SubContent>
+                <Item
+                  onClick={() => moveColumn(col.id, -1)}
+                  className="text-xs"
+                  disabled={at <= 0}
+                >
+                  <ChevronLeft size={13} />
+                  {t('datasets.col_move_left')}
+                </Item>
+                <Item
+                  onClick={() => moveColumn(col.id, 1)}
+                  className="text-xs"
+                  disabled={at < 0 || at >= columns.length - 1}
+                >
+                  <ChevronRight size={13} />
+                  {t('datasets.col_move_right')}
+                </Item>
+                <Separator />
+                <Item onClick={() => setMovingColumn(col)} className="text-xs">
+                  <MoveHorizontal size={13} />
+                  {t('datasets.col_move_to')}
+                </Item>
+              </SubContent>
+            </Sub>
+            <Item onClick={() => removeColumn(col.id)} className="text-xs" variant="destructive">
+              <Trash2 size={13} />
+              {t('datasets.col_delete')}
             </Item>
           </>
-        )}
-        <Separator />
-        <Item onClick={() => resetColWidth(col.id)} className="text-xs">
-          <Columns2 size={13} />
-          {t('datasets.col_reset_width')}
-        </Item>
-        {onHiddenColumnsChange && (
-          <Item
-            onClick={() => onHiddenColumnsChange((prev) => new Set(prev).add(col.id))}
-            className="text-xs"
-          >
-            <EyeOff size={13} />
-            {t('datasets.col_hide')}
-          </Item>
         )}
       </>
     )
@@ -625,7 +687,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-[200px]" onClick={(e) => e.stopPropagation()}>
-                          {renderColumnMenuItems(col, DropdownMenuItem, DropdownMenuSeparator)}
+                          {renderColumnMenuItems(col, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent)}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -637,7 +699,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                   </th>
                   </ContextMenuTrigger>
                   <ContextMenuContent className="w-[200px]">
-                    {renderColumnMenuItems(col, ContextMenuItem, ContextMenuSeparator)}
+                    {renderColumnMenuItems(col, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent)}
                   </ContextMenuContent>
                   </ContextMenu>
                 )
@@ -738,11 +800,15 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                         ? `${col.valueLabels[String(raw)]} (${String(raw)})`
                         : String(raw)
                     return (
+                    <ContextMenu key={col.id}>
+                    <ContextMenuTrigger asChild disabled={!editable}>
                     <td
-                      key={col.id}
                       title={isEditingCell ? undefined : cellTitle}
                       onClick={editable ? () => edit.setSelected({ row: ordinal as number, column: col.id }) : undefined}
                       onDoubleClick={editable ? () => edit.beginEdit({ row: ordinal as number, column: col.id }, raw) : undefined}
+                      // Right-click selects too, so the menu's actions address the
+                      // cell the pointer is on rather than a stale selection.
+                      onContextMenu={editable ? () => edit.setSelected({ row: ordinal as number, column: col.id }) : undefined}
                       style={{ maxWidth: getColWidth(col.id, DEFAULT_COL_WIDTH), ...(isPinned ? { left: pinnedLeft[col.id], width: getColWidth(col.id, DEFAULT_COL_WIDTH) } : {}) }}
                       className={cn(
                         'relative border-b border-r px-3 py-1 whitespace-nowrap overflow-hidden text-ellipsis',
@@ -763,7 +829,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                           value={edit.draft}
                           onChange={(e) => edit.setDraft(e.target.value)}
                           onBlur={() => void edit.commitEdit()}
-                          className="absolute inset-0 w-full bg-background px-3 text-xs outline-none ring-2 ring-inset ring-primary"
+                          className="absolute inset-0 w-full bg-background px-3 text-xs outline-none"
                         />
                       ) : raw != null ? (
                         displayCellValue(col, raw, booleanLabels)
@@ -771,6 +837,28 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                         <span className="italic text-muted-foreground/50">null</span>
                       )}
                     </td>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem
+                        className="text-xs"
+                        onClick={() => edit.beginEdit({ row: ordinal as number, column: col.id }, raw)}
+                      >
+                        <Pencil size={13} />
+                        {t('datasets.cell_edit')}
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        className="text-xs"
+                        disabled={raw == null}
+                        onClick={() => void applyOps(fileId, [{
+                          id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
+                          type: 'setCell', row: ordinal as number, column: col.id, value: null,
+                        }])}
+                      >
+                        <EyeOff size={13} />
+                        {t('datasets.cell_clear')}
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                    </ContextMenu>
                     )
                   })}
                 </tr>
@@ -891,6 +979,16 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
           rows={rows}
           open={metaColumn != null}
           onOpenChange={(open) => { if (!open) setMetaColumn(null) }}
+        />
+      )}
+
+      {movingColumn && (
+        <MoveColumnDialog
+          key={movingColumn.id}
+          fileId={fileId}
+          column={movingColumn}
+          open
+          onOpenChange={(open) => { if (!open) setMovingColumn(null) }}
         />
       )}
     </div>

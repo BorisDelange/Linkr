@@ -351,3 +351,76 @@ async def test_a_created_dataset_is_immediately_editable(client, seed_roles):
     ])
     assert r.json()["node"]["rowCount"] == 1
     assert (await _rows(client, h, uid, "vent.csv"))[0]["col_subject_id"] == "p1"
+
+
+async def test_adding_a_row_to_an_empty_dataset(client, seed_roles):
+    """The collection case: a freshly created dataset holds only a header, and the
+    first row added has no existing row to land after."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "vent.csv").write_text("person_id,note\n")
+
+    r = await _post_ops(client, h, uid, "vent.csv", [
+        _op("o1", type="addRow", row=-1, after=None),
+    ])
+    assert r.status_code == 200
+    assert r.json()["node"]["rowCount"] == 1
+    assert len(await _rows(client, h, uid, "vent.csv")) == 1
+
+
+async def test_adding_a_row_at_the_end_of_a_populated_dataset(client, seed_roles):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "vent.csv").write_text("person_id,note\np1,a\np2,b\n")
+
+    r = await _post_ops(client, h, uid, "vent.csv", [
+        _op("o1", type="addRow", row=-1, after=None),
+    ])
+    assert r.json()["node"]["rowCount"] == 3
+    rows = await _rows(client, h, uid, "vent.csv")
+    assert [row["col_person_id"] for row in rows] == ["p1", "p2", None]
+
+
+async def test_adding_several_rows_keeps_them_distinct(client, seed_roles):
+    """Each added row must take its own ordinal — reusing one would make the second
+    addRow a no-op against a row that already exists."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "vent.csv").write_text("person_id\np1\n")
+
+    await _post_ops(client, h, uid, "vent.csv", [_op("o1", type="addRow", row=-1, after=None)])
+    r = await _post_ops(client, h, uid, "vent.csv", [_op("o2", type="addRow", row=-2, after=None)])
+
+    assert r.json()["node"]["rowCount"] == 3
+
+
+async def test_the_log_rides_on_the_node_the_client_reads_back(client, seed_roles):
+    """The client mints the next row ordinal from the log, so a node returned
+    without it makes every added row reuse the same ordinal — and the second
+    addRow is then a silent no-op against a row that already exists."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "vent.csv").write_text("person_id\np1\n")
+
+    posted = await _post_ops(client, h, uid, "vent.csv", [
+        _op("o1", type="addRow", row=-1, after=None),
+    ])
+    assert [op["id"] for op in posted.json()["node"]["ops"]] == ["o1"]
+
+    meta = await client.get(
+        f"{API}/dataset-files/meta", headers=h,
+        params={"projectUid": uid, "path": "vent.csv"},
+    )
+    assert [op["id"] for op in meta.json()["ops"]] == ["o1"], "a reload must recover the log"
+
+
+async def test_an_unedited_dataset_reports_no_log(client, seed_roles):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "vent.csv").write_text("person_id\np1\n")
+
+    meta = await client.get(
+        f"{API}/dataset-files/meta", headers=h,
+        params={"projectUid": uid, "path": "vent.csv"},
+    )
+    assert meta.json()["ops"] is None

@@ -17,6 +17,7 @@ import { isServerMode } from '@/lib/api-client'
 import { queryDatasetRows } from '@/lib/api/datasets'
 import { useDatasetStore } from '@/stores/dataset-store'
 import type { DatasetColumn, PatientCollectionConfig } from '@/types'
+import { resolveVariables } from './variables'
 
 export interface CollectionField {
   column: DatasetColumn
@@ -71,19 +72,15 @@ export function usePatientCollection(config: PatientCollectionConfig | undefined
     })
   }, [rows, config, key.personId, key.visitId, key.visitDetailId])
 
-  /** The columns offered as fields: everything that is not an identity column. */
+  /** The fields to fill, resolved from the configured variables. */
   const fields = useMemo<CollectionField[]>(() => {
     if (!config || !file?.columns) return []
-    const identity = new Set(
-      [config.personColumn, config.visitColumn, config.visitDetailColumn].filter(Boolean) as string[],
-    )
-    const chosen = config.variableColumns?.length
-      ? config.variableColumns
-      : file.columns.filter((c) => !identity.has(c.id)).map((c) => c.id)
-
-    return chosen
-      .map((id) => file.columns!.find((c) => c.id === id))
-      .filter((c): c is DatasetColumn => c != null && !identity.has(c.id))
+    const variables = resolveVariables(config.variables, file.columns, [
+      config.personColumn, config.visitColumn, config.visitDetailColumn,
+    ])
+    return variables
+      .map((v) => file.columns!.find((c) => c.id === v.columnId))
+      .filter((c): c is DatasetColumn => c != null)
       .map((column) => ({ column, value: currentRow?.[column.id] ?? null }))
   }, [config, file?.columns, currentRow])
 
