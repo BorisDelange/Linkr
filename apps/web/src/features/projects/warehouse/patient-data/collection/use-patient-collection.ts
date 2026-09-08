@@ -12,7 +12,7 @@
  * second one, because a collection is a form, not an append-only journal.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ROW_ORD, type DatasetOp } from '@linkr/format'
+import { cellValue, ROW_ORD, type DatasetOp } from '@linkr/format'
 import { isServerMode } from '@/lib/api-client'
 import { queryDatasetRows } from '@/lib/api/datasets'
 import { useDatasetStore } from '@/stores/dataset-store'
@@ -95,6 +95,9 @@ export function usePatientCollection(config: PatientCollectionConfig | undefined
       await applyOps(fileId, [{
         id: crypto.randomUUID(), at: Date.now(), group,
         type: 'setCell', row: currentRow[ROW_ORD] as number, column: columnId, value,
+        // What the write replaces, so it can be undone: the replayed rows held
+        // here are the only copy, and this overwrites it.
+        prev: cellValue(currentRow[columnId]),
       }])
       return
     }

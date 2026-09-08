@@ -68,6 +68,17 @@ export interface SetCellOp extends OpBase {
   row: number
   column: string
   value: DatasetCellValue
+  /**
+   * The value this write replaced, so the edit can be undone.
+   *
+   * Undo builds an inverse against the state the op saw, and that state is not
+   * always recoverable: both modes hold only the ALREADY-replayed rows, so the
+   * first overwrite of a raw cell destroys the only copy of the raw value. Later
+   * writes are recoverable (the previous op holds them), which is why this is
+   * optional — a log written before this field existed still undoes everything
+   * except that first overwrite.
+   */
+  prev?: DatasetCellValue
 }
 
 export interface AddRowOp extends OpBase {
@@ -102,6 +113,31 @@ export interface AddColumnOp extends OpBase {
 export interface RemoveColumnOp extends OpBase {
   type: 'removeColumn'
   column: string
+  /**
+   * The column as it was, so the removal can be undone.
+   *
+   * Same reason as `SetCellOp.prev`, with more at stake: replay deletes the column
+   * and every one of its cells, and the only states either mode holds are already
+   * replayed — so without this the data is unrecoverable and undo silently
+   * restores nothing. Optional, since a log written before this field existed
+   * still replays correctly; only its undo is degraded.
+   */
+  prev?: {
+    name: string
+    colType: DatasetOpColumnType
+    index: number
+    /**
+     * Non-null cells by row ordinal, each key prefixed with `r` — empty cells are
+     * omitted rather than stored as null.
+     *
+     * The prefix is what keeps the two engines agreeing: a JS object orders
+     * integer-like keys numerically ahead of every other key, whatever order they
+     * were inserted in, so bare ordinals would serialise as `3, 10, -1` here and
+     * as `-1, 10, 3` in Python — a canonical form that differs by language, which
+     * is exactly what this file exists to prevent.
+     */
+    cells: Record<string, DatasetCellValue>
+  }
 }
 
 export interface ReorderColumnsOp extends OpBase {
@@ -281,7 +317,10 @@ export function invertOp(op: DatasetOp, state: ReplayInput, meta: OpBase): Datas
     case 'setCell': {
       const row = state.rows.find((r) => r[ROW_ORD] === op.row)
       if (!row || !state.columns.some((c) => c.id === op.column)) return null
-      return { ...meta, type: 'setCell', row: op.row, column: op.column, value: cellValue(row[op.column]) }
+      // `prev` when the op recorded it: the state passed in is reconstructed from
+      // already-replayed rows, which cannot recover a raw cell's original value.
+      const value = op.prev !== undefined ? op.prev : cellValue(row[op.column])
+      return { ...meta, type: 'setCell', row: op.row, column: op.column, value }
     }
     case 'addRow':
       return { ...meta, type: 'removeRow', row: op.row }
@@ -299,6 +338,14 @@ export function invertOp(op: DatasetOp, state: ReplayInput, meta: OpBase): Datas
     case 'addColumn':
       return { ...meta, type: 'removeColumn', column: op.column }
     case 'removeColumn': {
+      // `prev` first: replay deletes the column outright, so a state reconstructed
+      // from replayed rows no longer has it to describe.
+      if (op.prev) {
+        return {
+          ...meta, type: 'addColumn', column: op.column,
+          name: op.prev.name, colType: op.prev.colType, index: op.prev.index,
+        }
+      }
       const at = state.columns.findIndex((c) => c.id === op.column)
       if (at < 0) return null
       const col = state.columns[at]
@@ -327,6 +374,12 @@ export function invertOpFull(op: DatasetOp, state: ReplayInput, mint: () => OpBa
   if (op.type !== 'removeColumn') return [head]
 
   const restored: DatasetOp[] = [head]
+  if (op.prev) {
+    for (const [key, value] of Object.entries(op.prev.cells)) {
+      restored.push({ ...mint(), type: 'setCell', row: rowOfCellKey(key), column: op.column, value })
+    }
+    return restored
+  }
   for (const row of state.rows) {
     const value = cellValue(row[op.column])
     if (value === null) continue
@@ -335,7 +388,18 @@ export function invertOpFull(op: DatasetOp, state: ReplayInput, mint: () => OpBa
   return restored
 }
 
-function cellValue(raw: unknown): DatasetCellValue {
+/** Key for a row ordinal in a `removeColumn` snapshot — see `RemoveColumnOp.prev`. */
+export function cellKeyOfRow(row: number): string {
+  return `r${row}`
+}
+
+/** The row ordinal a snapshot key names. */
+export function rowOfCellKey(key: string): number {
+  return Number(key.slice(1))
+}
+
+/** Coerce a stored cell to the value vocabulary an op can carry. */
+export function cellValue(raw: unknown): DatasetCellValue {
   if (raw === null || raw === undefined) return null
   if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') return raw
   if (raw instanceof Date) return raw.toISOString()
@@ -445,7 +509,7 @@ export function compactOps(ops: readonly DatasetOp[]): DatasetOp[] {
 
 const OP_KEY_ORDER = [
   'id', 'type', 'at', 'by', 'group',
-  'row', 'column', 'value', 'values', 'after', 'order',
+  'row', 'column', 'value', 'prev', 'values', 'after', 'order',
   'name', 'colType', 'index', 'to', 'toName',
 ] as const
 
@@ -462,9 +526,18 @@ export function canonicalOp(op: DatasetOp): Record<string, unknown> {
   for (const key of OP_KEY_ORDER) {
     const value = src[key]
     if (value === undefined) continue
-    out[key] = key === 'values' ? sortedRecord(value as Record<string, unknown>) : value
+    if (key === 'values') out[key] = sortedRecord(value as Record<string, unknown>)
+    // A removeColumn's `prev` nests a cell map, whose insertion order follows the
+    // row scan; sort it too or the diff churns for no change in meaning.
+    else if (key === 'prev' && isColumnSnapshot(value)) {
+      out[key] = { ...value, cells: sortedRecord(value.cells) }
+    } else out[key] = value
   }
   return out
+}
+
+function isColumnSnapshot(v: unknown): v is { cells: Record<string, unknown> } {
+  return typeof v === 'object' && v !== null && 'cells' in v
 }
 
 function sortedRecord(rec: Record<string, unknown>): Record<string, unknown> {

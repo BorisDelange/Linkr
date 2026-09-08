@@ -27,9 +27,14 @@ ROW_ORD = "__row_ord"
 # history and churn the git diff — the same reason parseOptions is canonicalised.
 _OP_KEY_ORDER = (
     "id", "type", "at", "by", "group",
-    "row", "column", "value", "values", "after", "order",
+    "row", "column", "value", "prev", "values", "after", "order",
     "name", "colType", "index", "to", "toName",
 )
+
+# Keys whose explicit null is meaningful: a cleared cell and a cell that was empty
+# before the edit are both `null`, and dropping them would lose the distinction
+# with "field absent" that undo relies on.
+_NULLABLE_KEYS = ("value", "prev", "after")
 
 
 def replay_ops(columns: list[dict], rows: list[dict], ops: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -162,10 +167,17 @@ def canonical_op(op: dict) -> dict:
     """An op with its keys in a fixed order and its absent fields dropped."""
     out: dict = {}
     for key in _OP_KEY_ORDER:
-        if key not in op or op[key] is None and key not in ("value", "after"):
+        if key not in op or op[key] is None and key not in _NULLABLE_KEYS:
             continue
         value = op[key]
-        out[key] = {k: value[k] for k in sorted(value)} if key == "values" else value
+        if key == "values":
+            out[key] = {k: value[k] for k in sorted(value)}
+        # A removeColumn's `prev` nests a cell map, whose insertion order follows
+        # the row scan; sort it too or the diff churns for no change in meaning.
+        elif key == "prev" and isinstance(value, dict) and "cells" in value:
+            out[key] = {**value, "cells": {k: value["cells"][k] for k in sorted(value["cells"])}}
+        else:
+            out[key] = value
     return out
 
 

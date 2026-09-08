@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDown, ArrowUp, Check, History, Pencil, Plus, Trash2, Undo2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, History, Pencil, Plus, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -8,7 +8,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useDatasetStore } from '@/stores/dataset-store'
-import type { DatasetOp } from '@linkr/format'
 import { AddColumnDialog } from './AddColumnDialog'
 import { OpsHistoryDialog } from './OpsHistoryDialog'
 import { announceAdded } from './use-flash-target'
@@ -64,14 +63,6 @@ export function DatasetEditToolbar({
     announceAdded({ fileId, row })
   }
 
-  const removeRow = () => {
-    if (selectedRow === undefined) return
-    void applyOps(fileId, [{
-      id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
-      type: 'removeRow', row: selectedRow,
-    } as DatasetOp])
-  }
-
   return (
     <TooltipProvider>
       <div className="flex items-center gap-1">
@@ -125,22 +116,6 @@ export function DatasetEditToolbar({
               <Plus className="size-3.5" />
               <span className="ml-1">{t('datasets.add_column')}</span>
             </Button>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    disabled={selectedRow === undefined}
-                    onClick={removeRow}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs">{t('datasets.remove_row')}</TooltipContent>
-            </Tooltip>
 
             <Tooltip>
               <TooltipTrigger asChild>

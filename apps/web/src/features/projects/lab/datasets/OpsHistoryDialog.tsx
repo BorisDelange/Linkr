@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Minimize2, RotateCcw, Undo2 } from 'lucide-react'
 import {
@@ -6,11 +6,45 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { DialogShell } from '@/components/ui/dialog-shell'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
-import type { DatasetOp } from '@linkr/format'
+import type { DatasetOp, DatasetOpType } from '@linkr/format'
+
+/** One row of the history table: an op plus what the view needs about it. */
+interface OpRow {
+  op: DatasetOp
+  /** Position in the log — kept as rows are shown newest first. */
+  position: number
+  label: string
+  /** True when Undo would reverse this op (it belongs to the last group). */
+  undoable: boolean
+}
+
+/**
+ * What each op did to the data, which is what the badge colours encode: green
+ * adds, red removes, amber changes in place, and neutral for the ops that only
+ * move things around.
+ */
+const OP_EFFECT: Record<DatasetOpType, 'add' | 'remove' | 'edit' | 'move'> = {
+  addRow: 'add',
+  addColumn: 'add',
+  removeRow: 'remove',
+  removeColumn: 'remove',
+  setCell: 'edit',
+  renameColumn: 'edit',
+  reorderRows: 'move',
+  reorderColumns: 'move',
+}
+
+const EFFECT_CLASS: Record<'add' | 'remove' | 'edit' | 'move', string> = {
+  add: 'bg-green-500/15 text-green-700 dark:text-green-400 border-transparent',
+  remove: 'bg-red-500/15 text-red-700 dark:text-red-400 border-transparent',
+  edit: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-transparent',
+  move: 'bg-muted text-muted-foreground border-transparent',
+}
 
 interface Props {
   fileId: string
@@ -37,16 +71,64 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
   const ops = file?.ops ?? []
   const columnName = (id: string) => file?.columns?.find((c) => c.id === id)?.name ?? id
 
-  // The last GROUP, so the highlight marks exactly what Undo would reverse — one
-  // user action can span several ops.
-  const lastGroup = ops.length ? ops[ops.length - 1].group : undefined
-  const undoes = (op: DatasetOp) =>
-    lastGroup ? op.group === lastGroup : op.id === ops[ops.length - 1]?.id
-
   const run = async (action: () => Promise<void>) => {
     setBusy(true)
     try { await action() } finally { setBusy(false) }
   }
+
+  const rows = useMemo<OpRow[]>(() => {
+    // The last GROUP, so the highlight marks exactly what Undo would reverse — one
+    // user action can span several ops.
+    const last = ops[ops.length - 1]
+    const lastGroup = last?.group
+    return ops
+      .map((op, i) => ({
+        op,
+        position: i + 1,
+        label: describe(op, columnName, t),
+        undoable: lastGroup ? op.group === lastGroup : op.id === last?.id,
+      }))
+      .reverse()
+    // `columnName` closes over the file's columns, which `ops` changes alongside.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ops, t])
+
+  const columns = useMemo<ConceptColumn<OpRow>[]>(() => [
+    {
+      id: 'position',
+      header: '#',
+      accessor: (r) => r.position,
+      align: 'right',
+      size: 60,
+    },
+    {
+      id: 'type',
+      header: t('common.type'),
+      accessor: (r) => r.op.type,
+      filter: 'select',
+      size: 140,
+      cell: (r) => (
+        <Badge variant="outline" className={cn('font-normal', EFFECT_CLASS[OP_EFFECT[r.op.type]])}>
+          {r.op.type}
+        </Badge>
+      ),
+    },
+    {
+      id: 'label',
+      header: t('common.description'),
+      accessor: (r) => r.label,
+      filter: 'text',
+      size: 380,
+    },
+    {
+      id: 'at',
+      header: t('common.date'),
+      // Sorts on the epoch, reads in the user's locale.
+      accessor: (r) => r.op.at,
+      display: (r) => new Date(r.op.at).toLocaleString(),
+      size: 170,
+    },
+  ], [t])
 
   return (
     <>
@@ -89,36 +171,16 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
           </div>
         }
       >
-        <ScrollArea className="h-full">
-          {ops.length === 0 ? (
-            <p className="py-8 text-center text-xs text-muted-foreground">
-              {t('datasets.no_edits_yet')}
-            </p>
-          ) : (
-            <ol className="space-y-1">
-              {ops.map((op, i) => ({ op, position: i + 1 })).reverse().map(({ op, position }) => (
-                <li
-                  key={op.id}
-                  className={
-                    'flex items-baseline gap-2 rounded border px-2 py-1.5 text-xs'
-                    + (undoes(op) ? ' border-primary/40 bg-primary/5' : '')
-                  }
-                >
-                  {/* Numbered by position in the log, not by display order, so an
-                      entry keeps its number as newer ones push it down. */}
-                  <span className="w-8 shrink-0 text-right tabular-nums text-muted-foreground">
-                    {position}
-                  </span>
-                  <Badge variant="outline">{op.type}</Badge>
-                  <span className="min-w-0 flex-1 truncate">{describe(op, columnName, t)}</span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {new Date(op.at).toLocaleString()}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </ScrollArea>
+        <ConceptDataTable
+          data={rows}
+          columns={columns}
+          rowKey={(r) => r.op.id}
+          pageSize={100}
+          stickyHeader
+          density="compact"
+          emptyMessage={t('datasets.no_edits_yet')}
+          rowClassName={(r) => (r.undoable ? 'bg-primary/5' : undefined)}
+        />
       </DialogShell>
 
       <AlertDialog open={confirmingReset} onOpenChange={setConfirmingReset}>
@@ -133,7 +195,7 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void run(() => resetOps(fileId))}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-white hover:bg-destructive/90"
             >
               {t('datasets.discard_all_changes')}
             </AlertDialogAction>

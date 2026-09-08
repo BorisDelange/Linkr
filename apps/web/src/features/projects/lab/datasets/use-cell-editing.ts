@@ -9,7 +9,7 @@
  * Every committed edit becomes an op; nothing here mutates rows directly.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ROW_ORD, type DatasetCellValue } from '@linkr/format'
+import { cellValue as cellValueOf, ROW_ORD, type DatasetCellValue } from '@linkr/format'
 import { useDatasetStore } from '@/stores/dataset-store'
 import type { DatasetColumn } from '@/types'
 
@@ -143,6 +143,11 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
     row: number, column: string, value: DatasetCellValue,
   ) => {
     const key = cellKey(row, column)
+    // Read BEFORE the overlay goes on, so it is the value on screen that gets
+    // recorded as the one being replaced. Undo cannot recover it afterwards: both
+    // modes hold only replayed rows, so this write destroys the last copy.
+    const current = rowsRef.current.find((r) => r[ROW_ORD] === row)
+    const prev = current ? cellValueOf(current[column]) : null
     // Entries the current rows already confirm are dropped on the way in, which is
     // what keeps the map from growing for the life of the session. `pending` cannot
     // be read here — this runs from a stale closure after an await — so the prune
@@ -151,7 +156,7 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
     try {
       await applyOps(fileId, [{
         id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
-        type: 'setCell', row, column, value,
+        type: 'setCell', row, column, value, prev,
       }])
     } catch (e) {
       // The write failed, so the stored value is still the true one: drop the

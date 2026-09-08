@@ -133,6 +133,20 @@ key was dropped from the cache and server-mode editing could not have worked. Th
 cache now carries it — only for a dataset that has a log, and never as a column the
 UI, stats or exports can see.
 
+**Undo needs the op to remember what it destroyed.** The design assumed an inverse
+could be computed from the state the op saw, reconstructing that state by rewinding
+the log over the current rows. It cannot: neither mode holds anything but the
+ALREADY-replayed rows, so the first overwrite of a raw cell destroys the only copy of
+the original — and the inverse of `setCell 'new'` came out as `setCell 'new'`, an undo
+that ran, recorded an op, and changed nothing. `SetCellOp.prev` and
+`RemoveColumnOp.prev` now carry the replaced value and the removed column's cells;
+both are optional, so an older log still replays, and only its undo is degraded. Two
+consequences worth keeping in mind: a column snapshot is proportional to the column,
+which is why removal is confirmed and reads all rows rather than the current page; and
+the snapshot keys are `r<ordinal>`, because a JS object orders integer-like keys
+numerically whatever the insertion order, which would have made the canonical form
+differ between the TS and Python engines.
+
 ### Lot C — Dataset-backed timeline
 
 | St | Item | Effort |

@@ -19,6 +19,10 @@ import {
   Pencil,
   Loader2,
 } from 'lucide-react'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -29,6 +33,7 @@ import {
 } from '@/components/ui/select'
 import { useDatasetStore, emptyTableView, type DatasetTableView } from '@/stores/dataset-store'
 import { isServerMode } from '@/lib/api-client'
+import { queryDatasetRows } from '@/lib/api/datasets'
 import { useServerDatasetRows } from './use-server-dataset-rows'
 import { cn } from '@/lib/utils'
 import {
@@ -57,7 +62,9 @@ import { ResizeGrip } from '@/components/ui/table-primitives'
 import { TypeBadge, renderTypeMenuItems } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import { useColumnDistinct } from './use-column-distinct'
-import { ROW_ORD } from '@linkr/format'
+import {
+  cellKeyOfRow, cellValue as cellValueOf, ROW_ORD, type DatasetCellValue,
+} from '@linkr/format'
 import { useCellEditing } from './use-cell-editing'
 import { useFlashTarget } from './use-flash-target'
 import { EditColumnMetaDialog } from './EditColumnMetaDialog'
@@ -149,6 +156,10 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
   const [resizing, setResizing] = useState<{ colId: string; startX: number; startW: number } | null>(null)
   const [metaColumn, setMetaColumn] = useState<DatasetColumn | null>(null)
   const [movingColumn, setMovingColumn] = useState<DatasetColumn | null>(null)
+  // Deletions are confirmed: they drop data, and undoing a column is the one
+  // reversal that cannot restore everything.
+  const [deletingColumn, setDeletingColumn] = useState<DatasetColumn | null>(null)
+  const [deletingRow, setDeletingRow] = useState<number | null>(null)
 
   // Visible columns — pinned ones first (in pin order), then the rest in natural order
   const visibleColumns = useMemo(() => {
@@ -433,12 +444,28 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
     }])
   }, [applyOps, columns, fileId])
 
-  const removeColumn = useCallback((colId: string) => {
-    void applyOps(fileId, [{
+  const removeColumn = useCallback(async (colId: string) => {
+    const col = columns.find((c) => c.id === colId)
+    // Snapshot the column so the removal can be undone: replay deletes it outright,
+    // and nothing downstream keeps a copy. ALL rows, not the current page — a
+    // partial snapshot would make undo look successful while dropping every cell
+    // the user could not see.
+    const all = server
+      ? (await queryDatasetRows(fileId, { offset: 0, limit: totalCount || 100_000 })).rows
+      : sortedRows
+    const cells: Record<string, DatasetCellValue> = {}
+    for (const row of all) {
+      const value = cellValueOf(row[colId])
+      if (value !== null) cells[cellKeyOfRow(row[ROW_ORD] as number)] = value
+    }
+    await applyOps(fileId, [{
       id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
       type: 'removeColumn', column: colId,
+      prev: col
+        ? { name: col.name, colType: col.type, index: columns.indexOf(col), cells }
+        : undefined,
     }])
-  }, [applyOps, fileId])
+  }, [applyOps, columns, fileId, server, sortedRows, totalCount])
 
   /**
    * The column menu, rendered both in the header "..." dropdown and on right-click.
@@ -485,10 +512,15 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
           {t('datasets.col_edit_meta')}
         </Item>
 
-        {/* Type: one line that opens the choices, rather than one line per type. */}
+        {/* Type: one line that opens the choices, rather than one line per type.
+            The badge is a 20px box where every other row leads with a 13px icon,
+            which pushed this label out of the shared text column; centring it in a
+            13px slot puts the label back in line and lets the badge overhang. */}
         <Sub>
           <SubTrigger className="text-xs">
-            <TypeBadge type={col.type} size="sm" />
+            <span className="flex w-[13px] shrink-0 items-center justify-center overflow-visible">
+              <TypeBadge type={col.type} size="sm" noTooltip />
+            </span>
             {t('datasets.col_treat_as')}
           </SubTrigger>
           <SubContent>
@@ -575,7 +607,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                 </Item>
               </SubContent>
             </Sub>
-            <Item onClick={() => removeColumn(col.id)} className="text-xs" variant="destructive">
+            <Item onClick={() => setDeletingColumn(col)} className="text-xs" variant="destructive">
               <Trash2 size={13} />
               {t('datasets.col_delete')}
             </Item>
@@ -780,7 +812,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                         {t('datasets.row_move_down')}
                       </ContextMenuItem>
                       <ContextMenuSeparator />
-                      <ContextMenuItem onClick={() => removeRow(ordinal)} className="text-xs" variant="destructive">
+                      <ContextMenuItem onClick={() => setDeletingRow(ordinal as number)} className="text-xs" variant="destructive">
                         <Trash2 size={13} />
                         {t('datasets.row_delete')}
                       </ContextMenuItem>
@@ -990,6 +1022,53 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
           onOpenChange={(open) => { if (!open) setMovingColumn(null) }}
         />
       )}
+
+      <AlertDialog
+        open={deletingColumn != null}
+        onOpenChange={(open) => { if (!open) setDeletingColumn(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('datasets.col_delete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('datasets.col_delete_confirm', {
+                name: deletingColumn ? displayColumnName(deletingColumn) : '',
+                count: totalCount,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => { if (deletingColumn) void removeColumn(deletingColumn.id) }}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deletingRow != null}
+        onOpenChange={(open) => { if (!open) setDeletingRow(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('datasets.row_delete')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('datasets.row_delete_confirm')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => { if (deletingRow != null) removeRow(deletingRow) }}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
