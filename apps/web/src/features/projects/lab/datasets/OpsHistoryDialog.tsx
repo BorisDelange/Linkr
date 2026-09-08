@@ -1,5 +1,10 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Minimize2 } from 'lucide-react'
+import { Minimize2, RotateCcw, Undo2 } from 'lucide-react'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -15,61 +20,127 @@ interface Props {
 
 /**
  * The dataset's edit history — every operation recorded against the immutable raw
- * file, oldest first. This IS the audit trail: the raw is never written to, so
- * this list plus the raw file fully determines what the dataset contains.
+ * file. This IS the audit trail: the raw is never written to, so this list plus the
+ * raw file fully determines what the dataset contains.
+ *
+ * Shown newest first: a long-running collection accumulates hundreds of entries,
+ * and the ones worth checking are the ones just made.
  */
 export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
   const { t } = useTranslation()
   const file = useDatasetStore((s) => s.files.find((f) => f.id === fileId))
   const compactFileOps = useDatasetStore((s) => s.compactFileOps)
+  const undoLastOps = useDatasetStore((s) => s.undoLastOps)
+  const resetOps = useDatasetStore((s) => s.resetOps)
+  const [confirmingReset, setConfirmingReset] = useState(false)
+  const [busy, setBusy] = useState(false)
   const ops = file?.ops ?? []
   const columnName = (id: string) => file?.columns?.find((c) => c.id === id)?.name ?? id
 
+  // The last GROUP, so the highlight marks exactly what Undo would reverse — one
+  // user action can span several ops.
+  const lastGroup = ops.length ? ops[ops.length - 1].group : undefined
+  const undoes = (op: DatasetOp) =>
+    lastGroup ? op.group === lastGroup : op.id === ops[ops.length - 1]?.id
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true)
+    try { await action() } finally { setBusy(false) }
+  }
+
   return (
-    <DialogShell
-      open={open}
-      onOpenChange={onOpenChange}
-      kind="workbench"
-      title={t('datasets.edit_history')}
-      description={t('datasets.edit_history_description')}
-      footerExtra={
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!ops.length}
-          onClick={() => void compactFileOps(fileId)}
-        >
-          <Minimize2 className="mr-2 size-3.5" />
-          {t('datasets.compact_history')}
-        </Button>
-      }
-    >
-      <ScrollArea className="h-full">
-        {ops.length === 0 ? (
-          <p className="py-8 text-center text-xs text-muted-foreground">
-            {t('datasets.no_edits_yet')}
-          </p>
-        ) : (
-          <ol className="space-y-1">
-            {ops.map((op, i) => (
-              <li
-                key={op.id}
-                className="flex items-baseline gap-2 rounded border px-2 py-1.5 text-xs"
-              >
-                <span className="w-8 shrink-0 text-right tabular-nums text-muted-foreground">
-                  {i + 1}
-                </span>
-                <Badge variant="outline">{op.type}</Badge>
-                <span className="min-w-0 flex-1 truncate">{describe(op, columnName, t)}</span>
-                <span className="shrink-0 text-[10px] text-muted-foreground">
-                  {new Date(op.at).toLocaleString()}
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </ScrollArea>
-    </DialogShell>
+    <>
+      <DialogShell
+        open={open}
+        onOpenChange={onOpenChange}
+        kind="workbench"
+        title={t('datasets.edit_history')}
+        description={t('datasets.edit_history_description')}
+        footerExtra={
+          <div className="flex flex-1 items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!ops.length || busy}
+              onClick={() => void run(() => undoLastOps(fileId))}
+            >
+              <Undo2 className="mr-2 size-3.5" />
+              {t('datasets.undo_last_edit')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!ops.length || busy}
+              onClick={() => void run(() => compactFileOps(fileId))}
+            >
+              <Minimize2 className="mr-2 size-3.5" />
+              {t('datasets.compact_history')}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto text-destructive hover:text-destructive"
+              disabled={!ops.length || busy}
+              onClick={() => setConfirmingReset(true)}
+            >
+              <RotateCcw className="mr-2 size-3.5" />
+              {t('datasets.reset_to_raw')}
+            </Button>
+          </div>
+        }
+      >
+        <ScrollArea className="h-full">
+          {ops.length === 0 ? (
+            <p className="py-8 text-center text-xs text-muted-foreground">
+              {t('datasets.no_edits_yet')}
+            </p>
+          ) : (
+            <ol className="space-y-1">
+              {ops.map((op, i) => ({ op, position: i + 1 })).reverse().map(({ op, position }) => (
+                <li
+                  key={op.id}
+                  className={
+                    'flex items-baseline gap-2 rounded border px-2 py-1.5 text-xs'
+                    + (undoes(op) ? ' border-primary/40 bg-primary/5' : '')
+                  }
+                >
+                  {/* Numbered by position in the log, not by display order, so an
+                      entry keeps its number as newer ones push it down. */}
+                  <span className="w-8 shrink-0 text-right tabular-nums text-muted-foreground">
+                    {position}
+                  </span>
+                  <Badge variant="outline">{op.type}</Badge>
+                  <span className="min-w-0 flex-1 truncate">{describe(op, columnName, t)}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {new Date(op.at).toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </ScrollArea>
+      </DialogShell>
+
+      <AlertDialog open={confirmingReset} onOpenChange={setConfirmingReset}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('datasets.reset_to_raw')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('datasets.reset_to_raw_confirm', { count: ops.length })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void run(() => resetOps(fileId))}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t('datasets.discard_all_changes')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 

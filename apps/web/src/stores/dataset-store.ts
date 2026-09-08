@@ -716,7 +716,12 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       .then((meta) => {
         set((s) => ({
           files: s.files.map((f) =>
-            f.id === id ? { ...f, columns: meta.columns, rowCount: meta.rowCount } : f,
+            // `ops` too: without it an already-edited dataset opens claiming an
+            // empty history, which then fills in all at once on the first edit —
+            // the write's response being the first thing to carry the log.
+            f.id === id
+              ? { ...f, columns: meta.columns, rowCount: meta.rowCount, ops: meta.ops }
+              : f,
           ),
         }))
       })

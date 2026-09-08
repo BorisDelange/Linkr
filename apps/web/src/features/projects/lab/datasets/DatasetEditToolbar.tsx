@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDown, ArrowUp, Check, History, Pencil, Plus, RotateCcw, Trash2, Undo2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, History, Pencil, Plus, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -36,7 +36,6 @@ export function DatasetEditToolbar({
   const { t } = useTranslation()
   const applyOps = useDatasetStore((s) => s.applyOps)
   const undoLastOps = useDatasetStore((s) => s.undoLastOps)
-  const resetOps = useDatasetStore((s) => s.resetOps)
   const file = useDatasetStore((s) => s.files.find((f) => f.id === fileId))
   const [addingColumn, setAddingColumn] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -159,29 +158,22 @@ export function DatasetEditToolbar({
               <TooltipContent className="max-w-xs">{t('datasets.undo_edit')}</TooltipContent>
             </Tooltip>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="xs" disabled={!hasOps}>
-                  <History className="size-3.5" />
-                  <span className="ml-1 tabular-nums">{ops.length}</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{t('datasets.edit_history')}</DropdownMenuLabel>
-                <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
-                  <History className="mr-2 size-3.5" />
-                  {t('datasets.view_history')}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={() => void resetOps(fileId)}
-                >
-                  <RotateCcw className="mr-2 size-3.5" />
-                  {t('datasets.reset_to_raw')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={!hasOps}
+                    onClick={() => setHistoryOpen(true)}
+                  >
+                    <History className="size-3.5" />
+                    <span className="ml-1 tabular-nums">{ops.length}</span>
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">{t('datasets.edit_history')}</TooltipContent>
+            </Tooltip>
           </>
         )}
 
