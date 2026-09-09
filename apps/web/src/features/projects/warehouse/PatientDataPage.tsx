@@ -29,6 +29,10 @@ import { useMyProjectRole } from '@/hooks/use-context-role'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 
+/** Default width of each side panel. The patient sidebar and the collection panel
+ *  share it so opening the second doesn't make the pair look mismatched. */
+const SIDE_PANE_WIDTH = 320
+
 export function PatientDataPage() {
   const { t } = useTranslation()
   const { wsUid, projectUid: resolvedUid, raw } = useResolvedParams()
@@ -287,7 +291,10 @@ export function PatientDataPage() {
 
         {/* Main content: dashboard + sidebar */}
         <div className="flex-1 overflow-hidden">
-          <Allotment>
+          {/* proportionalLayout={false}: the side panels keep the width they were
+              given instead of growing with the window or absorbing a share of the
+              space freed when the other one closes. */}
+          <Allotment proportionalLayout={false}>
             <Allotment.Pane minSize={500}>
               {tabWidgets.length > 0 ? (
                 mountedTabs.map((tab) => (
@@ -351,12 +358,12 @@ export function PatientDataPage() {
                 </div>
               )}
             </Allotment.Pane>
-            <Allotment.Pane minSize={250} preferredSize={320} visible={sidebarVisible}>
+            <Allotment.Pane minSize={250} preferredSize={SIDE_PANE_WIDTH} maxSize={640} visible={sidebarVisible}>
               <PatientDataSidebar />
             </Allotment.Pane>
             {/* Docked, not overlaid: the collector reads the chart and fills this at
                 the same time, so dimming the page would hide the source. */}
-            <Allotment.Pane minSize={280} preferredSize={340} visible={collectionOpen}>
+            <Allotment.Pane minSize={250} preferredSize={SIDE_PANE_WIDTH} maxSize={640} visible={collectionOpen}>
               <CollectionSidebar
                 onClose={() => setCollectionOpen(false)}
                 projectUid={projectUid}
