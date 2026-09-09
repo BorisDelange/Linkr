@@ -1,20 +1,18 @@
 /**
  * The baseline reconstruction behind undo.
  *
- * Inverses are built against the state their op saw, which means replaying the log
- * forward from the UNEDITED parsed rows. Neither mode hands those over directly:
+ * Undo drops the last action from the log and replays what remains, so it needs the
+ * UNEDITED parsed rows to replay over. Neither mode hands those over directly:
  * front-only holds the already-replayed rows in memory, and server mode pages the
  * already-replayed cache. `unreplay` reconstructs the baseline by rewinding what
  * the log did — the property tested here.
  *
  * The end-to-end suite at the bottom is the one that matters: it runs the store's
- * actual undo sequence, which is where a baseline that looks plausible in
- * isolation still produced an inverse that changed nothing.
+ * actual undo sequence, which is where an earlier design — appending each op's
+ * inverse — produced an inverse that changed nothing.
  */
 import { describe, expect, it } from 'vitest'
-import {
-  cellKeyOfRow, invertOpFull, ROW_ORD, replayOps, type DatasetOp, type ReplayInput,
-} from '@linkr/format'
+import { ROW_ORD, replayOps, type DatasetOp, type ReplayInput } from '@linkr/format'
 import { unreplay } from './dataset-ops-baseline'
 
 let seq = 0
@@ -97,17 +95,21 @@ describe('unreplay', () => {
 })
 
 /**
- * Undo end-to-end, mirroring `undoLastOps`: reconstruct the baseline from the
- * replayed state, invert the last op against it, and replay the whole log plus the
- * inverse. What the user should see is the dataset as it was before that op.
+ * Undo end-to-end, mirroring `undoLastOps`: DROP the last group from the log and
+ * replay what remains over the baseline.
+ *
+ * There is no inverse to compute. The dataset is `raw -> parse -> replay(ops)` and
+ * the raw is immutable, so a shorter log simply *is* the earlier state — which is
+ * also why no value can be unrecoverable, however the log was written.
  */
 function undoLast(raw: ReplayInput, log: DatasetOp[]): ReplayInput {
-  const replayed = replayOps(raw, log)
-  const base = unreplay({ columns: replayed.columns, rows: replayed.rows }, log)
-  const last = log.length - 1
-  const before = replayOps(base, log.slice(0, last))
-  const inverses = invertOpFull(log[last], before, mint)
-  return replayOps(base, [...log, ...inverses])
+  // Mirrors the store: the baseline is captured on the FIRST edit, when the log is
+  // still empty, so the rewind is exact. Deriving it later — from rows the log has
+  // already changed — is what loses a raw cell's original value.
+  const base = unreplay(raw, [])
+  const groupId = log[log.length - 1]?.group
+  const start = groupId ? log.findIndex((op) => op.group === groupId) : log.length - 1
+  return replayOps(base, log.slice(0, start))
 }
 
 describe('undo', () => {
@@ -115,72 +117,94 @@ describe('undo', () => {
   const oneRow = (): ReplayInput => ({ columns: cols, rows: [{ [ROW_ORD]: 0, col_a: 'old' }] })
 
   it('restores a raw cell overwritten once', () => {
-    // The regression: without `prev` the baseline still held 'new', so the inverse
-    // was `setCell 'new'` and undo appeared to do nothing at all.
     const log: DatasetOp[] = [
-      { ...mint(), type: 'setCell', row: 0, column: 'col_a', value: 'new', prev: 'old' },
+      { ...mint(), group: 'g1', type: 'setCell', row: 0, column: 'col_a', value: 'new' },
     ]
     expect(undoLast(oneRow(), log).rows[0].col_a).toBe('old')
   })
 
   it('restores the previous value when a cell was edited twice', () => {
     const log: DatasetOp[] = [
-      { ...mint(), type: 'setCell', row: 0, column: 'col_a', value: 'first', prev: 'old' },
-      { ...mint(), type: 'setCell', row: 0, column: 'col_a', value: 'second', prev: 'first' },
+      { ...mint(), group: 'g1', type: 'setCell', row: 0, column: 'col_a', value: 'first' },
+      { ...mint(), group: 'g2', type: 'setCell', row: 0, column: 'col_a', value: 'second' },
     ]
     expect(undoLast(oneRow(), log).rows[0].col_a).toBe('first')
   })
 
   it('restores a cell that was empty before the edit', () => {
-    // `prev: null` must survive canonicalisation — dropped as "absent", undo would
-    // fall back to the replayed value and keep the edit.
     const raw: ReplayInput = { columns: cols, rows: [{ [ROW_ORD]: 0, col_a: null }] }
     const log: DatasetOp[] = [
-      { ...mint(), type: 'setCell', row: 0, column: 'col_a', value: 'typed', prev: null },
+      { ...mint(), group: 'g1', type: 'setCell', row: 0, column: 'col_a', value: 'typed' },
     ]
     expect(undoLast(raw, log).rows[0].col_a).toBeNull()
   })
 
-  it('undoes a log written before `prev` existed, as far as it can', () => {
-    const log: DatasetOp[] = [
-      { ...mint(), type: 'setCell', row: 0, column: 'col_a', value: 'first' },
-      { ...mint(), type: 'setCell', row: 0, column: 'col_a', value: 'second' },
-    ]
-    expect(undoLast(oneRow(), log).rows[0].col_a).toBe('first')
-  })
-
   it('removes a row the log added', () => {
     const log: DatasetOp[] = [
-      { ...mint(), type: 'addRow', row: -1, values: { col_a: 'added' } },
+      { ...mint(), group: 'g1', type: 'addRow', row: -1, values: { col_a: 'added' } },
     ]
     expect(undoLast(oneRow(), log).rows).toHaveLength(1)
   })
 
   it('removes a column the log added', () => {
     const log: DatasetOp[] = [
-      { ...mint(), type: 'addColumn', column: 'col_b', name: 'b', colType: 'string' },
+      { ...mint(), group: 'g1', type: 'addColumn', column: 'col_b', name: 'b', colType: 'string' },
     ]
     expect(undoLast(oneRow(), log).columns.map((c) => c.id)).toEqual(['col_a'])
   })
 
-  it('restores a removed column with its data, from the snapshot the op carries', () => {
-    // Replay deletes the column and its cells outright, so the snapshot is the
-    // only copy left; without it undo re-adds an empty column.
-    const log: DatasetOp[] = [{
-      ...mint(), type: 'removeColumn', column: 'col_a',
-      prev: { name: 'a', colType: 'string', index: 0, cells: { [cellKeyOfRow(0)]: 'old' } },
-    }]
+  it('restores a removed column with its data', () => {
+    // Truncation restores this for free, where computing an inverse could not: the
+    // cells are back because they were never absent from the raw.
+    const log: DatasetOp[] = [{ ...mint(), group: 'g1', type: 'removeColumn', column: 'col_a' }]
     const after = undoLast(oneRow(), log)
     expect(after.columns.map((c) => c.id)).toEqual(['col_a'])
     expect(after.rows[0].col_a).toBe('old')
   })
 
-  it('cannot undo a column removal recorded before the snapshot field', () => {
-    // Documenting a real limit, not endorsing it: replay deletes the column and
-    // every cell, and a pre-`prev` op kept no copy — so neither the shape nor the
-    // data is anywhere to be found and undo is a no-op. Only logs written by this
-    // version onwards are reversible here; nothing can retrofit the old ones.
-    const log: DatasetOp[] = [{ ...mint(), type: 'removeColumn', column: 'col_a' }]
-    expect(undoLast(oneRow(), log).columns).toEqual([])
+  it('reverses a whole group, not just its last op', () => {
+    // One user action can record several ops; dropping a fragment would leave the
+    // dataset half-changed.
+    const log: DatasetOp[] = [
+      { ...mint(), group: 'g1', type: 'addColumn', column: 'col_b', name: 'b', colType: 'string' },
+      { ...mint(), group: 'g1', type: 'setCell', row: 0, column: 'col_b', value: 'x' },
+    ]
+    expect(undoLast(oneRow(), log).columns.map((c) => c.id)).toEqual(['col_a'])
+  })
+
+  it('leaves nothing behind once every action is undone', () => {
+    // The point of truncating: undo shortens the log instead of appending to it,
+    // so repeated undos terminate at the raw file rather than growing forever.
+    let log: DatasetOp[] = [
+      { ...mint(), group: 'g1', type: 'setCell', row: 0, column: 'col_a', value: 'x' },
+      { ...mint(), group: 'g2', type: 'setCell', row: 0, column: 'col_a', value: 'y' },
+    ]
+    for (let i = 0; i < 2; i++) {
+      const groupId = log[log.length - 1].group
+      const start = log.findIndex((op) => op.group === groupId)
+      log = log.slice(0, start)
+    }
+    expect(log).toEqual([])
+    expect(replayOps(oneRow(), log).rows[0].col_a).toBe('old')
+  })
+})
+
+describe('a baseline derived late', () => {
+  const cols = [{ id: 'col_a', name: 'a', type: 'string' as const, order: 0 }]
+
+  it('keeps the edited value rather than blanking it', () => {
+    // Front-only, reopening a file that already carries a log: the baseline was not
+    // captured before the first edit, so the raw value is genuinely gone. `unreplay`
+    // must then leave the cell as it stands — blanking it would destroy real data to
+    // satisfy a reconstruction, and replaying the log re-applies the value anyway.
+    const raw: ReplayInput = { columns: cols, rows: [{ [ROW_ORD]: 0, col_a: 'raw' }] }
+    const log: DatasetOp[] = [
+      { ...mint(), group: 'g1', type: 'setCell', row: 0, column: 'col_a', value: 'edited' },
+    ]
+    const replayed = replayOps(raw, log)
+    const late = unreplay({ columns: replayed.columns, rows: replayed.rows }, log)
+    expect(late.rows[0].col_a).toBe('edited')
+    // Replaying the full log over it still shows what the user last saw.
+    expect(replayOps(late, log).rows[0].col_a).toBe('edited')
   })
 })

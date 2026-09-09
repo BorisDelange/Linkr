@@ -11,6 +11,7 @@ import { DialogShell } from '@/components/ui/dialog-shell'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { useUserDirectoryStore } from '@/stores/user-directory-store'
 import type { DatasetOp, DatasetOpType } from '@linkr/format'
 
 /** One row of the history table: an op plus what the view needs about it. */
@@ -19,8 +20,7 @@ interface OpRow {
   /** Position in the log — kept as rows are shown newest first. */
   position: number
   label: string
-  /** True when Undo would reverse this op (it belongs to the last group). */
-  undoable: boolean
+  author: string
 }
 
 /**
@@ -66,6 +66,7 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
   const compactFileOps = useDatasetStore((s) => s.compactFileOps)
   const undoLastOps = useDatasetStore((s) => s.undoLastOps)
   const resetOps = useDatasetStore((s) => s.resetOps)
+  const resolveName = useUserDirectoryStore((s) => s.resolveName)
   const [confirmingReset, setConfirmingReset] = useState(false)
   const [busy, setBusy] = useState(false)
   const ops = file?.ops ?? []
@@ -76,22 +77,17 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
     try { await action() } finally { setBusy(false) }
   }
 
-  const rows = useMemo<OpRow[]>(() => {
-    // The last GROUP, so the highlight marks exactly what Undo would reverse — one
-    // user action can span several ops.
-    const last = ops[ops.length - 1]
-    const lastGroup = last?.group
-    return ops
-      .map((op, i) => ({
-        op,
-        position: i + 1,
-        label: describe(op, columnName, t),
-        undoable: lastGroup ? op.group === lastGroup : op.id === last?.id,
-      }))
-      .reverse()
-    // `columnName` closes over the file's columns, which `ops` changes alongside.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ops, t])
+  const rows = useMemo<OpRow[]>(() => ops
+    .map((op, i) => ({
+      op,
+      position: i + 1,
+      label: describe(op, columnName, t),
+      author: op.by == null ? '' : resolveName(Number(op.by)),
+    }))
+    .reverse(),
+  // `columnName` closes over the file's columns, which `ops` changes alongside.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [ops, resolveName, t])
 
   const columns = useMemo<ConceptColumn<OpRow>[]>(() => [
     {
@@ -119,6 +115,16 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
       accessor: (r) => r.label,
       filter: 'text',
       size: 380,
+    },
+    {
+      id: 'author',
+      header: t('authoring.author'),
+      // The log is shared, so an entry without an author is one recorded before
+      // the field was stamped — shown as a dash rather than as nobody.
+      accessor: (r) => r.author,
+      display: (r) => r.author || '—',
+      filter: 'select',
+      size: 160,
     },
     {
       id: 'at',
@@ -179,7 +185,6 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
           stickyHeader
           density="compact"
           emptyMessage={t('datasets.no_edits_yet')}
-          rowClassName={(r) => (r.undoable ? 'bg-primary/5' : undefined)}
         />
       </DialogShell>
 

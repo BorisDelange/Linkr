@@ -33,7 +33,6 @@ import {
 } from '@/components/ui/select'
 import { useDatasetStore, emptyTableView, type DatasetTableView } from '@/stores/dataset-store'
 import { isServerMode } from '@/lib/api-client'
-import { queryDatasetRows } from '@/lib/api/datasets'
 import { useServerDatasetRows } from './use-server-dataset-rows'
 import { cn } from '@/lib/utils'
 import {
@@ -62,9 +61,7 @@ import { ResizeGrip } from '@/components/ui/table-primitives'
 import { TypeBadge, renderTypeMenuItems } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import { useColumnDistinct } from './use-column-distinct'
-import {
-  cellKeyOfRow, cellValue as cellValueOf, ROW_ORD, type DatasetCellValue,
-} from '@linkr/format'
+import { ROW_ORD } from '@linkr/format'
 import { useCellEditing } from './use-cell-editing'
 import { useFlashTarget } from './use-flash-target'
 import { EditColumnMetaDialog } from './EditColumnMetaDialog'
@@ -444,28 +441,12 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
     }])
   }, [applyOps, columns, fileId])
 
-  const removeColumn = useCallback(async (colId: string) => {
-    const col = columns.find((c) => c.id === colId)
-    // Snapshot the column so the removal can be undone: replay deletes it outright,
-    // and nothing downstream keeps a copy. ALL rows, not the current page — a
-    // partial snapshot would make undo look successful while dropping every cell
-    // the user could not see.
-    const all = server
-      ? (await queryDatasetRows(fileId, { offset: 0, limit: totalCount || 100_000 })).rows
-      : sortedRows
-    const cells: Record<string, DatasetCellValue> = {}
-    for (const row of all) {
-      const value = cellValueOf(row[colId])
-      if (value !== null) cells[cellKeyOfRow(row[ROW_ORD] as number)] = value
-    }
-    await applyOps(fileId, [{
+  const removeColumn = useCallback((colId: string) => {
+    void applyOps(fileId, [{
       id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
       type: 'removeColumn', column: colId,
-      prev: col
-        ? { name: col.name, colType: col.type, index: columns.indexOf(col), cells }
-        : undefined,
     }])
-  }, [applyOps, columns, fileId, server, sortedRows, totalCount])
+  }, [applyOps, fileId])
 
   /**
    * The column menu, rendered both in the header "..." dropdown and on right-click.
@@ -1041,7 +1022,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() => { if (deletingColumn) void removeColumn(deletingColumn.id) }}
+              onClick={() => { if (deletingColumn) removeColumn(deletingColumn.id) }}
             >
               {t('common.delete')}
             </AlertDialogAction>

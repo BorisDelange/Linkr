@@ -6,12 +6,12 @@ import { coerceValue } from '@/lib/dataset-utils'
 import { isServerMode } from '@/lib/api-client'
 import { createEmptyDataset, duplicateDataset, fetchDatasetMeta, recordDatasetOps, reimportDataset } from '@/lib/api/datasets'
 import {
-  compactOps, invertOpFull, replayOps,
+  compactOps, replayOps,
   type DatasetOp, type OpColumn, type ReplayInput,
 } from '@linkr/format'
 import { unreplay } from '@/stores/dataset-ops-baseline'
 import { planColumnRename, rekeyFilter, rekeyWidgetConfig, type ColumnRenamePlan } from '@/lib/dataset-column-rename'
-import { stampAuthored } from '@/stores/app-store'
+import { stampAuthored, useAppStore } from '@/stores/app-store'
 
 /** Per-file table view state (filters, sort, paging, layout). Held in the store rather
  *  than in the table component so it survives navigating away from the Datasets page. */
@@ -179,7 +179,13 @@ const MAX_UNDO = 50
 // them over the parsed raw. Server mode posts the ops and takes the rebuilt node
 // back; front-only replays in the browser and persists the result to IndexedDB.
 
-/** The unedited parsed baseline: raw rows with NO ops applied. */
+/**
+ * The unedited parsed baseline: raw rows with NO ops applied.
+ *
+ * Captured once and held: it is reconstructed from the CURRENT rows minus the
+ * CURRENT log, so re-deriving it after the log has changed would rewind the wrong
+ * ops. Only a reparse of the raw invalidates it — `reimportData` clears the entry.
+ */
 const _rawBaseline = new Map<string, ReplayInput>()
 
 function mintOp(group?: string): { id: string; at: number; group?: string } {
@@ -189,30 +195,22 @@ function mintOp(group?: string): { id: string; at: number; group?: string } {
 /**
  * The parsed-but-unedited dataset an op log replays over.
  *
- * Front-only keeps the baseline in memory: `_loadedData` holds the CURRENT rows
- * (already replayed), so re-deriving from it would apply the log twice. The
- * baseline is captured the first time a file is edited, from the current rows
- * minus the current log.
+ * `_loadedData` holds the CURRENT rows (already replayed), so re-deriving from it
+ * would apply the log twice; `unreplay` rewinds them instead.
+ *
+ * Called BEFORE the log is extended (see `recordOps`), so on a file's first edit
+ * the log is still empty and the rewind is exact — the current rows simply are the
+ * raw. That is what makes the cached baseline trustworthy: rewinding a log that has
+ * already grown cannot recover a raw cell's first overwritten value, nor a column
+ * the log removed.
  */
-async function parsedInput(fileId: string): Promise<ReplayInput | null> {
+function parsedInput(fileId: string): ReplayInput | null {
   const cached = _rawBaseline.get(fileId)
   if (cached) return cached
 
   const file = useDatasetStore.getState().files.find((f) => f.id === fileId)
   if (!file || file.type !== 'file') return null
   const columns = (file.columns ?? []) as OpColumn[]
-
-  if (isServerMode()) {
-    // The server holds the raw; rows are paged, never materialised client-side.
-    // Inverses need real cell values, so ask for the whole thing — an undo is rare
-    // and bounded by the dataset the user is actively editing.
-    const { queryDatasetRows } = await import('@/lib/api/datasets')
-    const page = await queryDatasetRows(fileId, { offset: 0, limit: file.rowCount ?? 100_000 })
-    // These rows are ALREADY replayed, so strip the log back off to get the base.
-    const baseline = unreplay({ columns, rows: page.rows }, file.ops ?? [])
-    _rawBaseline.set(fileId, baseline)
-    return baseline
-  }
 
   const baseline = unreplay({ columns, rows: _loadedData.get(fileId) ?? [] }, file.ops ?? [])
   _rawBaseline.set(fileId, baseline)
@@ -255,11 +253,27 @@ async function repairColumnRefs(fileId: string, plan: ColumnRenamePlan): Promise
   ])
 }
 
+/**
+ * Stamp the current user on ops that don't name one.
+ *
+ * Only ops without a `by` are touched, so a rewrite of the log (undo, compaction)
+ * cannot reattribute someone else's edits to whoever triggered it — the log is
+ * shared, and it is the record of who changed what.
+ */
+function stampAuthor(ops: DatasetOp[]): DatasetOp[] {
+  const by = useAppStore.getState().user?.id
+  if (!by) return ops
+  return ops.map((op) => (op.by ? op : { ...op, by }))
+}
+
 /** Persist ops and refresh the store's view of the file. */
 async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Promise<void> {
   const state = useDatasetStore.getState()
   const file = state.files.find((f) => f.id === fileId)
   if (!file || file.type !== 'file') return
+  ops = stampAuthor(ops)
+  // Before the log is extended: on a first edit the rewind below is exact.
+  if (!isServerMode()) parsedInput(fileId)
 
   if (isServerMode()) {
     const { file: updated } = await recordDatasetOps(fileId, ops, { replace })
@@ -271,7 +285,7 @@ async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Pr
   }
 
   const log = replace ? ops : [...(file.ops ?? []), ...ops]
-  const baseline = await parsedInput(fileId)
+  const baseline = parsedInput(fileId)
   if (!baseline) return
   const { columns, rows } = replayOps(baseline, log)
 
@@ -1046,6 +1060,9 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   },
 
   reimportData: async (fileId, columns, rows, parseOptions) => {
+    // A reparse changes what the log replays over, so the cached baseline no
+    // longer describes this file.
+    _rawBaseline.delete(fileId)
     // Server mode: re-parse the stored raw blob server-side (DuckDB) and take the
     // recomputed columns/rowCount from the response. The client-parsed rows aren't
     // sent — the browser never round-trips the data.
@@ -1072,6 +1089,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   setColumnType: async (fileId, columnId, type) => {
     const file = get().files.find((f) => f.id === fileId)
     if (!file || file.type !== 'file') return
+    // Forcing a type reparses the raw, so the baseline's values change with it.
+    _rawBaseline.delete(fileId)
     const parseOptions = {
       ...file.parseOptions,
       columnTypes: { ...file.parseOptions?.columnTypes, [columnId]: type },
@@ -1332,28 +1351,27 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     if (ops.length) await recordOps(fileId, ops, false)
   },
 
+  /**
+   * Undo by DROPPING the last action from the log, not by appending its inverse.
+   *
+   * The dataset is `raw → parse → replay(ops)` and the raw is immutable, so a
+   * shorter log simply *is* the earlier state — nothing has to be reconstructed,
+   * and no value can be unrecoverable. Appending inverses instead made the log
+   * grow with every undo, left "undo of an undo" as a visible entry, and turned
+   * the history into a record of the user's hesitation rather than of the
+   * dataset's content.
+   *
+   * Removes the last GROUP, since one user action can record several ops
+   * (restoring a column is an addColumn plus a setCell per cell) and dropping a
+   * fragment would leave the dataset half-changed.
+   */
   undoLastOps: async (fileId) => {
     const log = get().files.find((f) => f.id === fileId)?.ops ?? []
     if (!log.length) return
 
-    // Undo the last GROUP, not the last op: one user action can record several ops
-    // (restoring a removed column is an addColumn plus a setCell per cell), and
-    // reversing a fragment of it would leave the dataset half-changed.
     const groupId = log[log.length - 1].group
     const start = groupId ? log.findIndex((op) => op.group === groupId) : log.length - 1
-    const group = log.slice(start)
-
-    // An inverse is built against the state its op saw, so replay forward to each
-    // op's own vantage point and invert in reverse order.
-    const parsed = await parsedInput(fileId)
-    if (!parsed) return
-    const undoGroup = uid()
-    const inverses: DatasetOp[] = []
-    for (let i = group.length - 1; i >= 0; i--) {
-      const before = replayOps(parsed, log.slice(0, start + i))
-      inverses.push(...invertOpFull(group[i], before, () => mintOp(undoGroup)))
-    }
-    if (inverses.length) await recordOps(fileId, inverses, false)
+    await recordOps(fileId, log.slice(0, start), true)
   },
 
   undoableOpCount: (fileId) => {

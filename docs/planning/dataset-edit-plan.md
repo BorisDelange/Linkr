@@ -133,19 +133,29 @@ key was dropped from the cache and server-mode editing could not have worked. Th
 cache now carries it — only for a dataset that has a log, and never as a column the
 UI, stats or exports can see.
 
-**Undo needs the op to remember what it destroyed.** The design assumed an inverse
-could be computed from the state the op saw, reconstructing that state by rewinding
-the log over the current rows. It cannot: neither mode holds anything but the
-ALREADY-replayed rows, so the first overwrite of a raw cell destroys the only copy of
-the original — and the inverse of `setCell 'new'` came out as `setCell 'new'`, an undo
-that ran, recorded an op, and changed nothing. `SetCellOp.prev` and
-`RemoveColumnOp.prev` now carry the replaced value and the removed column's cells;
-both are optional, so an older log still replays, and only its undo is degraded. Two
-consequences worth keeping in mind: a column snapshot is proportional to the column,
-which is why removal is confirmed and reads all rows rather than the current page; and
-the snapshot keys are `r<ordinal>`, because a JS object orders integer-like keys
-numerically whatever the insertion order, which would have made the canonical form
-differ between the TS and Python engines.
+**Undo truncates the log; it does not append an inverse.** The first design computed
+each op's inverse and appended it. That was wrong twice over. Practically, the log
+grew with every undo, "undo of an undo" showed up as history, and undoing was
+endless — the log became a record of the user's hesitation rather than of the
+dataset's content. Fundamentally, an inverse is computed against the state its op
+saw, and neither mode holds anything but the ALREADY-replayed rows: the first
+overwrite of a raw cell destroys the only copy of the original, so the inverse of
+`setCell 'new'` came out as `setCell 'new'` — an undo that ran, recorded an op, and
+changed nothing.
+
+Dropping the last group and re-deriving is both simpler and strictly more capable:
+`raw → parse → replay(ops)` with an immutable raw means a shorter log *is* the
+earlier state, so nothing has to be reconstructed and nothing can be unrecoverable —
+including a removed column's data, which no inverse could have restored. Server mode
+gets this for free (the route already supports a replace, and `resolve_cache`
+re-derives from the raw).
+
+Front-only has one constraint left: it holds no raw, so the baseline is reconstructed
+by rewinding the log, and that is exact **only while the log is empty**. `recordOps`
+therefore captures it before the first op is added. Reopening a file that already
+carries a log in a fresh front-only session cannot recover a raw cell's original
+value; `unreplay` then leaves the cell as it stands rather than blanking it, which is
+what the "baseline derived late" test pins.
 
 ### Lot C — Dataset-backed timeline
 
