@@ -98,7 +98,9 @@ interface DatasetState {
   renameColumn: (fileId: string, columnId: string, newName: string) => Promise<void>
   /** Update a column's descriptive metadata (label, description, value labels).
    *  Metadata-only — touches `columns` not the Parquet, so it works in server mode. */
-  updateColumnMeta: (fileId: string, columnId: string, meta: Pick<DatasetColumn, 'label' | 'description' | 'valueLabels'>) => void
+  updateColumnMeta: (fileId: string, columnId: string, meta: Pick<DatasetColumn,
+    'label' | 'description' | 'valueLabels'
+    | 'required' | 'allowedValues' | 'min' | 'max' | 'withTime'>) => void
   reorderColumns: (fileId: string, fromIndex: number, toIndex: number) => void
   /** Force a column's type (right-click "Treat as…"). Persisted in parseOptions;
    *  server re-parses the cache, local re-coerces in-memory rows. */
@@ -946,8 +948,19 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       Object.entries(meta.valueLabels ?? {}).filter(([, v]) => v?.trim()),
     )
     const valueLabels = Object.keys(cleaned).length > 0 ? cleaned : undefined
+    // Entry constraints. Written as undefined when unset so an untouched column
+    // stays byte-identical in the export rather than gaining empty keys.
+    const allowedValues = meta.allowedValues?.length ? meta.allowedValues : undefined
     const updatedColumns = columns.map((c) =>
-      c.id === columnId ? { ...c, label, description, valueLabels } : c,
+      c.id === columnId
+        ? {
+            ...c, label, description, valueLabels, allowedValues,
+            required: meta.required || undefined,
+            min: meta.min === '' || meta.min == null ? undefined : meta.min,
+            max: meta.max === '' || meta.max == null ? undefined : meta.max,
+            withTime: meta.withTime || undefined,
+          }
+        : c,
     )
     set((s) => ({
       files: s.files.map((f) => f.id === fileId ? { ...f, columns: updatedColumns, updatedAt: new Date().toISOString() } : f),

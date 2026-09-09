@@ -11,6 +11,7 @@ import { RelationsTable, type RelationRow } from './RelationsTable'
 // loads only when the hierarchy graph actually renders (not with the whole page).
 import type { Network, DataSet, Edge } from 'vis-network/standalone'
 import { queryDataSource } from '@/lib/duckdb/engine'
+import { RESIZE_HANDLE_CLASS } from '@/hooks/use-resizable-sidebar'
 import {
   buildConceptRelationsQuery,
   buildConceptAncestorsQuery,
@@ -645,7 +646,7 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
         className="flex flex-col p-0 gap-0"
       >
         <div
-          className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 z-50"
+          className={RESIZE_HANDLE_CLASS}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

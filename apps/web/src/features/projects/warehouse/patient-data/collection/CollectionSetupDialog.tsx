@@ -62,6 +62,9 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
 
   const [tab, setTab] = useState('dataset')
   const [draft, setDraft] = useState<Partial<PatientCollectionConfig>>(config ?? {})
+  // Re-seeded each time the dialog opens, so closing it discards the edits rather
+  // than holding them for the next visit — Close reads as "cancel" everywhere else.
+  useEffect(() => { if (open) setDraft(config ?? {}) }, [open, config])
   const [newName, setNewName] = useState('')
   const [newColumn, setNewColumn] = useState('')
   const [newColumnType, setNewColumnType] = useState<DatasetColumn['type']>('string')
@@ -102,7 +105,7 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
     setBusy(true)
     try {
       const cols: DatasetColumn[] = identityColumnsFromMapping(schemaMapping).map((col, i) => ({
-        id: deriveColumnId(col.name), name: col.name, type: 'string', order: i,
+        id: deriveColumnId(col.name), name: col.name, type: col.type, order: i,
       }))
       const fileId = await createFileWithData(`${name}.csv`, null, cols, [])
       setDraft({
@@ -363,6 +366,7 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
     <FormField
       label={t('patient_data.collection_save_mode')}
       hint={t('patient_data.collection_save_mode_hint')}
+      hintInTooltip
     >
       {({ id }) => (
         <Select
@@ -395,7 +399,9 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
         onOpenChange={onOpenChange}
         kind="settings"
         title={t('patient_data.collection_setup')}
-        description={t('patient_data.collection_setup_description')}
+        // Wider than a stock settings dialog: the type dropdowns hold labels like
+        // "Date / datetime" that a narrower column truncates to uselessness.
+        className="sm:max-w-2xl"
         onConfirm={save}
         confirmLabel={t('common.save')}
         confirmDisabled={!draft.datasetFileId || !draft.personColumn}
@@ -414,6 +420,12 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
             </TabsTrigger>
           </TabsList>
         </Tabs>
+
+        {/* Below the tabs, not above: as a dialog description it pushed the tabs
+            down and described only the first of the three panels. */}
+        <p className="mt-3 text-xs text-muted-foreground">
+          {t('patient_data.collection_setup_description')}
+        </p>
 
         {/* Sized to the tallest panel from the first frame, so switching tabs never
             moves the triggers out from under the pointer. */}

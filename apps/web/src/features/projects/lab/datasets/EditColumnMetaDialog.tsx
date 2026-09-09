@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { FormField } from '@/components/ui/form-field'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { fetchColumnDistinct } from '@/lib/api/datasets'
@@ -34,6 +35,11 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
   const [label, setLabel] = useState(column.label ?? '')
   const [description, setDescription] = useState(column.description ?? '')
   const [valueLabels, setValueLabels] = useState<Record<string, string>>(column.valueLabels ?? {})
+  const [required, setRequired] = useState(column.required ?? false)
+  const [withTime, setWithTime] = useState(column.withTime ?? false)
+  const [allowed, setAllowed] = useState((column.allowedValues ?? []).join('\n'))
+  const [min, setMin] = useState(column.min == null ? '' : String(column.min))
+  const [max, setMax] = useState(column.max == null ? '' : String(column.max))
   // Server-fetched distinct codes (server mode only); local mode derives them from rows below.
   const [serverDistinct, setServerDistinct] = useState<string[]>([])
 
@@ -78,14 +84,30 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
     () => Object.fromEntries(Object.entries(valueLabels).filter(([, v]) => v.trim() !== '')),
     [valueLabels],
   )
+  const allowedValues = useMemo(
+    () => allowed.split('\n').map((v) => v.trim()).filter(Boolean),
+    [allowed],
+  )
   const dirty =
     label !== (column.label ?? '') ||
     description !== (column.description ?? '') ||
+    required !== (column.required ?? false) ||
+    withTime !== (column.withTime ?? false) ||
+    min !== (column.min == null ? '' : String(column.min)) ||
+    max !== (column.max == null ? '' : String(column.max)) ||
+    JSON.stringify(allowedValues) !== JSON.stringify(column.allowedValues ?? []) ||
     JSON.stringify(cleanedValueLabels) !== JSON.stringify(column.valueLabels ?? {})
 
   const handleSave = () => {
     if (!dirty) return
-    updateColumnMeta(fileId, column.id, { label, description, valueLabels: cleanedValueLabels })
+    updateColumnMeta(fileId, column.id, {
+      label, description, valueLabels: cleanedValueLabels,
+      required, withTime, allowedValues,
+      // Numeric bounds are stored as numbers so comparisons don't sort "10" before
+      // "9"; date bounds stay ISO strings, which already sort chronologically.
+      min: min === '' ? undefined : column.type === 'number' ? Number(min) : min,
+      max: max === '' ? undefined : column.type === 'number' ? Number(max) : max,
+    })
     onOpenChange(false)
   }
 
@@ -110,7 +132,7 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
       open={open}
       onOpenChange={onOpenChange}
       kind="settings"
-      title={t('datasets.col_meta_title')}
+      title={t('datasets.col_edit')}
       description={t('datasets.col_meta_desc', { name: column.name })}
       onConfirm={handleSave}
       confirmLabel={t('common.save')}
@@ -138,6 +160,62 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
               />
             )}
           </FormField>
+
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label={t('datasets.col_min')}>
+              {({ id }) => (
+                <Input
+                  id={id}
+                  type={column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'}
+                  value={min}
+                  onChange={(e) => setMin(e.target.value)}
+                  disabled={column.type !== 'number' && column.type !== 'date'}
+                />
+              )}
+            </FormField>
+            <FormField label={t('datasets.col_max')}>
+              {({ id }) => (
+                <Input
+                  id={id}
+                  type={column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'}
+                  value={max}
+                  onChange={(e) => setMax(e.target.value)}
+                  disabled={column.type !== 'number' && column.type !== 'date'}
+                />
+              )}
+            </FormField>
+          </div>
+
+          {categorical && (
+            <FormField
+              label={t('datasets.col_allowed_values')}
+              hint={t('datasets.col_allowed_values_hint')}
+              hintInTooltip
+            >
+              {({ id }) => (
+                <Textarea
+                  id={id}
+                  value={allowed}
+                  onChange={(e) => setAllowed(e.target.value)}
+                  rows={3}
+                  placeholder={'yes\nno\nunknown'}
+                />
+              )}
+            </FormField>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox checked={required} onCheckedChange={(v) => setRequired(v === true)} />
+              {t('datasets.col_required')}
+            </label>
+            {column.type === 'date' && (
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={withTime} onCheckedChange={(v) => setWithTime(v === true)} />
+                {t('datasets.col_with_time')}
+              </label>
+            )}
+          </div>
 
           {categorical && codes.length > 0 && (
             <FormField

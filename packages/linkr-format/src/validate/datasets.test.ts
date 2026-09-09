@@ -124,6 +124,17 @@ describe('validateDatasets', () => {
     expect(wrong?.hint).toContain('number')
   })
 
+  it('accepts the "unknown" column type', () => {
+    // Regression: `unknown` is what the parser assigns to a column it cannot type
+    // (an all-empty one) and what an added column starts as, so rejecting it made a
+    // project report errors on its OWN export the moment it was re-imported.
+    const { issues } = run({
+      'datasets/_tree.json': tree([{ id: 'col_age', name: 'age', type: 'unknown' }]),
+      'datasets/patients/patients.csv': 'age\n60\n',
+    })
+    expect(issues.some((i) => i.code === 'wrong-type')).toBe(false)
+  })
+
   it('reads a quoted CSV header', () => {
     const { issues } = run({
       'datasets/_tree.json': tree([

@@ -1,6 +1,8 @@
 import { useId } from 'react'
+import { Info } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 interface FormFieldProps {
@@ -12,6 +14,12 @@ interface FormFieldProps {
    * it is read before the answer is given rather than after.
    */
   hint?: React.ReactNode
+  /**
+   * Show `hint` in a tooltip on an info icon beside the label instead of as a
+   * paragraph under it. For help that is worth having but not worth the vertical
+   * space on every render — a sentence explaining a choice most users make once.
+   */
+  hintInTooltip?: boolean
   className?: string
   /** The control. Given the generated id so the label points at it. */
   children: (props: { id: string }) => React.ReactNode
@@ -29,15 +37,29 @@ interface FormFieldProps {
  * id: a bare <Label> next to an <Input> looks right but is not associated with
  * it, so clicking the label does nothing and a screen reader announces neither.
  */
-export function FormField({ label, required, hint, className, children }: FormFieldProps) {
+export function FormField({
+  label, required, hint, hintInTooltip, className, children,
+}: FormFieldProps) {
   const id = useId()
   return (
     <div className={cn('space-y-1.5', className)}>
       <Label htmlFor={id}>
         {label}
         {required && <RequiredMark />}
+        {hint && hintInTooltip && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="ml-1 inline-flex cursor-help text-muted-foreground">
+                  <Info className="size-3" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">{hint}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </Label>
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {hint && !hintInTooltip && <p className="text-xs text-muted-foreground">{hint}</p>}
       {children({ id })}
     </div>
   )

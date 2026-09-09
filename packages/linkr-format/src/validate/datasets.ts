@@ -15,8 +15,15 @@ import { readJson, type EntityTree } from '../tree.js'
 
 const TREE_PATH = 'datasets/_tree.json'
 
-/** Column types the app understands. */
-const COLUMN_TYPES = ['string', 'number', 'date', 'boolean'] as const
+/**
+ * Column types the app understands.
+ *
+ * `unknown` belongs here: it is what the parser assigns to a column it could not
+ * type (an all-empty column, say) and what a column added by an edit starts as, so
+ * a perfectly valid export carries it. Leaving it out made a round-trip through
+ * export and import report errors on its own output.
+ */
+const COLUMN_TYPES = ['string', 'number', 'date', 'boolean', 'unknown'] as const
 
 export interface DatasetColumn {
   id: string

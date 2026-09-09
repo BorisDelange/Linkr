@@ -556,7 +556,8 @@ Check this table before writing any form field.
 | `EntityIdField` | The id field on every entity create/edit dialog (slug rules, uniqueness, locked-after-create). |
 | `VersionField` | The version input on those same dialogs. |
 | `AuthoringFields` | Author + organization on an entity dialog. Both start locked showing the originals; unlocking re-attributes and writes a frozen snapshot. Don't roll your own attribution UI. |
-| `DatePickerField` | Any date input — built on the app's own `Calendar`, so every date field matches. |
+| `DatePickerField` | Any date input — built on the app's own `Calendar`, so every date field matches. **Never `<input type="date">`**: its picker is the browser's and varies by platform and locale. |
+| `DateTimeField` | A date that also needs a time of day. Wraps `DatePickerField` and adds a time input, so a plain date still gets the shared calendar. Date and datetime are different questions — "when did the stay start" wants a day, "when was the drug given" wants a minute — so pick deliberately rather than always offering both. |
 | `DatabaseSelect` | **Any "choose a database" control.** Wraps `useDatabaseOptions` (workspace scoping + vocabulary exclusion) and says why the list is empty. Pass `projectUid` for a **project** feature (patient board, cohort, Concepts): it then offers only the databases that project has linked. Omit it for a **workspace** entity (ETL, DQ, catalog, SQL collection), which sees the whole workspace. |
 | `PasswordInput` | Any secret input (reveal toggle). |
 | `LangHint` | Marks a field as `LocalizedString`-backed, so the user knows they are editing one translation. |

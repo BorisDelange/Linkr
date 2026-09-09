@@ -91,6 +91,15 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
 
   const columns = useMemo<ConceptColumn<OpRow>[]>(() => [
     {
+      id: 'position',
+      header: t('datasets.op_position'),
+      // Position in the LOG, not in the display: rows are shown newest first, and
+      // numbering by display order would renumber every entry on each new edit.
+      accessor: (r) => r.position,
+      align: 'right',
+      size: 70,
+    },
+    {
       id: 'type',
       header: t('common.type'),
       accessor: (r) => r.op.type,
@@ -160,6 +169,16 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
             variant="outline"
             size="sm"
             disabled={!ops.length || busy}
+            onClick={() => void run(() => compactFileOps(fileId))}
+          >
+            <Minimize2 className="mr-2 size-3.5" />
+            {t('datasets.compact_history')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            disabled={!ops.length || busy}
             onClick={() => void run(() => undoLastOps(fileId))}
           >
             <Undo2 className="mr-2 size-3.5" />
@@ -174,16 +193,6 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
           >
             <RotateCcw className="mr-2 size-3.5" />
             {t('datasets.reset_to_raw')}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto"
-            disabled={!ops.length || busy}
-            onClick={() => void run(() => compactFileOps(fileId))}
-          >
-            <Minimize2 className="mr-2 size-3.5" />
-            {t('datasets.compact_history')}
           </Button>
         </div>
       </DialogShell>

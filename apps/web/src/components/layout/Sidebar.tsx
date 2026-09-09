@@ -187,6 +187,7 @@ const segmentsWithSubRoutes = new Set([
   'warehouse/sql-scripts',
   'warehouse/catalog',
   'warehouse/cohorts',
+  'warehouse/patient-data',
   'lab/dashboards',
   'settings',
 ])

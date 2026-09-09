@@ -321,6 +321,18 @@ async def create_empty_dataset(
     csv.writer(buf, lineterminator="\n").writerow(names)
     dst.write_text(buf.getvalue(), encoding="utf-8")
 
+    # Persist the requested types as parse-option overrides. The file holds a header
+    # and no rows, so inference has nothing to work from and would type every column
+    # "unknown" — here the caller knows (an id column is a number), and these
+    # overrides survive every later reparse.
+    types = {
+        str(c["id"]): str(c["type"])
+        for c in body.columns
+        if c.get("id") and c.get("type") and c.get("type") != "unknown"
+    }
+    if types:
+        dataset_fs.write_parse_options(body.project_uid, body.path, {"columnTypes": types})
+
     try:
         dataset_fs.resolve_cache(body.project_uid, body.path)
     except (ValueError, RuntimeError, duckdb.Error) as e:

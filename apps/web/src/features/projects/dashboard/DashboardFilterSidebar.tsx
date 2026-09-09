@@ -48,7 +48,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
-import { useResizableSidebar } from '@/hooks/use-resizable-sidebar'
+import {
+  RESIZE_HANDLE_ACTIVE, RESIZE_HANDLE_CLASS, useResizableSidebar,
+} from '@/hooks/use-resizable-sidebar'
 import { FilterConfigDialog, type FilterDraft } from './FilterConfigDialog'
 import type { Dashboard, DashboardFilter, DashboardFilterScope, DashboardTab, DashboardWidget, DatasetColumn, DatePreset, DatePresetUnit, FilterValue } from '@/types'
 import { localized, setLocalized } from '@/lib/localized'
@@ -89,7 +91,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
 
   // Resizable width (drag the left edge). The default is wide enough that date
   // From/To fields aren't clipped.
-  const { width, handleProps } = useResizableSidebar()
+  const { width, handleProps, resizing } = useResizableSidebar()
 
   // Which filter cards are expanded (collapsed by default to save space).
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -240,7 +242,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
       {/* Drag handle on the left edge to resize the sidebar. */}
       <div
         {...handleProps}
-        className="absolute left-0 top-0 z-10 h-full w-1 -translate-x-1/2 cursor-col-resize hover:bg-primary/30"
+        className={cn(RESIZE_HANDLE_CLASS, resizing && RESIZE_HANDLE_ACTIVE)}
       />
       <div className="flex items-center justify-between px-3 py-2 border-b shrink-0">
         <span className="text-sm font-semibold">{t('dashboard.filter_title')}</span>

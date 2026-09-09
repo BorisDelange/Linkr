@@ -8,7 +8,9 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
-import { useResizableSidebar } from '@/hooks/use-resizable-sidebar'
+import {
+  RESIZE_HANDLE_ACTIVE, RESIZE_HANDLE_CLASS, useResizableSidebar,
+} from '@/hooks/use-resizable-sidebar'
 import { pluginFolder, resolvePluginAttachments } from '@/lib/plugins/plugin-readme'
 import { localized } from '@/lib/localized'
 import type { Plugin } from '@/types/plugin'
@@ -70,7 +72,7 @@ export function PluginReadmeSheet({
   onOpenChange: (open: boolean) => void
 }) {
   const { t, i18n } = useTranslation()
-  const { width, handleProps } = useResizableSidebar(
+  const { width, handleProps, resizing } = useResizableSidebar(
     readmeDefaultWidth(),
     README_MAX_WIDTH,
     README_MIN_WIDTH,
@@ -87,7 +89,7 @@ export function PluginReadmeSheet({
         {/* Drag handle on the left edge, as the dashboard sidebars do. */}
         <div
           {...handleProps}
-          className="absolute left-0 top-0 z-10 h-full w-1 -translate-x-1/2 cursor-col-resize hover:bg-primary/30"
+          className={cn(RESIZE_HANDLE_CLASS, resizing && RESIZE_HANDLE_ACTIVE)}
         />
         <SheetHeader className="shrink-0 flex-row items-center gap-2 space-y-0 border-b px-4 py-2.5">
           <BookOpen size={15} className="shrink-0 text-muted-foreground" />

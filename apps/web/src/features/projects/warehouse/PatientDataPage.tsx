@@ -22,6 +22,8 @@ import { PatientDataSidebar } from './patient-data/PatientDataSidebar'
 import { AddPatientWidgetDialog } from './patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from './patient-data/PatientDataSettingsDialog'
 import { CollectionSidebar } from './patient-data/collection/CollectionSidebar'
+import { CollectionStatusDot } from './patient-data/collection/CollectionStatusDot'
+import { usePatientCollection } from './patient-data/collection/use-patient-collection'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { resolveByIdPrefix } from '@/lib/short-id'
@@ -74,6 +76,14 @@ export function PatientDataPage() {
   useEffect(() => {
     if (currentBoard) setActiveDashboard(projectUid, currentBoard.id)
   }, [projectUid, currentBoard, setActiveDashboard])
+
+  // Read here as well as in the panel, so the toolbar dot reports this patient's
+  // progress whether or not the panel is open.
+  const { fields: collectionFields } = usePatientCollection(currentBoard?.collection, {
+    personId: selectedPatientId,
+    visitId: selectedVisitId,
+    visitDetailId: selectedVisitDetailId,
+  })
 
   const boardTabs = currentBoard
     ? tabs
@@ -245,6 +255,7 @@ export function PatientDataPage() {
               >
                 <ClipboardList size={13} />
                 {t('patient_data.collection')}
+                <CollectionStatusDot fields={collectionFields} />
               </Button>
               <Button
                 variant="ghost"
@@ -343,6 +354,20 @@ export function PatientDataPage() {
             <Allotment.Pane minSize={250} preferredSize={320} visible={sidebarVisible}>
               <PatientDataSidebar />
             </Allotment.Pane>
+            {/* Docked, not overlaid: the collector reads the chart and fills this at
+                the same time, so dimming the page would hide the source. */}
+            <Allotment.Pane minSize={280} preferredSize={340} visible={collectionOpen}>
+              <CollectionSidebar
+                onClose={() => setCollectionOpen(false)}
+                projectUid={projectUid}
+                boardId={currentBoard.id}
+                config={currentBoard.collection}
+                personId={selectedPatientId}
+                visitId={selectedVisitId}
+                visitDetailId={selectedVisitDetailId}
+                canWrite={canWrite}
+              />
+            </Allotment.Pane>
           </Allotment>
         </div>
 
@@ -360,17 +385,6 @@ export function PatientDataPage() {
           dashboardId={currentBoard.id}
         />
 
-        <CollectionSidebar
-          open={collectionOpen}
-          onOpenChange={setCollectionOpen}
-          projectUid={projectUid}
-          boardId={currentBoard.id}
-          config={currentBoard.collection}
-          personId={selectedPatientId}
-          visitId={selectedVisitId}
-          visitDetailId={selectedVisitDetailId}
-          canWrite={canWrite}
-        />
       </div>
     </PatientChartContext.Provider>
   )

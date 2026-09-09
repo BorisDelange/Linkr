@@ -157,6 +157,25 @@ carries a log in a fresh front-only session cannot recover a raw cell's original
 value; `unreplay` then leaves the cell as it stands rather than blanking it, which is
 what the "baseline derived late" test pins.
 
+**Export/import carries the log, and the validator had to be taught its own
+vocabulary.** Two round-trip defects, both found by exporting a project and
+re-importing it. The format validator's allowed column types omitted `unknown` — a
+type the parser assigns to a column it cannot type and the one an added column
+starts as — so a project reported errors on its own export. And the server-mode
+import uploaded the raw file but never replayed the ops, silently returning an
+edited dataset to its unedited state; the log is now replayed after upload, with
+column ids remapped through the same bridge widget configs use.
+
+**Entry constraints belong to the column, and stay advisory.** `required`,
+`allowedValues`, `min`/`max` and `withTime` are declared on `DatasetColumn` and shape
+DATA ENTRY only: a violation is shown beside the field and never blocks the write,
+and import validation ignores them entirely. A constraint authored today cannot make
+yesterday's data invalid, and a value out of range is usually a typo but occasionally
+the real measurement — refusing it would leave the collector no way to record what
+happened. `withTime` rides on the `date` type rather than adding a fifth type,
+because the app already distinguishes the two by sniffing values; only an empty
+collection column has nothing to sniff, so the distinction has to be declared there.
+
 ### Lot C — Dataset-backed timeline
 
 | St | Item | Effort |

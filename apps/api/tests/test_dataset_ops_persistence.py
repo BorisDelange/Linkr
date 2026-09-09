@@ -302,6 +302,36 @@ async def test_create_empty_lands_a_real_file_on_disk(client, seed_roles):
     assert any(n["path"] == "vent.csv" for n in listed.json()), "must survive a re-listing"
 
 
+async def test_create_empty_keeps_the_requested_column_types(client, seed_roles):
+    """A collection starts with a header and no rows, so nothing can be inferred and
+    every column would come back "unknown". The caller knows (an id column is a
+    number), so the requested types are persisted as parse-option overrides, which
+    survive every later reparse."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+
+    r = await client.post(
+        f"{API}/dataset-files/create-empty",
+        headers=h,
+        json={"projectUid": uid, "path": "typed.csv", "columns": [
+            {"id": "col_subject_id", "name": "subject_id", "type": "number"},
+            {"id": "col_note", "name": "note", "type": "string"},
+        ]},
+    )
+    assert r.status_code == 201
+    assert {c["name"]: c["type"] for c in r.json()["columns"]} == {
+        "subject_id": "number", "note": "string",
+    }
+
+    meta = await client.get(
+        f"{API}/dataset-files/meta", headers=h,
+        params={"projectUid": uid, "path": "typed.csv"},
+    )
+    assert {c["name"]: c["type"] for c in meta.json()["columns"]} == {
+        "subject_id": "number", "note": "string",
+    }, "the types must survive a reload, not just the create response"
+
+
 async def test_create_empty_quotes_a_column_name_that_would_break_the_header(client, seed_roles):
     """A name holding a comma or a quote would otherwise reparse into different
     columns than the ones asked for."""

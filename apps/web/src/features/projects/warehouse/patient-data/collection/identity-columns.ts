@@ -13,6 +13,10 @@ export interface IdentityColumn {
   name: string
   /** Which of the three roles this column plays. */
   role: 'person' | 'visit' | 'visitDetail'
+  /** Always `number`: these hold OMOP surrogate keys, which are integers in every
+   *  CDM table. Typing them explicitly matters because a collection starts EMPTY,
+   *  so nothing could be inferred from the data. */
+  type: 'number'
 }
 
 /** OMOP CDM names, used when the mapping does not declare a table. */
@@ -31,13 +35,17 @@ const FALLBACK: Record<IdentityColumn['role'], string> = {
  */
 export function identityColumnsFromMapping(mapping: SchemaMapping | undefined): IdentityColumn[] {
   const out: IdentityColumn[] = [
-    { name: mapping?.patientTable?.idColumn || FALLBACK.person, role: 'person' },
+    { name: mapping?.patientTable?.idColumn || FALLBACK.person, role: 'person', type: 'number' },
   ]
   if (!mapping || mapping.visitTable) {
-    out.push({ name: mapping?.visitTable?.idColumn || FALLBACK.visit, role: 'visit' })
+    out.push({ name: mapping?.visitTable?.idColumn || FALLBACK.visit, role: 'visit', type: 'number' })
   }
   if (!mapping || mapping.visitDetailTable) {
-    out.push({ name: mapping?.visitDetailTable?.idColumn || FALLBACK.visitDetail, role: 'visitDetail' })
+    out.push({
+      name: mapping?.visitDetailTable?.idColumn || FALLBACK.visitDetail,
+      role: 'visitDetail',
+      type: 'number',
+    })
   }
   return out
 }

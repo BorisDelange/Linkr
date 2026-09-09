@@ -44,7 +44,7 @@ import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/c
 import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { isServerMode } from '@/lib/api-client'
 import { buildPointer, findLineageMatch, resolvePointer, resolveProjectPointers, resolveSlugLanding } from '@/lib/import-identity'
-import { importDatasetOnServer } from '@/lib/api/datasets'
+import { importDatasetOnServer, recordDatasetOps } from '@/lib/api/datasets'
 
 
 /**
@@ -1623,6 +1623,14 @@ async function importDatasets(
       const srvId = srvCols[i]?.name === zc.name ? srvCols[i].id : srvByName.get(zc.name)
       if (srvId) colIdMap.set(zc.id, srvId)
     })
+
+    // Replay the edit log onto the uploaded raw. The upload restores the SOURCE
+    // file, and a dataset is `raw -> parse -> replay(ops)` — so without this an
+    // edited dataset comes back unedited, silently losing every correction the
+    // export faithfully carried. Column ids are remapped through the same bridge
+    // as widget configs, since a legacy export's ids differ from the reparse's.
+    const ops = (df.ops ?? []).map(op => remapColIds(op, colIdMap))
+    if (ops.length) await recordDatasetOps(node.id, ops, { replace: true })
   }
 
   return { datasetIdMap, colIdMap }

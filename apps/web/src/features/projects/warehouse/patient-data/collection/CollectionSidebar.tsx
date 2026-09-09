@@ -1,26 +1,26 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ClipboardList, Settings2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DateTimeField } from '@/components/ui/date-time-field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { useBooleanLabels } from '@/hooks/use-boolean-labels'
 import { cn } from '@/lib/utils'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
 import { cellInputValue, parseCellInput } from '@/features/projects/lab/datasets/use-cell-editing'
 import type { DatasetCellValue } from '@linkr/format'
-import type { PatientCollectionConfig } from '@/types'
+import type { DatasetColumn, PatientCollectionConfig } from '@/types'
 import { usePatientCollection } from './use-patient-collection'
 import { CollectionSetupDialog } from './CollectionSetupDialog'
+import { violationOf } from './constraints'
 
 interface Props {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  onClose: () => void
   projectUid: string
   boardId: string | undefined
   config: PatientCollectionConfig | undefined
@@ -30,14 +30,17 @@ interface Props {
   canWrite: boolean
 }
 
-const MIN_WIDTH = 280
-const MAX_WIDTH = 720
-const DEFAULT_WIDTH = 340
-const WIDTH_KEY = 'linkr.collection-sidebar-width'
+/** How long a field rests before an edit counts as pending, in manual mode. */
+const DIRTY_DEBOUNCE_MS = 600
 
 /**
  * The manual collection panel: the fields to fill for the patient whose chart is
  * open.
+ *
+ * Docked beside the patient sidebar rather than laid over the page, so the chart
+ * being transcribed from stays visible and legible — a collector reads one and
+ * fills the other, and an overlay that dims the source makes that the one thing you
+ * cannot do.
  *
  * In `auto` mode each value is written as it is entered — a clinician filling a
  * form should not have to remember to commit it, and the log makes every entry
@@ -46,14 +49,13 @@ const WIDTH_KEY = 'linkr.collection-sidebar-width'
  * dataset.
  */
 export function CollectionSidebar({
-  open, onOpenChange, projectUid, boardId, config,
+  onClose, projectUid, boardId, config,
   personId, visitId, visitDetailId, canWrite,
 }: Props) {
   const { t } = useTranslation()
   const booleanLabels = useBooleanLabels()
   const [setupOpen, setSetupOpen] = useState(false)
-  const [width, setWidth] = useState(readStoredWidth)
-  const { dataset, fields, setValue } = usePatientCollection(config, {
+  const { fields, setValue } = usePatientCollection(config, {
     personId, visitId, visitDetailId,
   })
 
@@ -66,12 +68,15 @@ export function CollectionSidebar({
   // just left, and carrying it over would file it under the wrong person.
   useEffect(() => { setPending({}) }, [personId, visitId, visitDetailId])
 
-  const commit = (columnId: string, value: DatasetCellValue) => {
+  const commit = useCallback((columnId: string, value: DatasetCellValue) => {
     if (manual) setPending((p) => ({ ...p, [columnId]: value }))
     else void setValue(columnId, value)
-  }
+  }, [manual, setValue])
 
-  const saveAll = async () => {
+  const dirty = Object.keys(pending).length > 0
+
+  const saveAll = useCallback(async () => {
+    if (!dirty) return
     setSaving(true)
     try {
       for (const [columnId, value] of Object.entries(pending)) {
@@ -81,152 +86,105 @@ export function CollectionSidebar({
     } finally {
       setSaving(false)
     }
+  }, [dirty, pending, setValue])
+
+  // Cmd/Ctrl+S saves, as it does in every editor. Bound on the panel rather than
+  // the window so it only fires while the collector is actually working in here.
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault()
+      if (manual) void saveAll()
+    }
   }
 
-  const startResize = useResizer(width, setWidth)
-  const dirty = Object.keys(pending).length > 0
   // Keyed on the patient so switching person re-seeds the inputs; an uncontrolled
   // input keeps whatever the previous patient had in it.
   const patientKey = `${personId}:${visitId}:${visitDetailId}`
+  const firstFieldRef = useRef<HTMLInputElement>(null)
+  // Select the first field on arrival, so a collector can start typing straight
+  // away rather than reaching for the mouse.
+  useEffect(() => { firstFieldRef.current?.select() }, [patientKey])
 
   return (
-    <>
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent
-          side="right"
-          showCloseButton={false}
-          className="flex flex-col gap-0 p-0 sm:max-w-none"
-          style={{ width }}
-        >
-          {/* Drag handle on the inner edge — a right-hand sheet grows leftwards. */}
-          <div
-            onMouseDown={startResize}
-            className="absolute inset-y-0 left-0 z-20 w-1 cursor-col-resize hover:bg-primary/40"
-          />
+    <div className="flex h-full flex-col border-l bg-background" onKeyDown={onKeyDown}>
+      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5">
+        <ClipboardList size={14} className="shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {t('patient_data.collection')}
+        </span>
+        {canWrite && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            title={t('patient_data.collection_setup')}
+            onClick={() => setSetupOpen(true)}
+          >
+            <Settings2 className="size-3.5" />
+          </Button>
+        )}
+        <Button variant="ghost" size="icon-xs" title={t('common.close')} onClick={onClose}>
+          <X className="size-3.5" />
+        </Button>
+      </div>
 
-          <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5">
-            <ClipboardList size={14} className="shrink-0 text-muted-foreground" />
-            <SheetTitle className="min-w-0 flex-1 truncate">
-              {t('patient_data.collection')}
-            </SheetTitle>
-            {canWrite && (
+      {!config?.datasetFileId ? (
+        <EmptyState
+          message={t('patient_data.collection_not_configured')}
+          action={canWrite ? (
+            <Button size="sm" onClick={() => setSetupOpen(true)}>
+              {t('patient_data.collection_configure')}
+            </Button>
+          ) : null}
+        />
+      ) : !personId ? (
+        <EmptyState message={t('patient_data.select_patient_first')} />
+      ) : (
+        <>
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="space-y-3 px-3 py-3">
+              {fields.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {t('patient_data.collection_no_variables')}
+                </p>
+              ) : (
+                fields.map(({ column, value }, i) => (
+                  <CollectionField
+                    key={column.id}
+                    column={column}
+                    value={column.id in pending ? pending[column.id] : (value as DatasetCellValue)}
+                    unsaved={column.id in pending}
+                    disabled={!canWrite}
+                    booleanLabels={booleanLabels}
+                    inputKey={patientKey}
+                    inputRef={i === 0 ? firstFieldRef : undefined}
+                    onCommit={(next) => commit(column.id, next)}
+                    debounced={manual}
+                  />
+                ))
+              )}
+            </div>
+          </ScrollArea>
+
+          {manual && canWrite && (
+            <div className={cn(
+              'flex shrink-0 items-center justify-end gap-2 border-t px-3 py-2',
+              !dirty && 'opacity-60',
+            )}>
               <Button
                 variant="ghost"
-                size="icon-xs"
-                title={t('patient_data.collection_setup')}
-                onClick={() => setSetupOpen(true)}
+                size="sm"
+                disabled={!dirty || saving}
+                onClick={() => setPending({})}
               >
-                <Settings2 className="size-3.5" />
+                {t('common.cancel')}
               </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              title={t('common.close')}
-              onClick={() => onOpenChange(false)}
-            >
-              <X className="size-3.5" />
-            </Button>
-          </div>
-
-          {!config?.datasetFileId ? (
-            <EmptyState
-              message={t('patient_data.collection_not_configured')}
-              action={canWrite ? (
-                <Button size="sm" onClick={() => setSetupOpen(true)}>
-                  {t('patient_data.collection_configure')}
-                </Button>
-              ) : null}
-            />
-          ) : !personId ? (
-            <EmptyState message={t('patient_data.select_patient_first')} />
-          ) : (
-            <>
-              <ScrollArea className="min-h-0 flex-1">
-                <div className="space-y-3 px-3 py-3">
-                  <p className="text-[10px] text-muted-foreground">
-                    {t('patient_data.collection_writes_to', { name: dataset?.name ?? '' })}
-                  </p>
-                  {fields.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      {t('patient_data.collection_no_variables')}
-                    </p>
-                  ) : (
-                    fields.map(({ column, value }) => {
-                      const shown = column.id in pending ? pending[column.id] : value
-                      return (
-                        <div key={column.id} className="space-y-1">
-                          <Label className="flex items-center gap-1.5">
-                            <TypeBadge type={column.type} size="sm" />
-                            <span className="min-w-0 truncate">{column.label ?? column.name}</span>
-                            {column.id in pending && (
-                              <span
-                                title={t('patient_data.collection_unsaved')}
-                                className="ml-auto size-1.5 shrink-0 rounded-full bg-primary"
-                              />
-                            )}
-                          </Label>
-                          {column.type === 'boolean' ? (
-                            <Select
-                              value={shown == null ? '' : String(shown)}
-                              onValueChange={(v) => commit(column.id, v === 'true')}
-                              disabled={!canWrite}
-                            >
-                              <SelectTrigger className="h-7 text-xs">
-                                <SelectValue placeholder="—" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="true">{booleanLabels.true}</SelectItem>
-                                <SelectItem value="false">{booleanLabels.false}</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <Input
-                              key={patientKey}
-                              className="h-7 text-xs"
-                              type={column.type === 'date' ? 'date' : column.type === 'number' ? 'number' : 'text'}
-                              defaultValue={cellInputValue(shown)}
-                              disabled={!canWrite}
-                              // On blur, not per keystroke: one entry per value.
-                              onBlur={(e) => {
-                                const next = parseCellInput(e.target.value, column.type)
-                                if (String(next ?? '') !== String(shown ?? '')) commit(column.id, next)
-                              }}
-                              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                            />
-                          )}
-                          {column.description && (
-                            <p className="text-[10px] text-muted-foreground">{column.description}</p>
-                          )}
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-              </ScrollArea>
-
-              {manual && canWrite && (
-                <div className={cn(
-                  'flex shrink-0 items-center justify-end gap-2 border-t px-3 py-2',
-                  !dirty && 'opacity-60',
-                )}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!dirty || saving}
-                    onClick={() => setPending({})}
-                  >
-                    {t('common.cancel')}
-                  </Button>
-                  <Button size="sm" disabled={!dirty || saving} onClick={() => void saveAll()}>
-                    {t('common.save')}
-                  </Button>
-                </div>
-              )}
-            </>
+              <Button size="sm" disabled={!dirty || saving} onClick={() => void saveAll()}>
+                {t('common.save')}
+              </Button>
+            </div>
           )}
-        </SheetContent>
-      </Sheet>
+        </>
+      )}
 
       {boardId && (
         <CollectionSetupDialog
@@ -237,7 +195,123 @@ export function CollectionSidebar({
           config={config}
         />
       )}
-    </>
+    </div>
+  )
+}
+
+interface FieldProps {
+  column: DatasetColumn
+  value: DatasetCellValue
+  unsaved: boolean
+  disabled: boolean
+  booleanLabels: { true: string; false: string }
+  inputKey: string
+  inputRef?: React.RefObject<HTMLInputElement | null>
+  onCommit: (value: DatasetCellValue) => void
+  /** Debounce keystrokes into a commit, rather than waiting for blur. */
+  debounced: boolean
+}
+
+/** One collected value, with its constraint feedback. */
+function CollectionField({
+  column, value, unsaved, disabled, booleanLabels, inputKey, inputRef, onCommit, debounced,
+}: FieldProps) {
+  const { t } = useTranslation()
+  const violation = useMemo(() => violationOf(column, value), [column, value])
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+
+  /** Commit after a pause, so a half-typed value doesn't register as a change but a
+   *  finished one doesn't wait for the user to leave the field either. */
+  const commitSoon = (next: DatasetCellValue) => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => onCommit(next), DIRTY_DEBOUNCE_MS)
+  }
+
+  const label = (
+    <Label className="flex items-center gap-1.5">
+      <TypeBadge type={column.type} size="sm" />
+      <span className="min-w-0 truncate leading-normal">{column.label ?? column.name}</span>
+      {column.required && <span className="text-destructive">*</span>}
+      {unsaved && (
+        <span
+          title={t('patient_data.collection_unsaved')}
+          className="ml-auto size-1.5 shrink-0 rounded-full bg-primary"
+        />
+      )}
+    </Label>
+  )
+
+  // An allowed-values list is a closed vocabulary, so it is a dropdown rather than a
+  // free-text box: typing a value the variable does not admit is not a useful state
+  // to be able to reach.
+  const choices = column.allowedValues?.length ? column.allowedValues : null
+
+  return (
+    <div className="space-y-1">
+      {label}
+      {column.type === 'boolean' ? (
+        <Select
+          value={value == null ? '' : String(value)}
+          onValueChange={(v) => onCommit(v === 'true')}
+          disabled={disabled}
+        >
+          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="true">{booleanLabels.true}</SelectItem>
+            <SelectItem value="false">{booleanLabels.false}</SelectItem>
+          </SelectContent>
+        </Select>
+      ) : choices ? (
+        <Select
+          value={value == null ? '' : String(value)}
+          onValueChange={(v) => onCommit(v)}
+          disabled={disabled}
+        >
+          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+          <SelectContent>
+            {choices.map((choice) => (
+              <SelectItem key={choice} value={choice}>{choice}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : column.type === 'date' ? (
+        <DateTimeField
+          withTime={column.withTime ?? false}
+          value={value == null ? undefined : String(value)}
+          onChange={(v) => onCommit(v ?? null)}
+          disabled={disabled}
+          min={column.min == null ? undefined : String(column.min)}
+          max={column.max == null ? undefined : String(column.max)}
+        />
+      ) : (
+        <Input
+          key={inputKey}
+          ref={inputRef}
+          className="h-7 text-xs"
+          type={column.type === 'number' ? 'number' : 'text'}
+          defaultValue={cellInputValue(value)}
+          disabled={disabled}
+          min={column.type === 'number' && column.min != null ? Number(column.min) : undefined}
+          max={column.type === 'number' && column.max != null ? Number(column.max) : undefined}
+          onChange={(e) => {
+            if (debounced) commitSoon(parseCellInput(e.target.value, column.type))
+          }}
+          // Blur still commits, so leaving a field never loses what is in it — the
+          // debounce is what makes the change visible sooner, not what saves it.
+          onBlur={(e) => {
+            const next = parseCellInput(e.target.value, column.type)
+            if (String(next ?? '') !== String(value ?? '')) onCommit(next)
+          }}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+        />
+      )}
+      {violation ? (
+        <p className="text-[10px] text-destructive">{t(violation.key, violation.params)}</p>
+      ) : column.description ? (
+        <p className="text-[10px] text-muted-foreground">{column.description}</p>
+      ) : null}
+    </div>
   )
 }
 
@@ -248,41 +322,4 @@ function EmptyState({ message, action }: { message: string; action?: React.React
       {action}
     </div>
   )
-}
-
-function readStoredWidth(): number {
-  // Wrapped: a private window or blocked site data makes this throw, and a sidebar
-  // that cannot remember its width should still open.
-  try {
-    const stored = Number(localStorage.getItem(WIDTH_KEY))
-    if (Number.isFinite(stored) && stored >= MIN_WIDTH) return Math.min(stored, MAX_WIDTH)
-  } catch { /* no stored preference */ }
-  return DEFAULT_WIDTH
-}
-
-/** Drag-to-resize, persisting the chosen width for next time. */
-function useResizer(width: number, setWidth: (w: number) => void) {
-  // Mirrored so the drag handlers read the live width without re-binding on every
-  // pixel of movement.
-  const widthRef = useRef(width)
-  useEffect(() => { widthRef.current = width }, [width])
-
-  return useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    const startX = e.clientX
-    const startWidth = widthRef.current
-
-    const onMove = (ev: MouseEvent) => {
-      // The sheet is anchored right, so dragging left (a negative delta) widens it.
-      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth - (ev.clientX - startX)))
-      setWidth(next)
-    }
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      try { localStorage.setItem(WIDTH_KEY, String(widthRef.current)) } catch { /* not persisted */ }
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }, [setWidth])
 }

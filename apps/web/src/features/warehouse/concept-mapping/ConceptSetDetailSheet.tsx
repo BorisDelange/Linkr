@@ -17,6 +17,7 @@ import { Card } from '@/components/ui/card'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import type { ConceptSet, ConceptSetItem, ResolvedConcept, MappingEquivalence } from '@/types'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
+import { RESIZE_HANDLE_CLASS } from '@/hooks/use-resizable-sidebar'
 
 /** When the sheet is opened from the mapping editor with a source concept
  *  selected, this lets the resolved-concepts table align onto one of its rows
@@ -193,7 +194,7 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
       >
         {/* Resize handle */}
         <div
-          className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50"
+          className={RESIZE_HANDLE_CLASS}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

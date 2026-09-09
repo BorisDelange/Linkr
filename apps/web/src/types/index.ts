@@ -993,6 +993,26 @@ export interface DatasetColumn {
    *  layer only — cells keep the raw code, so filters/joins/exports are unaffected.
    *  Populated by hand or auto-filled on import (e.g. Goupile @propositions). */
   valueLabels?: Record<string, string>
+
+  // --- Entry constraints -------------------------------------------------------
+  // Declared, not inferred, and all optional. They shape DATA ENTRY (manual
+  // collection) rather than the stored value: a dataset imported from elsewhere is
+  // never rejected for breaking them, since the constraint was authored after the
+  // fact and the data is what it is. Enforcing them retroactively would turn a
+  // documentation aid into a reason a legitimate import fails.
+
+  /** A `date` column that also carries a time of day. `type` stays `date` — the
+   *  whole app parses, filters and sorts them identically — and this only decides
+   *  which control the collector gets, which nothing can infer from an empty
+   *  column. */
+  withTime?: boolean
+  /** Must hold a value for the collection to count as complete. */
+  required?: boolean
+  /** Closed vocabulary: entry offers exactly these, in this order. */
+  allowedValues?: string[]
+  /** Inclusive bounds. Numbers for a `number` column, ISO strings for a `date`. */
+  min?: number | string
+  max?: number | string
 }
 
 /** Union of possible table filter values per column type. */

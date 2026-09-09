@@ -37,8 +37,8 @@ export function CollectionStatusBlock({
 
   return (
     <div className="shrink-0 border-t px-3 py-2.5 space-y-1.5">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <ClipboardList size={10} />
+      <div className="flex items-center gap-1.5 text-xs font-medium">
+        <ClipboardList size={10} className="text-muted-foreground" />
         <span>{t('patient_data.collection')}</span>
       </div>
       <div className="flex items-center justify-between text-xs">

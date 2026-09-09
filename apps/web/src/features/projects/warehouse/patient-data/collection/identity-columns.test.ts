@@ -34,7 +34,7 @@ describe('identityColumnsFromMapping', () => {
     const bare = {} as SchemaMapping
     const cols = identityColumnsFromMapping(bare)
     expect(cols).toHaveLength(1)
-    expect(cols[0]).toEqual({ name: 'person_id', role: 'person' })
+    expect(cols[0]).toEqual({ name: 'person_id', role: 'person', type: 'number' })
   })
 
   it('returns person, visit, visit detail in that order', () => {
