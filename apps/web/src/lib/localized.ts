@@ -93,6 +93,42 @@ export function hasLocalizedContent(value: LocalizedString | string | null | und
 }
 
 /**
+ * Every language's text, space-joined — for SEARCH, never for display.
+ *
+ * A reader filtering a list should find an entry by whichever language they know it
+ * by, not only the one the UI happens to be in. Matching `localized()` output alone
+ * hides a column from someone who typed its English label with the app in French.
+ */
+export function allLocalizedText(
+  value: LocalizedString | string | null | undefined,
+): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  return Object.values(value).filter(Boolean).join(' ')
+}
+
+/**
+ * Normalize a multilingual field for storage: trim every language, drop the blank
+ * ones, and return `undefined` when nothing is left.
+ *
+ * Storing `{ en: '', fr: '' }` would make an untouched column gain keys it never had,
+ * which shows up as a diff in every export; `undefined` keeps it byte-identical.
+ */
+export function cleanLocalized(
+  value: LocalizedString | string | null | undefined,
+): LocalizedString | undefined {
+  if (value == null) return undefined
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed ? toLocalized(trimmed) : undefined
+  }
+  const entries = Object.entries(value)
+    .map(([lang, text]) => [lang, (text ?? '').trim()] as const)
+    .filter(([, text]) => text !== '')
+  return entries.length ? Object.fromEntries(entries) : undefined
+}
+
+/**
  * True when a string is (the start of) the SPA index.html shell. An earlier
  * seed-loader bug fetched a missing README.<lang>.md and got index.html back;
  * this detects that pollution so it can be scrubbed from stored readmes.

@@ -174,6 +174,7 @@ function computeCorrelationMatrix(
   columns: DatasetColumn[],
   selectedIds: string[],
   method: 'pearson' | 'spearman',
+  lang: string,
 ): CorrelationResult {
   const colMap = new Map(columns.map(c => [c.id, c]))
   const validCols = selectedIds
@@ -182,7 +183,7 @@ function computeCorrelationMatrix(
 
   // The LABEL, so the matrix reads the way the dataset is documented rather
   // than in storage names. Falls back to the name when no label is set.
-  const names = validCols.map(displayColumnName)
+  const names = validCols.map((c) => displayColumnName(c, lang))
   const n = validCols.length
   const matrix: CorrelationCell[][] = Array.from({ length: n }, () =>
     Array.from({ length: n }, () => ({ r: 0, pValue: 1, n: 0 })),
@@ -254,7 +255,8 @@ function pStars(p: number): string {
 // ===========================================================================
 
 export function CorrelationMatrixComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const server = isServerMode()
   const pluginName = usePluginName('correlation-matrix')
 
@@ -273,12 +275,12 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
     rawSelectedColumns?.length ? rawSelectedColumns : defaultAnalysisColumns(numericCols).map(c => c.id),
     numericCols,
     variableOrder,
-    displayColumnName,
+    (c) => displayColumnName(c, lang),
   )
 
   const localResult = useMemo(
-    () => (server ? null : computeCorrelationMatrix(rows, columns, selectedColumns, method)),
-    [server, rows, columns, selectedColumns, method],
+    () => (server ? null : computeCorrelationMatrix(rows, columns, selectedColumns, method, lang)),
+    [server, rows, columns, selectedColumns, method, lang],
   )
   // Stable string keys so the effect only re-fetches on a semantic change (the spec
   // object gets a new reference each render, so key the effect on its JSON instead).
@@ -308,9 +310,9 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
   // sends). Map back to labels so both modes read identically.
   const result = useMemo(() => {
     if (!rawResult || !server) return rawResult
-    const labelByName = new Map(columns.map(c => [c.name, displayColumnName(c)]))
+    const labelByName = new Map(columns.map(c => [c.name, displayColumnName(c, lang)]))
     return { ...rawResult, names: rawResult.names.map(n => labelByName.get(n) ?? n) }
-  }, [rawResult, server, columns])
+  }, [rawResult, server, columns, lang])
   const totalN = result?.totalN ?? rows.length
 
   if (server && serverError) {

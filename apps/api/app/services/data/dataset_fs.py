@@ -94,6 +94,21 @@ def write_parse_options(project_uid: str, rel: str, parse_options: dict | None) 
             path.unlink(missing_ok=True)
 
 
+def _is_blank(value) -> bool:
+    """Whether an editorial field holds nothing worth storing.
+
+    `label` and `description` are LocalizedStrings ({"en": …, "fr": …}), so an
+    emptied one arrives as {"en": "", "fr": ""} rather than as "" or {}. Testing
+    only the outer container would store that, and a column that never had a label
+    would gain a key — which shows up as a diff in every subsequent export.
+    """
+    if value in (None, "", {}, []):
+        return True
+    if isinstance(value, dict):
+        return all(_is_blank(v) for v in value.values())
+    return False
+
+
 def write_column_meta(project_uid: str, rel: str, columns: dict) -> None:
     """Replace the sidecar's editorial column metadata with the given authoritative
     set (the client sends the full desired state, so a cleared column drops out —
@@ -103,7 +118,7 @@ def write_column_meta(project_uid: str, rel: str, columns: dict) -> None:
     path = _colmeta_path(project_uid, rel)
     cleaned = {}
     for col_id, fields in (columns or {}).items():
-        entry = {k: v for k, v in (fields or {}).items() if v not in (None, "", {}, [])}
+        entry = {k: v for k, v in (fields or {}).items() if not _is_blank(v)}
         if entry:
             cleaned[col_id] = entry
     current = _read_meta(path) or {}

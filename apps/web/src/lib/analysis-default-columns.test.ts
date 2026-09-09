@@ -5,6 +5,7 @@ import {
   defaultAnalysisColumns,
   orderSelection,
 } from './analysis-default-columns'
+import { displayColumnName } from '@/lib/dataset-utils'
 import type { DatasetColumn } from '@/types'
 
 function col(name: string, type: DatasetColumn['type'] = 'string'): DatasetColumn {
@@ -84,7 +85,7 @@ describe('orderSelection', () => {
       { ...col('a'), label: 'Zebra' },
       { ...col('b'), label: 'Alpha' },
     ]
-    expect(orderSelection(['a', 'b'], labelled, 'alphabetical', (c) => c.label ?? c.name)).toEqual([
+    expect(orderSelection(['a', 'b'], labelled, 'alphabetical', (c) => displayColumnName(c, 'en'))).toEqual([
       'b', 'a',
     ])
   })
@@ -95,7 +96,7 @@ describe('orderSelection', () => {
       { ...col('a'), label: 'Zone' },
       { ...col('b'), label: 'Âge' },
     ]
-    expect(orderSelection(['a', 'b'], labelled, 'alphabetical', (c) => c.label ?? c.name)).toEqual([
+    expect(orderSelection(['a', 'b'], labelled, 'alphabetical', (c) => displayColumnName(c, 'en'))).toEqual([
       'b', 'a',
     ])
   })

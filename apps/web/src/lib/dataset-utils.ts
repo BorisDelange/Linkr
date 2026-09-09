@@ -1,5 +1,6 @@
 import type { DatasetColumn } from '@/types'
 import { buildColumnIds } from './column-id'
+import { localized } from './localized'
 
 /**
  * Regex matching ISO date (YYYY-MM-DD) and datetime (YYYY-MM-DDTHH:MM:SS) formats,
@@ -159,10 +160,29 @@ export function columnTint(index: number): string {
   return COLUMN_TINTS[index % COLUMN_TINTS.length]
 }
 
-/** Human-facing column name: the descriptive label if set, else the technical name.
- *  Use everywhere a column name is *shown*; keep `col.name`/`col.id` as the actual key. */
-export function displayColumnName(col: Pick<DatasetColumn, 'name' | 'label'>): string {
-  return col.label?.trim() || col.name
+/**
+ * Human-facing column name: the descriptive label if set, else the technical name.
+ * Use everywhere a column name is *shown*; keep `col.name`/`col.id` as the actual key.
+ *
+ * `lang` is REQUIRED, deliberately. It was optional at first, and an omitted
+ * language silently fell back to English — so a caller that simply forgot it looked
+ * correct in development and showed the wrong language in production. Worse, three
+ * call sites passed the function straight to `.map()`, which handed it the array
+ * index as the language. Making it required turns both mistakes into type errors.
+ */
+export function displayColumnName(
+  col: Pick<DatasetColumn, 'name' | 'label'>,
+  lang: string,
+): string {
+  return localized(col.label, lang).trim() || col.name
+}
+
+/** Human-facing column description, or '' when there is none. */
+export function displayColumnDescription(
+  col: Pick<DatasetColumn, 'description'>,
+  lang: string,
+): string {
+  return localized(col.description, lang).trim()
 }
 
 /** Localized words for boolean cells, so a `boolean` column reads "Vrai"/"Faux" in

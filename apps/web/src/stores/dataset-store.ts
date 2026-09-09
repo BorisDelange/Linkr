@@ -3,6 +3,7 @@ import type { ColumnFilterValue, DatasetFile, DatasetAnalysis, DatasetColumn } f
 import { getStorage } from '@/lib/storage'
 import { uniqueColumnId } from '@/lib/column-id'
 import { coerceValue } from '@/lib/dataset-utils'
+import { cleanLocalized } from '@/lib/localized'
 import { isServerMode } from '@/lib/api-client'
 import { createEmptyDataset, duplicateDataset, fetchDatasetMeta, recordDatasetOps, reimportDataset } from '@/lib/api/datasets'
 import {
@@ -946,8 +947,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     const file = get().files.find((f) => f.id === fileId)
     if (!file || file.type !== 'file') return
     const columns = file.columns ?? []
-    const label = meta.label?.trim() || undefined
-    const description = meta.description?.trim() || undefined
+    const label = cleanLocalized(meta.label)
+    const description = cleanLocalized(meta.description)
     const cleaned = Object.fromEntries(
       Object.entries(meta.valueLabels ?? {}).filter(([, v]) => v?.trim()),
     )

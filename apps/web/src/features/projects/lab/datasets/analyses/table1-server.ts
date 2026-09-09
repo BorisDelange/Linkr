@@ -37,19 +37,22 @@ export function buildTable1Spec(
     missingLabel: string
     othersLabel: string
     variableOrder: VariableOrder
+    /** Active UI language: labels are localized, and the server never sees them. */
+    lang: string
   },
 ): Table1Spec {
   const byId = new Map(columns.map((c) => [c.id, c]))
   // Order resolved HERE, not server-side: `custom` lives only in the client's
   // config array, and alphabetical sorts by label, which the server never sees.
-  const selected = orderSelection(selectedColumnIds, columns, options.variableOrder, displayColumnName)
+  const label = (c: DatasetColumn) => displayColumnName(c, options.lang)
+  const selected = orderSelection(selectedColumnIds, columns, options.variableOrder, label)
     .map((id) => byId.get(id))
     .filter((c): c is DatasetColumn => !!c && c.id !== groupByColumnId)
-    .map((c) => ({ name: c.name, label: displayColumnName(c), numeric: c.type === 'number' }))
+    .map((c) => ({ name: c.name, label: label(c), numeric: c.type === 'number' }))
   const groupCol = groupByColumnId ? byId.get(groupByColumnId) : undefined
   return {
     selected,
-    group: groupCol ? { name: groupCol.name, label: displayColumnName(groupCol) } : null,
+    group: groupCol ? { name: groupCol.name, label: label(groupCol) } : null,
     stat: options.stat,
     showMissing: options.showMissing,
     missingLabel: options.missingLabel,

@@ -669,7 +669,7 @@ function MultiColumnSelect({
     if (!search.trim()) return filtered
     const q = search.toLowerCase()
     return filtered.filter(
-      c => displayColumnName(c).toLowerCase().includes(q) || c.name.toLowerCase().includes(q),
+      c => displayColumnName(c, lang).toLowerCase().includes(q) || c.name.toLowerCase().includes(q),
     )
   }, [filtered, search])
 
@@ -684,10 +684,10 @@ function MultiColumnSelect({
       return selected
         .map(id => byId.get(id))
         .filter((c): c is DatasetColumn => !!c)
-        .map(displayColumnName)
+        .map((c) => displayColumnName(c, lang))
     }
-    return filtered.filter(c => selected.includes(c.id)).map(displayColumnName)
-  }, [filtered, selected, field.orderable])
+    return filtered.filter(c => selected.includes(c.id)).map((c) => displayColumnName(c, lang))
+  }, [filtered, selected, field.orderable, lang])
 
   const reorder = useCallback(
     (next: string[]) => onConfigChange({ [fieldKey]: next }),
@@ -750,7 +750,7 @@ function MultiColumnSelect({
                   >
                     {isSelected && <Check size={10} />}
                   </div>
-                  <span className="truncate" title={col.name}>{displayColumnName(col)}</span>
+                  <span className="truncate" title={col.name}>{displayColumnName(col, lang)}</span>
                   <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">
                     {hintFor(col)}
                   </span>
@@ -789,7 +789,8 @@ function SelectedColumnOrderList({
   columns: DatasetColumn[]
   onReorder: (next: string[]) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   // A small distance before a drag starts, or the click that ticks a checkbox
   // is swallowed as a drag.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
@@ -826,7 +827,7 @@ function SelectedColumnOrderList({
                 key={id}
                 id={id}
                 index={i}
-                label={displayColumnName(byId.get(id)!)}
+                label={displayColumnName(byId.get(id)!, lang)}
               />
             ))}
           </div>
@@ -902,7 +903,7 @@ function SingleColumnSelect({
     if (!search.trim()) return filtered
     const q = search.toLowerCase()
     return filtered.filter(
-      c => displayColumnName(c).toLowerCase().includes(q) || c.name.toLowerCase().includes(q),
+      c => displayColumnName(c, lang).toLowerCase().includes(q) || c.name.toLowerCase().includes(q),
     )
   }, [filtered, search])
 
@@ -915,7 +916,7 @@ function SingleColumnSelect({
             className="flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
           >
             <span className={cn('truncate', !currentCol && 'text-muted-foreground')}>
-              {currentCol ? displayColumnName(currentCol) : t('common.none')}
+              {currentCol ? displayColumnName(currentCol, lang) : t('common.none')}
             </span>
             <ChevronsUpDown size={12} className="ml-1 shrink-0 text-muted-foreground" />
           </button>
@@ -956,7 +957,7 @@ function SingleColumnSelect({
                     isSelected ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30',
                   )}
                 >
-                  <span className="truncate" title={col.name}>{displayColumnName(col)}</span>
+                  <span className="truncate" title={col.name}>{displayColumnName(col, lang)}</span>
                   <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">
                     {hintFor(col)}
                   </span>

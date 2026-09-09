@@ -7,7 +7,7 @@
  * "unknown column" issues elsewhere, so the resolved column table is built once
  * and handed to the other validators.
  */
-import { checkArray, checkString, isObject } from '../check.js'
+import { checkArray, checkLocalized, checkString, isObject } from '../check.js'
 import { buildColumnIds, isLegacyColumnId } from '../ids.js'
 import type { IssueBag } from '../issue.js'
 import { listHint } from '../issue.js'
@@ -153,6 +153,18 @@ function validateColumns(
     if (col.type != null && !COLUMN_TYPES.includes(col.type as (typeof COLUMN_TYPES)[number])) {
       bag.error(TREE_PATH, `${p}/type`, 'wrong-type', `Unknown column type "${String(col.type)}".`,
         `allowed: ${COLUMN_TYPES.join(', ')}`)
+    }
+
+    // Editorial metadata, localized like every other authored text in the format.
+    // A bare string is still read (checkLocalized warns rather than errors), since
+    // datasets exported before the change carry one.
+    if (col.label != null) {
+      checkLocalized(bag, TREE_PATH, `${p}/label`, col.label, { label: 'column label' })
+    }
+    if (col.description != null) {
+      checkLocalized(bag, TREE_PATH, `${p}/description`, col.description, {
+        label: 'column description',
+      })
     }
 
     columns.push({ id, name, type: typeof col.type === 'string' ? col.type : undefined })

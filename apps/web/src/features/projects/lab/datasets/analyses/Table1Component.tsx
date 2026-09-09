@@ -47,7 +47,8 @@ function isNumericColumn(col: DatasetColumn): boolean {
 }
 
 export function Table1Component({ config, columns, rows, datasetFileId, datasetFilters }: ComponentPluginProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const server = isServerMode()
   const pluginName = usePluginName('table1')
 
@@ -70,7 +71,7 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
     const byId = new Map(columns.map((c) => [c.id, c]))
     // Sorted by the LABEL, which is what the reader sees: sorting by storage
     // name would look arbitrary in a table that prints labels.
-    const picked = orderSelection(selectedIds, columns, variableOrder, displayColumnName)
+    const picked = orderSelection(selectedIds, columns, variableOrder, (c) => displayColumnName(c, lang))
       .map((id) => byId.get(id))
       .filter((c): c is DatasetColumn => !!c && c.id !== groupByColumn)
     // Local rows are keyed by column ID (`remapRows` in UploadDatasetDialog),
@@ -79,10 +80,10 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
     return picked.map((c) => ({
       id: c.id,
       key: c.id,
-      label: displayColumnName(c),
+      label: displayColumnName(c, lang),
       kind: isNumericColumn(c) ? ('numeric' as const) : ('categorical' as const),
     }))
-  }, [columns, selectedIds, groupByColumn, variableOrder])
+  }, [columns, selectedIds, groupByColumn, variableOrder, lang])
 
   const groupColumn = groupByColumn ? columns.find((c) => c.id === groupByColumn) : undefined
 
@@ -94,7 +95,7 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
             rows,
             variables,
             groupBy: groupColumn
-              ? { id: groupColumn.id, key: groupColumn.id, label: displayColumnName(groupColumn) }
+              ? { id: groupColumn.id, key: groupColumn.id, label: displayColumnName(groupColumn, lang) }
               : undefined,
             stat,
             showMissing,
@@ -115,6 +116,7 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
         missingLabel: t('datasets.table1_missing'),
         othersLabel: t('datasets.table1_others'),
         variableOrder,
+        lang,
       })
     : null
   // Stable string keys: the spec is rebuilt every render, so comparing the

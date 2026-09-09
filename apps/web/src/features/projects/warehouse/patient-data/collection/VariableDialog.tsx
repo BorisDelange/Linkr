@@ -9,8 +9,12 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { columnId as deriveColumnId } from '@linkr/format'
+import { LangHint } from '@/components/ui/lang-hint'
+import {
+  cleanLocalized, localizedRaw, seedLocalizedForEditing, setLocalized,
+} from '@/lib/localized'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
-import type { DatasetColumn } from '@/types'
+import type { DatasetColumn, LocalizedString } from '@/types'
 
 /** Types a collected variable can take. `unknown` is what the parser falls back to,
  *  never something to choose on purpose. */
@@ -21,8 +25,8 @@ export interface VariableDraft {
   id: string
   name: string
   type: DatasetColumn['type']
-  label?: string
-  description?: string
+  label?: LocalizedString
+  description?: LocalizedString
   required?: boolean
   withTime?: boolean
   allowedValues?: string[]
@@ -57,13 +61,16 @@ interface Props {
  * lives in the datasets page's rename.
  */
 export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const language = i18n.language
   const editing = column != null
 
   const [name, setName] = useState('')
   const [type, setType] = useState<DatasetColumn['type']>('string')
-  const [label, setLabel] = useState('')
-  const [description, setDescription] = useState('')
+  // Multilingual, edited one language at a time — the active UI language, as in the
+  // Datasets page's own column dialog and everywhere else in the app.
+  const [label, setLabel] = useState<LocalizedString>({})
+  const [description, setDescription] = useState<LocalizedString>({})
   const [required, setRequired] = useState(false)
   const [withTime, setWithTime] = useState(false)
   const [allowed, setAllowed] = useState('')
@@ -77,14 +84,14 @@ export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit 
     if (!open) return
     setName(column?.name ?? '')
     setType(column?.type ?? 'string')
-    setLabel(column?.label ?? '')
-    setDescription(column?.description ?? '')
+    setLabel(seedLocalizedForEditing(column?.label, language))
+    setDescription(seedLocalizedForEditing(column?.description, language))
     setRequired(column?.required ?? false)
     setWithTime(column?.withTime ?? false)
     setAllowed((column?.allowedValues ?? []).join('\n'))
     setMin(column?.min == null ? '' : String(column.min))
     setMax(column?.max == null ? '' : String(column.max))
-  }, [open, column])
+  }, [open, column, language])
 
   // Derived from the name, the same way column ids are derived everywhere else.
   const effectiveId = editing ? column.id : deriveColumnId(name)
@@ -99,8 +106,8 @@ export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit 
         id: effectiveId,
         name: name.trim(),
         type,
-        label: label.trim() || undefined,
-        description: description.trim() || undefined,
+        label: cleanLocalized(label),
+        description: cleanLocalized(description),
         required: required || undefined,
         withTime: (type === 'date' && withTime) || undefined,
         allowedValues: allowed.split('\n').map((v) => v.trim()).filter(Boolean),
@@ -128,7 +135,7 @@ export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit 
     >
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          <FormField label={t('common.name')} hint={t('datasets.col_name_hint')} hintInTooltip required>
+          <FormField label={t('datasets.col_name')} hint={t('datasets.col_name_hint')} hintInTooltip required>
             {({ id: fid }) => (
               <Input
                 id={fid}
@@ -138,7 +145,7 @@ export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit 
               />
             )}
           </FormField>
-          <FormField label={t('datasets.type')}>
+          <FormField label={t('datasets.column_type')}>
             {({ id: fid }) => (
               <Select value={type} onValueChange={(v) => setType(v as DatasetColumn['type'])}>
                 <SelectTrigger id={fid}><SelectValue /></SelectTrigger>
@@ -157,34 +164,31 @@ export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit 
           </FormField>
         </div>
 
-        {/* Shown, not editable: the id is what widgets and queries reference, so it
-            is worth seeing, but typing it is a second answer to the same question. */}
-        {effectiveId && (
-          <p className="-mt-2 text-[10px] text-muted-foreground">
-            {t('datasets.col_id')}: <code className="font-mono">{effectiveId}</code>
-          </p>
-        )}
         {collides && (
           <p className="text-xs text-destructive">{t('datasets.col_id_taken')}</p>
         )}
 
-        <FormField label={t('datasets.col_meta_label')} hint={t('datasets.col_meta_label_hint')} hintInTooltip>
+        <FormField
+          label={<>{t('datasets.col_meta_label')} <LangHint lang={language} /></>}
+          hint={t('datasets.col_meta_label_hint')}
+          hintInTooltip
+        >
           {({ id: fid }) => (
             <Input
               id={fid}
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
+              value={localizedRaw(label, language)}
+              onChange={(e) => setLabel(setLocalized(label, language, e.target.value))}
               placeholder={name}
             />
           )}
         </FormField>
 
-        <FormField label={t('datasets.col_meta_description')}>
+        <FormField label={<>{t('datasets.col_meta_description')} <LangHint lang={language} /></>}>
           {({ id: fid }) => (
             <Textarea
               id={fid}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              value={localizedRaw(description, language)}
+              onChange={(e) => setDescription(setLocalized(description, language, e.target.value))}
               rows={2}
             />
           )}

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { inferSurveySchema } from './survey-infer'
 import { questionColumns, questionChoices } from './survey-schema'
 import { summarizeQuestion } from './survey-analysis'
+import { localized } from '@/lib/localized'
 import type { DatasetColumn } from '@/types'
 
 /** Terse column builder — ids match names, which is what the widget sees. */
@@ -32,8 +33,12 @@ describe('inferSurveySchema — one-hot groups', () => {
   it('takes the question text from the description and the option from the label', () => {
     const schema = inferSurveySchema(columns, rows)
     const q = schema.questions[0]
-    expect(q.label).toEqual({ und: 'Quelles USI ?' })
-    expect(questionChoices(schema, q).map((c) => c.label.und)).toEqual([
+    // A column's label/description is a LocalizedString, so it carries through as
+    // one. These fixtures use the legacy plain-string form, which backfills into
+    // every language rather than collapsing to the `und` key — `und` is now reserved
+    // for the fallback, which is a technical column name in no language at all.
+    expect(localized(q.label, 'fr')).toBe('Quelles USI ?')
+    expect(questionChoices(schema, q).map((c) => localized(c.label, 'fr'))).toEqual([
       'USI de Cardiologie',
       'USI Neuro-Vasculaires',
       "USI d'Hématologie",

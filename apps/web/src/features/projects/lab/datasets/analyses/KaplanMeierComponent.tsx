@@ -836,7 +836,8 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
 // ===========================================================================
 
 export function KaplanMeierComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const server = isServerMode()
   const pluginName = usePluginName('kaplan-meier')
 
@@ -852,7 +853,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
   // common case, and "Days since admission" is already recorded on the column.
   const timeColumn = columns.find((c) => c.id === timeId)
   const timeLabel =
-    (config.timeLabel as string) || (timeColumn ? displayColumnName(timeColumn) : '')
+    (config.timeLabel as string) || (timeColumn ? displayColumnName(timeColumn, lang) : '')
   const wrap = config.wrap === true
   const showGrid = config.showGrid !== false
   // Matches the manifest default: tabs, so all three views are reachable
@@ -1003,7 +1004,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
   // The spec sends storage NAMES, so the fit comes back naming its terms `site`
   // or `site: CH Vannes`. Relabel both the coefficients and the assumption
   // check, which names the same terms.
-  const relabelCox = useMemo(() => coefficientRelabeler(columns), [columns])
+  const relabelCox = useMemo(() => coefficientRelabeler(columns, lang), [columns, lang])
   const coxRows = useMemo<CoxRow[]>(
     () =>
       (coxResult?.coefficients ?? []).map((c, i) => ({

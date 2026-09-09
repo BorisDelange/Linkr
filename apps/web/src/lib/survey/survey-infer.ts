@@ -13,9 +13,22 @@
  * both say "these columns are one question".
  */
 
-import type { DatasetColumn } from '@/types'
+import type { DatasetColumn, LocalizedString } from '@/types'
+import { hasLocalizedContent, localized, toLocalized } from '@/lib/localized'
 import type { SurveyChoice, SurveyQuestion, SurveySchema, QuestionKind } from './survey-schema'
 import { isTicked, toNumber, isBlank } from './survey-analysis'
+
+/**
+ * A column's label as a survey label, falling back to `fallback` when it holds
+ * nothing. `und` (undetermined) is the right key ONLY for the fallback, which is a
+ * technical name rather than text in any particular language.
+ */
+function toLocalizedLabel(
+  value: LocalizedString | string | undefined,
+  fallback: string,
+): LocalizedString {
+  return hasLocalizedContent(value) ? toLocalized(value) : { und: fallback }
+}
 
 /** The separators one-hot exports use between a question and its choice code. */
 const ONE_HOT_SEPARATORS = ['___', '.'] as const
@@ -248,7 +261,10 @@ export function inferSurveySchema(
     // The importers put the option text in the one-hot column's own label.
     choiceLists[name] = members.map(({ column, code }) => ({
       name: code,
-      label: { und: column.label ?? code },
+      // The column's own label, keeping its languages: it is already a
+      // LocalizedString, so flattening it into `und` would throw the translations
+      // away at exactly the point a questionnaire needs them.
+      label: toLocalizedLabel(column.label, code),
     }))
     for (const m of members) consumed.add(m.column.id)
 
@@ -257,7 +273,7 @@ export function inferSurveySchema(
       kind: 'select_multiple',
       listName: name,
       // All members share the parent question, carried as their description.
-      label: { und: members[0].column.description ?? humanizeName(parent) },
+      label: toLocalizedLabel(members[0].column.description, humanizeName(parent)),
       shortLabel: humanizeName(parent),
       measure: 'nominal',
       binding: {
@@ -279,8 +295,11 @@ export function inferSurveySchema(
       ...(choices ? { listName: name } : {}),
       // The importers store the full question in `description` and a short name
       // in `label`; fall back to the column name when neither is set.
-      label: { und: column.description ?? column.label ?? column.name },
-      shortLabel: column.label ?? humanizeName(column.name),
+      label: toLocalizedLabel(
+        hasLocalizedContent(column.description) ? column.description : column.label,
+        column.name,
+      ),
+      shortLabel: localized(column.label, 'en') || humanizeName(column.name),
       ...(measure ? { measure } : {}),
       binding: { kind: 'single_column', column: column.id },
     })

@@ -68,6 +68,7 @@ import { EditColumnMetaDialog } from './EditColumnMetaDialog'
 import { MoveColumnDialog } from './MoveColumnDialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { hasTimeComponent, columnTint, displayColumnName, displayCellValue } from '@/lib/dataset-utils'
+import { allLocalizedText, localized } from '@/lib/localized'
 import { useBooleanLabels } from '@/hooks/use-boolean-labels'
 import type { DatasetColumn, DatasetParseOptions } from '@/types'
 
@@ -121,7 +122,8 @@ function useViewSetter<K extends keyof DatasetTableView>(
 }
 
 export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenColumns, onHiddenColumnsChange, editable = false, editToolbar }: DatasetTableProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const booleanLabels = useBooleanLabels()
   const { files, getFileRows, setColumnType, setColumnFilterMode, _dirtyVersion } = useDatasetStore()
 
@@ -663,16 +665,16 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                       <TooltipProvider delayDuration={400}>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <span className="truncate">{displayColumnName(col)}</span>
+                            <span className="truncate">{displayColumnName(col, lang)}</span>
                           </TooltipTrigger>
                           <TooltipContent side="bottom" className="max-w-80">
                             <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs">
                               <span className="text-muted-foreground">{t('datasets.col_meta_col_id')}</span>
                               <span className="font-mono break-all">{col.name}</span>
                               <span className="text-muted-foreground">{t('datasets.col_meta_label')}</span>
-                              <span className="break-words">{col.label || '—'}</span>
+                              <span className="break-words">{localized(col.label, lang) || '—'}</span>
                               <span className="text-muted-foreground">{t('datasets.col_meta_description')}</span>
-                              <span className="break-words">{col.description || '—'}</span>
+                              <span className="break-words">{localized(col.description, lang) || '—'}</span>
                             </div>
                           </TooltipContent>
                         </Tooltip>
@@ -893,13 +895,17 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
             <ColumnVisibilityMenu
               items={columns.map((col) => ({
                 id: col.id,
-                label: displayColumnName(col),
-                searchText: `${col.name} ${col.label ?? ''} ${col.description ?? ''}`,
+                label: displayColumnName(col, lang),
+                // Every language, not just the active one: someone searching a
+                // column they know by its English label should find it while the UI
+                // is in French.
+                searchText: [col.name, allLocalizedText(col.label), allLocalizedText(col.description)]
+                  .filter(Boolean).join(' '),
                 visible: !hiddenColumns.has(col.id),
                 content: (
                   <div className="flex items-center gap-1.5">
                     <TypeBadge type={col.type} size="sm" />
-                    <span className="truncate">{displayColumnName(col)}</span>
+                    <span className="truncate">{displayColumnName(col, lang)}</span>
                   </div>
                 ),
                 tooltip: (
@@ -907,9 +913,9 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                     <span className="text-muted-foreground">{t('datasets.col_meta_col_id')}</span>
                     <span className="font-mono break-all">{col.name}</span>
                     <span className="text-muted-foreground">{t('datasets.col_meta_label')}</span>
-                    <span className="break-words">{col.label || '—'}</span>
+                    <span className="break-words">{localized(col.label, lang) || '—'}</span>
                     <span className="text-muted-foreground">{t('datasets.col_meta_description')}</span>
-                    <span className="break-words">{col.description || '—'}</span>
+                    <span className="break-words">{localized(col.description, lang) || '—'}</span>
                   </div>
                 ),
               }))}
@@ -1013,7 +1019,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
             <AlertDialogTitle>{t('datasets.col_delete')}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('datasets.col_delete_confirm', {
-                name: deletingColumn ? displayColumnName(deletingColumn) : '',
+                name: deletingColumn ? displayColumnName(deletingColumn, lang) : '',
                 count: totalCount,
               })}
             </AlertDialogDescription>

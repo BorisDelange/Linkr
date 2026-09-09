@@ -11,7 +11,8 @@ import { TypeBadge } from './TypeBadge'
 import { BoxPlot } from '@/components/charts/box-plot'
 import { niceStep, niceTicks } from '@/lib/chart-ticks'
 import { computeNumericStats, buildHistogram, roundBinLabel, type HistBin } from '@/lib/column-stats'
-import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
+import { displayColumnName, displayColumnDescription, displayCellValue } from '@/lib/dataset-utils'
+import { hasLocalizedContent } from '@/lib/localized'
 import { useBooleanLabels } from '@/hooks/use-boolean-labels'
 
 interface ColumnStatsPanelProps {
@@ -283,9 +284,14 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
       <div className="border-b px-3 py-2">
         <div className="flex items-center gap-1.5">
           <TypeBadge type={column.type} />
-          <h3 className="text-xs font-medium truncate" title={column.description || column.name}>{displayColumnName(column)}</h3>
+          <h3
+            className="text-xs font-medium truncate"
+            title={displayColumnDescription(column, locale) || column.name}
+          >
+            {displayColumnName(column, locale)}
+          </h3>
         </div>
-        {column.label && (
+        {hasLocalizedContent(column.label) && (
           <p className="mt-0.5 font-mono text-[10px] text-muted-foreground truncate" title={column.name}>{column.name}</p>
         )}
       </div>

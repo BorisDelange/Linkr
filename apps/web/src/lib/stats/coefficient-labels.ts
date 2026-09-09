@@ -25,10 +25,11 @@ const LEVEL_SEPARATOR = ': '
  */
 export function coefficientRelabeler(
   columns: DatasetColumn[],
+  lang = 'en',
 ): (name: string) => string {
   const pairs = [...columns]
     .sort((a, b) => b.name.length - a.name.length)
-    .map((c) => [c.name, displayColumnName(c)] as const)
+    .map((c) => [c.name, displayColumnName(c, lang)] as const)
 
   return (name: string): string => {
     for (const [storage, label] of pairs) {

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { displayColumnName } from '@/lib/dataset-utils'
 import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
 import {
@@ -66,7 +67,7 @@ export function DatasetSelectField({ field, value, onChange }: Props) {
             <SelectItem key={col.id} value={col.id}>
               <span className="flex items-center gap-2">
                 <TypeBadge type={col.type} size="sm" />
-                {col.label ?? col.name}
+                {displayColumnName(col, lang)}
               </span>
             </SelectItem>
           ))}

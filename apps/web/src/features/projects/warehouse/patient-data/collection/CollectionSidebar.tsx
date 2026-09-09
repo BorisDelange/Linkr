@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select'
 import { useBooleanLabels } from '@/hooks/use-boolean-labels'
 import { cn } from '@/lib/utils'
+import { displayColumnDescription, displayColumnName } from '@/lib/dataset-utils'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
 import { cellInputValue, parseCellInput } from '@/features/projects/lab/datasets/use-cell-editing'
 import type { DatasetCellValue } from '@linkr/format'
@@ -57,7 +58,7 @@ export function CollectionSidebar({
   const [setupOpen, setSetupOpen] = useState(false)
   const { fields, setValue } = usePatientCollection(config, {
     personId, visitId, visitDetailId,
-  })
+  }, projectUid)
 
   const manual = config?.saveMode === 'manual'
   /** Unsaved edits by column id. Only ever populated in manual mode. */
@@ -101,8 +102,11 @@ export function CollectionSidebar({
   // input keeps whatever the previous patient had in it.
   const patientKey = `${personId}:${visitId}:${visitDetailId}`
 
+  // bg-card, matching the patient sidebar it docks beside: the two tokens are the
+  // same colour in light mode but not in dark, so `bg-background` made the pair read
+  // as two different surfaces.
   return (
-    <div className="flex h-full flex-col border-l bg-background" onKeyDown={onKeyDown}>
+    <div className="flex h-full flex-col border-l bg-card" onKeyDown={onKeyDown}>
       <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5">
         <ClipboardList size={14} className="shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -210,7 +214,8 @@ interface FieldProps {
 function CollectionField({
   column, value, unsaved, disabled, booleanLabels, inputKey, onCommit, debounced,
 }: FieldProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const violation = useMemo(() => violationOf(column, value), [column, value])
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cancelPendingCommit = () => {
@@ -241,7 +246,7 @@ function CollectionField({
   const label = (
     <Label className="flex items-center gap-1.5">
       <TypeBadge type={column.type} size="sm" />
-      <span className="min-w-0 truncate leading-normal">{column.label ?? column.name}</span>
+      <span className="min-w-0 truncate leading-normal">{displayColumnName(column, lang)}</span>
       {column.required && <span className="text-destructive">*</span>}
       {unsaved && (
         <span
@@ -318,8 +323,8 @@ function CollectionField({
       )}
       {violation ? (
         <p className="text-[10px] text-destructive">{t(violation.key, violation.params)}</p>
-      ) : column.description ? (
-        <p className="text-[10px] text-muted-foreground">{column.description}</p>
+      ) : displayColumnDescription(column, lang) ? (
+        <p className="text-[10px] text-muted-foreground">{displayColumnDescription(column, lang)}</p>
       ) : null}
     </div>
   )

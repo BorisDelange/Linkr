@@ -23,6 +23,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { localized } from '@/lib/localized'
 import {
   Bar,
   BarChart,
@@ -210,7 +211,7 @@ export function SurveyQuestionBlock({
   values: providedValues,
   columns,
 }: SurveyQuestionBlockProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   const localSummary = useMemo(
     () => (providedSummary ? null : summarizeQuestion(schema, question, rows, lang)),
@@ -268,9 +269,16 @@ export function SurveyQuestionBlock({
                   <span className="text-muted-foreground">{t('datasets.col_meta_col_id')}</span>
                   <span className="font-mono break-all">{identityColumn?.name ?? question.name}</span>
                   <span className="text-muted-foreground">{t('datasets.col_meta_label')}</span>
-                  <span className="break-words">{identityColumn?.label || questionText || '—'}</span>
+                  {/* The label alone, NOT displayColumnName: this row reports what the
+                      label holds, and falling back to the column name would show a
+                      name in the "Label" row of a column that has none. */}
+                  <span className="break-words">
+                    {localized(identityColumn?.label, i18n.language) || questionText || '—'}
+                  </span>
                   <span className="text-muted-foreground">{t('datasets.col_meta_description')}</span>
-                  <span className="break-words">{identityColumn?.description || '—'}</span>
+                  <span className="break-words">
+                    {localized(identityColumn?.description, i18n.language) || '—'}
+                  </span>
                 </div>
               </TooltipContent>
             </Tooltip>

@@ -1217,7 +1217,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
     rawValueColumns?.length ? rawValueColumns : defaultAnalysisColumns(testable).map((c) => c.id),
     testable,
     variableOrder,
-    displayColumnName,
+    (c) => displayColumnName(c, lang),
   )
 
   // Per-variable pinned tests, keyed by column id. Config like any other, so it
@@ -1289,14 +1289,14 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
       result,
       label: (() => {
         const col = byName.get(result.variable)
-        return col ? displayColumnName(col) : result.variable
+        return col ? displayColumnName(col, lang) : result.variable
       })(),
       columnId: byName.get(result.variable)?.id,
     }))
-  }, [results, columns])
+  }, [results, columns, lang])
 
   const groupColumn = groupColumnId ? columns.find((c) => c.id === groupColumnId) : undefined
-  const groupLabel = groupColumn ? displayColumnName(groupColumn) : ''
+  const groupLabel = groupColumn ? displayColumnName(groupColumn, lang) : ''
 
 
   // Collect group names for descriptive columns (always computed)

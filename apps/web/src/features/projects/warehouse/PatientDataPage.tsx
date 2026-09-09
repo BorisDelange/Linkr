@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Allotment, LayoutPriority } from 'allotment'
+import { Allotment, LayoutPriority, type AllotmentHandle } from 'allotment'
 import 'allotment/dist/style.css'
 import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight, ClipboardList } from 'lucide-react'
 import { useStickyFlag, useStickyState } from '@/hooks/use-sticky-state'
+import { paneSizes, paneSizesAfterReset } from './patient-data/pane-layout'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -35,6 +36,8 @@ import { paths } from '@/lib/paths'
 const SIDE_PANE_WIDTH = 320
 const SIDE_PANE_MIN = 250
 const SIDE_PANE_MAX = 640
+/** Dashboard + patient sidebar + collection panel. */
+const PANE_COUNT = 3
 
 /** A stored width is only ever trusted inside the range a panel may occupy. */
 const clampPaneWidth = (w: number) =>
@@ -64,6 +67,8 @@ export function PatientDataPage() {
   const [rawCollectionWidth, setCollectionWidth] = useStickyState('linkr.patient-collection-width', SIDE_PANE_WIDTH)
   const sidebarWidth = clampPaneWidth(rawSidebarWidth)
   const collectionWidth = clampPaneWidth(rawCollectionWidth)
+  const allotmentRef = useRef<AllotmentHandle>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   // Narrow selectors: a bare usePatientChartStore() would re-render the whole page
   // on every selection change.
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
@@ -84,6 +89,71 @@ export function PatientDataPage() {
   useEffect(() => {
     if (projectUid) loadProjectDashboards(projectUid)
   }, [projectUid, loadProjectDashboards])
+
+  // Allotment's `resize` walks the array we hand it and indexes its own view list by
+  // position, with no bounds check — so calling it before every pane has been
+  // constructed throws on `undefined.minimumSize`. On the first render the panes are
+  // not mounted yet, hence the guard: only resize once the DOM shows all three.
+  const applyPaneSizes = useCallback((sizesFor: (total: number) => number[]) => {
+    const el = containerRef.current
+    if (!el) return
+    const total = el.clientWidth
+    if (!total) return
+    if (el.querySelectorAll('[data-testid="sash"]').length < PANE_COUNT - 1) return
+    allotmentRef.current?.resize(sizesFor(total))
+  }, [])
+
+  // Reopening a panel restores the width it was last dragged to. This is done here
+  // rather than through `preferredSize` because that prop doubles as the
+  // double-click reset target — see the pane below. The dashboard pane absorbs the
+  // difference, so its size is whatever is left.
+  useEffect(() => {
+    applyPaneSizes((total) => paneSizes({
+      total, sidebarVisible, collectionOpen, sidebarWidth, collectionWidth,
+    }))
+    // Only on a visibility change: re-running when the widths themselves change would
+    // fight the drag that is producing them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sidebarVisible, collectionOpen])
+
+  // Double-clicking a border resets THAT border's panel to its default width, and
+  // leaves the other panel alone.
+  //
+  // Allotment's own handler resets the pane on the LEFT of the sash first, falling
+  // back to the one on its right — so double-clicking the collection panel's border
+  // resized the patient sidebar instead, and the collection panel never moved. We
+  // handle the event during capture, before Allotment sees it, and stop it there.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const onDoubleClick = (e: MouseEvent) => {
+      const sash = (e.target as HTMLElement | null)?.closest('[data-testid="sash"]')
+      if (!sash) return
+      // One sash per pane boundary, in pane order, and a hidden pane keeps its sash
+      // (Allotment only disables it) — so sash N is always the left border of pane
+      // N+1, whatever is currently visible. Pane 1 is the sidebar, pane 2 the
+      // collection panel.
+      const sashes = [...el.querySelectorAll('[data-testid="sash"]')]
+      const index = sashes.indexOf(sash)
+      const target = index === 0 ? 'sidebar' : index === 1 ? 'collection' : null
+      if (!target) return
+      if (target === 'sidebar' ? !sidebarVisible : !collectionOpen) return
+      e.preventDefault()
+      e.stopPropagation()
+      applyPaneSizes((total) => paneSizesAfterReset(
+        { total, sidebarVisible, collectionOpen, sidebarWidth, collectionWidth },
+        target,
+        SIDE_PANE_WIDTH,
+      ))
+      if (target === 'sidebar') setSidebarWidth(SIDE_PANE_WIDTH)
+      else setCollectionWidth(SIDE_PANE_WIDTH)
+    }
+    el.addEventListener('dblclick', onDoubleClick, true)
+    return () => el.removeEventListener('dblclick', onDoubleClick, true)
+  }, [
+    sidebarVisible, collectionOpen, sidebarWidth, collectionWidth,
+    setSidebarWidth, setCollectionWidth, applyPaneSizes,
+  ])
 
   const projectBoards = dashboards
     .filter((d) => d.projectUid === projectUid)
@@ -108,7 +178,7 @@ export function PatientDataPage() {
     personId: selectedPatientId,
     visitId: selectedVisitId,
     visitDetailId: selectedVisitDetailId,
-  })
+  }, projectUid)
 
   const boardTabs = currentBoard
     ? tabs
@@ -311,15 +381,16 @@ export function PatientDataPage() {
         </div>
 
         {/* Main content: dashboard + sidebar */}
-        <div className="flex-1 overflow-hidden">
+        <div ref={containerRef} className="flex-1 overflow-hidden">
           {/* proportionalLayout={false}: the side panels keep the width they were
               given instead of growing with the window. Which pane absorbs a change is
               then decided by the per-pane `priority` below.
 
-              Deliberately NOT keyed on the visible set: remounting reset Allotment's
-              sash state, which is what broke double-clicking a border to restore the
-              default width. */}
+              Deliberately NOT keyed on the visible set: remounting threw away
+              Allotment's sash state, which broke double-clicking a border. Reopening a
+              panel restores its remembered width through the effect above instead. */}
           <Allotment
+            ref={allotmentRef}
             proportionalLayout={false}
             onDragEnd={(sizes) => {
               // Positional over ALL panes, hidden ones reported as 0 — so only trust
@@ -399,11 +470,16 @@ export function PatientDataPage() {
               )}
             </Allotment.Pane>
             {/* Low priority: a side panel keeps the width it was given, and never
-                takes the slack from another one opening or closing. `preferredSize`
-                is also what a double-click on the sash resets to. */}
+                takes the slack from another one opening or closing.
+
+                `preferredSize` is the CONSTANT default, never the remembered width:
+                Allotment resets a sash's panes to `preferredSize` on double-click, so
+                feeding it the live width made "reset" a no-op — it restored the width
+                you had just dragged to. The remembered width is applied imperatively
+                below instead, which leaves double-click meaning "back to default". */}
             <Allotment.Pane
               minSize={SIDE_PANE_MIN}
-              preferredSize={sidebarWidth}
+              preferredSize={SIDE_PANE_WIDTH}
               maxSize={SIDE_PANE_MAX}
               priority={LayoutPriority.Low}
               visible={sidebarVisible}
@@ -414,7 +490,7 @@ export function PatientDataPage() {
                 the same time, so dimming the page would hide the source. */}
             <Allotment.Pane
               minSize={SIDE_PANE_MIN}
-              preferredSize={collectionWidth}
+              preferredSize={SIDE_PANE_WIDTH}
               maxSize={SIDE_PANE_MAX}
               priority={LayoutPriority.Low}
               visible={collectionOpen}

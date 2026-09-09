@@ -58,6 +58,7 @@ import { useAppStore } from '@/stores/app-store'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { queryDatasetRows } from '@/lib/api/datasets'
+import { rawFileRepresentsDataset } from '@/lib/dataset-download-source'
 import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import { ImportSettingsDialog } from './ImportSettingsDialog'
 import type { DatasetFile } from '@/types'
@@ -212,9 +213,6 @@ function DatasetTreeItem({
   const handleDownload = async () => {
     if (node.type !== 'file') return
 
-    // Prefer the original uploaded file (XLSX/parquet/CSV) so the download keeps the real
-    // bytes and extension. Only fall back to a reconstructed CSV when there's no source file.
-    const raw = await getStorage().datasetRawFiles.get(node.id)
     const trigger = (blob: Blob, fileName: string) => {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -224,14 +222,19 @@ function DatasetTreeItem({
       URL.revokeObjectURL(url)
     }
 
-    if (raw?.blob) {
-      trigger(raw.blob, raw.fileName || node.name)
-      return
+    // An edited dataset is reconstructed from its replayed state; only an unedited
+    // one downloads its original bytes. See `rawFileRepresentsDataset` for why.
+    if (rawFileRepresentsDataset(node)) {
+      const raw = await getStorage().datasetRawFiles.get(node.id)
+      if (raw?.blob) {
+        trigger(raw.blob, raw.fileName || node.name)
+        return
+      }
     }
 
-    // No raw file (e.g. a manually-created dataset): reconstruct a CSV. In server
-    // mode the rows aren't in memory (datasetData.get no-ops on the API adapter),
-    // so page them from the server; front-only reads the in-memory/IDB rows.
+    // Reconstruct a CSV. In server mode the rows aren't in memory (datasetData.get
+    // no-ops on the API adapter), so page them from the server; front-only reads the
+    // in-memory/IDB rows.
     const columns = node.columns ?? []
     if (columns.length === 0) return
     let rows = useDatasetStore.getState().getFileRows(node.id)

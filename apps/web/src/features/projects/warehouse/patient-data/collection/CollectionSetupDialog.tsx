@@ -17,6 +17,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTallestPanel } from '@/hooks/use-tallest-panel'
 import { columnId as deriveColumnId } from '@/lib/column-id'
+import { displayColumnDescription, displayColumnName } from '@/lib/dataset-utils'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
 import { useDatasetStore } from '@/stores/dataset-store'
@@ -37,6 +38,9 @@ interface Props {
 }
 
 const NONE = '__none__'
+/** Past this many variables the list scrolls instead of growing the dialog. */
+const VARIABLES_BEFORE_SCROLL = 8
+const VARIABLES_MAX_HEIGHT = 320
 /**
  * Configures a board's manual collection, in three tabs: which dataset receives it
  * and how its columns identify the patient (Dataset), which columns are filled in
@@ -51,7 +55,8 @@ const NONE = '__none__'
  * here names it in the Datasets page too rather than inventing a second name.
  */
 export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId, config }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const { schemaMapping } = usePatientChartContext()
   const files = useDatasetStore((s) => s.files)
   const loadProjectDatasets = useDatasetStore((s) => s.loadProjectDatasets)
@@ -61,6 +66,7 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
   const getFileRows = useDatasetStore((s) => s.getFileRows)
   const updateColumnMeta = useDatasetStore((s) => s.updateColumnMeta)
   const setColumnType = useDatasetStore((s) => s.setColumnType)
+  const renameColumn = useDatasetStore((s) => s.renameColumn)
   const updateDashboard = usePatientChartStore((s) => s.updateDashboard)
 
   const [tab, setTab] = useState('dataset')
@@ -179,7 +185,20 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
     if (current && current.type !== v.type) {
       await setColumnType(draft.datasetFileId, v.id, v.type)
     }
-    updateColumnMeta(draft.datasetFileId, v.id, {
+    // The name is the CSV header, so changing it is a real rename: it rewrites the
+    // column id and repairs every stored reference to it. Skipping this left the
+    // dialog's edits to the name silently dropped.
+    let id = v.id
+    if (current && current.name !== v.name) {
+      await renameColumn(draft.datasetFileId, v.id, v.name)
+      // The id is derived from the name, so the metadata below has to target the id
+      // the column now has, not the one it was opened with.
+      id = deriveColumnId(v.name)
+      setVariables(variables.map((variable) => (
+        variable.columnId === v.id ? { ...variable, columnId: id } : variable
+      )))
+    }
+    updateColumnMeta(draft.datasetFileId, id, {
       label: v.label, description: v.description,
       required: v.required, withTime: v.withTime,
       allowedValues: v.allowedValues, min: v.min, max: v.max,
@@ -239,7 +258,7 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
               <SelectItem key={col.id} value={col.id}>
                 <span className="flex items-center gap-2">
                   <TypeBadge type={col.type} size="sm" />
-                  {col.label ?? col.name}
+                  {displayColumnName(col, lang)}
                 </span>
               </SelectItem>
             ))}
@@ -305,6 +324,13 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
     <p className="text-xs text-muted-foreground">{t('patient_data.collection_pick_dataset_first')}</p>
   ) : (
     <div className="space-y-4">
+      {/* Scrolls past a dozen or so variables rather than growing the dialog off the
+          screen. An explicit height, not max-h: ScrollArea's viewport is h-full, so a
+          max-height on the root never bounds it. */}
+      <div
+        className={variables.length > VARIABLES_BEFORE_SCROLL ? 'overflow-y-auto pr-1' : undefined}
+        style={variables.length > VARIABLES_BEFORE_SCROLL ? { maxHeight: VARIABLES_MAX_HEIGHT } : undefined}
+      >
       <div className="space-y-1">
         {variables.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t('patient_data.collection_no_variables_yet')}</p>
@@ -317,9 +343,11 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
               <div key={variable.columnId} className="flex items-center gap-2 rounded border px-2 py-1.5">
                 <TypeBadge type={col.type} size="sm" />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs">{col.label ?? col.name}</div>
-                  {col.description && (
-                    <div className="truncate text-[10px] text-muted-foreground">{col.description}</div>
+                  <div className="truncate text-xs">{displayColumnName(col, lang)}</div>
+                  {displayColumnDescription(col, lang) && (
+                    <div className="truncate text-[10px] text-muted-foreground">
+                      {displayColumnDescription(col, lang)}
+                    </div>
                   )}
                 </div>
                 {!created && <Badge variant="outline">{t('patient_data.collection_existing_column')}</Badge>}
@@ -345,6 +373,7 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
             )
           })
         )}
+      </div>
       </div>
 
       <div className="flex items-center gap-2">
@@ -379,7 +408,7 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
                 <SelectItem key={col.id} value={col.id}>
                   <span className="flex items-center gap-2">
                     <TypeBadge type={col.type} size="sm" />
-                    {col.label ?? col.name}
+                    {displayColumnName(col, lang)}
                   </span>
                 </SelectItem>
               ))}
@@ -505,7 +534,7 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
             <AlertDialogTitle>{t('patient_data.collection_delete_column')}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('patient_data.collection_delete_column_confirm', {
-                name: removedColumn?.label ?? removedColumn?.name ?? '',
+                name: removedColumn ? displayColumnName(removedColumn, lang) : '',
                 count: removing?.filled ?? 0,
               })}
             </AlertDialogDescription>

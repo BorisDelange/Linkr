@@ -10,7 +10,9 @@ import { fetchColumnDistinct } from '@/lib/api/datasets'
 import { CATEGORICAL_MAX_DISTINCT } from './use-column-distinct'
 import { isServerMode } from '@/lib/api-client'
 import { useDatasetStore } from '@/stores/dataset-store'
-import type { DatasetColumn } from '@/types'
+import { LangHint } from '@/components/ui/lang-hint'
+import { localizedRaw, seedLocalizedForEditing, setLocalized } from '@/lib/localized'
+import type { DatasetColumn, LocalizedString } from '@/types'
 
 interface Props {
   fileId: string
@@ -27,13 +29,26 @@ function isCategorical(col: DatasetColumn): boolean {
 }
 
 export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const language = i18n.language
   const updateColumnMeta = useDatasetStore((s) => s.updateColumnMeta)
 
   // The parent remounts this dialog per column (key={column.id}), so props-derived
   // initial state is safe and no reset effect is needed.
-  const [label, setLabel] = useState(column.label ?? '')
-  const [description, setDescription] = useState(column.description ?? '')
+  //
+  // Label and description are multilingual, edited one language at a time — the
+  // active UI language, as everywhere else in the app (organisations, profiles,
+  // dashboards). Seeded on open so a language never entered starts from the other
+  // one instead of blank, then held as a LocalizedString so switching the UI
+  // language mid-edit does not overwrite the language already stored.
+  const seededLabel = useMemo(
+    () => seedLocalizedForEditing(column.label, language), [column.label, language],
+  )
+  const seededDescription = useMemo(
+    () => seedLocalizedForEditing(column.description, language), [column.description, language],
+  )
+  const [label, setLabel] = useState<LocalizedString>(seededLabel)
+  const [description, setDescription] = useState<LocalizedString>(seededDescription)
   const [valueLabels, setValueLabels] = useState<Record<string, string>>(column.valueLabels ?? {})
   const [required, setRequired] = useState(column.required ?? false)
   const [withTime, setWithTime] = useState(column.withTime ?? false)
@@ -88,9 +103,12 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
     () => allowed.split('\n').map((v) => v.trim()).filter(Boolean),
     [allowed],
   )
+  // Compared against the SEEDED values, not the stored ones: pre-filling a blank
+  // language from the other one is a convenience, and measuring it as an edit would
+  // open the dialog already dirty.
   const dirty =
-    label !== (column.label ?? '') ||
-    description !== (column.description ?? '') ||
+    JSON.stringify(label) !== JSON.stringify(seededLabel) ||
+    JSON.stringify(description) !== JSON.stringify(seededDescription) ||
     required !== (column.required ?? false) ||
     withTime !== (column.withTime ?? false) ||
     min !== (column.min == null ? '' : String(column.min)) ||
@@ -139,23 +157,25 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
       confirmDisabled={!dirty}
       dirtyTracked
     >
-          <FormField label={t('datasets.col_meta_label')}>
+          <FormField label={<>{t('datasets.col_meta_label')} <LangHint lang={language} /></>}>
             {({ id }) => (
               <Input
                 id={id}
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
+                value={localizedRaw(label, language)}
+                onChange={(e) => setLabel(setLocalized(label, language, e.target.value))}
                 placeholder={column.name}
               />
             )}
           </FormField>
 
-          <FormField label={t('datasets.col_meta_description')}>
+          <FormField
+            label={<>{t('datasets.col_meta_description')} <LangHint lang={language} /></>}
+          >
             {({ id }) => (
               <Textarea
                 id={id}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                value={localizedRaw(description, language)}
+                onChange={(e) => setDescription(setLocalized(description, language, e.target.value))}
                 rows={3}
               />
             )}

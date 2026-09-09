@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { localized, localizedRaw, toLocalized, setLocalized, seedLocalizedForEditing } from './localized'
+import {
+  allLocalizedText, cleanLocalized, localized, localizedRaw, toLocalized, setLocalized,
+  seedLocalizedForEditing,
+} from './localized'
 
 // localized() is the single read path for every multilingual name/description/
 // readme in the app. A wrong fallback shows an empty or wrong-language label.
@@ -134,5 +137,52 @@ describe('seedLocalizedForEditing', () => {
   it('leaves an all-empty value empty (nothing to seed)', () => {
     expect(seedLocalizedForEditing({}, 'fr')).toEqual({})
     expect(seedLocalizedForEditing(undefined, 'en')).toEqual({})
+  })
+})
+
+// cleanLocalized() runs on every save of a column label/description. Storing blank
+// languages would make an untouched column gain keys in the export, so "nothing was
+// typed" has to come back as undefined rather than as an object full of ''.
+describe('cleanLocalized', () => {
+  it('drops the languages that hold nothing', () => {
+    expect(cleanLocalized({ en: 'Weight', fr: '' })).toEqual({ en: 'Weight' })
+  })
+
+  it('returns undefined when no language holds anything', () => {
+    expect(cleanLocalized({ en: '', fr: '   ' })).toBeUndefined()
+    expect(cleanLocalized({})).toBeUndefined()
+    expect(cleanLocalized(undefined)).toBeUndefined()
+    expect(cleanLocalized(null)).toBeUndefined()
+  })
+
+  it('trims each language rather than storing padded text', () => {
+    expect(cleanLocalized({ en: '  Weight  ', fr: ' Poids ' })).toEqual({ en: 'Weight', fr: 'Poids' })
+  })
+
+  it('upgrades a legacy plain string to every language', () => {
+    expect(cleanLocalized('Weight')).toEqual({ en: 'Weight', fr: 'Weight' })
+  })
+
+  it('treats a blank legacy string as nothing', () => {
+    expect(cleanLocalized('   ')).toBeUndefined()
+  })
+})
+
+// allLocalizedText() feeds search boxes. Searching only the active language hides
+// an entry from someone who knows it by its other name.
+describe('allLocalizedText', () => {
+  it('joins every language so either name matches', () => {
+    expect(allLocalizedText({ en: 'Weight', fr: 'Poids' })).toBe('Weight Poids')
+  })
+
+  it('skips the languages that hold nothing', () => {
+    expect(allLocalizedText({ en: 'Weight', fr: '' })).toBe('Weight')
+  })
+
+  it('accepts a legacy plain string and nullish', () => {
+    expect(allLocalizedText('Weight')).toBe('Weight')
+    expect(allLocalizedText(undefined)).toBe('')
+    expect(allLocalizedText(null)).toBe('')
+    expect(allLocalizedText({})).toBe('')
   })
 })

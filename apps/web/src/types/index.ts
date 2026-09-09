@@ -985,10 +985,16 @@ export interface DatasetColumn {
   type: 'string' | 'number' | 'boolean' | 'date' | 'unknown'
   order: number
   /** Human-friendly display name shown in headers, plugin pickers, charts.
-   *  The technical `name` stays the join/query key; this is presentation only. */
-  label?: string
-  /** Short free-text description of the column, surfaced on hover / in the meta dialog. */
-  description?: string
+   *  The technical `name` stays the join/query key; this is presentation only.
+   *
+   *  Multilingual, like every other authored label in the app: a dataset is shared
+   *  across a team and published to the catalog, so its column headings have to read
+   *  in the reader's language, not the author's. A plain string is the legacy shape
+   *  and still reads — resolve it with `displayColumnName`, never by hand. */
+  label?: LocalizedString | string
+  /** Short free-text description of the column, surfaced on hover / in the meta
+   *  dialog. Multilingual for the same reason as `label`. */
+  description?: LocalizedString | string
   /** Code → label map for categorical values (e.g. { chu_chr: 'CHU/CHR' }). Display
    *  layer only — cells keep the raw code, so filters/joins/exports are unaffected.
    *  Populated by hand or auto-filled on import (e.g. Goupile @propositions). */

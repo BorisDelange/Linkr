@@ -435,3 +435,37 @@ async def test_filter_mode_persists_via_sidecar(client, seed_roles):
     meta = await _meta(client, h, uid, "c.csv")
     assert meta["parseOptions"]["columnFilterMode"] == {"col_sex": "list"}
     assert {c["id"]: c for c in meta["columns"]}["col_sex"]["label"] == "Sexe"
+
+
+def test_column_meta_keeps_localized_labels():
+    """A column label is a LocalizedString ({"en": …, "fr": …}), so it must survive
+    the sidecar round-trip with its languages intact."""
+    dataset_fs.write_column_meta(
+        "p1",
+        "weights.csv",
+        {"col_weight": {"label": {"en": "Weight", "fr": "Poids"}, "description": {"fr": "En kg"}}},
+    )
+    got = dataset_fs.read_column_meta("p1", "weights.csv")
+    assert got["col_weight"]["label"] == {"en": "Weight", "fr": "Poids"}
+    assert got["col_weight"]["description"] == {"fr": "En kg"}
+
+
+def test_column_meta_drops_an_emptied_localized_label():
+    """Clearing every language must drop the field, not store {"en": "", "fr": ""}.
+
+    The trap: an all-empty LocalizedString is neither "" nor {}, so a blank check on
+    the outer value alone keeps it — and a column that never had a label gains a key
+    that shows up as a diff in every later export.
+    """
+    dataset_fs.write_column_meta(
+        "p1", "weights.csv", {"col_weight": {"label": {"en": "", "fr": ""}}}
+    )
+    assert dataset_fs.read_column_meta("p1", "weights.csv") == {}
+
+
+def test_column_meta_keeps_the_languages_that_hold_text():
+    dataset_fs.write_column_meta(
+        "p1", "weights.csv", {"col_weight": {"label": {"en": "Weight", "fr": ""}}}
+    )
+    got = dataset_fs.read_column_meta("p1", "weights.csv")
+    assert got["col_weight"]["label"] == {"en": "Weight", "fr": ""}

@@ -61,8 +61,9 @@ function isIntercept(name: string): boolean {
 function relabelCoefficients(
   result: RegressionResult,
   columns: DatasetColumn[],
+  lang: string,
 ): RegressionResult {
-  const relabel = coefficientRelabeler(columns)
+  const relabel = coefficientRelabeler(columns, lang)
   return {
     ...result,
     coefficients: result.coefficients.map((c) =>
@@ -370,6 +371,7 @@ function prepareData(
   outcomeId: string,
   predictorIds: string[],
   isLogistic: boolean,
+  lang: string,
 ): PreparedData | null {
   const colMap = new Map(columns.map(c => [c.id, c]))
   const outcomeCol = colMap.get(outcomeId)
@@ -396,7 +398,7 @@ function prepareData(
   const predictorSpecs: PredictorSpec[] = []
   for (const col of predictorCols) {
     if (col.type === 'number') {
-      predictorSpecs.push({ colId: col.id, colName: displayColumnName(col), isNumeric: true })
+      predictorSpecs.push({ colId: col.id, colName: displayColumnName(col, lang), isNumeric: true })
     } else {
       // Collect unique categories
       const cats = new Set<string>()
@@ -406,14 +408,14 @@ function prepareData(
       }
       const sorted = [...cats].sort()
       if (sorted.length < 2) {
-        warnings.push({ code: 'single_category', name: displayColumnName(col) })
+        warnings.push({ code: 'single_category', name: displayColumnName(col, lang) })
         continue
       }
       if (sorted.length > 20) {
-        warnings.push({ code: 'too_many_categories', name: displayColumnName(col), count: sorted.length })
+        warnings.push({ code: 'too_many_categories', name: displayColumnName(col, lang), count: sorted.length })
         continue
       }
-      predictorSpecs.push({ colId: col.id, colName: displayColumnName(col), isNumeric: false, categories: sorted })
+      predictorSpecs.push({ colId: col.id, colName: displayColumnName(col, lang), isNumeric: false, categories: sorted })
     }
   }
 
@@ -717,6 +719,7 @@ function runRegression(
   predictorIds: string[],
   regressionType: 'auto' | 'linear' | 'logistic',
   confidenceLevel: number,
+  lang: string,
 ): RegressionResult | null {
   const colMap = new Map(columns.map(c => [c.id, c]))
   const outcomeCol = colMap.get(outcomeId)
@@ -738,7 +741,7 @@ function runRegression(
 
   const alpha = 1 - confidenceLevel / 100
 
-  const data = prepareData(rows, columns, outcomeId, predictorIds, isLogistic)
+  const data = prepareData(rows, columns, outcomeId, predictorIds, isLogistic, lang)
   if (!data) return null
 
   if (data.nComplete < data.predictorNames.length + 1) {
@@ -975,7 +978,8 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
 // ===========================================================================
 
 export function RegressionComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const server = isServerMode()
   const pluginName = usePluginName('regression')
 
@@ -986,8 +990,8 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
     [config.predictorColumns],
   )
   const predictorIds = useMemo(
-    () => orderSelection(rawPredictorIds, columns, variableOrder, displayColumnName),
-    [rawPredictorIds, columns, variableOrder],
+    () => orderSelection(rawPredictorIds, columns, variableOrder, (c) => displayColumnName(c, lang)),
+    [rawPredictorIds, columns, variableOrder, lang],
   )
   const regressionType = (config.regressionType as 'auto' | 'linear' | 'logistic') ?? 'auto'
   const confidenceLevel = (config.confidenceLevel as number) ?? 95
@@ -1007,9 +1011,9 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
   const localResult = useMemo(
     () => {
       if (server || !outcomeId || predictorIds.length === 0) return null
-      return runRegression(rows, columns, outcomeId, predictorIds, regressionType, confidenceLevel)
+      return runRegression(rows, columns, outcomeId, predictorIds, regressionType, confidenceLevel, lang)
     },
-    [server, rows, columns, outcomeId, predictorIds, regressionType, confidenceLevel],
+    [server, rows, columns, outcomeId, predictorIds, regressionType, confidenceLevel, lang],
   )
   // Stable string keys so the effect only re-fetches on a semantic change.
   const spec = server && datasetFileId && outcomeId && predictorIds.length > 0
@@ -1042,8 +1046,8 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
   // named `site` or `site: CH Vannes`. Relabel them here — locally the names
   // are already labels, so this only has work to do in server mode.
   const result = useMemo(
-    () => (rawResult && server ? relabelCoefficients(rawResult, columns) : rawResult),
-    [rawResult, server, columns],
+    () => (rawResult && server ? relabelCoefficients(rawResult, columns, lang) : rawResult),
+    [rawResult, server, columns, lang],
   )
   const isLogistic = result?.type === 'logistic'
 

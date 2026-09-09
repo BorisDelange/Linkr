@@ -28,7 +28,7 @@ export function CollectionStatusBlock({
   const config = board?.collection
   const { fields, filledCount, hasRow } = usePatientCollection(config, {
     personId, visitId, visitDetailId,
-  })
+  }, projectUid)
 
   if (!config?.datasetFileId || !projectUid) return null
 

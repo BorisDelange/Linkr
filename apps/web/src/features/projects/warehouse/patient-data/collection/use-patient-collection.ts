@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ROW_ORD, type DatasetOp } from '@linkr/format'
 import { isServerMode } from '@/lib/api-client'
 import { queryDatasetRows } from '@/lib/api/datasets'
+import { useAppStore } from '@/stores/app-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import type { DatasetColumn, PatientCollectionConfig } from '@/types'
 import { resolveVariables } from './variables'
@@ -30,14 +31,42 @@ interface PatientKey {
   visitDetailId: string | null
 }
 
-export function usePatientCollection(config: PatientCollectionConfig | undefined, key: PatientKey) {
+export function usePatientCollection(
+  config: PatientCollectionConfig | undefined,
+  key: PatientKey,
+  /**
+   * The project owning the collection dataset. Passed in rather than read from
+   * `PatientChartContext`: the page calls this hook ABOVE its own Provider, so the
+   * context there is still the default one whose `projectUid` is `''` — which left
+   * the datasets unloaded until the Datasets page had been visited.
+   */
+  projectUid: string,
+) {
   const fileId = config?.datasetFileId
   const file = useDatasetStore((s) => s.files.find((f) => f.id === fileId))
   const applyOps = useDatasetStore((s) => s.applyOps)
   const loadFileData = useDatasetStore((s) => s.loadFileData)
+  const loadProjectDatasets = useDatasetStore((s) => s.loadProjectDatasets)
+  const ensureServerMeta = useDatasetStore((s) => s.ensureServerMeta)
   const getFileRows = useDatasetStore((s) => s.getFileRows)
   const dirtyVersion = useDatasetStore((s) => s._dirtyVersion)
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
+  const datasetsPath = useAppStore(
+    (s) => s._projectsRaw.find((p) => p.uid === projectUid)?.datasetsPath,
+  )
+
+  // The datasets live in their own store, which only the Datasets page was loading —
+  // so collecting without having visited that page found no file at all, and the
+  // panel reported the dataset as having no columns. The store no-ops when this
+  // project is already scanned.
+  useEffect(() => {
+    if (projectUid) void loadProjectDatasets(projectUid, datasetsPath ?? undefined)
+  }, [projectUid, datasetsPath, loadProjectDatasets])
+
+  // Server mode lists a dataset without its columns; they arrive on demand.
+  useEffect(() => {
+    if (fileId) void ensureServerMeta(fileId)
+  }, [fileId, ensureServerMeta])
 
   useEffect(() => {
     if (!fileId) {
