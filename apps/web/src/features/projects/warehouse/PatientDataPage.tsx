@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Allotment } from 'allotment'
+import { Allotment, LayoutPriority } from 'allotment'
 import 'allotment/dist/style.css'
 import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight, ClipboardList } from 'lucide-react'
 import { useStickyFlag, useStickyState } from '@/hooks/use-sticky-state'
@@ -36,6 +36,10 @@ const SIDE_PANE_WIDTH = 320
 const SIDE_PANE_MIN = 250
 const SIDE_PANE_MAX = 640
 
+/** A stored width is only ever trusted inside the range a panel may occupy. */
+const clampPaneWidth = (w: number) =>
+  Number.isFinite(w) ? Math.min(Math.max(w, SIDE_PANE_MIN), SIDE_PANE_MAX) : SIDE_PANE_WIDTH
+
 export function PatientDataPage() {
   const { t } = useTranslation()
   const { wsUid, projectUid: resolvedUid, raw } = useResolvedParams()
@@ -53,8 +57,13 @@ export function PatientDataPage() {
   // pane (hidden ones included) and is thrown away wholesale on a length mismatch, so
   // an array saved with one set of panes visible gets replayed onto a different set —
   // which is what handed the collection panel's width to the patient sidebar.
-  const [sidebarWidth, setSidebarWidth] = useStickyState('linkr.patient-sidebar-width', SIDE_PANE_WIDTH)
-  const [collectionWidth, setCollectionWidth] = useStickyState('linkr.patient-collection-width', SIDE_PANE_WIDTH)
+  //
+  // Clamped on read as well as on write: a width persisted by an earlier build (or by
+  // a wider window) must not be able to restore a panel wider than it may ever be.
+  const [rawSidebarWidth, setSidebarWidth] = useStickyState('linkr.patient-sidebar-width', SIDE_PANE_WIDTH)
+  const [rawCollectionWidth, setCollectionWidth] = useStickyState('linkr.patient-collection-width', SIDE_PANE_WIDTH)
+  const sidebarWidth = clampPaneWidth(rawSidebarWidth)
+  const collectionWidth = clampPaneWidth(rawCollectionWidth)
   // Narrow selectors: a bare usePatientChartStore() would re-render the whole page
   // on every selection change.
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
@@ -304,15 +313,14 @@ export function PatientDataPage() {
         {/* Main content: dashboard + sidebar */}
         <div className="flex-1 overflow-hidden">
           {/* proportionalLayout={false}: the side panels keep the width they were
-              given instead of growing with the window or absorbing a share of the
-              space freed when the other one closes. */}
+              given instead of growing with the window. Which pane absorbs a change is
+              then decided by the per-pane `priority` below.
+
+              Deliberately NOT keyed on the visible set: remounting reset Allotment's
+              sash state, which is what broke double-clicking a border to restore the
+              default width. */}
           <Allotment
             proportionalLayout={false}
-            // Sizes come from each pane's own `preferredSize`, not from
-            // `defaultSizes` — see the width state above for why. Re-keyed when the
-            // visible set changes so the remaining panes re-lay out from their
-            // preferred widths rather than absorbing the freed space.
-            key={`${sidebarVisible}:${collectionOpen}`}
             onDragEnd={(sizes) => {
               // Positional over ALL panes, hidden ones reported as 0 — so only trust
               // an entry whose pane is actually on screen.
@@ -321,7 +329,13 @@ export function PatientDataPage() {
               if (collectionOpen && collection > 0) setCollectionWidth(collection)
             }}
           >
-            <Allotment.Pane minSize={500}>
+            {/* Every width change — the window resizing, a side panel opening or
+                closing — is absorbed HERE. `distributeEmptySpace` hands slack to
+                panes in priority order (High, then Normal, then Low), so leaving all
+                three Normal let the order fall out of the internal pane list: opening
+                the collection panel took its width from the patient sidebar, which
+                grew to swallow it instead. */}
+            <Allotment.Pane minSize={500} priority={LayoutPriority.High}>
               {tabWidgets.length > 0 ? (
                 mountedTabs.map((tab) => (
                   <div
@@ -384,10 +398,14 @@ export function PatientDataPage() {
                 </div>
               )}
             </Allotment.Pane>
+            {/* Low priority: a side panel keeps the width it was given, and never
+                takes the slack from another one opening or closing. `preferredSize`
+                is also what a double-click on the sash resets to. */}
             <Allotment.Pane
               minSize={SIDE_PANE_MIN}
               preferredSize={sidebarWidth}
               maxSize={SIDE_PANE_MAX}
+              priority={LayoutPriority.Low}
               visible={sidebarVisible}
             >
               <PatientDataSidebar />
@@ -398,6 +416,7 @@ export function PatientDataPage() {
               minSize={SIDE_PANE_MIN}
               preferredSize={collectionWidth}
               maxSize={SIDE_PANE_MAX}
+              priority={LayoutPriority.Low}
               visible={collectionOpen}
             >
               <CollectionSidebar
