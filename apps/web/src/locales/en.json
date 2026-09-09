@@ -1429,6 +1429,8 @@
     "col_edit": "Edit column",
     "col_id": "Column ID",
     "col_id_hint": "Used by widgets and queries. Changing it rewrites references.",
+    "col_name_hint": "The column name in the dataset file, as it appears in the CSV header.",
+    "col_meta_label_hint": "What collectors see on screen. Defaults to the column name.",
     "op_position": "#",
     "op_set_cell": "{{column}} on row {{row}} → {{value}}",
     "op_add_row": "Row added ({{row}})",

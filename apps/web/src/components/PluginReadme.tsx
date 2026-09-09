@@ -13,6 +13,7 @@ import {
 } from '@/hooks/use-resizable-sidebar'
 import { pluginFolder, resolvePluginAttachments } from '@/lib/plugins/plugin-readme'
 import { localized } from '@/lib/localized'
+import { cn } from '@/lib/utils'
 import type { Plugin } from '@/types/plugin'
 
 // Wider than the dashboard sidebars: this one holds prose, and a tutorial read

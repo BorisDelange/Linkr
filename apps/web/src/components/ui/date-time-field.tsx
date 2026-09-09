@@ -1,3 +1,4 @@
+import type { Matcher } from 'react-day-picker'
 import { DatePickerField, fromIsoDay, toIsoDay } from '@/components/ui/date-picker-field'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -39,9 +40,16 @@ export function DateTimeField({
     onChange(withTime && nextTime ? `${nextDay}T${nextTime}` : nextDay)
   }
 
-  const bounds = min || max
-    ? { before: fromIsoDay(min?.split('T')[0]), after: fromIsoDay(max?.split('T')[0]) }
-    : undefined
+  // One matcher per bound rather than a single `{before, after}` interval: that
+  // shape is `DateInterval`, which requires BOTH ends, so a column with only a
+  // minimum could not be expressed. Separate matchers also read as "disable days
+  // before min" OR "after max", which is what a one-sided bound means — an interval
+  // with a missing end would disable nothing.
+  const before = fromIsoDay(min?.split('T')[0])
+  const after = fromIsoDay(max?.split('T')[0])
+  const bounds: Matcher[] = []
+  if (before) bounds.push({ before })
+  if (after) bounds.push({ after })
 
   return (
     <div className={cn('flex min-w-0 items-center gap-1', className)}>
@@ -49,7 +57,7 @@ export function DateTimeField({
         value={day || undefined}
         onChange={(d) => emit(d, time)}
         className={withTime ? 'flex-1' : undefined}
-        disabledDays={bounds}
+        disabledDays={bounds.length ? bounds : undefined}
       />
       {withTime && (
         <Input

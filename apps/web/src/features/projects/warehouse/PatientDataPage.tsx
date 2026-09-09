@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight, ClipboardList } from 'lucide-react'
+import { useStickyFlag, useStickyState } from '@/hooks/use-sticky-state'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -32,6 +33,8 @@ import { paths } from '@/lib/paths'
 /** Default width of each side panel. The patient sidebar and the collection panel
  *  share it so opening the second doesn't make the pair look mismatched. */
 const SIDE_PANE_WIDTH = 320
+const SIDE_PANE_MIN = 250
+const SIDE_PANE_MAX = 640
 
 export function PatientDataPage() {
   const { t } = useTranslation()
@@ -42,13 +45,22 @@ export function PatientDataPage() {
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [collectionOpen, setCollectionOpen] = useState(false)
+  // Persisted, not component state: leaving the page and coming back should show
+  // the workspace as it was left, the same way the board itself is remembered.
+  const [collectionOpen, setCollectionOpen] = useStickyFlag('linkr.patient-collection-open', false)
+  // Each side panel remembers its OWN width, rather than the whole split being
+  // stored as one positional array. Allotment's `defaultSizes` is indexed over every
+  // pane (hidden ones included) and is thrown away wholesale on a length mismatch, so
+  // an array saved with one set of panes visible gets replayed onto a different set —
+  // which is what handed the collection panel's width to the patient sidebar.
+  const [sidebarWidth, setSidebarWidth] = useStickyState('linkr.patient-sidebar-width', SIDE_PANE_WIDTH)
+  const [collectionWidth, setCollectionWidth] = useStickyState('linkr.patient-collection-width', SIDE_PANE_WIDTH)
   // Narrow selectors: a bare usePatientChartStore() would re-render the whole page
   // on every selection change.
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
   const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
   const selectedVisitDetailId = usePatientChartStore((s) => s.selectedVisitDetailId[projectUid] ?? null)
-  const [sidebarVisible, setSidebarVisible] = useState(true)
+  const [sidebarVisible, setSidebarVisible] = useStickyFlag('linkr.patient-sidebar-open', true)
 
   // Narrow selectors: a bare usePatientChartStore() re-renders the page (and the
   // whole grid under it) on every patient/visit selection change.
@@ -294,7 +306,21 @@ export function PatientDataPage() {
           {/* proportionalLayout={false}: the side panels keep the width they were
               given instead of growing with the window or absorbing a share of the
               space freed when the other one closes. */}
-          <Allotment proportionalLayout={false}>
+          <Allotment
+            proportionalLayout={false}
+            // Sizes come from each pane's own `preferredSize`, not from
+            // `defaultSizes` — see the width state above for why. Re-keyed when the
+            // visible set changes so the remaining panes re-lay out from their
+            // preferred widths rather than absorbing the freed space.
+            key={`${sidebarVisible}:${collectionOpen}`}
+            onDragEnd={(sizes) => {
+              // Positional over ALL panes, hidden ones reported as 0 — so only trust
+              // an entry whose pane is actually on screen.
+              const [, sidebar, collection] = sizes
+              if (sidebarVisible && sidebar > 0) setSidebarWidth(sidebar)
+              if (collectionOpen && collection > 0) setCollectionWidth(collection)
+            }}
+          >
             <Allotment.Pane minSize={500}>
               {tabWidgets.length > 0 ? (
                 mountedTabs.map((tab) => (
@@ -358,12 +384,22 @@ export function PatientDataPage() {
                 </div>
               )}
             </Allotment.Pane>
-            <Allotment.Pane minSize={250} preferredSize={SIDE_PANE_WIDTH} maxSize={640} visible={sidebarVisible}>
+            <Allotment.Pane
+              minSize={SIDE_PANE_MIN}
+              preferredSize={sidebarWidth}
+              maxSize={SIDE_PANE_MAX}
+              visible={sidebarVisible}
+            >
               <PatientDataSidebar />
             </Allotment.Pane>
             {/* Docked, not overlaid: the collector reads the chart and fills this at
                 the same time, so dimming the page would hide the source. */}
-            <Allotment.Pane minSize={250} preferredSize={SIDE_PANE_WIDTH} maxSize={640} visible={collectionOpen}>
+            <Allotment.Pane
+              minSize={SIDE_PANE_MIN}
+              preferredSize={collectionWidth}
+              maxSize={SIDE_PANE_MAX}
+              visible={collectionOpen}
+            >
               <CollectionSidebar
                 onClose={() => setCollectionOpen(false)}
                 projectUid={projectUid}

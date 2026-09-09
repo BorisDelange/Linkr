@@ -13,7 +13,6 @@ import {
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
 import { useDatasetSeries } from './use-dataset-series'
-import type { DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { conceptColorHex } from '@/lib/concept-colors'
 import {
   subscribeTimelineSync,
@@ -200,7 +199,7 @@ export function TimelineWidget({
   // A dataset plotted on the same axis as the concepts — the point of the feature:
   // a hand-collected variable (ventilation start/end, say) read against what the
   // warehouse holds, rather than in two windows.
-  const datasetMapping = config.dataset as Partial<DatasetTimelineMapping> | undefined
+  const datasetMapping = config.dataset
   const datasetRows = useDatasetSeries(datasetMapping, patientId, visitId, visible)
 
   const data = useMemo<TimelineRow[]>(() => {

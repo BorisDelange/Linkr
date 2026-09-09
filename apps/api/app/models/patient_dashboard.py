@@ -31,6 +31,10 @@ class PatientDashboard(Base, TimestampMixin):
     fit_to_height: Mapped[bool | None] = mapped_column(Boolean)
     reload_widgets_on_tab_switch: Mapped[bool | None] = mapped_column(Boolean)
     sync_timelines_across_tabs: Mapped[bool | None] = mapped_column(Boolean)
+    # Manual-collection setup: which dataset receives entries, the columns that
+    # identify the patient, and the variables to collect. A board-level setting,
+    # so two boards of the same project can collect into different datasets.
+    collection: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     display_order: Mapped[int] = mapped_column(Integer, default=0)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     # User-facing semver, portable across export/import (see Project.version).

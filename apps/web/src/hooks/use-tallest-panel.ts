@@ -56,6 +56,10 @@ export function useTallestPanel() {
 
   const tallest = Math.max(0, ...Object.values(heights))
 
+  // `minHeight`, so a caller that leaves its active panel in normal flow still gets
+  // at least the tallest panel's height. A caller that positions EVERY panel
+  // absolutely — the only way the container's size stops tracking the active panel —
+  // gets its whole height from here, and `minHeight` is what sets it.
   return {
     containerProps: { style: { minHeight: tallest || undefined } },
     measuredPanelProps,

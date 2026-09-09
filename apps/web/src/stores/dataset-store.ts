@@ -263,8 +263,12 @@ async function repairColumnRefs(fileId: string, plan: ColumnRenamePlan): Promise
  * shared, and it is the record of who changed what.
  */
 function stampAuthor(ops: DatasetOp[]): DatasetOp[] {
-  const by = useAppStore.getState().user?.id
-  if (!by) return ops
+  const id = useAppStore.getState().user?.id
+  if (id == null) return ops
+  // Stringified: the op log is serialised to JSON and read back by both engines, and
+  // `by` is declared as a string there — a raw numeric id would round-trip as a
+  // number and stop matching the ids the history dialog resolves names against.
+  const by = String(id)
   return ops.map((op) => (op.by ? op : { ...op, by }))
 }
 

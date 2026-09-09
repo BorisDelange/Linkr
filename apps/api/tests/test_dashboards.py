@@ -167,3 +167,31 @@ async def test_non_member_cannot_access(client, db):
     assert (await client.get(f"{API}/dashboards/tabs/{t['id']}", headers=other)).status_code == 403
     assert (await client.get(f"{API}/dashboards/widgets/{w['id']}", headers=other)).status_code == 403
     assert (await client.delete(f"{API}/dashboards/{d['id']}", headers=other)).status_code == 403
+
+
+async def test_patient_dashboard_persists_its_collection_setup(client):
+    """The manual-collection setup is a board-level setting, so it has to reach the
+    database. It was held only in client memory at first, which looked fine until a
+    refresh — the whole configuration was gone."""
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+
+    board = (await client.post(f"{API}/patient-dashboards", headers=headers, json={
+        "id": "pb1", "projectUid": uid, "name": {"en": "Chart"},
+    })).json()
+    assert board["collection"] is None, "a board starts with no collection configured"
+
+    setup = {
+        "datasetFileId": "collect.csv",
+        "personColumn": "col_subject_id",
+        "visitColumn": "col_hadm_id",
+        "saveMode": "manual",
+        "variables": [{"columnId": "col_weight", "origin": "created"}],
+    }
+    updated = (await client.patch(
+        f"{API}/patient-dashboards/pb1", headers=headers, json={"collection": setup},
+    )).json()
+    assert updated["collection"] == setup
+
+    reread = (await client.get(f"{API}/patient-dashboards/pb1", headers=headers)).json()
+    assert reread["collection"] == setup, "must survive a reload, not just the response"

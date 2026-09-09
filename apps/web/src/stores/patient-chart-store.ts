@@ -5,6 +5,7 @@ import type {
   PatientDashboardTab,
   PatientDashboardWidget,
 } from '@/types'
+import type { DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { toLocalized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
@@ -59,6 +60,15 @@ export interface TimelineConfig {
    * escape hatch for a schema where that guess reads wrong.
    */
   engine?: 'auto' | 'dygraphs' | 'overview'
+  /**
+   * A dataset plotted on the same time axis as the concepts — which file, and which
+   * of its columns carry the time, the value and the series name.
+   *
+   * `Partial`, because the mapping is built one dropdown at a time in the widget's
+   * settings and a half-configured one has to be storable; the reader skips it until
+   * the required columns are all named.
+   */
+  dataset?: Partial<DatasetTimelineMapping>
 }
 
 // ---------------------------------------------------------------------------

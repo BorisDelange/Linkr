@@ -88,6 +88,10 @@ function SystemWidgetPreviewRenderer({ widgetType }: { widgetType: string }) {
     <PatientChartContext.Provider
       value={{
         projectUid: PREVIEW_PROJECT_UID,
+        // The preview renders a widget outside any board, so board-scoped settings
+        // (manual collection, timeline sync) have nothing to read — which is exactly
+        // what an absent id tells them.
+        boardId: undefined,
         dataSourceId: testDataSourceId ?? undefined,
         schemaMapping,
       }}

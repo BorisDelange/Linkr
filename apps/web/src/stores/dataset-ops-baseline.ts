@@ -25,7 +25,11 @@ import { ROW_ORD, type DatasetOp, type ReplayInput } from '@linkr/format'
  * baseline instead of re-reading the raw file.
  */
 export function unreplay(state: ReplayInput, ops: readonly DatasetOp[]): ReplayInput {
-  const rows = state.rows.map((r, i) => ({ ...r, [ROW_ORD]: (r[ROW_ORD] as number) ?? i }))
+  // Annotated: spreading with a computed key narrows the inferred type to just that
+  // key, which drops the index signature the column reads below need.
+  const rows: Record<string, unknown>[] = state.rows.map(
+    (r, i) => ({ ...r, [ROW_ORD]: (r[ROW_ORD] as number) ?? i }),
+  )
   if (!ops.length) return { columns: state.columns, rows }
 
   const byOrdinal = new Map<number, Record<string, unknown>>()

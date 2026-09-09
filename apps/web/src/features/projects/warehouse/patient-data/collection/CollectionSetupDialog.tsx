@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Info, Pencil, Plus, Trash2, X } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -10,19 +10,21 @@ import { Button } from '@/components/ui/button'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTallestPanel } from '@/hooks/use-tallest-panel'
 import { columnId as deriveColumnId } from '@/lib/column-id'
+import { cn } from '@/lib/utils'
+import { useAppStore } from '@/stores/app-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
-import { EditColumnMetaDialog } from '@/features/projects/lab/datasets/EditColumnMetaDialog'
+import { VariableDialog, type VariableDraft } from './VariableDialog'
 import { usePatientChartContext } from '../PatientChartContext'
-import { identityColumnsFromMapping } from './identity-columns'
+import { identityColumnsFromMapping, type IdentityColumn } from './identity-columns'
 import { resolveVariables } from './variables'
 import type { DatasetColumn, PatientCollectionConfig, PatientCollectionVariable } from '@/types'
 
@@ -35,8 +37,6 @@ interface Props {
 }
 
 const NONE = '__none__'
-const VARIABLE_TYPES: DatasetColumn['type'][] = ['string', 'number', 'boolean', 'date']
-
 /**
  * Configures a board's manual collection, in three tabs: which dataset receives it
  * and how its columns identify the patient (Dataset), which columns are filled in
@@ -50,14 +50,17 @@ const VARIABLE_TYPES: DatasetColumn['type'][] = ['string', 'number', 'boolean', 
  * A variable's label and description are its COLUMN's own metadata, so naming one
  * here names it in the Datasets page too rather than inventing a second name.
  */
-export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: Props) {
+export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId, config }: Props) {
   const { t } = useTranslation()
   const { schemaMapping } = usePatientChartContext()
   const files = useDatasetStore((s) => s.files)
+  const loadProjectDatasets = useDatasetStore((s) => s.loadProjectDatasets)
   const createFileWithData = useDatasetStore((s) => s.createFileWithData)
   const ensureServerMeta = useDatasetStore((s) => s.ensureServerMeta)
   const applyOps = useDatasetStore((s) => s.applyOps)
   const getFileRows = useDatasetStore((s) => s.getFileRows)
+  const updateColumnMeta = useDatasetStore((s) => s.updateColumnMeta)
+  const setColumnType = useDatasetStore((s) => s.setColumnType)
   const updateDashboard = usePatientChartStore((s) => s.updateDashboard)
 
   const [tab, setTab] = useState('dataset')
@@ -66,12 +69,19 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
   // than holding them for the next visit — Close reads as "cancel" everywhere else.
   useEffect(() => { if (open) setDraft(config ?? {}) }, [open, config])
   const [newName, setNewName] = useState('')
-  const [newColumn, setNewColumn] = useState('')
-  const [newColumnType, setNewColumnType] = useState<DatasetColumn['type']>('string')
-  const [metaColumn, setMetaColumn] = useState<DatasetColumn | null>(null)
+  const [addingVariable, setAddingVariable] = useState(false)
+  const [editingVariable, setEditingVariable] = useState<DatasetColumn | null>(null)
   const [removing, setRemoving] = useState<{ variable: PatientCollectionVariable; filled: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const { containerProps, measuredPanelProps } = useTallestPanel()
+
+  // The datasets live in their own store, which only the Datasets page was loading —
+  // so the dropdown below was empty for anyone who had not been there this session.
+  // The store no-ops when this project's datasets are already scanned.
+  const datasetsPath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === projectUid)?.datasetsPath)
+  useEffect(() => {
+    if (open && projectUid) void loadProjectDatasets(projectUid, datasetsPath ?? undefined)
+  }, [open, projectUid, datasetsPath, loadProjectDatasets])
 
   const datasets = files.filter((f) => f.type === 'file')
   const selected = datasets.find((f) => f.id === draft.datasetFileId)
@@ -82,6 +92,28 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
   useEffect(() => {
     if (draft.datasetFileId) ensureServerMeta(draft.datasetFileId)
   }, [draft.datasetFileId, ensureServerMeta])
+
+  // Pick an existing dataset and its identity columns fill themselves in, whenever
+  // the dataset already carries a column named the way the active database names it
+  // (`subject_id` on MIMIC, `person_id` on a stock CDM). Only fills what is still
+  // unset, so it never overwrites a choice the user made or a saved configuration.
+  useEffect(() => {
+    if (!columns.length) return
+    const guess = (role: IdentityColumn['role']) => {
+      const wanted = identityColumnsFromMapping(schemaMapping).find((c) => c.role === role)?.name
+      if (!wanted) return undefined
+      return columns.find((c) => c.name.toLowerCase() === wanted.toLowerCase())?.id
+    }
+    setDraft((d) => {
+      const next = { ...d }
+      if (!next.personColumn) next.personColumn = guess('person')
+      if (!next.visitColumn) next.visitColumn = guess('visit')
+      if (!next.visitDetailColumn) next.visitDetailColumn = guess('visitDetail')
+      const changed = (['personColumn', 'visitColumn', 'visitDetailColumn'] as const)
+        .some((k) => next[k] !== d[k])
+      return changed ? next : d
+    })
+  }, [columns, schemaMapping])
 
   const identityIds = [draft.personColumn, draft.visitColumn, draft.visitDetailColumn]
   const variables = resolveVariables(draft.variables, columns, identityIds)
@@ -123,21 +155,35 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
   }
 
   /** Add a column to the dataset and collect it — this variable owns that column. */
-  const createVariable = async () => {
-    const name = newColumn.trim()
-    if (!name || !draft.datasetFileId || columns.some((c) => c.id === deriveColumnId(name))) return
-    setBusy(true)
-    try {
-      const columnId = deriveColumnId(name)
-      await applyOps(draft.datasetFileId, [{
-        id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
-        type: 'addColumn', column: columnId, name, colType: newColumnType,
-      }])
-      setVariables([...variables, { columnId, origin: 'created' }])
-      setNewColumn('')
-    } finally {
-      setBusy(false)
+  const createVariable = async (v: VariableDraft) => {
+    if (!draft.datasetFileId) return
+    const group = crypto.randomUUID()
+    await applyOps(draft.datasetFileId, [{
+      id: crypto.randomUUID(), at: Date.now(), group,
+      type: 'addColumn', column: v.id, name: v.name, colType: v.type,
+    }])
+    // Metadata and constraints are column properties, not ops — the log records what
+    // the DATA is, and a label is not data.
+    updateColumnMeta(draft.datasetFileId, v.id, {
+      label: v.label, description: v.description,
+      required: v.required, withTime: v.withTime,
+      allowedValues: v.allowedValues, min: v.min, max: v.max,
+    })
+    setVariables([...variables, { columnId: v.id, origin: 'created' }])
+  }
+
+  /** Save an edit to an existing variable. The type can change; the id cannot. */
+  const editVariable = async (v: VariableDraft) => {
+    if (!draft.datasetFileId) return
+    const current = columnOf(v.id)
+    if (current && current.type !== v.type) {
+      await setColumnType(draft.datasetFileId, v.id, v.type)
     }
+    updateColumnMeta(draft.datasetFileId, v.id, {
+      label: v.label, description: v.description,
+      required: v.required, withTime: v.withTime,
+      allowedValues: v.allowedValues, min: v.min, max: v.max,
+    })
   }
 
   const requestRemove = (variable: PatientCollectionVariable) => {
@@ -178,39 +224,40 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
     label: string,
     optional = false,
   ) => (
-    <div className="space-y-1">
-      <Label>{label}</Label>
-      <Select
-        value={draft[key] || NONE}
-        onValueChange={(v) => setDraft((d) => ({ ...d, [key]: v === NONE ? undefined : v }))}
-      >
-        <SelectTrigger className="h-7 text-xs">
-          <SelectValue placeholder={t('patient_data.dataset_pick_column')} />
-        </SelectTrigger>
-        <SelectContent>
-          {optional && <SelectItem value={NONE}>{t('common.none')}</SelectItem>}
-          {columns.map((col) => (
-            <SelectItem key={col.id} value={col.id}>
-              <span className="flex items-center gap-2">
-                <TypeBadge type={col.type} size="sm" />
-                {col.label ?? col.name}
-              </span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+    <FormField label={label} required={!optional}>
+      {({ id }) => (
+        <Select
+          value={draft[key] || NONE}
+          onValueChange={(v) => setDraft((d) => ({ ...d, [key]: v === NONE ? undefined : v }))}
+        >
+          <SelectTrigger id={id} className="h-7 text-xs">
+            <SelectValue placeholder={t('patient_data.dataset_pick_column')} />
+          </SelectTrigger>
+          <SelectContent>
+            {optional && <SelectItem value={NONE}>{t('common.none')}</SelectItem>}
+            {columns.map((col) => (
+              <SelectItem key={col.id} value={col.id}>
+                <span className="flex items-center gap-2">
+                  <TypeBadge type={col.type} size="sm" />
+                  {col.label ?? col.name}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </FormField>
   )
 
   const datasetPanel = (
     <div className="space-y-4">
-      <FormField label={t('patient_data.collection_dataset')}>
-        {() => (
+      <FormField label={t('patient_data.collection_dataset')} required>
+        {({ id }) => (
           <Select
             value={draft.datasetFileId ?? NONE}
             onValueChange={(v) => setDraft(v === NONE ? {} : { datasetFileId: v })}
           >
-            <SelectTrigger>
+            <SelectTrigger id={id}>
               <SelectValue placeholder={t('patient_data.dataset_pick')} />
             </SelectTrigger>
             <SelectContent>
@@ -279,8 +326,8 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  title={t('datasets.col_edit_meta')}
-                  onClick={() => setMetaColumn(col)}
+                  title={t('datasets.col_edit')}
+                  onClick={() => setEditingVariable(col)}
                 >
                   <Pencil className="size-3.5" />
                 </Button>
@@ -300,65 +347,46 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
         )}
       </div>
 
-      <FormField
-        label={t('patient_data.collection_add_variable')}
-        hint={t('patient_data.collection_add_variable_hint')}
-      >
-        {({ id }) => (
-          <div className="space-y-2">
-            <div className="flex gap-2">
-              <Input
-                id={id}
-                value={newColumn}
-                onChange={(e) => setNewColumn(e.target.value)}
-                placeholder={t('patient_data.collection_new_variable')}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void createVariable() } }}
-              />
-              <Select value={newColumnType} onValueChange={(v) => setNewColumnType(v as DatasetColumn['type'])}>
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {VARIABLE_TYPES.map((ty) => (
-                    <SelectItem key={ty} value={ty}>
-                      <span className="flex items-center gap-2">
-                        <TypeBadge type={ty} size="sm" />
-                        {t(`datasets.type_${ty}`)}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button variant="outline" disabled={!newColumn.trim() || busy} onClick={() => void createVariable()}>
-                <Plus className="size-3.5" />
-              </Button>
-            </div>
-
-            {available.length > 0 && (
-              <Select
-                value={NONE}
-                onValueChange={(v) => {
-                  if (v !== NONE) setVariables([...variables, { columnId: v, origin: 'existing' }])
-                }}
-              >
-                <SelectTrigger className="h-7 text-xs">
-                  <SelectValue placeholder={t('patient_data.collection_use_existing')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {available.map((col) => (
-                    <SelectItem key={col.id} value={col.id}>
-                      <span className="flex items-center gap-2">
-                        <TypeBadge type={col.type} size="sm" />
-                        {col.label ?? col.name}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={() => setAddingVariable(true)}>
+          <Plus className="mr-1.5 size-3.5" />
+          {t('patient_data.collection_add_variable')}
+        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-help text-muted-foreground">
+                <Info className="size-3" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              {t('patient_data.collection_add_variable_hint')}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        {available.length > 0 && (
+          <Select
+            value={NONE}
+            onValueChange={(v) => {
+              if (v !== NONE) setVariables([...variables, { columnId: v, origin: 'existing' }])
+            }}
+          >
+            <SelectTrigger className="h-8 flex-1 text-xs">
+              <SelectValue placeholder={t('patient_data.collection_use_existing')} />
+            </SelectTrigger>
+            <SelectContent>
+              {available.map((col) => (
+                <SelectItem key={col.id} value={col.id}>
+                  <span className="flex items-center gap-2">
+                    <TypeBadge type={col.type} size="sm" />
+                    {col.label ?? col.name}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
-      </FormField>
+      </div>
     </div>
   )
 
@@ -428,26 +456,46 @@ export function CollectionSetupDialog({ open, onOpenChange, boardId, config }: P
         </p>
 
         {/* Sized to the tallest panel from the first frame, so switching tabs never
-            moves the triggers out from under the pointer. */}
-        <div {...containerProps} className="mt-3">
-          {panels.map(([key, panel]) => (
-            <div key={key} {...measuredPanelProps(key)} hidden={tab !== key}>
-              {panel}
-            </div>
-          ))}
+            moves the triggers out from under the pointer.
+
+            EVERY panel is absolutely positioned, the visible one included, so none of
+            them contributes height and the container's size comes only from the
+            hook's measurement. With the active panel in normal flow it set the
+            container's height itself, and `minHeight` could only ever push that up —
+            so the dialog still grew and shrank as the active panel's own height
+            changed. Inactive panels are additionally invisible and inert so nothing
+            paints or takes focus; `hidden` would collapse them to zero and they would
+            measure as nothing. */}
+        <div className="relative mt-3" {...containerProps}>
+          {panels.map(([key, panel]) => {
+            const active = key === tab
+            return (
+              <div
+                key={key}
+                aria-hidden={!active}
+                inert={!active || undefined}
+                {...measuredPanelProps(key)}
+                className={cn(
+                  'absolute inset-x-0 top-0 flex min-w-0 flex-col',
+                  !active && 'pointer-events-none invisible',
+                )}
+              >
+                {panel}
+              </div>
+            )
+          })}
         </div>
       </DialogShell>
 
-      {/* A variable's label and description ARE its column's metadata, so this is
-          the same editor the Datasets page uses — not a second set of names. */}
-      {metaColumn && draft.datasetFileId && (
-        <EditColumnMetaDialog
-          key={metaColumn.id}
-          fileId={draft.datasetFileId}
-          column={metaColumn}
-          rows={[]}
-          open
-          onOpenChange={(o) => { if (!o) setMetaColumn(null) }}
+      {/* One dialog for both: adding and editing a variable ask the same questions,
+          so splitting them would make the options depend on when they were set. */}
+      {draft.datasetFileId && (
+        <VariableDialog
+          open={addingVariable || editingVariable != null}
+          onOpenChange={(o) => { if (!o) { setAddingVariable(false); setEditingVariable(null) } }}
+          column={editingVariable ?? undefined}
+          takenIds={columns.map((c) => c.id)}
+          onSubmit={(v) => (editingVariable ? editVariable(v) : createVariable(v))}
         />
       )}
 

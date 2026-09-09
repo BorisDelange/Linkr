@@ -1429,6 +1429,8 @@
     "col_edit": "Modifier la colonne",
     "col_id": "ID de la colonne",
     "col_id_hint": "Utilisé par les widgets et les requêtes. Le changer réécrit les références.",
+    "col_name_hint": "Le nom de la colonne dans le fichier, tel qu'il apparaît dans l'en-tête du CSV.",
+    "col_meta_label_hint": "Ce que voient les personnes qui saisissent. Par défaut, le nom de la colonne.",
     "op_position": "N\u00b0",
     "op_set_cell": "{{column}} ligne {{row}} → {{value}}",
     "op_add_row": "Ligne ajoutée ({{row}})",

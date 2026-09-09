@@ -100,10 +100,6 @@ export function CollectionSidebar({
   // Keyed on the patient so switching person re-seeds the inputs; an uncontrolled
   // input keeps whatever the previous patient had in it.
   const patientKey = `${personId}:${visitId}:${visitDetailId}`
-  const firstFieldRef = useRef<HTMLInputElement>(null)
-  // Select the first field on arrival, so a collector can start typing straight
-  // away rather than reaching for the mouse.
-  useEffect(() => { firstFieldRef.current?.select() }, [patientKey])
 
   return (
     <div className="flex h-full flex-col border-l bg-background" onKeyDown={onKeyDown}>
@@ -147,7 +143,7 @@ export function CollectionSidebar({
                   {t('patient_data.collection_no_variables')}
                 </p>
               ) : (
-                fields.map(({ column, value }, i) => (
+                fields.map(({ column, value }) => (
                   <CollectionField
                     key={column.id}
                     column={column}
@@ -156,7 +152,6 @@ export function CollectionSidebar({
                     disabled={!canWrite}
                     booleanLabels={booleanLabels}
                     inputKey={patientKey}
-                    inputRef={i === 0 ? firstFieldRef : undefined}
                     onCommit={(next) => commit(column.id, next)}
                     debounced={manual}
                   />
@@ -206,7 +201,6 @@ interface FieldProps {
   disabled: boolean
   booleanLabels: { true: string; false: string }
   inputKey: string
-  inputRef?: React.RefObject<HTMLInputElement | null>
   onCommit: (value: DatasetCellValue) => void
   /** Debounce keystrokes into a commit, rather than waiting for blur. */
   debounced: boolean
@@ -214,17 +208,33 @@ interface FieldProps {
 
 /** One collected value, with its constraint feedback. */
 function CollectionField({
-  column, value, unsaved, disabled, booleanLabels, inputKey, inputRef, onCommit, debounced,
+  column, value, unsaved, disabled, booleanLabels, inputKey, onCommit, debounced,
 }: FieldProps) {
   const { t } = useTranslation()
   const violation = useMemo(() => violationOf(column, value), [column, value])
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+  const cancelPendingCommit = () => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+  }
+  useEffect(() => cancelPendingCommit, [])
+
+  /** What the box shows. Controlled, and re-seeded whenever the patient changes:
+   *  an uncontrolled input keeps whatever was typed, so switching patient mid-entry
+   *  left the previous one's value on screen under the new one's name. */
+  const [text, setText] = useState(() => cellInputValue(value))
+  useEffect(() => {
+    // A commit of ours is already on its way; re-seeding here would fight it.
+    cancelPendingCommit()
+    setText(cellInputValue(value))
+    // Keyed on the patient, not on `value`: re-seeding on every value change would
+    // overwrite what the user is typing the moment the first keystroke commits.
+  }, [inputKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Commit after a pause, so a half-typed value doesn't register as a change but a
    *  finished one doesn't wait for the user to leave the field either. */
   const commitSoon = (next: DatasetCellValue) => {
-    if (timer.current) clearTimeout(timer.current)
+    cancelPendingCommit()
     timer.current = setTimeout(() => onCommit(next), DIRTY_DEBOUNCE_MS)
   }
 
@@ -286,20 +296,20 @@ function CollectionField({
         />
       ) : (
         <Input
-          key={inputKey}
-          ref={inputRef}
           className="h-7 text-xs"
           type={column.type === 'number' ? 'number' : 'text'}
-          defaultValue={cellInputValue(value)}
+          value={text}
           disabled={disabled}
           min={column.type === 'number' && column.min != null ? Number(column.min) : undefined}
           max={column.type === 'number' && column.max != null ? Number(column.max) : undefined}
           onChange={(e) => {
+            setText(e.target.value)
             if (debounced) commitSoon(parseCellInput(e.target.value, column.type))
           }}
           // Blur still commits, so leaving a field never loses what is in it — the
           // debounce is what makes the change visible sooner, not what saves it.
           onBlur={(e) => {
+            cancelPendingCommit()
             const next = parseCellInput(e.target.value, column.type)
             if (String(next ?? '') !== String(value ?? '')) onCommit(next)
           }}

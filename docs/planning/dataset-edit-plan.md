@@ -195,6 +195,7 @@ collection column has nothing to sniff, so the distinction has to be declared th
 | ✅ | 18. Create a dataset pre-seeded with the identity columns **named as the active database names them** (`subject_id`/`hadm_id` on MIMIC, not a generic `person_id`) | M |
 | ✅ | 19. Collection status block at the foot of the patient sidebar: status + variables filled | M |
 | ✅ | 20. Entry writes through the ops log, so collection inherits undo and provenance | M |
+| ✅ | 21. The setup itself persists: `patient_dashboards.collection` (JSONB, migration `d2e3f4a5b6c7`) | S |
 | 🔜 | Per-variable column picker (today every non-identity column is offered; `variableColumns` is modelled but has no UI) | S |
 
 One row per (patient, visit, stay) as the config declares: filling a field for a
@@ -202,6 +203,18 @@ patient who already has a row updates it rather than appending a second — a
 collection is a form, not a journal. The first value entered creates the row and
 its identity cells in ONE op group, so an undo removes the whole row rather than
 blanking a cell in a row that should never have existed.
+
+**The setup is board state, not client state.** It lived only in the store at first,
+so a refresh lost it. It is board-level rather than project-level because two boards
+of the same project can collect into different datasets. Adding a field to the config
+means touching all four of: the SQLAlchemy model, the three Pydantic schemas, a
+migration, and `PatientCollectionConfig` on the front — `patient_dashboard_service.update`
+copies fields generically, so it needs no change.
+
+**Three names, two of them typed.** A variable's *name* is its column name in the CSV,
+its *label* is what a collector reads, and its *id* is derived from the name
+(`col_<slug>`) and only ever displayed. This is the same split the Datasets page uses;
+offering the id as an input asked the same question twice.
 
 ## 5. What to test in the app
 
