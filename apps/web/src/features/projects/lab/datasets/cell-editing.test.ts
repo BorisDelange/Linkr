@@ -68,38 +68,52 @@ describe('cellKey / parseCellKey', () => {
 
 describe('prune', () => {
   const key = cellKey(1, 'col_a')
+  const OP = 'op-1'
+  /** A landed overlay: the write returned, so the log is the authority. */
+  const landed = (value: DatasetCellValue) => new Map([[key, { value, opId: OP, inFlight: false }]])
+  const inLog = new Set([OP])
 
   it('drops an overlay the rows have caught up with', () => {
-    const overlays = new Map([[key, 'new']])
     const rows = [{ [ROW_ORD]: 1, col_a: 'new' }]
-    expect(prune(overlays, rows).size).toBe(0)
+    expect(prune(landed('new'), rows, inLog).size).toBe(0)
   })
 
   it('keeps an overlay while the rows still show the old value', () => {
-    const overlays = new Map([[key, 'new']])
     const rows = [{ [ROW_ORD]: 1, col_a: 'old' }]
-    expect(prune(overlays, rows).get(key)).toBe('new')
+    expect(prune(landed('new'), rows, inLog).get(key)?.value).toBe('new')
   })
 
   it('keeps an overlay whose row is not on this page', () => {
     // Nothing here can confirm the write, so dropping it would flash the old
     // value the moment the user paged back.
-    const overlays = new Map([[key, 'new']])
-    expect(prune(overlays, [{ [ROW_ORD]: 99, col_a: 'x' }]).get(key)).toBe('new')
+    const rows = [{ [ROW_ORD]: 99, col_a: 'x' }]
+    expect(prune(landed('new'), rows, inLog).get(key)?.value).toBe('new')
+  })
+
+  it('drops an overlay whose op has left the log', () => {
+    // What an undo does. The rows revert to the OLD value, which can never agree
+    // with the overlay — so without this the undone value stayed on screen.
+    const rows = [{ [ROW_ORD]: 1, col_a: 'old' }]
+    expect(prune(landed('new'), rows, new Set<string>()).size).toBe(0)
+  })
+
+  it('keeps an in-flight overlay the log has not seen yet', () => {
+    // The op is still on its way to the server; its absence proves nothing.
+    const overlays = new Map([[key, { value: 'new', opId: OP, inFlight: true }]])
+    const rows = [{ [ROW_ORD]: 1, col_a: 'old' }]
+    expect(prune(overlays, rows, new Set<string>()).get(key)?.value).toBe('new')
   })
 
   it('settles a number written as text, as the CSV round-trip returns it', () => {
-    const overlays = new Map<string, DatasetCellValue>([[key, 70]])
-    expect(prune(overlays, [{ [ROW_ORD]: 1, col_a: '70' }]).size).toBe(0)
+    expect(prune(landed(70), [{ [ROW_ORD]: 1, col_a: '70' }], inLog).size).toBe(0)
   })
 
   it('settles a cleared cell', () => {
-    const overlays = new Map<string, DatasetCellValue>([[key, null]])
-    expect(prune(overlays, [{ [ROW_ORD]: 1, col_a: null }]).size).toBe(0)
+    expect(prune(landed(null), [{ [ROW_ORD]: 1, col_a: null }], inLog).size).toBe(0)
   })
 
   it('returns the same map when nothing settles, so React skips the render', () => {
-    const overlays = new Map([[key, 'new']])
-    expect(prune(overlays, [{ [ROW_ORD]: 1, col_a: 'old' }])).toBe(overlays)
+    const overlays = landed('new')
+    expect(prune(overlays, [{ [ROW_ORD]: 1, col_a: 'old' }], inLog)).toBe(overlays)
   })
 })

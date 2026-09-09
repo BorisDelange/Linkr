@@ -280,7 +280,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
   // In-place editing. Cells are addressed by row ordinal (carried in the rows
   // themselves), never by screen position — the table shows a sorted, filtered,
   // paginated slice and server mode holds only one page.
-  const edit = useCellEditing({ fileId, rows: pageRows, columns: visibleColumns, enabled: editable })
+  const edit = useCellEditing({ fileId, rows: pageRows, columns: visibleColumns, ops: file?.ops, enabled: editable })
   const applyOps = useDatasetStore((s) => s.applyOps)
   const flash = useFlashTarget(fileId)
   /** The ordinal shown just above `ordinal`, or null at the top of the page. */

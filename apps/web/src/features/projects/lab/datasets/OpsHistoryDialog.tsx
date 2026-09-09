@@ -91,13 +91,6 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
 
   const columns = useMemo<ConceptColumn<OpRow>[]>(() => [
     {
-      id: 'position',
-      header: '#',
-      accessor: (r) => r.position,
-      align: 'right',
-      size: 60,
-    },
-    {
       id: 'type',
       header: t('common.type'),
       accessor: (r) => r.op.type,
@@ -144,48 +137,55 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
         kind="workbench"
         title={t('datasets.edit_history')}
         description={t('datasets.edit_history_description')}
-        footerExtra={
-          <div className="flex flex-1 items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!ops.length || busy}
-              onClick={() => void run(() => undoLastOps(fileId))}
-            >
-              <Undo2 className="mr-2 size-3.5" />
-              {t('datasets.undo_last_edit')}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!ops.length || busy}
-              onClick={() => void run(() => compactFileOps(fileId))}
-            >
-              <Minimize2 className="mr-2 size-3.5" />
-              {t('datasets.compact_history')}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto text-destructive hover:text-destructive"
-              disabled={!ops.length || busy}
-              onClick={() => setConfirmingReset(true)}
-            >
-              <RotateCcw className="mr-2 size-3.5" />
-              {t('datasets.reset_to_raw')}
-            </Button>
-          </div>
-        }
+        hideFooter
+        // The workbench body scrolls as one block; splitting it into a flex column
+        // keeps the table scrolling under a footer that stays put.
+        contentClassName="flex flex-col"
       >
-        <ConceptDataTable
-          data={rows}
-          columns={columns}
-          rowKey={(r) => r.op.id}
-          pageSize={100}
-          stickyHeader
-          density="compact"
-          emptyMessage={t('datasets.no_edits_yet')}
-        />
+        <div className="min-h-0 flex-1 overflow-auto">
+          <ConceptDataTable
+            data={rows}
+            columns={columns}
+            rowKey={(r) => r.op.id}
+            pageSize={100}
+            emptyMessage={t('datasets.no_edits_yet')}
+          />
+        </div>
+
+        {/* Own footer rather than DialogShell's: this dialog has no Close button,
+            since none of its actions is a "confirm" the user could back out of —
+            each one takes effect as it is clicked. */}
+        <div className="flex shrink-0 items-center gap-2 border-t pt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!ops.length || busy}
+            onClick={() => void run(() => undoLastOps(fileId))}
+          >
+            <Undo2 className="mr-2 size-3.5" />
+            {t('datasets.undo_last_edit')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            disabled={!ops.length || busy}
+            onClick={() => setConfirmingReset(true)}
+          >
+            <RotateCcw className="mr-2 size-3.5" />
+            {t('datasets.reset_to_raw')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            disabled={!ops.length || busy}
+            onClick={() => void run(() => compactFileOps(fileId))}
+          >
+            <Minimize2 className="mr-2 size-3.5" />
+            {t('datasets.compact_history')}
+          </Button>
+        </div>
       </DialogShell>
 
       <AlertDialog open={confirmingReset} onOpenChange={setConfirmingReset}>

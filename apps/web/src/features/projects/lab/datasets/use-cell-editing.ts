@@ -9,7 +9,7 @@
  * Every committed edit becomes an op; nothing here mutates rows directly.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ROW_ORD, type DatasetCellValue } from '@linkr/format'
+import { ROW_ORD, type DatasetCellValue, type DatasetOp } from '@linkr/format'
 import { useDatasetStore } from '@/stores/dataset-store'
 import type { DatasetColumn } from '@/types'
 
@@ -48,6 +48,8 @@ interface Options {
   rows: Record<string, unknown>[]
   /** Columns in display order — arrow keys walk this, not the stored order. */
   columns: DatasetColumn[]
+  /** The file's edit log: an optimistic overlay lives only as long as its op does. */
+  ops?: readonly DatasetOp[]
   enabled: boolean
 }
 
@@ -61,14 +63,29 @@ export function parseCellKey(key: string): { row: number; column: string } {
   return { row: Number(key.slice(0, at)), column: key.slice(at + 1) }
 }
 
+/** A value shown ahead of the rows, and the op that will make it true. */
+export interface Overlay {
+  value: DatasetCellValue
+  /** Id of the op this overlay anticipates. */
+  opId: string
+  /** True until the write returns; the log cannot yet be expected to hold the op. */
+  inFlight: boolean
+}
+
 /**
- * Drop the overlays `rows` already agrees with; returns a NEW map only when
+ * Drop the overlays that have served their purpose; returns a NEW map only when
  * something was dropped, so an unchanged result keeps referential identity.
+ *
+ * Two ways to be done. The rows CONFIRM it — the write landed and is now visible.
+ * Or its op has LEFT the log, which is what an undo does: the overlay would
+ * otherwise pin the undone value on screen forever, since reverted rows can never
+ * agree with it.
  */
 export function prune(
-  overlays: Map<string, DatasetCellValue>,
+  overlays: Map<string, Overlay>,
   rows: Record<string, unknown>[],
-): Map<string, DatasetCellValue> {
+  logIds: ReadonlySet<string>,
+): Map<string, Overlay> {
   if (overlays.size === 0) return overlays
   const byOrdinal = new Map<number, Record<string, unknown>>()
   for (const row of rows) {
@@ -76,17 +93,22 @@ export function prune(
     if (ordinal !== undefined) byOrdinal.set(ordinal, row)
   }
   const next = new Map(overlays)
-  for (const [key, value] of overlays) {
+  for (const [key, overlay] of overlays) {
+    // While in flight the op has not reached the log, so its absence means nothing.
+    if (!overlay.inFlight && !logIds.has(overlay.opId)) {
+      next.delete(key)
+      continue
+    }
     const { row, column } = parseCellKey(key)
     const stored = byOrdinal.get(row)
     // A row absent from this page cannot confirm anything — the overlay stays
     // until a page that holds it arrives.
-    if (stored && sameCell(stored[column], value)) next.delete(key)
+    if (stored && sameCell(stored[column], overlay.value)) next.delete(key)
   }
   return next.size === overlays.size ? overlays : next
 }
 
-export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
+export function useCellEditing({ fileId, rows, columns, ops, enabled }: Options) {
   const applyOps = useDatasetStore((s) => s.applyOps)
   const [selected, setSelected] = useState<CellAddress | null>(null)
   const [editing, setEditing] = useState<CellAddress | null>(null)
@@ -100,7 +122,7 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
    * reading as if the edit had been rejected. Each entry is dropped as soon as the
    * rows agree with it.
    */
-  const [optimistic, setOptimistic] = useState<Map<string, DatasetCellValue>>(new Map())
+  const [optimistic, setOptimistic] = useState<Map<string, Overlay>>(new Map())
   // Mirrored into refs so the commit path — and the window key handler that calls
   // it — read the latest values without re-subscribing on every keystroke.
   const draftRef = useRef(draft)
@@ -133,31 +155,45 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
    * fresh rows and the overlays they settle land in the SAME render — pruning
    * afterwards would blink the value between the two passes.
    */
-  const pending = useMemo(() => prune(optimistic, rows), [optimistic, rows])
+  const logIds = useMemo(() => new Set((ops ?? []).map((o) => o.id)), [ops])
+  const pending = useMemo(() => prune(optimistic, rows, logIds), [optimistic, rows, logIds])
   // Read by writeCell, which runs after an await and would otherwise prune against
   // the page as it was when the edit started.
   const rowsRef = useRef(rows)
   useEffect(() => { rowsRef.current = rows }, [rows])
+  const logIdsRef = useRef(logIds)
+  useEffect(() => { logIdsRef.current = logIds }, [logIds])
+
   /** Record one cell write, showing the new value while the write is in flight. */
   const writeCell = useCallback(async (
     row: number, column: string, value: DatasetCellValue,
   ) => {
     const key = cellKey(row, column)
-    // Entries the current rows already confirm are dropped on the way in, which is
-    // what keeps the map from growing for the life of the session. `pending` cannot
-    // be read here — this runs from a stale closure after an await — so the prune
-    // goes through the updater, against whatever the map holds at the time.
-    setOptimistic((m) => new Map(prune(m, rowsRef.current)).set(key, value))
+    const opId = crypto.randomUUID()
+    // Entries already settled are dropped on the way in, which is what keeps the
+    // map from growing for the life of the session. `pending` cannot be read here —
+    // this runs from a stale closure after an await — so the prune goes through the
+    // updater, against whatever the map holds at the time.
+    const overlay = (inFlight: boolean): Overlay => ({ value, opId, inFlight })
+    setOptimistic((m) =>
+      new Map(prune(m, rowsRef.current, logIdsRef.current)).set(key, overlay(true)))
     try {
       await applyOps(fileId, [{
-        id: crypto.randomUUID(), at: Date.now(), group: crypto.randomUUID(),
+        id: opId, at: Date.now(), group: crypto.randomUUID(),
         type: 'setCell', row, column, value,
       }])
+      // Landed: from here the log is the authority, so an undo that removes this op
+      // also removes the overlay.
+      setOptimistic((m) => {
+        const held = m.get(key)
+        if (held?.opId !== opId) return m
+        return new Map(m).set(key, overlay(false))
+      })
     } catch (e) {
       // The write failed, so the stored value is still the true one: drop the
       // overlay rather than leave the cell showing an edit that never landed.
       setOptimistic((m) => {
-        if (!m.has(key)) return m
+        if (m.get(key)?.opId !== opId) return m
         const next = new Map(m)
         next.delete(key)
         return next
@@ -190,7 +226,8 @@ export function useCellEditing({ fileId, rows, columns, enabled }: Options) {
   /** The value to display for a cell: the pending edit if there is one. */
   const cellValue = useCallback((ordinal: number, column: string, stored: unknown): unknown => {
     const key = cellKey(ordinal, column)
-    return pending.has(key) ? pending.get(key) : stored
+    const overlay = pending.get(key)
+    return overlay ? overlay.value : stored
   }, [pending])
 
   /** Move the selection by a delta within the current page. */
