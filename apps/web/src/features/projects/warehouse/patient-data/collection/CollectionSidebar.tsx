@@ -76,6 +76,15 @@ export function CollectionSidebar({
     [sections],
   )
 
+  // What each field currently HOLDS on screen, committed or not. Only drives the
+  // per-section counters: a tally that waits for a blur reads as broken while the
+  // collector is still in the field.
+  const [typed, setTyped] = useState<Record<string, DatasetCellValue>>({})
+  useEffect(() => { setTyped({}) }, [personId, visitId, visitDetailId])
+  const reportTyped = useCallback((columnId: string, value: DatasetCellValue) => {
+    setTyped((prev) => (prev[columnId] === value ? prev : { ...prev, [columnId]: value }))
+  }, [])
+
   const manual = config?.saveMode === 'manual'
   /** Unsaved edits by column id. Only ever populated in manual mode. */
   const [pending, setPending] = useState<Record<string, DatasetCellValue>>({})
@@ -185,9 +194,15 @@ export function CollectionSidebar({
                 sections.map((section) => {
                   const id = section.category?.id
                   const isCollapsed = id != null && collapsedSet.has(id)
-                  const filled = section.fields.filter(
-                    (f) => f.value != null && f.value !== '',
-                  ).length
+                  // Reads the LIVE text of a field being typed in, so the tally
+                  // moves with the keystrokes rather than waiting for the value to
+                  // be committed on blur. `typed` is fed by the same debounce that
+                  // decides a field has changed, so both react at the same moment.
+                  const filled = section.fields.filter((f) => {
+                    const id = f.column.id
+                    const v = id in typed ? typed[id] : (id in pending ? pending[id] : f.value)
+                    return v != null && v !== ''
+                  }).length
                   return (
                     <div key={id ?? '__ungrouped__'} className="space-y-3">
                       {section.category && (
@@ -211,6 +226,7 @@ export function CollectionSidebar({
                           booleanLabels={booleanLabels}
                           inputKey={patientKey}
                           onCommit={(next) => commit(column.id, next)}
+                          onTyped={(next) => reportTyped(column.id, next)}
                           debounced={manual}
                         />
                       ))}
@@ -263,13 +279,16 @@ interface FieldProps {
   booleanLabels: { true: string; false: string }
   inputKey: string
   onCommit: (value: DatasetCellValue) => void
+  /** Every value the field settles on while being typed in, debounced — for the
+   *  section counters, which must not wait for a blur. */
+  onTyped: (value: DatasetCellValue) => void
   /** Debounce keystrokes into a commit, rather than waiting for blur. */
   debounced: boolean
 }
 
 /** One collected value, with its constraint feedback. */
 function CollectionField({
-  column, value, unsaved, disabled, booleanLabels, inputKey, onCommit, debounced,
+  column, value, unsaved, disabled, booleanLabels, inputKey, onCommit, onTyped, debounced,
 }: FieldProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
@@ -299,6 +318,14 @@ function CollectionField({
     cancelPendingCommit()
     timer.current = setTimeout(() => onCommit(next), DIRTY_DEBOUNCE_MS)
   }
+
+  /** Same pause, for the section counter only — it never writes anything. */
+  const reportTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reportSoon = (next: DatasetCellValue) => {
+    if (reportTimer.current) clearTimeout(reportTimer.current)
+    reportTimer.current = setTimeout(() => onTyped(next), DIRTY_DEBOUNCE_MS)
+  }
+  useEffect(() => () => { if (reportTimer.current) clearTimeout(reportTimer.current) }, [])
 
   // The description hangs off the name as a hover tooltip, as it does on a dataset
   // column header — rather than sitting under every field, where a dozen variables
@@ -339,7 +366,7 @@ function CollectionField({
       {column.type === 'boolean' ? (
         <Select
           value={value == null ? '' : String(value)}
-          onValueChange={(v) => onCommit(v === 'true')}
+          onValueChange={(v) => { onTyped(v === 'true'); onCommit(v === 'true') }}
           disabled={disabled}
         >
           <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
@@ -351,7 +378,7 @@ function CollectionField({
       ) : choices ? (
         <Select
           value={value == null ? '' : String(value)}
-          onValueChange={(v) => onCommit(v)}
+          onValueChange={(v) => { onTyped(v); onCommit(v) }}
           disabled={disabled}
         >
           <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
@@ -365,7 +392,7 @@ function CollectionField({
         <DateTimeField
           withTime={column.withTime ?? false}
           value={value == null ? undefined : String(value)}
-          onChange={(v) => onCommit(v ?? null)}
+          onChange={(v) => { onTyped(v ?? null); onCommit(v ?? null) }}
           disabled={disabled}
           min={column.min == null ? undefined : String(column.min)}
           max={column.max == null ? undefined : String(column.max)}
@@ -380,13 +407,19 @@ function CollectionField({
           max={column.type === 'number' && column.max != null ? Number(column.max) : undefined}
           onChange={(e) => {
             setText(e.target.value)
-            if (debounced) commitSoon(parseCellInput(e.target.value, column.type))
+            const next = parseCellInput(e.target.value, column.type)
+            // Reported in both modes — the counter has to move as the collector
+            // types even in auto mode, where the value itself is only written on
+            // blur (debouncing the write would record an op per typing pause).
+            reportSoon(next)
+            if (debounced) commitSoon(next)
           }}
           // Blur still commits, so leaving a field never loses what is in it — the
           // debounce is what makes the change visible sooner, not what saves it.
           onBlur={(e) => {
             cancelPendingCommit()
             const next = parseCellInput(e.target.value, column.type)
+            onTyped(next)
             if (String(next ?? '') !== String(value ?? '')) onCommit(next)
           }}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}

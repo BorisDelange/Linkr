@@ -38,9 +38,12 @@ export function DatasetSelectField({ field, value, onChange }: Props) {
   const columns = selected?.columns ?? []
 
   // Columns load lazily in server mode; without this the dropdowns stay empty.
+  // Depends on `selected`, not on the id: ensureServerMeta no-ops while the id is
+  // not in the store yet, and keyed on the id the effect would not re-run once the
+  // scan landed.
   useEffect(() => {
-    if (value?.datasetFileId) ensureServerMeta(value.datasetFileId)
-  }, [value?.datasetFileId, ensureServerMeta])
+    if (selected) ensureServerMeta(selected.id)
+  }, [selected, ensureServerMeta])
 
   const patch = (changes: Partial<DatasetTimelineMapping>) => {
     if (!value?.datasetFileId && !changes.datasetFileId) return
@@ -80,6 +83,7 @@ export function DatasetSelectField({ field, value, onChange }: Props) {
     <FormField
       label={field.label[lang] ?? field.label.en}
       hint={field.description ? (field.description[lang] ?? field.description.en) : undefined}
+      hintInTooltip
     >
       {() => (
         <div className="space-y-2">

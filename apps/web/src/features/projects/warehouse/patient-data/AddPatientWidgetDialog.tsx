@@ -32,6 +32,8 @@ import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/Ge
 import { PluginPicker } from '@/components/PluginPicker'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { ConceptSelectField } from './ConceptSelectField'
+import { DatasetSelectField } from './DatasetSelectField'
+import type { DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { SizedPatientWidgetPreview } from './PatientWidgetPreview'
 import type { Plugin, PluginConfigField } from '@/types/plugin'
 
@@ -145,6 +147,21 @@ export function AddPatientWidgetDialog({
     [conceptIds.length],
   )
 
+  // Without this the Data section shows only Concepts when ADDING a widget:
+  // GenericConfigPanel renders a `dataset-select` field through this render-prop and
+  // returns null when it is absent, so the field vanished silently rather than
+  // erroring. The editor sheet has always passed one.
+  const renderDatasetField = useCallback(
+    (fieldKey: string, field: PluginConfigField) => (
+      <DatasetSelectField
+        field={field}
+        value={pluginConfig[fieldKey] as Partial<DatasetTimelineMapping> | undefined}
+        onChange={(value) => setPluginConfig((prev) => ({ ...prev, [fieldKey]: value }))}
+      />
+    ),
+    [pluginConfig],
+  )
+
   // Debounced config for the preview — avoids re-querying the warehouse on every keystroke.
   const [debouncedConfig, setDebouncedConfig] = useState(pluginConfig)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -236,6 +253,7 @@ export function AddPatientWidgetDialog({
                           columns={[]}
                           onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
                           renderConceptField={renderConceptField}
+                          renderDatasetField={renderDatasetField}
                         />
                       )}
                     </div>
