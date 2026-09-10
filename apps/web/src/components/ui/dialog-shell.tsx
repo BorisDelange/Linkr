@@ -62,6 +62,12 @@ interface DialogShellProps {
   busy?: boolean
   cancelLabel?: ReactNode
   /**
+   * Drop the secondary button. Only for a dialog whose primary action does not
+   * close it (a Copy button), where "Cancel" would name nothing and "Close"
+   * would duplicate the ✕ and Esc.
+   */
+  hideCancel?: boolean
+  /**
    * Marks an edit form that tracks its own dirty state (see `useSaveForm`) and
    * disables the primary button when there is nothing to save. The secondary
    * button then reads "Close" rather than "Cancel": with no pending change,
@@ -107,6 +113,7 @@ export function DialogShell({
   destructive,
   busy,
   cancelLabel,
+  hideCancel,
   dirtyTracked,
   footerExtra,
   hideFooter,
@@ -195,18 +202,20 @@ export function DialogShell({
           >
             {footerExtra}
             <div className="flex flex-col-reverse gap-2 sm:flex-row">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => onOpenChange(false)}
-              >
-                {cancelLabel ?? t(
-                  // Nothing pending (read-only dialog, or a dirty-tracked form with no
-                  // edits) → Close; otherwise the button really does cancel something.
-                  !onConfirm || (dirtyTracked && confirmDisabled) ? 'common.close' : 'common.cancel',
-                )}
-              </Button>
+              {!hideCancel && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => onOpenChange(false)}
+                >
+                  {cancelLabel ?? t(
+                    // Nothing pending (read-only dialog, or a dirty-tracked form with no
+                    // edits) → Close; otherwise the button really does cancel something.
+                    !onConfirm || (dirtyTracked && confirmDisabled) ? 'common.close' : 'common.cancel',
+                  )}
+                </Button>
+              )}
               {onConfirm && (
                 <Button
                   size="sm"

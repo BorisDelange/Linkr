@@ -98,6 +98,39 @@ def parquet_table_paths(
     """
     return db_connect.group_parquet_tables(files, _known_tables(source))
 
+
+def _file_size(path: Path | str) -> int | None:
+    """Bytes on disk, or None when the file cannot be stat'd. None rather than 0
+    so the UI can tell "missing" from "empty"."""
+    try:
+        return Path(path).stat().st_size
+    except OSError:
+        return None
+
+
+def _parquet_table_entries(groups: dict[str, list[str]]) -> list[ParquetTablePath]:
+    """Build the API rows for grouped Parquet tables, stat'ing each file once.
+
+    Shared by the three branches of `connection_info` (server folder, blob store,
+    single file) so the size and existence of a table are decided the same way in
+    all of them — they used to each spell out the `exists` check.
+    """
+    entries: list[ParquetTablePath] = []
+    for table, table_paths in sorted(groups.items()):
+        # Unreadable or gone files are left out of the total rather than counted
+        # as 0, so a partial table does not look complete.
+        sizes = [n for n in (_file_size(p) for p in table_paths) if n is not None]
+        entries.append(
+            ParquetTablePath(
+                table=table,
+                paths=table_paths,
+                exists=all(Path(p).is_file() for p in table_paths),
+                size_bytes=sum(sizes) if sizes else None,
+            )
+        )
+    return entries
+
+
 # Connection-config keys holding a secret credential. Pulled out of the JSON
 # config (which the API returns) and stored encrypted in `connection_secret`.
 _SECRET_KEYS = ("password", "token")
@@ -314,8 +347,6 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
     listing the client libraries read, so a script and the UI are told the same
     thing about the same database. Callers must have checked `databases:read`.
     """
-    from pathlib import Path
-
     config = dict(source.connection_config or {})
     engine = config.get("engine")
 
@@ -333,7 +364,11 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
     if is_managed(source):
         path = managed_db.path_for(source.id)
         return DatabaseConnectionInfo(
-            engine="duckdb", kind="file", path=str(path), exists=path.exists()
+            engine="duckdb",
+            kind="file",
+            path=str(path),
+            exists=path.exists(),
+            size_bytes=_file_size(path),
         )
 
     sp = server_path(source)
@@ -342,7 +377,12 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
         pairs = _server_path_files(sp)
         if target.is_file():
             return DatabaseConnectionInfo(
-                engine=engine, kind="file", path=sp, exists=True, file_names=[target.name]
+                engine=engine,
+                kind="file",
+                path=sp,
+                exists=True,
+                file_names=[target.name],
+                size_bytes=_file_size(target),
             )
         # A real folder, unlike the blob store: `path` is meaningful here (the
         # files keep their names and extensions), so a client library can glob it.
@@ -353,14 +393,7 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
             path=sp,
             exists=target.is_dir(),
             file_names=[name for name, _ in pairs],
-            tables=[
-                ParquetTablePath(
-                    table=table,
-                    paths=table_paths,
-                    exists=all(Path(p).is_file() for p in table_paths),
-                )
-                for table, table_paths in sorted(groups.items())
-            ],
+            tables=_parquet_table_entries(groups),
         )
 
     files = await list_files(db, source.id)
@@ -382,14 +415,7 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
             exists=all(p.is_file() for p in paths),
             blob=True,
             file_names=names,
-            tables=[
-                ParquetTablePath(
-                    table=table,
-                    paths=table_paths,
-                    exists=all(Path(p).is_file() for p in table_paths),
-                )
-                for table, table_paths in sorted(groups.items())
-            ],
+            tables=_parquet_table_entries(groups),
         )
 
     return DatabaseConnectionInfo(
@@ -397,6 +423,7 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
         kind="file",
         path=str(paths[0]),
         exists=paths[0].is_file(),
+        size_bytes=_file_size(paths[0]),
         # Content-addressed: the file is named by its sha, with no extension, so
         # a tool that keys off ".duckdb" needs telling.
         blob=True,

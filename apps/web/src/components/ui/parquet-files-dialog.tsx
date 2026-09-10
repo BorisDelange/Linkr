@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Copy } from 'lucide-react'
+import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { humanBytes } from '@/lib/format-helpers'
 import type { ParquetTablePath } from '@/lib/api/data-sources'
 import { cn } from '@/lib/utils'
 
@@ -50,6 +52,65 @@ export function CopyablePath({ value, mono = true }: { value: string; mono?: boo
   )
 }
 
+/** Copy button for one path, sized for a table cell. */
+function CopyPathButton({ value }: { value: string }) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => {
+            // The row is not clickable, but the dialog behind it reacts to
+            // stray clicks; keep the copy self-contained.
+            e.stopPropagation()
+            void navigator.clipboard.writeText(value).then(() => {
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1500)
+            })
+          }}
+          aria-label={t('files.copy')}
+          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{copied ? t('common.copied') : t('files.copy')}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** One table file: a table sharded across several files contributes one row each,
+ *  because the path is what the reader copies and each shard has its own. */
+interface ParquetFileRow {
+  key: string
+  table: string
+  path: string
+  exists: boolean
+  /** Bytes for the whole table, carried on its first row only — see `size`. */
+  sizeBytes: number | null
+  shardCount: number
+}
+
+function toRows(tables: ParquetTablePath[]): ParquetFileRow[] {
+  return tables.flatMap((tb) =>
+    tb.paths.map((p) => ({
+      key: `${tb.table}:${p}`,
+      table: tb.table,
+      path: p,
+      exists: tb.exists,
+      // The API sizes a TABLE, not a shard, so every shard of a sharded table
+      // carries the table's total. Splitting it evenly would invent numbers;
+      // leaving all but one blank would make the column lie when sorted.
+      // Single-file tables — the common case — are unaffected either way.
+      sizeBytes: tb.sizeBytes,
+      shardCount: tb.paths.length,
+    })),
+  )
+}
+
 /**
  * The tables of a Parquet source with the blob path(s) a script would read.
  *
@@ -66,8 +127,10 @@ export function ParquetFilesDialog({
   onOpenChange: (open: boolean) => void
   tables: ParquetTablePath[]
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [copiedAll, setCopiedAll] = useState(false)
+
+  const rows = useMemo(() => toRows(tables), [tables])
 
   const copyAll = () => {
     void navigator.clipboard
@@ -78,6 +141,62 @@ export function ParquetFilesDialog({
       })
   }
 
+  const columns: ConceptColumn<ParquetFileRow>[] = useMemo(
+    () => [
+      {
+        id: 'table',
+        header: t('databases.parquet_table_column'),
+        accessor: (r) => r.table,
+        size: 170,
+        filter: 'text',
+        cell: (r) => (
+          <span className="flex items-center gap-1.5">
+            <code className="truncate font-medium">{r.table}</code>
+            {!r.exists && (
+              <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-500">
+                {t('etl.pipeline_db_table_missing')}
+              </span>
+            )}
+          </span>
+        ),
+        tooltip: true,
+      },
+      {
+        id: 'path',
+        header: t('databases.parquet_path_column'),
+        accessor: (r) => r.path,
+        size: 380,
+        filter: 'text',
+        // font-mono, not a <code> block: the cell is already truncated by the
+        // table, and a background would fight the row striping.
+        cellClassName: 'font-mono',
+      },
+      {
+        id: 'size',
+        header: t('databases.parquet_size_column'),
+        // Sort on the number, show the human string — a text sort would put
+        // "9 KB" after "10 MB".
+        accessor: (r) => r.sizeBytes ?? -1,
+        display: (r) => (r.sizeBytes == null ? '—' : humanBytes(r.sizeBytes, i18n.language)),
+        align: 'right',
+        size: 90,
+        filter: 'none',
+      },
+      {
+        id: 'copy',
+        header: '',
+        accessor: () => '',
+        cell: (r) => <CopyPathButton value={r.path} />,
+        size: 40,
+        sortable: false,
+        resizable: false,
+        align: 'center',
+        filter: 'none',
+      },
+    ],
+    [t, i18n.language],
+  )
+
   return (
     <DialogShell
       open={open}
@@ -86,6 +205,9 @@ export function ParquetFilesDialog({
       title={t('databases.parquet_files_title', { count: tables.length })}
       description={t('etl.pipeline_db_parquet_blob_hint')}
       onConfirm={copyAll}
+      // Copy does not close the dialog, so a second button next to it would
+      // either name nothing ("Cancel") or repeat the ✕ ("Close").
+      hideCancel
       confirmLabel={
         <>
           {copiedAll ? <Check size={14} /> : <Copy size={14} />}
@@ -93,27 +215,18 @@ export function ParquetFilesDialog({
         </>
       }
     >
-      {/* space-y-3 between tables against space-y-0.5 inside one: the name has to
-          group with its own path, not float between two. pr-6 keeps the copy
-          buttons clear of the scrollbar, which overlays the body's right edge —
-          a narrower gutter still left it sitting on top of them. */}
-      <div className="space-y-3 pr-6">
-        {tables.map((tb) => (
-          <div key={tb.table} className="space-y-0.5">
-            <div className="flex items-center gap-1.5">
-              <code className="text-xs font-medium">{tb.table}</code>
-              {!tb.exists && (
-                <span className="text-[10px] text-amber-600 dark:text-amber-500">
-                  {t('etl.pipeline_db_table_missing')}
-                </span>
-              )}
-            </div>
-            {tb.paths.map((p) => (
-              <CopyablePath key={p} value={p} />
-            ))}
-          </div>
-        ))}
-      </div>
+      <ConceptDataTable
+        data={rows}
+        columns={columns}
+        rowKey={(r) => r.key}
+        // Biggest first: on a 30-table import, which files carry the weight is
+        // the question this dialog is usually opened to answer.
+        initialSorting={{ columnId: 'size', desc: true }}
+        density="compact"
+        stickyHeader
+        viewKey="parquet-files-dialog"
+        emptyMessage={t('databases.parquet_files_empty')}
+      />
     </DialogShell>
   )
 }

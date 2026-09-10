@@ -46,6 +46,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { CopyablePath, ParquetFilesDialog } from '@/components/ui/parquet-files-dialog'
+import { humanBytes } from '@/lib/format-helpers'
 import { isServerMode } from '@/lib/api-client'
 import { fetchDatabaseConnectionInfo, type DatabaseConnectionInfo } from '@/lib/api/data-sources'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
@@ -427,6 +428,14 @@ function ConnectionCard({ source }: { source: DataSource }) {
           <div className="space-y-1 pt-0.5">
             <span className="block text-xs text-muted-foreground">{t('databases.file_location')}</span>
             <CopyablePath value={filePath} />
+            {/* Under the path, not beside it: a content-addressed blob path fills
+                the row on its own, and appending anything to it pushed the size
+                onto a wrapped line of its own anyway. */}
+            {connInfo?.sizeBytes != null && (
+              <p className="text-[10px] text-muted-foreground">
+                {humanBytes(connInfo.sizeBytes, i18n.language)}
+              </p>
+            )}
             {connInfo?.blob && (
               <p className="text-[10px] text-muted-foreground/70">{t('etl.pipeline_db_blob_hint')}</p>
             )}

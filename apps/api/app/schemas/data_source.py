@@ -201,6 +201,9 @@ class ParquetTablePath(CamelModel):
     table: str
     paths: list[str]
     exists: bool = False
+    #: Total bytes of the table's file(s) on disk, or None when none could be
+    #: stat'd — a missing file and a zero-byte one must not read alike.
+    size_bytes: int | None = None
 
 
 class ClientDatabase(CamelModel):
@@ -288,6 +291,10 @@ class DatabaseConnectionInfo(CamelModel):
     # File / folder sources.
     path: str | None = None
     exists: bool = False
+    # Bytes on disk for a 'file' kind. None when the file could not be stat'd, so
+    # a missing file and an empty one do not read alike. For 'parquet-folder' the
+    # size is per table instead, on `tables`.
+    size_bytes: int | None = None
     # True when the path is a content-addressed blob rather than a name the user
     # would recognise: the UI warns that it has no .duckdb extension.
     blob: bool = False

@@ -138,6 +138,8 @@ export interface ParquetTablePath {
   table: string
   paths: string[]
   exists: boolean
+  /** Total bytes of the table's file(s); null when none could be stat'd. */
+  sizeBytes: number | null
 }
 
 /** How to reach a database from outside Linkr (R/Python, a SQL client). */
@@ -147,6 +149,8 @@ export interface DatabaseConnectionInfo {
   kind: string | null
   /** File sources. Never set for 'parquet-folder' — see `tables`. */
   path: string | null
+  /** Bytes on disk for a 'file' kind; null when it could not be stat'd. */
+  sizeBytes: number | null
   exists: boolean
   /** The path is a content-addressed blob (named by its hash, no extension). */
   blob: boolean
