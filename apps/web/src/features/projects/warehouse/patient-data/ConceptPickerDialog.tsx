@@ -31,9 +31,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { columnLabel } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
-import { defaultConceptColorName } from '@/lib/concept-colors'
-import { COLOR_PALETTE } from '@/components/ui/color-picker-popover'
 import { useConceptListStore } from '@/stores/concept-list-store'
+import { ConceptColorSwatch } from './ConceptColorSwatch'
 import { mergeSelection, appendListConcepts } from './concept-selection'
 import { usePatientChartContext } from './PatientChartContext'
 import { ConceptStatsPopover } from './ConceptStatsPopover'
@@ -69,96 +68,6 @@ interface ConceptPickerDialogProps {
 /** The Concepts page's own defaults: picking a concept here and browsing it there
  *  are the same task, so the table starts with the same columns in both. */
 const PICKER_HIDDEN_COLUMNS = DEFAULT_HIDDEN_COLUMNS
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Compact swatch-only color picker for a selected concept, reusing the shared
- * COLOR_PALETTE so colors match the dashboard plugins. `value` is a palette
- * name or hex; `null`/undefined means "auto" (rotating default palette).
- */
-function ConceptColorSwatch({
-  value,
-  index,
-  onChange,
-}: {
-  value: string | undefined
-  /** Position in the selection: drives the auto colour when none is set. */
-  index: number
-  onChange: (color: string | undefined) => void
-}) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  // With no explicit choice the swatch shows the colour the chart will actually
-  // use, not an empty grey circle that reads as "no colour".
-  const effective = value ?? defaultConceptColorName(index)
-  const entry = COLOR_PALETTE.find((c) => c.name === effective)
-  const isHex = effective.startsWith('#')
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="size-4 shrink-0 rounded-full border border-border"
-          style={isHex ? { backgroundColor: effective } : undefined}
-          title={t('patient_data.concept_color')}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {!isHex && (
-            <span
-              className={cn(
-                'block size-full rounded-full',
-                entry ? entry.bg : 'bg-foreground/15',
-              )}
-            />
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-auto p-2"
-        align="end"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="grid grid-cols-5 gap-1">
-          <button
-            type="button"
-            className="flex size-5 items-center justify-center rounded-full border border-dashed border-border text-[8px] text-muted-foreground"
-            title={t('common.auto')}
-            onClick={() => { onChange(undefined); setOpen(false) }}
-          >
-            A
-          </button>
-          {COLOR_PALETTE.filter((c) => c.name !== 'none').map((c) => (
-            <button
-              key={c.name}
-              type="button"
-              className={cn('size-5 rounded-full', c.bg, value === c.name && 'ring-2 ring-offset-1 ring-offset-popover', value === c.name && c.ring)}
-              title={c.name}
-              onClick={() => { onChange(c.name); setOpen(false) }}
-            />
-          ))}
-        </div>
-        {/* Custom hex picker */}
-        <label className="mt-2 flex items-center gap-1.5 border-t pt-2 text-[10px] text-muted-foreground">
-          <span
-            className="size-4 shrink-0 rounded-full border border-border"
-            style={{ backgroundColor: isHex ? value : 'transparent' }}
-          />
-          <span className="flex-1">{t('patient_data.custom_color')}</span>
-          <input
-            type="color"
-            value={isHex ? (value as string) : '#3b82f6'}
-            onChange={(e) => onChange(e.target.value)}
-            className="h-5 w-6 cursor-pointer rounded border-0 bg-transparent p-0"
-          />
-        </label>
-      </PopoverContent>
-    </Popover>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Main component

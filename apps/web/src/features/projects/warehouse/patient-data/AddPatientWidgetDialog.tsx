@@ -32,8 +32,8 @@ import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/Ge
 import { PluginPicker } from '@/components/PluginPicker'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { ConceptSelectField } from './ConceptSelectField'
-import { DatasetSelectField } from './DatasetSelectField'
-import type { DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
+import { DatasetsSelectField } from './DatasetsSelectField'
+import { timelineDatasets, type DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { SizedPatientWidgetPreview } from './PatientWidgetPreview'
 import type { Plugin, PluginConfigField } from '@/types/plugin'
 
@@ -153,10 +153,15 @@ export function AddPatientWidgetDialog({
   // erroring. The editor sheet has always passed one.
   const renderDatasetField = useCallback(
     (fieldKey: string, field: PluginConfigField) => (
-      <DatasetSelectField
+      <DatasetsSelectField
         field={field}
-        value={pluginConfig[fieldKey] as Partial<DatasetTimelineMapping> | undefined}
+        value={timelineDatasets({
+          datasets: pluginConfig[fieldKey] as Partial<DatasetTimelineMapping>[] | undefined,
+          dataset: pluginConfig.dataset as Partial<DatasetTimelineMapping> | undefined,
+        })}
         onChange={(value) => setPluginConfig((prev) => ({ ...prev, [fieldKey]: value }))}
+        colors={(pluginConfig.conceptColors as Record<string, string> | undefined) ?? {}}
+        onColorsChange={(colors) => setPluginConfig((prev) => ({ ...prev, conceptColors: colors }))}
       />
     ),
     [pluginConfig],

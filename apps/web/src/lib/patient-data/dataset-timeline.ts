@@ -309,6 +309,10 @@ export function timelineDatasets(config: {
   datasets?: Partial<DatasetTimelineMapping>[]
   dataset?: Partial<DatasetTimelineMapping>
 }): Partial<DatasetTimelineMapping>[] {
-  if (config.datasets?.length) return config.datasets
+  // PRESENCE of the new key wins, empty or not. Falling back on emptiness instead
+  // would resurrect the legacy `dataset` the moment someone removed the last one
+  // from a widget configured before multi-dataset support: the config still carries
+  // the old key, and the removal would silently undo itself.
+  if (config.datasets) return config.datasets
   return config.dataset ? [config.dataset] : []
 }

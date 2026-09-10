@@ -5,6 +5,7 @@ import {
   datasetSeriesKeyId,
   datasetSeriesOptions,
   isDatasetSeriesId,
+  timelineDatasets,
   type DatasetTimelineMapping,
 } from './dataset-timeline'
 
@@ -245,5 +246,26 @@ describe('datasetSeriesOptions', () => {
     const byLabel = { ...mapping, labelColumn: 'col_label', seriesName: undefined }
     const rows = [{ col_person_id: 'p1', col_start: '2026-01-04', col_label: 'Alpha' }]
     expect(datasetSeriesOptions(rows, byLabel)[0]).toMatchObject({ code: 'Alpha', name: 'Alpha' })
+  })
+})
+
+describe('timelineDatasets', () => {
+  it('reads a widget configured before multi-dataset support', () => {
+    expect(timelineDatasets({ dataset: mapping })).toEqual([mapping])
+  })
+
+  it('prefers the new key when a config carries both', () => {
+    const other = { ...mapping, datasetFileId: 'ds2' }
+    expect(timelineDatasets({ datasets: [other], dataset: mapping })).toEqual([other])
+  })
+
+  it('honours an emptied list rather than resurrecting the legacy one', () => {
+    // Editing an old widget writes `datasets` and leaves the legacy `dataset` in
+    // place. Falling back on emptiness would silently undo removing the last one.
+    expect(timelineDatasets({ datasets: [], dataset: mapping })).toEqual([])
+  })
+
+  it('is empty for a widget that plots concepts only', () => {
+    expect(timelineDatasets({})).toEqual([])
   })
 })

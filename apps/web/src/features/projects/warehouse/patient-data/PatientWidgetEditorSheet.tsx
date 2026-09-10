@@ -24,8 +24,8 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { ConceptSelectField } from './ConceptSelectField'
-import { DatasetSelectField } from './DatasetSelectField'
-import type { DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
+import { DatasetsSelectField } from './DatasetsSelectField'
+import { timelineDatasets, type DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { SizedPatientWidgetPreview } from './PatientWidgetPreview'
 import { buildWidgetQueries, supportsCustomSql } from './widget-sql'
 import { localized } from '@/lib/localized'
@@ -220,10 +220,15 @@ function EditorContent({
 
   const renderDatasetField = useCallback(
     (fieldKey: string, field: PluginConfigField) => (
-      <DatasetSelectField
+      <DatasetsSelectField
         field={field}
-        value={draftConfig[fieldKey] as Partial<DatasetTimelineMapping> | undefined}
+        value={timelineDatasets({
+          datasets: draftConfig[fieldKey] as Partial<DatasetTimelineMapping>[] | undefined,
+          dataset: draftConfig.dataset as Partial<DatasetTimelineMapping> | undefined,
+        })}
         onChange={(value) => applyConfigChanges({ [fieldKey]: value })}
+        colors={(draftConfig.conceptColors as Record<string, string> | undefined) ?? {}}
+        onColorsChange={(colors) => applyConfigChanges({ conceptColors: colors })}
       />
     ),
     [draftConfig, applyConfigChanges],

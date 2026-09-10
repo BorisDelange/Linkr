@@ -8,7 +8,7 @@
     "en": "Interactive timeline chart for clinical measurements (dygraphs).",
     "fr": "Graphique chronologique interactif pour les mesures cliniques (dygraphs)."
   },
-  "version": "1.2.0",
+  "version": "1.3.0",
   "scope": "warehouse",
   "category": "patient-data",
   "tags": [
@@ -35,19 +35,19 @@
         "fr": "Données"
       }
     },
-    "dataset": {
+    "datasets": {
       "type": "dataset-select",
       "label": {
-        "en": "Dataset",
-        "fr": "Jeu de données"
+        "en": "Datasets",
+        "fr": "Jeux de données"
       },
       "section": {
         "en": "Data",
         "fr": "Données"
       },
       "description": {
-        "en": "Plot a dataset on the same axis as the concepts — a variable you collected by hand, read against what the warehouse holds. Pick which of its columns identify the patient and carry the dates.",
-        "fr": "Trace un jeu de données sur le même axe que les concepts — une variable recueillie à la main, lue en regard de ce que contient l'entrepôt. Indiquez quelles colonnes identifient le patient et portent les dates."
+        "en": "Plot datasets on the same axis as the concepts — variables you collected by hand, read against what the warehouse holds. For each one, say which columns identify the patient and carry the dates, then pick the series worth drawing.",
+        "fr": "Trace des jeux de données sur le même axe que les concepts — des variables recueillies à la main, lues en regard de ce que contient l'entrepôt. Pour chacun, indiquez quelles colonnes identifient le patient et portent les dates, puis choisissez les séries à tracer."
       }
     },
     "engine": {
