@@ -31,18 +31,14 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { columnLabel } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
-import {
-  datasetSeriesKeyId, timelineDatasets, type DatasetTimelineMapping,
-} from '@/lib/patient-data/dataset-timeline'
 import { useConceptListStore } from '@/stores/concept-list-store'
 import { ConceptColorSwatch } from './ConceptColorSwatch'
-import { useDatasetConcepts } from './use-dataset-concepts'
 import { mergeSelection, appendListConcepts } from './concept-selection'
 import { usePatientChartContext } from './PatientChartContext'
 import { ConceptStatsPopover } from './ConceptStatsPopover'
 import { useConcepts, type ConceptRow } from '../concepts/use-concepts'
 import { ConceptTable } from '../concepts/ConceptTable'
-import { DEFAULT_HIDDEN_COLUMNS, type ColumnDescriptor } from '../concepts/concept-queries'
+import { DEFAULT_HIDDEN_COLUMNS } from '../concepts/concept-queries'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import type { PluginConfigField } from '@/types/plugin'
 import type { VisibilityState } from '@tanstack/react-table'
@@ -73,23 +69,6 @@ interface ConceptPickerDialogProps {
  *  are the same task, so the table starts with the same columns in both. */
 const PICKER_HIDDEN_COLUMNS = DEFAULT_HIDDEN_COLUMNS
 
-/**
- * The dataset table's columns.
- *
- * `_source` has no counterpart on the database side — there is only ever one
- * warehouse, so a concept never needs to say where it is from, while a widget can
- * plot several datasets at once and two of them can name a series identically.
- */
-const DATASET_COLUMNS: ColumnDescriptor[] = [
-  { id: 'concept_name', source: 'core', filterable: false },
-  { id: 'concept_code', source: 'code', filterable: false },
-  { id: '_source', source: 'computed', filterable: false },
-  { id: 'record_count', source: 'computed', filterable: false },
-  { id: 'patient_count', source: 'computed', filterable: false },
-]
-
-const DATASET_PAGE_SIZE = 50
-
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -106,8 +85,6 @@ export function ConceptPickerDialog({
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
 
   const [activeTab, setActiveTab] = useState<'settings' | 'concepts'>('settings')
-  /** Which catalogue the table lists: the warehouse's own, or the widget's datasets. */
-  const [source, setSource] = useState<'database' | 'datasets'>('database')
 
   // Selection ORDER is the contract: the chart colours concepts by position, so
   // this is an array, not a Set. The Set below is derived, for O(1) lookups.
@@ -220,70 +197,6 @@ export function ConceptPickerDialog({
     setSelectedIds((prev) => appendListConcepts(prev, list.items.map((i) => i.conceptId)))
   }, [projectLists])
 
-  // --- Dataset series ------------------------------------------------------
-  // The widget's declared datasets, from the Data section. Read-only here: this
-  // dialog CHOOSES what to plot, it does not declare where the data comes from —
-  // the same split as the database, which is configured elsewhere too.
-  const datasetMappings = useMemo(
-    () => timelineDatasets({
-      datasets: settings.datasets as Partial<DatasetTimelineMapping>[] | undefined,
-      dataset: settings.dataset as Partial<DatasetTimelineMapping> | undefined,
-    }),
-    [settings.datasets, settings.dataset],
-  )
-  const { rows: datasetRows, loading: datasetsLoading } = useDatasetConcepts(
-    datasetMappings,
-    open && activeTab === 'concepts',
-  )
-
-  /** Picked series, by synthetic id — the table speaks ids, the config stores codes. */
-  const datasetSelectedIds = useMemo(() => {
-    const out = new Set<number>()
-    for (const m of datasetMappings) {
-      if (!m.datasetFileId) continue
-      for (const code of m.codes ?? []) out.add(datasetSeriesKeyId(m.datasetFileId, code))
-    }
-    return out
-  }, [datasetMappings])
-
-  const datasetPicked = datasetSelectedIds.size
-
-  const [datasetPage, setDatasetPage] = useState(0)
-  const datasetTotalPages = Math.max(1, Math.ceil(datasetRows.length / DATASET_PAGE_SIZE))
-  const datasetPageRows = useMemo(
-    () => datasetRows.slice(datasetPage * DATASET_PAGE_SIZE, (datasetPage + 1) * DATASET_PAGE_SIZE),
-    [datasetRows, datasetPage],
-  )
-
-  /** Fold a selection of synthetic ids back onto each mapping's `codes`. */
-  const applyDatasetSelection = useCallback((next: Set<number>) => {
-    setSettings((prev) => {
-      const current = timelineDatasets({
-        datasets: prev.datasets as Partial<DatasetTimelineMapping>[] | undefined,
-        dataset: prev.dataset as Partial<DatasetTimelineMapping> | undefined,
-      })
-      const datasets = current.map((m) => {
-        if (!m.datasetFileId) return m
-        const fileId = m.datasetFileId
-        // Kept in their existing order so a re-pick never moves a colour, with
-        // newly-picked codes appended — the same rule the concept list follows.
-        const kept = (m.codes ?? []).filter((c) => next.has(datasetSeriesKeyId(fileId, c)))
-        const known = new Set(kept)
-        const added = datasetRows
-          .filter((r) => r._dataset_id === fileId && next.has(r.concept_id) && !known.has(r._code))
-          .map((r) => r._code)
-        return { ...m, codes: [...kept, ...added] }
-      })
-      return { ...prev, datasets }
-    })
-  }, [datasetRows])
-
-  const removeDatasetSeries = useCallback((conceptId: number) => {
-    const next = new Set(datasetSelectedIds)
-    next.delete(conceptId)
-    applyDatasetSelection(next)
-  }, [datasetSelectedIds, applyDatasetSelection])
-
   const handleConfirm = () => {
     onConfirm({ ...settings, conceptIds: [...selectedIds] })
   }
@@ -341,28 +254,11 @@ export function ConceptPickerDialog({
     [dataSourceId, schemaMapping, defaultDictKey],
   )
 
-  // Selected concepts in pick order — the index drives the auto colour. Dataset
-  // series follow the warehouse's, each carrying the dataset it came from so the
-  // panel can say where a name that exists in two places is from.
-  const selectedList = useMemo(() => {
-    const byId = new Map(datasetRows.map((r) => [r.concept_id, r]))
-    const concepts = selectedIds.map((id) => ({
-      id,
-      name: selectedNames.get(id) ?? `#${id}`,
-      source: undefined as string | undefined,
-      fromDataset: false,
-    }))
-    const series = [...datasetSelectedIds].map((id) => {
-      const row = byId.get(id)
-      return {
-        id,
-        name: row?.concept_name ?? `#${id}`,
-        source: row?._source,
-        fromDataset: true,
-      }
-    })
-    return [...concepts, ...series]
-  }, [selectedIds, selectedNames, datasetSelectedIds, datasetRows])
+  // Selected concepts in pick order — the index drives the auto colour.
+  const selectedList = useMemo(
+    () => selectedIds.map((id) => ({ id, name: selectedNames.get(id) ?? `#${id}` })),
+    [selectedIds, selectedNames],
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -382,10 +278,7 @@ export function ConceptPickerDialog({
           <DialogTitle>{t('patient_data.select_concepts')}</DialogTitle>
         </DialogHeader>
 
-        {/* Tab switcher — Settings only shown when the widget exposes a schema.
-            The concepts tab carries the source switch instead of a label: naming
-            it "Concepts" beside a Database/Datasets choice said nothing the
-            dialog's own title had not already said. */}
+        {/* Tab switcher — Settings only shown when the widget exposes a schema */}
         <div className="flex shrink-0 items-center gap-1 border-b px-4 py-2">
           {schema && Object.keys(schema).length > 0 && (
             <Button
@@ -401,47 +294,22 @@ export function ConceptPickerDialog({
             size="sm-tight"
             onClick={() => setActiveTab('concepts')}
           >
-            <Badge variant="outline">{selectedIds.length + datasetPicked}</Badge>
+            {t('patient_data.tab_concepts')}
+            <Badge variant="outline" className="ml-1.5">
+              {selectedIds.length}
+            </Badge>
           </Button>
-
-          {activeTab === 'concepts' && (
-            <div className="ml-2 flex items-center gap-1">
-              <Button
-                variant={source === 'database' ? 'secondary' : 'ghost'}
-                size="sm-tight"
-                onClick={() => setSource('database')}
-              >
-                {t('patient_data.source_database')}
-              </Button>
-              <Button
-                variant={source === 'datasets' ? 'secondary' : 'ghost'}
-                size="sm-tight"
-                onClick={() => setSource('datasets')}
-                disabled={datasetMappings.length === 0}
-                title={datasetMappings.length === 0
-                  ? t('patient_data.source_datasets_none')
-                  : undefined}
-              >
-                {t('patient_data.source_datasets')}
-              </Button>
-            </div>
-          )}
         </div>
 
         {activeTab === 'concepts' ? (
-          /* Concepts tab: table + selected panel (resizable divider). One provider
-             for the whole tab — the selected panel has tooltips of its own. */
-          <TooltipProvider delayDuration={300}>
+          /* Concepts tab: table + selected panel (resizable divider) */
           <div className="flex min-h-0 flex-1">
             <Allotment proportionalLayout={false}>
             <Allotment.Pane minSize={360}>
             {/* Left: concept table */}
             <div className="flex h-full min-w-0 flex-col overflow-hidden border-r">
-              {/* Toolbar — same controls, order and sizing as the Concepts page.
-                  Database only: its filters, fuzzy search and saved lists are all
-                  the dictionary's, and none of them means anything over a dataset's
-                  own series, which are filtered in the table instead. */}
-              {source === 'database' && (
+              {/* Toolbar — same controls, order and sizing as the Concepts page. */}
+              <TooltipProvider delayDuration={300}>
                 <div className="flex shrink-0 items-center gap-1.5 border-b px-3 py-2">
                   <Popover>
                     <Tooltip>
@@ -565,70 +433,40 @@ export function ConceptPickerDialog({
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-              )}
+              </TooltipProvider>
 
               {/* The Concepts page's own table: sort, resize, reorder,
                   multi-select filters and the Columns menu, in pick mode. */}
               <div className="min-h-0 flex-1">
-                {source === 'database' ? (
-                  <ConceptTable
-                    concepts={hook.concepts}
-                    totalCount={hook.totalCount}
-                    page={hook.page}
-                    pageSize={hook.pageSize}
-                    totalPages={hook.totalPages}
-                    isLoading={hook.isLoading}
-                    selectedConceptId={null}
-                    availableColumns={hook.availableColumns}
-                    filters={hook.filters}
-                    filterOptions={hook.filterOptions}
-                    sorting={hook.sorting}
-                    columnVisibility={columnVisibility}
-                    onColumnVisibilityChange={setColumnVisibility}
-                    onFilterChange={hook.updateFilter}
-                    onSortingChange={hook.updateSorting}
-                    onSelect={() => {}}
-                    selectedConceptIds={selectedIdSet}
-                    onSelectedConceptIdsChange={applySelection}
-                    onPageChange={hook.setPage}
-                    onPageSizeChange={(size) => {
-                      hook.setPageSize(size)
-                      hook.setPage(0)
-                    }}
-                    pickMode
-                    onToggleConcept={rememberName}
-                    rowAction={rowAction}
-                    emptyMessage={t('patient_data.no_concepts_found')}
-                  />
-                ) : (
-                  /* Same table, fed by the widget's datasets. Paged in memory:
-                     the series are already computed from rows held locally, so
-                     there is no query to page against. */
-                  <ConceptTable
-                    concepts={datasetPageRows}
-                    totalCount={datasetRows.length}
-                    page={datasetPage}
-                    pageSize={DATASET_PAGE_SIZE}
-                    totalPages={datasetTotalPages}
-                    isLoading={datasetsLoading}
-                    selectedConceptId={null}
-                    availableColumns={DATASET_COLUMNS}
-                    filters={{}}
-                    filterOptions={{}}
-                    sorting={null}
-                    columnVisibility={{}}
-                    onColumnVisibilityChange={() => {}}
-                    onFilterChange={() => {}}
-                    onSortingChange={() => {}}
-                    onSelect={() => {}}
-                    selectedConceptIds={datasetSelectedIds}
-                    onSelectedConceptIdsChange={applyDatasetSelection}
-                    onPageChange={setDatasetPage}
-                    onPageSizeChange={() => {}}
-                    pickMode
-                    emptyMessage={t('patient_data.dataset_no_series')}
-                  />
-                )}
+                <ConceptTable
+                  concepts={hook.concepts}
+                  totalCount={hook.totalCount}
+                  page={hook.page}
+                  pageSize={hook.pageSize}
+                  totalPages={hook.totalPages}
+                  isLoading={hook.isLoading}
+                  selectedConceptId={null}
+                  availableColumns={hook.availableColumns}
+                  filters={hook.filters}
+                  filterOptions={hook.filterOptions}
+                  sorting={hook.sorting}
+                  columnVisibility={columnVisibility}
+                  onColumnVisibilityChange={setColumnVisibility}
+                  onFilterChange={hook.updateFilter}
+                  onSortingChange={hook.updateSorting}
+                  onSelect={() => {}}
+                  selectedConceptIds={selectedIdSet}
+                  onSelectedConceptIdsChange={applySelection}
+                  onPageChange={hook.setPage}
+                  onPageSizeChange={(size) => {
+                    hook.setPageSize(size)
+                    hook.setPage(0)
+                  }}
+                  pickMode
+                  onToggleConcept={rememberName}
+                  rowAction={rowAction}
+                  emptyMessage={t('patient_data.no_concepts_found')}
+                />
               </div>
             </div>
             </Allotment.Pane>
@@ -663,9 +501,7 @@ export function ConceptPickerDialog({
                           <button
                             type="button"
                             className="flex size-4 shrink-0 items-center justify-center rounded border border-primary bg-primary text-primary-foreground"
-                            onClick={() => (item.fromDataset
-                              ? removeDatasetSeries(item.id)
-                              : removeConcept(item.id))}
+                            onClick={() => removeConcept(item.id)}
                             title={t('patient_data.remove')}
                           >
                             <Check size={10} />
@@ -675,26 +511,12 @@ export function ConceptPickerDialog({
                             index={index}
                             onChange={(color) => setConceptColor(item.id, color)}
                           />
-                          {/* Where it came from, on hover: two datasets can hold
-                              the same series name, and the warehouse can hold it
-                              too, so the name alone does not identify a row. */}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="min-w-0 flex-1 truncate text-xs">
-                                {item.name}
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="left" className="text-xs">
-                              {item.fromDataset
-                                ? t('patient_data.source_from_dataset', { name: item.source || '—' })
-                                : t('patient_data.source_from_database')}
-                            </TooltipContent>
-                          </Tooltip>
-                          {!item.fromDataset && (
-                            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                              {item.id}
-                            </span>
-                          )}
+                          <span className="min-w-0 flex-1 truncate text-xs">
+                            {item.name}
+                          </span>
+                          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                            {item.id}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -715,7 +537,6 @@ export function ConceptPickerDialog({
             </Allotment.Pane>
             </Allotment>
           </div>
-          </TooltipProvider>
         ) : (
           /* Settings tab — schema-driven, shared with dashboard plugins */
           <ScrollArea className="min-h-0 flex-1">

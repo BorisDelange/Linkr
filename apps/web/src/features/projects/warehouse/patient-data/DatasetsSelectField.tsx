@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FormField } from '@/components/ui/form-field'
-import { groupsByCode, type DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
+import type { DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { useAppStore } from '@/stores/app-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DatasetMappingDialog } from './DatasetMappingDialog'
@@ -18,16 +17,16 @@ interface Props {
 }
 
 /**
- * The datasets a patient widget plots, one row each.
+ * The dataset concepts a patient widget plots, one row each.
  *
- * A row declares WHERE data comes from: which dataset, and which of its columns
- * carry the patient, the dates and the values (edited in a dialog, since there are
- * nine roles). WHAT to plot out of it is chosen in the concepts dialog instead,
- * beside the warehouse's own concepts — picking a series and picking a concept are
- * the same task, and the widget draws them on one axis.
+ * A dataset concept is ONE variable: a name, the dataset it lives in, and the
+ * columns holding its value and its date. That is the whole unit, because a wide
+ * dataset pairs `heart_rate_value` with its own `heart_rate_datetime` and nothing
+ * in the data says the two belong together — so the pairing is declared, one
+ * variable at a time, exactly as a concept is picked one at a time.
  *
- * The badge counts the series picked there, so the declaration still says whether
- * this dataset currently contributes anything.
+ * The row shows the variable's name with its file beside it: two datasets can hold
+ * a "Heart rate", and the name alone would not say which is which.
  */
 export function DatasetsSelectField({ field, value, onChange }: Props) {
   const { t, i18n } = useTranslation()
@@ -76,8 +75,13 @@ export function DatasetsSelectField({ field, value, onChange }: Props) {
     return datasets.find((f) => f.id === id)?.columns ?? []
   }, [datasets, ensureServerMeta])
 
+  /** The variable's own name; the file it comes from is the subtitle. */
   const nameOf = (m: Partial<DatasetTimelineMapping>) =>
-    datasets.find((f) => f.id === m.datasetFileId)?.name ?? t('patient_data.dataset')
+    m.seriesName?.trim() || datasets.find((f) => f.id === m.datasetFileId)?.name
+      || t('patient_data.dataset')
+
+  const fileOf = (m: Partial<DatasetTimelineMapping>) =>
+    datasets.find((f) => f.id === m.datasetFileId)?.name ?? ''
 
   const submitMapping = (m: Partial<DatasetTimelineMapping>) => {
     if (editing == null) return
@@ -96,24 +100,21 @@ export function DatasetsSelectField({ field, value, onChange }: Props) {
         {() => (
           <div className="space-y-1.5">
             {mappings.map((mapping, index) => {
-              const grouped = groupsByCode(mapping as DatasetTimelineMapping)
-              const picked = mapping.codes?.length ?? 0
-
+              // h-7, like every Select and Input around it: the row reads as one
+              // more field in the form, not as a card sitting above them.
               return (
-                <div key={index} className="rounded-md border px-2 py-1.5">
-                  <div className="flex items-center gap-1">
+                <div key={index} className="rounded-md border px-2">
+                  <div className="flex h-7 items-center gap-1">
                     <span className="min-w-0 flex-1 truncate text-xs font-medium">
                       {nameOf(mapping)}
                     </span>
-                    {grouped && (
-                      <Badge variant={picked > 0 ? 'secondary' : 'outline'} className="shrink-0">
-                        {picked}
-                      </Badge>
-                    )}
+                    <span className="shrink-0 truncate text-[10px] text-muted-foreground">
+                      {fileOf(mapping)}
+                    </span>
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      title={t('patient_data.dataset_edit_mapping')}
+                      title={t('patient_data.dataset_concept_edit')}
                       onClick={() => setEditing(index)}
                     >
                       <Pencil className="size-3.5" />
@@ -139,7 +140,7 @@ export function DatasetsSelectField({ field, value, onChange }: Props) {
               onClick={() => setEditing(-1)}
             >
               <Plus size={13} />
-              {t('patient_data.dataset_add')}
+              {t('patient_data.dataset_concept_add')}
             </Button>
           </div>
         )}

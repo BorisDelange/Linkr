@@ -10,7 +10,7 @@ import {
   compactOps, replayOps, retypeAddedColumn,
   type DatasetCellValue, type DatasetOp, type OpColumn, type ReplayInput,
 } from '@linkr/format'
-import { unreplay } from '@/stores/dataset-ops-baseline'
+import { carryColumnMeta, unreplay } from '@/stores/dataset-ops-baseline'
 import { planColumnRename, rekeyFilter, rekeyWidgetConfig, type ColumnRenamePlan } from '@/lib/dataset-column-rename'
 import { stampAuthored, useAppStore } from '@/stores/app-store'
 
@@ -286,8 +286,13 @@ async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Pr
 
   if (isServerMode()) {
     const { file: updated } = await recordDatasetOps(fileId, ops, { replace })
+    // Same as the local branch below: the server replays the log too, so a
+    // log-added column comes back without the constraints only the column holds.
+    const columns = updated.columns
+      ? carryColumnMeta(updated.columns, file.columns ?? [])
+      : updated.columns
     useDatasetStore.setState((s) => ({
-      files: s.files.map((f) => (f.id === fileId ? { ...f, ...updated } : f)),
+      files: s.files.map((f) => (f.id === fileId ? { ...f, ...updated, columns } : f)),
       _dirtyVersion: s._dirtyVersion + 1,
     }))
     return
@@ -301,7 +306,9 @@ async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Pr
   _loadedData.set(fileId, rows)
   const patch = {
     ops: log.length ? log : undefined,
-    columns: columns as DatasetColumn[],
+    // The replay rebuilds a log-added column from its addColumn op, which carries
+    // no entry constraints; put them back from the column as it stood.
+    columns: carryColumnMeta(columns, file.columns ?? []) as DatasetColumn[],
     rowCount: rows.length,
     updatedAt: new Date().toISOString(),
   }

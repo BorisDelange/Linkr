@@ -39,27 +39,15 @@ export interface DatasetTimelineMapping {
   /** Column holding a textual value, for a row whose result is not a number. */
   textValueColumn?: string
   /**
-   * Column holding a code identifying what the row measures.
+   * What this series is CALLED on the chart and in the legend.
    *
-   * This is what rows are GROUPED BY: one series per distinct code, the way the
-   * warehouse gives one series per concept. `labelColumn` names those series when
-   * present; with neither, the whole dataset is one series.
+   * Typed by hand, because a wide dataset has nowhere to read it from: the variable
+   * is the COLUMN (`heart_rate_value` with its own `heart_rate_datetime`), not a
+   * value inside a row, so there is no code or label column to group by. One mapping
+   * is therefore one variable — the equivalent of one concept picked out of the
+   * warehouse — and the name is the user's own word for it.
    */
-  conceptCodeColumn?: string
-  /** Column whose value names the series. Absent = every row is one series. */
-  labelColumn?: string
-  /** Series name when neither `conceptCodeColumn` nor `labelColumn` is set. */
   seriesName?: string
-  /**
-   * The codes to plot, out of those the dataset holds.
-   *
-   * Required, not a convenience: a dataset routinely carries hundreds of distinct
-   * codes, and drawing them all would make the chart unreadable and the query
-   * pointless. An empty list therefore plots NOTHING — the widget is not configured
-   * until something is picked, exactly as a timeline with no concept selected draws
-   * nothing.
-   */
-  codes?: string[]
 }
 
 /** The subset of the timeline's row shape a dataset can fill. */
@@ -131,10 +119,12 @@ export function datasetRowsToTimeline(
   fallbackName: string,
 ): DatasetTimelineRow[] {
   if (!patient.personId || !mapping.personColumn || !mapping.dateColumn) return []
-  // Nothing picked plots nothing: see `codes` on the mapping.
-  const wanted = mapping.codes
-  if (groupsByCode(mapping) && (!wanted || wanted.length === 0)) return []
-  const wantedSet = wanted ? new Set(wanted) : null
+
+  // One mapping is one series, so its id and name are fixed before the loop rather
+  // than read per row: the variable is the COLUMN, and every row of it is the same
+  // series by construction.
+  const name = mapping.seriesName?.trim() || fallbackName
+  const seriesId = datasetSeriesKeyId(mapping.datasetFileId, mapping.valueColumn ?? mapping.dateColumn)
 
   const out: DatasetTimelineRow[] = []
 
@@ -151,12 +141,6 @@ export function datasetRowsToTimeline(
 
     const eventDate = normaliseDate(row[mapping.dateColumn])
     if (eventDate == null) continue
-
-    const key = seriesKeyOf(row, mapping)
-    if (wantedSet && !wantedSet.has(key)) continue
-
-    const name = seriesNameOf(row, mapping, fallbackName)
-    const seriesId = datasetSeriesKeyId(mapping.datasetFileId, key)
 
     const rawValue = mapping.valueColumn ? row[mapping.valueColumn] : undefined
     const numeric = toNumber(rawValue)
@@ -181,92 +165,6 @@ export function datasetRowsToTimeline(
   // The timeline expects chronological rows (its OMOP query ends in ORDER BY).
   out.sort((a, b) => Number(a.event_date) - Number(b.event_date))
   return out
-}
-
-/** Whether this mapping splits its rows into series, or is one series in total. */
-export function groupsByCode(mapping: DatasetTimelineMapping): boolean {
-  return !!(mapping.conceptCodeColumn || mapping.labelColumn)
-}
-
-/**
- * The key identifying a row's series: its code, else its label, else the whole
- * dataset. The CODE takes precedence — a label is a display name and two codes can
- * legitimately share one, which would silently merge two series into one.
- */
-export function seriesKeyOf(
-  row: Record<string, unknown>,
-  mapping: DatasetTimelineMapping,
-): string {
-  if (mapping.conceptCodeColumn) return String(row[mapping.conceptCodeColumn] ?? '')
-  if (mapping.labelColumn) return String(row[mapping.labelColumn] ?? '')
-  return ''
-}
-
-/** What a series is called on the chart and in the legend. */
-export function seriesNameOf(
-  row: Record<string, unknown>,
-  mapping: DatasetTimelineMapping,
-  fallbackName: string,
-): string {
-  if (mapping.labelColumn) {
-    const label = row[mapping.labelColumn]
-    if (label != null && label !== '') return String(label)
-  }
-  const key = seriesKeyOf(row, mapping)
-  return key || mapping.seriesName || fallbackName
-}
-
-/** One selectable series of a dataset, with how much of the dataset it accounts for. */
-export interface DatasetSeriesOption {
-  /** The code (or label) rows are grouped by — what `mapping.codes` holds. */
-  code: string
-  /** Display name: the label when the dataset has one, else the code itself. */
-  name: string
-  /** Distinct patients holding at least one row of this series. */
-  patientCount: number
-  /** Rows of this series, across every patient. */
-  recordCount: number
-}
-
-/**
- * The series a dataset offers, with their counts over the WHOLE dataset.
- *
- * Counted across every patient, not the one on screen: the point of the list is to
- * decide what is worth plotting at all, and a code absent from the current patient
- * is exactly the sort of thing that still belongs on the widget.
- *
- * Rows with no usable date are excluded — they cannot be drawn, so counting them
- * would promise series the timeline then renders empty.
- */
-export function datasetSeriesOptions(
-  rows: readonly Record<string, unknown>[],
-  mapping: DatasetTimelineMapping,
-): DatasetSeriesOption[] {
-  if (!mapping.personColumn || !mapping.dateColumn) return []
-
-  const byCode = new Map<string, { name: string; patients: Set<string>; rows: number }>()
-  for (const row of rows) {
-    if (normaliseDate(row[mapping.dateColumn]) == null) continue
-    const code = seriesKeyOf(row, mapping)
-    let entry = byCode.get(code)
-    if (!entry) {
-      entry = { name: seriesNameOf(row, mapping, code), patients: new Set(), rows: 0 }
-      byCode.set(code, entry)
-    }
-    entry.rows += 1
-    const person = row[mapping.personColumn]
-    if (person != null && person !== '') entry.patients.add(String(person))
-  }
-
-  return [...byCode.entries()]
-    .map(([code, e]) => ({
-      code,
-      name: e.name,
-      patientCount: e.patients.size,
-      recordCount: e.rows,
-    }))
-    // Commonest first: the series worth plotting are usually the well-populated ones.
-    .sort((a, b) => b.recordCount - a.recordCount || a.name.localeCompare(b.name))
 }
 
 /** Ids cross the SQL/JSON boundary as numbers or strings, so compare as text. */

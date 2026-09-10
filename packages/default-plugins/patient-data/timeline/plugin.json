@@ -8,7 +8,7 @@
     "en": "Interactive timeline chart for clinical measurements (dygraphs).",
     "fr": "Graphique chronologique interactif pour les mesures cliniques (dygraphs)."
   },
-  "version": "1.3.0",
+  "version": "1.4.0",
   "scope": "warehouse",
   "category": "patient-data",
   "tags": [
@@ -27,8 +27,8 @@
     "conceptIds": {
       "type": "concept-select",
       "label": {
-        "en": "Concepts",
-        "fr": "Concepts"
+        "en": "Database concepts",
+        "fr": "Concepts de la base"
       },
       "section": {
         "en": "Data",
@@ -38,16 +38,16 @@
     "datasets": {
       "type": "dataset-select",
       "label": {
-        "en": "Datasets",
-        "fr": "Jeux de données"
+        "en": "Dataset concepts",
+        "fr": "Concepts de jeux de données"
       },
       "section": {
         "en": "Data",
         "fr": "Données"
       },
       "description": {
-        "en": "Plot datasets on the same axis as the concepts — variables you collected by hand, read against what the warehouse holds. For each one, say which columns identify the patient and carry the dates, then pick the series worth drawing.",
-        "fr": "Trace des jeux de données sur le même axe que les concepts — des variables recueillies à la main, lues en regard de ce que contient l'entrepôt. Pour chacun, indiquez quelles colonnes identifient le patient et portent les dates, puis choisissez les séries à tracer."
+        "en": "Plot variables held in a dataset on the same axis as the database's concepts. Each one is a named variable: the columns carrying its value and its date, declared once — a wide dataset has no code column to group by.",
+        "fr": "Trace des variables issues d'un jeu de données sur le même axe que les concepts de la base. Chacune est une variable nommée : les colonnes portant sa valeur et sa date, déclarées une fois — un jeu de données large n'a pas de colonne code pour regrouper."
       }
     },
     "engine": {

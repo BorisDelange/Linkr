@@ -53,10 +53,12 @@ export function DateTimeField({
 
   return (
     <div className={cn('flex min-w-0 items-center gap-1', className)}>
+      {/* `flex-1` either way: with no time half the date should still fill the
+          field rather than sit at its natural width beside empty space. */}
       <DatePickerField
         value={day || undefined}
         onChange={(d) => emit(d, time)}
-        className={withTime ? 'flex-1' : undefined}
+        className="flex-1"
         disabledDays={bounds.length ? bounds : undefined}
       />
       {withTime && (

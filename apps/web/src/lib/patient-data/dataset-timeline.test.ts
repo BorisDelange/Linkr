@@ -3,7 +3,6 @@ import {
   datasetRowsToTimeline,
   datasetSeriesId,
   datasetSeriesKeyId,
-  datasetSeriesOptions,
   isDatasetSeriesId,
   timelineDatasets,
   type DatasetTimelineMapping,
@@ -76,24 +75,6 @@ describe('datasetRowsToTimeline', () => {
     expect(row.end_date).toBeInstanceOf(Date)
   })
 
-  it('splits series by the label column', () => {
-    const labelled = {
-      ...mapping, labelColumn: 'col_kind', valueColumn: 'col_value',
-      codes: ['PEEP', 'FiO2'],
-    }
-    const rows = [
-      { col_person_id: 'p1', col_start: '2026-01-04', col_kind: 'PEEP', col_value: '8' },
-      { col_person_id: 'p1', col_start: '2026-01-05', col_kind: 'FiO2', col_value: '40' },
-      { col_person_id: 'p1', col_start: '2026-01-06', col_kind: 'PEEP', col_value: '10' },
-    ]
-    const out = datasetRowsToTimeline(rows, labelled, patient, 'ds')
-    const byName = new Map(out.map((r) => [r.concept_name, r.concept_id]))
-    expect([...byName.keys()].sort()).toEqual(['FiO2', 'PEEP'])
-    // The same label keeps the same series id, or the chart would draw two curves.
-    expect(out.filter((r) => r.concept_name === 'PEEP').map((r) => r.concept_id))
-      .toEqual([byName.get('PEEP'), byName.get('PEEP')])
-  })
-
   it('reads a non-numeric value as a categorical marker', () => {
     const withValue = { ...mapping, valueColumn: 'col_mode' }
     const rows = [{ col_person_id: 'p1', col_start: '2026-01-04', col_mode: 'pressure support' }]
@@ -159,93 +140,69 @@ describe('datasetSeriesKeyId', () => {
   })
 })
 
-describe('datasetRowsToTimeline — code filtering', () => {
-  const coded: DatasetTimelineMapping = {
-    ...mapping,
-    conceptCodeColumn: 'col_code',
-    labelColumn: 'col_label',
-    seriesName: undefined,
+describe('datasetRowsToTimeline — one mapping is one named variable', () => {
+  const named: DatasetTimelineMapping = {
+    datasetFileId: 'ds1',
+    personColumn: 'col_person_id',
+    dateColumn: 'col_hr_datetime',
+    valueColumn: 'col_hr_value',
+    seriesName: 'Heart rate',
   }
-  const rows = [
-    { col_person_id: 'p1', col_start: '2026-01-04', col_code: 'A', col_label: 'Alpha' },
-    { col_person_id: 'p1', col_start: '2026-01-05', col_code: 'B', col_label: 'Beta' },
-  ]
 
-  it('plots nothing until codes are picked', () => {
-    // Filtering is required: a dataset holds hundreds of codes, and drawing them
-    // all would make the chart unreadable.
-    expect(datasetRowsToTimeline(rows, coded, patient, 'ds')).toEqual([])
-    expect(datasetRowsToTimeline(rows, { ...coded, codes: [] }, patient, 'ds')).toEqual([])
+  it('names every row after the mapping, not after the data', () => {
+    // A wide dataset has no label column to read: the variable IS the column, and
+    // its name is the one the user typed.
+    const rows = [
+      { col_person_id: 'p1', col_hr_datetime: '2026-01-04', col_hr_value: 80 },
+      { col_person_id: 'p1', col_hr_datetime: '2026-01-05', col_hr_value: 92 },
+    ]
+    const out = datasetRowsToTimeline(rows, named, patient, 'file.csv')
+    expect(out.map((r) => r.concept_name)).toEqual(['Heart rate', 'Heart rate'])
+    expect(out.map((r) => r.value)).toEqual([80, 92])
   })
 
-  it('plots only the codes picked', () => {
-    const out = datasetRowsToTimeline(rows, { ...coded, codes: ['A'] }, patient, 'ds')
-    expect(out.map((r) => r.concept_name)).toEqual(['Alpha'])
+  it('gives every row of one variable the same series id', () => {
+    const rows = [
+      { col_person_id: 'p1', col_hr_datetime: '2026-01-04', col_hr_value: 80 },
+      { col_person_id: 'p1', col_hr_datetime: '2026-01-05', col_hr_value: 92 },
+    ]
+    const ids = new Set(datasetRowsToTimeline(rows, named, patient, '').map((r) => r.concept_id))
+    expect(ids.size).toBe(1)
   })
 
-  it('still plots an ungrouped dataset with no codes at all', () => {
-    // Nothing to filter when every row is one series, so requiring a pick there
-    // would make a perfectly valid mapping undrawable.
-    const out = datasetRowsToTimeline(
-      [{ col_person_id: 'p1', col_start: '2026-01-04' }],
-      { ...mapping, seriesName: 'Ventilation' }, patient, 'ds',
+  it('separates two variables of the SAME dataset', () => {
+    // heart_rate_value and creat_value live in one file; they must not share a
+    // series id, or the chart would draw them as one line.
+    const creat: DatasetTimelineMapping = {
+      ...named, dateColumn: 'col_creat_datetime', valueColumn: 'col_creat_value',
+      seriesName: 'Creatinine',
+    }
+    const hr = datasetRowsToTimeline(
+      [{ col_person_id: 'p1', col_hr_datetime: '2026-01-04', col_hr_value: 80 }],
+      named, patient, '',
     )
-    expect(out).toHaveLength(1)
+    const cr = datasetRowsToTimeline(
+      [{ col_person_id: 'p1', col_creat_datetime: '2026-01-04', col_creat_value: 12 }],
+      creat, patient, '',
+    )
+    expect(hr[0].concept_id).not.toBe(cr[0].concept_id)
   })
 
-  it('groups by the CODE, not the label, when both are set', () => {
-    // Two codes sharing a display name must stay two series.
-    const sameName = [
-      { col_person_id: 'p1', col_start: '2026-01-04', col_code: 'A', col_label: 'Dose' },
-      { col_person_id: 'p1', col_start: '2026-01-05', col_code: 'B', col_label: 'Dose' },
-    ]
-    const out = datasetRowsToTimeline(sameName, { ...coded, codes: ['A', 'B'] }, patient, 'ds')
-    expect(new Set(out.map((r) => r.concept_id)).size).toBe(2)
+  it('falls back to the dataset name when nothing was typed', () => {
+    const unnamed = { ...named, seriesName: undefined }
+    const rows = [{ col_person_id: 'p1', col_hr_datetime: '2026-01-04', col_hr_value: 80 }]
+    expect(datasetRowsToTimeline(rows, unnamed, patient, 'labs.csv')[0].concept_name)
+      .toBe('labs.csv')
   })
-})
 
-describe('datasetSeriesOptions', () => {
-  const coded: DatasetTimelineMapping = {
-    ...mapping, conceptCodeColumn: 'col_code', labelColumn: 'col_label', seriesName: undefined,
-  }
-
-  it('counts distinct patients and rows over the WHOLE dataset', () => {
-    // Counted across every patient, not the one on screen: a code absent from the
-    // current patient is exactly what one still wants to put on the widget.
+  it('drops rows whose own date column is empty', () => {
+    // The pairing is per-variable: a row holding a creatinine but no heart-rate
+    // time is simply not a heart-rate measurement.
     const rows = [
-      { col_person_id: 'p1', col_start: '2026-01-04', col_code: 'A', col_label: 'Alpha' },
-      { col_person_id: 'p1', col_start: '2026-01-05', col_code: 'A', col_label: 'Alpha' },
-      { col_person_id: 'p2', col_start: '2026-01-06', col_code: 'A', col_label: 'Alpha' },
-      { col_person_id: 'p3', col_start: '2026-01-07', col_code: 'B', col_label: 'Beta' },
+      { col_person_id: 'p1', col_hr_datetime: '2026-01-04', col_hr_value: 80 },
+      { col_person_id: 'p1', col_hr_datetime: null, col_hr_value: null },
     ]
-    const [first, second] = datasetSeriesOptions(rows, coded)
-    expect(first).toEqual({ code: 'A', name: 'Alpha', patientCount: 2, recordCount: 3 })
-    expect(second).toEqual({ code: 'B', name: 'Beta', patientCount: 1, recordCount: 1 })
-  })
-
-  it('excludes rows that carry no usable date', () => {
-    // They can never be drawn, so counting them would offer a series that renders
-    // empty.
-    const rows = [
-      { col_person_id: 'p1', col_start: '2026-01-04', col_code: 'A' },
-      { col_person_id: 'p1', col_start: 'not a date', col_code: 'A' },
-    ]
-    expect(datasetSeriesOptions(rows, coded)[0].recordCount).toBe(1)
-  })
-
-  it('ranks the commonest series first', () => {
-    const rows = [
-      { col_person_id: 'p1', col_start: '2026-01-04', col_code: 'rare' },
-      { col_person_id: 'p1', col_start: '2026-01-05', col_code: 'common' },
-      { col_person_id: 'p2', col_start: '2026-01-06', col_code: 'common' },
-    ]
-    expect(datasetSeriesOptions(rows, coded).map((o) => o.code)).toEqual(['common', 'rare'])
-  })
-
-  it('falls back to the label when there is no code column', () => {
-    const byLabel = { ...mapping, labelColumn: 'col_label', seriesName: undefined }
-    const rows = [{ col_person_id: 'p1', col_start: '2026-01-04', col_label: 'Alpha' }]
-    expect(datasetSeriesOptions(rows, byLabel)[0]).toMatchObject({ code: 'Alpha', name: 'Alpha' })
+    expect(datasetRowsToTimeline(rows, named, patient, '')).toHaveLength(1)
   })
 })
 

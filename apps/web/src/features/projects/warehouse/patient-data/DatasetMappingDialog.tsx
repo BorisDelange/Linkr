@@ -6,6 +6,7 @@ import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { FormField } from '@/components/ui/form-field'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -55,10 +56,6 @@ const ROLE_ROWS: Role[][] = [
     },
   ],
   [
-    { key: 'conceptCodeColumn', labelKey: 'patient_data.dataset_code_column', optional: true },
-    { key: 'labelColumn', labelKey: 'patient_data.dataset_label_column', optional: true },
-  ],
-  [
     { key: 'valueColumn', labelKey: 'patient_data.dataset_value_column', optional: true },
     { key: 'textValueColumn', labelKey: 'patient_data.dataset_text_value_column', optional: true },
   ],
@@ -77,15 +74,17 @@ interface Props {
 }
 
 /**
- * One dialog for adding and editing a dataset's column mapping.
+ * One dialog for adding and editing a DATASET CONCEPT: one variable to plot.
  *
- * Same questions either way, so one dialog: which dataset, and which of its columns
- * carry the patient, the dates and the values. Keeping this out of the config panel
- * matters because there are nine roles — inline they buried the rest of the
- * timeline's settings, and the picked series had nowhere to sit.
+ * A dataset is wide — one column per variable, `heart_rate_value` paired with its
+ * own `heart_rate_datetime` — so there is no code or label column to group rows by,
+ * and nothing in the data says the two columns belong together. The pairing is
+ * therefore DECLARED here, one variable at a time, and named by hand: the name is
+ * what the legend shows, the equivalent of a concept's name.
  *
- * `detectDatasetRoles` fills in what the column names give away as soon as a dataset
- * is chosen, so this is usually a confirmation rather than nine choices.
+ * `detectDatasetRoles` fills in the identity and date columns from their names, so
+ * this is usually a confirmation plus the two columns that are actually specific to
+ * this variable.
  */
 export function DatasetMappingDialog({
   open, onOpenChange, mapping, datasets, columnsOf, schemaMapping, onSubmit,
@@ -115,12 +114,19 @@ export function DatasetMappingDialog({
     })
   }, [open, columns, schemaMapping])
 
-  const valid = !!(draft.datasetFileId && draft.personColumn && draft.dateColumn)
+  // A named variable pointing at a value column and its date: that is the whole
+  // contract. Without a name the legend has nothing to call it; without a value
+  // column there is nothing to draw.
+  const valid = !!(
+    draft.datasetFileId && draft.personColumn && draft.dateColumn
+    && draft.seriesName?.trim()
+  )
 
   const pickDataset = (v: string) => {
-    // A different dataset invalidates every column and code chosen for the previous
-    // one — they name columns that no longer exist, and would plot nothing.
-    setDraft(v === NONE ? {} : { datasetFileId: v })
+    // A different dataset invalidates every column chosen for the previous one —
+    // they name columns that no longer exist, and would plot nothing. The typed
+    // name is kept: it describes the variable, not the file it came from.
+    setDraft((d) => (v === NONE ? {} : { datasetFileId: v, seriesName: d.seriesName }))
   }
 
   return (
@@ -131,8 +137,8 @@ export function DatasetMappingDialog({
       // Three role dropdowns to a row need more than `settings`' max-w-lg.
       className="sm:max-w-3xl"
       title={editing
-        ? t('patient_data.dataset_edit_mapping')
-        : t('patient_data.dataset_add')}
+        ? t('patient_data.dataset_concept_edit')
+        : t('patient_data.dataset_concept_add')}
       onConfirm={() => { if (valid) { onSubmit(draft); onOpenChange(false) } }}
       confirmLabel={editing ? t('common.save') : t('common.add')}
       confirmDisabled={!valid}
@@ -152,6 +158,24 @@ export function DatasetMappingDialog({
             </Select>
           )}
         </FormField>
+
+        {draft.datasetFileId && (
+          <FormField
+            label={t('patient_data.dataset_series_name')}
+            hint={t('patient_data.dataset_series_name_hint')}
+            hintInTooltip
+            required
+          >
+            {({ id }) => (
+              <Input
+                id={id}
+                value={draft.seriesName ?? ''}
+                onChange={(e) => setDraft((d) => ({ ...d, seriesName: e.target.value }))}
+                placeholder={t('patient_data.dataset_series_name_placeholder')}
+              />
+            )}
+          </FormField>
+        )}
 
         {draft.datasetFileId && (
           <TooltipProvider delayDuration={300}>

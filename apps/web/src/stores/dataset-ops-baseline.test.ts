@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ROW_ORD, replayOps, type DatasetOp, type ReplayInput } from '@linkr/format'
-import { unreplay } from './dataset-ops-baseline'
+import { carryColumnMeta, unreplay } from './dataset-ops-baseline'
 
 let seq = 0
 const mint = () => ({ id: `op${++seq}`, at: 1_700_000_000_000 })
@@ -206,5 +206,56 @@ describe('a baseline derived late', () => {
     expect(late.rows[0].col_a).toBe('edited')
     // Replaying the full log over it still shows what the user last saw.
     expect(replayOps(late, log).rows[0].col_a).toBe('edited')
+  })
+})
+
+describe('unreplay — a collected column keeps its entry constraints', () => {
+  /** The ops that create a collected variable and fill one of its cells. */
+  const ops = [
+    { id: 'o1', at: 1, type: 'addColumn', column: 'col_d', name: 'd', colType: 'date' },
+    { id: 'o2', at: 2, type: 'setCell', row: 0, column: 'col_d', value: '2026-01-04' },
+  ] as unknown as DatasetOp[]
+
+  it('carries withTime and the other constraints through a rewind + replay', () => {
+    // The bug this guards: `withTime` (and `required`, `min`, `max`,
+    // `allowedValues`) live only on the column, and a column the LOG added is
+    // stripped from the baseline and rebuilt from its addColumn op — which carries
+    // none of them. Typing a value re-ran that cycle, so "with time" silently
+    // switched itself back off as soon as the column held data.
+    const state = {
+      columns: [{
+        id: 'col_d', name: 'd', type: 'date', order: 0,
+        withTime: true, required: true, min: '2020-01-01',
+      }],
+      rows: [{ col_d: '2026-01-04' }],
+    } as unknown as ReplayInput
+
+    const out = replayOps(unreplay(state, ops), ops)
+    // The replay alone cannot know them — that is the whole problem.
+    const raw = out.columns.find((c) => c.id === 'col_d') as Record<string, unknown>
+    expect(raw.withTime).toBeUndefined()
+
+    // The store puts them back from the column as it stood, which is what the
+    // sidebar then renders.
+    const carried = carryColumnMeta(out.columns, state.columns)
+    const col = carried.find((c) => c.id === 'col_d') as Record<string, unknown>
+    expect(col.withTime).toBe(true)
+    expect(col.required).toBe(true)
+    expect(col.min).toBe('2020-01-01')
+  })
+
+  it('never overrides what the replay did produce', () => {
+    // A rename changes the NAME; carrying metadata must not undo it.
+    const replayed = [{ id: 'col_d', name: 'renamed', type: 'date', order: 0 }]
+    const previous = [{ id: 'col_d', name: 'old', type: 'date', order: 0, withTime: true }]
+    const [col] = carryColumnMeta(replayed, previous) as Record<string, unknown>[]
+    expect(col.name).toBe('renamed')
+    expect(col.withTime).toBe(true)
+  })
+
+  it('leaves a column the previous state never had alone', () => {
+    const replayed = [{ id: 'col_new', name: 'n', type: 'string', order: 0 }]
+    expect(carryColumnMeta(replayed, [])).toBe(replayed)
+    expect(carryColumnMeta(replayed, [{ id: 'other' }])[0]).toBe(replayed[0])
   })
 })

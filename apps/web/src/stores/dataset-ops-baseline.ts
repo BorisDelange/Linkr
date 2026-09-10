@@ -80,3 +80,45 @@ function priorValue(
   }
   return UNKNOWN
 }
+
+/**
+ * Entry constraints a column carries but the op log does not.
+ *
+ * A column the log ADDED is rebuilt from its `addColumn` op on every replay, and
+ * that op holds only id, name and type. Everything the user set on the column
+ * afterwards — whether a date also takes a time, whether it is required, its
+ * bounds, its allowed values — lives on the column alone and would be dropped each
+ * time the log was replayed. Which is what happened on the first cell typed into a
+ * collected variable: "with time" quietly switched itself back off.
+ *
+ * Metadata is presentation and validation, never data, so restoring it after a
+ * replay is sound: the replay owns the rows and the shape, not the descriptions.
+ */
+const CARRIED_KEYS = [
+  'label', 'description', 'valueLabels',
+  'withTime', 'required', 'min', 'max', 'allowedValues',
+] as const
+
+/** Put back what the replay could not know, matching columns by id. */
+export function carryColumnMeta<T extends { id: string }>(
+  replayed: T[],
+  previous: readonly { id: string }[],
+): T[] {
+  if (previous.length === 0) return replayed
+  const before = new Map(previous.map((c) => [c.id, c as Record<string, unknown>]))
+  return replayed.map((col) => {
+    const old = before.get(col.id)
+    if (!old) return col
+    const restored: Record<string, unknown> = { ...col }
+    let changed = false
+    for (const key of CARRIED_KEYS) {
+      // Only fills a gap: a replay that DID produce a value is the authority, and
+      // a key absent from both stays absent rather than becoming undefined.
+      if (restored[key] === undefined && old[key] !== undefined) {
+        restored[key] = old[key]
+        changed = true
+      }
+    }
+    return changed ? (restored as T) : col
+  })
+}

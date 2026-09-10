@@ -20,7 +20,7 @@ function cols(...specs: (string | [string, DatasetColumn['type']])[]): DatasetCo
 describe('detectDatasetRoles', () => {
   it('fills the roles a MIMIC-shaped export gives away', () => {
     const found = detectDatasetRoles(
-      cols('subject_id', 'hadm_id', 'stay_id', 'charttime', ['valuenum', 'number'], 'label'),
+      cols('subject_id', 'hadm_id', 'stay_id', 'charttime', ['valuenum', 'number']),
       {},
       mimic,
     )
@@ -30,7 +30,6 @@ describe('detectDatasetRoles', () => {
       visitDetailColumn: 'col_stay_id',
       dateColumn: 'col_charttime',
       valueColumn: 'col_valuenum',
-      labelColumn: 'col_label',
     })
   })
 
@@ -62,19 +61,21 @@ describe('detectDatasetRoles', () => {
   })
 
   it('never gives one column two roles', () => {
-    // `concept_id` is a code candidate, but it is already the patient column here:
-    // claiming it twice would group every row of one patient into one series.
-    const found = detectDatasetRoles(cols('concept_id', 'charttime'), {}, undefined)
-    expect(found.conceptCodeColumn).not.toBe(found.personColumn)
+    // `date` is a candidate for both the start and the end; claiming it twice
+    // would draw every event as a zero-length block.
+    const found = detectDatasetRoles(cols('person_id', 'date'), {}, undefined)
+    expect(found.dateColumn).toBe('col_date')
+    expect(found.endColumn).toBeUndefined()
   })
 
   it('leaves a column already taken by an explicit choice alone', () => {
     const found = detectDatasetRoles(
-      cols('itemid', 'charttime'),
-      { personColumn: 'col_itemid' },
+      cols('charttime', ['valuenum', 'number']),
+      { endColumn: 'col_charttime' },
       undefined,
     )
-    expect(found.conceptCodeColumn).toBeUndefined()
+    expect(found.dateColumn).toBeUndefined()
+    expect(found.valueColumn).toBe('col_valuenum')
   })
 
   it('only offers a numeric column as the numeric value', () => {

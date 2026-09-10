@@ -1,11 +1,12 @@
 /**
  * Guessing which dataset column plays which timeline role.
  *
- * A dataset carries no schema mapping, so every role has to be declared by hand —
- * nine dropdowns per dataset. Most datasets, though, come out of the warehouse or
- * out of a collection form and already name their columns the way everyone does:
- * `subject_id`, `charttime`, `valuenum`, `itemid`. Detection fills those in so the
- * declaration starts mostly done and is corrected, not typed from scratch.
+ * A dataset carries no schema mapping, so every role has to be declared by hand.
+ * Most datasets, though, come out of the warehouse or out of a collection form and
+ * already name their identity and date columns the way everyone does: `subject_id`,
+ * `hadm_id`, `charttime`. Detection fills those in so the declaration starts mostly
+ * done and is corrected, not typed from scratch — leaving the variable's own value
+ * column, which only its author can name.
  *
  * Two rules keep it from ever being harmful:
  *  - it only fills a role that is still UNSET, so a saved config and a deliberate
@@ -18,10 +19,10 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DatasetTimelineMapping } from './dataset-timeline'
 import { identityColumnsFromMapping } from '@/features/projects/warehouse/patient-data/collection/identity-columns'
 
-/** The roles detection can fill. `datasetFileId` and `codes` are not column roles. */
+/** The roles detection can fill; `datasetFileId` and `seriesName` are not columns. */
 export type DetectableRole = Exclude<
   keyof DatasetTimelineMapping,
-  'datasetFileId' | 'codes' | 'seriesName'
+  'datasetFileId' | 'seriesName'
 >
 
 /**
@@ -50,19 +51,13 @@ const CANDIDATES: Record<DetectableRole, string[]> = {
     'value_as_string', 'valuestr', 'value_string', 'text_value', 'value_text',
     'valueuom', 'result_text',
   ],
-  conceptCodeColumn: [
-    'concept_code', 'conceptcode', 'code', 'itemid', 'item_id', 'concept_id',
-    'measurement_concept_id', 'source_code',
-  ],
-  labelColumn: ['concept_name', 'label', 'name', 'item_name', 'description', 'variable'],
 }
 
 /**
  * The order roles are resolved in, most specific first.
  *
- * It matters because of the one-column-one-role rule: `concept_id` appears in the
- * code candidates, and resolving the identity roles first stops a `person_id`
- * column from being claimed as a code on a dataset that has no other code column.
+ * It matters because of the one-column-one-role rule: a dataset whose date column
+ * is simply `date` should not have it claimed by `endColumn` first.
  */
 const RESOLUTION_ORDER: DetectableRole[] = [
   'personColumn',
@@ -70,8 +65,6 @@ const RESOLUTION_ORDER: DetectableRole[] = [
   'visitDetailColumn',
   'dateColumn',
   'endColumn',
-  'conceptCodeColumn',
-  'labelColumn',
   'valueColumn',
   'textValueColumn',
 ]
