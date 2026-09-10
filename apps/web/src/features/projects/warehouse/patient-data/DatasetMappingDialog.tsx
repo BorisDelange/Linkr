@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Info } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
 import {
@@ -15,21 +19,49 @@ import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
 
 const NONE = '__none__'
 
-/** The role dropdowns, in the order they are declared. */
-const ROLES: {
+interface Role {
   key: keyof DatasetTimelineMapping
   labelKey: string
   optional: boolean
-}[] = [
-  { key: 'personColumn', labelKey: 'patient_data.dataset_person_column', optional: false },
-  { key: 'visitColumn', labelKey: 'patient_data.dataset_visit_column', optional: true },
-  { key: 'visitDetailColumn', labelKey: 'patient_data.dataset_visit_detail_column', optional: true },
-  { key: 'dateColumn', labelKey: 'patient_data.dataset_date_column', optional: false },
-  { key: 'endColumn', labelKey: 'patient_data.dataset_end_column', optional: true },
-  { key: 'valueColumn', labelKey: 'patient_data.dataset_value_column', optional: true },
-  { key: 'textValueColumn', labelKey: 'patient_data.dataset_text_value_column', optional: true },
-  { key: 'conceptCodeColumn', labelKey: 'patient_data.dataset_code_column', optional: true },
-  { key: 'labelColumn', labelKey: 'patient_data.dataset_label_column', optional: true },
+  /** Shown behind an info icon, for a role whose name does not say enough. */
+  hintKey?: string
+}
+
+/**
+ * The role dropdowns, grouped as they are read.
+ *
+ * Three per row, one row per question the mapping answers: who the row is about,
+ * when it happened, what it is, and what it holds. A flat list of nine made the
+ * reader match label to meaning one by one.
+ */
+const ROLE_ROWS: Role[][] = [
+  [
+    { key: 'personColumn', labelKey: 'patient_data.dataset_person_column', optional: false },
+    { key: 'visitColumn', labelKey: 'patient_data.dataset_visit_column', optional: true },
+    { key: 'visitDetailColumn', labelKey: 'patient_data.dataset_visit_detail_column', optional: true },
+  ],
+  [
+    {
+      key: 'dateColumn',
+      labelKey: 'patient_data.dataset_start_datetime_column',
+      optional: false,
+      hintKey: 'patient_data.dataset_datetime_hint',
+    },
+    {
+      key: 'endColumn',
+      labelKey: 'patient_data.dataset_end_datetime_column',
+      optional: true,
+      hintKey: 'patient_data.dataset_datetime_hint',
+    },
+  ],
+  [
+    { key: 'conceptCodeColumn', labelKey: 'patient_data.dataset_code_column', optional: true },
+    { key: 'labelColumn', labelKey: 'patient_data.dataset_label_column', optional: true },
+  ],
+  [
+    { key: 'valueColumn', labelKey: 'patient_data.dataset_value_column', optional: true },
+    { key: 'textValueColumn', labelKey: 'patient_data.dataset_text_value_column', optional: true },
+  ],
 ]
 
 interface Props {
@@ -96,6 +128,8 @@ export function DatasetMappingDialog({
       open={open}
       onOpenChange={onOpenChange}
       kind="settings"
+      // Three role dropdowns to a row need more than `settings`' max-w-lg.
+      className="sm:max-w-3xl"
       title={editing
         ? t('patient_data.dataset_edit_mapping')
         : t('patient_data.dataset_add')}
@@ -120,37 +154,53 @@ export function DatasetMappingDialog({
         </FormField>
 
         {draft.datasetFileId && (
-          <div className="grid grid-cols-2 gap-3">
-            {ROLES.map(({ key, labelKey, optional }) => (
-              <div key={key} className="space-y-1">
-                <Label>
-                  {t(labelKey)}
-                  {!optional && <span className="ml-0.5 text-destructive">*</span>}
-                </Label>
-                <Select
-                  value={(draft[key] as string) || NONE}
-                  onValueChange={(v) => setDraft((d) => ({
-                    ...d, [key]: v === NONE ? undefined : v,
-                  }))}
-                >
-                  <SelectTrigger className="h-7 text-xs">
-                    <SelectValue placeholder={t('patient_data.dataset_pick_column')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {optional && <SelectItem value={NONE}>{t('common.none')}</SelectItem>}
-                    {columns.map((col) => (
-                      <SelectItem key={col.id} value={col.id}>
-                        <span className="flex items-center gap-2">
-                          <TypeBadge type={col.type} size="sm" />
-                          {displayColumnName(col, lang)}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ))}
-          </div>
+          <TooltipProvider delayDuration={300}>
+            <div className="space-y-3">
+              {ROLE_ROWS.map((row, i) => (
+                <div key={i} className="grid grid-cols-3 gap-3">
+                  {row.map(({ key, labelKey, optional, hintKey }) => (
+                    <div key={key} className="space-y-1">
+                      <Label className="flex items-center gap-1">
+                        {t(labelKey)}
+                        {!optional && <span className="text-destructive">*</span>}
+                        {hintKey && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info size={11} className="shrink-0 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs text-xs">
+                              {t(hintKey)}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </Label>
+                      <Select
+                        value={(draft[key] as string) || NONE}
+                        onValueChange={(v) => setDraft((d) => ({
+                          ...d, [key]: v === NONE ? undefined : v,
+                        }))}
+                      >
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue placeholder={t('patient_data.dataset_pick_column')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {optional && <SelectItem value={NONE}>{t('common.none')}</SelectItem>}
+                          {columns.map((col) => (
+                            <SelectItem key={col.id} value={col.id}>
+                              <span className="flex items-center gap-2">
+                                <TypeBadge type={col.type} size="sm" />
+                                {displayColumnName(col, lang)}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </TooltipProvider>
         )}
       </div>
     </DialogShell>

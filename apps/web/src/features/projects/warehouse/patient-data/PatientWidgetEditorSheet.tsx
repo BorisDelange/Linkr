@@ -227,8 +227,6 @@ function EditorContent({
           dataset: draftConfig.dataset as Partial<DatasetTimelineMapping> | undefined,
         })}
         onChange={(value) => applyConfigChanges({ [fieldKey]: value })}
-        colors={(draftConfig.conceptColors as Record<string, string> | undefined) ?? {}}
-        onColorsChange={(colors) => applyConfigChanges({ conceptColors: colors })}
       />
     ),
     [draftConfig, applyConfigChanges],

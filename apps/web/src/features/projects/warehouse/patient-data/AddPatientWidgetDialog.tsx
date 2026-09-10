@@ -160,8 +160,6 @@ export function AddPatientWidgetDialog({
           dataset: pluginConfig.dataset as Partial<DatasetTimelineMapping> | undefined,
         })}
         onChange={(value) => setPluginConfig((prev) => ({ ...prev, [fieldKey]: value }))}
-        colors={(pluginConfig.conceptColors as Record<string, string> | undefined) ?? {}}
-        onColorsChange={(colors) => setPluginConfig((prev) => ({ ...prev, conceptColors: colors }))}
       />
     ),
     [pluginConfig],

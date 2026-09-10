@@ -1,37 +1,35 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ListChecks, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FormField } from '@/components/ui/form-field'
 import { groupsByCode, type DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { useAppStore } from '@/stores/app-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DatasetMappingDialog } from './DatasetMappingDialog'
-import { DatasetSeriesPickerDialog } from './DatasetSeriesPickerDialog'
 import { usePatientChartContext } from './PatientChartContext'
-import { useDatasetRows } from './widgets/use-dataset-rows'
 import type { PluginConfigField } from '@/types/plugin'
 
 interface Props {
   field: PluginConfigField
   value: Partial<DatasetTimelineMapping>[] | undefined
   onChange: (value: Partial<DatasetTimelineMapping>[]) => void
-  /** Series colours live beside the concept colours, keyed by synthetic id. */
-  colors: Record<string, string>
-  onColorsChange: (colors: Record<string, string>) => void
 }
 
 /**
  * The datasets a patient widget plots, one row each.
  *
- * A row is a whole dataset: its column mapping (edited in a dialog, since there are
- * nine roles) and the series picked out of it (the concept picker's own dialog,
- * since choosing series is the same task as choosing concepts). The row itself stays
- * a summary so the config panel keeps showing the timeline's other settings.
+ * A row declares WHERE data comes from: which dataset, and which of its columns
+ * carry the patient, the dates and the values (edited in a dialog, since there are
+ * nine roles). WHAT to plot out of it is chosen in the concepts dialog instead,
+ * beside the warehouse's own concepts — picking a series and picking a concept are
+ * the same task, and the widget draws them on one axis.
+ *
+ * The badge counts the series picked there, so the declaration still says whether
+ * this dataset currently contributes anything.
  */
-export function DatasetsSelectField({
-  field, value, onChange, colors, onColorsChange,
-}: Props) {
+export function DatasetsSelectField({ field, value, onChange }: Props) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
   const { projectUid, schemaMapping } = usePatientChartContext()
@@ -56,7 +54,6 @@ export function DatasetsSelectField({
 
   /** `editing` is an index, or -1 while adding. Null means the dialog is closed. */
   const [editing, setEditing] = useState<number | null>(null)
-  const [picking, setPicking] = useState<number | null>(null)
 
   // Columns load lazily in server mode. Keyed on the file objects, not the ids:
   // `ensureServerMeta` no-ops while an id is not in the store yet, so keyed on the
@@ -89,15 +86,6 @@ export function DatasetsSelectField({
       : mappings.map((x, i) => (i === editing ? m : x)))
   }
 
-  // The picker needs the dataset's rows to count patients and rows per series.
-  // Fetched only while it is open: the config panel itself never needs them.
-  const pickingMapping = picking != null ? mappings[picking] : undefined
-  const pickingFileId = pickingMapping?.datasetFileId
-  const { byFileId } = useDatasetRows(
-    useMemo(() => (pickingFileId ? [pickingFileId] : []), [pickingFileId]),
-    !!pickingFileId,
-  )
-
   return (
     <>
       <FormField
@@ -117,6 +105,11 @@ export function DatasetsSelectField({
                     <span className="min-w-0 flex-1 truncate text-xs font-medium">
                       {nameOf(mapping)}
                     </span>
+                    {grouped && (
+                      <Badge variant={picked > 0 ? 'secondary' : 'outline'} className="shrink-0">
+                        {picked}
+                      </Badge>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon-xs"
@@ -135,24 +128,6 @@ export function DatasetsSelectField({
                       <Trash2 className="size-3.5" />
                     </Button>
                   </div>
-
-                  {/* Filtering is mandatory once the rows carry a code or a label: a
-                      dataset routinely holds hundreds of series, and drawing them
-                      all would make the chart unreadable. A dataset with neither is
-                      a single series and has nothing to pick. */}
-                  {grouped && (
-                    <Button
-                      size="sm-tight"
-                      variant={picked > 0 ? 'default' : 'outline'}
-                      className="mt-1.5 w-full justify-start"
-                      onClick={() => setPicking(index)}
-                    >
-                      <ListChecks size={13} />
-                      {picked > 0
-                        ? t('patient_data.dataset_series_picked', { count: picked })
-                        : t('patient_data.dataset_pick_series')}
-                    </Button>
-                  )}
                 </div>
               )
             })}
@@ -180,20 +155,6 @@ export function DatasetsSelectField({
         onSubmit={submitMapping}
       />
 
-      {picking != null && pickingMapping?.datasetFileId && (
-        <DatasetSeriesPickerDialog
-          open
-          onOpenChange={(o) => { if (!o) setPicking(null) }}
-          rows={byFileId[pickingMapping.datasetFileId] ?? []}
-          mapping={pickingMapping as DatasetTimelineMapping}
-          colors={colors}
-          onConfirm={(codes, nextColors) => {
-            onChange(mappings.map((m, i) => (i === picking ? { ...m, codes } : m)))
-            onColorsChange(nextColors)
-            setPicking(null)
-          }}
-        />
-      )}
     </>
   )
 }
