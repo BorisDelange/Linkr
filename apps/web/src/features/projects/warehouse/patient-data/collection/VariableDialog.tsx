@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DialogShell } from '@/components/ui/dialog-shell'
@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { columnId as deriveColumnId } from '@linkr/format'
+import { fitsColumnType } from '@/lib/dataset-utils'
 import {
   cleanLocalized, localizedRaw, seedLocalizedForEditing, setLocalized,
 } from '@/lib/localized'
@@ -40,6 +41,8 @@ interface Props {
   column?: DatasetColumn
   /** Ids already taken, so a new variable cannot collide with one. */
   takenIds: string[]
+  /** Values already collected in this column, to warn before a lossy retype. */
+  values?: unknown[]
   onSubmit: (draft: VariableDraft) => void | Promise<void>
 }
 
@@ -59,7 +62,9 @@ interface Props {
  * it is a REKEY that has to repair dashboard filters and widget configs — that path
  * lives in the datasets page's rename.
  */
-export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit }: Props) {
+export function VariableDialog({
+  open, onOpenChange, column, takenIds, values, onSubmit,
+}: Props) {
   const { t, i18n } = useTranslation()
   const language = i18n.language
   const editing = column != null
@@ -103,6 +108,16 @@ export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit 
   const collides = !editing && !submitted && effectiveId !== ''
     && takenIds.includes(effectiveId)
   const valid = name.trim() !== '' && effectiveId !== '' && !collides
+
+  // Changing the type of a variable that already holds data is allowed but lossy in
+  // meaning: values that do not fit are KEPT as they were typed rather than blanked,
+  // so the column would read as `date` while holding free text. Say so before the
+  // save rather than after — this is why a retype appeared to "not work" on a filled
+  // variable and to work on an empty one.
+  const stale = useMemo(() => {
+    if (!editing || type === column.type) return []
+    return (values ?? []).filter((v) => !fitsColumnType(v, type))
+  }, [editing, type, column, values])
 
   const submit = async () => {
     if (!valid) return
@@ -173,6 +188,21 @@ export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit 
 
         {collides && (
           <p className="text-xs text-destructive">{t('datasets.col_id_taken')}</p>
+        )}
+
+        {stale.length > 0 && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2">
+            <p className="text-xs text-foreground">
+              {t('patient_data.collection_retype_warning', {
+                count: stale.length,
+                type: t(`datasets.type_${type}`),
+              })}
+            </p>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              {stale.slice(0, 3).map((v) => String(v)).join(', ')}
+              {stale.length > 3 && ` … (+${stale.length - 3})`}
+            </p>
+          </div>
         )}
 
         <FormField

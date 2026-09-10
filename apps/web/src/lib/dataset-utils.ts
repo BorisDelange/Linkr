@@ -95,6 +95,25 @@ export function coerceValue(
   return s
 }
 
+/**
+ * Whether a value can be read as a type, for warning before a retype.
+ *
+ * Distinct from `coerceValue`, which never fails: it hands back the original string
+ * when a value does not fit, and returns dates untouched because a date is STORED as
+ * its string. That makes it useless for deciding whether a conversion is lossy, so
+ * the question is asked here instead.
+ *
+ * Missing values always fit: a blank cell is not a failed conversion.
+ */
+export function fitsColumnType(value: unknown, type: DatasetColumn['type'], naValues?: string[]): boolean {
+  if (isMissingValue(value, normalizeNaValues(naValues))) return true
+  const s = String(value).trim()
+  if (type === 'number') return !isNaN(Number(s))
+  if (type === 'boolean') return parseBoolean(s) !== null
+  if (type === 'date') return DATE_DATETIME_RE.test(s)
+  return true
+}
+
 /** Detect whether date-typed values contain time components (for choosing date vs datetime-local input). */
 export function hasTimeComponent(values: unknown[]): boolean {
   for (const v of values) {

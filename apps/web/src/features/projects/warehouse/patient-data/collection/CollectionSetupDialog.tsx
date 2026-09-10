@@ -684,6 +684,9 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
           onOpenChange={(o) => { if (!o) { setAddingVariable(false); setEditingVariable(null) } }}
           column={editingVariable ?? undefined}
           takenIds={columns.map((c) => c.id)}
+          values={editingVariable
+            ? getFileRows(draft.datasetFileId).map((r) => r[editingVariable.id])
+            : undefined}
           onSubmit={(v) => (editingVariable ? editVariable(v) : createVariable(v))}
         />
       )}

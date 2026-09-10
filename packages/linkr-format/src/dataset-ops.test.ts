@@ -8,6 +8,7 @@ import {
   replayOps,
   retypeAddedColumn,
   ROW_ORD,
+  type DatasetCellValue,
   type DatasetOp,
   type OpColumn,
   type ReplayInput,
@@ -330,30 +331,71 @@ describe('retypeAddedColumn', () => {
     op<DatasetOp>({ type: 'setCell', row: 0, column: 'col_dose', value: '12' }),
   ]
 
+  /** Stands in for the app's coerceValue/fitsColumnType pair. */
+  const toNumber = (v: DatasetCellValue) => {
+    const n = Number(String(v))
+    return isNaN(n) ? null : n
+  }
+
   it('retypes the column the log added', () => {
     const out = retypeAddedColumn(added(), 'col_dose', 'number')
-    expect(out[0]).toMatchObject({ type: 'addColumn', colType: 'number' })
+    expect(out.changed).toBe(true)
+    expect(out.ops[0]).toMatchObject({ type: 'addColumn', colType: 'number' })
   })
 
   it('makes the new type survive a replay — the whole point', () => {
     // Without this the column is re-created from the op's original colType on
     // every replay, so a type change silently reverted on the next edit.
-    const out = replayOps(base(), retypeAddedColumn(added(), 'col_dose', 'number'))
+    const out = replayOps(base(), retypeAddedColumn(added(), 'col_dose', 'number').ops)
     expect(out.columns.find((c) => c.id === 'col_dose')?.type).toBe('number')
   })
 
-  it('leaves the other ops alone', () => {
-    const ops = added()
-    const out = retypeAddedColumn(ops, 'col_dose', 'number')
-    expect(out[1]).toBe(ops[1])
+  it('converts the values already recorded', () => {
+    // The replay never coerces, so without this the column reads `number` while
+    // its cells stay the strings they were typed as.
+    const out = retypeAddedColumn(added(), 'col_dose', 'number', toNumber)
+    expect(out.ops[1]).toMatchObject({ value: 12 })
+    expect(out.rejected).toEqual([])
   })
 
-  it('returns the same array for a column the log did not add', () => {
-    // Identity is the caller's signal to fall back to parseOptions, which is where
-    // a forced type belongs for a column that comes from the raw file.
+  it('keeps a value it cannot convert, and reports it', () => {
+    // Blanking it would destroy something someone typed; the caller warns instead.
+    const ops = [
+      op<DatasetOp>({ type: 'addColumn', column: 'col_dose', name: 'dose', colType: 'string' }),
+      op<DatasetOp>({ type: 'setCell', row: 0, column: 'col_dose', value: 'two pills' }),
+    ]
+    const out = retypeAddedColumn(ops, 'col_dose', 'number', toNumber)
+    expect(out.ops[1]).toMatchObject({ value: 'two pills' })
+    expect(out.rejected).toEqual(['two pills'])
+  })
+
+  it('does not report a blank cell as unconvertible', () => {
+    const ops = [
+      op<DatasetOp>({ type: 'addColumn', column: 'col_dose', name: 'dose', colType: 'string' }),
+      op<DatasetOp>({ type: 'setCell', row: 0, column: 'col_dose', value: '' }),
+      op<DatasetOp>({ type: 'setCell', row: 1, column: 'col_dose', value: null }),
+    ]
+    expect(retypeAddedColumn(ops, 'col_dose', 'number', toNumber).rejected).toEqual([])
+  })
+
+  it('converts only the retyped column', () => {
+    const ops = [
+      op<DatasetOp>({ type: 'addColumn', column: 'col_dose', name: 'dose', colType: 'string' }),
+      op<DatasetOp>({ type: 'setCell', row: 0, column: 'col_other', value: '7' }),
+    ]
+    expect(retypeAddedColumn(ops, 'col_dose', 'number', toNumber).ops[1])
+      .toMatchObject({ value: '7' })
+  })
+
+  it('reports no change for a column the log did not add', () => {
+    // That is the caller's signal to fall back to parseOptions, which is where a
+    // forced type belongs for a column that comes from the raw file.
     const ops = added()
-    expect(retypeAddedColumn(ops, 'col_a', 'number')).toBe(ops)
-    expect(retypeAddedColumn([], 'col_a', 'number')).toEqual([])
+    const out = retypeAddedColumn(ops, 'col_a', 'number', toNumber)
+    expect(out.changed).toBe(false)
+    expect(out.ops).toBe(ops)
+    // No value is rewritten either — the parser will re-read them all.
+    expect(out.rejected).toEqual([])
   })
 
   it('retypes every addColumn naming that id, and no other column', () => {
@@ -362,7 +404,7 @@ describe('retypeAddedColumn', () => {
       op<DatasetOp>({ type: 'addColumn', column: 'col_unit', name: 'unit', colType: 'string' }),
     ]
     const out = retypeAddedColumn(ops, 'col_dose', 'date')
-    expect(out[0]).toMatchObject({ colType: 'date' })
-    expect(out[1]).toMatchObject({ colType: 'string' })
+    expect(out.ops[0]).toMatchObject({ colType: 'date' })
+    expect(out.ops[1]).toMatchObject({ colType: 'string' })
   })
 })

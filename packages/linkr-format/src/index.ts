@@ -20,7 +20,7 @@ export {
 export type {
   AddColumnOp, AddRowOp, DatasetCellValue, DatasetOp, DatasetOpColumnType, DatasetOpType,
   OpColumn, OpRow, RemoveColumnOp, RemoveRowOp, RenameColumnOp, ReorderColumnsOp, ReorderRowsOp,
-  ReplayInput, SetCellOp,
+  ReplayInput, RetypeResult, SetCellOp,
 } from './dataset-ops.js'
 
 export {

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   inferColumnType,
   coerceValue,
+  fitsColumnType,
   isMissingValue,
   normalizeNaValues,
   displayCellValue,
@@ -136,6 +137,42 @@ describe('coerceValue — NA handling', () => {
 
   it('exposes a non-empty default token list', () => {
     expect(DEFAULT_NA_VALUES.length).toBeGreaterThan(0)
+  })
+})
+
+describe('fitsColumnType', () => {
+  it('answers what coerceValue cannot: whether a retype is lossy', () => {
+    // coerceValue returns the original string on failure and returns dates
+    // untouched, so it can never report a bad date. That is this function's job.
+    expect(coerceValue('not a date', 'date')).toBe('not a date')
+    expect(fitsColumnType('not a date', 'date')).toBe(false)
+    expect(fitsColumnType('2026-01-04', 'date')).toBe(true)
+    expect(fitsColumnType('2026-01-04 08:30', 'date')).toBe(true)
+  })
+
+  it('accepts what each type can genuinely read', () => {
+    expect(fitsColumnType('13', 'number')).toBe(true)
+    expect(fitsColumnType('abc', 'number')).toBe(false)
+    expect(fitsColumnType('true', 'boolean')).toBe(true)
+    expect(fitsColumnType('maybe', 'boolean')).toBe(false)
+  })
+
+  it('takes anything as a string', () => {
+    expect(fitsColumnType('two pills', 'string')).toBe(true)
+    expect(fitsColumnType(42, 'string')).toBe(true)
+  })
+
+  it('never counts a missing value as a failed conversion', () => {
+    // A blank cell is not data that resists the new type.
+    for (const v of [null, undefined, '', 'NA']) {
+      expect(fitsColumnType(v, 'number'), String(v)).toBe(true)
+    }
+    expect(fitsColumnType('-', 'number', ['-'])).toBe(true)
+  })
+
+  it('ignores surrounding space, as the parser does', () => {
+    expect(fitsColumnType('  13  ', 'number')).toBe(true)
+    expect(fitsColumnType(' 2026-01-04 ', 'date')).toBe(true)
   })
 })
 

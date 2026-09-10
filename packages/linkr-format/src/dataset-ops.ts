@@ -346,6 +346,15 @@ function cellValue(raw: unknown): DatasetCellValue {
 // Compaction
 // ---------------------------------------------------------------------------
 
+/** What `retypeAddedColumn` did, and what it could not convert. */
+export interface RetypeResult {
+  ops: DatasetOp[]
+  /** False when the log did not add this column — the caller falls back to parseOptions. */
+  changed: boolean
+  /** Values kept as-is because they do not convert; the caller warns about them. */
+  rejected: DatasetCellValue[]
+}
+
 /**
  * Change the type of a column the log itself added.
  *
@@ -357,21 +366,49 @@ function cellValue(raw: unknown): DatasetCellValue {
  * Amending the op is what actually sticks. It rewrites the log, so the caller must
  * record it as a REPLACE, never an append.
  *
- * Returns the array unchanged when the column was not added by the log — the caller
- * then falls back to `parseOptions`, the right home for a parsed column.
+ * The already-recorded VALUES are converted too, via `coerce`: the log stores what
+ * was typed and the replay never coerces, so retyping the column alone would leave
+ * a `date` column full of strings — which is why a type change appeared to work on
+ * an empty variable and to fail on a filled one.
+ *
+ * `changed` is false when the column was not added by the log — the caller then
+ * falls back to `parseOptions`, the right home for a parsed column.
  */
 export function retypeAddedColumn(
   ops: readonly DatasetOp[],
   columnId: string,
   type: DatasetOpColumnType,
-): DatasetOp[] {
+  /**
+   * Converts one already-recorded cell value to the new type, returning `null` when
+   * it cannot — the log stores raw values and the replay never coerces, so without
+   * this the column changes type while its values stay as they were typed.
+   */
+  coerce?: (value: DatasetCellValue) => DatasetCellValue | null,
+): RetypeResult {
   let found = false
+  const rejected: DatasetCellValue[] = []
+
   const out = ops.map((op) => {
-    if (op.type !== 'addColumn' || op.column !== columnId) return op
-    found = true
-    return { ...op, colType: type }
+    if (op.type === 'addColumn' && op.column === columnId) {
+      found = true
+      return { ...op, colType: type }
+    }
+    if (!coerce || op.type !== 'setCell' || op.column !== columnId) return op
+    if (op.value == null || op.value === '') return op
+    const next = coerce(op.value)
+    // A value that will not convert is KEPT, not blanked: it is data someone typed,
+    // and destroying it to satisfy a type change would be the worse failure. The
+    // caller warns about them instead.
+    if (next === null) {
+      rejected.push(op.value)
+      return op
+    }
+    return next === op.value ? op : { ...op, value: next }
   })
-  return found ? out : (ops as DatasetOp[])
+
+  return found
+    ? { ops: out, changed: true, rejected }
+    : { ops: ops as DatasetOp[], changed: false, rejected: [] }
 }
 
 /**

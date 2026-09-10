@@ -2,13 +2,13 @@ import { create } from 'zustand'
 import type { ColumnFilterValue, DatasetFile, DatasetAnalysis, DatasetColumn } from '@/types'
 import { getStorage } from '@/lib/storage'
 import { uniqueColumnId } from '@/lib/column-id'
-import { coerceValue } from '@/lib/dataset-utils'
+import { coerceValue, fitsColumnType } from '@/lib/dataset-utils'
 import { cleanLocalized } from '@/lib/localized'
 import { isServerMode } from '@/lib/api-client'
 import { createEmptyDataset, duplicateDataset, fetchDatasetMeta, recordDatasetOps, reimportDataset } from '@/lib/api/datasets'
 import {
   compactOps, replayOps, retypeAddedColumn,
-  type DatasetOp, type OpColumn, type ReplayInput,
+  type DatasetCellValue, type DatasetOp, type OpColumn, type ReplayInput,
 } from '@linkr/format'
 import { unreplay } from '@/stores/dataset-ops-baseline'
 import { planColumnRename, rekeyFilter, rekeyWidgetConfig, type ColumnRenamePlan } from '@/lib/dataset-column-rename'
@@ -105,7 +105,9 @@ interface DatasetState {
   reorderColumns: (fileId: string, fromIndex: number, toIndex: number) => void
   /** Force a column's type (right-click "Treat as…"). Persisted in parseOptions;
    *  server re-parses the cache, local re-coerces in-memory rows. */
-  setColumnType: (fileId: string, columnId: string, type: DatasetColumn['type']) => Promise<void>
+  /** Resolves with the values that could not be converted, so the caller can warn. */
+  setColumnType: (fileId: string, columnId: string, type: DatasetColumn['type'])
+    => Promise<{ rejected: DatasetCellValue[] }>
   /** Set a column's filter UI mode (list ↔ text). Persisted in parseOptions. */
   setColumnFilterMode: (fileId: string, columnId: string, mode: 'list' | 'text') => Promise<void>
   importData: (fileId: string, columns: DatasetColumn[], rows: Record<string, unknown>[]) => void
@@ -1106,18 +1108,30 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
 
   setColumnType: async (fileId, columnId, type) => {
     const file = get().files.find((f) => f.id === fileId)
-    if (!file || file.type !== 'file') return
+    if (!file || file.type !== 'file') return { rejected: [] }
 
     // A column the LOG added (a collected variable) is re-created on every replay
     // from its own addColumn op, so it never sees `parseOptions.columnTypes` — that
     // is the raw parser's business. Amend the op instead, or the new type is undone
-    // by the very next replay.
-    const ops = file.ops ?? []
-    const retyped = retypeAddedColumn(ops, columnId, type)
-    if (retyped !== ops) {
-      await recordOps(fileId, retyped, true)
-      return
+    // by the very next replay. The recorded VALUES are converted in the same pass:
+    // the replay never coerces, so retyping alone left the values as they were typed.
+    const { ops, changed, rejected } = retypeAddedColumn(
+      file.ops ?? [], columnId, type,
+      (value) => (fitsColumnType(value, type)
+        ? coerceValue(value, type) as DatasetCellValue
+        : null),
+    )
+    if (changed) {
+      await recordOps(fileId, ops, true)
+      return { rejected }
     }
+
+    // A parsed column keeps its values in the rows rather than in the log, so the
+    // unconvertible ones are counted from there — same warning either way.
+    const naValues = file.parseOptions?.naValues
+    const rejectedRows = (_loadedData.get(fileId) ?? [])
+      .map((r) => r[columnId] as DatasetCellValue)
+      .filter((v) => !fitsColumnType(v, type, naValues))
 
     // Forcing a type reparses the raw, so the baseline's values change with it.
     _rawBaseline.delete(fileId)
@@ -1132,7 +1146,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         files: s.files.map((f) => f.id === fileId ? { ...f, ...updated, parseOptions } : f),
         _dirtyVersion: s._dirtyVersion + 1,
       }))
-      return
+      return { rejected: rejectedRows }
     }
     // Local mode: apply the override to the column metadata + re-coerce the loaded
     // rows in place (no raw re-read). Coercion mirrors the server parser.
@@ -1148,6 +1162,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     const storage = getStorage()
     await storage.datasetFiles.update(fileId, { columns, parseOptions, updatedAt: new Date().toISOString() })
     if (rows) await storage.datasetData.save({ datasetFileId: fileId, rows })
+    return { rejected: rejectedRows }
   },
 
   setColumnFilterMode: async (fileId, columnId, mode) => {
