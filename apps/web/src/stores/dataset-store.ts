@@ -7,7 +7,7 @@ import { cleanLocalized } from '@/lib/localized'
 import { isServerMode } from '@/lib/api-client'
 import { createEmptyDataset, duplicateDataset, fetchDatasetMeta, recordDatasetOps, reimportDataset } from '@/lib/api/datasets'
 import {
-  compactOps, replayOps,
+  compactOps, replayOps, retypeAddedColumn,
   type DatasetOp, type OpColumn, type ReplayInput,
 } from '@linkr/format'
 import { unreplay } from '@/stores/dataset-ops-baseline'
@@ -1107,6 +1107,18 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   setColumnType: async (fileId, columnId, type) => {
     const file = get().files.find((f) => f.id === fileId)
     if (!file || file.type !== 'file') return
+
+    // A column the LOG added (a collected variable) is re-created on every replay
+    // from its own addColumn op, so it never sees `parseOptions.columnTypes` — that
+    // is the raw parser's business. Amend the op instead, or the new type is undone
+    // by the very next replay.
+    const ops = file.ops ?? []
+    const retyped = retypeAddedColumn(ops, columnId, type)
+    if (retyped !== ops) {
+      await recordOps(fileId, retyped, true)
+      return
+    }
+
     // Forcing a type reparses the raw, so the baseline's values change with it.
     _rawBaseline.delete(fileId)
     const parseOptions = {

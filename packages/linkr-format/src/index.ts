@@ -14,7 +14,8 @@ export { MemoryTree, filesIn, readJson } from './tree.js'
 export { buildColumnIds, columnId, isLegacyColumnId, slugify } from './ids.js'
 
 export {
-  canonicalOp, canonicalOps, compactOps, invertOp, invertOpFull, opsHash, replayOps, ROW_ORD,
+  canonicalOp, canonicalOps, compactOps, invertOp, invertOpFull, opsHash, replayOps,
+  retypeAddedColumn, ROW_ORD,
 } from './dataset-ops.js'
 export type {
   AddColumnOp, AddRowOp, DatasetCellValue, DatasetOp, DatasetOpColumnType, DatasetOpType,

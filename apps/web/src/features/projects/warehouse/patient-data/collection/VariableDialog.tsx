@@ -76,6 +76,7 @@ export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit 
   const [min, setMin] = useState('')
   const [max, setMax] = useState('')
   const [busy, setBusy] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
 
   // Re-seeded on open so the dialog never shows the previous variable's values, and
   // so closing it discards whatever was typed.
@@ -90,16 +91,23 @@ export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit 
     setAllowed((column?.allowedValues ?? []).join('\n'))
     setMin(column?.min == null ? '' : String(column.min))
     setMax(column?.max == null ? '' : String(column.max))
+    setSubmitted(false)
   }, [open, column, language])
 
   // Derived from the name, the same way column ids are derived everywhere else.
   const effectiveId = editing ? column.id : deriveColumnId(name)
-  const collides = !editing && effectiveId !== '' && takenIds.includes(effectiveId)
+  // Never once submitted: saving adds the name to `takenIds` and clears the edited
+  // column, so between the save and the unmount the guard would flash "name already
+  // taken" at the very name it just saved. `submitted` latches until the dialog is
+  // re-opened, which `busy` alone cannot do — it is cleared before the close lands.
+  const collides = !editing && !submitted && effectiveId !== ''
+    && takenIds.includes(effectiveId)
   const valid = name.trim() !== '' && effectiveId !== '' && !collides
 
   const submit = async () => {
     if (!valid) return
     setBusy(true)
+    setSubmitted(true)
     try {
       await onSubmit({
         id: effectiveId,

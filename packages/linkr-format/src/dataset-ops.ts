@@ -347,6 +347,34 @@ function cellValue(raw: unknown): DatasetCellValue {
 // ---------------------------------------------------------------------------
 
 /**
+ * Change the type of a column the log itself added.
+ *
+ * A forced type normally lives in `parseOptions.columnTypes`, which the RAW PARSER
+ * applies. A column created by an `addColumn` op never goes through the parser: it
+ * is re-created on every replay from the op's own `colType`, so an override there
+ * is inert and the type silently reverts to whatever it was at creation.
+ *
+ * Amending the op is what actually sticks. It rewrites the log, so the caller must
+ * record it as a REPLACE, never an append.
+ *
+ * Returns the array unchanged when the column was not added by the log — the caller
+ * then falls back to `parseOptions`, the right home for a parsed column.
+ */
+export function retypeAddedColumn(
+  ops: readonly DatasetOp[],
+  columnId: string,
+  type: DatasetOpColumnType,
+): DatasetOp[] {
+  let found = false
+  const out = ops.map((op) => {
+    if (op.type !== 'addColumn' || op.column !== columnId) return op
+    found = true
+    return { ...op, colType: type }
+  })
+  return found ? out : (ops as DatasetOp[])
+}
+
+/**
  * Collapse a log to the shortest one with the same result.
  *
  * Replay is linear in the log, so without this the cost tracks the number of
