@@ -10,7 +10,6 @@ import { fetchColumnDistinct } from '@/lib/api/datasets'
 import { CATEGORICAL_MAX_DISTINCT } from './use-column-distinct'
 import { isServerMode } from '@/lib/api-client'
 import { useDatasetStore } from '@/stores/dataset-store'
-import { LangHint } from '@/components/ui/lang-hint'
 import { localizedRaw, seedLocalizedForEditing, setLocalized } from '@/lib/localized'
 import type { DatasetColumn, LocalizedString } from '@/types'
 
@@ -157,7 +156,7 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
       confirmDisabled={!dirty}
       dirtyTracked
     >
-          <FormField label={<>{t('datasets.col_meta_label')} <LangHint lang={language} /></>}>
+          <FormField label={t('datasets.col_meta_label')}>
             {({ id }) => (
               <Input
                 id={id}
@@ -169,7 +168,7 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
           </FormField>
 
           <FormField
-            label={<>{t('datasets.col_meta_description')} <LangHint lang={language} /></>}
+            label={t('datasets.col_meta_description')}
           >
             {({ id }) => (
               <Textarea

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { localizedRaw, setLocalized, seedLocalizedForEditing } from '@/lib/localized'
-import { LangHint } from '@/components/ui/lang-hint'
 import type { LocalizedString } from '@/types'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { Button } from '@/components/ui/button'
@@ -169,7 +168,6 @@ export function ProfilePage() {
                 <div className="space-y-2">
                   <Label>
                     {t('profile.affiliation')}
-                    <LangHint lang={language} />
                   </Label>
                   <Input
                     value={localizedRaw(draft.affiliation, language)}
@@ -181,7 +179,6 @@ export function ProfilePage() {
                   <div className="space-y-2">
                     <Label>
                       {t('profile.profession')}
-                      <LangHint lang={language} />
                     </Label>
                     <Input
                       value={localizedRaw(draft.profession, language)}

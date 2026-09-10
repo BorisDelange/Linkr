@@ -196,6 +196,8 @@ collection column has nothing to sniff, so the distinction has to be declared th
 | ✅ | 19. Collection status block at the foot of the patient sidebar: status + variables filled | M |
 | ✅ | 20. Entry writes through the ops log, so collection inherits undo and provenance | M |
 | ✅ | 21. The setup itself persists: `patient_dashboards.collection` (JSONB, migration `d2e3f4a5b6c7`) | S |
+| ✅ | 22. Column label/description are multilingual (`LocalizedString`), front + validator + sidecar | M |
+| ✅ | 23. Categories: variables grouped into collapsible sections, with expand/collapse all | M |
 | 🔜 | Per-variable column picker (today every non-identity column is offered; `variableColumns` is modelled but has no UI) | S |
 
 One row per (patient, visit, stay) as the config declares: filling a field for a
@@ -210,6 +212,14 @@ of the same project can collect into different datasets. Adding a field to the c
 means touching all four of: the SQLAlchemy model, the three Pydantic schemas, a
 migration, and `PatientCollectionConfig` on the front — `patient_dashboard_service.update`
 copies fields generically, so it needs no change.
+
+**Categories are headings, not columns.** A category groups variables in the panel
+and reaches neither the dataset nor the ops log, so deleting one leaves every
+variable it held intact and merely ungrouped — re-organising a form can never cost
+data. `groupVariables` therefore tolerates a `categoryId` naming a category that is
+gone, rendering it ungrouped rather than hiding it behind a heading nothing draws.
+Ungrouped variables render FIRST, so adding a form's first category does not push
+what it already held below a heading those variables were never filed under.
 
 **Three names, two of them typed.** A variable's *name* is its column name in the CSV,
 its *label* is what a collector reads, and its *id* is derived from the name

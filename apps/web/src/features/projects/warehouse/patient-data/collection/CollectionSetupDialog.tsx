@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Info, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Info, Pencil, Plus, Trash2, X } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -23,11 +23,24 @@ import { useAppStore } from '@/stores/app-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
+import { CategoryDialog } from './CategoryDialog'
 import { VariableDialog, type VariableDraft } from './VariableDialog'
 import { usePatientChartContext } from '../PatientChartContext'
 import { identityColumnsFromMapping, type IdentityColumn } from './identity-columns'
 import { resolveVariables } from './variables'
-import type { DatasetColumn, PatientCollectionConfig, PatientCollectionVariable } from '@/types'
+import { localized } from '@/lib/localized'
+import type {
+  DatasetColumn, PatientCollectionCategory, PatientCollectionConfig, PatientCollectionVariable,
+} from '@/types'
+
+/** A copy of `list` with the items at `a` and `b` exchanged. */
+function swap<T>(list: T[], a: number, b: number): T[] {
+  const next = [...list]
+  const tmp = next[a]
+  next[a] = next[b]
+  next[b] = tmp
+  return next
+}
 
 interface Props {
   open: boolean
@@ -78,6 +91,8 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
   const [addingVariable, setAddingVariable] = useState(false)
   const [editingVariable, setEditingVariable] = useState<DatasetColumn | null>(null)
   const [removing, setRemoving] = useState<{ variable: PatientCollectionVariable; filled: number } | null>(null)
+  const [addingCategory, setAddingCategory] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<PatientCollectionCategory | null>(null)
   const [busy, setBusy] = useState(false)
   const { containerProps, measuredPanelProps } = useTallestPanel()
 
@@ -95,9 +110,14 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
 
   // Server mode loads a dataset's columns lazily (the tree listing carries none),
   // so without this every column dropdown below stays empty forever.
+  //
+  // Depends on `selected`, not on the id alone: `ensureServerMeta` no-ops while the
+  // id is not in the store, which is the case whenever the dialog opens before the
+  // scan above has landed. Keyed on the id only, the effect would not re-run once it
+  // did, and the columns would never be fetched.
   useEffect(() => {
-    if (draft.datasetFileId) ensureServerMeta(draft.datasetFileId)
-  }, [draft.datasetFileId, ensureServerMeta])
+    if (selected) ensureServerMeta(selected.id)
+  }, [selected, ensureServerMeta])
 
   // Pick an existing dataset and its identity columns fill themselves in, whenever
   // the dataset already carries a column named the way the active database names it
@@ -130,6 +150,32 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
   const columnOf = (id: string) => columns.find((c) => c.id === id)
   const setVariables = (next: PatientCollectionVariable[]) =>
     setDraft((d) => ({ ...d, variables: next }))
+
+  const categories = draft.categories ?? []
+  const setCategories = (next: PatientCollectionCategory[]) =>
+    setDraft((d) => ({ ...d, categories: next }))
+
+  /**
+   * Removing a category never touches the variables it held: a category is a
+   * heading, so deleting one re-files its variables as ungrouped rather than
+   * destroying them. `groupVariables` already tolerates a dangling categoryId, but
+   * clearing it here keeps the saved config honest.
+   */
+  const removeCategory = (id: string) => {
+    setDraft((d) => ({
+      ...d,
+      categories: (d.categories ?? []).filter((c) => c.id !== id),
+      variables: (d.variables ?? variables).map((v) => (
+        v.categoryId === id ? { ...v, categoryId: undefined } : v
+      )),
+    }))
+  }
+
+  const upsertCategory = (category: PatientCollectionCategory) => {
+    setCategories(categories.some((c) => c.id === category.id)
+      ? categories.map((c) => (c.id === category.id ? category : c))
+      : [...categories, category])
+  }
 
   /**
    * Create a dataset already carrying the three identity columns, named the way
@@ -234,7 +280,9 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
 
   const save = () => {
     if (!draft.datasetFileId || !draft.personColumn) return
-    updateDashboard(boardId, { collection: { ...draft, variables } as PatientCollectionConfig })
+    updateDashboard(boardId, {
+      collection: { ...draft, variables, categories } as PatientCollectionConfig,
+    })
     onOpenChange(false)
   }
 
@@ -351,6 +399,26 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
                   )}
                 </div>
                 {!created && <Badge variant="outline">{t('patient_data.collection_existing_column')}</Badge>}
+                {categories.length > 0 && (
+                  <Select
+                    value={variable.categoryId ?? NONE}
+                    onValueChange={(v) => setVariables(variables.map((x) => (
+                      x.columnId === variable.columnId
+                        ? { ...x, categoryId: v === NONE ? undefined : v }
+                        : x
+                    )))}
+                  >
+                    <SelectTrigger className="h-7 w-36 shrink-0 text-[10px]">
+                      <SelectValue placeholder={t('patient_data.collection_no_category')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NONE}>{t('patient_data.collection_no_category')}</SelectItem>
+                      {categories.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{localized(c.name, lang)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <Button
                   variant="ghost"
                   size="icon-xs"
@@ -419,6 +487,94 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
     </div>
   )
 
+  const categoriesPanel = !selected ? (
+    <p className="text-xs text-muted-foreground">{t('patient_data.collection_pick_dataset_first')}</p>
+  ) : (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        {categories.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {t('patient_data.collection_no_categories_yet')}
+          </p>
+        ) : (
+          categories.map((category, i) => {
+            const count = variables.filter((v) => v.categoryId === category.id).length
+            return (
+              <div key={category.id} className="flex items-center gap-2 rounded border px-2 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs">{localized(category.name, lang)}</div>
+                  {localized(category.description, lang) && (
+                    <div className="truncate text-[10px] text-muted-foreground">
+                      {localized(category.description, lang)}
+                    </div>
+                  )}
+                </div>
+                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                  {t('patient_data.collection_n_variables', { count })}
+                </span>
+                {/* Order is the render order, so moving one is how a form is
+                    arranged — there is no other place to express it. */}
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={i === 0}
+                  title={t('common.move_up')}
+                  onClick={() => setCategories(swap(categories, i, i - 1))}
+                >
+                  <ChevronUp className="size-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={i === categories.length - 1}
+                  title={t('common.move_down')}
+                  onClick={() => setCategories(swap(categories, i, i + 1))}
+                >
+                  <ChevronDown className="size-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  title={t('common.edit')}
+                  onClick={() => setEditingCategory(category)}
+                >
+                  <Pencil className="size-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  title={t('common.delete')}
+                  onClick={() => removeCategory(category.id)}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={() => setAddingCategory(true)}>
+          <Plus className="mr-1.5 size-3.5" />
+          {t('patient_data.collection_add_category')}
+        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-help text-muted-foreground">
+                <Info className="size-3" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              {t('patient_data.collection_add_category_hint')}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+    </div>
+  )
+
   const generalPanel = (
     <FormField
       label={t('patient_data.collection_save_mode')}
@@ -445,6 +601,7 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
   const panels: [string, React.ReactNode][] = [
     ['dataset', datasetPanel],
     ['variables', variablesPanel],
+    ['categories', categoriesPanel],
     ['general', generalPanel],
   ]
   const removedColumn = removing ? columnOf(removing.variable.columnId) : undefined
@@ -471,6 +628,9 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
             </TabsTrigger>
             <TabsTrigger value="variables" className="flex-1">
               {t('patient_data.collection_tab_variables')}
+            </TabsTrigger>
+            <TabsTrigger value="categories" className="flex-1">
+              {t('patient_data.collection_tab_categories')}
             </TabsTrigger>
             <TabsTrigger value="general" className="flex-1">
               {t('common.tab_general')}
@@ -527,6 +687,13 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
           onSubmit={(v) => (editingVariable ? editVariable(v) : createVariable(v))}
         />
       )}
+
+      <CategoryDialog
+        open={addingCategory || editingCategory != null}
+        onOpenChange={(o) => { if (!o) { setAddingCategory(false); setEditingCategory(null) } }}
+        category={editingCategory ?? undefined}
+        onSubmit={upsertCategory}
+      />
 
       <AlertDialog open={removing != null} onOpenChange={(o) => { if (!o) setRemoving(null) }}>
         <AlertDialogContent>

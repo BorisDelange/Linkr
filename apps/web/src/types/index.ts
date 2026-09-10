@@ -764,6 +764,10 @@ export interface PatientCollectionConfig {
   /** The variables to fill, in display order. Absent = every non-identity column
    *  of the dataset, so a freshly bound dataset collects everything it has. */
   variables?: PatientCollectionVariable[]
+  /** Optional groupings for the variables, in display order. A form of any length
+   *  is read section by section ("Admission", "Ventilation"), and a collector who
+   *  only fills one section should be able to collapse the rest. */
+  categories?: PatientCollectionCategory[]
   /** Write each value as it is entered (the default), or hold changes until the
    *  clinician saves. Manual suits a form filled in one sitting, where a
    *  half-entered value should not reach the dataset. */
@@ -788,6 +792,25 @@ export interface PatientCollectionVariable {
   /** `created` = added for this collection, so removing it removes the column.
    *  `existing` = the dataset already had it; removing only stops collecting it. */
   origin: 'created' | 'existing'
+  /** The category this variable is filed under. Absent — or naming a category that
+   *  no longer exists — leaves it ungrouped, shown before the first category. */
+  categoryId?: string
+}
+
+/**
+ * One section of a collection form.
+ *
+ * Purely presentational: a category groups variables in the panel and nothing else.
+ * It is NOT a column, does not reach the dataset, and removing one leaves every
+ * variable it held intact and merely ungrouped — so re-organising a form can never
+ * cost data.
+ */
+export interface PatientCollectionCategory {
+  id: string
+  /** Shown as the section heading. */
+  name: LocalizedString
+  /** Optional, shown as a hover tooltip on the heading. */
+  description?: LocalizedString
 }
 
 export interface PatientDashboardTab {

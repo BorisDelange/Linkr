@@ -7,7 +7,7 @@
  * fields) and the setup dialog (which edits them), so they can never disagree
  * about what is collected.
  */
-import type { DatasetColumn, PatientCollectionVariable } from '@/types'
+import type { DatasetColumn, PatientCollectionCategory, PatientCollectionVariable } from '@/types'
 
 /**
  * The variables actually collectable right now, in config order.
@@ -36,4 +36,38 @@ export function resolveVariables(
   }
 
   return configured.filter((v) => byId.has(v.columnId) && !identity.has(v.columnId))
+}
+
+/** A section of the collection form: its category (absent = the ungrouped ones). */
+export interface VariableGroup {
+  category?: PatientCollectionCategory
+  variables: PatientCollectionVariable[]
+}
+
+/**
+ * The variables split into sections, in the order they are rendered.
+ *
+ * Ungrouped variables come FIRST, in their own unnamed section: a form that gains
+ * its first category should not push everything already in it below a heading it
+ * was never filed under. An empty section is dropped — a category holding nothing
+ * is a heading with no form under it.
+ *
+ * A variable naming a category that no longer exists falls back to ungrouped rather
+ * than disappearing, so deleting a category can never hide data behind a heading
+ * that isn't rendered any more.
+ */
+export function groupVariables(
+  variables: readonly PatientCollectionVariable[],
+  categories: readonly PatientCollectionCategory[] | undefined,
+): VariableGroup[] {
+  const known = new Map((categories ?? []).map((c) => [c.id, c]))
+  const ungrouped = variables.filter((v) => !v.categoryId || !known.has(v.categoryId))
+
+  const groups: VariableGroup[] = []
+  if (ungrouped.length) groups.push({ variables: ungrouped })
+  for (const category of categories ?? []) {
+    const members = variables.filter((v) => v.categoryId === category.id)
+    if (members.length) groups.push({ category, variables: members })
+  }
+  return groups
 }

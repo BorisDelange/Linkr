@@ -9,7 +9,6 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { columnId as deriveColumnId } from '@linkr/format'
-import { LangHint } from '@/components/ui/lang-hint'
 import {
   cleanLocalized, localizedRaw, seedLocalizedForEditing, setLocalized,
 } from '@/lib/localized'
@@ -169,7 +168,7 @@ export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit 
         )}
 
         <FormField
-          label={<>{t('datasets.col_meta_label')} <LangHint lang={language} /></>}
+          label={t('datasets.col_meta_label')}
           hint={t('datasets.col_meta_label_hint')}
           hintInTooltip
         >
@@ -183,7 +182,7 @@ export function VariableDialog({ open, onOpenChange, column, takenIds, onSubmit 
           )}
         </FormField>
 
-        <FormField label={<>{t('datasets.col_meta_description')} <LangHint lang={language} /></>}>
+        <FormField label={t('datasets.col_meta_description')}>
           {({ id: fid }) => (
             <Textarea
               id={fid}

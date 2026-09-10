@@ -88,7 +88,7 @@ Composed in-house — **see `docs/ui-patterns.md` for when and how to use them.*
 - **Lists & entities**: `list-page-toolbar`, `card-meta-footer`, `badge-strip`, `type-badge`, `entity-actions-menu`, `entity-id-field`, `entity-docs-dialog`, `entity-versioning-dialog`, `authoring-fields`, `version-field`
 - **Dialogs**: `import-conflict-dialog`, `import-source-dialog`, `import-error-dialog`, `export-dialog` (⚠ no call sites)
 - **Inputs**: `searchable-select` (⚠ 1 call site), `debounced-input`, `password-input`, `icon-picker`, `color-picker-popover`, `palette-editor`, `editable-badge`, `badge-editor`, `badge-color-button`, `required-mark`
-- **Misc**: `linkr-logo`, `file-type-icon`, `language-icon`, `file-tree-header`, `gated-button`, `copy-select-button`, `no-access-notice`, `server-mode-notice`, `execute-not-permitted`, `lang-hint`
+- **Misc**: `linkr-logo`, `file-type-icon`, `language-icon`, `file-tree-header`, `gated-button`, `copy-select-button`, `no-access-notice`, `server-mode-notice`, `execute-not-permitted`
 
 ## Components Not Yet Installed (candidates)
 - **Command** - For command palette (Ctrl+K)

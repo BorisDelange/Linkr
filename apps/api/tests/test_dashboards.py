@@ -186,7 +186,13 @@ async def test_patient_dashboard_persists_its_collection_setup(client):
         "personColumn": "col_subject_id",
         "visitColumn": "col_hadm_id",
         "saveMode": "manual",
-        "variables": [{"columnId": "col_weight", "origin": "created"}],
+        # Categories and a variable filed under one: the whole form layout has to
+        # survive, not only the dataset binding.
+        "categories": [
+            {"id": "c1", "name": {"en": "Admission", "fr": "Admission"},
+             "description": {"en": "On arrival"}},
+        ],
+        "variables": [{"columnId": "col_weight", "origin": "created", "categoryId": "c1"}],
     }
     updated = (await client.patch(
         f"{API}/patient-dashboards/pb1", headers=headers, json={"collection": setup},

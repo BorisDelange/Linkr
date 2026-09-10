@@ -4,7 +4,6 @@ import { useOrganizationStore } from '@/stores/organization-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, localizedRaw, setLocalized, seedLocalizedForEditing } from '@/lib/localized'
-import { LangHint } from '@/components/ui/lang-hint'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { Plus, Pencil, Trash2, Building2, MapPin, Globe, Mail, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -251,7 +250,6 @@ export function OrganizationsTab() {
             <div className="space-y-2">
               <Label>
                 {t('workspaces.field_org_name')}
-                <LangHint lang={language} />
               </Label>
               <Input
                 value={localizedRaw(form.name, language)}
@@ -279,7 +277,6 @@ export function OrganizationsTab() {
               <div className="space-y-2 sm:col-span-2">
                 <Label>
                   {t('workspaces.field_org_custom_type')}
-                  <LangHint lang={language} />
                 </Label>
                 <Input
                   value={localizedRaw(form.customType, language)}
@@ -291,7 +288,6 @@ export function OrganizationsTab() {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Label>{t('workspaces.field_org_location')}</Label>
-                <LangHint lang={language} />
               </div>
               <Input
                 value={localizedRaw(form.location, language)}
@@ -302,7 +298,6 @@ export function OrganizationsTab() {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Label>{t('workspaces.field_org_country')}</Label>
-                <LangHint lang={language} />
               </div>
               <Input
                 value={localizedRaw(form.country, language)}

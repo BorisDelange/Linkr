@@ -64,11 +64,12 @@ import { useColumnDistinct } from './use-column-distinct'
 import { ROW_ORD } from '@linkr/format'
 import { useCellEditing } from './use-cell-editing'
 import { useFlashTarget } from './use-flash-target'
+import { ColumnMetaTooltipContent } from './ColumnMetaTooltip'
 import { EditColumnMetaDialog } from './EditColumnMetaDialog'
 import { MoveColumnDialog } from './MoveColumnDialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { hasTimeComponent, columnTint, displayColumnName, displayCellValue } from '@/lib/dataset-utils'
-import { allLocalizedText, localized } from '@/lib/localized'
+import { allLocalizedText } from '@/lib/localized'
 import { useBooleanLabels } from '@/hooks/use-boolean-labels'
 import type { DatasetColumn, DatasetParseOptions } from '@/types'
 
@@ -668,14 +669,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                             <span className="truncate">{displayColumnName(col, lang)}</span>
                           </TooltipTrigger>
                           <TooltipContent side="bottom" className="max-w-80">
-                            <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs">
-                              <span className="text-muted-foreground">{t('datasets.col_meta_col_id')}</span>
-                              <span className="font-mono break-all">{col.name}</span>
-                              <span className="text-muted-foreground">{t('datasets.col_meta_label')}</span>
-                              <span className="break-words">{localized(col.label, lang) || '—'}</span>
-                              <span className="text-muted-foreground">{t('datasets.col_meta_description')}</span>
-                              <span className="break-words">{localized(col.description, lang) || '—'}</span>
-                            </div>
+                            <ColumnMetaTooltipContent column={col} />
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -908,16 +902,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                     <span className="truncate">{displayColumnName(col, lang)}</span>
                   </div>
                 ),
-                tooltip: (
-                  <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs">
-                    <span className="text-muted-foreground">{t('datasets.col_meta_col_id')}</span>
-                    <span className="font-mono break-all">{col.name}</span>
-                    <span className="text-muted-foreground">{t('datasets.col_meta_label')}</span>
-                    <span className="break-words">{localized(col.label, lang) || '—'}</span>
-                    <span className="text-muted-foreground">{t('datasets.col_meta_description')}</span>
-                    <span className="break-words">{localized(col.description, lang) || '—'}</span>
-                  </div>
-                ),
+                tooltip: <ColumnMetaTooltipContent column={col} />,
               }))}
               onToggle={(id, visible) => {
                 onHiddenColumnsChange((prev) => {

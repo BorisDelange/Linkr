@@ -17,12 +17,19 @@ import { isServerMode } from '@/lib/api-client'
 import { queryDatasetRows } from '@/lib/api/datasets'
 import { useAppStore } from '@/stores/app-store'
 import { useDatasetStore } from '@/stores/dataset-store'
-import type { DatasetColumn, PatientCollectionConfig } from '@/types'
-import { resolveVariables } from './variables'
+import type { DatasetColumn, PatientCollectionCategory, PatientCollectionConfig } from '@/types'
+import { groupVariables, resolveVariables } from './variables'
 
 export interface CollectionField {
   column: DatasetColumn
   value: unknown
+}
+
+/** One section of the form: its category (absent = the ungrouped fields) and its
+ *  fields, in display order. */
+export interface CollectionSection {
+  category?: PatientCollectionCategory
+  fields: CollectionField[]
 }
 
 interface PatientKey {
@@ -64,9 +71,15 @@ export function usePatientCollection(
   }, [projectUid, datasetsPath, loadProjectDatasets])
 
   // Server mode lists a dataset without its columns; they arrive on demand.
+  //
+  // Depends on `file`, not on `fileId` alone: `ensureServerMeta` no-ops when the id
+  // is not in the store yet, and on the first render it never is — the scan above is
+  // still in flight. With `fileId` as the only dependency the effect would not re-run
+  // once the scan landed, so the columns were never fetched and the panel reported
+  // the dataset as having none.
   useEffect(() => {
-    if (fileId) void ensureServerMeta(fileId)
-  }, [fileId, ensureServerMeta])
+    if (file) void ensureServerMeta(file.id)
+  }, [file, ensureServerMeta])
 
   useEffect(() => {
     if (!fileId) {
@@ -101,17 +114,32 @@ export function usePatientCollection(
     })
   }, [rows, config, key.personId, key.visitId, key.visitDetailId])
 
-  /** The fields to fill, resolved from the configured variables. */
-  const fields = useMemo<CollectionField[]>(() => {
+  /**
+   * The fields to fill, grouped into the form's sections.
+   *
+   * Grouped here rather than in the panel so the status dot, the sidebar block and
+   * the panel all count the same fields — `fields` below is simply the sections
+   * flattened, and cannot drift from what is rendered.
+   */
+  const sections = useMemo<CollectionSection[]>(() => {
     if (!config || !file?.columns) return []
-    const variables = resolveVariables(config.variables, file.columns, [
+    const columns = file.columns
+    const variables = resolveVariables(config.variables, columns, [
       config.personColumn, config.visitColumn, config.visitDetailColumn,
     ])
-    return variables
-      .map((v) => file.columns!.find((c) => c.id === v.columnId))
-      .filter((c): c is DatasetColumn => c != null)
-      .map((column) => ({ column, value: currentRow?.[column.id] ?? null }))
+    return groupVariables(variables, config.categories).map((group) => ({
+      category: group.category,
+      fields: group.variables
+        .map((v) => columns.find((c) => c.id === v.columnId))
+        .filter((c): c is DatasetColumn => c != null)
+        .map((column) => ({ column, value: currentRow?.[column.id] ?? null })),
+    }))
   }, [config, file?.columns, currentRow])
+
+  const fields = useMemo<CollectionField[]>(
+    () => sections.flatMap((s) => s.fields),
+    [sections],
+  )
 
   const filledCount = fields.filter((f) => f.value != null && f.value !== '').length
 
@@ -151,6 +179,7 @@ export function usePatientCollection(
 
   return {
     dataset: file,
+    sections,
     fields,
     filledCount,
     hasRow: currentRow != null,

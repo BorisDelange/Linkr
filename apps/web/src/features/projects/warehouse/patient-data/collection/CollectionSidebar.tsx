@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ClipboardList, Settings2, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, ClipboardList, Settings2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DateTimeField } from '@/components/ui/date-time-field'
 import { Input } from '@/components/ui/input'
@@ -10,12 +10,16 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { useBooleanLabels } from '@/hooks/use-boolean-labels'
+import { useStickyState } from '@/hooks/use-sticky-state'
+import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
-import { displayColumnDescription, displayColumnName } from '@/lib/dataset-utils'
+import { displayColumnName } from '@/lib/dataset-utils'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { ColumnMetaTooltipContent } from '@/features/projects/lab/datasets/ColumnMetaTooltip'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
 import { cellInputValue, parseCellInput } from '@/features/projects/lab/datasets/use-cell-editing'
 import type { DatasetCellValue } from '@linkr/format'
-import type { DatasetColumn, PatientCollectionConfig } from '@/types'
+import type { DatasetColumn, PatientCollectionCategory, PatientCollectionConfig } from '@/types'
 import { usePatientCollection } from './use-patient-collection'
 import { CollectionSetupDialog } from './CollectionSetupDialog'
 import { violationOf } from './constraints'
@@ -56,9 +60,21 @@ export function CollectionSidebar({
   const { t } = useTranslation()
   const booleanLabels = useBooleanLabels()
   const [setupOpen, setSetupOpen] = useState(false)
-  const { fields, setValue } = usePatientCollection(config, {
+  const { sections, fields, setValue } = usePatientCollection(config, {
     personId, visitId, visitDetailId,
   }, projectUid)
+
+  // Collapsed sections, by category id. Per browser rather than per board: which
+  // sections a collector keeps folded is their own working habit, not a property of
+  // the form everyone shares.
+  const [collapsed, setCollapsed] = useStickyState<string[]>(
+    `linkr.collection-collapsed.${boardId ?? 'none'}`, [],
+  )
+  const collapsedSet = useMemo(() => new Set(collapsed), [collapsed])
+  const named = useMemo(
+    () => sections.filter((s) => s.category).map((s) => s.category!.id),
+    [sections],
+  )
 
   const manual = config?.saveMode === 'manual'
   /** Unsaved edits by column id. Only ever populated in manual mode. */
@@ -140,6 +156,25 @@ export function CollectionSidebar({
         <EmptyState message={t('patient_data.select_patient_first')} />
       ) : (
         <>
+          {/* Only worth offering once the form actually has sections to fold. */}
+          {named.length > 0 && (
+            <div className="flex shrink-0 items-center justify-end gap-1 border-b px-3 py-1.5 text-[10px]">
+              <button
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => setCollapsed([])}
+              >
+                {t('common.expand_all')}
+              </button>
+              <span className="text-muted-foreground">/</span>
+              <button
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => setCollapsed(named)}
+              >
+                {t('common.collapse_all')}
+              </button>
+            </div>
+          )}
+
           <ScrollArea className="min-h-0 flex-1">
             <div className="space-y-3 px-3 py-3">
               {fields.length === 0 ? (
@@ -147,19 +182,41 @@ export function CollectionSidebar({
                   {t('patient_data.collection_no_variables')}
                 </p>
               ) : (
-                fields.map(({ column, value }) => (
-                  <CollectionField
-                    key={column.id}
-                    column={column}
-                    value={column.id in pending ? pending[column.id] : (value as DatasetCellValue)}
-                    unsaved={column.id in pending}
-                    disabled={!canWrite}
-                    booleanLabels={booleanLabels}
-                    inputKey={patientKey}
-                    onCommit={(next) => commit(column.id, next)}
-                    debounced={manual}
-                  />
-                ))
+                sections.map((section) => {
+                  const id = section.category?.id
+                  const isCollapsed = id != null && collapsedSet.has(id)
+                  const filled = section.fields.filter(
+                    (f) => f.value != null && f.value !== '',
+                  ).length
+                  return (
+                    <div key={id ?? '__ungrouped__'} className="space-y-3">
+                      {section.category && (
+                        <CategoryHeading
+                          category={section.category}
+                          collapsed={isCollapsed}
+                          filled={filled}
+                          total={section.fields.length}
+                          onToggle={() => setCollapsed((prev) => (
+                            prev.includes(id!) ? prev.filter((x) => x !== id) : [...prev, id!]
+                          ))}
+                        />
+                      )}
+                      {!isCollapsed && section.fields.map(({ column, value }) => (
+                        <CollectionField
+                          key={column.id}
+                          column={column}
+                          value={column.id in pending ? pending[column.id] : (value as DatasetCellValue)}
+                          unsaved={column.id in pending}
+                          disabled={!canWrite}
+                          booleanLabels={booleanLabels}
+                          inputKey={patientKey}
+                          onCommit={(next) => commit(column.id, next)}
+                          debounced={manual}
+                        />
+                      ))}
+                    </div>
+                  )
+                })
               )}
             </div>
           </ScrollArea>
@@ -243,10 +300,24 @@ function CollectionField({
     timer.current = setTimeout(() => onCommit(next), DIRTY_DEBOUNCE_MS)
   }
 
+  // The description hangs off the name as a hover tooltip, as it does on a dataset
+  // column header — rather than sitting under every field, where a dozen variables
+  // turned the panel into a wall of grey text and pushed the inputs off-screen.
   const label = (
     <Label className="flex items-center gap-1.5">
       <TypeBadge type={column.type} size="sm" />
-      <span className="min-w-0 truncate leading-normal">{displayColumnName(column, lang)}</span>
+      <TooltipProvider delayDuration={400}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="min-w-0 truncate leading-normal">
+              {displayColumnName(column, lang)}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="left" className="max-w-72">
+            <ColumnMetaTooltipContent column={column} />
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       {column.required && <span className="text-destructive">*</span>}
       {unsaved && (
         <span
@@ -321,11 +392,9 @@ function CollectionField({
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
         />
       )}
-      {violation ? (
+      {violation && (
         <p className="text-[10px] text-destructive">{t(violation.key, violation.params)}</p>
-      ) : displayColumnDescription(column, lang) ? (
-        <p className="text-[10px] text-muted-foreground">{displayColumnDescription(column, lang)}</p>
-      ) : null}
+      )}
     </div>
   )
 }
@@ -336,5 +405,47 @@ function EmptyState({ message, action }: { message: string; action?: React.React
       <p className="text-xs text-muted-foreground">{message}</p>
       {action}
     </div>
+  )
+}
+
+/**
+ * One section heading: a disclosure toggle, the category name, and how much of the
+ * section is filled.
+ *
+ * The counter is what makes collapsing safe — a folded section still says whether
+ * anything inside it is outstanding, so nothing hides behind a closed heading.
+ */
+function CategoryHeading({
+  category, collapsed, filled, total, onToggle,
+}: {
+  category: PatientCollectionCategory
+  collapsed: boolean
+  filled: number
+  total: number
+  onToggle: () => void
+}) {
+  const { i18n } = useTranslation()
+  const lang = i18n.language
+  const description = localized(category.description, lang)
+
+  const heading = (
+    <button
+      onClick={onToggle}
+      className="flex w-full items-center gap-1 border-b py-1 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground"
+    >
+      {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+      <span className="min-w-0 flex-1 truncate">{localized(category.name, lang)}</span>
+      <span className="shrink-0 tabular-nums">{filled}/{total}</span>
+    </button>
+  )
+
+  if (!description) return heading
+  return (
+    <TooltipProvider delayDuration={400}>
+      <Tooltip>
+        <TooltipTrigger asChild>{heading}</TooltipTrigger>
+        <TooltipContent side="left" className="max-w-72">{description}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
