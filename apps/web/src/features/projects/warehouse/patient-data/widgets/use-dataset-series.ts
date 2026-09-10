@@ -1,77 +1,55 @@
 /**
- * Dataset rows for the patient timeline.
+ * Dataset series for the patient timeline — several datasets on one axis.
  *
- * Front-only holds the dataset in memory; server mode pages it from the Parquet
- * cache. Either way the rows are filtered down to the selected patient here rather
- * than in SQL: a dataset has no schema mapping, so the patient column is whatever
- * the widget's config says it is, and the volumes involved (a hand-collected
- * table) are small enough that fetching once and filtering is simpler than
- * building a query per widget.
+ * The fetching lives in `useDatasetRows`; this only turns the rows into the shape
+ * the timeline draws, once per configured mapping.
  */
-import { useEffect, useState } from 'react'
-import { isServerMode } from '@/lib/api-client'
-import { queryDatasetRows } from '@/lib/api/datasets'
-import { useDatasetStore } from '@/stores/dataset-store'
+import { useMemo } from 'react'
 import {
   datasetRowsToTimeline,
   type DatasetTimelineMapping,
   type DatasetTimelineRow,
 } from '@/lib/patient-data/dataset-timeline'
+import { useDatasetRows } from './use-dataset-rows'
 
-/** Rows fetched per dataset in server mode, so N widgets on one dataset fetch once. */
-const cache = new Map<string, Promise<Record<string, unknown>[]>>()
+/** A mapping is only drawable once it names the patient and the date. */
+export function isPlottable(
+  mapping: Partial<DatasetTimelineMapping> | undefined,
+): mapping is DatasetTimelineMapping {
+  return !!(mapping?.datasetFileId && mapping.personColumn && mapping.dateColumn)
+}
 
-/** A hand-collected table is small; this bounds a misconfiguration, not real data. */
-const MAX_ROWS = 50_000
+const NO_ROWS: DatasetTimelineRow[] = []
 
 export function useDatasetSeries(
-  mapping: Partial<DatasetTimelineMapping> | undefined,
+  mappings: readonly Partial<DatasetTimelineMapping>[] | undefined,
   personId: string | null,
   visitId: string | null,
   enabled: boolean,
+  visitDetailId?: string | null,
 ): DatasetTimelineRow[] {
-  const [rows, setRows] = useState<Record<string, unknown>[]>([])
-  const fileId = mapping?.datasetFileId
-  const file = useDatasetStore((s) => s.files.find((f) => f.id === fileId))
-  const loadFileData = useDatasetStore((s) => s.loadFileData)
-  const getFileRows = useDatasetStore((s) => s.getFileRows)
-  const dirtyVersion = useDatasetStore((s) => s._dirtyVersion)
-
-  useEffect(() => {
-    if (!enabled || !fileId) {
-      setRows([])
-      return
-    }
-    let cancelled = false
-
-    if (isServerMode()) {
-      const key = `${fileId}:${file?.rowCount ?? 0}:${(file?.ops ?? []).length}`
-      let pending = cache.get(key)
-      if (!pending) {
-        pending = queryDatasetRows(fileId, { offset: 0, limit: MAX_ROWS }).then((p) => p.rows)
-        cache.set(key, pending)
-      }
-      pending
-        .then((r) => { if (!cancelled) setRows(r) })
-        .catch(() => {
-          cache.delete(key)
-          if (!cancelled) setRows([])
-        })
-      return () => { cancelled = true }
-    }
-
-    void loadFileData(fileId).then(() => {
-      if (!cancelled) setRows(getFileRows(fileId))
-    })
-    return () => { cancelled = true }
-    // `dirtyVersion` is a dep so an edit made in the Datasets page shows here.
-  }, [enabled, fileId, file?.rowCount, file?.ops, loadFileData, getFileRows, dirtyVersion])
-
-  if (!enabled || !mapping?.personColumn || !mapping.dateColumn) return []
-  return datasetRowsToTimeline(
-    rows,
-    mapping as DatasetTimelineMapping,
-    { personId, visitId },
-    file?.name ?? '',
+  const plottable = useMemo(
+    () => (mappings ?? []).filter(isPlottable),
+    [mappings],
   )
+  // Stable across renders that don't change the set, so the fetch effect below
+  // doesn't re-run on every parent render.
+  const fileIds = useMemo(
+    () => [...new Set(plottable.map((m) => m.datasetFileId))],
+    [plottable],
+  )
+  const { byFileId, nameByFileId } = useDatasetRows(fileIds, enabled && fileIds.length > 0)
+
+  return useMemo(() => {
+    if (!enabled || plottable.length === 0) return NO_ROWS
+    const out = plottable.flatMap((mapping) => datasetRowsToTimeline(
+      byFileId[mapping.datasetFileId] ?? [],
+      mapping,
+      { personId, visitId, visitDetailId },
+      nameByFileId[mapping.datasetFileId] ?? '',
+    ))
+    // Merged from several datasets, so re-sort: the timeline reshapes one ordered
+    // list into series and each dataset was only sorted within itself.
+    return out.sort((a, b) => Number(a.event_date) - Number(b.event_date))
+  }, [enabled, plottable, byFileId, nameByFileId, personId, visitId, visitDetailId])
 }

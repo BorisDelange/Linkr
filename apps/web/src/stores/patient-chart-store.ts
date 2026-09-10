@@ -61,13 +61,17 @@ export interface TimelineConfig {
    */
   engine?: 'auto' | 'dygraphs' | 'overview'
   /**
-   * A dataset plotted on the same time axis as the concepts — which file, and which
-   * of its columns carry the time, the value and the series name.
+   * Datasets plotted on the same time axis as the concepts — for each, which file
+   * and which of its columns carry the time, the value and the series name.
    *
-   * `Partial`, because the mapping is built one dropdown at a time in the widget's
+   * `Partial`, because a mapping is built one dropdown at a time in the widget's
    * settings and a half-configured one has to be storable; the reader skips it until
    * the required columns are all named.
    */
+  datasets?: Partial<DatasetTimelineMapping>[]
+  /** @deprecated The single-dataset shape. Read through `timelineDatasets()`, which
+   *  folds it into `datasets`, so a widget configured before the change keeps
+   *  drawing without a migration. */
   dataset?: Partial<DatasetTimelineMapping>
 }
 

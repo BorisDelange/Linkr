@@ -12,7 +12,8 @@ import {
 } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
-import { useDatasetSeries } from './use-dataset-series'
+import { isPlottable, useDatasetSeries } from './use-dataset-series'
+import { timelineDatasets } from '@/lib/patient-data/dataset-timeline'
 import { conceptColorHex } from '@/lib/concept-colors'
 import {
   subscribeTimelineSync,
@@ -133,6 +134,7 @@ export function TimelineWidget({
   const widget = usePatientChartStore((s) => s.widgets.find((w) => w.id === widgetId))
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId)
   const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId)
+  const selectedVisitDetailId = usePatientChartStore((s) => s.selectedVisitDetailId)
 
   const config = (configProp ??
     widget?.config ?? { conceptIds: [] }) as unknown as TimelineConfig
@@ -179,6 +181,7 @@ export function TimelineWidget({
 
   const patientId = selectedPatientId[projectUid] ?? null
   const visitId = selectedVisitId[projectUid] ?? null
+  const visitDetailId = selectedVisitDetailId[projectUid] ?? null
 
   const wrapperRef = useRef<HTMLDivElement>(null)
   const chartContainerRef = useRef<HTMLDivElement>(null)
@@ -199,8 +202,12 @@ export function TimelineWidget({
   // A dataset plotted on the same axis as the concepts — the point of the feature:
   // a hand-collected variable (ventilation start/end, say) read against what the
   // warehouse holds, rather than in two windows.
-  const datasetMapping = config.dataset
-  const datasetRows = useDatasetSeries(datasetMapping, patientId, visitId, visible)
+  // Old single-dataset configs are folded in on read, so a widget saved before
+  // multi-dataset support keeps drawing without its config being rewritten.
+  const datasetMappings = useMemo(() => timelineDatasets(config), [config])
+  const datasetRows = useDatasetSeries(
+    datasetMappings, patientId, visitId, visible, visitDetailId,
+  )
 
   const data = useMemo<TimelineRow[]>(() => {
     if (!datasetRows.length) return omopData
@@ -701,7 +708,7 @@ export function TimelineWidget({
 
   // A timeline can now be fed by concepts, by a dataset, or by both — so "nothing
   // configured" means neither, not just an empty concept list.
-  const hasDatasetSource = Boolean(datasetMapping?.datasetFileId && datasetMapping.dateColumn)
+  const hasDatasetSource = datasetMappings.some(isPlottable)
   if (conceptIds.length === 0 && !hasDatasetSource) {
     overlayMessage = t('patient_data.configure_concepts')
     showConfigureButton = true
