@@ -8,6 +8,7 @@ import {
   getConceptStats,
   saveConceptStats,
 } from '@/lib/api/concept-cache'
+import { tableListHas } from '@/lib/schema-helpers'
 import type { SchemaMapping } from '@/types'
 import {
   computeAvailableColumns,
@@ -303,8 +304,10 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       return
     }
     discoverTables(dataSourceId).then((tables) => {
-      // At least one concept dict table must exist
-      setHasConceptTable(dicts.some((d) => tables.includes(d.table)))
+      // At least one concept dict table must exist. Matched through `tableListHas`
+      // because discovery reports qualified names (`icu.d_items`) for a source with
+      // schemas, while the mapping keeps schema and table apart.
+      setHasConceptTable(dicts.some((d) => tableListHas(tables, d)))
     }).catch(() => {
       setHasConceptTable(false)
     })

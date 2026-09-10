@@ -124,6 +124,26 @@ export function qualify(ref: { schema?: string; table: string }): string {
 }
 
 /**
+ * Does a discovered table list contain this table?
+ *
+ * `discoverTables` reports QUALIFIED names (`icu.d_items`) wherever the source
+ * carries module directories or schemas — the server derives them that way, and the
+ * WASM path mirrors it. A mapping stores the two halves separately, so comparing
+ * against `ref.table` alone silently misses every table in a schema: on MIMIC-IV
+ * that meant the Concepts page deciding the dictionary did not exist while its
+ * cache held thousands of rows.
+ *
+ * The unqualified name is still accepted, since a flat import reports it that way.
+ * Case-insensitive: DuckDB lowercases the schemas it derives from directories,
+ * while a mapping keeps whatever the preset author typed.
+ */
+export function tableListHas(tables: readonly string[], ref: { schema?: string; table: string }): boolean {
+  const wanted = new Set<string>([ref.table.toLowerCase()])
+  if (ref.schema) wanted.add(`${ref.schema.toLowerCase()}.${ref.table.toLowerCase()}`)
+  return tables.some((t) => wanted.has(t.toLowerCase()))
+}
+
+/**
  * Same, for a lookup table named by a sibling field (`careSiteNameTable`,
  * `unitNameTable`): it has no `schema` of its own, so it inherits the one of the
  * descriptor that names it — they come from the same source, and a lookup in a

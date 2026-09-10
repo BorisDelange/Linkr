@@ -1,7 +1,7 @@
 import { queryDataSource, discoverTables, schemaName } from './engine'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DqCustomCheck } from '@/types'
-import { qualify } from '@/lib/schema-helpers'
+import { qualify, tableListHas } from '@/lib/schema-helpers'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -140,29 +140,36 @@ function generateFieldNullRateChecks(tableName: string, columns: ColumnInfo[]): 
 
 function generateSchemaChecks(
   mapping: SchemaMapping,
-  existingTables: Set<string>,
+  discovered: readonly string[],
 ): DqCheck[] {
+  // Matched through `tableListHas`: discovery reports qualified names
+  // (`hosp.patients`) for a source with schemas, while a mapping keeps the schema
+  // and the table apart. Comparing bare names silently skipped every schema check
+  // on MIMIC-IV — each one reported its table as missing.
+  const has = (ref: { schema?: string; table: string } | undefined) =>
+    !!ref && tableListHas(discovered, ref)
   const checks: DqCheck[] = []
 
   // --- Validity: table exists ---
-  const mappedTables: { role: string; table: string }[] = []
-  if (mapping.patientTable) mappedTables.push({ role: 'patient', table: mapping.patientTable.table })
-  if (mapping.visitTable) mappedTables.push({ role: 'visit', table: mapping.visitTable.table })
-  if (mapping.noteTable) mappedTables.push({ role: 'note', table: mapping.noteTable.table })
-  if (mapping.visitDetailTable) mappedTables.push({ role: 'visitDetail', table: mapping.visitDetailTable.table })
+  const mappedTables: { role: string; ref: { schema?: string; table: string } }[] = []
+  if (mapping.patientTable) mappedTables.push({ role: 'patient', ref: mapping.patientTable })
+  if (mapping.visitTable) mappedTables.push({ role: 'visit', ref: mapping.visitTable })
+  if (mapping.noteTable) mappedTables.push({ role: 'note', ref: mapping.noteTable })
+  if (mapping.visitDetailTable) mappedTables.push({ role: 'visitDetail', ref: mapping.visitDetailTable })
   if (mapping.eventTables) {
     for (const [label, et] of Object.entries(mapping.eventTables)) {
-      mappedTables.push({ role: `event:${label}`, table: et.table })
+      mappedTables.push({ role: `event:${label}`, ref: et })
     }
   }
   if (mapping.conceptTables) {
     for (const ct of mapping.conceptTables) {
-      mappedTables.push({ role: `concept:${ct.key}`, table: ct.table })
+      mappedTables.push({ role: `concept:${ct.key}`, ref: ct })
     }
   }
 
-  for (const { role, table } of mappedTables) {
-    const exists = existingTables.has(table)
+  for (const { role, ref } of mappedTables) {
+    const table = ref.table
+    const exists = has(ref)
     checks.push({
       id: `schema_table_exists_${table}`,
       name: 'tableExists',
@@ -184,7 +191,7 @@ function generateSchemaChecks(
   const vt = mapping.visitTable
 
   // --- Consistency: orphan visits (visit.patientId not in patient.id) ---
-  if (pt && vt && existingTables.has(pt.table) && existingTables.has(vt.table)) {
+  if (pt && vt && has(pt) && has(vt)) {
     checks.push({
       id: `schema_orphan_visits_${vt.table}`,
       name: 'orphanRecords',
@@ -254,9 +261,9 @@ function generateSchemaChecks(
   }
 
   // --- Consistency: orphan events (event.patientId not in patient.id) ---
-  if (pt && mapping.eventTables && existingTables.has(pt.table)) {
+  if (pt && mapping.eventTables && has(pt)) {
     for (const [label, et] of Object.entries(mapping.eventTables)) {
-      if (!existingTables.has(et.table)) continue
+      if (!has(et)) continue
       const patCol = et.patientIdColumn ?? pt.idColumn
       checks.push({
         id: `schema_orphan_events_${et.table}`,
@@ -280,11 +287,11 @@ function generateSchemaChecks(
   }
 
   // --- Plausibility: events after birth ---
-  if (pt && mapping.eventTables && existingTables.has(pt.table)) {
+  if (pt && mapping.eventTables && has(pt)) {
     const birthCol = pt.birthDateColumn ?? pt.birthYearColumn
     if (birthCol) {
       for (const [label, et] of Object.entries(mapping.eventTables)) {
-        if (!existingTables.has(et.table) || !et.dateColumn) continue
+        if (!has(et) || !et.dateColumn) continue
         const patCol = et.patientIdColumn ?? pt.idColumn
 
         const birthCheck = pt.birthDateColumn
@@ -315,9 +322,9 @@ function generateSchemaChecks(
   }
 
   // --- Completeness: patient coverage per event table ---
-  if (pt && mapping.eventTables && existingTables.has(pt.table)) {
+  if (pt && mapping.eventTables && has(pt)) {
     for (const [label, et] of Object.entries(mapping.eventTables)) {
-      if (!existingTables.has(et.table)) continue
+      if (!has(et)) continue
       const patCol = et.patientIdColumn ?? pt.idColumn
       checks.push({
         id: `schema_patient_coverage_${et.table}`,
@@ -362,7 +369,6 @@ export async function generateChecks(
   customChecks?: DqCustomCheck[],
 ): Promise<DqCheck[]> {
   const tables = await discoverTables(dataSourceId)
-  const existingTables = new Set(tables)
   const checks: DqCheck[] = []
 
   // Universal checks for every table
@@ -379,7 +385,7 @@ export async function generateChecks(
 
   // Schema-aware checks
   if (schemaMapping && schemaMapping.presetId !== 'none') {
-    checks.push(...generateSchemaChecks(schemaMapping, existingTables))
+    checks.push(...generateSchemaChecks(schemaMapping, tables))
   }
 
   // Custom checks

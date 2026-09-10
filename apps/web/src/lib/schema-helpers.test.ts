@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { qualify, qualifyIn, sanitizeSchemaMapping } from './schema-helpers'
+import { qualify, qualifyIn, sanitizeSchemaMapping, tableListHas } from './schema-helpers'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 // Every table/column name in a mapping is interpolated into SQL as a bare
@@ -222,5 +222,41 @@ describe('sanitizeSchemaMapping — schema field', () => {
       patientTable: { schema: 'hosp', table: 'patients', idColumn: 'id' },
     } as unknown as SchemaMapping)
     expect(m?.patientTable?.schema).toBe('hosp')
+  })
+})
+
+describe('tableListHas', () => {
+  // What discoverTables reports for a MIMIC-IV Parquet folder: module directories
+  // become schemas, so every name is qualified.
+  const mimic = ['hosp.patients', 'hosp.d_labitems', 'icu.d_items', 'icu.chartevents']
+
+  it('matches a qualified name against a mapping that keeps the halves apart', () => {
+    // The regression: comparing against `table` alone said icu.d_items did not
+    // exist, and the Concepts page reported no concepts over a full cache.
+    expect(tableListHas(mimic, { schema: 'icu', table: 'd_items' })).toBe(true)
+    expect(tableListHas(mimic, { schema: 'hosp', table: 'd_labitems' })).toBe(true)
+  })
+
+  it('still matches a flat import, which reports unqualified names', () => {
+    expect(tableListHas(['concept', 'measurement'], { table: 'concept' })).toBe(true)
+  })
+
+  it('accepts an unqualified match for a mapping that names a schema', () => {
+    // A source imported flat, read through a preset that names schemas.
+    expect(tableListHas(['d_items'], { schema: 'icu', table: 'd_items' })).toBe(true)
+  })
+
+  it('ignores case, since derived schemas are lowercased', () => {
+    expect(tableListHas(['ICU.D_Items'], { schema: 'icu', table: 'd_items' })).toBe(true)
+    expect(tableListHas(mimic, { schema: 'ICU', table: 'D_ITEMS' })).toBe(true)
+  })
+
+  it('does not match the same table under another schema', () => {
+    expect(tableListHas(mimic, { schema: 'hosp', table: 'd_items' })).toBe(false)
+  })
+
+  it('is false for a table that is simply absent', () => {
+    expect(tableListHas(mimic, { schema: 'icu', table: 'nope' })).toBe(false)
+    expect(tableListHas([], { table: 'concept' })).toBe(false)
   })
 })
