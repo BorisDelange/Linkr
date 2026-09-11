@@ -21,6 +21,7 @@ from app.schemas.concept_cache import (
     ConceptStatsSave,
 )
 from app.schemas.data_source import (
+    CompactResult,
     DatabaseConnectionInfo,
     CreateFromDdlRequest,
     DataSourceCreate,
@@ -441,6 +442,28 @@ async def get_database_connection_info(
     """
     source = await _load_source(db, source_id, user, "databases:read")
     return await data_source_service.connection_info(db, source)
+
+
+@router.post("/{source_id}/compact", response_model=CompactResult)
+async def compact_database(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rewrite a managed DuckDB file without its free blocks.
+
+    Gated on `databases:write`: it rewrites the file in place. The data is
+    unchanged — this reclaims space a dropped table left behind, which DuckDB
+    never returns to the filesystem on its own.
+    """
+    source = await _load_source(db, source_id, user, "databases:write")
+    try:
+        before, after = await data_source_service.compact_managed(source)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except Exception as e:  # noqa: BLE001 — surface the DuckDB error to the client
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    return CompactResult(size_before=before, size_after=after)
 
 
 @router.get("/{source_id}/concept-cache", response_model=ConceptCacheStatus)

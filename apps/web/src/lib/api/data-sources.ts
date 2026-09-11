@@ -177,6 +177,20 @@ export function fetchDatabaseConnectionInfo(
   return apiRequest<DatabaseConnectionInfo>(`/data-sources/${dataSourceId}/connection-info`)
 }
 
+export interface CompactResult {
+  sizeBefore: number
+  sizeAfter: number
+}
+
+/**
+ * Reclaim the free blocks in a managed DuckDB file. The data is unchanged: this
+ * only returns to the filesystem the space a dropped table left behind, which
+ * DuckDB never releases on its own. Server mode only, managed databases only.
+ */
+export function compactDatabase(dataSourceId: string): Promise<CompactResult> {
+  return apiRequest<CompactResult>(`/data-sources/${dataSourceId}/compact`, { method: 'POST' })
+}
+
 /**
  * Server-mode data source storage. Metadata is CRUD against the API; the
  * connection password is stripped server-side and never returned.

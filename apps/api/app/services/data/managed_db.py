@@ -9,6 +9,7 @@ needs a stable, mutable file of its own. That is what this module owns:
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -88,6 +89,58 @@ def create_from_ddl(source_id: str, ddl: str) -> str:
 
 def delete(source_id: str) -> None:
     path_for(source_id).unlink(missing_ok=True)
+
+
+def compact(source_id: str) -> tuple[int, int]:
+    """Rewrite the managed file without its free blocks. Returns (before, after).
+
+    A DuckDB file only ever grows: it is a set of fixed-size blocks, and dropping
+    a table marks its blocks reusable without returning them to the filesystem.
+    An ETL that rebuilds its tables on every run therefore leaves a file many
+    times the size of the data in it (an OMOP target measured here: 62 GB of file
+    for 11.6 GB of data). The blocks ARE reused by later runs, so this is a
+    one-off reclaim, not a leak — but nothing shrinks the file on its own.
+
+    `VACUUM` does not do it (DuckDB's is a statistics no-op) and `VACUUM FULL` is
+    not implemented. `COPY FROM DATABASE` into a fresh file is the supported way:
+    it replays schema + data, so the copy has only the blocks it needs.
+
+    Written to a sibling temp file and swapped in with `os.replace`, which is
+    atomic on the same filesystem: an interrupted compaction leaves the original
+    untouched rather than a half-written database. The caller MUST evict the
+    connection pool first — DuckDB refuses to attach one file twice per process.
+    """
+    path = path_for(source_id)
+    if not path.exists():
+        raise ValueError("the database file is missing")
+
+    before = path.stat().st_size
+    # Same directory, so os.replace stays atomic and the copy cannot land on a
+    # filesystem too small for it when the data dir is a dedicated volume.
+    tmp = path.with_name(f"{path.stem}.compacting-{os.getpid()}.duckdb")
+    tmp.unlink(missing_ok=True)
+
+    con = duckdb.connect()
+    try:
+        con.execute(f"SET extension_directory = '{_ext_dir()}'")
+        con.execute(f"ATTACH '{_sql_literal(str(path))}' AS src (READ_ONLY)")
+        con.execute(f"ATTACH '{_sql_literal(str(tmp))}' AS dst")
+        con.execute("COPY FROM DATABASE src TO dst")
+        con.execute("DETACH dst")
+        con.execute("DETACH src")
+    except Exception:
+        con.close()
+        tmp.unlink(missing_ok=True)
+        raise
+    con.close()
+
+    os.replace(tmp, path)
+    return before, path.stat().st_size
+
+
+def _sql_literal(value: str) -> str:
+    """Escape a path for the single-quoted SQL literal it is interpolated into."""
+    return value.replace("'", "''")
 
 
 def _ext_dir() -> str:

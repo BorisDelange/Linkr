@@ -335,6 +335,26 @@ def is_managed(source: DataSource) -> bool:
     return bool((source.connection_config or {}).get("managed"))
 
 
+async def compact_managed(source: DataSource) -> tuple[int, int]:
+    """Reclaim the free blocks in a managed database file. Returns (before, after).
+
+    Only for managed files: an uploaded blob is content-addressed (rewriting it
+    would invalidate the sha every reference uses) and an external engine has no
+    file here to compact.
+    """
+    if not is_managed(source):
+        raise ValueError("only a server-owned database can be compacted")
+
+    # The compaction swaps a new file in under this path. A warm pooled handle
+    # would go on serving the old inode — reads would silently keep working
+    # against a file that no longer exists on disk. `invalidate` waits for any
+    # in-flight query before closing, so nothing is cut off mid-statement.
+    connection_pool.invalidate(source.id)
+    # `connection_info` stats the file on every call, so the new size is picked up
+    # by the next read with nothing to invalidate here.
+    return await asyncio.to_thread(managed_db.compact, source.id)
+
+
 def is_external_engine(engine: str | None) -> bool:
     """A network database (Postgres/MySQL) rather than a local file."""
     return engine in _EXTERNAL_ENGINES

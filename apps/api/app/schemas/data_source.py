@@ -206,6 +206,18 @@ class ParquetTablePath(CamelModel):
     size_bytes: int | None = None
 
 
+class CompactResult(CamelModel):
+    """Outcome of compacting a managed database file.
+
+    Both sizes are reported so the UI can state what was actually reclaimed: on a
+    file that was already compact the two are equal, which is a meaningful answer
+    rather than a failure.
+    """
+
+    size_before: int
+    size_after: int
+
+
 class ClientDatabase(CamelModel):
     """One database as the R/Python client libraries see it, with the recipe for
     opening it (``linkr_connect``).

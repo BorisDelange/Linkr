@@ -14,6 +14,7 @@ import {
   FileText,
   Info,
   Loader2,
+  Minimize2,
   Plug,
   Table,
   Table2,
@@ -48,7 +49,12 @@ import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { CopyablePath, ParquetFilesDialog } from '@/components/ui/parquet-files-dialog'
 import { humanBytes } from '@/lib/format-helpers'
 import { isServerMode } from '@/lib/api-client'
-import { fetchDatabaseConnectionInfo, type DatabaseConnectionInfo } from '@/lib/api/data-sources'
+import {
+  compactDatabase,
+  fetchDatabaseConnectionInfo,
+  type CompactResult,
+  type DatabaseConnectionInfo,
+} from '@/lib/api/data-sources'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import {
   DatabaseStatsDashboard,
@@ -328,12 +334,112 @@ function ConnectionRow({ label, value }: { label: string; value: string }) {
   )
 }
 
+/**
+ * Confirm and run a compaction, reporting what it reclaimed.
+ *
+ * Behind a confirmation because it rewrites the database file: the data is
+ * unchanged, but a large file takes minutes and needs room for a full second
+ * copy while it runs.
+ */
+function CompactDatabaseDialog({
+  open,
+  onOpenChange,
+  source,
+  sizeBytes,
+  onCompacted,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  source: DataSource
+  sizeBytes: number | null
+  onCompacted: () => void
+}) {
+  const { t, i18n } = useTranslation()
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<CompactResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const run = () => {
+    setBusy(true)
+    setError(null)
+    compactDatabase(source.id)
+      .then((r) => {
+        setResult(r)
+        onCompacted()
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false))
+  }
+
+  const close = () => {
+    onOpenChange(false)
+    // Cleared after the dialog is gone, so the body does not flip back to the
+    // confirmation text while it animates out.
+    setTimeout(() => {
+      setResult(null)
+      setError(null)
+    }, 200)
+  }
+
+  const reclaimed = result ? result.sizeBefore - result.sizeAfter : 0
+
+  return (
+    <AlertDialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('databases.compact_title')}</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            {result ? (
+              <span className="block space-y-1">
+                <span className="block">
+                  {reclaimed > 0
+                    ? t('databases.compact_done', {
+                        freed: humanBytes(reclaimed, i18n.language),
+                        size: humanBytes(result.sizeAfter, i18n.language),
+                      })
+                    : t('databases.compact_done_nothing')}
+                </span>
+              </span>
+            ) : (
+              <span className="block space-y-2">
+                <span className="block">{t('databases.compact_explain')}</span>
+                <span className="block">
+                  {t('databases.compact_warning', {
+                    size: sizeBytes != null ? humanBytes(sizeBytes, i18n.language) : '—',
+                  })}
+                </span>
+                {error && <span className="block text-destructive">{error}</span>}
+              </span>
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          {result ? (
+            <AlertDialogAction onClick={close}>{t('common.close')}</AlertDialogAction>
+          ) : (
+            <>
+              <AlertDialogCancel disabled={busy}>{t('common.cancel')}</AlertDialogCancel>
+              {/* Not AlertDialogAction: that closes the dialog on click, and the
+                  run has to stay on screen to report what it reclaimed. */}
+              <Button size="sm" onClick={run} disabled={busy} className="gap-1.5">
+                {busy && <Loader2 size={14} className="animate-spin" />}
+                {t('databases.compact_action')}
+              </Button>
+            </>
+          )}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
 /** How this database is reached: engine, host or files, and the DuckDB alias. */
 function ConnectionCard({ source }: { source: DataSource }) {
   const { t, i18n } = useTranslation()
   const config = source.connectionConfig as DatabaseConnectionConfig
   const [connInfo, setConnInfo] = useState<DatabaseConnectionInfo | null>(null)
   const [filesOpen, setFilesOpen] = useState(false)
+  const [compactOpen, setCompactOpen] = useState(false)
 
   // Where the data actually sits on the server, so it can be read from an
   // R/Python script outside Linkr. Server mode only: the browser build keeps its
@@ -357,6 +463,11 @@ function ConnectionCard({ source }: { source: DataSource }) {
 
   const parquetTables = connInfo?.kind === 'parquet-folder' ? connInfo.tables : []
   const filePath = connInfo?.kind === 'file' ? connInfo.path : null
+
+  // Compaction rewrites the file, so it is offered only for a server-owned
+  // ("managed") database: an uploaded blob is addressed by its hash, and
+  // rewriting it would invalidate every reference to that sha.
+  const canCompact = Boolean(config.managed) && connInfo?.kind === 'file' && connInfo.exists
 
   const rows: { label: string; value: string }[] = [
     { label: 'Type', value: formatSourceType(source, i18n.language) },
@@ -442,10 +553,34 @@ function ConnectionCard({ source }: { source: DataSource }) {
             {connInfo && !connInfo.exists && (
               <p className="text-[10px] text-amber-600 dark:text-amber-500">{t('etl.pipeline_db_missing')}</p>
             )}
+            {canCompact && (
+              <Button
+                variant="outline"
+                size="xs"
+                className="mt-1"
+                onClick={() => setCompactOpen(true)}
+              >
+                <Minimize2 size={12} />
+                {t('databases.compact_action')}
+              </Button>
+            )}
           </div>
         )}
       </div>
       <ParquetFilesDialog open={filesOpen} onOpenChange={setFilesOpen} tables={parquetTables} />
+      <CompactDatabaseDialog
+        open={compactOpen}
+        onOpenChange={setCompactOpen}
+        source={source}
+        sizeBytes={connInfo?.sizeBytes ?? null}
+        onCompacted={() => {
+          // Re-read rather than patching sizeBytes locally: the server is the
+          // only thing that knows what the file now weighs.
+          fetchDatabaseConnectionInfo(source.id)
+            .then(setConnInfo)
+            .catch(() => {})
+        }}
+      />
     </div>
   )
 }
