@@ -3,7 +3,7 @@
  */
 import JSZip from 'jszip'
 import {
-  CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, type LayoutKind,
+  CONTENT_FILE, EDITS_SUFFIX, editsFileName, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, type LayoutKind,
   buildTabKeyMap, buildWidgetKeyMap, canonicalOps, canonicalSchemaMapping,
   dashboardKey as sharedDashboardKey, slugify, type DatasetOp, type Issue,
 } from '@linkr/format'
@@ -530,11 +530,21 @@ export async function readBinaryFromImportZip(
 //   concept-lists/{slug}.json         — one file per user-authored concept list
 //   databases/{slug}.json             — one file per IDE connection
 //   dashboards/{slug}.json            — dashboard + its tabs + widgets
-//   datasets/_tree.json               — dataset file tree metadata
+//   datasets/_tree.json               — dataset file tree metadata (structure only:
+//                                       columns, labels, constraints, parseOptions.
+//                                       NEVER rows, a row count, or the edit journal —
+//                                       one tree covers every dataset, so nothing in it
+//                                       can be excluded for a single one)
 //   datasets/{dataset}/
 //     _columns.json                   — column metadata from DatasetFile
 //     {analysis-slug}.json            — one file per analysis
 //     {name}.csv                      — dataset data as CSV (optional, gitignored by default)
+//     {name}.edits.json               — the edit journal for {name}.csv: every change made
+//                                       in the app (cells, rows, columns). Written and
+//                                       gitignored on the SAME mark as the data file,
+//                                       because for a hand-filled collection the journal
+//                                       IS the health data — the raw file is immutable, so
+//                                       typed values live nowhere else.
 //   attachments/{filename}            — readme attachment binaries
 //   attachments/_meta.json            — attachment metadata (ids, mime, size)
 // ---------------------------------------------------------------------------
@@ -553,6 +563,9 @@ export const DATA_FILE_EXTENSIONS = ['.csv', '.parquet', '.pq', '.xlsx', '.xls']
 
 export function isDataExtension(path: string): boolean {
   const p = path.toLowerCase()
+  // A dataset's edit journal counts as data: it holds the values typed into the
+  // dataset, which for a manual collection is the whole of its content.
+  if (p.endsWith(EDITS_SUFFIX)) return true
   return DATA_FILE_EXTENSIONS.some((ext) => p.endsWith(ext))
 }
 
@@ -1046,15 +1059,36 @@ function datasetExportMeta(df: DatasetFile): Partial<DatasetFile> {
   if (meta.parseOptions && typeof meta.parseOptions === 'object') {
     meta.parseOptions = canonicalParseOptions(meta.parseOptions as Record<string, unknown>)
   }
-  // The edit log travels with the dataset — without it a re-import shows the raw
-  // file and every correction is silently lost. Canonicalised for the same reason
-  // parseOptions is: both builders emit key order verbatim. An empty log is
-  // omitted so an unedited dataset's diff is unchanged.
-  if (Array.isArray(meta.ops)) {
-    if (meta.ops.length) meta.ops = canonicalOps(meta.ops as DatasetOp[])
-    else delete meta.ops
-  }
+  // The tree describes EVERY dataset in the project, so nothing in it can be
+  // excluded for one of them — which makes it the wrong place for anything
+  // derived from the rows. The edit journal moves to its own file beside the data
+  // (see writeDatasetEdits); the row count goes with it, being a count of records
+  // — of patients, in a collection.
+  delete meta.ops
+  delete meta.rowCount
   return meta as Partial<DatasetFile>
+}
+
+/**
+ * Write a dataset's edit journal beside its data file, when that data is versioned.
+ *
+ * The journal is the dataset's real content whenever the rows were typed in the
+ * app rather than imported: the raw file is immutable, so a manual collection's
+ * values exist ONLY here. Gating it on the same mark as the data file is what lets
+ * "don't version this CSV" actually mean it — and, because the two sit side by
+ * side under the same name, what makes that visible in the Versioning tab instead
+ * of resting on a rule nobody can see.
+ */
+function writeDatasetEdits(
+  zip: JSZip, folderName: string, dataFileName: string, df: DatasetFile,
+): string | null {
+  const ops = df.ops
+  if (!Array.isArray(ops) || ops.length === 0) return null
+  const path = `datasets/${folderName}/${editsFileName(dataFileName)}`
+  // Canonicalised for the same reason parseOptions is: both builders emit key
+  // order verbatim, and a difference would show as a false git diff.
+  zip.file(path, json({ ops: canonicalOps(ops as DatasetOp[]) }))
+  return path
 }
 
 /**
@@ -1375,6 +1409,16 @@ export async function buildProjectZip(
     // A local database UUID addresses nothing elsewhere; `dataSourceRef` beside it
     // is the portable pointer the import resolves back to a local row.
     delete boardOut.dataSourceId
+    // A manual collection names the dataset it writes into. That id can be stale
+    // the same way a widget's is (configure front-only, where ids are uuids, then
+    // move to server mode, where they are paths) — and exporting it verbatim would
+    // re-import a collection bound to nothing, silently collecting into the void.
+    // Dropped rather than carried: the board then reads as having no collection,
+    // which is what it actually has, and is fixable in one click.
+    const collection = boardOut.collection as { datasetFileId?: string } | undefined
+    if (collection?.datasetFileId && !exportedDatasetIds.has(collection.datasetFileId)) {
+      delete boardOut.collection
+    }
 
     const tabsOut = tabs
       .map((tab) => {
@@ -1393,6 +1437,19 @@ export async function buildProjectZip(
         const tabKey = tabKeyMap.get(w.tabId)!
         delete out.id
         delete out.tabId
+        // A timeline plots dataset variables alongside the warehouse's concepts,
+        // each naming the dataset it reads. Same staleness as a board's collection
+        // above, so the same treatment: a variable pointing at a dataset this
+        // export does not carry is dropped rather than re-imported dangling.
+        const cfg = out.config as Record<string, unknown> | undefined
+        if (Array.isArray(cfg?.datasets)) {
+          const kept = (cfg.datasets as { datasetFileId?: string }[]).filter(
+            (m) => !m.datasetFileId || exportedDatasetIds.has(m.datasetFileId),
+          )
+          if (kept.length !== cfg.datasets.length) {
+            out.config = { ...cfg, datasets: kept }
+          }
+        }
         return { ...out, key, tabKey }
       })
       .sort((a, b) => compareCodePoints(a.tabKey, b.tabKey) || compareCodePoints(a.key, b.key))
@@ -1441,11 +1498,20 @@ export async function buildProjectZip(
             zip.file(`datasets/${folderName}/_data.json`, json({ rows: data.rows }))
             includedDataPaths.push(`datasets/${folderName}/_data.json`)
           }
-        } else if (data && data.rows.length > 0) {
-          // Computed dataset (no source file): reconstructed CSV, always named .csv.
+          const edits = writeDatasetEdits(zip, folderName, raw.fileName, df)
+          if (edits) includedDataPaths.push(edits)
+        } else {
+          // A collection has no raw file and often no parsed rows either — its
+          // values live in the journal alone — so the journal is written whether
+          // or not a CSV could be reconstructed.
           const baseName = (dsPath.split('/').pop() ?? df.name).replace(/\.[^.]+$/, '')
-          zip.file(`datasets/${folderName}/${baseName}.csv`, datasetToCsv(df, data.rows))
-          includedDataPaths.push(`datasets/${folderName}/${baseName}.csv`)
+          if (data && data.rows.length > 0) {
+            // Computed dataset (no source file): reconstructed CSV, always named .csv.
+            zip.file(`datasets/${folderName}/${baseName}.csv`, datasetToCsv(df, data.rows))
+            includedDataPaths.push(`datasets/${folderName}/${baseName}.csv`)
+          }
+          const edits = writeDatasetEdits(zip, folderName, `${baseName}.csv`, df)
+          if (edits) includedDataPaths.push(edits)
         }
       }
     }
@@ -1460,7 +1526,11 @@ export async function buildProjectZip(
   // file the user marked for versioning is re-included via a `!path` exception
   // AFTER the ignore rules (git honours the last match). Glob patterns match at any
   // depth and leave parent dirs un-ignored, so the exceptions resolve.
-  const gitignoreLines = ['**/*.csv', '**/*.parquet', '**/*.pq', '**/*.xlsx', '**/*.xls', '.cache/']
+  // `*.edits.json` is ignored by the same default as the data itself: the journal
+  // holds the values typed into a dataset, so for a hand-filled collection it IS
+  // the health data. It is written only for a marked dataset, so the `!path`
+  // exceptions below are what let the marked ones through.
+  const gitignoreLines = ['**/*.csv', '**/*.parquet', '**/*.pq', '**/*.xlsx', '**/*.xls', `**/*${EDITS_SUFFIX}`, '.cache/']
   for (const p of [...includedDataPaths, ...includedScriptDataPaths]) {
     gitignoreLines.push(`!${gitignoreEscapePath(p)}`)
   }
@@ -2369,6 +2439,9 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
     // (_data.json holds parsed rows, not an analysis: parsing it here pushed an idless object whose
     //  mapId(undefined) collided across every data file, breaking import with a uniqueness error.)
     if (path.endsWith('/_tree.json') || path.endsWith('/_columns.json') || path.endsWith('/_data.json')) continue
+    // The edit journal is the dataset's content, not an analysis of it; read as one
+    // it would import as an idless ghost analysis.
+    if (path.endsWith(EDITS_SUFFIX)) continue
     if (path.endsWith('.json')) {
       datasetAnalyses.push(JSON.parse(await entry.async('string')))
     }
@@ -2394,9 +2467,22 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
         const rest = path.slice(dsFolderPrefix.length)
         if (rest.includes('/')) continue // belongs to a nested dataset folder
         if (rest === '_columns.json' || rest === '_data.json' || rest === SIDECAR.tree) continue
-        if (rest.endsWith('.json')) continue // analysis files
+        if (rest.endsWith('.json')) continue // analysis files and the edit journal
         rawEntry = { name: rest, entry }
         break
+      }
+
+      // The edit journal, from its own file. A tree written before the split still
+      // carries `ops` inline, so that is honoured when no file is present —
+      // otherwise re-importing an older export would drop every edit it recorded.
+      const editsEntry = Object.entries(zip.files).find(
+        ([p]) => p.startsWith(dsFolderPrefix)
+          && !p.slice(dsFolderPrefix.length).includes('/')
+          && p.endsWith(EDITS_SUFFIX),
+      )?.[1]
+      if (editsEntry) {
+        const parsed = JSON.parse(await editsEntry.async('string')) as { ops?: DatasetOp[] }
+        df.ops = Array.isArray(parsed.ops) ? parsed.ops : undefined
       }
 
       // Parsed rows: prefer the _data.json sidecar (format-agnostic), else parse a CSV.

@@ -24,7 +24,7 @@ export type {
 } from './dataset-ops.js'
 
 export {
-  CONTENT_FILE, ENTITY_MANIFEST, ENTITY_TYPES, MANIFEST, ROOT_FILE, SCRIPT_LANGUAGE, SCRIPTS_DIR, SIDECAR,
+  CONTENT_FILE, EDITS_SUFFIX, editsFileName, ENTITY_MANIFEST, ENTITY_TYPES, MANIFEST, ROOT_FILE, SCRIPT_LANGUAGE, SCRIPTS_DIR, SIDECAR,
   isEntityType, manifestCandidates, manifestList, scriptLanguage,
 } from './layout.js'
 export type { LayoutKind } from './layout.js'

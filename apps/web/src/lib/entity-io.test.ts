@@ -3279,3 +3279,178 @@ describe('export — a cohort ships its definition, not its run results', () => 
     expect(Object.keys(zip.files).filter((f) => f.startsWith('pipeline/'))).toEqual([])
   })
 })
+
+// The edit journal is a dataset's real content whenever its rows were typed in the
+// app rather than imported: the raw file is immutable, so a manual collection's
+// values exist ONLY in the journal. It used to ride inside datasets/_tree.json,
+// which describes EVERY dataset in the project and so can never be excluded for one
+// of them — health data was committed whether or not its CSV was. These pin the
+// split that fixed it.
+describe('dataset edit journal', () => {
+  const collection = {
+    id: 'ds1', projectUid: 'p1', name: 'collection.csv', type: 'file', parentId: null,
+    columns: [
+      { id: 'col_gcs', name: 'gcs', type: 'number', order: 0, label: { en: 'GCS' }, required: true },
+      { id: 'col_person', name: 'person_id', type: 'text', order: 1 },
+    ],
+    rowCount: 2,
+    parseOptions: { delimiter: ',' },
+    ops: [
+      { id: 'op1', type: 'addColumn', column: 'col_gcs', colType: 'number', name: 'gcs' },
+      { id: 'op2', type: 'setCell', row: 0, column: 'col_gcs', value: 7 },
+      { id: 'op3', type: 'setCell', row: 1, column: 'col_person', value: 'PATIENT-12345' },
+    ],
+    createdAt: '2020', updatedAt: '2021',
+  } as unknown as DatasetFile
+
+  const storageFor = (marked: boolean) => new Proxy({
+    projects: { getById: async () => ({
+      // projectId: the export strips `uid`, and parseProjectZip needs a stable
+      // identifier to accept the manifest as a real project.
+      uid: 'p1', projectId: 'p', name: { en: 'P' },
+      config: marked ? { versionedDataFiles: ['datasets/collection.csv'] } : {},
+    }) },
+    datasetFiles: { getByProject: async () => [collection] },
+    datasetData: { get: async () => ({
+      datasetFileId: 'ds1', rows: [{ col_gcs: 7, col_person: 'PATIENT-12345' }],
+    }) },
+  }, {
+    get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+  }) as unknown as Storage
+
+  const treeOf = async (zip: JSZip) =>
+    JSON.parse(await zip.files['datasets/_tree.json'].async('string'))
+
+  it('lets NO cell value into an unmarked export, anywhere', async () => {
+    const built = await buildProjectZip('p1', storageFor(false), {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    // Every byte of every file: the guarantee is about the export as a whole, not
+    // about one file we remembered to check.
+    let all = ''
+    for (const f of Object.values(zip.files)) {
+      if (!f.dir) all += await f.async('string')
+    }
+    expect(all).not.toContain('PATIENT-12345')
+    expect(all).not.toContain('setCell')
+  })
+
+  it('still carries the dataset STRUCTURE when unmarked', async () => {
+    // The point of the split: losing the values must not lose the form. A
+    // re-imported collection keeps its columns, labels and constraints.
+    const built = await buildProjectZip('p1', storageFor(false), {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const [ds] = await treeOf(zip)
+    expect(ds.columns).toHaveLength(2)
+    expect(ds.columns[0].label.en).toBe('GCS')
+    expect(ds.columns[0].required).toBe(true)
+    expect(ds.parseOptions.delimiter).toBe(',')
+  })
+
+  it('keeps the row count out of the tree — it counts patients', async () => {
+    const built = await buildProjectZip('p1', storageFor(false), {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const [ds] = await treeOf(zip)
+    expect(ds.rowCount).toBeUndefined()
+    expect(ds.ops).toBeUndefined()
+  })
+
+  it('writes the journal beside the data file when marked, and re-includes both', async () => {
+    const built = await buildProjectZip('p1', storageFor(true), {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const edits = 'datasets/collection/collection.edits.json'
+    expect(zip.files[edits]).toBeDefined()
+    const { ops } = JSON.parse(await zip.files[edits].async('string'))
+    expect(ops).toHaveLength(3)
+
+    const gitignore = await zip.files['.gitignore'].async('string')
+    // Ignored by default like the data itself, then re-included by name — which is
+    // what makes the pairing visible in the Versioning tab rather than implicit.
+    expect(gitignore).toContain('**/*.edits.json')
+    expect(gitignore).toContain(`!${edits}`)
+    expect(gitignore).toContain('!datasets/collection/collection.csv')
+  })
+
+  it('round-trips the journal back onto the dataset', async () => {
+    const built = await buildProjectZip('p1', storageFor(true), {})
+    // arraybuffer, as elsewhere in this file: jsdom's Blob isn't reliably
+    // readable by JSZip here, and parseProjectZip's param is typed File.
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const buf = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const parsed = await parseProjectZip(buf)
+    expect(parsed!.datasetFiles[0].ops).toHaveLength(3)
+  })
+
+  it('still reads a journal left inline by an older export', async () => {
+    // Tolerant read, not a compat layer: a tree written before the split carries
+    // `ops` inline, and dropping it would silently lose every edit it recorded.
+    const zip = new JSZip()
+    zip.file('entity.json', JSON.stringify({ type: 'project', projectId: 'p', name: { en: 'P' } }))
+    zip.file('datasets/_tree.json', JSON.stringify([{
+      id: 'ds1', name: 'old.csv', type: 'file', parentId: null,
+      columns: [{ id: 'col_a', name: 'a', type: 'number', order: 0 }],
+      ops: [{ id: 'o1', type: 'setCell', row: 0, column: 'col_a', value: 42 }],
+    }]))
+    const buf = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const parsed = await parseProjectZip(buf)
+    expect(parsed!.datasetFiles[0].ops).toHaveLength(1)
+  })
+})
+
+// A dataset id is local: a uuid front-only, a path in server mode. Configure a
+// board in one and move the project to the other and the reference names nothing.
+// Dashboard widgets have always had this guard; the patient board's collection and
+// a timeline's dataset variables did not, so they re-imported bound to nothing —
+// a collection silently writing into the void.
+describe('stale dataset references on export', () => {
+  const boardWith = (
+    collection: Record<string, unknown> | undefined,
+    datasets: Record<string, unknown>[],
+  ) => new Proxy({
+    projects: { getById: async () => ({ uid: 'p1', projectId: 'p', name: { en: 'P' }, config: {} }) },
+    datasetFiles: { getByProject: async () => [
+      { id: 'real.csv', projectUid: 'p1', name: 'real.csv', type: 'file', parentId: null, columns: [], createdAt: '', updatedAt: '' },
+    ] },
+    patientDashboards: { getByProject: async () => [
+      { id: 'b1', projectUid: 'p1', name: { en: 'Bedside' }, displayOrder: 0, collection, createdAt: '', updatedAt: '' },
+    ] },
+    patientDashboardTabs: { getByDashboard: async () => [
+      { id: 't1', patientDashboardId: 'b1', name: { en: 'Main' }, displayOrder: 0 },
+    ] },
+    patientDashboardWidgets: { getByTab: async () => [
+      { id: 'w1', tabId: 't1', name: { en: 'TL' }, pluginId: 'linkr-widget-timeline',
+        layout: { x: 0, y: 0, w: 12, h: 8 }, config: { datasets } },
+    ] },
+  }, {
+    get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+  }) as unknown as Storage
+
+  const boardJson = async (storage: Storage) => {
+    const built = await buildProjectZip('p1', storage, {})
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    const path = Object.keys(zip.files).find(
+      (f) => f.startsWith('patient-dashboards/') && f.endsWith('.json'),
+    )!
+    return JSON.parse(await zip.files[path].async('string'))
+  }
+
+  it('drops a collection bound to a dataset the export does not carry', async () => {
+    const out = await boardJson(boardWith({ datasetFileId: 'gone.csv', personColumn: 'c' }, []))
+    expect(out.patientDashboard.collection).toBeUndefined()
+  })
+
+  it('keeps a collection whose dataset IS carried', async () => {
+    const out = await boardJson(boardWith({ datasetFileId: 'real.csv', personColumn: 'c' }, []))
+    expect(out.patientDashboard.collection.datasetFileId).toBe('real.csv')
+  })
+
+  it('drops only the timeline variables whose dataset is missing', async () => {
+    const out = await boardJson(boardWith(undefined, [
+      { datasetFileId: 'real.csv', seriesName: 'Heart rate' },
+      { datasetFileId: 'gone.csv', seriesName: 'Ghost' },
+    ]))
+    // The surviving one must keep its place: dropping the whole list would lose
+    // work that is still perfectly valid.
+    expect(out.widgets[0].config.datasets).toHaveLength(1)
+    expect(out.widgets[0].config.datasets[0].seriesName).toBe('Heart rate')
+  })
+})

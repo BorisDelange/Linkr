@@ -134,6 +134,27 @@ export const CONTENT_FILE = {
   sourceConcepts: 'source-concepts.csv',
 } as const
 
+/**
+ * Suffix of a dataset's edit journal, beside the data file it applies to.
+ *
+ * The journal holds every change made to the dataset in the app — cells typed,
+ * rows and columns added or removed — so for a dataset filled by hand (a manual
+ * collection) it holds the health data itself, while the raw file may be empty or
+ * absent entirely.
+ *
+ * It therefore lives in its own file, named after the data file, so that ignoring
+ * `my_data.csv` ignores `my_data.edits.json` with it. Keeping it inside
+ * `datasets/_tree.json` made that impossible: one tree describes every dataset in
+ * the project, so it can never be excluded for one of them — and the values were
+ * committed whether or not the data file was.
+ */
+export const EDITS_SUFFIX = '.edits.json'
+
+/** The journal's name for a data file — `my_data.csv` → `my_data.edits.json`. */
+export function editsFileName(dataFileName: string): string {
+  return dataFileName.replace(/\.[^./]+$/, '') + EDITS_SUFFIX
+}
+
 /** Files describing the export as a whole rather than one folder's contents. */
 export const ROOT_FILE = {
   /** The publishing organization, one per export. */

@@ -19,8 +19,7 @@
         "type": "number",
         "order": 0
       }
-    ],
-    "rowCount": 2
+    ]
   },
   {
     "id": "cohort.csv",
@@ -48,7 +47,6 @@
         }
       }
     ],
-    "rowCount": 3,
     "parseOptions": {
       "columnFilterMode": {
         "col_sex": "list"

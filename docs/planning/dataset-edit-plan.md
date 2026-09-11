@@ -110,7 +110,7 @@ Lot A is a prerequisite for B and D. C is independent of A.
 | ✅ | 5. Compaction + cache invalidation on the ops digest (`resolve_cache` now keys on raw sig **and** `opsSig`) | S |
 | ✅ | 6. Rename repairs downstream references (live-state twin of `rekey.ts`), refusing a slug collision | M |
 | ✅ | 7. Client store + API adapter: WASM replays in the browser, server mode posts ops | M |
-| ✅ | 8. Export: `ops` travels inline in `datasets/_tree.json` beside `parseOptions`, from both builders | S |
+| ✅ | 8. Export: the journal travels as `datasets/<dataset>/<name>.edits.json`, from both builders, written and gitignored on the same mark as the data file. (Was inline in `datasets/_tree.json` — that leaked typed patient values whenever the CSV itself was left unversioned, since one tree covers every dataset and cannot be excluded per-dataset.) | S |
 
 Built 2026-09-06/07 (commits `f43f89bb`, `cde0f88a`): 61 tests across both languages,
 plus 12 end-to-end persistence tests. Two invariants are pinned byte-for-byte — the

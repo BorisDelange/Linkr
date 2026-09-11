@@ -154,12 +154,32 @@ def _canonical_parse_options(opts: dict) -> dict:
 
 def _dataset_export_meta(df: dict) -> dict:
     """Dataset file export metadata: instance fields stripped + parseOptions keys
-    canonicalised (parity-stable ordering)."""
+    canonicalised (parity-stable ordering).
+
+    The edit journal and the row count are NOT here — mirrors ``datasetExportMeta``
+    (entity-io.ts). One tree describes every dataset in the project, so nothing in
+    it can be excluded for a single one; anything derived from the rows belongs
+    beside the data file instead (see ``_edits_file_name``)."""
     out = _strip_instance_fields(df)
+    out.pop("ops", None)
+    out.pop("rowCount", None)
     opts = out.get("parseOptions")
     if isinstance(opts, dict):
         out = {**out, "parseOptions": _canonical_parse_options(opts)}
     return out
+
+
+# Suffix of a dataset's edit journal, beside the data file it applies to. Mirrors
+# EDITS_SUFFIX / editsFileName in packages/linkr-format/src/layout.ts — the two
+# builders MUST agree, or the same project exports differently from each side and
+# git shows a false diff.
+EDITS_SUFFIX = ".edits.json"
+
+
+def _edits_file_name(data_file_name: str) -> str:
+    """``my_data.csv`` -> ``my_data.edits.json``."""
+    base = data_file_name.rsplit(".", 1)[0] if "." in data_file_name.rsplit("/", 1)[-1] else data_file_name
+    return base + EDITS_SUFFIX
 
 
 def _slugify(name: str) -> str:
@@ -393,7 +413,8 @@ def _build_patient_widget_key_map(
 
 
 def _build_patient_dashboard_json(
-    board: dict, tabs: list[dict], widgets: list[dict]
+    board: dict, tabs: list[dict], widgets: list[dict],
+    exported_dataset_ids: set[str] | None = None,
 ) -> bytes:
     """Port of the per-board transform in buildProjectZip: strip instance fields +
     UUID ids, replace them with content keys. No filterConfig and no parentKey —
@@ -406,6 +427,20 @@ def _build_patient_dashboard_json(
     board_out = _drop_local_database(_strip_instance_fields(board))
     board_out.pop("id", None)
     board_out.pop("projectUid", None)
+    # A board with no manual collection has no `collection` key at all on the
+    # frontend, so the response model's explicit null would be a key the TS builder
+    # never writes — the same board exporting differently from each side, which is
+    # a false git diff on every sync.
+    if board_out.get("collection") is None:
+        board_out.pop("collection", None)
+    # A manual collection names the dataset it writes into; an id that no dataset in
+    # this export answers to would re-import bound to nothing. Mirrors buildProjectZip.
+    known = exported_dataset_ids
+    collection = board_out.get("collection")
+    if known is not None and isinstance(collection, dict):
+        ds_id = collection.get("datasetFileId")
+        if isinstance(ds_id, str) and ds_id not in known:
+            board_out.pop("collection", None)
 
     tabs_out = []
     for tab in tabs:
@@ -424,6 +459,18 @@ def _build_patient_dashboard_json(
         out.pop("tabId", None)
         out["key"] = widget_key_map[w["id"]]
         out["tabKey"] = tab_key_map[w["tabId"]]
+        # A timeline's dataset variables each name the dataset they read; same
+        # staleness and same treatment as the board's collection above.
+        cfg = out.get("config")
+        if known is not None and isinstance(cfg, dict) and isinstance(cfg.get("datasets"), list):
+            kept = [
+                m for m in cfg["datasets"]
+                if not isinstance(m, dict)
+                or not isinstance(m.get("datasetFileId"), str)
+                or m["datasetFileId"] in known
+            ]
+            if len(kept) != len(cfg["datasets"]):
+                out["config"] = {**cfg, "datasets": kept}
         widgets_out.append(out)
     widgets_out.sort(key=lambda w: (w["tabKey"], w["key"]))
 
@@ -803,7 +850,7 @@ def build_project_tree(
         board_key = _patient_dashboard_key(d)
         name = _slugify(_localized_en(d.get("name")) or board_key or d["id"])
         tree[f"patient-dashboards/{name}.json"] = _build_patient_dashboard_json(
-            d, tabs, widgets
+            d, tabs, widgets, {f["id"] for f in dataset_files}
         )
 
     if dataset_files:
@@ -832,6 +879,20 @@ def build_project_tree(
             if f"datasets/{ds_path}" in versioned_data_files:
                 rows = dataset_data.get(df["id"])
                 raw = dataset_raw_files.get(df["id"])
+                ops = df.get("ops")
+
+                def _write_edits(data_file_name: str) -> None:
+                    # The journal is the dataset's real content whenever the rows
+                    # were typed in the app: the raw file is immutable, so a manual
+                    # collection's values exist only here. Gated on the same mark as
+                    # the data, and named after it, so ignoring one ignores both —
+                    # visibly, in the Versioning tab.
+                    if not ops:
+                        return
+                    path = f"datasets/{folder_name}/{_edits_file_name(data_file_name)}"
+                    tree[path] = _json({"ops": ops})
+                    included_data_paths.append(path)
+
                 if raw and raw.get("blob") is not None:
                     tree[f"datasets/{folder_name}/{raw['fileName']}"] = raw["blob"]
                     included_data_paths.append(f"datasets/{folder_name}/{raw['fileName']}")
@@ -840,13 +901,19 @@ def build_project_tree(
                             {"rows": rows}
                         )
                         included_data_paths.append(f"datasets/{folder_name}/_data.json")
-                elif rows:
+                    _write_edits(raw["fileName"])
+                else:
+                    # A collection has no raw file and often no rows either — its
+                    # values live in the journal alone — so the journal is written
+                    # whether or not a CSV could be reconstructed.
                     leaf = ds_path.rsplit("/", 1)[-1] or df["name"]
                     base_name = leaf.rsplit(".", 1)[0] if "." in leaf else leaf
-                    tree[f"datasets/{folder_name}/{base_name}.csv"] = _dataset_to_csv(
-                        df, rows
-                    )
-                    included_data_paths.append(f"datasets/{folder_name}/{base_name}.csv")
+                    if rows:
+                        tree[f"datasets/{folder_name}/{base_name}.csv"] = _dataset_to_csv(
+                            df, rows
+                        )
+                        included_data_paths.append(f"datasets/{folder_name}/{base_name}.csv")
+                    _write_edits(f"{base_name}.csv")
 
     if attachments:
         # Sorted by id, like writeAttachmentFiles: the caller's order is whatever
@@ -885,6 +952,7 @@ def build_project_tree(
         "**/*.pq",
         "**/*.xlsx",
         "**/*.xls",
+        f"**/*{EDITS_SUFFIX}",
         ".cache/",
     ]
     gitignore_lines.extend(f"!{_gitignore_escape(p)}" for p in included_data_paths)

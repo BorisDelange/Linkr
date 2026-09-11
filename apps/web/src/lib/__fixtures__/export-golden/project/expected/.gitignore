@@ -3,4 +3,5 @@
 **/*.pq
 **/*.xlsx
 **/*.xls
+**/*.edits.json
 .cache/

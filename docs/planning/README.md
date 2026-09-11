@@ -244,7 +244,7 @@ commit). A dataset is no longer a read-only import: it is edited cell by cell, f
 patient by patient from Patient data, and plotted next to OMOP concepts on the same
 timeline. One foundation carries all three — an **ordered replayable ops log over the
 immutable raw** (`raw → parse → replay → parquet`), living as an `ops` section of the
-existing `dataset-meta/<hash>.json` sidecar and travelling inline in `datasets/_tree.json`.
+existing `dataset-meta/<hash>.json` sidecar and travelling, on export, as a per-dataset `<name>.edits.json` beside its data file (gitignored on the same mark).
 
 The boundary with the Pipeline is **intent, not operation**: the ops log takes manual
 one-off corrections and human entry, the Pipeline takes anything expressible as a rule.
