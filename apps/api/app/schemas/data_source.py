@@ -206,16 +206,27 @@ class ParquetTablePath(CamelModel):
     size_bytes: int | None = None
 
 
-class CompactResult(CamelModel):
-    """Outcome of compacting a managed database file.
+class CompactStatus(CamelModel):
+    """Progress of a compaction, polled while it runs.
 
-    Both sizes are reported so the UI can state what was actually reclaimed: on a
-    file that was already compact the two are equal, which is a meaningful answer
-    rather than a failure.
+    `COPY FROM DATABASE` is a single statement, so DuckDB reports nothing while it
+    executes. What can be observed is the bytes it has written, which grow
+    monotonically and near-linearly — `bytesWritten` over `dataSize` is that
+    readout.
+
+    `dataSize` is the size of the DATA, not of the file: the file is mostly free
+    blocks on a database worth compacting, so using it as the denominator would
+    stall the bar low and then jump to 100%. It is DuckDB's own block accounting
+    and so an estimate — the client must tolerate a final value slightly either
+    side of it, and `null` when DuckDB would not answer.
     """
 
+    status: str  # 'running' | 'done' | 'error'
     size_before: int
-    size_after: int
+    size_after: int | None = None
+    data_size: int | None = None
+    bytes_written: int = 0
+    error: str | None = None
 
 
 class ClientDatabase(CamelModel):

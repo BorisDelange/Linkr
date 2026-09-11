@@ -80,6 +80,146 @@ def test_delete_removes_the_file(data_dir):
     managed_db.delete(sid)  # no error on a second call
 
 
+# --- Compaction -------------------------------------------------------------
+
+
+def _fill(sid: str, rows: int = 300000) -> None:
+    """A managed file with a droppable table big enough to leave real slack."""
+    managed_db.create_from_ddl(sid, DDL)
+    con = duckdb.connect(managed_db.path_for(sid).as_posix())
+    con.execute(
+        "CREATE TABLE junk AS "
+        f"SELECT i, hash(i)::VARCHAR AS pad FROM range({rows}) t(i)"
+    )
+    con.close()
+
+
+def _leave_slack(sid: str, rows: int = 300000) -> int:
+    """Free blocks stranded in the MIDDLE of the file, and return its size.
+
+    Not simply "write then drop": when the freed blocks sit at the end of the
+    file, DuckDB truncates on checkpoint and the space comes back on its own.
+    What compaction is for is the other case — a table dropped with live data
+    written after it, so the hole cannot be truncated away. That is the shape an
+    ETL rebuilding its tables leaves behind.
+    """
+    managed_db.create_from_ddl(sid, DDL)
+    path = managed_db.path_for(sid)
+    con = duckdb.connect(path.as_posix())
+    con.execute(
+        f"CREATE TABLE junk AS SELECT i, hash(i)::VARCHAR AS pad FROM range({rows}) t(i)"
+    )
+    con.execute(
+        f"CREATE TABLE tail AS SELECT i, hash(i)::VARCHAR AS pad FROM range({rows}) t(i)"
+    )
+    con.close()
+
+    con = duckdb.connect(path.as_posix())
+    con.execute("DROP TABLE junk")
+    con.execute("CHECKPOINT")
+    con.close()
+    return path.stat().st_size
+
+
+def test_compact_shrinks_a_file_with_stranded_free_blocks(data_dir):
+    """The point of the feature: blocks freed in the middle of the file stay in it
+    — a checkpoint can only truncate what is at the end — so a rewrite is the only
+    thing that returns them to the filesystem."""
+    sid = "c0000000-0000-0000-0000-000000000001"
+    after_drop = _leave_slack(sid)
+
+    before, after = managed_db.compact(sid)
+    assert before == after_drop  # the drop alone did not reclaim the hole
+    assert after < before
+
+
+def test_compact_preserves_tables_and_views(data_dir):
+    sid = "c0000000-0000-0000-0000-000000000002"
+    managed_db.create_from_ddl(sid, DDL)
+    con = duckdb.connect(managed_db.path_for(sid).as_posix())
+    con.execute("INSERT INTO person VALUES (7, 8507)")
+    con.execute("CREATE VIEW v AS SELECT person_id FROM person")
+    con.close()
+
+    managed_db.compact(sid)
+
+    con = duckdb.connect(managed_db.path_for(sid).as_posix(), read_only=True)
+    assert con.execute("SELECT person_id FROM person").fetchall() == [(7,)]
+    assert con.execute("SELECT * FROM v").fetchall() == [(7,)]
+    con.close()
+
+
+def test_compact_leaves_no_temp_file_behind(data_dir):
+    sid = "c0000000-0000-0000-0000-000000000003"
+    _fill(sid, rows=1000)
+    managed_db.compact(sid)
+    leftovers = [p.name for p in managed_db.path_for(sid).parent.iterdir()
+                 if "compacting" in p.name]
+    assert leftovers == []
+
+
+def test_compact_on_a_missing_file_is_a_value_error(data_dir):
+    """Not a DuckDB crash: the route maps ValueError to 400, anything else to 422."""
+    with pytest.raises(ValueError, match="missing"):
+        managed_db.compact("c0000000-0000-0000-0000-000000000004")
+
+
+def test_compact_reports_progress_monotonically(data_dir):
+    """`COPY FROM DATABASE` is one statement, so the bytes written are the only
+    progress signal available — they must never go backwards."""
+    sid = "c0000000-0000-0000-0000-000000000005"
+    _fill(sid)
+    seen: list[int] = []
+    managed_db.compact(sid, seen.append)
+    assert seen == sorted(seen)
+
+
+def test_data_size_excludes_free_blocks(data_dir):
+    """The denominator for the progress bar. It must follow the DATA, not the file:
+    using the file size would stall the bar low and then jump to 100%."""
+    sid = "c0000000-0000-0000-0000-000000000006"
+    file_size = _leave_slack(sid)
+
+    est = managed_db.data_size(sid)
+    assert est is not None
+    assert est < file_size
+
+    # And it predicts the compacted size closely enough to drive a percentage.
+    _, after = managed_db.compact(sid)
+    assert abs(after - est) <= max(after, est) * 0.25
+
+
+def test_data_size_is_none_for_a_missing_file(data_dir):
+    assert managed_db.data_size("c0000000-0000-0000-0000-000000000007") is None
+
+
+def test_a_second_compaction_of_the_same_database_is_refused(data_dir):
+    """Two concurrent rewrites of one file would each os.replace their own copy
+    into place, so the loser would silently discard the winner's work."""
+    import asyncio
+
+    from app.models.data_source import DataSource
+    from app.services import data_source_service
+
+    sid = "c0000000-0000-0000-0000-000000000008"
+    _fill(sid, rows=400000)
+    source = DataSource(id=sid, alias="t", name="t", connection_config={"managed": True})
+
+    async def scenario():
+        first = await data_source_service.start_compaction(source)
+        try:
+            with pytest.raises(ValueError, match="already running"):
+                await data_source_service.start_compaction(source)
+        finally:
+            # Let the detached task finish so it cannot outlive the test.
+            while first.status == "running":
+                await asyncio.sleep(0.05)
+        assert first.status == "done"
+
+    asyncio.run(scenario())
+    data_source_service._compactions.pop(sid, None)
+
+
 # --- ETL runs ---------------------------------------------------------------
 
 

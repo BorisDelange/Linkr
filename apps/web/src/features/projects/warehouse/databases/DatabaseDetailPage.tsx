@@ -43,6 +43,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EntitySecondaryTabsTrigger } from '@/components/ui/entity-secondary-tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
@@ -51,8 +52,9 @@ import { humanBytes } from '@/lib/format-helpers'
 import { isServerMode } from '@/lib/api-client'
 import {
   compactDatabase,
+  fetchCompactStatus,
   fetchDatabaseConnectionInfo,
-  type CompactResult,
+  type CompactStatus,
   type DatabaseConnectionInfo,
 } from '@/lib/api/data-sources'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
@@ -355,20 +357,55 @@ function CompactDatabaseDialog({
   onCompacted: () => void
 }) {
   const { t, i18n } = useTranslation()
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<CompactResult | null>(null)
+  const [state, setState] = useState<CompactStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [starting, setStarting] = useState(false)
+
+  const running = state?.status === 'running'
+  const result = state?.status === 'done' ? state : null
+
+  // Reopening mid-run rejoins the compaction in progress: the work is server-side,
+  // so closing the dialog only hid it. 404 means none has run — the normal case.
+  useEffect(() => {
+    if (!open || state) return
+    fetchCompactStatus(source.id)
+      .then((s) => { if (s.status === 'running') setState(s) })
+      .catch(() => {})
+  }, [open, state, source.id])
+
+  // Held in a ref so the polling effect does not list it as a dependency: the
+  // parent passes an inline arrow, which is a new reference on every render and
+  // would tear down and rebuild the interval after each poll.
+  const onCompactedRef = useRef(onCompacted)
+  useEffect(() => {
+    onCompactedRef.current = onCompacted
+  }, [onCompacted])
+
+  // Poll while the copy runs. One second matches the rate the server samples the
+  // file at, so a faster poll would just re-read the same number.
+  useEffect(() => {
+    if (!running) return
+    const id = setInterval(() => {
+      fetchCompactStatus(source.id)
+        .then((s) => {
+          setState(s)
+          // `running` goes false on this same update, so the effect tears the
+          // interval down and this fires once rather than on every later poll.
+          if (s.status === 'done') onCompactedRef.current()
+          if (s.status === 'error') setError(s.error ?? 'error')
+        })
+        .catch(() => {})
+    }, 1000)
+    return () => clearInterval(id)
+  }, [running, source.id])
 
   const run = () => {
-    setBusy(true)
+    setStarting(true)
     setError(null)
     compactDatabase(source.id)
-      .then((r) => {
-        setResult(r)
-        onCompacted()
-      })
+      .then(setState)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setBusy(false))
+      .finally(() => setStarting(false))
   }
 
   const close = () => {
@@ -376,12 +413,18 @@ function CompactDatabaseDialog({
     // Cleared after the dialog is gone, so the body does not flip back to the
     // confirmation text while it animates out.
     setTimeout(() => {
-      setResult(null)
+      setState(null)
       setError(null)
     }, 200)
   }
 
-  const reclaimed = result ? result.sizeBefore - result.sizeAfter : 0
+  const reclaimed = result ? result.sizeBefore - (result.sizeAfter ?? 0) : 0
+  // Capped: dataSize is DuckDB's own estimate, and a copy that runs slightly past
+  // it must not render a bar wider than its track.
+  const percent =
+    running && state && state.dataSize
+      ? Math.min(100, Math.round((state.bytesWritten / state.dataSize) * 100))
+      : null
 
   return (
     <AlertDialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
@@ -390,14 +433,30 @@ function CompactDatabaseDialog({
           <AlertDialogTitle>{t('databases.compact_title')}</AlertDialogTitle>
           <AlertDialogDescription asChild>
             {result ? (
-              <span className="block space-y-1">
-                <span className="block">
-                  {reclaimed > 0
-                    ? t('databases.compact_done', {
-                        freed: humanBytes(reclaimed, i18n.language),
-                        size: humanBytes(result.sizeAfter, i18n.language),
+              <span className="block">
+                {reclaimed > 0
+                  ? t('databases.compact_done', {
+                      freed: humanBytes(reclaimed, i18n.language),
+                      size: humanBytes(result.sizeAfter ?? 0, i18n.language),
+                    })
+                  : t('databases.compact_done_nothing')}
+              </span>
+            ) : running ? (
+              <span className="block space-y-2">
+                <span className="block">{t('databases.compact_running')}</span>
+                {/* Only when DuckDB gave a denominator. Without one there is no
+                    honest bar to draw, so the bytes written stand alone. */}
+                {percent != null && <Progress value={percent} />}
+                <span className="block font-mono text-[10px]">
+                  {state && state.dataSize
+                    ? t('databases.compact_progress', {
+                        written: humanBytes(state.bytesWritten, i18n.language),
+                        total: humanBytes(state.dataSize, i18n.language),
+                        percent: percent ?? 0,
                       })
-                    : t('databases.compact_done_nothing')}
+                    : t('databases.compact_progress_unknown', {
+                        written: humanBytes(state?.bytesWritten ?? 0, i18n.language),
+                      })}
                 </span>
               </span>
             ) : (
@@ -416,13 +475,17 @@ function CompactDatabaseDialog({
         <AlertDialogFooter>
           {result ? (
             <AlertDialogAction onClick={close}>{t('common.close')}</AlertDialogAction>
+          ) : running ? (
+            // The work is server-side and survives this dialog, so closing it is
+            // safe: hiding the progress does not cancel the compaction.
+            <AlertDialogCancel>{t('common.close')}</AlertDialogCancel>
           ) : (
             <>
-              <AlertDialogCancel disabled={busy}>{t('common.cancel')}</AlertDialogCancel>
+              <AlertDialogCancel disabled={starting}>{t('common.cancel')}</AlertDialogCancel>
               {/* Not AlertDialogAction: that closes the dialog on click, and the
-                  run has to stay on screen to report what it reclaimed. */}
-              <Button size="sm" onClick={run} disabled={busy} className="gap-1.5">
-                {busy && <Loader2 size={14} className="animate-spin" />}
+                  run has to stay on screen to report its progress. */}
+              <Button size="sm" onClick={run} disabled={starting} className="gap-1.5">
+                {starting && <Loader2 size={14} className="animate-spin" />}
                 {t('databases.compact_action')}
               </Button>
             </>

@@ -1,6 +1,8 @@
 import asyncio
 import contextlib
+import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import select
@@ -335,24 +337,99 @@ def is_managed(source: DataSource) -> bool:
     return bool((source.connection_config or {}).get("managed"))
 
 
-async def compact_managed(source: DataSource) -> tuple[int, int]:
-    """Reclaim the free blocks in a managed database file. Returns (before, after).
+@dataclass
+class CompactionState:
+    """Live state of one compaction, polled by the client.
 
-    Only for managed files: an uploaded blob is content-addressed (rewriting it
+    In memory rather than a `jobs` row: a Job is keyed by project, and a database
+    belongs to the workspace, so persisting one would mean a schema change and a
+    migration to carry a single integer. The cost of losing this on restart is
+    that the UI stops reporting progress — the compaction itself is a temp file
+    plus an atomic rename, which is safe to interrupt at any point.
+    """
+
+    status: str  # 'running' | 'done' | 'error'
+    size_before: int
+    #: Denominator for the bar: bytes the data occupies, free blocks excluded.
+    #: None when DuckDB would not answer — the UI then shows bytes without a %.
+    data_size: int | None
+    bytes_written: int = 0
+    size_after: int | None = None
+    error: str | None = None
+
+
+_compactions: dict[str, CompactionState] = {}
+_compactions_lock = threading.Lock()
+_compaction_tasks: set[asyncio.Task] = set()
+
+
+def compaction_state(source_id: str) -> CompactionState | None:
+    with _compactions_lock:
+        return _compactions.get(source_id)
+
+
+async def start_compaction(source: DataSource) -> CompactionState:
+    """Begin compacting a managed database, returning once it is under way.
+
+    Runs detached so the request returns immediately: a multi-GB rewrite outlives
+    any sensible HTTP timeout, and the client polls `compaction_state` instead.
+    Only for managed files — an uploaded blob is content-addressed (rewriting it
     would invalidate the sha every reference uses) and an external engine has no
     file here to compact.
     """
     if not is_managed(source):
         raise ValueError("only a server-owned database can be compacted")
 
+    source_id = source.id
+    path = managed_db.path_for(source_id)
+    if not path.exists():
+        raise ValueError("the database file is missing")
+
+    size_before = path.stat().st_size
+    data_size = await asyncio.to_thread(managed_db.data_size, source_id)
+
+    # Checked and registered under one acquisition: two requests arriving together
+    # would otherwise both see "not running" and start a second rewrite of the
+    # same file, the loser's os.replace silently discarding the winner's work.
+    state = CompactionState(
+        status="running", size_before=size_before, data_size=data_size
+    )
+    with _compactions_lock:
+        running = _compactions.get(source_id)
+        if running is not None and running.status == "running":
+            raise ValueError("a compaction is already running for this database")
+        _compactions[source_id] = state
+
     # The compaction swaps a new file in under this path. A warm pooled handle
-    # would go on serving the old inode — reads would silently keep working
-    # against a file that no longer exists on disk. `invalidate` waits for any
+    # would go on serving the replaced inode — reads would silently keep working
+    # against a file that is no longer on disk. `invalidate` waits for any
     # in-flight query before closing, so nothing is cut off mid-statement.
-    connection_pool.invalidate(source.id)
-    # `connection_info` stats the file on every call, so the new size is picked up
-    # by the next read with nothing to invalidate here.
-    return await asyncio.to_thread(managed_db.compact, source.id)
+    connection_pool.invalidate(source_id)
+
+    def _on_bytes(n: int) -> None:
+        # Plain assignment of an int, and the only writer — the poll reads a
+        # value that is either the old one or the new one, never a torn one.
+        state.bytes_written = n
+
+    def _run() -> None:
+        try:
+            before, after = managed_db.compact(source_id, _on_bytes)
+        except Exception as e:  # noqa: BLE001 — reported through the polled state
+            state.status = "error"
+            state.error = str(e)
+            return
+        state.size_before = before
+        state.size_after = after
+        state.bytes_written = after
+        state.status = "done"
+
+    # Held in a module-level set: asyncio keeps only a weak reference to a task,
+    # so one nobody holds can be collected mid-flight and the compaction would
+    # stop silently part-way through.
+    task = asyncio.create_task(asyncio.to_thread(_run))
+    _compaction_tasks.add(task)
+    task.add_done_callback(_compaction_tasks.discard)
+    return state
 
 
 def is_external_engine(engine: str | None) -> bool:

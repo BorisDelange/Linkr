@@ -21,7 +21,7 @@ from app.schemas.concept_cache import (
     ConceptStatsSave,
 )
 from app.schemas.data_source import (
-    CompactResult,
+    CompactStatus,
     DatabaseConnectionInfo,
     CreateFromDdlRequest,
     DataSourceCreate,
@@ -444,26 +444,56 @@ async def get_database_connection_info(
     return await data_source_service.connection_info(db, source)
 
 
-@router.post("/{source_id}/compact", response_model=CompactResult)
+def _compact_status(state: data_source_service.CompactionState) -> CompactStatus:
+    return CompactStatus(
+        status=state.status,
+        size_before=state.size_before,
+        size_after=state.size_after,
+        data_size=state.data_size,
+        bytes_written=state.bytes_written,
+        error=state.error,
+    )
+
+
+@router.post("/{source_id}/compact", response_model=CompactStatus)
 async def compact_database(
     source_id: str,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Rewrite a managed DuckDB file without its free blocks.
+    """Start rewriting a managed DuckDB file without its free blocks.
 
-    Gated on `databases:write`: it rewrites the file in place. The data is
-    unchanged — this reclaims space a dropped table left behind, which DuckDB
-    never returns to the filesystem on its own.
+    Returns as soon as the work is under way — a multi-GB rewrite outlives any
+    sensible HTTP timeout — and the client polls the GET twin below. Gated on
+    `databases:write`: it rewrites the file in place. The data is unchanged; this
+    reclaims space a dropped table left behind, which DuckDB never returns to the
+    filesystem on its own.
     """
     source = await _load_source(db, source_id, user, "databases:write")
     try:
-        before, after = await data_source_service.compact_managed(source)
+        state = await data_source_service.start_compaction(source)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-    except Exception as e:  # noqa: BLE001 — surface the DuckDB error to the client
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    return CompactResult(size_before=before, size_after=after)
+    return _compact_status(state)
+
+
+@router.get("/{source_id}/compact", response_model=CompactStatus)
+async def compact_database_status(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Progress of the compaction started by the POST twin.
+
+    404 when none has run for this database in this server process: the state is
+    in memory, so a restart mid-compaction loses the readout (never the file,
+    which is a temp copy plus an atomic rename).
+    """
+    await _load_source(db, source_id, user, "databases:read")
+    state = data_source_service.compaction_state(source_id)
+    if state is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no compaction for this database")
+    return _compact_status(state)
 
 
 @router.get("/{source_id}/concept-cache", response_model=ConceptCacheStatus)

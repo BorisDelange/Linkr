@@ -177,18 +177,33 @@ export function fetchDatabaseConnectionInfo(
   return apiRequest<DatabaseConnectionInfo>(`/data-sources/${dataSourceId}/connection-info`)
 }
 
-export interface CompactResult {
+export interface CompactStatus {
+  status: 'running' | 'done' | 'error'
   sizeBefore: number
-  sizeAfter: number
+  sizeAfter: number | null
+  /**
+   * Bytes the DATA occupies — the denominator for the progress bar. Not the file
+   * size: on a database worth compacting the file is mostly free blocks, so that
+   * would stall the bar and then jump. An estimate, and null when unavailable.
+   */
+  dataSize: number | null
+  bytesWritten: number
+  error: string | null
 }
 
 /**
- * Reclaim the free blocks in a managed DuckDB file. The data is unchanged: this
- * only returns to the filesystem the space a dropped table left behind, which
- * DuckDB never releases on its own. Server mode only, managed databases only.
+ * Start reclaiming the free blocks in a managed DuckDB file. Resolves as soon as
+ * the work is under way, not when it finishes — poll `fetchCompactStatus`. The
+ * data is unchanged: this only returns to the filesystem the space a dropped
+ * table left behind. Server mode only, managed databases only.
  */
-export function compactDatabase(dataSourceId: string): Promise<CompactResult> {
-  return apiRequest<CompactResult>(`/data-sources/${dataSourceId}/compact`, { method: 'POST' })
+export function compactDatabase(dataSourceId: string): Promise<CompactStatus> {
+  return apiRequest<CompactStatus>(`/data-sources/${dataSourceId}/compact`, { method: 'POST' })
+}
+
+/** Progress of the compaction started by `compactDatabase`. */
+export function fetchCompactStatus(dataSourceId: string): Promise<CompactStatus> {
+  return apiRequest<CompactStatus>(`/data-sources/${dataSourceId}/compact`)
 }
 
 /**
