@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ConceptColorSwatch } from './ConceptColorSwatch'
 import { FormField } from '@/components/ui/form-field'
 import type { DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { useAppStore } from '@/stores/app-store'
@@ -13,6 +14,14 @@ import type { PluginConfigField } from '@/types/plugin'
 interface Props {
   field: PluginConfigField
   value: Partial<DatasetTimelineMapping>[] | undefined
+  /**
+   * How many database concepts the widget already plots.
+   *
+   * Both sets share one chart and one rotating palette, so a dataset concept's
+   * "auto" colour continues the sequence rather than restarting it — otherwise the
+   * first dataset variable would always be the same red as the first concept.
+   */
+  conceptCount: number
   onChange: (value: Partial<DatasetTimelineMapping>[]) => void
 }
 
@@ -28,7 +37,7 @@ interface Props {
  * The row shows the variable's name with its file beside it: two datasets can hold
  * a "Heart rate", and the name alone would not say which is which.
  */
-export function DatasetsSelectField({ field, value, onChange }: Props) {
+export function DatasetsSelectField({ field, value, conceptCount, onChange }: Props) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
   const { projectUid, schemaMapping } = usePatientChartContext()
@@ -105,6 +114,13 @@ export function DatasetsSelectField({ field, value, onChange }: Props) {
               return (
                 <div key={index} className="rounded-md border px-2">
                   <div className="flex h-7 items-center gap-1">
+                    <ConceptColorSwatch
+                      value={mapping.color}
+                      index={conceptCount + index}
+                      onChange={(color) => onChange(
+                        mappings.map((x, i) => (i === index ? { ...x, color } : x)),
+                      )}
+                    />
                     <span className="min-w-0 flex-1 truncate text-xs font-medium">
                       {nameOf(mapping)}
                     </span>
@@ -153,6 +169,7 @@ export function DatasetsSelectField({ field, value, onChange }: Props) {
         datasets={datasets}
         columnsOf={columnsOf}
         schemaMapping={schemaMapping}
+        colorIndex={conceptCount + (editing != null && editing >= 0 ? editing : mappings.length)}
         onSubmit={submitMapping}
       />
 

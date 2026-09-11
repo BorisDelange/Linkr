@@ -13,7 +13,7 @@ import {
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
 import { isPlottable, useDatasetSeries } from './use-dataset-series'
-import { timelineDatasets } from '@/lib/patient-data/dataset-timeline'
+import { datasetSeriesKeyId, timelineDatasets } from '@/lib/patient-data/dataset-timeline'
 import { conceptColorHex } from '@/lib/concept-colors'
 import {
   subscribeTimelineSync,
@@ -28,6 +28,7 @@ import { TimelineCanvas, type TimelineSeries } from './TimelineCanvas'
 import { classifySeries, resolveRenderer } from './timeline-shape'
 import {
   dygraphAxisLabelWidth,
+  legendWidth,
   TIMELINE_GUTTER,
   TIMELINE_PAD_R,
   formatAxisTick,
@@ -68,20 +69,30 @@ function resolveCssVar(varName: string): string {
     .trim()
 }
 
+/** A dataset series' colour and palette position, keyed by its synthetic id. */
+type DatasetColorMap = Record<string, { color?: string; index: number }>
+
 /**
  * Series colors: each concept uses its configured color when set, otherwise the
  * auto color for its position in the widget's own conceptIds list — NOT its
  * position among the series actually returned, so a concept keeps its color even
  * when another one has no data for the selected patient and drops out.
+ *
+ * A dataset series is not in `conceptIds` at all: its colour is declared on the
+ * mapping, and its palette position continues after the concepts, so the two sets
+ * share one rotation instead of both starting at red.
  */
 function getSeriesColors(
   names: string[],
   conceptIdByName: Record<string, number>,
   conceptColors: Record<string, string>,
   conceptIds: number[],
+  datasetColors: DatasetColorMap,
 ): string[] {
   return names.map((name, i) => {
     const id = conceptIdByName[name]
+    const fromDataset = id != null ? datasetColors[String(id)] : undefined
+    if (fromDataset) return conceptColorHex(fromDataset.color, fromDataset.index)
     const position = id != null ? conceptIds.indexOf(id) : -1
     return conceptColorHex(
       id != null ? conceptColors[String(id)] : undefined,
@@ -168,6 +179,7 @@ export function TimelineWidget({
     return subscribeGutter(tabId, setSharedGutter)
   }, [syncTimeRange, tabId])
   const gutter = sharedGutter ?? TIMELINE_GUTTER
+  const legendBoxWidth = legendWidth(gutter)
   const stepPlot = config.stepPlot ?? false
   const showPoints = config.showPoints ?? true
   // strokeWidth comes from a schema `select` (string) but older configs may hold a number.
@@ -208,6 +220,19 @@ export function TimelineWidget({
   const datasetRows = useDatasetSeries(
     datasetMappings, patientId, visitId, visible, visitDetailId,
   )
+
+  // Keyed by the SAME synthetic id `datasetRowsToTimeline` stamps on its rows, so
+  // the colour follows the variable rather than wherever it lands among the series.
+  const datasetColors = useMemo<DatasetColorMap>(() => {
+    const out: DatasetColorMap = {}
+    datasetMappings.forEach((m, i) => {
+      if (!m.datasetFileId) return
+      const id = datasetSeriesKeyId(m.datasetFileId, m.valueColumn ?? m.dateColumn ?? '')
+      out[String(id)] = { color: m.color, index: conceptIds.length + i }
+    })
+    return out
+  }, [datasetMappings, conceptIds.length])
+  const datasetColorsKey = JSON.stringify(datasetColors)
 
   const data = useMemo<TimelineRow[]>(() => {
     if (!datasetRows.length) return omopData
@@ -320,7 +345,7 @@ export function TimelineWidget({
   const series = useMemo<TimelineSeries[]>(() => {
     if (data.length === 0) return []
     const byConcept = new Map<number, TimelineSeries>()
-    const colours = getSeriesColors(conceptNames, conceptIdByName, conceptColors, conceptIds)
+    const colours = getSeriesColors(conceptNames, conceptIdByName, conceptColors, conceptIds, datasetColors)
     conceptNames.forEach((name, i) => {
       const id = conceptIdByName[name]
       if (id != null) {
@@ -354,7 +379,7 @@ export function TimelineWidget({
       if (s && seen.size === 1) s.unit = [...seen][0]
     }
     return [...byConcept.values()].filter((s) => s.events.length > 0)
-  }, [data, conceptNames, conceptIdByName, conceptColors, conceptIds])
+  }, [data, conceptNames, conceptIdByName, conceptColors, conceptIds, datasetColors])
 
   // Which renderer draws this widget. Dygraph plots continuous numeric series and
   // nothing else, so `auto` uses it exactly while it is capable.
@@ -388,9 +413,15 @@ export function TimelineWidget({
   useEffect(() => { setCanvasView(null) }, [bounds.lo, bounds.hi])
   const view = canvasView ?? bounds
 
-  // A different patient means different dates entirely, so the window the
-  // channel remembers is meaningless now — adopting it would open every synced
-  // timeline on empty space.
+  // A different patient means different dates entirely, so every window in play
+  // is meaningless now and the chart goes back to showing the whole record.
+  //
+  // Three windows have to be let go of, because each is remembered somewhere
+  // else: the channel's (adopting it would open every synced timeline on empty
+  // space), the canvas renderer's, and Dygraph's own `dateWindow` — that last one
+  // survives an `updateOptions` with new data, which is exactly why a zoomed
+  // timeline stayed zoomed on the next patient, framing a stretch of time they
+  // have no rows in.
   //
   // Only on an actual CHANGE, never on mount: a timeline mounting into a tab
   // that peers are already synced on must adopt their window, not erase it.
@@ -399,6 +430,11 @@ export function TimelineWidget({
     if (lastPatientRef.current === patientId) return
     lastPatientRef.current = patientId
     forgetTimelineRange(channel)
+    setCanvasView(null)
+    lastBroadcastRef.current = null
+    // `null` is Dygraph's "fit the data" — resetZoom() would re-frame the OLD
+    // rows, which are still loaded at this point.
+    dygraphRef.current?.updateOptions({ dateWindow: null })
   }, [patientId, channel])
 
   // Sync, canvas side. Dygraph broadcasts from its own drawCallback; the canvas
@@ -455,7 +491,7 @@ export function TimelineWidget({
       return
     }
 
-    const colors = getSeriesColors(conceptNames, conceptIdByName, conceptColors, conceptIds)
+    const colors = getSeriesColors(conceptNames, conceptIdByName, conceptColors, conceptIds, datasetColors)
     const theme = getThemeColors()
 
     const opts: dygraphs.Options = {
@@ -606,7 +642,7 @@ export function TimelineWidget({
     // rebuilt on a language switch — 8 PM becomes 20:00.
     // conceptColors / conceptIds are covered by their serialized keys.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [renderer, chartData, conceptNames, conceptIdByName, getThemeColors, yAxisFromZero, stepPlot, showPoints, strokeWidth, syncTimeRange, conceptColorsKey, channel, gutter, i18n.language, widgetId])
+  }, [renderer, chartData, conceptNames, conceptIdByName, getThemeColors, yAxisFromZero, stepPlot, showPoints, strokeWidth, syncTimeRange, conceptColorsKey, datasetColorsKey, channel, gutter, i18n.language, widgetId])
 
   // Sync: when another timeline on this channel broadcasts a range, adopt it.
   useEffect(() => {
@@ -681,7 +717,7 @@ export function TimelineWidget({
     const observer = new MutationObserver(() => {
       if (dygraphRef.current && chartData) {
         const theme = getThemeColors()
-        const colors = getSeriesColors(conceptNames, conceptIdByName, conceptColors, conceptIds)
+        const colors = getSeriesColors(conceptNames, conceptIdByName, conceptColors, conceptIds, datasetColors)
         dygraphRef.current.updateOptions({
           colors,
           gridLineColor: theme.gridLineColor,
@@ -700,7 +736,7 @@ export function TimelineWidget({
     })
     return () => observer.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chartData, conceptNames, conceptIdByName, getThemeColors, conceptColorsKey])
+  }, [chartData, conceptNames, conceptIdByName, getThemeColors, conceptColorsKey, datasetColorsKey])
 
   // Determine overlay message (shown on top of the chart container)
   let overlayMessage: string | null = null
@@ -737,6 +773,32 @@ export function TimelineWidget({
         onMouseDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
       />
+      {/* Legend, in the blank half of Dygraph's gutter. The mixed-shape renderer
+          names each row in its own gutter already, so this is the curve chart's
+          equivalent — and it fills space the alignment rule was reserving anyway.
+          Pointer-events off: the gutter is inert, but a stray hover here would
+          still steal Dygraph's own follow-legend. */}
+      {!overlayMessage && renderer === 'dygraphs' && legendBoxWidth > 0 && series.length > 0 && (
+        <div
+          className="pointer-events-none absolute left-0 top-0 z-[5] flex flex-col gap-0.5 overflow-hidden py-1 pl-1.5"
+          style={{ width: legendBoxWidth, maxHeight: '100%' }}
+        >
+          {series.map((s) => (
+            <div key={s.conceptId} className="flex items-center gap-1">
+              <span
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: s.colour }}
+              />
+              <span
+                className="min-w-0 truncate text-[10px] leading-tight text-muted-foreground"
+                title={s.name}
+              >
+                {s.name}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {/* The mixed-shape renderer, for a selection Dygraph cannot draw. Mounted
           only in that mode so its ResizeObserver doesn't run behind a dygraph. */}
       {!overlayMessage && renderer === 'overview' && (

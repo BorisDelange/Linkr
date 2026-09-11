@@ -17,6 +17,7 @@ import type { DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DatasetFile } from '@/types'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
+import { ConceptColorSwatch } from './ConceptColorSwatch'
 
 const NONE = '__none__'
 
@@ -70,6 +71,8 @@ interface Props {
   /** Columns of the dataset currently chosen, resolved by the caller (lazy in server mode). */
   columnsOf: (datasetFileId: string | undefined) => DatasetFile['columns']
   schemaMapping?: SchemaMapping
+  /** Position among the widget's series, which decides the "auto" colour shown. */
+  colorIndex: number
   onSubmit: (mapping: Partial<DatasetTimelineMapping>) => void
 }
 
@@ -87,7 +90,7 @@ interface Props {
  * this variable.
  */
 export function DatasetMappingDialog({
-  open, onOpenChange, mapping, datasets, columnsOf, schemaMapping, onSubmit,
+  open, onOpenChange, mapping, datasets, columnsOf, schemaMapping, colorIndex, onSubmit,
 }: Props) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
@@ -125,8 +128,11 @@ export function DatasetMappingDialog({
   const pickDataset = (v: string) => {
     // A different dataset invalidates every column chosen for the previous one —
     // they name columns that no longer exist, and would plot nothing. The typed
-    // name is kept: it describes the variable, not the file it came from.
-    setDraft((d) => (v === NONE ? {} : { datasetFileId: v, seriesName: d.seriesName }))
+    // name and the colour are kept: they describe the variable, not the file it
+    // came from.
+    setDraft((d) => (
+      v === NONE ? {} : { datasetFileId: v, seriesName: d.seriesName, color: d.color }
+    ))
   }
 
   return (
@@ -167,12 +173,22 @@ export function DatasetMappingDialog({
             required
           >
             {({ id }) => (
-              <Input
-                id={id}
-                value={draft.seriesName ?? ''}
-                onChange={(e) => setDraft((d) => ({ ...d, seriesName: e.target.value }))}
-                placeholder={t('patient_data.dataset_series_name_placeholder')}
-              />
+              // The colour sits on the name's own row: both answer "how do I
+              // recognise this variable on the chart", and the same swatch picks a
+              // concept's colour in Select concepts.
+              <div className="flex items-center gap-2">
+                <Input
+                  id={id}
+                  value={draft.seriesName ?? ''}
+                  onChange={(e) => setDraft((d) => ({ ...d, seriesName: e.target.value }))}
+                  placeholder={t('patient_data.dataset_series_name_placeholder')}
+                />
+                <ConceptColorSwatch
+                  value={draft.color}
+                  index={colorIndex}
+                  onChange={(color) => setDraft((d) => ({ ...d, color }))}
+                />
+              </div>
             )}
           </FormField>
         )}

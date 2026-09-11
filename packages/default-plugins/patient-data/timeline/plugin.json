@@ -8,7 +8,7 @@
     "en": "Interactive timeline chart for clinical measurements (dygraphs).",
     "fr": "Graphique chronologique interactif pour les mesures cliniques (dygraphs)."
   },
-  "version": "1.4.0",
+  "version": "1.5.0",
   "scope": "warehouse",
   "category": "patient-data",
   "tags": [

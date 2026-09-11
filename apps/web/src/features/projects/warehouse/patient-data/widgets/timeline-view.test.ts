@@ -12,6 +12,7 @@ import {
   TIMELINE_GUTTER,
   TIMELINE_PAD_R,
   dygraphAxisLabelWidth,
+  legendWidth,
   MIN_SPAN_MS,
 } from './timeline-view'
 
@@ -227,6 +228,27 @@ describe('plot geometry', () => {
 
   it('keeps a right-hand gap, so the last point is not flush with the edge', () => {
     expect(TIMELINE_PAD_R).toBeGreaterThan(0)
+  })
+
+  it('finds room for a legend in the default gutter', () => {
+    // The gutter is sized for the canvas renderer's concept names, so Dygraph —
+    // which needs far less — has the surplus going spare.
+    expect(legendWidth(TIMELINE_GUTTER)).toBeGreaterThan(0)
+  })
+
+  it('never lets the legend reach the y-axis numbers', () => {
+    // Both are drawn in the same gutter, and the numbers are right-aligned
+    // against the plot: the legend has to stop before they start, or it reads as
+    // one overlapping smudge at the left edge of every chart.
+    for (const g of [TIMELINE_GUTTER, 160, 260]) {
+      expect(legendWidth(g)).toBeLessThan(dygraphAxisLabelWidth(g))
+    }
+  })
+
+  it('gives up rather than crowd a narrow gutter', () => {
+    // 0 is the signal not to draw one at all — a two-character legend would be
+    // worse than none.
+    expect(legendWidth(60)).toBe(0)
   })
 })
 

@@ -254,6 +254,10 @@ export function ConceptPickerDialog({
     [dataSourceId, schemaMapping, defaultDictKey],
   )
 
+  // Both tabs have to be REACHABLE for a switcher to mean anything: a schema to
+  // show, and a caller that has not pinned the dialog to one of them.
+  const showTabs = !initialTab && !!schema && Object.keys(schema).length > 0
+
   // Selected concepts in pick order — the index drives the auto colour.
   const selectedList = useMemo(
     () => selectedIds.map((id) => ({ id, name: selectedNames.get(id) ?? `#${id}` })),
@@ -278,9 +282,13 @@ export function ConceptPickerDialog({
           <DialogTitle>{t('patient_data.select_concepts')}</DialogTitle>
         </DialogHeader>
 
-        {/* Tab switcher — Settings only shown when the widget exposes a schema */}
-        <div className="flex shrink-0 items-center gap-1 border-b px-4 py-2">
-          {schema && Object.keys(schema).length > 0 && (
+        {/* Tab switcher, only when there is something to switch BETWEEN.
+            A caller that pins the dialog to concepts keeps its settings in its own
+            panel, so the bar was left showing a lone "Concepts" button that
+            switched to the tab already open — chrome with nothing behind it. The
+            count it carried is on the selected panel's own header. */}
+        {showTabs && (
+          <div className="flex shrink-0 items-center gap-1 border-b px-4 py-2">
             <Button
               variant={activeTab === 'settings' ? 'secondary' : 'ghost'}
               size="sm-tight"
@@ -288,18 +296,18 @@ export function ConceptPickerDialog({
             >
               {t('patient_data.tab_settings')}
             </Button>
-          )}
-          <Button
-            variant={activeTab === 'concepts' ? 'secondary' : 'ghost'}
-            size="sm-tight"
-            onClick={() => setActiveTab('concepts')}
-          >
-            {t('patient_data.tab_concepts')}
-            <Badge variant="outline" className="ml-1.5">
-              {selectedIds.length}
-            </Badge>
-          </Button>
-        </div>
+            <Button
+              variant={activeTab === 'concepts' ? 'secondary' : 'ghost'}
+              size="sm-tight"
+              onClick={() => setActiveTab('concepts')}
+            >
+              {t('patient_data.tab_concepts')}
+              <Badge variant="outline" className="ml-1.5">
+                {selectedIds.length}
+              </Badge>
+            </Button>
+          </div>
+        )}
 
         {activeTab === 'concepts' ? (
           /* Concepts tab: table + selected panel (resizable divider) */

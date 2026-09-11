@@ -27,6 +27,28 @@ export const TIMELINE_PAD_R = 10
 const DYGRAPH_TICK_SIZE = 3
 
 /**
+ * Room Dygraph's own y-axis numbers need at the right of the gutter.
+ *
+ * They are right-aligned against the plot, so anything drawn in the gutter has to
+ * stop short of them. Sized for the widest number a value axis realistically
+ * shows ("-1234.5") at the 10px the axis is configured with.
+ */
+const DYGRAPH_Y_LABELS_PX = 52
+
+/**
+ * Width available for a legend in Dygraph's left gutter.
+ *
+ * The gutter exists to keep stacked timelines aligned in time, not because Dygraph
+ * needs it — it asks for ~50px and gets 128 — so the surplus is free space that
+ * would otherwise stay blank. Returns 0 when the gutter is too narrow to hold a
+ * legend without crowding the axis, which is the signal not to draw one.
+ */
+export function legendWidth(gutter: number): number {
+  const room = gutter - DYGRAPH_Y_LABELS_PX - 4
+  return room >= 56 ? room : 0
+}
+
+/**
  * The `axisLabelWidth` that puts Dygraph's plot at a given gutter.
  *
  * Dygraph reserves `axisLabelWidth + 2 * axisTickSize` on the left — see

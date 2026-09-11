@@ -226,10 +226,11 @@ function EditorContent({
           datasets: draftConfig[fieldKey] as Partial<DatasetTimelineMapping>[] | undefined,
           dataset: draftConfig.dataset as Partial<DatasetTimelineMapping> | undefined,
         })}
+        conceptCount={conceptIds.length}
         onChange={(value) => applyConfigChanges({ [fieldKey]: value })}
       />
     ),
-    [draftConfig, applyConfigChanges],
+    [draftConfig, conceptIds.length, applyConfigChanges],
   )
 
   const hasConfig = Object.keys(configSchema).length > 0

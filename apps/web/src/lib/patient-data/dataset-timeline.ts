@@ -48,6 +48,18 @@ export interface DatasetTimelineMapping {
    * warehouse — and the name is the user's own word for it.
    */
   seriesName?: string
+  /**
+   * Colour of this variable's curve: a palette name or a raw `#hex`.
+   *
+   * Held on the mapping rather than in the widget's `conceptColors` map, which is
+   * keyed by concept id: a dataset series' id is DERIVED from the columns it maps
+   * (see `datasetSeriesKeyId`), so re-pointing the variable at another column would
+   * mint a new id and silently drop the colour. The mapping is the variable, so
+   * the colour belongs to it.
+   *
+   * Absent means "auto" — the rotating default palette, by position.
+   */
+  color?: string
 }
 
 /** The subset of the timeline's row shape a dataset can fill. */

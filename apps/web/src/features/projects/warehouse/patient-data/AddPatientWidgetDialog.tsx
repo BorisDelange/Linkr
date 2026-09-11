@@ -159,10 +159,11 @@ export function AddPatientWidgetDialog({
           datasets: pluginConfig[fieldKey] as Partial<DatasetTimelineMapping>[] | undefined,
           dataset: pluginConfig.dataset as Partial<DatasetTimelineMapping> | undefined,
         })}
+        conceptCount={conceptIds.length}
         onChange={(value) => setPluginConfig((prev) => ({ ...prev, [fieldKey]: value }))}
       />
     ),
-    [pluginConfig],
+    [pluginConfig, conceptIds.length],
   )
 
   // Debounced config for the preview — avoids re-querying the warehouse on every keystroke.
