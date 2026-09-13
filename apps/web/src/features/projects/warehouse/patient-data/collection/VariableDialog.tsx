@@ -20,6 +20,23 @@ import type { DatasetColumn, LocalizedString } from '@/types'
  *  never something to choose on purpose. */
 const VARIABLE_TYPES: DatasetColumn['type'][] = ['string', 'number', 'boolean', 'date']
 
+/**
+ * A label as a column name — `"Heart rate"` → `"heart_rate"`.
+ *
+ * Routed through `columnId` and stripped of its `col_` prefix rather than
+ * re-implementing the slug: the id derived from this name has to come out the same
+ * on both sides of the app, and a second spelling of the rule is a second thing to
+ * keep in step (accents, marks, collisions all decided there).
+ */
+function slugOf(labelText: string): string {
+  // `columnId` substitutes its own `col` placeholder when a name slugs to nothing —
+  // `"..."` and `"(%)"` both give `col_col`. Left alone, clearing the label or
+  // typing punctuation into it would drop the literal name "col" into the field.
+  if (!labelText.trim()) return ''
+  const slug = deriveColumnId(labelText).slice('col_'.length)
+  return slug === 'col' ? '' : slug
+}
+
 export interface VariableDraft {
   /** Derived from the name, never typed — see the dialog's own doc comment. */
   id: string
@@ -82,6 +99,11 @@ export function VariableDialog({
   const [max, setMax] = useState('')
   const [busy, setBusy] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  // Whether the column name has been typed in directly. Until it has, it follows
+  // the label — but once someone has set it deliberately, the label must never
+  // overwrite it, or a name chosen to match an existing warehouse column would be
+  // silently replaced by a slug on the next keystroke.
+  const [nameTouched, setNameTouched] = useState(false)
 
   // Re-seeded on open so the dialog never shows the previous variable's values, and
   // so closing it discards whatever was typed.
@@ -97,7 +119,23 @@ export function VariableDialog({
     setMin(column?.min == null ? '' : String(column.min))
     setMax(column?.max == null ? '' : String(column.max))
     setSubmitted(false)
+    // An existing variable arrives with a name that is already its own, so the
+    // label must not start rewriting it; a new one starts empty and free to follow.
+    setNameTouched(column != null)
   }, [open, column, language])
+
+  /**
+   * Type into the label, carrying the column name along with it.
+   *
+   * The name is the label's slug until someone edits it directly: "Heart rate"
+   * gives `heart_rate`, which is what they would have typed anyway. Editing stops
+   * the following entirely — the column exists, and its id is frozen (changing it
+   * is a rekey, which belongs to the datasets page's rename).
+   */
+  const retitle = (next: string) => {
+    setLabel(setLocalized(label, language, next))
+    if (!editing && !nameTouched) setName(slugOf(next))
+  }
 
   // Derived from the name, the same way column ids are derived everywhere else.
   const effectiveId = editing ? column.id : deriveColumnId(name)
@@ -156,14 +194,33 @@ export function VariableDialog({
       busy={busy}
     >
       <div className="space-y-4">
+        {/* Label on its own line, and it is what gets focus: it is the question the
+            author actually has an answer to ("Heart rate"), while the column name
+            below is a technical consequence of it — which is why it follows along
+            as a slug until it is typed in directly. Full width because a label is
+            prose and the two fields under it are short tokens. */}
+        <FormField
+          label={t('datasets.col_meta_label')}
+          hint={t('datasets.col_meta_label_hint')}
+          hintInTooltip
+        >
+          {({ id: fid }) => (
+            <Input
+              id={fid}
+              value={localizedRaw(label, language)}
+              onChange={(e) => retitle(e.target.value)}
+              autoFocus
+            />
+          )}
+        </FormField>
+
         <div className="grid grid-cols-2 gap-3">
           <FormField label={t('datasets.col_name')} hint={t('datasets.col_name_hint')} hintInTooltip required>
             {({ id: fid }) => (
               <Input
                 id={fid}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoFocus
+                onChange={(e) => { setNameTouched(true); setName(e.target.value) }}
               />
             )}
           </FormField>
@@ -204,21 +261,6 @@ export function VariableDialog({
             </p>
           </div>
         )}
-
-        <FormField
-          label={t('datasets.col_meta_label')}
-          hint={t('datasets.col_meta_label_hint')}
-          hintInTooltip
-        >
-          {({ id: fid }) => (
-            <Input
-              id={fid}
-              value={localizedRaw(label, language)}
-              onChange={(e) => setLabel(setLocalized(label, language, e.target.value))}
-              placeholder={name}
-            />
-          )}
-        </FormField>
 
         <FormField label={t('datasets.col_meta_description')}>
           {({ id: fid }) => (

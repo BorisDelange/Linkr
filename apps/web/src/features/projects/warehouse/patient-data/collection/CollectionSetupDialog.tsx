@@ -363,6 +363,16 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
                 id={id}
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
+                // Enter creates the dataset, like the + beside it. The opt-out is
+                // the shell's own: here Enter means "add this one", not "save the
+                // collection", and claiming it through the declared mechanism keeps
+                // the two from both firing.
+                data-no-enter-submit
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return
+                  e.preventDefault()
+                  if (newName.trim() && !busy) void createDataset()
+                }}
                 placeholder={t('patient_data.collection_dataset_placeholder')}
               />
               <Button variant="outline" disabled={!newName.trim() || busy} onClick={() => void createDataset()}>

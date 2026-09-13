@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import { displayColumnName } from '@/lib/dataset-utils'
 import { detectDatasetRoles } from '@/lib/patient-data/dataset-role-detection'
 import type { DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
@@ -140,8 +141,14 @@ export function DatasetMappingDialog({
       open={open}
       onOpenChange={onOpenChange}
       kind="settings"
-      // Three role dropdowns to a row need more than `settings`' max-w-lg.
-      className="sm:max-w-3xl"
+      // Only as wide as it needs to be: until a dataset is picked the dialog holds
+      // one dropdown, and a 3xl shell around it reads as a form with its fields
+      // missing. The role rows that follow DO need the room — three dropdowns to a
+      // line — so it widens once there is something to lay out.
+      className={cn(
+        'transition-[max-width] duration-200 ease-out',
+        draft.datasetFileId ? 'sm:max-w-3xl' : 'sm:max-w-md',
+      )}
       title={editing
         ? t('patient_data.dataset_concept_edit')
         : t('patient_data.dataset_concept_add')}
