@@ -232,13 +232,13 @@ describe('unreplay — a collected column keeps its entry constraints', () => {
 
     const out = replayOps(unreplay(state, ops), ops)
     // The replay alone cannot know them — that is the whole problem.
-    const raw = out.columns.find((c) => c.id === 'col_d') as Record<string, unknown>
+    const raw = out.columns.find((c) => c.id === 'col_d') as unknown as Record<string, unknown>
     expect(raw.withTime).toBeUndefined()
 
     // The store puts them back from the column as it stood, which is what the
     // sidebar then renders.
     const carried = carryColumnMeta(out.columns, state.columns)
-    const col = carried.find((c) => c.id === 'col_d') as Record<string, unknown>
+    const col = carried.find((c) => c.id === 'col_d') as unknown as Record<string, unknown>
     expect(col.withTime).toBe(true)
     expect(col.required).toBe(true)
     expect(col.min).toBe('2020-01-01')

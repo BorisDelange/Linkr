@@ -19,10 +19,11 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DatasetTimelineMapping } from './dataset-timeline'
 import { identityColumnsFromMapping } from '@/features/projects/warehouse/patient-data/collection/identity-columns'
 
-/** The roles detection can fill; `datasetFileId` and `seriesName` are not columns. */
+/** The roles detection can fill. Everything else a mapping carries names the
+ *  variable rather than one of its columns, so there is nothing to detect. */
 export type DetectableRole = Exclude<
   keyof DatasetTimelineMapping,
-  'datasetFileId' | 'seriesName'
+  'datasetFileId' | 'seriesName' | 'color'
 >
 
 /**
