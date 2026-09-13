@@ -1701,6 +1701,22 @@ async function importDatasets(
     // as widget configs, since a legacy export's ids differ from the reparse's.
     const ops = (df.ops ?? []).map(op => remapColIds(op, colIdMap))
     if (ops.length) await recordDatasetOps(node.id, ops, { replace: true })
+
+    // Column metadata, back onto the server's sidecar. The upload restores the raw
+    // file and the server re-derives {id,name,type,order} from it — everything the
+    // author set on a column (its label, and the entry constraints a collected
+    // variable carries: withTime, required, min/max, allowedValues) exists only in
+    // the ZIP, so without this a re-imported collection came back with its
+    // datetimes reduced to plain dates.
+    //
+    // After the replay, not before: a column the log ADDS does not exist on the
+    // server until its ops have been recorded, and metadata for an unknown id is
+    // dropped on the floor.
+    if (zipCols.length) {
+      await storage.datasetFiles.update(node.id, {
+        columns: zipCols.map((c) => ({ ...c, id: colIdMap.get(c.id) ?? c.id })),
+      })
+    }
   }
 
   return { datasetIdMap, colIdMap }

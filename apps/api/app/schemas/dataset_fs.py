@@ -81,7 +81,10 @@ class DsReimport(CamelModel):
 
 class DsColumnMeta(CamelModel):
     """Editorial metadata to persist in the disk sidecar. `columns` maps columnId →
-    {label?, description?, valueLabels?} (authoritative replace). `parseOptions`,
+    {label?, description?, valueLabels?, withTime?, required?, min?, max?,
+    allowedValues?} (authoritative replace) — presentation plus the entry
+    constraints a collected variable carries, none of which are derivable from the
+    raw file. `parseOptions`,
     when present, replaces the stored parse options (columnFilterMode/columnTypes/…)
     without a reparse — for pure-UI options like filter mode."""
 

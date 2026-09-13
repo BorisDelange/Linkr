@@ -425,6 +425,16 @@ export const apiDatasetFileStorage: DatasetFileStorage = {
         if (col.label) entry.label = col.label
         if (col.description) entry.description = col.description
         if (col.valueLabels && Object.keys(col.valueLabels).length > 0) entry.valueLabels = col.valueLabels
+        // Entry constraints travel too. They were left out, so a collected
+        // variable set to "date and time" came back a plain date on the next
+        // reload: the flag lived only in the tab that set it. The sidecar stores
+        // whatever it is given and `merge_column_meta` overlays it wholesale, so
+        // the server side already handled these.
+        if (col.withTime) entry.withTime = true
+        if (col.required) entry.required = true
+        if (col.min != null && col.min !== '') entry.min = col.min
+        if (col.max != null && col.max !== '') entry.max = col.max
+        if (col.allowedValues && col.allowedValues.length > 0) entry.allowedValues = col.allowedValues
         if (Object.keys(entry).length > 0) columnMeta[col.id] = entry
       }
       await apiRequest('/dataset-files/columns/meta', {

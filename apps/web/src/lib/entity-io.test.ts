@@ -805,16 +805,19 @@ describe('importProjectContent — server-mode datasets', () => {
   const makeStore = () => {
     const widgetCreate = vi.fn(async (_w: { datasetFileId?: string; source?: unknown }) => {})
     const datasetFileCreate = vi.fn(async (_f: unknown) => {})
+    // The import writes the ZIP's column metadata back after uploading, so the
+    // mock has to offer `update` like the real Storage does.
+    const datasetFileUpdate = vi.fn(async (_id: string, _c: unknown) => {})
     const dashboardCreate = vi.fn(async (_d: unknown) => {})
     const store = new Proxy({}, {
       get: (_t, prop) => {
         if (prop === 'dashboardWidgets') return { create: widgetCreate }
-        if (prop === 'datasetFiles') return { create: datasetFileCreate }
+        if (prop === 'datasetFiles') return { create: datasetFileCreate, update: datasetFileUpdate }
         if (prop === 'dashboards') return { create: dashboardCreate }
         return new Proxy({}, { get: () => async () => {} })
       },
     }) as unknown as Storage
-    return { store, widgetCreate, datasetFileCreate, dashboardCreate }
+    return { store, widgetCreate, datasetFileCreate, datasetFileUpdate, dashboardCreate }
   }
 
   beforeEach(() => {
@@ -3452,5 +3455,70 @@ describe('stale dataset references on export', () => {
     // work that is still perfectly valid.
     expect(out.widgets[0].config.datasets).toHaveLength(1)
     expect(out.widgets[0].config.datasets[0].seriesName).toBe('Heart rate')
+  })
+})
+
+// A collected variable's entry constraints — withTime above all — live ONLY on the
+// column. The server re-derives {id,name,type,order} from the uploaded raw file, so
+// anything the author set is lost unless the import pushes it back. It did not, and
+// a re-imported collection came back with its datetimes reduced to plain dates.
+describe('column metadata survives a server-mode import', () => {
+  it('pushes the ZIP’s constraints back onto the re-parsed columns', async () => {
+    const pushed: { id: string; changes: Record<string, unknown> }[] = []
+    const storage = new Proxy({
+      datasetFiles: {
+        create: async () => {},
+        update: async (id: string, changes: Record<string, unknown>) => {
+          pushed.push({ id, changes })
+        },
+      },
+      dataSources: { getAll: async () => [] },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    serverMode.value = true
+    importDatasetOnServer.mockResolvedValue({
+      id: 'collection.csv',
+      // As the server returns them: derived from the raw file, carrying no
+      // label and none of the constraints.
+      columns: [
+        { id: 'col_subject_id', name: 'subject_id', type: 'number', order: 0 },
+        { id: 'col_hr_dt', name: 'hr_dt', type: 'date', order: 1 },
+      ],
+    })
+
+    const parsed = {
+      project: { uid: 'p1', name: { en: 'P' } },
+      ideFiles: [], pipelines: [], cohorts: [], connections: [], conceptLists: [],
+      dashboards: [], dashboardTabs: [], dashboardWidgets: [],
+      datasetFiles: [{
+        id: 'collection.csv', projectUid: 'p1', name: 'collection.csv',
+        type: 'file', parentId: null,
+        columns: [
+          { id: 'col_subject_id', name: 'subject_id', type: 'number', order: 0 },
+          {
+            id: 'col_hr_dt', name: 'hr_dt', type: 'date', order: 1,
+            label: { en: 'HR timestamp' }, withTime: true, required: true,
+          },
+        ],
+        createdAt: '', updatedAt: '',
+      }],
+      datasetAnalyses: [],
+      datasetData: [{ datasetFileId: 'collection.csv', rows: [{ col_subject_id: 1 }] }],
+      datasetRawFiles: [], attachmentsMeta: [], attachmentBlobs: new Map(),
+    } as unknown as ParsedProjectZip
+
+    try {
+      await importProjectContent(parsed, 'p1', storage)
+    } finally {
+      serverMode.value = false
+    }
+
+    const cols = pushed.at(-1)?.changes.columns as Record<string, unknown>[] | undefined
+    const hrDt = cols?.find((c) => c.name === 'hr_dt')
+    expect(hrDt?.withTime).toBe(true)
+    expect(hrDt?.required).toBe(true)
+    expect(hrDt?.label).toEqual({ en: 'HR timestamp' })
   })
 })

@@ -49,7 +49,8 @@ def _colmeta_path(project_uid: str, rel: str) -> Path:
 
 def read_column_meta(project_uid: str, rel: str) -> dict:
     """The editorial column-metadata sidecar for a dataset: {columnId: {label?,
-    description?, valueLabels?}}. Empty dict when none has been set."""
+    description?, valueLabels?, withTime?, required?, min?, max?, allowedValues?}}.
+    Empty dict when none has been set."""
     meta = _read_meta(_colmeta_path(project_uid, rel))
     cols = (meta or {}).get("columns")
     return cols if isinstance(cols, dict) else {}
@@ -190,8 +191,10 @@ def write_ops(project_uid: str, rel: str, ops: list[dict]) -> list[dict]:
 
 def merge_column_meta(columns: list[dict], sidecar: dict) -> list[dict]:
     """Overlay the sidecar's editorial fields onto derived columns, matched by id.
-    Derived {id,name,type,order} stay authoritative; only label/description/
-    valueLabels are added. Sidecar entries for unknown ids are ignored."""
+    Derived {id,name,type,order} stay authoritative; everything the sidecar holds
+    (labels, descriptions, value labels, and the entry constraints — withTime,
+    required, min/max, allowedValues) is overlaid on top. Sidecar entries for
+    unknown ids are ignored."""
     if not sidecar:
         return columns
     out = []
