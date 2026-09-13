@@ -40,6 +40,53 @@ export function dateMaskFor(lang: string): DateMask {
   return lang.startsWith('fr') ? FR : ISO
 }
 
+/**
+ * `HH:MM:SS`, the same guided mask applied to a time of day.
+ *
+ * The time half used to be a native `<input type="time">`, which carries a clock
+ * button in its shadow DOM: it cannot be given `tabIndex={-1}` from script, so Tab
+ * stopped on it instead of moving to the next field, and hiding it depends on a
+ * vendor pseudo-element that not every engine exposes. A plain masked input has no
+ * internal controls at all, and behaves exactly like the date beside it.
+ *
+ * One shape for every language: a 24-hour clock is written the same way
+ * everywhere, so unlike a date it needs no per-locale ordering.
+ */
+export const TIME_MASK: DateMask = {
+  groups: [2, 2, 2],
+  sep: ':',
+  placeholder: 'HH:MM:SS',
+  // Unused for a time — `timeFromMasked` reads the groups positionally — but the
+  // shape is shared, so the field has to be filled with something coherent.
+  order: { y: 0, m: 1, d: 2 },
+}
+
+/**
+ * `HH:MM:SS` for what has been typed so far, padding the parts left blank.
+ *
+ * A bare hour is a real answer: "21" means 21:00:00, which is what someone typing
+ * an hour and tabbing away meant. Returns undefined only when nothing usable was
+ * entered, or when a part is out of range — 25:00 is a typo, not a time.
+ */
+export function timeFromMasked(digits: string): string | undefined {
+  if (digits.length === 0) return undefined
+  const part = (i: number) => digits.slice(i * 2, i * 2 + 2)
+  const h = Number(part(0))
+  const m = part(1) === '' ? 0 : Number(part(1))
+  const s = part(2) === '' ? 0 : Number(part(2))
+  if (!Number.isInteger(h) || h > 23) return undefined
+  if (!Number.isInteger(m) || m > 59) return undefined
+  if (!Number.isInteger(s) || s > 59) return undefined
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(h)}:${p(m)}:${p(s)}`
+}
+
+/** The mask's digits for an `HH:MM[:SS]` string, so a stored time can be edited. */
+export function maskedFromTime(time: string | undefined): string {
+  if (!time) return ''
+  return time.split(':').map((p) => p.padStart(2, '0')).join('').slice(0, 6)
+}
+
 /** The digits of a string, capped at the 8 a date can hold. */
 export function digitsOf(text: string): string {
   return text.replace(/\D/g, '').slice(0, 8)

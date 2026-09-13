@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  dateMaskFor, digitsFromTyped, digitsOf, formatMasked, isoFromMasked, maskedFromIso,
-} from './date-mask'
+import { dateMaskFor, digitsFromTyped, digitsOf, formatMasked, isoFromMasked, maskedFromIso, TIME_MASK, timeFromMasked, maskedFromTime } from './date-mask'
 
 const en = dateMaskFor('en')
 const fr = dateMaskFor('fr')
@@ -142,5 +140,51 @@ describe('maskedFromIso', () => {
     expect(maskedFromIso(undefined, en)).toBe('')
     expect(maskedFromIso('', en)).toBe('')
     expect(maskedFromIso('garbage', en)).toBe('')
+  })
+})
+
+// The time half of a datetime field. It used to be a native `<input type="time">`,
+// whose shadow-DOM clock button cannot be taken out of the tab order from script —
+// Tab stopped on the icon instead of moving on. A masked input has no internal
+// controls, and types like the date beside it.
+describe('TIME_MASK', () => {
+  it('lays digits out as HH:MM:SS', () => {
+    expect(formatMasked('2137', TIME_MASK)).toBe('21:37:')
+    expect(formatMasked('213700', TIME_MASK)).toBe('21:37:00')
+  })
+
+  it('completes a bare hour, because that is a real answer', () => {
+    // Someone who types "21" and tabs away meant 21:00:00. The native input
+    // reported nothing at all until every segment was filled, so the entry was
+    // silently dropped.
+    expect(timeFromMasked('21')).toBe('21:00:00')
+    expect(timeFromMasked('2137')).toBe('21:37:00')
+    expect(timeFromMasked('213745')).toBe('21:37:45')
+  })
+
+  it('pads a single digit hour', () => {
+    expect(timeFromMasked('9')).toBe('09:00:00')
+  })
+
+  it('refuses an impossible time rather than rolling it over', () => {
+    expect(timeFromMasked('25')).toBeUndefined()
+    expect(timeFromMasked('2170')).toBeUndefined()
+    expect(timeFromMasked('213799')).toBeUndefined()
+  })
+
+  it('has nothing to commit for an empty field', () => {
+    expect(timeFromMasked('')).toBeUndefined()
+  })
+
+  it('round-trips a stored time back into the mask', () => {
+    expect(maskedFromTime('21:37:00')).toBe('213700')
+    // A stored value may carry only hours and minutes.
+    expect(maskedFromTime('21:37')).toBe('2137')
+    expect(maskedFromTime(undefined)).toBe('')
+  })
+
+  it('typing the separator shows it, as on the date half', () => {
+    expect(digitsFromTyped('21:', TIME_MASK)).toBe('21')
+    expect(digitsFromTyped('21:3', TIME_MASK)).toBe('213')
   })
 })

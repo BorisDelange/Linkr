@@ -233,7 +233,27 @@ export function displayCellValue(
     const parsed = parseBoolean(raw)
     if (parsed !== null) return parsed ? booleanLabels.true : booleanLabels.false
   }
+  if (col.type === 'date') return displayDatetime(key)
   return key
+}
+
+/**
+ * A stored datetime as it should be READ: `2090-01-01 03:02:03`.
+ *
+ * The `T` is ISO 8601's separator between the date and the time — right for
+ * storing and parsing, but it is machine punctuation, and a column of timestamps
+ * reads as one run of characters with it. Only the separator is touched: the
+ * digits, their order and the seconds stay exactly as stored, so what is shown is
+ * still literally the value.
+ *
+ * A trailing `Z` or an offset would be a claim about time zones this app does not
+ * make — datetimes are wall-clock throughout — so such a value is left alone
+ * rather than quietly restyled.
+ */
+function displayDatetime(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?$/.test(value)
+    ? value.replace('T', ' ')
+    : value
 }
 
 /** Build DatasetColumn metadata from raw headers and rows. */

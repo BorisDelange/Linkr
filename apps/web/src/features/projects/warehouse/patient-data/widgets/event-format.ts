@@ -32,9 +32,20 @@ export function fmtDuration(ms: number): string {
   return `${(h / 24).toFixed(1)} d`
 }
 
-/** A timestamp, to the minute. */
+/**
+ * A timestamp, to the minute, in LOCAL time.
+ *
+ * Built field by field rather than through `toISOString()`, which converts to UTC:
+ * slicing the `Z` off that string leaves a wall-clock reading that is off by the
+ * viewer's offset, so a value collected at 21:37 was shown as 19:37 in summer. The
+ * rest of the app keeps datetimes as local wall-clock (see `toIsoDay`), and this is
+ * what the reader compares against the axis beside it.
+ */
 export function fmtStamp(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 16).replace('T', ' ')
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
+    + `${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 /**

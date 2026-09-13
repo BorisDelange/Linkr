@@ -102,14 +102,27 @@ describe('fmtEventValue', () => {
   })
 })
 
+// Stamps read as LOCAL wall-clock, like the rest of the app's datetimes and like
+// the axis printed beside them. These used to build their input with `Date.UTC`
+// and read it back through `toISOString()`: the two cancelled out, so the tests
+// passed while the tooltip showed a value collected at 21:37 as 19:37.
 describe('fmtEventWhen', () => {
-  it('writes an instant', () => {
-    expect(fmtEventWhen(Date.UTC(2024, 0, 15, 14, 30), null)).toBe('2024-01-15 14:30')
+  it('writes an instant in local time', () => {
+    expect(fmtEventWhen(new Date(2024, 0, 15, 14, 30).getTime(), null))
+      .toBe('2024-01-15 14:30')
   })
 
   it('writes a span with its duration', () => {
-    const start = Date.UTC(2024, 0, 15, 14, 0)
-    const end = Date.UTC(2024, 0, 15, 16, 0)
+    const start = new Date(2024, 0, 15, 14, 0).getTime()
+    const end = new Date(2024, 0, 15, 16, 0).getTime()
     expect(fmtEventWhen(start, end)).toBe('2024-01-15 14:00 → 2024-01-15 16:00 · 2.0 h')
+  })
+
+  it('shows the hour that was collected, whatever the viewer offset', () => {
+    // The bug this pins: a wall-clock datetime stored as typed (no zone suffix),
+    // read back, and printed — it must come out the same hour it went in. A UTC
+    // round-trip shifted it by the local offset, silently and in one direction.
+    const typed = '2024-07-05T21:37:00'
+    expect(fmtEventWhen(new Date(typed).getTime(), null)).toBe('2024-07-05 21:37')
   })
 })

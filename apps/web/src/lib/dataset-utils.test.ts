@@ -216,3 +216,48 @@ describe('displayCellValue — boolean labels', () => {
     expect(displayCellValue({ type: 'boolean' }, undefined, LABELS)).toBe('')
   })
 })
+
+// A datetime is stored ISO — `2090-01-01T03:02:03` — because that is what parses
+// unambiguously. The `T` is machine punctuation though, and a whole column of them
+// reads as one run of characters, so the separator is swapped for a space on the
+// way to the screen. Only the separator: the digits are still literally the value.
+describe('displayCellValue — datetimes', () => {
+  const col = { type: 'date' } as const
+
+  it('shows a datetime with a space instead of the T', () => {
+    expect(displayCellValue(col, '2090-01-01T03:02:03')).toBe('2090-01-01 03:02:03')
+  })
+
+  it('handles a datetime with no seconds', () => {
+    expect(displayCellValue(col, '2090-01-01T03:02')).toBe('2090-01-01 03:02')
+  })
+
+  it('leaves a plain date alone', () => {
+    expect(displayCellValue(col, '2090-01-01')).toBe('2090-01-01')
+  })
+
+  it('leaves a zoned value alone rather than restyling it', () => {
+    // The app keeps wall-clock datetimes; a Z or an offset is a different claim,
+    // so it is shown as stored instead of being quietly reformatted.
+    expect(displayCellValue(col, '2090-01-01T03:02:03Z')).toBe('2090-01-01T03:02:03Z')
+    expect(displayCellValue(col, '2090-01-01T03:02:03+02:00')).toBe('2090-01-01T03:02:03+02:00')
+  })
+
+  it('leaves free text in a date column alone', () => {
+    // A column can hold a value that does not fit its type — a retype keeps such
+    // values rather than blanking them — and mangling it would hide that.
+    expect(displayCellValue(col, 'unknown')).toBe('unknown')
+  })
+
+  it('does not touch a T in another column type', () => {
+    expect(displayCellValue({ type: 'string' } as const, '2090-01-01T03:02:03'))
+      .toBe('2090-01-01T03:02:03')
+  })
+
+  it('still prefers an explicit value label', () => {
+    expect(displayCellValue(
+      { type: 'date', valueLabels: { '2090-01-01T03:02:03': 'Admission' } } as never,
+      '2090-01-01T03:02:03',
+    )).toBe('Admission')
+  })
+})

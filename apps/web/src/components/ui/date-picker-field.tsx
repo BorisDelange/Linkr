@@ -149,6 +149,10 @@ export function DatePickerField({
           <PopoverTrigger asChild>
             <button
               type="button"
+              // Out of the tab order: the field is fully typeable, so Tab should
+              // move to the NEXT field rather than stopping on an icon that only
+              // opens an alternative way to enter what was just typed.
+              tabIndex={-1}
               className="absolute right-1 flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label={t('common.select')}
             >
@@ -179,6 +183,7 @@ export function DatePickerField({
       {clearable && value && (
         <button
           type="button"
+          tabIndex={-1}
           onClick={() => onChange(undefined)}
           className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
           aria-label={t('common.clear')}
