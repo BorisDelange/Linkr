@@ -1,4 +1,4 @@
-# Key Indicator
+## Introduction
 
 One number, large, with an icon, a subtitle and an optional mini-chart. Mortality
 rate, mean length of stay, number of stays, proportion ventilated — the figures a
@@ -14,7 +14,7 @@ in the title and the subtitle, because the number itself cannot carry it.
 Used well, it is the fastest way to give a service its own figures. Used badly,
 it is the fastest way to publish a wrong one.
 
-## What you need
+## Settings
 
 A tabular dataset and a **Column**. Picking one sets sensible defaults: a
 numeric column starts on *Mean*, a categorical one on *Proportion (%)*.
@@ -39,7 +39,9 @@ The **Mini-chart** section adds a histogram, box plot, bar chart or pie beside
 or below the value, and the **Style** section handles icon, colours, sizing and
 centring.
 
-## Unique per is what decides the meaning
+## Notes on the method
+
+### Unique per is what decides the meaning
 
 **Unique per** groups rows by a column and reduces each group to one value
 before the statistic is computed. **Per-entity function** says how: *First
@@ -71,7 +73,7 @@ your methods.
 arrive in the dataset — the plugin does not sort. If you mean "the last measured
 value", sort your dataset by date upstream.
 
-## A number with no denominator
+### A number with no denominator
 
 > [!WARNING]
 > **A bare percentage is the easiest way to mislead with real data.** "Mortality
@@ -92,7 +94,7 @@ time to detect change, a single number is the wrong tool — that is what a
 control chart is for, and it exists in Linkr as its own plugin precisely because
 distinguishing signal from noise needs the series, not the latest value.
 
-## The subtitle and the mini-chart are where the honesty goes
+### The subtitle and the mini-chart are where the honesty goes
 
 **Subtitle stats** exists to stop a single number from standing alone. Two
 combinations earn their place on almost every tile:

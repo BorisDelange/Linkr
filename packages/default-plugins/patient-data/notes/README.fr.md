@@ -1,4 +1,4 @@
-# Notes cliniques
+## Introduction
 
 Une visionneuse de documents pour les notes d'un patient : comptes rendus
 d'hospitalisation, notes d'évolution, comptes rendus de radiologie — tout ce que
@@ -18,7 +18,7 @@ Ci-dessus : un document ouvert parmi 29, avec une recherche de `pneumonia` qui e
 fait correspondre 18 — le compteur à côté du champ de recherche donne le nombre
 de correspondances, et le terme est surligné dans le corps du texte.
 
-## Paramètres
+## Réglages
 
 Aucun. Le widget n'a rien à configurer ; tout ce qu'il propose se trouve dans sa
 propre barre d'outils, au-dessus de la liste des documents :
@@ -43,7 +43,9 @@ Lorsqu'une note porte un identifiant de visite, la visionneuse l'affiche, et
 sélectionner une visite dans la barre latérale restreint la liste aux documents
 de cette visite.
 
-## Les ensembles de mots sont une correspondance de mots-clés
+## Notes sur le widget
+
+### Les ensembles de mots sont une correspondance de mots-clés
 
 Un ensemble de mots surligne des termes littéraux. Il n'a aucune notion de
 négation, de qui est le sujet, ni d'une phrase recopiée depuis une note
@@ -55,7 +57,7 @@ Les ensembles sont enregistrés et réutilisables : un ensemble constitué une f
 pour un projet (« saignement », « délire », « dispositif ») reste disponible sur
 tous les dossiers patients.
 
-## Captures d'écran et exports sortent de la visionneuse
+### Captures d'écran et exports sortent de la visionneuse
 
 > [!WARNING]
 > **Les notes sont la partie la plus identifiante d'un dossier, et ce widget les
@@ -68,16 +70,9 @@ tous les dossiers patients.
 > du cadre qui régit votre entrepôt. Vérifiez ce qui est réellement à l'écran
 > avant de le capturer.
 
-## Ce que le widget lit
+### Ce que le widget lit
 
 Uniquement la table `note` mappée. Il ne lit pas `note_nlp` : les annotations
 produites par votre chaîne de traitement ne sont donc pas affichées ici. Un
 document absent de la liste est absent du mapping — c'est du côté de l'ETL qu'il
 faut regarder, pas de ce widget.
-
-## Pour aller plus loin
-
-- [Spécification OMOP CDM v5.4](https://ohdsi.github.io/CommonDataModel/cdm54.html) — ce que contient la table `note`, et en quoi le type de note et la valeur source diffèrent.
-- [The Book of OHDSI, *Extract, Transform, Load*](https://ohdsi.github.io/TheBookOfOhdsi/ExtractTransformLoad.html) — là où se décident les types de documents et les liens vers les visites, c'est-à-dire ce qui détermine cette liste.
-- [El Emam K & Dankar FK, *Protecting privacy using k-anonymity*](https://pmc.ncbi.nlm.nih.gov/articles/PMC2528029/) — pourquoi retirer les noms n'équivaut pas à anonymiser, démontré sur des données de santé.
-- [Stubbs A, Kotfila C & Uzuner Ö, *Automated systems for the de-identification of longitudinal clinical narratives*](https://pmc.ncbi.nlm.nih.gov/articles/PMC4989908/) — la performance réelle de la dépersonnalisation automatique sur de vraies notes, et là où elle échoue.

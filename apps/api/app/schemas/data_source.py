@@ -201,6 +201,32 @@ class ParquetTablePath(CamelModel):
     table: str
     paths: list[str]
     exists: bool = False
+    #: Total bytes of the table's file(s) on disk, or None when none could be
+    #: stat'd — a missing file and a zero-byte one must not read alike.
+    size_bytes: int | None = None
+
+
+class CompactStatus(CamelModel):
+    """Progress of a compaction, polled while it runs.
+
+    `COPY FROM DATABASE` is a single statement, so DuckDB reports nothing while it
+    executes. What can be observed is the bytes it has written, which grow
+    monotonically and near-linearly — `bytesWritten` over `dataSize` is that
+    readout.
+
+    `dataSize` is the size of the DATA, not of the file: the file is mostly free
+    blocks on a database worth compacting, so using it as the denominator would
+    stall the bar low and then jump to 100%. It is DuckDB's own block accounting
+    and so an estimate — the client must tolerate a final value slightly either
+    side of it, and `null` when DuckDB would not answer.
+    """
+
+    status: str  # 'running' | 'done' | 'error'
+    size_before: int
+    size_after: int | None = None
+    data_size: int | None = None
+    bytes_written: int = 0
+    error: str | None = None
 
 
 class ClientDatabase(CamelModel):
@@ -288,6 +314,10 @@ class DatabaseConnectionInfo(CamelModel):
     # File / folder sources.
     path: str | None = None
     exists: bool = False
+    # Bytes on disk for a 'file' kind. None when the file could not be stat'd, so
+    # a missing file and an empty one do not read alike. For 'parquet-folder' the
+    # size is per table instead, on `tables`.
+    size_bytes: int | None = None
     # True when the path is a content-addressed blob rather than a name the user
     # would recognise: the UI warns that it has no .duckdb extension.
     blob: bool = False

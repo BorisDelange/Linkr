@@ -1,4 +1,4 @@
-# Carte de contrôle (SPC)
+## Introduction
 
 Une carte de contrôle sépare le bruit qu'un processus comporte toujours d'un
 signal indiquant qu'il s'est réellement passé quelque chose — pour qu'une équipe
@@ -9,30 +9,7 @@ c'est +3 %, que s'est-il passé ? ») augmente la variation au lieu de la rédui
 Les comparaisons d'un mois sur l'autre dans un rapport de gestion ne sont pas une
 version dégradée d'une carte de contrôle : elles sont pires que ne rien faire.
 
-## Ce que montre la carte
-
-Votre indicateur est tracé dans le temps, avec :
-
-- une **ligne centrale** — la moyenne du processus sur la période de référence,
-- des **limites de contrôle** de part et d'autre, à ±3 écarts-types par défaut,
-- des **points signalés**, dessinés au-dessus, là où les données signalent un
-  changement réel.
-
-Les limites ne sont pas « le plus haut et le plus bas qu'on ait vus ». Elles sont
-calculées à partir d'un modèle statistique de votre indicateur — d'où la première
-question posée par le plugin : de quelle nature est ce nombre.
-
-### Pourquoi les limites montent et descendent
-
-Un mois à 40 admissions est plus bruité qu'un mois à 400 : ses limites sont donc
-plus larges. Les limites suivent le dénominateur de chaque période et sont
-tracées **en escalier**, pas en deux droites horizontales.
-
-Des limites plates sur un dénominateur variable, c'est l'erreur la plus fréquente
-des cartes faites à la main à l'hôpital : les mois creux paraissent hors
-contrôle, les mois chargés masquent les vrais signaux.
-
-## Choisir la carte
+## Réglages
 
 **La nature de l'indicateur** est le premier réglage, parce qu'il détermine le
 modèle de variance — et donc les limites elles-mêmes. Laissé sur *Auto*, le
@@ -71,7 +48,32 @@ au prix d'une courbe qui ne montre plus les données brutes. λ = 0,2 est la
 convention ; plus petit signifie plus de mémoire et une réaction plus lente à un
 vrai saut.
 
-## La période de référence
+## Notes sur la méthode
+
+### Ce que montre la carte
+
+Votre indicateur est tracé dans le temps, avec :
+
+- une **ligne centrale** — la moyenne du processus sur la période de référence,
+- des **limites de contrôle** de part et d'autre, à ±3 écarts-types par défaut,
+- des **points signalés**, dessinés au-dessus, là où les données signalent un
+  changement réel.
+
+Les limites ne sont pas « le plus haut et le plus bas qu'on ait vus ». Elles sont
+calculées à partir d'un modèle statistique de votre indicateur — d'où la première
+question posée par le plugin : de quelle nature est ce nombre.
+
+#### Pourquoi les limites montent et descendent
+
+Un mois à 40 admissions est plus bruité qu'un mois à 400 : ses limites sont donc
+plus larges. Les limites suivent le dénominateur de chaque période et sont
+tracées **en escalier**, pas en deux droites horizontales.
+
+Des limites plates sur un dénominateur variable, c'est l'erreur la plus fréquente
+des cartes faites à la main à l'hôpital : les mois creux paraissent hors
+contrôle, les mois chargés masquent les vrais signaux.
+
+### La période de référence
 
 Les limites sont estimées sur une **période de référence**, puis **figées** et
 utilisées pour juger tout ce qui suit. Un repère en pointillés marque la fin de
@@ -84,7 +86,7 @@ absorberait silencieusement le problème même qu'elle est censée détecter.
 Par défaut, toute la série sert de référence. Renseignez **Référence jusqu'au**
 dès que vous disposez d'une période que vous jugez stable.
 
-## Lire un signal
+### Lire un signal
 
 Un point hors des limites est un signal. Les *motifs* non aléatoires à
 l'intérieur des limites en sont un autre : une longue série du même côté de la
@@ -98,7 +100,7 @@ alarme en permanence sur un processus parfaitement stable.
 Un signal veut dire *regardez*, pas *agissez*. Il indique que la variation a peu
 de chances d'être due au hasard — en trouver la cause reste votre travail.
 
-## Avertissements possibles
+### Avertissements possibles
 
 Ils sont affichés plutôt que masqués, car chacun signifie que les nombres à
 l'écran peuvent ne pas vouloir dire ce qu'ils semblent dire :
@@ -111,7 +113,7 @@ l'écran peuvent ne pas vouloir dire ce qu'ils semblent dire :
 - **Dénominateur inapplicable** — le dénominateur choisi n'a pas de sens pour cet
   indicateur (par exemple une colonne d'exposition sur une carte de mesure).
 
-## Un exemple complet
+## Un exemple travaillé
 
 *Avons-nous plus d'infections sur cathéter central que d'habitude ?*
 

@@ -1,6 +1,8 @@
 import asyncio
 import contextlib
+import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import select
@@ -97,6 +99,39 @@ def parquet_table_paths(
     there, and is therefore absent here too.
     """
     return db_connect.group_parquet_tables(files, _known_tables(source))
+
+
+def _file_size(path: Path | str) -> int | None:
+    """Bytes on disk, or None when the file cannot be stat'd. None rather than 0
+    so the UI can tell "missing" from "empty"."""
+    try:
+        return Path(path).stat().st_size
+    except OSError:
+        return None
+
+
+def _parquet_table_entries(groups: dict[str, list[str]]) -> list[ParquetTablePath]:
+    """Build the API rows for grouped Parquet tables, stat'ing each file once.
+
+    Shared by the three branches of `connection_info` (server folder, blob store,
+    single file) so the size and existence of a table are decided the same way in
+    all of them — they used to each spell out the `exists` check.
+    """
+    entries: list[ParquetTablePath] = []
+    for table, table_paths in sorted(groups.items()):
+        # Unreadable or gone files are left out of the total rather than counted
+        # as 0, so a partial table does not look complete.
+        sizes = [n for n in (_file_size(p) for p in table_paths) if n is not None]
+        entries.append(
+            ParquetTablePath(
+                table=table,
+                paths=table_paths,
+                exists=all(Path(p).is_file() for p in table_paths),
+                size_bytes=sum(sizes) if sizes else None,
+            )
+        )
+    return entries
+
 
 # Connection-config keys holding a secret credential. Pulled out of the JSON
 # config (which the API returns) and stored encrypted in `connection_secret`.
@@ -302,6 +337,101 @@ def is_managed(source: DataSource) -> bool:
     return bool((source.connection_config or {}).get("managed"))
 
 
+@dataclass
+class CompactionState:
+    """Live state of one compaction, polled by the client.
+
+    In memory rather than a `jobs` row: a Job is keyed by project, and a database
+    belongs to the workspace, so persisting one would mean a schema change and a
+    migration to carry a single integer. The cost of losing this on restart is
+    that the UI stops reporting progress — the compaction itself is a temp file
+    plus an atomic rename, which is safe to interrupt at any point.
+    """
+
+    status: str  # 'running' | 'done' | 'error'
+    size_before: int
+    #: Denominator for the bar: bytes the data occupies, free blocks excluded.
+    #: None when DuckDB would not answer — the UI then shows bytes without a %.
+    data_size: int | None
+    bytes_written: int = 0
+    size_after: int | None = None
+    error: str | None = None
+
+
+_compactions: dict[str, CompactionState] = {}
+_compactions_lock = threading.Lock()
+_compaction_tasks: set[asyncio.Task] = set()
+
+
+def compaction_state(source_id: str) -> CompactionState | None:
+    with _compactions_lock:
+        return _compactions.get(source_id)
+
+
+async def start_compaction(source: DataSource) -> CompactionState:
+    """Begin compacting a managed database, returning once it is under way.
+
+    Runs detached so the request returns immediately: a multi-GB rewrite outlives
+    any sensible HTTP timeout, and the client polls `compaction_state` instead.
+    Only for managed files — an uploaded blob is content-addressed (rewriting it
+    would invalidate the sha every reference uses) and an external engine has no
+    file here to compact.
+    """
+    if not is_managed(source):
+        raise ValueError("only a server-owned database can be compacted")
+
+    source_id = source.id
+    path = managed_db.path_for(source_id)
+    if not path.exists():
+        raise ValueError("the database file is missing")
+
+    size_before = path.stat().st_size
+    data_size = await asyncio.to_thread(managed_db.data_size, source_id)
+
+    # Checked and registered under one acquisition: two requests arriving together
+    # would otherwise both see "not running" and start a second rewrite of the
+    # same file, the loser's os.replace silently discarding the winner's work.
+    state = CompactionState(
+        status="running", size_before=size_before, data_size=data_size
+    )
+    with _compactions_lock:
+        running = _compactions.get(source_id)
+        if running is not None and running.status == "running":
+            raise ValueError("a compaction is already running for this database")
+        _compactions[source_id] = state
+
+    # The compaction swaps a new file in under this path. A warm pooled handle
+    # would go on serving the replaced inode — reads would silently keep working
+    # against a file that is no longer on disk. `invalidate` waits for any
+    # in-flight query before closing, so nothing is cut off mid-statement.
+    connection_pool.invalidate(source_id)
+
+    def _on_bytes(n: int) -> None:
+        # Plain assignment of an int, and the only writer — the poll reads a
+        # value that is either the old one or the new one, never a torn one.
+        state.bytes_written = n
+
+    def _run() -> None:
+        try:
+            before, after = managed_db.compact(source_id, _on_bytes)
+        except Exception as e:  # noqa: BLE001 — reported through the polled state
+            state.status = "error"
+            state.error = str(e)
+            return
+        state.size_before = before
+        state.size_after = after
+        state.bytes_written = after
+        state.status = "done"
+
+    # Held in a module-level set: asyncio keeps only a weak reference to a task,
+    # so one nobody holds can be collected mid-flight and the compaction would
+    # stop silently part-way through.
+    task = asyncio.create_task(asyncio.to_thread(_run))
+    _compaction_tasks.add(task)
+    task.add_done_callback(_compaction_tasks.discard)
+    return state
+
+
 def is_external_engine(engine: str | None) -> bool:
     """A network database (Postgres/MySQL) rather than a local file."""
     return engine in _EXTERNAL_ENGINES
@@ -314,8 +444,6 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
     listing the client libraries read, so a script and the UI are told the same
     thing about the same database. Callers must have checked `databases:read`.
     """
-    from pathlib import Path
-
     config = dict(source.connection_config or {})
     engine = config.get("engine")
 
@@ -333,7 +461,11 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
     if is_managed(source):
         path = managed_db.path_for(source.id)
         return DatabaseConnectionInfo(
-            engine="duckdb", kind="file", path=str(path), exists=path.exists()
+            engine="duckdb",
+            kind="file",
+            path=str(path),
+            exists=path.exists(),
+            size_bytes=_file_size(path),
         )
 
     sp = server_path(source)
@@ -342,7 +474,12 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
         pairs = _server_path_files(sp)
         if target.is_file():
             return DatabaseConnectionInfo(
-                engine=engine, kind="file", path=sp, exists=True, file_names=[target.name]
+                engine=engine,
+                kind="file",
+                path=sp,
+                exists=True,
+                file_names=[target.name],
+                size_bytes=_file_size(target),
             )
         # A real folder, unlike the blob store: `path` is meaningful here (the
         # files keep their names and extensions), so a client library can glob it.
@@ -353,14 +490,7 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
             path=sp,
             exists=target.is_dir(),
             file_names=[name for name, _ in pairs],
-            tables=[
-                ParquetTablePath(
-                    table=table,
-                    paths=table_paths,
-                    exists=all(Path(p).is_file() for p in table_paths),
-                )
-                for table, table_paths in sorted(groups.items())
-            ],
+            tables=_parquet_table_entries(groups),
         )
 
     files = await list_files(db, source.id)
@@ -382,14 +512,7 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
             exists=all(p.is_file() for p in paths),
             blob=True,
             file_names=names,
-            tables=[
-                ParquetTablePath(
-                    table=table,
-                    paths=table_paths,
-                    exists=all(Path(p).is_file() for p in table_paths),
-                )
-                for table, table_paths in sorted(groups.items())
-            ],
+            tables=_parquet_table_entries(groups),
         )
 
     return DatabaseConnectionInfo(
@@ -397,6 +520,7 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
         kind="file",
         path=str(paths[0]),
         exists=paths[0].is_file(),
+        size_bytes=_file_size(paths[0]),
         # Content-addressed: the file is named by its sha, with no extension, so
         # a tool that keys off ".duckdb" needs telling.
         blob=True,

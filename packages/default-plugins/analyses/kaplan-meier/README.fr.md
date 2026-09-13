@@ -1,4 +1,4 @@
-# Survie
+## Introduction
 
 L'analyse de survie répond à « combien de temps avant que cela n'arrive ? » tout
 en traitant correctement les patients chez qui cela n'est **pas encore** arrivé.
@@ -19,20 +19,7 @@ effectifs à risque avant de croire la queue de courbe : au 80ᵉ jour il ne res
 que 76 et 55 patients, donc l'extrémité droite repose sur bien moins de monde
 que la gauche.
 
-## La censure, en un paragraphe
-
-Un patient est **censuré** quand son suivi s'arrête sans que l'événement soit
-survenu : il était vivant à sa dernière consultation, il a déménagé, l'étude
-s'est terminée. Il compte comme « pas d'événement *jusqu'ici* », puis cesse de
-contribuer.
-
-> [!WARNING]
-> La censure doit être indépendante du devenir. Si des patients sortent d'étude
-> *parce que* leur état se dégrade, la courbe est optimiste et aucun réglage n'y
-> changera rien. C'est une hypothèse sur vos données, que le plugin ne peut pas
-> vérifier.
-
-## Ce qu'il vous faut
+## Réglages
 
 Trois colonnes, dont deux obligatoires :
 
@@ -49,7 +36,22 @@ L'origine doit être le même moment clinique pour tous : admission, diagnostic,
 randomisation. Mélanger les origines est la façon la plus courante de rendre une
 courbe de survie ininterprétable.
 
-## Lire la courbe
+## Notes sur la méthode
+
+### La censure, en un paragraphe
+
+Un patient est **censuré** quand son suivi s'arrête sans que l'événement soit
+survenu : il était vivant à sa dernière consultation, il a déménagé, l'étude
+s'est terminée. Il compte comme « pas d'événement *jusqu'ici* », puis cesse de
+contribuer.
+
+> [!WARNING]
+> La censure doit être indépendante du devenir. Si des patients sortent d'étude
+> *parce que* leur état se dégrade, la courbe est optimiste et aucun réglage n'y
+> changera rien. C'est une hypothèse sur vos données, que le plugin ne peut pas
+> vérifier.
+
+### Lire la courbe
 
 La ligne descend à chaque survenue de l'événement, et reste plate entre deux.
 De petits traits marquent les patients censurés. La courbe n'est pas l'estimation
@@ -68,7 +70,7 @@ lecteur de s'en rendre compte : activez-le dès que le graphique part dans un
 article ou une présentation. Passer de 3 patients à 2 ressemble à une chute de
 33 % et ne signifie presque rien.
 
-## Le test du log-rank
+### Le test du log-rank
 
 Avec une variable de groupe, le plugin affiche une p-valeur de log-rank : la
 probabilité d'observer une différence aussi grande entre les courbes si les
@@ -80,7 +82,7 @@ courbes ne se croisent pas : quand elles se croisent, le test perd de sa
 puissance et peut rendre une p-valeur non significative pour deux profils de
 survie visiblement différents.
 
-## Le modèle de Cox
+### Le modèle de Cox
 
 Ajoutez des **prédicteurs Cox** pour ajuster un modèle à risques proportionnels —
 la façon de vérifier si une différence persiste après ajustement sur d'autres
@@ -92,7 +94,7 @@ tout instant. Un HR inférieur à 1 est protecteur. L'intervalle de confiance
 compte davantage que l'estimation ponctuelle : un HR de 2,0 avec un IC de 0,8 à
 5,1 ne prouve rien.
 
-### L'hypothèse des risques proportionnels
+#### L'hypothèse des risques proportionnels
 
 Cox suppose que le rapport de risques est **constant dans le temps**. Un
 traitement efficace au début puis sans effet viole cette hypothèse, et son HR
@@ -104,7 +106,7 @@ violée n'est pas un modèle un peu moins bon, c'est un modèle dont le chiffre
 principal n'a pas de sens clair. Présenter les seules courbes de Kaplan-Meier
 est alors une réponse tout à fait défendable.
 
-## Un exemple complet
+## Un exemple travaillé
 
 *Le nouveau protocole réduit-il la mortalité à 90 jours ?*
 

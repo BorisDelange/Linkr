@@ -285,8 +285,11 @@ order, so two dialogs of the same purpose are identical *by construction*:
 | `workbench` | `h-[85vh] sm:max-w-5xl` | pickers, diffs, viewers — body scrolls, header/footer pinned |
 
 Other props: `destructive` (red primary), `footerExtra` (tertiary action),
-`hideFooter` (viewers), `cancelLabel`, and `className`/`contentClassName` as
-escape hatches. Omit `onConfirm` and the footer becomes a single Close button.
+`hideFooter` (viewers), `cancelLabel`, `hideCancel`, and
+`className`/`contentClassName` as escape hatches. Omit `onConfirm` and the footer
+becomes a single Close button. `hideCancel` is the narrow case where the primary
+action does *not* close the dialog (a Copy button): "Cancel" would name nothing
+and "Close" would duplicate the ✕. Everywhere else, keep the secondary button.
 
 Assemble `Dialog` + `DialogContent` + `DialogHeader` + `DialogFooter` by hand
 only when a dialog genuinely doesn't fit the three kinds — and say why in a

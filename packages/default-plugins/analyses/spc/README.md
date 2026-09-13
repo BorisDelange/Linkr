@@ -1,4 +1,4 @@
-# Control chart (SPC)
+## Introduction
 
 A control chart separates the noise a process always has from a signal that
 something actually changed — so a team acts on the signals and leaves the noise
@@ -9,29 +9,7 @@ up 3%, what happened?") provably *increases* variation rather than reducing it.
 Month-on-month comparisons in a management report are not a weaker version of a
 control chart; they are worse than doing nothing.
 
-## What the chart shows
-
-Your indicator is plotted over time, with:
-
-- a **centre line** — the process average over the baseline,
-- **control limits** above and below it, at ±3 standard deviations by default,
-- **flagged points**, drawn on top, where the data signals a real change.
-
-The limits are not "the highest and lowest we have seen". They are computed from
-a statistical model of your indicator, which is why the plugin asks first what
-kind of number it is.
-
-### Why the limits move up and down
-
-A month with 40 admissions is noisier than a month with 400, so it gets wider
-limits. The limits follow each period's denominator and are drawn as a
-**staircase**, not two flat lines.
-
-Flat limits over a varying denominator is the single most common error in
-hand-made hospital charts: quiet months look out of control, busy months hide
-real signals.
-
-## Choosing the chart
+## Settings
 
 **What is being charted** is the first setting because it picks the variance
 model — and so the limits themselves. Left on *Auto*, the plugin infers it from
@@ -66,7 +44,31 @@ drifts (0.5–1σ) far sooner, at the cost of a line that no longer shows the ra
 data. λ = 0.2 is the convention; smaller means more memory and slower reaction to
 a genuine jump.
 
-## The baseline
+## Notes on the method
+
+### What the chart shows
+
+Your indicator is plotted over time, with:
+
+- a **centre line** — the process average over the baseline,
+- **control limits** above and below it, at ±3 standard deviations by default,
+- **flagged points**, drawn on top, where the data signals a real change.
+
+The limits are not "the highest and lowest we have seen". They are computed from
+a statistical model of your indicator, which is why the plugin asks first what
+kind of number it is.
+
+#### Why the limits move up and down
+
+A month with 40 admissions is noisier than a month with 400, so it gets wider
+limits. The limits follow each period's denominator and are drawn as a
+**staircase**, not two flat lines.
+
+Flat limits over a varying denominator is the single most common error in
+hand-made hospital charts: quiet months look out of control, busy months hide
+real signals.
+
+### The baseline
 
 Limits are estimated from a **baseline** period, then **frozen** and used to judge
 everything after it. A dashed marker shows where the baseline ends.
@@ -78,7 +80,7 @@ would quietly absorb the very problem it exists to detect.
 By default the whole series is the baseline. Set **Baseline until** to a date once
 you have a period you consider stable.
 
-## Reading a signal
+### Reading a signal
 
 A point outside the limits is one kind of signal. Non-random *patterns* inside
 them are another: a long run on one side of the centre line, or too few crossings
@@ -92,7 +94,7 @@ a perfectly stable process.
 A signal means *look*, not *act*. It says the variation is unlikely to be chance
 — finding the cause is still your job.
 
-## Warnings the widget may show
+### Warnings the widget may show
 
 These are surfaced rather than hidden, because each one means the numbers on
 screen may not mean what they appear to:

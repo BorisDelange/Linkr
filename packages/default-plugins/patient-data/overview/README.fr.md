@@ -1,4 +1,4 @@
-# Vue d'ensemble des données
+## Introduction
 
 Tous les événements d'un patient, disposés sur un seul axe temporel et regroupés
 par table source d'origine et par concept enregistré. Chaque ligne est un concept
@@ -7,19 +7,11 @@ ombrage indique à quelle densité ce concept a été enregistré à cet instant
 Zoomez suffisamment et les bandes cessent d'être une densité pour devenir les
 événements eux-mêmes.
 
-Il répond à une question qu'il faudrait poser avant chaque analyse et qu'on ne
-peut presque jamais poser : **que contient réellement le dossier de ce patient,
-et sur quelle période ?** Une requête de cohorte vous dit qu'un patient a un
-lactate ; elle ne vous dit pas que ce lactate existe au jour 1 et au jour 9 et
-nulle part entre les deux, que les données de ventilation s'arrêtent au milieu du
-séjour, ou que toute la table des médicaments commence trois jours après
-l'admission parce que c'est à ce moment-là que l'unité est passée au logiciel de
-prescription.
-
-Lire le dossier d'un patient de bout en bout est aussi le moyen le plus rapide de
-repérer un problème d'ETL. Les contrôles qualité agrégés vous disent qu'une table
-compte 4,2 millions de lignes ; le dossier d'un seul patient vous dit que ces
-lignes arrivent sous une forme qu'aucun clinicien ne reconnaîtrait.
+Il montre **ce que contient réellement le dossier d'un patient, et sur quelle
+période** : une requête de cohorte vous dit qu'un patient a un lactate, pas que
+ce lactate existe au jour 1 et au jour 9 et nulle part entre les deux, ni que
+toute la table des médicaments commence trois jours après l'admission parce que
+c'est à ce moment-là que l'unité est passée au logiciel de prescription.
 
 ![Le widget Vue d'ensemble des données : les tables sources à gauche avec leur
 nombre de concepts, les bandes de densité sur toute la largeur, et les transferts
@@ -33,7 +25,7 @@ instant — et les interruptions visibles dans les bandes sont ce dont il faut s
 méfier : elles disent que les données s'arrêtent là, pas qu'il ne s'est rien
 passé.
 
-## Ce dont vous avez besoin
+## Réglages
 
 Rien de plus qu'un patient et un schéma mappé. Le widget lit les tables OMOP
 exposées par la base active de votre projet — mesures, observations, expositions
@@ -65,7 +57,9 @@ Six paramètres modifient ce qu'il affiche :
   activé, car c'est la seule chose qui vous dit quelle part du séjour vous *ne*
   regardez *pas*.
 
-## Un espace vide, ce sont des données manquantes, pas un patient tranquille
+## Notes sur le widget
+
+### Un espace vide, ce sont des données manquantes, pas un patient tranquille
 
 > [!WARNING]
 > **Un trou dans une bande signifie qu'aucune donnée n'a été écrite, pas qu'il ne
@@ -76,7 +70,7 @@ Six paramètres modifient ce qu'il affiche :
 > unité** avant de lire le moindre trou : cela vous dit au moins si le patient
 > était présent.
 
-## Lire les bandes
+### Lire les bandes
 
 L'intensité de la couleur le long d'une ligne est un nombre d'événements par
 pixel de temps : la même ligne paraît donc continue pendant une période surveillée
@@ -95,7 +89,7 @@ au-dessus et en dessous. **Hauteur de ligne** échange du détail contre de la
 couverture : *Compact* fait tenir davantage de concepts individuellement avant
 regroupement, *Grand* en montre moins mais plus lisiblement.
 
-## Vérifier un séjour après une exécution de pipeline
+### Vérifier un séjour après une exécution de pipeline
 
 Le widget est le moyen le plus rapide de voir ce que contient réellement le
 dossier d'un patient après une modification de l'ETL. Ouvrez un séjour long et
@@ -108,10 +102,3 @@ des contrôles agrégés.
 Avec **Synchroniser la plage temporelle** activé, ce widget partage sa fenêtre
 avec les chronologies du même tableau, ce qui permet d'aligner la couverture du
 dossier sur les mesures que vous tracez.
-
-## Pour aller plus loin
-
-- [The Book of OHDSI, *Data Quality*](https://ohdsi.github.io/TheBookOfOhdsi/DataQuality.html) — les contrôles systématiques sur une base OMOP, le niveau au-dessus de l'inspection patient par patient.
-- [Kahn MG et al., *A harmonized data quality assessment terminology and framework*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5051581/) — le vocabulaire conformité / complétude / plausibilité de ce que vous avez sous les yeux.
-- [Weiskopf NG & Weng C, *Methods and dimensions of electronic health record data quality assessment*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3555312/) — complétude, exactitude et actualité définies.
-- [Spécification OMOP CDM v5.4](https://ohdsi.github.io/CommonDataModel/cdm54.html) — les tables sources dont les lignes deviennent les bandes.

@@ -1,4 +1,4 @@
-# Data overview
+## Introduction
 
 Every event a patient has, laid out on one time axis and grouped by the source
 table it came from and the concept it records. Each row is a concept — a
@@ -6,18 +6,11 @@ laboratory analyte, a drug, a monitoring signal — and the shading along it say
 how densely that concept was recorded at that moment. Zoom in far enough and the
 bands stop being a density and become the individual events.
 
-It answers a question you should ask before every analysis and almost never can:
-**what does this patient's record actually contain, and over what period?** A
-cohort query tells you a patient has a lactate; it does not tell you that the
-lactate exists on day 1 and day 9 and nowhere in between, that the ventilator
-data stops halfway through the stay, or that the whole medication table starts
+It shows **what a patient's record actually contains, and over what period**: a
+cohort query tells you a patient has a lactate, not that the lactate exists on
+day 1 and day 9 and nowhere in between, or that the whole medication table starts
 three days after admission because that is when the unit went live on the
 prescribing software.
-
-Reading one patient's record end to end is also the fastest way to catch an ETL
-problem. Aggregate quality checks tell you a table has 4.2 million rows; a
-single patient chart tells you that the rows arrive in a shape no clinician
-would recognise.
 
 ![The Data overview widget: source tables down the left with their concept
 counts, density bands across the width, and the patient's unit transfers along
@@ -29,7 +22,7 @@ their own band. The transfers strip along the top says which unit the patient
 was in at any moment — and the visible interruptions in the bands are the thing
 to be careful with: they say the data stops there, not that nothing happened.
 
-## What you need
+## Settings
 
 Nothing beyond a patient and a mapped schema. The widget reads the OMOP tables
 your project's active database exposes — measurements, observations, drug
@@ -59,7 +52,9 @@ Six settings change what it shows:
   the visible window as a draggable box — worth leaving on, because it is the
   only thing that tells you how much of the stay you are *not* looking at.
 
-## Empty space is missing data, not a quiet patient
+## Notes on the widget
+
+### Empty space is missing data, not a quiet patient
 
 > [!WARNING]
 > **A gap in a band means no record was written, not that nothing happened.** A
@@ -69,7 +64,7 @@ Six settings change what it shows:
 > Turn **Show unit stays** on before reading any gap: it at least tells you
 > whether the patient was present.
 
-## Reading the bands
+### Reading the bands
 
 Colour intensity along a row is a count of events per pixel of time, so the same
 row looks continuous during a monitored period and sparse during a quieter one
@@ -85,7 +80,7 @@ an **Other** row that names how many are hidden above and below. **Row height**
 trades detail for coverage: *Compact* fits more concepts individually before
 folding, *Large* shows fewer but more readably.
 
-## Checking a stay after a pipeline run
+### Checking a stay after a pipeline run
 
 The widget is the fastest way to see what a single patient's record actually
 contains after an ETL change. Open one long, complex stay with **Group by
@@ -97,10 +92,3 @@ aggregate checks.
 With **Sync time range** on, this widget shares its window with the timelines on
 the same board, so you can line up the record's coverage against the measurements
 you are plotting.
-
-## Further reading
-
-- [The Book of OHDSI, *Data Quality*](https://ohdsi.github.io/TheBookOfOhdsi/DataQuality.html) — systematic checks over an OMOP database, the level above single-patient inspection.
-- [Kahn MG et al., *A harmonized data quality assessment terminology and framework*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5051581/) — the conformance / completeness / plausibility vocabulary for what you are looking at.
-- [Weiskopf NG & Weng C, *Methods and dimensions of electronic health record data quality assessment*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3555312/) — completeness, correctness and currency defined.
-- [OMOP CDM v5.4 specification](https://ohdsi.github.io/CommonDataModel/cdm54.html) — the source tables whose rows become the bands.

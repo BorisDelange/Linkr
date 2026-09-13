@@ -138,6 +138,8 @@ export interface ParquetTablePath {
   table: string
   paths: string[]
   exists: boolean
+  /** Total bytes of the table's file(s); null when none could be stat'd. */
+  sizeBytes: number | null
 }
 
 /** How to reach a database from outside Linkr (R/Python, a SQL client). */
@@ -147,6 +149,8 @@ export interface DatabaseConnectionInfo {
   kind: string | null
   /** File sources. Never set for 'parquet-folder' — see `tables`. */
   path: string | null
+  /** Bytes on disk for a 'file' kind; null when it could not be stat'd. */
+  sizeBytes: number | null
   exists: boolean
   /** The path is a content-addressed blob (named by its hash, no extension). */
   blob: boolean
@@ -171,6 +175,35 @@ export function fetchDatabaseConnectionInfo(
   dataSourceId: string,
 ): Promise<DatabaseConnectionInfo> {
   return apiRequest<DatabaseConnectionInfo>(`/data-sources/${dataSourceId}/connection-info`)
+}
+
+export interface CompactStatus {
+  status: 'running' | 'done' | 'error'
+  sizeBefore: number
+  sizeAfter: number | null
+  /**
+   * Bytes the DATA occupies — the denominator for the progress bar. Not the file
+   * size: on a database worth compacting the file is mostly free blocks, so that
+   * would stall the bar and then jump. An estimate, and null when unavailable.
+   */
+  dataSize: number | null
+  bytesWritten: number
+  error: string | null
+}
+
+/**
+ * Start reclaiming the free blocks in a managed DuckDB file. Resolves as soon as
+ * the work is under way, not when it finishes — poll `fetchCompactStatus`. The
+ * data is unchanged: this only returns to the filesystem the space a dropped
+ * table left behind. Server mode only, managed databases only.
+ */
+export function compactDatabase(dataSourceId: string): Promise<CompactStatus> {
+  return apiRequest<CompactStatus>(`/data-sources/${dataSourceId}/compact`, { method: 'POST' })
+}
+
+/** Progress of the compaction started by `compactDatabase`. */
+export function fetchCompactStatus(dataSourceId: string): Promise<CompactStatus> {
+  return apiRequest<CompactStatus>(`/data-sources/${dataSourceId}/compact`)
 }
 
 /**

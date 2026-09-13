@@ -1,4 +1,4 @@
-# Chronologie
+## Introduction
 
 Trace les mesures d'un patient en fonction du temps : la fréquence cardiaque au
 long d'un séjour, trois lactates consécutifs, un réglage de ventilateur maintenu
@@ -25,7 +25,7 @@ elle est donc dessinée sous forme de barre avec la dose et la durée dans son
 infobulle. Les deux affichent les mêmes heures parce que **Synchroniser la plage
 temporelle** est activé.
 
-## Paramètres
+## Réglages
 
 **Concepts** et **Jeu de données** sont les deux sources, et l'une suffit.
 Choisissez les concepts dans le sélecteur ; chacun devient une série.
@@ -85,7 +85,9 @@ denses se confondent ; un trait épais se lit mieux sur un vidéoprojecteur.
 **Synchroniser la plage temporelle** lie la fenêtre visible de ce graphique à
 celle des autres widgets synchronisés du tableau.
 
-## Un seul axe des ordonnées en mode Courbes
+## Notes sur le widget
+
+### Un seul axe des ordonnées en mode Courbes
 
 En mode *Courbes*, tous les concepts sélectionnés sont tracés sur un **unique**
 axe de valeurs. Il n'y a pas de second axe ni de normalisation : l'axe s'étend
@@ -103,7 +105,7 @@ le concept possède exactement une unité dans le dossier de ce patient. Un conc
 enregistré dans deux unités n'affiche aucune unité, plutôt que d'étiqueter le
 tout avec la première.
 
-## Synchroniser la plage temporelle, et jusqu'où elle porte
+### Synchroniser la plage temporelle, et jusqu'où elle porte
 
 Avec **Synchroniser la plage temporelle** activé, ce widget partage sa fenêtre
 visible avec les autres widgets synchronisés du tableau — chronologies comme
@@ -116,7 +118,7 @@ l'étend à tous les onglets. Le partage reste toujours limité au tableau : deu
 tableaux ouverts sur deux patients ne se renvoient jamais leurs fenêtres.
 Changer de patient libère la fenêtre partagée au lieu de la reporter.
 
-## Ce que le graphique dessine et que le dossier ne contient pas
+### Ce que le graphique dessine et que le dossier ne contient pas
 
 > [!WARNING]
 > **Entre deux points, la ligne est tracée par le graphique, pas mesurée sur le
@@ -135,7 +137,7 @@ simple bosse, et pour les variables dont l'intervalle est loin de zéro toute la
 série se retrouve tassée en haut du graphique. Lisez les étiquettes de l'axe
 avant de lire la forme.
 
-## Un exemple concret
+## Un exemple travaillé
 
 *Tracer l'hémodynamique et les médicaments qui la soutiennent.*
 
@@ -161,9 +163,3 @@ temporelle** activé. Zoomez sur l'un des deux graphiques et les deux suivent.
 S'il manque une série que vous attendiez, commencez par vérifier le sélecteur de
 concepts : le widget croise les concepts standards *et* sources, mais un concept
 jamais mappé dans cet entrepôt n'a rien à tracer.
-
-## Pour aller plus loin
-
-- [Spécification OMOP CDM v5.4](https://ohdsi.github.io/CommonDataModel/cdm54.html) — ce que contiennent les tables measurement, observation et drug_exposure, et pourquoi une valeur peut avoir à la fois un concept d'unité et une chaîne d'unité source.
-- [The Book of OHDSI, *The Common Data Model*](https://ohdsi.github.io/TheBookOfOhdsi/CommonDataModel.html) — comment événements, dates et concepts s'articulent.
-- [The Book of OHDSI, *Data Quality*](https://ohdsi.github.io/TheBookOfOhdsi/DataQuality.html) — les contrôles de conformité et de plausibilité qui repèrent les mélanges d'unités qu'une chronologie rend visibles.

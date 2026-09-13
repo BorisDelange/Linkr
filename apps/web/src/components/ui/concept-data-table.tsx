@@ -29,7 +29,7 @@ import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { DebouncedInput } from '@/components/ui/debounced-input'
-import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator } from '@/components/ui/table-primitives'
+import { ColumnResizeHandle, FILTER_INPUT_CLASS, FILTER_INPUT_CLASS_DENSE, SortIndicator } from '@/components/ui/table-primitives'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import {
@@ -304,16 +304,19 @@ function SortableHead<T>({
   header,
   children,
   isDropTarget,
+  headClassName,
 }: {
   header: Header<T, unknown>
   children: ReactNode
   isDropTarget: boolean
+  /** Density-derived height and text size, so a reorderable header matches a plain one. */
+  headClassName?: string
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id: header.column.id })
   return (
     <TableHead
       ref={setNodeRef}
-      className={cn('relative select-none overflow-hidden text-xs', isDropTarget && 'bg-primary/10')}
+      className={cn('relative select-none overflow-hidden', headClassName ?? 'text-xs', isDropTarget && 'bg-primary/10')}
       style={{ width: header.getSize(), maxWidth: header.getSize(), opacity: isDragging ? 0.4 : 1 }}
     >
       {isDropTarget && <div className="absolute left-0 top-0 h-full w-0.5 bg-primary" />}
@@ -341,6 +344,10 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
   const dense = density === 'compact'
   const cellPad = dense ? 'px-2 py-0.5' : 'px-2 py-1'
   const cellText = dense ? 'text-[10px]' : 'text-xs'
+  // TableHead's h-10 is sized for a text-xs title; at compact density the label is
+  // text-[10px] and the filter field is h-5, so 40px per row leaves a grey band
+  // above and below both. Height has to be cancelled, not padded away.
+  const headHeight = dense ? 'h-8' : ''
   const { t } = useTranslation()
   /** Where a Shift-range starts: the last row clicked without Shift. */
   const selectionAnchor = useRef<string | number | null>(null)
@@ -470,6 +477,19 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
     [filtered, pageSize, safePage],
   )
 
+  // A 'select' filter with fewer than two options renders nothing, so this
+  // mirrors renderFilter's own conditions rather than just testing `col.filter`.
+  const hasFilterRow = useMemo(
+    () =>
+      cols.some((c) => {
+        if (c.filterCell) return true
+        if (!c.filter || c.filter === 'none') return false
+        if (c.filter === 'select') return (selectOptions[c.id] ?? []).length >= 2
+        return true
+      }),
+    [cols, selectOptions],
+  )
+
   const renderFilter = (columnId: string) => {
     const col = colById.get(columnId)
     if (!col) return null
@@ -497,7 +517,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
     const isNum = col.filter === 'number'
     return (
       <DebouncedInput
-        className={`${FILTER_INPUT_CLASS}${isNum ? ' font-mono' : ''}`}
+        className={cn(dense ? FILTER_INPUT_CLASS_DENSE : FILTER_INPUT_CLASS, isNum && 'font-mono')}
         placeholder={isNum ? 'ID...' : '...'}
         value={value}
         onChange={(v) => setFilters((f) => ({ ...f, [columnId]: v || undefined }))}
@@ -589,7 +609,12 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                   )
                   const resizeHandle = <ColumnResizeHandle header={header} />
                   return reorderable ? (
-                    <SortableHead key={header.id} header={header} isDropTarget={overColumnId === colId}>
+                    <SortableHead
+                      key={header.id}
+                      header={header}
+                      isDropTarget={overColumnId === colId}
+                      headClassName={cn(headHeight, cellText)}
+                    >
                       {content}
                       {resizeHandle}
                     </SortableHead>
@@ -598,6 +623,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                       key={header.id}
                       className={cn(
                         'relative select-none overflow-hidden',
+                        headHeight,
                         cellText,
                         def?.pinned && 'sticky z-10 bg-muted',
                       )}
@@ -614,12 +640,23 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                 }),
               )}
             </TableRow>
+            {/* Only when at least one column filters. Every TableHead carries h-10,
+                so an all-empty filter row added 40px of blank under the titles of
+                any table that declares no filter at all. */}
+            {hasFilterRow && (
             <TableRow className="hover:bg-transparent">
               {table.getHeaderGroups().map((hg) =>
                 hg.headers.map((header) => (
                   <TableHead
                     key={`f-${header.id}`}
-                    className={cn('px-1 py-1', colById.get(header.column.id)?.pinned && 'sticky z-10 bg-muted')}
+                    // h-auto cancels TableHead's h-10: the filter input is h-6,
+                    // so without it every filter cell was padded out to 40px and
+                    // the header looked twice as tall as it needed to be.
+                    className={cn(
+                      'h-auto px-1',
+                      dense ? 'py-0.5' : 'py-1',
+                      colById.get(header.column.id)?.pinned && 'sticky z-10 bg-muted',
+                    )}
                     style={{
                       width: header.getSize(),
                       ...(colById.get(header.column.id)?.pinned ? { left: pinnedOffset(header.column.id) } : {}),
@@ -630,6 +667,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                 )),
               )}
             </TableRow>
+            )}
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.length === 0 ? (

@@ -1466,7 +1466,16 @@ function SchemaDetailView({
                 // The pull writes to storage; this page reads the preset from the
                 // store, in the SAME workspace scope the list uses.
                 onAfterPull={() => loadPresets(preset.workspaceId)}
-                onReinstall={canReinstall ? makeReinstall('schema-presets', preset, preset.workspaceId) : undefined}
+                // A preset carries its name on the mapping (`presetLabel`), not at
+                // the top level like every other entity — pass it explicitly, or
+                // the reinstall reports its progress against a raw uuid.
+                onReinstall={canReinstall
+                  ? makeReinstall(
+                      'schema-presets',
+                      { id: preset.id, name: preset.mapping.presetLabel, workspaceId: preset.workspaceId },
+                      preset.workspaceId,
+                    )
+                  : undefined}
               />
             )}
           </div>

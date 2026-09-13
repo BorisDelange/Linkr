@@ -9,7 +9,10 @@ needs a stable, mutable file of its own. That is what this module owns:
 
 from __future__ import annotations
 
+import os
 import re
+import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
@@ -88,6 +91,117 @@ def create_from_ddl(source_id: str, ddl: str) -> str:
 
 def delete(source_id: str) -> None:
     path_for(source_id).unlink(missing_ok=True)
+
+
+def data_size(source_id: str) -> int | None:
+    """Bytes the data in a managed file actually occupies, or None if unknown.
+
+    The file's size on disk is NOT this number: free blocks are counted there and
+    are exactly what compaction drops. Used as the denominator for compaction
+    progress, where dividing by the file size would stall the bar at 19% and then
+    jump to 100% on a file that is mostly free space.
+
+    `used_blocks * block_size` is DuckDB's own accounting, so it tracks the copy
+    closely but is not a guarantee — the caller must tolerate the final figure
+    landing slightly either side of it.
+    """
+    path = path_for(source_id)
+    if not path.exists():
+        return None
+    con = duckdb.connect()
+    try:
+        con.execute(f"ATTACH '{_sql_literal(str(path))}' AS m (READ_ONLY)")
+        row = con.execute(
+            "SELECT used_blocks * block_size FROM pragma_database_size() "
+            "WHERE database_name = 'm'"
+        ).fetchone()
+        con.execute("DETACH m")
+        return int(row[0]) if row and row[0] is not None else None
+    except Exception:  # noqa: BLE001 — progress is best-effort, never fatal
+        return None
+    finally:
+        con.close()
+
+
+def compact(
+    source_id: str, on_bytes: Callable[[int], None] | None = None
+) -> tuple[int, int]:
+    """Rewrite the managed file without its free blocks. Returns (before, after).
+
+    A DuckDB file is a set of fixed-size blocks. Dropping a table frees its
+    blocks, but a checkpoint can only hand space back by truncating the END of
+    the file: free blocks with live data written after them stay where they are.
+    An ETL that rebuilds its tables on every run leaves exactly that shape, and
+    the file ends up many times the size of the data in it (an OMOP target
+    measured here: 62 GB of file for 11.6 GB of data). Those blocks ARE reused by
+    later runs, so this is a one-off reclaim rather than a leak — but nothing
+    short of a rewrite closes the holes.
+
+    `VACUUM` does not do it (DuckDB's is a statistics no-op) and `VACUUM FULL` is
+    not implemented. `COPY FROM DATABASE` into a fresh file is the supported way:
+    it replays schema + data, so the copy has only the blocks it needs.
+
+    Written to a sibling temp file and swapped in with `os.replace`, which is
+    atomic on the same filesystem: an interrupted compaction leaves the original
+    untouched rather than a half-written database. The caller MUST evict the
+    connection pool first: the swap replaces the inode, and a warm handle would
+    go on serving the file that was replaced.
+
+    `on_bytes` is called with the temp file's size roughly once a second. The copy
+    is a single statement, so DuckDB reports nothing during it — but the bytes it
+    has written grow monotonically and near-linearly (measured: 24/46/66/87% at
+    one-second intervals), which is enough to drive a progress readout.
+    """
+    path = path_for(source_id)
+    if not path.exists():
+        raise ValueError("the database file is missing")
+
+    before = path.stat().st_size
+    # Same directory, so os.replace stays atomic and the copy cannot land on a
+    # filesystem too small for it when the data dir is a dedicated volume.
+    tmp = path.with_name(f"{path.stem}.compacting-{os.getpid()}.duckdb")
+    tmp.unlink(missing_ok=True)
+
+    stop = threading.Event()
+    watcher: threading.Thread | None = None
+    if on_bytes is not None:
+        def _watch() -> None:
+            while not stop.wait(1.0):
+                try:
+                    on_bytes(tmp.stat().st_size)
+                except OSError:
+                    # The temp file is gone (finished or failed): the next loop
+                    # exits on the event anyway.
+                    pass
+
+        watcher = threading.Thread(target=_watch, daemon=True)
+        watcher.start()
+
+    con = duckdb.connect()
+    try:
+        con.execute(f"SET extension_directory = '{_ext_dir()}'")
+        con.execute(f"ATTACH '{_sql_literal(str(path))}' AS src (READ_ONLY)")
+        con.execute(f"ATTACH '{_sql_literal(str(tmp))}' AS dst")
+        con.execute("COPY FROM DATABASE src TO dst")
+        con.execute("DETACH dst")
+        con.execute("DETACH src")
+    except Exception:
+        con.close()
+        tmp.unlink(missing_ok=True)
+        raise
+    finally:
+        stop.set()
+        if watcher is not None:
+            watcher.join(timeout=2)
+    con.close()
+
+    os.replace(tmp, path)
+    return before, path.stat().st_size
+
+
+def _sql_literal(value: str) -> str:
+    """Escape a path for the single-quoted SQL literal it is interpolated into."""
+    return value.replace("'", "''")
 
 
 def _ext_dir() -> str:

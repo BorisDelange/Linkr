@@ -1,4 +1,4 @@
-# Survey question
+## Introduction
 
 One question from a questionnaire, analysed properly: how many people answered
 it, how the answers are distributed, and the chart that actually fits the
@@ -17,7 +17,7 @@ This plugin is deliberately one question at a time. A questionnaire is read item
 by item, and the number that matters most for each item — its response rate — is
 per-item, not per-questionnaire.
 
-## What you need
+## Settings
 
 A dataset with one row per respondent, and a **Question**. You can pick any
 column belonging to the question; for a multiple-choice question, selecting one
@@ -39,7 +39,9 @@ for a numeric answer, an answer list for free text.
 - **Summary statistics** and **Table** when the numbers matter more than the
   shape.
 
-## The response rate is the first number to read
+## Notes on the method
+
+### The response rate is the first number to read
 
 **Response rate** shows n/N: how many respondents answered *this* question out
 of everyone in the dataset. Leave it on. It is the number that decides what the
@@ -58,7 +60,7 @@ response rate. A survey sent to 400 clinicians, answered by 180, with 96 people
 answering this item, describes 24% of the people you asked. Every one of those
 three numbers belongs in the methods section.
 
-## Missing, "not applicable" and "prefer not to say" are three things
+### Missing, "not applicable" and "prefer not to say" are three things
 
 > [!WARNING]
 > **A bar chart flattens three different kinds of non-answer into one gap.** A
@@ -83,7 +85,7 @@ by default for the same reason: an option nobody selected is a finding, not
 clutter. Turn it on only when a long option list makes the chart unreadable, and
 say that you did.
 
-## Multiple choice: the percentages will not sum to 100
+### Multiple choice: the percentages will not sum to 100
 
 When a question lets a respondent tick several boxes, the plugin reassembles its
 columns and reports, for each option, how many respondents selected it. Those
@@ -101,7 +103,7 @@ and set it only for presentation. And note that on a multiple-answer question,
 "Others" is a bag of unrelated options, not a category — it is honest as a
 visual truncation and misleading as a finding.
 
-## Ordinal answers must keep their order
+### Ordinal answers must keep their order
 
 A Likert item — *never / rarely / sometimes / often / always* — carries its
 meaning in the sequence. Sorting it by frequency produces a chart where

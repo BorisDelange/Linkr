@@ -1,4 +1,4 @@
-# Survival
+## Introduction
 
 Survival analysis answers "how long until this happens?" while correctly
 handling the patients it has not happened to *yet*.
@@ -18,18 +18,7 @@ stay apart. Read the at-risk row before believing the tail: by day 80 only 76
 and 55 patients remain, so the right-hand end of each curve rests on far fewer
 people than the left.
 
-## Censoring, in one paragraph
-
-A patient is **censored** when follow-up ends without the event: they were still
-alive at their last visit, they moved away, the study closed. They count as "no
-event *up to here*", then stop contributing.
-
-> [!WARNING]
-> Censoring must be unrelated to the outcome. If patients drop out *because*
-> they are deteriorating, the curve is optimistic and no setting fixes it. This
-> is an assumption about your data, not something the plugin can check.
-
-## What you need
+## Settings
 
 Three columns, two of them required:
 
@@ -45,7 +34,20 @@ The origin has to be the same clinical moment for everyone — admission,
 diagnosis, randomisation. Mixing origins is the most common way a survival
 curve ends up meaningless.
 
-## Reading the curve
+## Notes on the method
+
+### Censoring, in one paragraph
+
+A patient is **censored** when follow-up ends without the event: they were still
+alive at their last visit, they moved away, the study closed. They count as "no
+event *up to here*", then stop contributing.
+
+> [!WARNING]
+> Censoring must be unrelated to the outcome. If patients drop out *because*
+> they are deteriorating, the curve is optimistic and no setting fixes it. This
+> is an assumption about your data, not something the plugin can check.
+
+### Reading the curve
 
 The line falls each time the event happens, and is flat in between. Small ticks
 mark censored patients. The curve is not an estimate of a percentage: it is the
@@ -61,7 +63,7 @@ it, and the **at-risk table** is what lets a reader see that: turn it on when
 the chart is going into a paper or a presentation. A drop from 3 patients to 2
 looks like a 33% fall and means almost nothing.
 
-## The log-rank test
+### The log-rank test
 
 With a group variable, the plugin reports a log-rank p-value: the probability of
 seeing a difference this large between the curves if the groups truly had the
@@ -72,7 +74,7 @@ you should not read it as "the difference at 1 year". It also assumes the curves
 do not cross: when they do, the test loses power and can return a
 non-significant p-value for two visibly different survival patterns.
 
-## The Cox model
+### The Cox model
 
 Add **Cox predictors** to fit a proportional-hazards model — the way to ask
 whether a difference holds after adjusting for other variables (age, severity,
@@ -83,7 +85,7 @@ the event per unit of that variable, at any moment. HR below 1 is protective.
 The confidence interval matters more than the point estimate: an HR of 2.0 with
 a CI from 0.8 to 5.1 is not evidence of anything.
 
-### The proportional-hazards assumption
+#### The proportional-hazards assumption
 
 Cox assumes the hazard ratio is **constant over time**. A treatment that helps
 early and stops helping violates it, and its single averaged HR then describes

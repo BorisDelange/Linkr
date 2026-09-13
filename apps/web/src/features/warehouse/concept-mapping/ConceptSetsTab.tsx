@@ -220,9 +220,9 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const [browseStandards, setBrowseStandards] = useState<string[]>([])
   const [browseMaxResults, setBrowseMaxResults] = useState(BROWSE_MAX_RESULTS)
   const [browseResults, setBrowseResults] = useState<Record<string, unknown>[]>([])
-  // Until the user searches or picks a filter the table stays on its hint,
-  // rather than showing an arbitrary slice of a multi-million-row table.
-  const [browseSubmitted, setBrowseSubmitted] = useState(false)
+  // Starts submitted so the table opens on a first page of concepts, exactly as
+  // if Enter had been pressed on the empty box.
+  const [browseSubmitted, setBrowseSubmitted] = useState(true)
   const [browsePage, setBrowsePage] = useState(0)
   // Warning shown when the user submits a text search with no other filter applied.
   const [searchWarningOpen, setSearchWarningOpen] = useState(false)
@@ -939,16 +939,17 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     }
   }, [project.vocabularyDataSourceId, vocabDs, appliedSearch, browseVocabs, browseDomains, browseClasses, browseStandards, browseMaxResults, ensureMounted])
 
-  // Nothing is loaded until the user searches or picks a filter: an unprompted
-  // scan of the whole concept table is seconds of work nobody asked for.
+  // Runs on mount with an empty term, then on every submitted search. The empty
+  // term takes the builder's cheap `ORDER BY concept_id LIMIT n` branch, not the
+  // fuzzy scan, so opening the tab costs one bounded query.
   useEffect(() => {
     if (!project.vocabularyDataSourceId) return
     if (!browseSubmitted) return
     loadBrowseResults()
   }, [loadBrowseResults, project.vocabularyDataSourceId, browseSubmitted])
 
-  // Picking a filter is itself a search: it narrows the query, so it should
-  // fill the table without making the user hit Enter on an empty box.
+  // Picking a filter is itself a search: it narrows the query, so it refreshes
+  // the table without making the user hit Enter.
   useEffect(() => {
     if (browseVocabs.length || browseDomains.length || browseClasses.length || browseStandards.length) {
       setBrowseSubmitted(true)

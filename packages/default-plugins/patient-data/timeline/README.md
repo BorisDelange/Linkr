@@ -1,4 +1,4 @@
-# Timeline
+## Introduction
 
 Draws one patient's measurements against time: heart rate over a stay, three
 consecutive lactates, a ventilator setting held for two days. You pick the
@@ -73,7 +73,9 @@ reads better on a projector.
 **Sync time range** ties this chart's visible window to the other synced widgets
 on the board.
 
-## One shared y axis in Curves mode
+## Notes on the widget
+
+### One shared y axis in Curves mode
 
 In *Curves* mode every selected concept is drawn against a **single** value axis.
 There is no second axis and no normalisation, so the axis spans from the smallest
@@ -89,7 +91,7 @@ Units appear in the tooltip, never on the axis, and only when a concept has
 exactly one unit in this patient's record. A concept recorded in two units shows
 no unit at all rather than labelling everything with the first.
 
-## Sync time range, and how far it reaches
+### Sync time range, and how far it reaches
 
 With **Sync time range** on, this widget shares its visible window with the other
 synced widgets on the board — other timelines and Data overview widgets alike.
@@ -101,7 +103,7 @@ to the board, so two boards open on two patients never pull each other's windows
 around. Switching patient releases the shared window rather than carrying it
 over.
 
-## What the chart draws that the record does not contain
+### What the chart draws that the record does not contain
 
 > [!WARNING]
 > **Between two points, the line is drawn by the chart, not measured on the
@@ -140,9 +142,3 @@ range** on. Zoom either chart and both follow.
 If a series you expect is missing, check the concept picker first: the widget
 matches standard *and* source concept ids, but a concept never mapped in this
 warehouse has nothing to plot.
-
-## Further reading
-
-- [OMOP CDM v5.4 specification](https://ohdsi.github.io/CommonDataModel/cdm54.html) — what the measurement, observation and drug-exposure tables store, including why a value can have both a unit concept and a source unit string.
-- [The Book of OHDSI, *The Common Data Model*](https://ohdsi.github.io/TheBookOfOhdsi/CommonDataModel.html) — how events, dates and concepts fit together.
-- [The Book of OHDSI, *Data Quality*](https://ohdsi.github.io/TheBookOfOhdsi/DataQuality.html) — the conformance and plausibility checks that catch the unit mixtures a timeline makes visible.

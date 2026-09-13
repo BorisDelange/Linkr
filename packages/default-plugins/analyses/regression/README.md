@@ -1,4 +1,4 @@
-# Regression
+## Introduction
 
 Regression measures the association between an outcome and several variables **at
 once**, so each one is read with the others held constant.
@@ -19,7 +19,7 @@ significant — a per-year effect is small by construction, which is why the
 interval matters more than the star. The admission-type levels are read against
 the omitted one, and their intervals all cross 1, so they are drawn muted.
 
-## What you need
+## Settings
 
 Two settings under **Data** are required.
 
@@ -37,7 +37,9 @@ with whatever made them different.
 while exploring; switch to *Custom (drag to reorder)* for a figure, where the
 exposure of interest belongs at the top and the adjustment variables below.
 
-## Linear or logistic
+## Notes on the method
+
+### Linear or logistic
 
 The **Regression type** setting follows from the nature of the outcome, not from
 preference.
@@ -56,7 +58,7 @@ Forcing **Linear** on a 0/1 outcome fits a linear probability model, which will
 happily predict a risk of 1.3. Forcing **Logistic** on a continuous outcome
 fails outright.
 
-## Reading a coefficient
+### Reading a coefficient
 
 **Linear.** A coefficient of 0.42 for SOFA means: one extra SOFA point goes with
 0.42 more days of stay, at equal age and equal ventilation status. Units are the
@@ -74,7 +76,7 @@ than the risk ratio. An OR of 2.0 on a 25% baseline is a risk going from 25% to
 about 40%, not to 50%. Say "odds", write "odds ratio", and resist the sentence
 "twice as likely to die".
 
-### The interval, not the p-value
+#### The interval, not the p-value
 
 Each row carries a confidence interval at the level set by **Confidence level
 (%)** (95% by default, which also sets the significance threshold α used for
@@ -95,7 +97,7 @@ p-value does not.
 **Highlight significant** marks the rows where p < α. Treat it as a scanning
 aid, not as a verdict.
 
-## Categorical predictors
+### Categorical predictors
 
 A text predictor is expanded into one row per level, minus one: the first level
 in alphabetical order is dropped and becomes the **reference**. Every other
@@ -110,7 +112,7 @@ Two consequences worth planning for:
   dropped too. Both are reported as warnings. A free-text diagnosis field needs
   grouping into a handful of categories before it can enter a model.
 
-## Adjustment, and how it goes wrong
+### Adjustment, and how it goes wrong
 
 "Adjusted for age" means the coefficients describe patients compared *at the
 same age*. That is the power of the method and also where it fails.
@@ -133,7 +135,7 @@ flipped signs, while the model as a whole fits fine. If dropping one predictor
 moves another one's estimate wildly, that is what you are looking at. Keep one
 of the pair.
 
-## How many patients
+### How many patients
 
 For logistic regression, the working rule is **10 events per predictor** — and
 it is events, not rows. A cohort of 500 stays with 60 deaths supports about 6
@@ -146,7 +148,7 @@ The other symptom is a coefficient with an absurd estimate and an interval
 spanning several orders of magnitude — usually a level of a category with no
 events at all in it (separation). Merge levels, or drop the variable.
 
-## Reading the forest plot
+### Reading the forest plot
 
 Set **Display** to *Table + plot (stacked)*, *Table + plot (tabs)*, or either
 one alone; **Table columns** chooses what the table shows (estimate, standard

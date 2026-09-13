@@ -707,6 +707,18 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     void runSearch()
   }, [runSearch])
 
+  // Open on a first page of concepts, as if Enter had been pressed on the empty
+  // box. Guarded by a ref because runSearch is rebuilt on every filter change,
+  // and re-firing here would bypass the unfiltered-search warning.
+  const didInitialSearchRef = useRef(false)
+  useEffect(() => {
+    if (didInitialSearchRef.current) return
+    const targetDsId = project.vocabularyDataSourceId ?? dataSource?.id
+    if (!targetDsId) return
+    didInitialSearchRef.current = true
+    void runSearch()
+  }, [runSearch, project.vocabularyDataSourceId, dataSource?.id])
+
   /** Add mapping from the selected target concept with a given predicate and optional comment. */
   const handleAddSelectedMapping = async (predicate: MappingEquivalence = 'skos:exactMatch', comment = '') => {
     if (!sourceConcept || !selectedTarget) return

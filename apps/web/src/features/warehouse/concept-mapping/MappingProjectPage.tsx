@@ -100,6 +100,13 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   useEffect(() => {
     if (activeTab === 'mappings') mappingsEverOpened.current = true
   }, [activeTab])
+  // Same again for the concept sets tab: it opens on a vocabulary query, so
+  // unmounting made every return to it re-run that query and drop the search,
+  // filters and page the user had set.
+  const conceptSetsEverOpened = useRef(false)
+  useEffect(() => {
+    if (activeTab === 'concept-sets') conceptSetsEverOpened.current = true
+  }, [activeTab])
   const {
     mappingProjects, mappingProjectsLoaded, loadMappingProjects,
     conceptSetsLoaded, loadConceptSets,
@@ -223,8 +230,11 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
             <SourceConceptsTab project={project} dataSource={dataSource} />
           )}
         </TabsContent>
-        <TabsContent value="concept-sets" className="flex-1 overflow-hidden">
-          {activeTab === 'concept-sets' && <ConceptSetsTab project={project} dataSource={dataSource} />}
+        <TabsContent value="concept-sets" forceMount className={`flex-1 overflow-hidden ${activeTab === 'concept-sets' ? '' : 'hidden'}`}>
+          {/* eslint-disable-next-line react-hooks/refs -- monotonic "sticky mount" latch: once true it never flips back, and it is set in an activeTab effect that already re-renders this component, so reading it here keeps the tab mounted without going stale */}
+          {(activeTab === 'concept-sets' || conceptSetsEverOpened.current) && (
+            <ConceptSetsTab project={project} dataSource={dataSource} />
+          )}
         </TabsContent>
         <TabsContent value="editor" forceMount className={`flex-1 overflow-hidden ${activeTab === 'editor' ? '' : 'hidden'}`}>
           {/* eslint-disable-next-line react-hooks/refs -- monotonic "sticky mount" latch: once true it never flips back, and it is set in an activeTab effect that already re-renders this component, so reading it here keeps the editor mounted without going stale */}

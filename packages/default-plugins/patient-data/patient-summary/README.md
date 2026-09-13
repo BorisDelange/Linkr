@@ -1,4 +1,4 @@
-# Patient summary
+## Introduction
 
 The header of a patient chart: identifier, gender, age, vital status, how many
 hospitalisations and unit stays the record holds, and a bar per stay showing
@@ -31,7 +31,9 @@ Gantt bar navigates to that visit.
 Gender is your schema's own coded value translated to male or female, with the
 raw value printed when it matches neither. Race and ethnicity are not displayed.
 
-## How the two ages are computed
+## Notes on the widget
+
+### How the two ages are computed
 
 > [!WARNING]
 > **The age is a year subtraction, and it is not the patient's age today.** Two
@@ -48,7 +50,7 @@ which is not the age at first contact with your hospital: an extract covering
 2015–2024 shows a patient followed since 2003 as first seen in 2015. If the
 schema maps no visit table, a single age against today's date is shown instead.
 
-## What the counters count
+### What the counters count
 
 **Hospitalizations** counts distinct visits; **Unit stays** counts rows in the
 visit-detail table. Both follow directly from how your ETL defines a visit — in
@@ -60,14 +62,8 @@ read these numbers relative to other patients loaded by the same pipeline.
 The Gantt view shows the convention directly: bars that meet exactly at a
 transfer time reveal an ETL that splits on transfer.
 
-## What the death tile means
+### What the death tile means
 
 It shows a date when one is recorded, and "no" otherwise. That "no" means *no
 death recorded in this database* — usually only in-hospital deaths are known,
 unless the site links to a death registry.
-
-## Further reading
-
-- [OMOP CDM v5.4 specification](https://ohdsi.github.io/CommonDataModel/cdm54.html) — what person, visit, visit detail and death actually store, including why year of birth is the only guaranteed date part.
-- [The Book of OHDSI, *Extract, Transform, Load*](https://ohdsi.github.io/TheBookOfOhdsi/ExtractTransformLoad.html) — where the visit convention behind these counters is decided.
-- [El Emam K & Dankar FK, *Protecting privacy using k-anonymity*](https://pmc.ncbi.nlm.nih.gov/articles/PMC2528029/) — why ages and dates are generalised in the first place, and what that costs the analyst.

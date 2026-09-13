@@ -15,13 +15,17 @@ export { markdownComponents, processCallouts } from '@/components/editor/markdow
 
 export const remarkPlugins = [remarkGfm, remarkMath]
 
-const sanitizeSchema = {
+export const sanitizeSchema = {
   ...defaultSchema,
   attributes: {
     ...defaultSchema.attributes,
     img: [...(defaultSchema.attributes?.img ?? []), 'alt', 'width', 'height'],
     span: [...(defaultSchema.attributes?.span ?? []), 'className', 'style'],
-    div: [...(defaultSchema.attributes?.div ?? []), 'className', 'style', 'data-callout', 'data-mermaid'],
+    // hast property names, not HTML attribute names: rehype-raw has already
+    // turned `data-callout` into `dataCallout` by the time the sanitizer runs,
+    // so whitelisting the hyphenated spelling silently stripped both — which is
+    // why callouts and mermaid blocks rendered as bare divs.
+    div: [...(defaultSchema.attributes?.div ?? []), 'className', 'style', 'dataCallout', 'dataMermaid'],
     math: ['xmlns'],
     annotation: ['encoding'],
     details: [],

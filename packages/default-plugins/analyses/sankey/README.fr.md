@@ -1,4 +1,4 @@
-# Diagramme de Sankey
+## Introduction
 
 Un diagramme de Sankey suit *où vont les choses*. Chaque ruban est un groupe de
 patients passant d'une étape à la suivante, et sa largeur est leur nombre — l'œil
@@ -17,20 +17,7 @@ bifurcations plutôt que pour les totaux — le flux qui quitte le service et
 revient en réanimation est un signal de réadmission, exactement le genre de
 chose à quantifier proprement plutôt qu'à conclure de l'image.
 
-## Trois usages où il excelle
-
-**Les parcours patients.** Urgences → réanimation → service → sortie, avec toutes
-les déviations visibles : les retours en réanimation, les transferts directs, les
-décès à chaque étape.
-
-**Les transitions d'état.** Statut ventilatoire à J1 → J3 → J7, épuration
-extrarénale débutée puis arrêtée, une classe de gravité qui évolue.
-
-**Les entonnoirs d'inclusion.** Screenés → éligibles → consentants → analysés.
-Chaque rétrécissement est tracé à l'échelle, et les pertes sont aussi visibles que
-les survivants : c'est exactement ce qu'un diagramme de flux d'article doit montrer.
-
-## Mettre vos données en forme
+## Réglages
 
 **Forme des données** vient en premier, car ce réglage détermine les suivants.
 
@@ -54,7 +41,22 @@ données, un pari qu'on souhaite rarement prendre.
 unité ne génère pas de boucles sur lui-même. **Libellé nœud final**, si vous le
 renseignez, ajoute à chaque flux un dernier nœud portant ce libellé.
 
-## Ce que le diagramme compte réellement
+## Notes sur la méthode
+
+### Trois usages où il excelle
+
+**Les parcours patients.** Urgences → réanimation → service → sortie, avec toutes
+les déviations visibles : les retours en réanimation, les transferts directs, les
+décès à chaque étape.
+
+**Les transitions d'état.** Statut ventilatoire à J1 → J3 → J7, épuration
+extrarénale débutée puis arrêtée, une classe de gravité qui évolue.
+
+**Les entonnoirs d'inclusion.** Screenés → éligibles → consentants → analysés.
+Chaque rétrécissement est tracé à l'échelle, et les pertes sont aussi visibles que
+les survivants : c'est exactement ce qu'un diagramme de flux d'article doit montrer.
+
+### Ce que le diagramme compte réellement
 
 Les colonnes de nœuds sont **positionnelles** : la première étape de chaque flux
 occupe la colonne 1, la deuxième la colonne 2, et ainsi de suite. Une étape
@@ -75,7 +77,7 @@ Activez-le et la dernière étape de chaque flux est fusionnée dans une unique
 colonne finale, donnant un seul nœud « Décès » et un seul nœud « Sortie » — bien
 plus lisible dès que le devenir est le sujet.
 
-## Rester lisible
+### Rester lisible
 
 > [!WARNING]
 > **Trop de nœuds et le diagramme ne veut plus rien dire.** Avec 30 unités, 12
@@ -103,7 +105,7 @@ Utilisez **Affichage** → *Diagramme + tableau* quand les chiffres exacts compt
 Le tableau liste De, Vers, Effectif et un pourcentage du total affiché ; il est
 triable et filtrable, et cliquer un ruban du diagramme amène à sa ligne.
 
-## Un exemple complet
+## Un exemple travaillé
 
 *D'où viennent nos patients de réanimation, et où vont-ils ?*
 

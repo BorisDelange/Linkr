@@ -40,6 +40,8 @@ interface EntityVersioningDialogProps {
   renderPullDialog?: React.ComponentProps<typeof VersioningTabs>['renderPullDialog']
   renderInlinePull?: React.ComponentProps<typeof VersioningTabs>['renderInlinePull']
   onAfterPull?: React.ComponentProps<typeof VersioningTabs>['onAfterPull']
+  /** Rebuild the entity's content from its repository (forwarded to the Git tab). */
+  onReinstall?: React.ComponentProps<typeof VersioningTabs>['onReinstall']
 }
 
 /** Export tab body for a single entity: include-data option + download (or git-linked hint). */
@@ -107,6 +109,7 @@ export function EntityVersioningDialog({
   renderPullDialog,
   renderInlinePull,
   onAfterPull,
+  onReinstall,
 }: EntityVersioningDialogProps) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<VersioningTab>(gitOnly ? 'git' : initialTab)
@@ -138,6 +141,7 @@ export function EntityVersioningDialog({
           renderPullDialog={renderPullDialog}
           renderInlinePull={renderInlinePull}
           onAfterPull={onAfterPull}
+          onReinstall={onReinstall}
           gitRemote={gitRemote}
           onSaveGitRemote={onSaveGitRemote}
           exportContent={

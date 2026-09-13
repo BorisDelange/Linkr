@@ -1,4 +1,4 @@
-# Carte
+## Introduction
 
 Affiche vos lignes sous forme de points sur une carte interactive, à partir d'une
 colonne de latitude et d'une colonne de longitude. Utilisez-la pour voir d'où
@@ -17,7 +17,7 @@ forme attendue est une décroissance avec la distance autour de la ville du
 centre — et l'intérêt de la carte est ce qui rompt ce motif, une commune
 éloignée qui adresse bien plus que sa distance ne le laisserait attendre.
 
-## Ce qu'il vous faut
+## Réglages
 
 Deux colonnes numériques : **Latitude** et **Longitude**, en degrés décimaux
 (48,1173 ; −1,6778), ni en degrés-minutes-secondes, ni sous forme d'adresse
@@ -44,7 +44,9 @@ Trois colonnes facultatives changent ce que disent les points :
 La carte se cadre automatiquement sur vos données au chargement : inutile de
 définir un centre ou un niveau de zoom.
 
-## Ne cartographiez jamais les patients à leur domicile
+## Notes sur la méthode
+
+### Ne cartographiez jamais les patients à leur domicile
 
 > [!WARNING]
 > **Un point au domicile de quelqu'un est une donnée identifiante.** Une carte
@@ -64,7 +66,7 @@ habitants n'est guère plus anonyme qu'un point sur une maison. Supprimer ou
 fusionner les cellules sous un seuil de petits effectifs est une pratique
 courante, et vos règles de protection des données l'exigent probablement.
 
-## Les effectifs bruts reproduisent la carte de la population
+### Les effectifs bruts reproduisent la carte de la population
 
 Voici le piège qui guette la plupart des cartes sanitaires. Tracez des effectifs
 bruts de cas par commune et vous trouverez les plus gros cercles sur les plus
@@ -84,7 +86,7 @@ personnes qui l'habitent — passer de « ce territoire a un taux élevé » à 
 personne est à risque élevé » est le sophisme écologique, une erreur qu'il vaut la
 peine de nommer à voix haute quand une carte est présentée à des cliniciens.
 
-## Rendre lisible une carte chargée
+### Rendre lisible une carte chargée
 
 Les points situés au même endroit se superposent et se masquent : une carte dense
 sous-représente donc systématiquement ses zones les plus denses — exactement
@@ -103,7 +105,7 @@ prix d'un bruit visuel. Toutes les tuiles en ligne nécessitent un accès résea
 choisissez *Aucun (hors-ligne)* sur un réseau hospitalier isolé, et les points
 seront tracés sur un fond neutre.
 
-## Un exemple complet
+## Un exemple travaillé
 
 *D'où notre réanimation recrute-t-elle ?*
 
