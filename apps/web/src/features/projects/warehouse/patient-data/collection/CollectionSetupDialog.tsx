@@ -54,6 +54,18 @@ const NONE = '__none__'
 /** Past this many variables the list scrolls instead of growing the dialog. */
 const VARIABLES_BEFORE_SCROLL = 8
 const VARIABLES_MAX_HEIGHT = 320
+
+/**
+ * Height the panel area holds from the first frame, in px.
+ *
+ * Roughly the Dataset tab once it is filled in — the dataset dropdown plus the
+ * three identity columns, which only appear after a dataset is picked. Without a
+ * floor the dialog was laid out at the height of its empty state and then grew
+ * twice as the form was completed, so it moved under the pointer mid-configuration.
+ * Reserving the settled height up front costs some blank space on the first screen
+ * and buys a dialog that never resizes while it is being used.
+ */
+const PANEL_MIN_HEIGHT = 230
 /**
  * Configures a board's manual collection, in three tabs: which dataset receives it
  * and how its columns identify the patient (Dataset), which columns are filled in
@@ -94,7 +106,7 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
   const [addingCategory, setAddingCategory] = useState(false)
   const [editingCategory, setEditingCategory] = useState<PatientCollectionCategory | null>(null)
   const [busy, setBusy] = useState(false)
-  const { containerProps, measuredPanelProps } = useTallestPanel()
+  const { containerProps, measuredPanelProps } = useTallestPanel(PANEL_MIN_HEIGHT)
 
   // The datasets live in their own store, which only the Datasets page was loading —
   // so the dropdown below was empty for anyone who had not been there this session.
@@ -200,7 +212,10 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
         variables: [],
       })
       setNewName('')
-      setTab('variables')
+      // Sections, not variables: a variable is filed under a section, so landing on
+      // the step that comes first leaves the form readable in one pass instead of
+      // sending the user back a tab once they notice the section is missing.
+      setTab('categories')
     } finally {
       setBusy(false)
     }
@@ -408,7 +423,10 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
                         : x
                     )))}
                   >
-                    <SelectTrigger className="h-7 w-36 shrink-0 text-[10px]">
+                    {/* h-6, not the h-7 of a standalone field: this sits inside a
+                        variable's row as secondary chrome, and at equal height it
+                        competed with the variable's own name for attention. */}
+                    <SelectTrigger className="h-6 w-36 shrink-0 text-[10px]">
                       <SelectValue placeholder={t('patient_data.collection_no_category')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -600,8 +618,8 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
 
   const panels: [string, React.ReactNode][] = [
     ['dataset', datasetPanel],
-    ['variables', variablesPanel],
     ['categories', categoriesPanel],
+    ['variables', variablesPanel],
     ['general', generalPanel],
   ]
   const removedColumn = removing ? columnOf(removing.variable.columnId) : undefined
@@ -626,11 +644,14 @@ export function CollectionSetupDialog({ open, onOpenChange, projectUid, boardId,
             <TabsTrigger value="dataset" className="flex-1">
               {t('patient_data.collection_tab_dataset')}
             </TabsTrigger>
-            <TabsTrigger value="variables" className="flex-1">
-              {t('patient_data.collection_tab_variables')}
-            </TabsTrigger>
+            {/* Sections before variables: a variable is filed under a section, so
+                the section has to exist first — the tabs now read in the order the
+                form is actually filled in. */}
             <TabsTrigger value="categories" className="flex-1">
               {t('patient_data.collection_tab_categories')}
+            </TabsTrigger>
+            <TabsTrigger value="variables" className="flex-1">
+              {t('patient_data.collection_tab_variables')}
             </TabsTrigger>
             <TabsTrigger value="general" className="flex-1">
               {t('common.tab_general')}

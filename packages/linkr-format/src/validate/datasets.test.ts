@@ -95,13 +95,106 @@ describe('validateDatasets', () => {
     expect(issues.some((i) => i.severity === 'error')).toBe(false)
   })
 
-  it('warns — does not error — when the data file is absent', () => {
-    // Data is gitignored by default, so a git-tracked tree legitimately carries
-    // its columns without the rows. Only the header cross-check is skipped.
+  it('says NOTHING when the data file is absent', () => {
+    // Data is gitignored by default and re-included one file at a time, so a tree
+    // carrying its columns without the rows is the normal — and for health data the
+    // recommended — shape. It used to warn, which made importing a properly
+    // anonymised project announce format problems it did not have; a panel that
+    // cries wolf on the good case is one people stop reading.
     const { issues } = run({ 'datasets/_tree.json': tree([{ id: 'col_age', name: 'age' }]) })
-    const missing = issues.find((i) => i.code === 'missing-file')
-    expect(missing?.severity).toBe('warning')
-    expect(issues.some((i) => i.severity === 'error')).toBe(false)
+    expect(issues).toEqual([])
+  })
+
+  // A dataset is `raw -> parse -> replay(journal)`: the tree describes the
+  // MATERIALISED columns, the file holds only the raw ones. Comparing the two
+  // directly reported every hand-added column as missing — so a manual collection,
+  // which is made almost entirely of such columns, errored on its own export.
+  describe('with an edit journal', () => {
+    const edits = (...ops: unknown[]) => JSON.stringify({ ops })
+
+    it('does not miss a column the journal added', () => {
+      const { issues } = run({
+        'datasets/_tree.json': tree([
+          { id: 'col_age', name: 'age', type: 'number' },
+          { id: 'col_hr', name: 'hr', type: 'number' },
+        ]),
+        'datasets/patients/patients.csv': 'age\n60\n',
+        'datasets/patients/patients.edits.json': edits(
+          { type: 'addColumn', column: 'col_hr', name: 'hr', colType: 'number' },
+        ),
+      })
+      expect(issues).toEqual([])
+    })
+
+    it('does not flag a column the journal removed as undeclared', () => {
+      const { issues } = run({
+        'datasets/_tree.json': tree([{ id: 'col_age', name: 'age', type: 'number' }]),
+        'datasets/patients/patients.csv': 'age,sex\n60,M\n',
+        'datasets/patients/patients.edits.json': edits(
+          { type: 'removeColumn', column: 'col_sex' },
+        ),
+      })
+      expect(issues).toEqual([])
+    })
+
+    it('follows a renamed raw column from the file name to the tree name', () => {
+      // A rename is a REKEY — ids derive from names — so the tree carries the new
+      // id and the new name while the file still has the old header.
+      const { issues } = run({
+        'datasets/_tree.json': tree([{ id: 'col_age_years', name: 'age_years', type: 'number' }]),
+        'datasets/patients/patients.csv': 'age\n60\n',
+        'datasets/patients/patients.edits.json': edits(
+          { type: 'renameColumn', column: 'col_age', to: 'col_age_years', toName: 'age_years' },
+        ),
+      })
+      expect(issues).toEqual([])
+    })
+
+    it('handles a hand-added column that was then renamed', () => {
+      // Only its latest name is in the tree, and it never reached the file at all.
+      const { issues } = run({
+        'datasets/_tree.json': tree([
+          { id: 'col_age', name: 'age', type: 'number' },
+          { id: 'col_heart_rate', name: 'heart_rate', type: 'number' },
+        ]),
+        'datasets/patients/patients.csv': 'age\n60\n',
+        'datasets/patients/patients.edits.json': edits(
+          { type: 'addColumn', column: 'col_hr', name: 'hr', colType: 'number' },
+          { type: 'renameColumn', column: 'col_hr', to: 'col_heart_rate', toName: 'heart_rate' },
+        ),
+      })
+      expect(issues).toEqual([])
+    })
+
+    it('still reports a genuine mismatch the journal does not explain', () => {
+      // The check must not become a rubber stamp: a column in neither the file nor
+      // the journal is a real problem and has to survive.
+      const { issues } = run({
+        'datasets/_tree.json': tree([
+          { id: 'col_age', name: 'age', type: 'number' },
+          { id: 'col_ghost', name: 'ghost', type: 'number' },
+        ]),
+        'datasets/patients/patients.csv': 'age\n60\n',
+        'datasets/patients/patients.edits.json': edits(
+          { type: 'setCell', row: 0, column: 'col_age', value: 61 },
+        ),
+      })
+      expect(issues.some((i) => i.code === 'csv-header-mismatch')).toBe(true)
+    })
+
+    it('falls back to the plain check when the journal is unreadable', () => {
+      // A truncated journal must not silence the header check — that would turn one
+      // problem into a silent second one.
+      const { issues } = run({
+        'datasets/_tree.json': tree([
+          { id: 'col_age', name: 'age', type: 'number' },
+          { id: 'col_hr', name: 'hr', type: 'number' },
+        ]),
+        'datasets/patients/patients.csv': 'age\n60\n',
+        'datasets/patients/patients.edits.json': '{ not json',
+      })
+      expect(issues.some((i) => i.code === 'csv-header-mismatch')).toBe(true)
+    })
   })
 
   it('flags duplicate column ids', () => {

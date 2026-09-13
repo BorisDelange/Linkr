@@ -21,7 +21,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * so the first measurement is already the final one.
  */
 const panelHeight = (el: HTMLElement) => el.offsetHeight
-export function useTallestPanel() {
+
+/**
+ * @param floor Minimum height in px, held even while every panel is shorter.
+ *
+ * For a dialog whose panels GROW as they are filled in: the tallest-panel rule
+ * only reacts once the content exists, so configuring one step by step resized the
+ * box at each step — the dropdowns that appear after a dataset is picked, then the
+ * rows that appear after that. Reserving the settled height up front means the
+ * dialog is laid out once, at the size it will end up at.
+ */
+export function useTallestPanel(floor = 0) {
   const [heights, setHeights] = useState<Record<string, number>>({})
   const observers = useRef(new Map<string, ResizeObserver>())
 
@@ -54,7 +64,7 @@ export function useTallestPanel() {
     }
   }, [])
 
-  const tallest = Math.max(0, ...Object.values(heights))
+  const tallest = Math.max(0, floor, ...Object.values(heights))
 
   // `minHeight`, so a caller that leaves its active panel in normal flow still gets
   // at least the tallest panel's height. A caller that positions EVERY panel

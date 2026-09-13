@@ -11,6 +11,7 @@ import { checkArray, checkLocalized, checkString, isObject } from '../check.js'
 import { buildColumnIds, isLegacyColumnId } from '../ids.js'
 import type { IssueBag } from '../issue.js'
 import { listHint } from '../issue.js'
+import { editsFileName } from '../layout.js'
 import { readJson, type EntityTree } from '../tree.js'
 
 const TREE_PATH = 'datasets/_tree.json'
@@ -224,14 +225,14 @@ function validateCsv(
   const name = typeof entry.name === 'string' ? entry.name : datasetId
   const csvPath = findCsv(tree, datasetId, name, entry)
   if (!csvPath) {
-    // Not an error: data files are gitignored by default and re-included per
-    // file through "mark for versioning", so a git-tracked tree legitimately
-    // describes its columns without carrying the rows. The columns themselves
-    // are still checked above — only the header cross-check is skipped.
-    const folder = stripExtension(name)
-    bag.warn('datasets/', '', 'missing-file',
-      `No data file for dataset "${name}"; its columns cannot be cross-checked.`,
-      `expected datasets/${folder}/${withCsv(name)} (normal if data is gitignored)`)
+    // Silent, not a warning: data files are gitignored by default and re-included
+    // one by one through "mark for versioning", so a tree that describes its
+    // columns without carrying the rows is the NORMAL, recommended shape — for
+    // health data it is the whole point. Reporting it made importing a
+    // correctly-anonymised project announce format problems it did not have, which
+    // teaches people to ignore the panel that also carries the real errors. The
+    // columns themselves are still checked above; only the header cross-check,
+    // which has nothing to read, is skipped.
     return
   }
 
@@ -250,10 +251,23 @@ function validateCsv(
   }
 
   const header = parseCsvHeader(firstLine)
-  const declared = columns.map((c) => c.name)
+  // A dataset is `raw -> parse -> replay(journal)`, so the tree describes the
+  // MATERIALISED columns while the file holds only the raw ones. Comparing the two
+  // directly reported every hand-added column as missing — which is exactly what a
+  // manual collection is made of, so a perfectly valid export errored on its own
+  // output. Fold the journal in first and compare like with like.
+  const { added, removed, renamed } = editedColumns(tree, csvPath)
+  const declared = columns
+    .map((c) => c.name)
+    .filter((n) => !added.has(n))
+  // A renamed column appears under its new name in the tree and its old one in the
+  // file; the journal is what ties the two together.
+  const effectiveHeader = header
+    .map((n) => renamed.get(n) ?? n)
+    .filter((n) => !removed.has(n))
 
-  const missing = declared.filter((n) => !header.includes(n))
-  const extra = header.filter((n) => !declared.includes(n))
+  const missing = declared.filter((n) => !effectiveHeader.includes(n))
+  const extra = effectiveHeader.filter((n) => !declared.includes(n) && !added.has(n))
 
   if (missing.length > 0) {
     bag.error(csvPath, '', 'csv-header-mismatch',
@@ -265,6 +279,97 @@ function validateCsv(
       `${extra.length} column(s) in the data file are not declared in the tree.`,
       listHint('undeclared', extra))
   }
+}
+
+/**
+ * What the edit journal did to a dataset's COLUMNS, read from `<name>.edits.json`.
+ *
+ * The journal sits beside the data file and is gitignored with it, so it is often
+ * absent — an unversioned dataset carries neither. Everything here degrades to
+ * "no edits", which simply restores the plain header comparison.
+ *
+ * `renamed` maps the file's name to the tree's, since that is the direction the
+ * check reads in.
+ */
+function editedColumns(tree: EntityTree, csvPath: string): {
+  added: Set<string>
+  removed: Set<string>
+  renamed: Map<string, string>
+} {
+  const empty = { added: new Set<string>(), removed: new Set<string>(), renamed: new Map<string, string>() }
+  const slash = csvPath.lastIndexOf('/')
+  const dir = slash === -1 ? '' : csvPath.slice(0, slash + 1)
+  const raw = tree.read(`${dir}${editsFileName(csvPath.slice(slash + 1))}`)
+  if (raw == null) return empty
+
+  let ops: unknown
+  try {
+    ops = (JSON.parse(raw) as { ops?: unknown }).ops
+  } catch {
+    // A malformed journal is reported where the journal itself is checked, not
+    // here: this check's job is the header, and guessing would turn one problem
+    // into a misleading second one.
+    return empty
+  }
+  if (!Array.isArray(ops)) return empty
+
+  const added = new Set<string>()
+  const removed = new Set<string>()
+  const renamed = new Map<string, string>()
+  // Current name per column id. A rename REKEYS (ids derive from names), so an id
+  // is only a valid handle until the next rename of that column — following the
+  // chain by id is what keeps the first name tied to the last.
+  const nameById = new Map<string, string>()
+  // The name the FILE holds, for a column that came from the raw file. Hand-added
+  // columns are absent here, which is what tells the two apart.
+  const fileNameById = new Map<string, string>()
+
+  for (const op of ops) {
+    if (!isObject(op)) continue
+    const column = typeof op.column === 'string' ? op.column : null
+    if (op.type === 'addColumn') {
+      const name = typeof op.name === 'string' ? op.name : null
+      if (!name) continue
+      added.add(name)
+      if (column) nameById.set(column, name)
+    } else if (op.type === 'removeColumn' && column) {
+      const current = nameById.get(column)
+      // Removing a column the journal itself added cancels out: it never reached
+      // the file, and it is not in the tree either.
+      if (current != null && !fileNameById.has(column)) {
+        added.delete(current)
+        nameById.delete(column)
+      } else {
+        removed.add(fileNameById.get(column) ?? columnNameGuess(column))
+      }
+    } else if (op.type === 'renameColumn' && column) {
+      // The op carries the NEW id (`to`) and the new name (`toName`) — a rename is
+      // a rekey, so the column is addressed by a different id from here on.
+      const to = typeof op.to === 'string' ? op.to : null
+      const toName = typeof op.toName === 'string' ? op.toName : null
+      if (!to || !toName) continue
+      const current = nameById.get(column)
+      const fromFile = fileNameById.get(column)
+      if (current != null && fromFile == null) {
+        // A hand-added column renamed: only its latest name reaches the tree.
+        added.delete(current)
+        added.add(toName)
+      } else {
+        // A raw column renamed: the file still says the name it was created with.
+        renamed.set(fromFile ?? columnNameGuess(column), toName)
+        fileNameById.set(to, fromFile ?? columnNameGuess(column))
+        fileNameById.delete(column)
+      }
+      nameById.set(to, toName)
+      nameById.delete(column)
+    }
+  }
+  return { added, removed, renamed }
+}
+
+/** A column id's source name — ids are `col_<slug of name>`. */
+function columnNameGuess(columnId: string): string {
+  return columnId.startsWith('col_') ? columnId.slice(4) : columnId
 }
 
 /** `"icu_activity.csv"` → `"icu_activity"`. A dataset name may carry its extension. */

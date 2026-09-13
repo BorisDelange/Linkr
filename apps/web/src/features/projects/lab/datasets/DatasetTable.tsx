@@ -9,6 +9,7 @@ import {
   ArrowDown,
   Filter,
   EyeOff,
+  Copy,
   Columns2,
   Pin,
   PinOff,
@@ -822,7 +823,11 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                       onContextMenu={editable ? () => edit.setSelected({ row: ordinal as number, column: col.id }) : undefined}
                       style={{ maxWidth: getColWidth(col.id, DEFAULT_COL_WIDTH), ...(isPinned ? { left: pinnedLeft[col.id], width: getColWidth(col.id, DEFAULT_COL_WIDTH) } : {}) }}
                       className={cn(
-                        'relative border-b border-r px-3 py-1 whitespace-nowrap overflow-hidden text-ellipsis',
+                        // `select-text` explicitly: cells sit inside a grid built for
+                        // clicking, and dragging across one has to pick out its text
+                        // like any other value on the page — copying a patient id out
+                        // of a table is a routine thing to want.
+                        'relative select-text border-b border-r px-3 py-1 whitespace-nowrap overflow-hidden text-ellipsis',
                         isPinned
                           ? 'sticky z-20 bg-background border-r-primary/40'
                           : selectedColumnId === col.id ? 'bg-accent/20' : columnTint(colIdx),
@@ -856,6 +861,14 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                       >
                         <Pencil size={13} />
                         {t('datasets.cell_edit')}
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        className="text-xs"
+                        disabled={raw == null}
+                        onClick={() => void navigator.clipboard?.writeText(String(raw ?? ''))}
+                      >
+                        <Copy size={13} />
+                        {t('common.copy')}
                       </ContextMenuItem>
                       <ContextMenuItem
                         className="text-xs"
