@@ -1,20 +1,22 @@
 {
   "_comment": "Shared TS/Python parity fixture for the dataset ops replay engine. The client replays to render, the server replays to build the Parquet cache; a drift means the two disagree about what the dataset contains. Consumed by packages/linkr-format/src/dataset-ops.parity.test.ts and apps/api/tests/test_dataset_ops.py.",
   "canonical": {
-    "_comment": "The canonical wire form and its digest. Both sides must emit these keys, in this order, and hash to `hash` — the sidecar is written verbatim by both export builders, so a divergence here churns the git diff or silently mis-invalidates the Parquet cache.",
+    "_comment": "The canonical wire form and its digest. Both sides must emit these keys, in this order, and hash to `hash` — the sidecar is written verbatim by both export builders, so a divergence here churns the git diff or silently mis-invalidates the Parquet cache. `o5` pins the null rule: `value`/`after` keep an explicit null because there it MEANS something (an emptied cell, an append), while a null anywhere else is an absence and is dropped — the two engines disagreed on this and hashed the same log differently.",
     "ops": [
       { "id": "o1", "at": 1, "type": "setCell", "row": 0, "column": "col_a", "value": null },
       { "id": "o2", "at": 2, "type": "addRow", "row": -1, "values": { "col_b": "y", "col_a": "x" }, "after": null },
       { "id": "o3", "at": 3, "type": "addColumn", "column": "col_c", "name": "c", "colType": "number", "index": 1 },
-      { "id": "o4", "at": 4, "type": "renameColumn", "column": "col_a", "to": "col_z", "toName": "z", "by": "u1" }
+      { "id": "o4", "at": 4, "type": "renameColumn", "column": "col_a", "to": "col_z", "toName": "z", "by": "u1" },
+      { "id": "o5", "at": 5, "type": "setCell", "row": 1, "column": "col_b", "value": null, "by": null, "group": null }
     ],
     "expected": [
       { "id": "o1", "type": "setCell", "at": 1, "row": 0, "column": "col_a", "value": null },
       { "id": "o2", "type": "addRow", "at": 2, "row": -1, "values": { "col_a": "x", "col_b": "y" }, "after": null },
       { "id": "o3", "type": "addColumn", "at": 3, "column": "col_c", "name": "c", "colType": "number", "index": 1 },
-      { "id": "o4", "type": "renameColumn", "at": 4, "by": "u1", "column": "col_a", "to": "col_z", "toName": "z" }
+      { "id": "o4", "type": "renameColumn", "at": 4, "by": "u1", "column": "col_a", "to": "col_z", "toName": "z" },
+      { "id": "o5", "type": "setCell", "at": 5, "row": 1, "column": "col_b", "value": null }
     ],
-    "hash": "f1a30f9b"
+    "hash": "d4e65266"
   },
   "cases": [
     {

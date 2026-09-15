@@ -515,11 +515,26 @@ const OP_KEY_ORDER = [
 ] as const
 
 /**
+ * Keys where `null` is a VALUE, not an absence.
+ *
+ * A `setCell` to null empties the cell and an `addRow` with `after: null` appends,
+ * so dropping either would change what the op means. Every other key is optional
+ * metadata, where null and absent say the same thing.
+ */
+const NULLABLE_KEYS = new Set(['value', 'after'])
+
+/**
  * An op with its keys in a fixed order and its absent fields dropped.
  *
  * The sidecar is written verbatim by both the TS and the Python export builders,
  * so key insertion order would otherwise depend on write history and churn the git
  * diff — the same reason `parseOptions` is canonicalised server-side.
+ *
+ * `null` is dropped exactly where `undefined` is, because the Python twin
+ * (`canonical_op`) drops it too and the two forms are hashed for cache
+ * invalidation: treating an explicit `by: null` as present on one side only made
+ * the same log digest differently on each, which would mis-invalidate the Parquet
+ * cache. Nothing emits such an op today — this keeps that from being load-bearing.
  */
 export function canonicalOp(op: DatasetOp): Record<string, unknown> {
   const src = op as unknown as Record<string, unknown>
@@ -527,6 +542,7 @@ export function canonicalOp(op: DatasetOp): Record<string, unknown> {
   for (const key of OP_KEY_ORDER) {
     const value = src[key]
     if (value === undefined) continue
+    if (value === null && !NULLABLE_KEYS.has(key)) continue
     out[key] = key === 'values' ? sortedRecord(value as Record<string, unknown>) : value
   }
   return out

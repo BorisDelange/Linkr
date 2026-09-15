@@ -762,7 +762,12 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
               const ordinal = edit.ordinalOf(row) ?? rowOffset + rowIdx
               return (
                 <tr
-                  key={rowIdx}
+                  // Keyed by ordinal, not by position: rows reorder and are deleted
+                  // in place, and a cell being edited is identified by that same
+                  // ordinal. Under an index key React reuses a row's DOM across a
+                  // swap while the editor moves with the ordinal, leaving the open
+                  // input over the wrong row.
+                  key={ordinal}
                   // A new row can land off-screen — or on another page entirely —
                   // so the flash alone would highlight something nobody sees.
                   ref={flash?.row === ordinal ? flashRowRef : undefined}

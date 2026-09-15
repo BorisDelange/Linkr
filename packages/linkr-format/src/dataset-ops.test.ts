@@ -304,6 +304,27 @@ describe('canonicalOp', () => {
     expect(canonical.index).toBe(2)
     expect(canonical.at).toBe(1_700_000_000_000)
   })
+
+  it('drops a null in a metadata field, where null means absent', () => {
+    // The Python twin drops these, so keeping them made the same log hash
+    // differently on each side — and the digest is what invalidates the Parquet
+    // cache. Nothing emits such an op today; this is what keeps that true.
+    const canonical = canonicalOp(
+      { ...op({ type: 'setCell', row: 0, column: 'col_a', value: 'v' }), by: null, group: null } as unknown as DatasetOp,
+    )
+    expect(canonical).not.toHaveProperty('by')
+    expect(canonical).not.toHaveProperty('group')
+  })
+
+  it('keeps a null in value and after, where null is the meaning', () => {
+    // An emptied cell and an append are both written as null; dropping either
+    // would change what the op does on replay.
+    const cell = canonicalOp(op({ type: 'setCell', row: 0, column: 'col_a', value: null }) as DatasetOp)
+    expect(cell).toHaveProperty('value', null)
+
+    const row = canonicalOp(op({ type: 'addRow', row: -1, after: null }) as DatasetOp)
+    expect(row).toHaveProperty('after', null)
+  })
 })
 
 describe('opsHash', () => {
