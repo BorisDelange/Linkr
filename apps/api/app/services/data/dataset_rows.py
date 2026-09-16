@@ -250,6 +250,23 @@ def _build_where(
     return " WHERE " + " AND ".join(clauses), params
 
 
+def _count_cache_key(path: Path, where: str, params: list) -> tuple:
+    """Identify a count by the file AND what was counted.
+
+    The parquet's (mtime, size) stands in for its content: every write goes
+    through a temp file replaced atomically (``resolve_cache``), so a rebuilt
+    cache is always a different pair and a stale count can never be served.
+    """
+    stat = path.stat()
+    return (str(path), stat.st_mtime_ns, stat.st_size, where, repr(params))
+
+
+# Bounded so a long session over many datasets cannot grow it without limit; the
+# key already changes whenever a file is rewritten, so entries expire naturally.
+_count_cache: dict[tuple, int] = {}
+_COUNT_CACHE_MAX = 256
+
+
 def query_page(
     path: Path,
     col_types: dict[str, str],
@@ -265,12 +282,26 @@ def query_page(
 
     This is the server counterpart to DatasetTable's client-side filter/sort/
     paginate — the page never materialises the whole dataset in the browser.
-    ``columns`` (id+name) aliases a native parquet's real names to the col ids."""
+    ``columns`` (id+name) aliases a native parquet's real names to the col ids.
+
+    The total is memoised per (file, filters): it cannot change from one page of
+    the same query to the next, and recomputing it meant a full scan behind every
+    click of the pager — the dominant cost on a large dataset, since the page
+    itself is a bounded LIMIT.
+    """
     where, params = _build_where(filters or [], na or [], col_types)
     src = _source_expr(path, columns)
     con = duckdb.connect()
     try:
-        total = con.execute(f"SELECT count(*) FROM {src}{where}", params).fetchone()[0]
+        cache_key = _count_cache_key(path, where, params)
+        total = _count_cache.get(cache_key)
+        if total is None:
+            total = int(
+                con.execute(f"SELECT count(*) FROM {src}{where}", params).fetchone()[0]
+            )
+            if len(_count_cache) >= _COUNT_CACHE_MAX:
+                _count_cache.clear()
+            _count_cache[cache_key] = total
 
         order = ""
         if sort and sort.get("colId") in col_types:
@@ -284,7 +315,7 @@ def query_page(
         )
         names = [d[0] for d in res.description]
         rows = [_row_to_json(dict(zip(names, r))) for r in res.fetchall()]
-        return rows, int(total)
+        return rows, total
     finally:
         con.close()
 

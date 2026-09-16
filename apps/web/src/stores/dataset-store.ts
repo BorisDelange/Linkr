@@ -58,6 +58,17 @@ interface DatasetState {
   selectedAnalysisId: string | null
 
   _dirtyVersion: number
+  /**
+   * Per-file content revision — bumped only when a dataset's ROWS change.
+   *
+   * `_dirtyVersion` is a single store-wide counter touched by ~28 sites (opening a
+   * file, renaming a node, saving an analysis…), so keying a server refetch on it
+   * made every one of those re-run the page query and every DISTINCT of the table
+   * on screen — on a 100k-row dataset, several seconds of work for an event that
+   * changed nothing it reads. Keyed by file id and raised only where rows actually
+   * move, so an edit refetches its own dataset and nothing else.
+   */
+  _contentVersion: Record<string, number>
   isFileDirty: (id: string) => boolean
   isAnalysisDirty: (id: string) => boolean
 
@@ -275,6 +286,11 @@ function stampAuthor(ops: DatasetOp[]): DatasetOp[] {
   return ops.map((op) => (op.by ? op : { ...op, by }))
 }
 
+/** Raise a file's content revision — the signal a server-mode table refetches on. */
+function bumpContent(s: DatasetState, fileId: string): Pick<DatasetState, '_contentVersion'> {
+  return { _contentVersion: { ...s._contentVersion, [fileId]: (s._contentVersion[fileId] ?? 0) + 1 } }
+}
+
 /** Persist ops and refresh the store's view of the file. */
 async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Promise<void> {
   const state = useDatasetStore.getState()
@@ -294,6 +310,7 @@ async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Pr
     useDatasetStore.setState((s) => ({
       files: s.files.map((f) => (f.id === fileId ? { ...f, ...updated, columns } : f)),
       _dirtyVersion: s._dirtyVersion + 1,
+      ...bumpContent(s, fileId),
     }))
     return
   }
@@ -315,6 +332,7 @@ async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Pr
   useDatasetStore.setState((s) => ({
     files: s.files.map((f) => (f.id === fileId ? { ...f, ...patch } : f)),
     _dirtyVersion: s._dirtyVersion + 1,
+    ...bumpContent(s, fileId),
   }))
 
   const storage = getStorage()
@@ -337,6 +355,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   selectedAnalysisId: null,
 
   _dirtyVersion: 0,
+  _contentVersion: {},
 
   isFileDirty: (id) => {
     const file = get().files.find((f) => f.id === id)
@@ -1006,6 +1025,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     set((s) => ({
       files: s.files.map((f) => f.id === fileId ? { ...f, columns, rowCount: rows.length, updatedAt: new Date().toISOString() } : f),
       _dirtyVersion: s._dirtyVersion + 1,
+      ...bumpContent(s, fileId),
     }))
     storage.datasetFiles.update(fileId, { columns, rowCount: rows.length, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
     storage.datasetData.save({ datasetFileId: fileId, rows }).catch((e) => console.warn('[dataset-store] persist error:', e))
@@ -1098,6 +1118,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       set((s) => ({
         files: s.files.map((f) => f.id === fileId ? { ...f, ...updated } : f),
         _dirtyVersion: s._dirtyVersion + 1,
+        ...bumpContent(s, fileId),
       }))
       return
     }
@@ -1108,6 +1129,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     set((s) => ({
       files: s.files.map((f) => f.id === fileId ? { ...f, columns, rowCount: rows.length, parseOptions, updatedAt: new Date().toISOString() } : f),
       _dirtyVersion: s._dirtyVersion + 1,
+      ...bumpContent(s, fileId),
     }))
     await storage.datasetFiles.update(fileId, { columns, rowCount: rows.length, parseOptions, updatedAt: new Date().toISOString() })
     await storage.datasetData.save({ datasetFileId: fileId, rows })
@@ -1152,6 +1174,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       set((s) => ({
         files: s.files.map((f) => f.id === fileId ? { ...f, ...updated, parseOptions } : f),
         _dirtyVersion: s._dirtyVersion + 1,
+        ...bumpContent(s, fileId),
       }))
       return { rejected: rejectedRows }
     }

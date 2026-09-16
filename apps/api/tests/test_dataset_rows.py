@@ -1,5 +1,8 @@
 """Round-trip + paging parity for the Parquet row store (dataset_rows)."""
 
+from pathlib import Path
+
+from app.services.data import dataset_rows
 from app.services.data.dataset_rows import (
     column_stats,
     distinct_values,
@@ -96,6 +99,49 @@ def test_paging_with_limit_offset():
 
 def _parquet(rows, columns):
     return write_parquet(rows, columns)
+
+
+def test_total_is_cached_across_pages_of_the_same_query():
+    # The total cannot change between two pages of one query, and recomputing it
+    # meant a full scan behind every click of the pager.
+    cols = [{"id": "c0", "type": "string"}]
+    path = _parquet([{"c0": v} for v in ["a", "b", "c", "d"]], cols)
+    types = {"c0": "string"}
+
+    _, first = query_page(path, types, offset=0, limit=2)
+    calls_before = len(dataset_rows._count_cache)
+    _, second = query_page(path, types, offset=2, limit=2)
+
+    assert first == second == 4
+    # The second page reused the entry rather than adding one.
+    assert len(dataset_rows._count_cache) == calls_before
+
+
+def test_a_different_filter_counts_again():
+    # The cache is keyed on WHAT was counted, not just the file.
+    cols = [{"id": "c0", "type": "string"}]
+    path = _parquet([{"c0": v} for v in ["a", "b", "b"]], cols)
+    types = {"c0": "string"}
+
+    _, unfiltered = query_page(path, types)
+    _, filtered = query_page(path, types, filters=[{"colId": "c0", "values": ["b"]}])
+    assert unfiltered == 3
+    assert filtered == 2
+
+
+def test_a_rewritten_file_is_not_served_a_stale_total(tmp_path):
+    # A rebuilt cache (an edit replayed) must never report the old row count.
+    cols = [{"id": "c0", "type": "string"}]
+    dest = tmp_path / "d.parquet"
+
+    Path(write_parquet([{"c0": "a"}, {"c0": "b"}], cols)).replace(dest)
+    _, before = query_page(dest, {"c0": "string"})
+
+    Path(write_parquet([{"c0": "a"}], cols)).replace(dest)
+    _, after = query_page(dest, {"c0": "string"})
+
+    assert before == 2
+    assert after == 1
 
 
 def test_distinct_values_sorted_unique_no_nulls():

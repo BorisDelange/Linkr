@@ -174,7 +174,11 @@ function buildStatsFromServer(s: Record<string, unknown>, locale: string) {
 export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
   const { t, i18n } = useTranslation()
   const booleanLabels = useBooleanLabels()
-  const { files, getFileRows, _dirtyVersion } = useDatasetStore()
+  // Field by field rather than the whole store: a bare `useDatasetStore()` re-runs
+  // this panel — and its stats fetch guard — on every unrelated store change.
+  const files = useDatasetStore((s) => s.files)
+  const getFileRows = useDatasetStore((s) => s.getFileRows)
+  const _dirtyVersion = useDatasetStore((s) => s._dirtyVersion)
   const locale = i18n.language
   const server = isServerMode()
 
