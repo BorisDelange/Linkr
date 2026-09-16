@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ChevronLeft,
@@ -183,9 +183,13 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
    * behind them measure ~16 ms.
    */
   const [cellMenu, setCellMenu] = useState<{ row: number; column: string; value: unknown } | null>(null)
-  /** A cell "Edit" asked for, opened once the menu has finished closing. Only ever
-   *  read through the setter, on close — never during a render. */
-  const [, setPendingEdit] = useState<{ row: number; column: string; value: unknown } | null>(null)
+  /**
+   * A cell "Edit" asked for, opened once the menu has finished closing.
+   *
+   * A ref, not state: nothing renders from it, and reading it on close out of a
+   * state updater would put a side effect somewhere React is free to run twice.
+   */
+  const pendingEdit = useRef<{ row: number; column: string; value: unknown } | null>(null)
   /**
    * Focus + select the cell editor, once per opening.
    *
@@ -1115,10 +1119,9 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
           onOpenChange={(o) => {
             if (o) return
             setCellMenu(null)
-            setPendingEdit((p) => {
-              if (p) setTimeout(() => edit.beginEdit({ row: p.row, column: p.column }, p.value), 0)
-              return null
-            })
+            const p = pendingEdit.current
+            pendingEdit.current = null
+            if (p) setTimeout(() => edit.beginEdit({ row: p.row, column: p.column }, p.value), 0)
           }}
         >
           <DropdownMenuTrigger aria-hidden className="sr-only" />
@@ -1134,7 +1137,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
               // Only ARMS the edit: closing the menu is what opens it (see
               // `onOpenChange`), because an editor mounted mid-close gets blurred
               // by Radix — and a blur commits, shutting the cell again at once.
-              onClick={() => setPendingEdit(cellMenu)}
+              onClick={() => { pendingEdit.current = cellMenu }}
             >
               <Pencil size={13} />
               {t('datasets.cell_edit')}

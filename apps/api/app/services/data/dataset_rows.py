@@ -253,9 +253,17 @@ def _build_where(
 def _count_cache_key(path: Path, where: str, params: list) -> tuple:
     """Identify a count by the file AND what was counted.
 
-    The parquet's (mtime, size) stands in for its content: every write goes
-    through a temp file replaced atomically (``resolve_cache``), so a rebuilt
-    cache is always a different pair and a stale count can never be served.
+    The parquet's (mtime_ns, size) stands in for its content: any rewrite moves at
+    least one of the two, so a stale count is not served. BOTH parts are needed —
+    the two ways a file here gets rewritten differ:
+
+    - a derived cache is written to a temp and ``replace()``d in (``resolve_cache``),
+      so it lands with a fresh mtime;
+    - an UNEDITED native .parquet is read in place as its own cache, and ``/import``
+      overwrites it with ``shutil.copyfile`` — same inode, written in place.
+
+    So do not drop the size on the grounds that the mtime always moves: a same-size
+    re-import inside one mtime tick is the case the pair is guarding.
     """
     stat = path.stat()
     return (str(path), stat.st_mtime_ns, stat.st_size, where, repr(params))
