@@ -1,0 +1,44 @@
+# Run Linkr from the published images — no clone, no build.
+#
+# This file is self-contained: it is the ONE thing a user needs. Download it,
+# set a key, and start. `docker-compose.yml` next to it builds from source
+# instead, which is what you want when developing on Linkr itself.
+#
+#   curl -O https://framagit.org/interhop/linkr/linkr/-/raw/main/docker/docker-compose.hub.yml
+#   export LINKR_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
+#   docker compose -f docker-compose.hub.yml up
+#
+# Then open http://localhost:3000 — the setup wizard takes it from there.
+#
+# Pin a release (recommended for anything you rely on) by replacing `latest`
+# with a version: interhop/linkr:api-2.4.1 and interhop/linkr:web-2.4.1. The two
+# MUST move together — they stamp the same export-format version, and a mixed
+# pair writes exports that disagree about their own format.
+services:
+  web:
+    image: interhop/linkr:web-latest
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+  api:
+    image: interhop/linkr:api-latest
+    ports:
+      - "8000:8000"
+    environment:
+      - LINKR_DATABASE_URL=sqlite+aiosqlite:////root/.linkr/linkr.db
+      - LINKR_DATA_DIR=/root/.linkr
+      # Signs login tokens and encrypts the passwords of registered databases.
+      # Generate it once and keep it: changing it logs everyone out and makes
+      # already-registered database passwords unreadable.
+      - LINKR_SECRET_KEY=${LINKR_SECRET_KEY:?generate one - see the header of this file}
+      - LINKR_CORS_ORIGINS=http://localhost:3000
+      - LINKR_DEBUG=false
+    volumes:
+      - linkr-data:/root/.linkr
+
+volumes:
+  # Everything your users create lives here — the database and every file.
+  # This is the volume to back up, and `docker compose down -v` deletes it.
+  linkr-data:
