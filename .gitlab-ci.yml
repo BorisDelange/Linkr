@@ -91,33 +91,46 @@ pages:
 # pattern `v*` MUST be a protected tag or they are not injected and the login
 # fails with an empty password.
 # ---------------------------------------------------------------------------
-docker:
+# Kaniko, after docker:dind and Buildah both failed on GitLab.com's shared
+# runners: dind needs a privileged service that never comes up ("open
+# /certs/client/ca.pem: no such file or directory"), and Buildah needs a user
+# namespace the runner refuses ("unshare(CLONE_NEWUSER): Operation not
+# permitted"). Kaniko builds inside the job container itself — no daemon, no
+# namespace, no privileges — and pushes as it goes.
+#
+# One image per job, because Kaniko builds exactly one context per run. They run
+# in parallel, and a failure names which image broke instead of hiding it in a
+# single long log.
+.kaniko:
   stage: deploy
-  # Buildah, not docker:dind. GitLab.com's shared runners are unprivileged, so a
-  # dind service never comes up and the job dies on the TLS certs it was meant to
-  # publish ("open /certs/client/ca.pem: no such file or directory"). Buildah
-  # builds without a daemon, so it needs no privileged service at all.
-  image: quay.io/buildah/stable:v1.37
-  variables:
-    STORAGE_DRIVER: vfs
-    BUILDAH_FORMAT: docker
-    BUILDAH_ISOLATION: chroot
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
   rules:
     # Release tags only (v2.4.1). A pre-release suffix is deliberately excluded:
     # widen the pattern when we actually want to publish one.
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
-  script:
+  before_script:
     - VER=${CI_COMMIT_TAG#v}
     # The image stamps this into every export (entity.json appVersion) and the
     # web bundle stamps the same file, so a tag whose VERSION disagrees would
     # ship two halves claiming different formats. Fail before publishing.
     - test "$(cat VERSION)" = "$VER" || { echo "VERSION $(cat VERSION) != tag $VER"; exit 1; }
-    # Authenticate BEFORE building: a wrong token then costs seconds, not the
-    # half hour the api image takes to compile its R packages.
-    - echo "$DOCKERHUB_TOKEN" | buildah login -u "$DOCKERHUB_USER" --password-stdin docker.io
-    - buildah bud -f docker/Dockerfile.api -t interhop/linkr:api-$VER -t interhop/linkr:api-latest .
-    - buildah bud -f docker/Dockerfile.web --build-arg VITE_API_URL=/ -t interhop/linkr:web-$VER -t interhop/linkr:web-latest .
-    - buildah push interhop/linkr:api-$VER
-    - buildah push interhop/linkr:api-latest
-    - buildah push interhop/linkr:web-$VER
-    - buildah push interhop/linkr:web-latest
+    # Kaniko reads credentials from a Docker config file, not from a login verb.
+    - mkdir -p /kaniko/.docker
+    - |
+      AUTH=$(printf '%s:%s' "$DOCKERHUB_USER" "$DOCKERHUB_TOKEN" | base64 | tr -d '\n')
+      printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' "$AUTH" > /kaniko/.docker/config.json
+
+docker:api:
+  extends: .kaniko
+  script:
+    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile docker/Dockerfile.api
+      --destination interhop/linkr:api-$VER --destination interhop/linkr:api-latest
+
+docker:web:
+  extends: .kaniko
+  script:
+    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile docker/Dockerfile.web
+      --build-arg VITE_API_URL=/
+      --destination interhop/linkr:web-$VER --destination interhop/linkr:web-latest
