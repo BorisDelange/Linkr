@@ -93,14 +93,15 @@ pages:
 # ---------------------------------------------------------------------------
 docker:
   stage: deploy
-  image: docker:27-cli
-  services:
-    - docker:27-dind
+  # Buildah, not docker:dind. GitLab.com's shared runners are unprivileged, so a
+  # dind service never comes up and the job dies on the TLS certs it was meant to
+  # publish ("open /certs/client/ca.pem: no such file or directory"). Buildah
+  # builds without a daemon, so it needs no privileged service at all.
+  image: quay.io/buildah/stable:v1.37
   variables:
-    DOCKER_TLS_CERTDIR: "/certs"
-    DOCKER_HOST: tcp://docker:2376
-    DOCKER_TLS_VERIFY: "1"
-    DOCKER_CERT_PATH: "/certs/client"
+    STORAGE_DRIVER: vfs
+    BUILDAH_FORMAT: docker
+    BUILDAH_ISOLATION: chroot
   rules:
     # Release tags only (v2.4.1). A pre-release suffix is deliberately excluded:
     # widen the pattern when we actually want to publish one.
@@ -111,10 +112,12 @@ docker:
     # web bundle stamps the same file, so a tag whose VERSION disagrees would
     # ship two halves claiming different formats. Fail before publishing.
     - test "$(cat VERSION)" = "$VER" || { echo "VERSION $(cat VERSION) != tag $VER"; exit 1; }
-    - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
-    - docker build -f docker/Dockerfile.api -t interhop/linkr:api-$VER -t interhop/linkr:api-latest .
-    - docker build -f docker/Dockerfile.web --build-arg VITE_API_URL=/ -t interhop/linkr:web-$VER -t interhop/linkr:web-latest .
-    - docker push interhop/linkr:api-$VER
-    - docker push interhop/linkr:api-latest
-    - docker push interhop/linkr:web-$VER
-    - docker push interhop/linkr:web-latest
+    # Authenticate BEFORE building: a wrong token then costs seconds, not the
+    # half hour the api image takes to compile its R packages.
+    - echo "$DOCKERHUB_TOKEN" | buildah login -u "$DOCKERHUB_USER" --password-stdin docker.io
+    - buildah bud -f docker/Dockerfile.api -t interhop/linkr:api-$VER -t interhop/linkr:api-latest .
+    - buildah bud -f docker/Dockerfile.web --build-arg VITE_API_URL=/ -t interhop/linkr:web-$VER -t interhop/linkr:web-latest .
+    - buildah push interhop/linkr:api-$VER
+    - buildah push interhop/linkr:api-latest
+    - buildah push interhop/linkr:web-$VER
+    - buildah push interhop/linkr:web-latest
