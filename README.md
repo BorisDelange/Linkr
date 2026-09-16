@@ -247,5 +247,8 @@ what is checked.
 Issues and contributions are welcome on either
 [FramaGit](https://framagit.org/interhop/linkr/linkr) (where development happens) or the
 [GitHub mirror](https://github.com/BorisDelange/Linkr) — use whichever you already have an
-account on. The user documentation lives in a separate repository and is published at
+account on. Bug reports, confusing screens and use cases we do not cover are as useful as
+code; **[CONTRIBUTING.md](CONTRIBUTING.md)** says how.
+
+The user documentation lives in a separate repository and is published at
 [linkr.interhop.org](https://linkr.interhop.org/en/docs/).
