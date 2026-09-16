@@ -116,6 +116,16 @@ pages:
     # web bundle stamps the same file, so a tag whose VERSION disagrees would
     # ship two halves claiming different formats. Fail before publishing.
     - test "$(cat VERSION)" = "$VER" || { echo "VERSION $(cat VERSION) != tag $VER"; exit 1; }
+    # docker-compose.hub.yml pins the images users actually pull. It is a
+    # separate file from VERSION, so it is the one that gets forgotten — and a
+    # release that ships it stale points every new install at the PREVIOUS
+    # version, silently. Both lines must name the tag being published.
+    - |
+      HUB=docker/docker-compose.hub.yml
+      for role in api web; do
+        grep -q "interhop/linkr:$role-$VER\$" "$HUB" || {
+          echo "$HUB does not pin $role-$VER:"; grep -n 'image:' "$HUB"; exit 1; }
+      done
     # Kaniko reads credentials from a Docker config file, not from a login verb.
     - mkdir -p /kaniko/.docker
     - |
