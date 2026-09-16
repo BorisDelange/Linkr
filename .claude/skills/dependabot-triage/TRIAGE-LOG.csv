@@ -107,3 +107,28 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-08-01,ws,GHSA-96hv-2xvq-fx4p,high,104,resolved-in-lockfile,pending-merge,,installed 8.21.1 >= patched 8.21.0
 2026-08-01,xlsx,GHSA-4r6h-8v6p-xvw6,high,"1,3",resolved-in-lockfile,pending-merge,,SheetJS 0.20.3 (official CDN) > vulnerable range
 2026-08-01,xlsx,GHSA-5pgg-2g8v-p4x9,high,"2,4",resolved-in-lockfile,pending-merge,,SheetJS 0.20.3 (official CDN) > vulnerable range
+2026-09-16,@humanfs/node,GHSA-p498-v437-472g,medium,160,actionable,bumped,,lockfile 0.16.7 -> 0.16.8
+2026-09-16,@vitest/mocker,GHSA-82fw-gwwq-j7x9,medium,169,false-positive,dismissed,not_used,dev-only; mockerPlugin/interceptorPlugin unused; no browser mode; fix needs vitest 4.x major
+2026-09-16,baseline-browser-mapping,GHSA-w5vr-8v7q-w6rv,medium,170,actionable,bumped,,lockfile 2.9.19 -> 2.11.24
+2026-09-16,brace-expansion,GHSA-3jxr-9vmj-r5cp,high,110,actionable,bumped,,lockfile 1.1.12 -> 1.1.21
+2026-09-16,browserslist,GHSA-73wf-gq98-2v4g,high,164,actionable,bumped,,lockfile 4.28.1 -> 4.29.0
+2026-09-16,dompurify,GHSA-55q2-fjhq-7xh7,medium,141,blocked-upstream,dismissed,tolerable_risk,monaco 0.56.0 ships dompurify 3.4.8 < patched 3.4.13; mermaid path fixed via 11.17.2
+2026-09-16,ecdsa,GHSA-wj6h-64fc-37mp,high,152,false-positive,dismissed,not_used,"JWTs signed HS256 not ECDSA; python-jose transitive; upstream declined fix, no patch will exist"
+2026-09-16,fast-uri,GHSA-5jgf-p345-68v8,high,157,actionable,bumped,,lockfile 3.1.5 -> 3.1.8
+2026-09-16,fast-uri,GHSA-f65p-4m7j-42xc,high,161,actionable,bumped,,lockfile 3.1.5 -> 3.1.8
+2026-09-16,fast-uri,GHSA-fph4-wmhf-6fwf,high,158,actionable,bumped,,lockfile 3.1.5 -> 3.1.8
+2026-09-16,fast-uri,GHSA-jqff-g426-hqxp,high,162,actionable,bumped,,lockfile 3.1.5 -> 3.1.8
+2026-09-16,hono,GHSA-54fx-42gc-7vw4,medium,154,actionable,bumped,,lockfile 4.12.33 -> 4.13.8
+2026-09-16,hono,GHSA-79qm-7rj5-m7r9,low,143,actionable,bumped,,lockfile 4.12.33 -> 4.13.8
+2026-09-16,hono,GHSA-crvj-82cr-hjcx,medium,167,actionable,bumped,,lockfile 4.12.33 -> 4.13.8
+2026-09-16,hono,GHSA-f23p-vx2j-j53r,medium,144,actionable,bumped,,lockfile 4.12.33 -> 4.13.8
+2026-09-16,hono,GHSA-gqvv-2mrq-wpjv,medium,168,actionable,bumped,,lockfile 4.12.33 -> 4.13.8
+2026-09-16,js-yaml,GHSA-2883-xcg3-v3hh,high,175,actionable,bumped,,lockfile 4.3.1 -> 4.3.2
+2026-09-16,mermaid,GHSA-2v8p-3f2j-5mp7,medium,139,actionable,bumped,,lockfile 11.16.0 -> 11.17.2
+2026-09-16,mermaid,GHSA-3rrr-jr9j-h3q3,medium,135,actionable,bumped,,lockfile 11.16.0 -> 11.17.2
+2026-09-16,mermaid,GHSA-6x64-9x62-f2gx,medium,138,actionable,bumped,,lockfile 11.16.0 -> 11.17.2
+2026-09-16,mermaid,GHSA-c4c3-pg64-4m4v,low,137,actionable,bumped,,lockfile 11.16.0 -> 11.17.2
+2026-09-16,mermaid,GHSA-rhh3-jpg6-66xh,medium,136,actionable,bumped,,lockfile 11.16.0 -> 11.17.2
+2026-09-16,nanoid,GHSA-2v37-7h3g-55p8,high,155,actionable,bumped,,lockfile 3.3.16 -> 3.3.19
+2026-09-16,postcss-selector-parser,GHSA-w9m9-85wc-3x92,low,156,actionable,bumped,,lockfile 7.1.1 -> 7.1.6
+2026-09-16,vitest,GHSA-82fw-gwwq-j7x9,medium,"171,172,173,174",false-positive,dismissed,not_used,dev-only; mockerPlugin/interceptorPlugin unused; no browser mode; fix needs vitest 4.x major
