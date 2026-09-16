@@ -10,20 +10,24 @@
 #
 # Then open http://localhost:3000 — the setup wizard takes it from there.
 #
-# Pin a release (recommended for anything you rely on) by replacing `latest`
-# with a version: interhop/linkr:api-2.4.1 and interhop/linkr:web-2.4.1. The two
-# MUST move together — they stamp the same export-format version, and a mixed
-# pair writes exports that disagree about their own format.
+# The version is pinned on purpose. `latest` would let a `pull` move the app
+# under a running instance without anyone asking for it, and two people
+# following the same instructions would not get the same thing.
+#
+# To upgrade, change BOTH lines to the new version — they stamp the same
+# export-format version, and a mixed pair writes exports that disagree about
+# their own format. Available versions:
+# https://hub.docker.com/r/interhop/linkr/tags
 services:
   web:
-    image: interhop/linkr:web-latest
+    image: interhop/linkr:web-2.4.1
     ports:
       - "3000:80"
     depends_on:
       - api
 
   api:
-    image: interhop/linkr:api-latest
+    image: interhop/linkr:api-2.4.1
     ports:
       - "8000:8000"
     environment:
