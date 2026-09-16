@@ -16,9 +16,14 @@ COPY package.json package-lock.json ./
 # stamp — a mixed front/back diff. Keep this in sync with Dockerfile.api.
 COPY VERSION ./VERSION
 COPY apps/web/ apps/web/
-# The web build resolves the `@default-plugins` path alias to this workspace
-# (vite + tsconfig), so it must be present at the same relative location.
+# The web build resolves the `@default-plugins` and `@linkr/format` path aliases
+# to these workspaces (vite + tsconfig), so they must be present at the same
+# relative location. Both aliases point straight at the SOURCE
+# (packages/<name>/src/…), not a built dist, so copying the source is enough —
+# but the copy is not optional: 28 files under apps/web/src import
+# `@linkr/format`, and without it `tsc -b` fails with TS2307 before vite runs.
 COPY packages/default-plugins/ packages/default-plugins/
+COPY packages/linkr-format/ packages/linkr-format/
 # --ignore-scripts skips the root `prepare` (install-git-hooks.mjs — dev-only, no
 # .git here); then run the web postinstall explicitly to copy the DuckDB .wasm.
 RUN npm ci --workspace web --ignore-scripts \
