@@ -36,9 +36,21 @@ services:
       - LINKR_CORS_ORIGINS=http://localhost:3000
       - LINKR_DEBUG=false
     volumes:
+      # Everything your users create lives here — the database and every file.
+      # This is what you back up; the images hold no data of their own.
+      #
+      # A named volume by default: it survives restarts, `down`, and image
+      # updates, but Docker owns it and it is awkward to reach, copy or back up
+      # with ordinary tools. To keep the data in a REAL folder you can see and
+      # archive, replace the line below with a path of your own:
+      #
+      #   - ./linkr-data:/root/.linkr        (beside this file)
+      #   - /srv/linkr:/root/.linkr          (a server path)
+      #
+      # Docker creates it if missing; nothing else changes. Only `down -v`
+      # deletes a named volume — a bind-mounted folder is never touched, which
+      # is the other reason to prefer one for anything you care about.
       - linkr-data:/root/.linkr
 
 volumes:
-  # Everything your users create lives here — the database and every file.
-  # This is the volume to back up, and `docker compose down -v` deletes it.
   linkr-data:
