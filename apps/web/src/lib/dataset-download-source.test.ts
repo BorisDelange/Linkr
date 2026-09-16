@@ -18,4 +18,13 @@ describe('rawFileRepresentsDataset', () => {
     // the variables added afterwards.
     expect(rawFileRepresentsDataset({ ops: [op()] })).toBe(false)
   })
+
+  it('cannot tell "unedited" from "log not loaded" — the CALLER must', () => {
+    // Both read as `ops: undefined` here, and this function answers the same for
+    // each. That is not a flaw in it: it takes what it is given. But the dataset
+    // LISTING carries no log (resolved lazily, per file, on open), so a download
+    // straight from the tree once handed back the pre-edit source file of an edited
+    // dataset. The caller resolves the meta first; this test records why it must.
+    expect(rawFileRepresentsDataset({ ops: undefined })).toBe(true)
+  })
 })

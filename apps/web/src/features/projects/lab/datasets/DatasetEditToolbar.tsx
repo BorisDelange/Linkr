@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDown, ArrowUp, Check, History, Pencil, Plus, Undo2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, History, Loader2, Pencil, Plus, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -38,6 +38,15 @@ export function DatasetEditToolbar({
   const file = useDatasetStore((s) => s.files.find((f) => f.id === fileId))
   const [addingColumn, setAddingColumn] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  /**
+   * An undo in flight.
+   *
+   * Undoing rewrites the whole log and the server rebuilds the dataset's Parquet
+   * cache from it, which on a large dataset takes seconds. Without this the button
+   * stayed live and looked inert: a second click would drop a SECOND action, so
+   * an impatient double-click silently undid twice.
+   */
+  const [undoing, setUndoing] = useState(false)
 
   const ops = file?.ops ?? []
   const hasOps = ops.length > 0
@@ -123,14 +132,25 @@ export function DatasetEditToolbar({
                   <Button
                     variant="ghost"
                     size="xs"
-                    disabled={!hasOps}
-                    onClick={() => void undoLastOps(fileId)}
+                    disabled={!hasOps || undoing}
+                    onClick={async () => {
+                      setUndoing(true)
+                      try {
+                        await undoLastOps(fileId)
+                      } finally {
+                        setUndoing(false)
+                      }
+                    }}
                   >
-                    <Undo2 className="size-3.5" />
+                    {undoing
+                      ? <Loader2 className="size-3.5 animate-spin" />
+                      : <Undo2 className="size-3.5" />}
                   </Button>
                 </span>
               </TooltipTrigger>
-              <TooltipContent className="max-w-xs">{t('datasets.undo_edit')}</TooltipContent>
+              <TooltipContent className="max-w-xs">
+                {undoing ? t('datasets.undo_in_progress') : t('datasets.undo_edit')}
+              </TooltipContent>
             </Tooltip>
 
             <Tooltip>

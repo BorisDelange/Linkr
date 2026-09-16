@@ -1417,6 +1417,7 @@
     "column_name_taken": "Une colonne porte déjà ce nom.",
     "column_type": "Type",
     "undo_edit": "Annuler la dernière modification",
+    "undo_in_progress": "Annulation de la dernière modification…",
     "edit_history": "Historique des modifications",
     "edit_history_description": "Toutes les opérations enregistrées sur le fichier source, de la plus récente à la plus ancienne. Le fichier source n'est jamais modifié : cette liste est ce qui fait le jeu de données.",
     "compact_history": "Compacter",

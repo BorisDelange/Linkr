@@ -1417,6 +1417,7 @@
     "column_name_taken": "A column with this name already exists.",
     "column_type": "Type",
     "undo_edit": "Undo the last change",
+    "undo_in_progress": "Undoing the last change…",
     "edit_history": "Edit history",
     "edit_history_description": "Every operation recorded against the source file, most recent first. The source file is never modified, so this list is what makes the dataset what it is.",
     "compact_history": "Compact",

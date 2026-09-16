@@ -57,7 +57,7 @@ import {
 import { useAppStore } from '@/stores/app-store'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { queryDatasetRows } from '@/lib/api/datasets'
+import { fetchDatasetMeta, queryDatasetRows } from '@/lib/api/datasets'
 import { rawFileRepresentsDataset } from '@/lib/dataset-download-source'
 import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import { ImportSettingsDialog } from './ImportSettingsDialog'
@@ -222,12 +222,27 @@ function DatasetTreeItem({
       URL.revokeObjectURL(url)
     }
 
+    // The listing carries names and tree only — columns, rowCount and the edit log
+    // are resolved lazily when a file is OPENED, so a dataset downloaded straight
+    // from the tree can look unedited when it is not. Resolve first, or an edited
+    // dataset silently downloads its pre-edit source file.
+    let file = node
+    if (isServerMode() && node.ops === undefined) {
+      try {
+        const meta = await fetchDatasetMeta(node.id)
+        file = { ...node, columns: meta.columns ?? node.columns, rowCount: meta.rowCount, ops: meta.ops }
+      } catch {
+        // Unreachable meta: fall through with what the tree knows. A download that
+        // reconstructs from no columns is caught below.
+      }
+    }
+
     // An edited dataset is reconstructed from its replayed state; only an unedited
     // one downloads its original bytes. See `rawFileRepresentsDataset` for why.
-    if (rawFileRepresentsDataset(node)) {
-      const raw = await getStorage().datasetRawFiles.get(node.id)
+    if (rawFileRepresentsDataset(file)) {
+      const raw = await getStorage().datasetRawFiles.get(file.id)
       if (raw?.blob) {
-        trigger(raw.blob, raw.fileName || node.name)
+        trigger(raw.blob, raw.fileName || file.name)
         return
       }
     }
@@ -235,18 +250,18 @@ function DatasetTreeItem({
     // Reconstruct a CSV. In server mode the rows aren't in memory (datasetData.get
     // no-ops on the API adapter), so page them from the server; front-only reads the
     // in-memory/IDB rows.
-    const columns = node.columns ?? []
+    const columns = file.columns ?? []
     if (columns.length === 0) return
-    let rows = useDatasetStore.getState().getFileRows(node.id)
+    let rows = useDatasetStore.getState().getFileRows(file.id)
     if (rows.length === 0) {
       if (isServerMode()) {
-        const total = node.rowCount ?? 0
+        const total = file.rowCount ?? 0
         if (total > 0) {
-          const page = await queryDatasetRows(node.id, { offset: 0, limit: total })
+          const page = await queryDatasetRows(file.id, { offset: 0, limit: total })
           rows = page.rows
         }
       } else {
-        const data = await getStorage().datasetData.get(node.id)
+        const data = await getStorage().datasetData.get(file.id)
         rows = data?.rows ?? []
       }
     }
@@ -263,7 +278,7 @@ function DatasetTreeItem({
     )
     const csv = [header, ...lines].join('\n')
     // Reconstructed content is CSV — force a .csv name even if the dataset is named *.xlsx.
-    const csvName = node.name.replace(/\.[^.]+$/, '') + '.csv'
+    const csvName = file.name.replace(/\.[^.]+$/, '') + '.csv'
     trigger(new Blob([csv], { type: 'text/csv' }), csvName)
   }
 

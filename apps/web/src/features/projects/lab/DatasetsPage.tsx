@@ -242,7 +242,17 @@ export function DatasetsPage() {
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null)
   // Editing is off by default: a dataset is read-only until asked otherwise, so a
   // stray keystroke on a browsed table can never record an op.
-  const [editingData, setEditingData] = useState(false)
+  //
+  // Held WITH the file it was turned on for, so switching datasets leaves edit
+  // mode by construction. Turning it on is a decision about one dataset — carrying
+  // it over would arm the next one silently, and the toolbar would let a keystroke
+  // record an op on a dataset nobody asked to edit.
+  const [editingFileId, setEditingFileId] = useState<string | null>(null)
+  const editingData = editingFileId != null && editingFileId === selectedFileId
+  const setEditingData = useCallback(
+    (on: boolean) => setEditingFileId(on ? selectedFileId : null),
+    [selectedFileId],
+  )
   // Hidden columns live in the per-file table view (store), like the other view
   // state, so they survive leaving the page. Kept as a Set at the UI boundary.
   const hiddenColumnIds = useDatasetStore(

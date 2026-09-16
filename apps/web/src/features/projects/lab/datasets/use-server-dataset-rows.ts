@@ -82,12 +82,20 @@ export function useServerDatasetRows({
 
   // The debounce exists for TYPING in a filter box. An edit is a discrete action
   // that already happened, so making it wait out the same delay just leaves the
-  // stale value on screen for another quarter second.
+  // stale value on screen for another quarter second. Paging and sorting are
+  // discrete in the same way — a click, not a keystroke — and waiting out the
+  // delay there is felt directly as the table lagging behind the pager.
   const fetchedRevision = useRef(revision)
+  const fetchedDiscrete = useRef('')
+  /** The dataset the rows in state belong to, so a switch can clear them. */
+  const fetchedFile = useRef(fileId)
 
   useEffect(() => {
-    const immediate = fetchedRevision.current !== revision
+    const discreteKey = `${fileId}|${page}|${pageSize}|${sortKey}`
+    const immediate =
+      fetchedRevision.current !== revision || fetchedDiscrete.current !== discreteKey
     fetchedRevision.current = revision
+    fetchedDiscrete.current = discreteKey
     const id = ++reqId.current
     const query: ServerRowsQuery = {
       offset: page * pageSize,
@@ -96,7 +104,16 @@ export function useServerDatasetRows({
       filters: toServerFilters(columnFilters, columns),
       na: Object.entries(naFilters).map(([colId, mode]) => ({ colId, mode })),
     }
-    setState((s) => ({ ...s, loading: true, error: null }))
+    // Keep the rows on screen while re-querying the SAME dataset — paging and
+    // filtering stay steady rather than blinking through an empty table. Drop them
+    // when the dataset itself changes: they belong to the previous file, and the
+    // columns beside them have already switched, so they would be rendered under
+    // headers they have nothing to do with.
+    const sameFile = fetchedFile.current === fileId
+    fetchedFile.current = fileId
+    setState((s) => (sameFile
+      ? { ...s, loading: true, error: null }
+      : { rows: [], total: 0, loading: true, error: null }))
     const timer = setTimeout(() => {
       queryDatasetRows(fileId, query)
         .then((page) => {

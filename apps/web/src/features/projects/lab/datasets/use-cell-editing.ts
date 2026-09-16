@@ -297,8 +297,16 @@ export function useCellEditing({ fileId, rows, columns, ops, enabled }: Options)
   }, [beginEdit, cancelEdit, commitEdit, editing, enabled, move, ordinalOf, rows, selected, writeCell])
 
   return {
-    selected, setSelected,
-    editing, draft, setDraft,
+    // Derived from `enabled` rather than cleared in an effect when edit mode ends:
+    // the highlight means "this cell is what the next keystroke or menu action
+    // addresses", which stops being true the instant the table turns read-only. An
+    // effect would leave it on screen for a render, and cost a second one to undo.
+    // The stored values are kept, so leaving and re-entering edit mode is not a
+    // surprise — nothing is lost, it simply stops being shown.
+    selected: enabled ? selected : null,
+    setSelected,
+    editing: enabled ? editing : null,
+    draft, setDraft,
     beginEdit, cancelEdit, commitEdit,
     ordinalOf, cellValue, writeCell,
   }

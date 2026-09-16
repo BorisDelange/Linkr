@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Minimize2, RotateCcw, Undo2 } from 'lucide-react'
+import { Loader2, Minimize2, RotateCcw, Undo2 } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -68,13 +68,22 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
   const resetOps = useDatasetStore((s) => s.resetOps)
   const resolveName = useUserDirectoryStore((s) => s.resolveName)
   const [confirmingReset, setConfirmingReset] = useState(false)
-  const [busy, setBusy] = useState(false)
+  /**
+   * Which action is running, not merely THAT one is.
+   *
+   * All three rewrite the log and make the server rebuild the Parquet cache from
+   * it, which takes seconds on a large dataset. Naming the action lets its own
+   * button carry the spinner, so the wait is attached to what was clicked rather
+   * than to three buttons that merely went grey together.
+   */
+  const [busyAction, setBusyAction] = useState<'compact' | 'undo' | 'reset' | null>(null)
+  const busy = busyAction !== null
   const ops = file?.ops ?? []
   const columnName = (id: string) => file?.columns?.find((c) => c.id === id)?.name ?? id
 
-  const run = async (action: () => Promise<void>) => {
-    setBusy(true)
-    try { await action() } finally { setBusy(false) }
+  const run = async (action: 'compact' | 'undo' | 'reset', fn: () => Promise<void>) => {
+    setBusyAction(action)
+    try { await fn() } finally { setBusyAction(null) }
   }
 
   const rows = useMemo<OpRow[]>(() => ops
@@ -169,9 +178,11 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
             variant="outline"
             size="sm"
             disabled={!ops.length || busy}
-            onClick={() => void run(() => compactFileOps(fileId))}
+            onClick={() => void run('compact', () => compactFileOps(fileId))}
           >
-            <Minimize2 className="mr-2 size-3.5" />
+            {busyAction === 'compact'
+              ? <Loader2 className="mr-2 size-3.5 animate-spin" />
+              : <Minimize2 className="mr-2 size-3.5" />}
             {t('datasets.compact_history')}
           </Button>
           <Button
@@ -179,9 +190,11 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
             size="sm"
             className="ml-auto"
             disabled={!ops.length || busy}
-            onClick={() => void run(() => undoLastOps(fileId))}
+            onClick={() => void run('undo', () => undoLastOps(fileId))}
           >
-            <Undo2 className="mr-2 size-3.5" />
+            {busyAction === 'undo'
+              ? <Loader2 className="mr-2 size-3.5 animate-spin" />
+              : <Undo2 className="mr-2 size-3.5" />}
             {t('datasets.undo_last_edit')}
           </Button>
           <Button
@@ -191,7 +204,9 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
             disabled={!ops.length || busy}
             onClick={() => setConfirmingReset(true)}
           >
-            <RotateCcw className="mr-2 size-3.5" />
+            {busyAction === 'reset'
+              ? <Loader2 className="mr-2 size-3.5 animate-spin" />
+              : <RotateCcw className="mr-2 size-3.5" />}
             {t('datasets.reset_to_raw')}
           </Button>
         </div>
@@ -208,7 +223,7 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => void run(() => resetOps(fileId))}
+              onClick={() => void run('reset', () => resetOps(fileId))}
               className="bg-destructive text-white hover:bg-destructive/90"
             >
               {t('datasets.discard_all_changes')}

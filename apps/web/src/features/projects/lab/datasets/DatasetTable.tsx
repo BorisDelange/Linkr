@@ -127,17 +127,29 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
   const { t, i18n } = useTranslation()
   const lang = i18n.language
   const booleanLabels = useBooleanLabels()
-  const { files, getFileRows, setColumnType, setColumnFilterMode, _dirtyVersion } = useDatasetStore()
+  // Subscribed field by field, never `useDatasetStore()` bare: that returns the
+  // whole store, so ANY change to it re-rendered the table — 100 rows x 10 columns
+  // of cells rebuilt because an unrelated file was opened or an analysis saved.
+  // Actions are stable references, so selecting them subscribes to nothing.
+  // The one file this table shows, not the whole list: `files` is a new array on
+  // every store update, so selecting it would re-render on each one anyway.
+  const file = useDatasetStore((s) => s.files.find((f) => f.id === fileId))
+  const getFileRows = useDatasetStore((s) => s.getFileRows)
+  const setColumnType = useDatasetStore((s) => s.setColumnType)
+  const setColumnFilterMode = useDatasetStore((s) => s.setColumnFilterMode)
+  const _dirtyVersion = useDatasetStore((s) => s._dirtyVersion)
 
   const metaLoading = useDatasetStore((s) => s.metaLoadingIds.includes(fileId))
 
-  const file = files.find((f) => f.id === fileId)
   const columns = file?.columns ?? []
   const parseOptions: DatasetParseOptions | undefined = file?.parseOptions
   const server = isServerMode()
   // Front-only mode holds all rows in memory (subscribe to _dirtyVersion to
   // re-render on change). Server mode fetches one page at a time (see below).
   const rows = !server && _dirtyVersion >= 0 ? getFileRows(fileId) : []
+  // Selected per file id, so another dataset's edits neither re-render this table
+  // nor refetch its page.
+  const contentVersion = useDatasetStore((s) => s._contentVersion[fileId] ?? 0)
 
   // Filters/sort/paging live in the store, keyed by file id, so they survive
   // navigating away from the Datasets page and back. Keyed state also makes the
@@ -161,6 +173,39 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
   // reversal that cannot restore everything.
   const [deletingColumn, setDeletingColumn] = useState<DatasetColumn | null>(null)
   const [deletingRow, setDeletingRow] = useState<number | null>(null)
+  /**
+   * The cell / row a right-click armed, for the ONE shared menu of each kind.
+   *
+   * A Radix `ContextMenu` per cell meant a page mounted one per cell and one per
+   * row — 1000+ components, each with its own context, refs and listeners, rebuilt
+   * on every render — for a menu that can only ever be open on one target. That is
+   * what made paging and clicking take seconds on a 100k-row dataset; the queries
+   * behind them measure ~16 ms.
+   */
+  const [cellMenu, setCellMenu] = useState<{ row: number; column: string; value: unknown } | null>(null)
+  /** A cell "Edit" asked for, opened once the menu has finished closing. Only ever
+   *  read through the setter, on close — never during a render. */
+  const [, setPendingEdit] = useState<{ row: number; column: string; value: unknown } | null>(null)
+  /**
+   * Focus + select the cell editor, once per opening.
+   *
+   * `useCallback` so React holds the SAME ref across renders and only calls it on
+   * mount and unmount. An inline `ref={(n) => …}` is a new function every render,
+   * which React re-invokes each time — and since every keystroke re-renders this
+   * input, the text was re-selected as fast as it was typed.
+   */
+  const editorRef = useCallback((node: HTMLInputElement | null) => {
+    node?.focus()
+    node?.select()
+  }, [])
+  const [rowMenu, setRowMenu] = useState<number | null>(null)
+  /**
+   * Where to open it — a shared menu has no trigger element to anchor to.
+   *
+   * State, not a ref: the anchor moves with the pointer and the menu opens in the
+   * same render, so a ref would position it where the PREVIOUS right-click was.
+   */
+  const [menuAt, setMenuAt] = useState({ x: 0, y: 0 })
 
   // Visible columns — pinned ones first (in pin order), then the rest in natural order
   const visibleColumns = useMemo(() => {
@@ -192,7 +237,14 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
       .map((c) => c.id),
     [columns, parseOptions],
   )
-  const distinctByCol = useColumnDistinct({ fileId, columns, listColumnIds, rows, dataVersion: _dirtyVersion })
+  // Front-only scans the in-memory rows, so it needs a signal when they change;
+  // server mode asks DuckDB for DISTINCT and must NOT re-ask on every edit — one
+  // request per list column, on the whole dataset, for a cell that cannot change
+  // a column's distinct set enough to matter. Refetched when the file changes.
+  const distinctByCol = useColumnDistinct({
+    fileId, columns, listColumnIds, rows,
+    dataVersion: server ? 0 : _dirtyVersion,
+  })
   const isListMode = useCallback(
     (col: DatasetColumn) => {
       if (col.type !== 'string') return false
@@ -216,8 +268,11 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
     naFilters,
     columns,
     // Rows are materialised server-side from the ops log, so an edit changes what
-    // the query returns without changing any of its other inputs.
-    revision: _dirtyVersion,
+    // the query returns without changing any of its other inputs. Keyed to THIS
+    // file's content revision, not the store-wide `_dirtyVersion`: that one is
+    // raised by unrelated activity (opening a file, saving an analysis), and each
+    // bump re-ran this query — a full count(*) plus a page scan — for nothing.
+    revision: contentVersion,
   })
 
   // Filter rows client-side (value filters + NA filters) — front-only mode only
@@ -751,7 +806,12 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                   colSpan={visibleColumns.length + 1}
                   className="h-24 text-center text-sm text-muted-foreground"
                 >
-                  {t('datasets.no_rows')}
+                  {/* A dataset being fetched has no rows YET — saying it has none
+                      would be wrong, and it is what the user sees for the whole
+                      round-trip after switching files. */}
+                  {server && serverState.loading
+                    ? <Loader2 size={16} className="mx-auto animate-spin text-primary" />
+                    : t('datasets.no_rows')}
                 </td>
               </tr>
             ) : (
@@ -776,31 +836,22 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                     flash?.row === ordinal && 'animate-in fade-in bg-primary/15',
                   )}
                 >
-                  <ContextMenu>
-                    <ContextMenuTrigger asChild disabled={!editable}>
-                      <td
-                        style={{ width: ROW_NUM_WIDTH }}
-                        className="sticky left-0 z-[5] bg-background border-b border-r px-2 py-1 text-center text-muted-foreground tabular-nums"
-                      >
-                        {rowOffset + rowIdx + 1}
-                      </td>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent>
-                      <ContextMenuItem onClick={() => moveRow(ordinal, -1)} className="text-xs">
-                        <ArrowUp size={13} />
-                        {t('datasets.row_move_up')}
-                      </ContextMenuItem>
-                      <ContextMenuItem onClick={() => moveRow(ordinal, 1)} className="text-xs">
-                        <ArrowDown size={13} />
-                        {t('datasets.row_move_down')}
-                      </ContextMenuItem>
-                      <ContextMenuSeparator />
-                      <ContextMenuItem onClick={() => setDeletingRow(ordinal as number)} className="text-xs" variant="destructive">
-                        <Trash2 size={13} />
-                        {t('datasets.row_delete')}
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
+                  <td
+                    style={{ width: ROW_NUM_WIDTH }}
+                    // Arms the one shared row menu, for the same reason as the
+                    // cells: a Radix ContextMenu per row is a page's worth of
+                    // mounted components for a menu only ever open once.
+                    onContextMenu={editable
+                      ? (e) => {
+                          e.preventDefault()
+                          setMenuAt({ x: e.clientX, y: e.clientY })
+                          setRowMenu(ordinal as number)
+                        }
+                      : undefined}
+                    className="sticky left-0 z-[5] bg-background border-b border-r px-2 py-1 text-center text-muted-foreground tabular-nums"
+                  >
+                    {rowOffset + rowIdx + 1}
+                  </td>
                   {visibleColumns.map((col, colIdx) => {
                     const isPinned = pinnedColumns.includes(col.id)
                     // Through the edit layer, so a cell committed but not yet
@@ -817,15 +868,23 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                         ? `${col.valueLabels[String(raw)]} (${String(raw)})`
                         : String(raw)
                     return (
-                    <ContextMenu key={col.id}>
-                    <ContextMenuTrigger asChild disabled={!editable}>
                     <td
+                      key={col.id}
                       title={isEditingCell ? undefined : cellTitle}
                       onClick={editable ? () => edit.setSelected({ row: ordinal as number, column: col.id }) : undefined}
                       onDoubleClick={editable ? () => edit.beginEdit({ row: ordinal as number, column: col.id }, raw) : undefined}
-                      // Right-click selects too, so the menu's actions address the
-                      // cell the pointer is on rather than a stale selection.
-                      onContextMenu={editable ? () => edit.setSelected({ row: ordinal as number, column: col.id }) : undefined}
+                      // Right-click selects the cell AND arms the one shared cell
+                      // menu below — mounting a Radix ContextMenu per cell cost a
+                      // page's worth of contexts, refs and listeners on every
+                      // render (100 rows x 10 columns = 1000 of them).
+                      onContextMenu={editable
+                        ? (e) => {
+                            e.preventDefault()
+                            setMenuAt({ x: e.clientX, y: e.clientY })
+                            edit.setSelected({ row: ordinal as number, column: col.id })
+                            setCellMenu({ row: ordinal as number, column: col.id, value: raw })
+                          }
+                        : undefined}
                       style={{ maxWidth: getColWidth(col.id, DEFAULT_COL_WIDTH), ...(isPinned ? { left: pinnedLeft[col.id], width: getColWidth(col.id, DEFAULT_COL_WIDTH) } : {}) }}
                       className={cn(
                         // `select-text` explicitly: cells sit inside a grid built for
@@ -838,7 +897,17 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                           : selectedColumnId === col.id ? 'bg-accent/20' : columnTint(colIdx),
                         editable && 'cursor-cell',
                         flash?.column === col.id && 'bg-primary/15',
-                        isSelectedCell && 'outline outline-2 -outline-offset-2 outline-primary',
+                        // Drawn as an inset overlay, not an `outline`: the cell
+                        // clips its content (`overflow-hidden`), which cut the
+                        // outline's top and left edges away and left the selection
+                        // looking like a corner rather than a box. A positioned
+                        // child is laid over the cell instead, so all four sides
+                        // show and the text underneath does not move. `z-10` keeps
+                        // it above the editor input, which covers the cell while
+                        // open — one ring for both states, since a cell being
+                        // edited already shows a caret and a field.
+                        (isSelectedCell || isEditingCell)
+                          && 'after:pointer-events-none after:absolute after:inset-0 after:z-10 after:border-2 after:border-primary/60',
                       )}
                     >
                       {isEditingCell ? (
@@ -846,11 +915,28 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                         // input is a taller box than the text it replaces, and
                         // would push the row height as you moved through cells.
                         <input
-                          autoFocus
+                          // Focus and select the cell's text ONCE, when the editor
+                          // opens: editing a cell is nearly always about replacing
+                          // its value, so the first keystroke overwrites. After
+                          // that the caret is the user's — a click, an arrow key or
+                          // simply typing must leave it where it is.
+                          ref={editorRef}
                           value={edit.draft}
                           onChange={(e) => edit.setDraft(e.target.value)}
                           onBlur={() => void edit.commitEdit()}
-                          className="absolute inset-0 w-full bg-background px-3 text-xs outline-none"
+                          // Inset by the ring's width so the editing border stays
+                          // visible around the field rather than being painted
+                          // over — and the horizontal padding gives back exactly
+                          // what the inset took (12px cell padding − 2px inset), so
+                          // the text sits on the same pixel as the value it
+                          // replaces and opening a cell does not nudge it sideways.
+                          // `border-0` too: an input carries a user-agent border,
+                          // which would add its own pixel on top of the inset.
+                          // `font-inherit` because an input does NOT inherit the
+                          // page font by default — the browser gives it its own,
+                          // and the different metrics shifted the text as the cell
+                          // opened even once the box lined up.
+                          className="absolute inset-[2px] w-[calc(100%-4px)] border-0 bg-background px-[10px] font-[inherit] text-xs outline-none"
                         />
                       ) : raw != null ? (
                         displayCellValue(col, raw, booleanLabels)
@@ -858,33 +944,6 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                         <span className="italic text-muted-foreground/50">null</span>
                       )}
                     </td>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent>
-                      <ContextMenuItem
-                        className="text-xs"
-                        onClick={() => edit.beginEdit({ row: ordinal as number, column: col.id }, raw)}
-                      >
-                        <Pencil size={13} />
-                        {t('datasets.cell_edit')}
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        className="text-xs"
-                        disabled={raw == null}
-                        onClick={() => void navigator.clipboard?.writeText(String(raw ?? ''))}
-                      >
-                        <Copy size={13} />
-                        {t('common.copy')}
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        className="text-xs"
-                        disabled={raw == null}
-                        onClick={() => void edit.writeCell(ordinal as number, col.id, null)}
-                      >
-                        <EyeOff size={13} />
-                        {t('datasets.cell_clear')}
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                    </ContextMenu>
                     )
                   })}
                 </tr>
@@ -1038,6 +1097,90 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* The two shared right-click menus: one of each, not one per cell/row.
+          Anchored to the pointer through a zero-size fixed element, since a shared
+          menu has no trigger of its own. */}
+      <div
+        className="pointer-events-none fixed"
+        style={{ left: menuAt.x, top: menuAt.y }}
+      >
+        <DropdownMenu
+          open={cellMenu != null}
+          // ONE place opens the editor, on the way out. Mounting it while Radix is
+          // still closing let Radix's focus handling blur the fresh input — and a
+          // blur COMMITS the edit, so the cell opened and shut in the same frame.
+          // Deferred a tick rather than done in `onCloseAutoFocus`, which does not
+          // fire when the menu closes without having held focus.
+          onOpenChange={(o) => {
+            if (o) return
+            setCellMenu(null)
+            setPendingEdit((p) => {
+              if (p) setTimeout(() => edit.beginEdit({ row: p.row, column: p.column }, p.value), 0)
+              return null
+            })
+          }}
+        >
+          <DropdownMenuTrigger aria-hidden className="sr-only" />
+          <DropdownMenuContent
+            align="start"
+            className="pointer-events-auto"
+            // Radix would hand focus back to its trigger, taking it off the editor
+            // the close just opened.
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            <DropdownMenuItem
+              className="text-xs"
+              // Only ARMS the edit: closing the menu is what opens it (see
+              // `onOpenChange`), because an editor mounted mid-close gets blurred
+              // by Radix — and a blur commits, shutting the cell again at once.
+              onClick={() => setPendingEdit(cellMenu)}
+            >
+              <Pencil size={13} />
+              {t('datasets.cell_edit')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-xs"
+              disabled={cellMenu?.value == null}
+              onClick={() => void navigator.clipboard?.writeText(String(cellMenu?.value ?? ''))}
+            >
+              <Copy size={13} />
+              {t('common.copy')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-xs"
+              disabled={cellMenu?.value == null}
+              onClick={() => cellMenu && void edit.writeCell(cellMenu.row, cellMenu.column, null)}
+            >
+              <EyeOff size={13} />
+              {t('datasets.cell_clear')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu open={rowMenu != null} onOpenChange={(o) => { if (!o) setRowMenu(null) }}>
+          <DropdownMenuTrigger aria-hidden className="sr-only" />
+          <DropdownMenuContent align="start" className="pointer-events-auto">
+            <DropdownMenuItem onClick={() => rowMenu != null && moveRow(rowMenu, -1)} className="text-xs">
+              <ArrowUp size={13} />
+              {t('datasets.row_move_up')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => rowMenu != null && moveRow(rowMenu, 1)} className="text-xs">
+              <ArrowDown size={13} />
+              {t('datasets.row_move_down')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => setDeletingRow(rowMenu)}
+              className="text-xs"
+              variant="destructive"
+            >
+              <Trash2 size={13} />
+              {t('datasets.row_delete')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       <AlertDialog
         open={deletingRow != null}
