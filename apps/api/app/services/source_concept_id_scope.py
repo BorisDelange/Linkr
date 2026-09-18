@@ -70,6 +70,12 @@ def _dictionary_pairs(project: MappingProject) -> set[tuple[str, str]]:
     select_sql = build_source_concepts_select(column_mapping)
     dedup_partition = source_concepts_dedup_partition(column_mapping)
     path = str(blob_store.path_for(project.raw_file_sha))
+    # Whether the view even HAS vocabulary_id is decided by the same key the
+    # projection reads, so ask the mapping rather than the failed query: selecting
+    # a column the view omits is a DuckDB BinderException, not the KeyError this
+    # once caught, so the fallback never ran and the export died on a dictionary
+    # with no terminology column.
+    has_vocabulary = bool(column_mapping.get("terminologyColumn"))
     try:
         rows = db_connect.query_file_source(
             path,
@@ -77,7 +83,9 @@ def _dictionary_pairs(project: MappingProject) -> set[tuple[str, str]]:
             fsd.get("parseOptions", {}),
             select_sql,
             dedup_partition,
-            "SELECT vocabulary_id, concept_code FROM source_concepts",
+            "SELECT vocabulary_id, concept_code FROM source_concepts"
+            if has_vocabulary
+            else "SELECT concept_code FROM source_concepts",
             # The scope must cover the WHOLE dictionary — this is the project's
             # (vocab, code) universe, not a preview. The default MAX_QUERY_ROWS
             # cap would truncate a large dictionary to a non-deterministic 10k-row
@@ -87,18 +95,9 @@ def _dictionary_pairs(project: MappingProject) -> set[tuple[str, str]]:
         )
     except file_reader.ExcelSupportUnavailable:
         return set()
-    except KeyError:
-        # No terminology column → the view omits vocabulary_id. Re-query for the
-        # code alone and fall back to the project name as vocab, like the client.
-        rows = db_connect.query_file_source(
-            path,
-            project.raw_file_name,
-            fsd.get("parseOptions", {}),
-            select_sql,
-            dedup_partition,
-            "SELECT concept_code FROM source_concepts",
-            max_rows=None,
-        )
+    if not has_vocabulary:
+        # No terminology column → fall back to the project name as vocab, like the
+        # client does.
         name = _localized(project.name, "en")
         return {(name, str(r["concept_code"])) for r in rows if r.get("concept_code")}
 

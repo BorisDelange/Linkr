@@ -70,3 +70,35 @@ def test_delimiter_and_skip_still_emitted():
     )
     assert "delim=';'" in expr
     assert "skip=2" in expr
+
+
+def test_real_parquet_uses_the_parquet_reader(tmp_path):
+    path = tmp_path / "real.parquet"
+    duckdb.connect().execute(
+        f"COPY (SELECT 1 AS a) TO '{path}' (FORMAT PARQUET)"
+    )
+    expr = build_read_expr(_con(), str(path), "real.parquet", {})
+    assert "read_parquet(" in expr
+
+
+def test_csv_named_parquet_is_read_as_csv(tmp_path):
+    # A CSV saved under a .parquet name: the extension is a user-typed hint, the
+    # magic bytes are what the file is. Reading it as Parquet failed the whole
+    # operation with DuckDB's "No magic bytes found at end of file '<sha>'",
+    # naming a content-addressed blob rather than the entity or the mistake.
+    path = tmp_path / "actually_csv.parquet"
+    path.write_text("a,b\n1,2\n")
+    con = _con()
+    expr = build_read_expr(con, str(path), "actually_csv.parquet", {})
+    assert "read_parquet(" not in expr
+    assert con.execute(f"SELECT a FROM {expr}").fetchone()[0] == "1"
+
+
+def test_truncated_parquet_is_not_read_as_parquet(tmp_path):
+    # Starts with the marker but the footer is gone (an interrupted write): the
+    # trailing check is what catches it, since DuckDB reads the footer first.
+    path = tmp_path / "truncated.parquet"
+    path.write_bytes(b"PAR1" + b"\x00" * 64)
+    assert "read_parquet(" not in build_read_expr(
+        _con(), str(path), "truncated.parquet", {}
+    )

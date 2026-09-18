@@ -100,6 +100,25 @@ def is_excel(file_name: str | None) -> bool:
     return Path(file_name or "").suffix.lower() in _EXCEL_EXT
 
 
+def _is_parquet(path: str) -> bool:
+    """Whether the file really is Parquet, by its magic bytes.
+
+    Parquet brackets its payload with "PAR1" at both ends; DuckDB reads the footer
+    first, so a CSV renamed to .parquet fails on the trailing marker. Checked here
+    so the extension alone never picks the reader — an unreadable file is the
+    caller's problem, not ours, so any read error answers "not Parquet" and lets
+    the text reader try.
+    """
+    try:
+        with open(path, "rb") as fh:
+            if fh.read(4) != b"PAR1":
+                return False
+            fh.seek(-4, 2)
+            return fh.read(4) == b"PAR1"
+    except OSError:
+        return False
+
+
 def build_read_expr(
     con: duckdb.DuckDBPyConnection,
     path: str,
@@ -121,8 +140,13 @@ def build_read_expr(
     header = opts.get("hasHeader", True)
     skip = int(opts.get("skipRows") or 0)
 
-    if ext in (".parquet", ".pq"):
+    if ext in (".parquet", ".pq") and _is_parquet(path):
         return f"read_parquet({_sql_str(path)})"
+    # A .parquet name over non-Parquet bytes falls through to the CSV/text reader
+    # below rather than failing: the extension is a hint the user typed, the magic
+    # bytes are what the file IS. DuckDB's own answer for the mismatch ("No magic
+    # bytes found at end of file '<sha>'") names a content-addressed blob, so it
+    # identifies neither the entity nor the mistake.
 
     if ext in _EXCEL_EXT:
         # A real .xlsx is a zip starting with "PK". Files renamed from CSV are a

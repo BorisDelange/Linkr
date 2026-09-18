@@ -15,6 +15,7 @@ never pushes with another's token. Tokens are decrypted server-side and never
 leave the server.
 """
 
+import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,6 +68,8 @@ from app.services.workspace_export_assemble import (
     assemble_workspace_zip,
 )
 
+logger = structlog.get_logger()
+
 router = APIRouter(prefix="/git", tags=["git"])
 
 
@@ -76,7 +79,7 @@ async def _mapping_project_zip_bytes(db, mp, file: UploadFile | None) -> bytes:
     (front-only / transition). Both feed the same git flow."""
     if file is not None:
         return await file.read()
-    return await assemble_mapping_project_zip(db, mp)
+    return await _assembled(assemble_mapping_project_zip(db, mp), "mapping project")
 
 
 async def _workspace_zip_bytes(db, ws, file: UploadFile | None) -> bytes:
@@ -88,7 +91,9 @@ async def _workspace_zip_bytes(db, ws, file: UploadFile | None) -> bytes:
     forwards them), so the default options reproduce what the front committed."""
     if file is not None:
         return await file.read()
-    return await assemble_workspace_zip(db, ws, WorkspaceExportOptions())
+    return await _assembled(
+        assemble_workspace_zip(db, ws, WorkspaceExportOptions()), "workspace"
+    )
 
 
 async def _sql_collection_zip_bytes(db, collection, file: UploadFile | None) -> bytes:
@@ -98,7 +103,9 @@ async def _sql_collection_zip_bytes(db, collection, file: UploadFile | None) -> 
         return await file.read()
     from app.services.workspace_export_assemble import assemble_sql_collection_zip
 
-    return await assemble_sql_collection_zip(db, collection)
+    return await _assembled(
+        assemble_sql_collection_zip(db, collection), "SQL collection"
+    )
 
 
 async def _project_zip_bytes(db, project, file: UploadFile | None) -> bytes:
@@ -108,7 +115,7 @@ async def _project_zip_bytes(db, project, file: UploadFile | None) -> bytes:
     reproduced identically by both the client build and the server assembler."""
     if file is not None:
         return await file.read()
-    return await assemble_project_zip(db, project)
+    return await _assembled(assemble_project_zip(db, project), "project")
 
 
 def _git_http_error(exc: git_service.GitError) -> HTTPException:
@@ -126,6 +133,31 @@ async def _guard(coro) -> dict:
         return await coro
     except git_service.GitError as exc:
         raise _git_http_error(exc) from exc
+
+
+async def _assembled(coro, what: str) -> bytes:
+    """Build an export ZIP server-side, reporting a failure as itself.
+
+    This step runs BEFORE the git call, so it is outside `_guard` and an error in
+    it used to reach the catch-all handler as a bare 500 "Internal server error" —
+    which the versioning UI then showed as "something went wrong with the git
+    operation", pointing the user at their token and their remote for a failure
+    that never touched either. The exception text (a missing dataset file, an
+    encoding error) is the whole diagnosis, so it must survive to the client.
+    """
+    try:
+        return await coro
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — the assembler's message is the diagnosis
+        logger.exception("git_export_assemble_failed", entity=what)
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "export_failed",
+                "message": f"Could not build the {what} export: {exc}",
+            },
+        ) from exc
 
 
 def _remote_url(entity) -> str | None:
@@ -501,7 +533,9 @@ async def mapping_project_diff(
     zip_bytes = (
         await file.read()
         if file is not None
-        else await assemble_mapping_project_file_zip(db, mp, path)
+        else await _assembled(
+            assemble_mapping_project_file_zip(db, mp, path), "mapping project file"
+        )
     )
     return await _guard(
         git_service.diff(
@@ -867,7 +901,7 @@ def _register_entity_git_routes(
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, "no export file provided"
             )
-        return await assemble_fn(db, e)
+        return await _assembled(assemble_fn(db, e), prefix)
 
     @router.post(
         f"/{prefix}/{{entity_id}}/status",
@@ -1283,7 +1317,7 @@ async def settings_status(
         git_service.status(
             git_service.settings_repo_getter,
             SETTINGS_ID,
-            await assemble_settings_zip(db, SettingsSelection()),
+            await _assembled(assemble_settings_zip(db, SettingsSelection()), "settings"),
             await _settings_branch(db, branch),
             remote,
             await _settings_token(db, user),
@@ -1306,7 +1340,7 @@ async def settings_diff(
         git_service.diff(
             git_service.settings_repo_getter,
             SETTINGS_ID,
-            await assemble_settings_zip(db, SettingsSelection()),
+            await _assembled(assemble_settings_zip(db, SettingsSelection()), "settings"),
             await _settings_branch(db, branch),
             path,
             await _settings_remote(db),
@@ -1366,7 +1400,7 @@ async def settings_commit_push(
         git_service.commit_push(
             git_service.settings_repo_getter,
             SETTINGS_ID,
-            await assemble_settings_zip(db, SettingsSelection()),
+            await _assembled(assemble_settings_zip(db, SettingsSelection()), "settings"),
             resolved_branch,
             message,
             remote,
