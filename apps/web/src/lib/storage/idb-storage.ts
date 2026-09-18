@@ -2395,6 +2395,15 @@ class IDBConceptMappingStorage implements ConceptMappingStorage {
 
   async createBatch(mappings: ConceptMapping[]): Promise<void> {
     const db = await getDB()
+    // The store is keyed on `id`, so one keyless row aborts the whole transaction
+    // and loses every mapping in the batch. A caller reading a `mappings.json`
+    // (which carries no primary key) must mint ids first; say so here rather than
+    // let it surface as an opaque DataError — the seed loader swallowed exactly
+    // that and shipped portals with empty mapping projects.
+    const keyless = mappings.findIndex((m) => !m?.id)
+    if (keyless !== -1) {
+      throw new TypeError(`conceptMappings.createBatch: row ${keyless} of ${mappings.length} has no id`)
+    }
     const tx = db.transaction('concept_mappings', 'readwrite')
     for (const mapping of mappings) {
       tx.store.add(mapping)

@@ -708,7 +708,16 @@ async function loadStructuralEntity(
       await storage.mappingProjects.create({ ...project, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
       const mappings = await fetchJson<ConceptMapping[]>(`${base}/mapping-projects/${mpFolder}/mappings.json`) ?? []
       if (mappings.length > 0) {
-        await storage.conceptMappings.createBatch(mappings.map(m => ({ ...m, projectId: project.id }))).catch(() => {})
+        // `mappings.json` carries no `id` (an export strips primary keys), but the
+        // store is keyed on it — without one every `add()` threw and the whole
+        // batch aborted, seeding projects with zero mappings. Derived, not random,
+        // so re-seeding the same file lands on the same rows instead of doubling
+        // them; the row index disambiguates a source code mapped to several targets.
+        await storage.conceptMappings.createBatch(mappings.map((m, i) => ({
+          ...m,
+          id: m.id || deterministicId(project.id, `${m.sourceVocabularyId}:${m.sourceConceptCode}:${i}`),
+          projectId: project.id,
+        })))
         // Derived from the mappings above, so a seed built with stale counters
         // would otherwise ship the wrong number to every portal visitor.
         const { recomputeImportedStats } = await import('@/lib/concept-mapping/import')
