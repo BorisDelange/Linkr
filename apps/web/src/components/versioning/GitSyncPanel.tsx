@@ -71,7 +71,7 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, renderInlinePull, onAfterPull, onOpenConfig }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, syncState, selected, loadingStatus: loadingStatusRaw, loadingSyncState, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, lfsPaths, toggleLfs } =
+  const { status, branches, syncState, selected, loadingStatus: loadingStatusRaw, loadingSyncState, committing, error, statusError, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, lfsPaths, toggleLfs } =
     useGitSyncStore()
   const authorName = useAppStore((s) => s.getUserDisplayName())
   // behind/diverged detection: mapping projects (built-in 3-way pull) and any scope
@@ -146,7 +146,12 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   // appear seconds later — long enough for the user to have moved on and missed it.
   const loadingStatus = loadingStatusRaw || (syncStateSupported && loadingSyncState)
   const authBlocked = !loadingStatus && (error?.code === 'auth_failed' || error?.code === 'auth_required')
-  const nothingToCommit = !loadingStatus && !authBlocked && files.length === 0
+  // The status couldn't be computed (server error, unreachable remote, …) — the
+  // auth codes have their own, more specific block below. `files` is then empty
+  // because nothing was read, which is NOT "nothing to commit": saying the tree
+  // matches the remote here would assert something we precisely failed to check.
+  const statusBlocked = !loadingStatus && !authBlocked && !!statusError
+  const nothingToCommit = !loadingStatus && !authBlocked && !statusBlocked && files.length === 0
   const allChecked = files.length > 0 && files.every((f) => selected.has(f.path))
   // Block the push while the remote is ahead — pushing the local export would
   // fast-forward over the un-pulled remote work and drop it. The backend refuses
@@ -252,6 +257,25 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
             </Tooltip>
           </TooltipProvider>
         )}
+      </div>
+    </div>
+  ) : null
+
+  // Shown by BOTH tabs, exactly where "nothing to commit" would have gone: the
+  // status failed, so what the tree holds is unknown. A retry sits in the box —
+  // a transient server error is the common case and the Refresh button above is
+  // easy to miss under an error.
+  const statusBlock = statusBlocked ? (
+    <div className="space-y-2">
+      <GitErrorInline code={statusError?.code} detail={statusError?.raw ?? ''} />
+      <div className="flex justify-center">
+        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => {
+          void refreshStatus(scope, id, branch)
+          if (syncStateSupported) void loadSyncState(scope, id, branch)
+        }}>
+          <RefreshCw size={13} />
+          {t('versioning.sync_retry')}
+        </Button>
       </div>
     </div>
   ) : null
@@ -373,6 +397,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
             </div>
           ) : authBlocked ? (
             authBlock
+          ) : statusBlocked ? (
+            statusBlock
           ) : pullMode ? (
             pullBody('quick')
           ) : nothingToCommit ? (
@@ -411,8 +437,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
                   {t('versioning.sync_pushed')}
                 </span>
               )}
-              {error && (
-                <GitErrorInline detail={error.code === 'pull_required' ? t('versioning.sync_push_blocked') : error.raw} />
+              {error && !statusError && (
+                <GitErrorInline code={error.code} detail={error.code === 'pull_required' ? t('versioning.sync_push_blocked') : error.raw} />
               )}
             </div>
           )}
@@ -427,9 +453,11 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
 
       {authBlocked && authBlock}
 
-      {!authBlocked && pullMode && pullBody('details')}
+      {statusBlocked && statusBlock}
 
-      {!authBlocked && !pullMode && <>
+      {!authBlocked && !statusBlocked && pullMode && pullBody('details')}
+
+      {!authBlocked && !statusBlocked && !pullMode && <>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
         <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
           <div className="flex items-center gap-2">
@@ -505,9 +533,9 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
         />
       </div>
 
-      {error && (
+      {error && !statusError && (
         <div className="shrink-0">
-          <GitErrorInline detail={error.code === 'pull_required' ? t('versioning.sync_push_blocked') : error.raw} />
+          <GitErrorInline code={error.code} detail={error.code === 'pull_required' ? t('versioning.sync_push_blocked') : error.raw} />
         </div>
       )}
 

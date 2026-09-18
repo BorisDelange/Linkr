@@ -172,7 +172,11 @@ export interface GitVerifyResult {
 }
 
 /** Git error codes the backend classifies; the UI maps these to friendly text. */
-export type GitErrorCode = 'auth_required' | 'auth_failed' | 'not_found' | 'network' | 'pull_required' | 'unknown'
+// `export_failed` is not a git failure at all: the server could not build the
+// entity's export tree, so the operation never reached the remote. It is reported
+// as its own code because the git-flavoured wording sends the user to check a
+// token and a URL that had nothing to do with it.
+export type GitErrorCode = 'auth_required' | 'auth_failed' | 'not_found' | 'network' | 'pull_required' | 'export_failed' | 'unknown'
 
 /** A git operation failed: `code` drives the friendly message, `rawMessage` is
  *  the underlying git output shown on demand. */

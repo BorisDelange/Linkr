@@ -147,6 +147,13 @@ interface GitSyncState {
   loadingSyncState: boolean
   committing: boolean
   error: GitSyncError | null
+  /**
+   * The status/sync-state computation itself failed, so `status` describes nothing.
+   * Kept apart from `error` (which also carries commit failures) because an empty
+   * `files` list then means "we don't know", not "nothing to commit" — the panel
+   * must say so instead of claiming the tree is clean.
+   */
+  statusError: GitSyncError | null
   /** Identity (scope|id|branch) the current status was computed for, so remounting
    *  the panel on the same entity doesn't recompute from scratch. */
   statusKey: string | null
@@ -197,6 +204,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   loadingSyncState: false,
   committing: false,
   error: null,
+  statusError: null,
   statusKey: null,
 
   ensureStatus: async (scope, id, branch) => {
@@ -215,7 +223,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   refreshStatus: async (scope, id, branch) => {
     const gen = ++statusGen
     const key = `${scope}|${id}|${branch ?? ''}`
-    set({ loadingStatus: true, error: null, statusKey: key })
+    set({ loadingStatus: true, error: null, statusError: null, statusKey: key })
     try {
       // A refresh means "the state may have changed, rebuild": the ZIP cache key
       // (scope|id|overrides) can't see DB edits, so a mapping added since the last
@@ -244,7 +252,10 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       set({ status, selected })
     } catch (err) {
       if (gen !== statusGen) return // a newer refresh owns the state now
-      set({ error: toGitError(err) })
+      // Drop the previous status too: keeping it would show a file list computed
+      // against a state we just failed to read, beside an error saying we can't
+      // read it.
+      set({ error: toGitError(err), statusError: toGitError(err), status: null, selected: new Set() })
     } finally {
       if (gen === statusGen) set({ loadingStatus: false })
     }
@@ -269,7 +280,9 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       set({ syncState, loadingSyncState: false })
     } catch (err) {
       if (gen !== syncStateGen) return
-      set({ error: toGitError(err), loadingSyncState: false })
+      // Failing here means the remote could not be read at all, so where the entity
+      // stands vs the remote is unknown — same class of unknown as a failed status.
+      set({ error: toGitError(err), statusError: toGitError(err), loadingSyncState: false })
     }
   },
 
@@ -409,6 +422,6 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     statusGen++ // invalidate any in-flight refresh from the closing panel
     _zipCache = null // drop the cached export ZIP so the next entity rebuilds fresh
     _diffCache = new Map() // and the per-file diffs computed against it
-    set({ status: null, branches: null, syncState: null, selected: new Set(), lfsOverrides: new Map(), error: null, loadingStatus: false, loadingSyncState: false, committing: false, statusKey: null })
+    set({ status: null, branches: null, syncState: null, selected: new Set(), lfsOverrides: new Map(), error: null, statusError: null, loadingStatus: false, loadingSyncState: false, committing: false, statusKey: null })
   },
 }))

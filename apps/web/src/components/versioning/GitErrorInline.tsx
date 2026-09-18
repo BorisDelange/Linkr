@@ -19,6 +19,7 @@ function codeMessage(t: (k: string) => string, code: GitErrorCode | undefined): 
     case 'not_found': return t('versioning.git_error_not_found')
     case 'network': return t('versioning.git_error_network')
     case 'pull_required': return t('versioning.git_error_pull_required')
+    case 'export_failed': return t('versioning.git_error_export_failed')
     default: return undefined
   }
 }
