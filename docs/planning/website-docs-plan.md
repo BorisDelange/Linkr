@@ -651,3 +651,80 @@ Also: the nine catalog types became **icon cards** in the app's own hues and luc
 (`entry-meta.ts` + `entity-colors.ts`), verified present in the built stylesheet — and
 two frontmatter descriptions wrongly promised **plugins** in the catalog, which is not
 one of the nine `ENTRY_TYPES`.
+
+## Administration section written (2026-09-20)
+
+Five pages × 2 locales: `production-install`, `configuration`, `auth-permissions`,
+`server-files`, `backup-restore`. No `PlannedFeature` banner — everything documented
+ships today. Build: 234 pages, all four checks clean.
+
+Different reader from every other section: an IT administrator, not a clinician. The
+pages are written accordingly — runbooks, variable tables, and explicit statements of
+what does *not* exist.
+
+### Documented as facts, each verified in code before writing
+
+These would have been costly to get wrong, so none was taken on trust:
+
+- **No SSO.** `auth_providers/__init__.py` registers exactly one provider; the `User`
+  model already carries `auth_provider`/`external_id` and a nullable `password_hash`, so
+  the *shape* is ready — but LDAP/OIDC/SAML have **zero implementation**. The page says
+  so plainly rather than implying "configurable".
+- **A user cannot change their own password.** `ChangePasswordDialog` POSTs to
+  `/auth/change-password`, which **does not exist** (`auth.py` declares only
+  login/refresh/logout/me), and the URL even misses the `/api/v1` prefix. Documented as
+  "only an administrator resets a password". **App-side bug worth fixing.**
+- **Users and roles are administrator-only**, despite `users:*`/`roles:*` appearing in
+  the permission matrix: those routes depend on `get_current_admin`, a literal
+  `role != "admin"` check. Granting them to a custom role makes the tab visible but every
+  call 403s. Organizations, by contrast, *are* genuinely permission-gated
+  (`require_global_permission`), and the page draws that contrast explicitly.
+- **`LINKR_FS_BROWSE_ROOTS` empty = the whole filesystem** (the RStudio Server model,
+  stated in `fs_browser.py`). This is the single most important line on the server-files
+  page for a hospital admin.
+- **The General tab's database form is localStorage-only** and does not reconfigure the
+  backend; PostgreSQL is deliberately absent from it since switching engines mid-life has
+  no migration path. Documented as a warning, since the form looks like it configures the
+  server.
+
+### Deployment traps the pages now cover
+
+- **CORS**: the shipped compose hardcodes `http://localhost:3000`, and a wildcard makes
+  the API *refuse to boot*. Deploying at a real hostname without editing this silently
+  breaks every call in the browser. This was the biggest gap.
+- **No TLS**: nginx listens on `:80` only, no 443 anywhere. The admin must front it.
+  Paired with the two proxy traps: WebSockets must be upgraded on **`/api/`** too (the
+  terminal lives there, not under `/ws/`), and timeouts must be long.
+- **Two upload ceilings**: nginx 512 MB vs the API's 2 GB — the lower wins, which no file
+  says. The page points at server paths as the better answer.
+- **Rollback is not symmetrical**: migrations run on every start and do not replay
+  backwards, so reverting the image tag does not revert the schema. Backup first.
+- **A backup without the secret key is incomplete** — and fails *silently*, since
+  `decrypt()` returns `None` rather than raising. The restore checklist ends on
+  "connect to a database", the step that actually reveals it.
+
+### Structure correction (user review, mid-write)
+
+The user asked whether administration was coherent with the install page, and whether
+install had been over-complicated. It had: the secret key and the data directory were
+detailed in both. Install now keeps the runbook and defers the detail via anchors
+(`configuration#la-clé-secrète`, `#le-dossier-de-données`), verified against built HTML.
+The CORS/TLS section stays on install — it is about exposing an instance, not configuring
+one.
+
+### App-side issues found (not fixed)
+
+- `/auth/change-password` called by the UI but never implemented (above).
+- `app_version` is `"2.0.0-dev"` while `VERSION` is `2.4.1`, so `/health` reports a stale
+  version — an admin verifying an upgrade there will be misled.
+- `LINKR_POOL_TTL_SECONDS` is declared in config with no reader found; possibly vestigial.
+- `LINKR_APP_MODE` claims `full|dashboard|viewer` but is only logged.
+- `home.action_catalog_description` says "Browse plugins and extensions", but plugins are
+  **not** a catalog entry type.
+- `app_versioning.export_section_desc_projects` still mentions the pipeline, which is
+  explicitly not versioned (already noted in the sharing log).
+
+### Remaining
+
+Dashboards (3 drafts), Reference (3), Reports (3, all planned features). Written so far:
+**9 of 12 sections**, 9 drafts remaining.
