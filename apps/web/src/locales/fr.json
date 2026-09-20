@@ -641,7 +641,7 @@
     "no_databases": "Aucune base de données",
     "no_databases_description": "Connectez une base de données ou un fichier pour commencer à explorer vos données.",
     "type_database": "Base de données",
-    "type_database_desc": "DuckDB, PostgreSQL, MySQL, SQLite ou SQL Server",
+    "type_database_desc": "DuckDB, PostgreSQL, MySQL ou SQLite",
     "type_fhir": "Serveur FHIR",
     "type_fhir_desc": "Connexion à un endpoint FHIR R4",
     "add_dialog_title": "Ajouter une base de données",
