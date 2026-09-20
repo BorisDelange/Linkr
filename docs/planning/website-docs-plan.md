@@ -612,3 +612,42 @@ user-visible edge case of the whole section.
 
 Dashboards (3 drafts), Administration (5), Reference (3), Reports (3, all planned
 features). Written so far: **8 of 12 sections**, 14 drafts remaining.
+
+### Restructure: git versioning moved out of Project (2026-09-20, user review)
+
+The user's objection was structural and right: the git mechanism is **identical for
+the nine entity types**, so detailing it on `project/versioning` made it both misplaced
+and invisible to anyone working on an ETL pipeline, a mapping project or a workspace.
+
+- **New page `sharing/git-versioning`** (4th in the section) owns the generic half:
+  connecting a repository, the token (per user *and per host*), Quick actions vs
+  Details, pulling, and what never leaves.
+- **`project/versioning` trimmed 170 → 104 lines**, keeping only what a project export
+  contains; its duplicated "why git" section was removed outright.
+- Inbound links repointed: `concepts/entities-and-sharing` (the git card of the three
+  ways to circulate), `dashboards/filters-and-more` (whose own text already said the
+  mechanism is not dashboard-specific), and the sharing pages' git references.
+
+**The workspace nuance the user asked for**, now the centre of the new page: a workspace
+can carry its children **in full**, but the recommended arrangement is **one repository
+per element**, each with its own cycle — the workspace then holding only a **pointer**.
+Verified in `entity-io.ts`: the export branches per element on whether it is git-linked
+(pointer) or not (full content), so **a mixed workspace is the normal outcome**, not a
+special case. A typical one: the ETL pipeline and OMOP schema in their own repos, the
+ongoing projects inside the workspace. Paired with the trap that an element's **own**
+export always carries full content — only *workspace* exports reduce it to a pointer.
+
+### Two more user corrections on `import-export`
+
+1. "Toute entité s'exporte en ZIP et se réimporte de trois façons" made the ZIP the
+   mandatory path, implying one must produce an archive even to version. Rewritten:
+   **two mechanisms** (ZIP, git), the section now opening on two sibling route cards
+   with Download/GitBranch icons.
+2. The **catalog is not a third mechanism** — it is a **directory of git repositories**,
+   and installing an entry is a clone. Both the summary and the catalog page now say so;
+   the import dialog's third tab is presented as a shortcut onto the git route.
+
+Also: the nine catalog types became **icon cards** in the app's own hues and lucide icons
+(`entry-meta.ts` + `entity-colors.ts`), verified present in the built stylesheet — and
+two frontmatter descriptions wrongly promised **plugins** in the catalog, which is not
+one of the nine `ENTRY_TYPES`.
