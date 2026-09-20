@@ -454,3 +454,53 @@ Still open, not fixed:
 
 **Lesson, recorded because it cost time twice**: read the component, not the locale
 file. A key existing in `fr.json` proves nothing about what the UI renders.
+
+## Progress: the Project section is written (9/9)
+
+All nine pages, both locales, four checks green, 232 pages built. Commits
+`45b2803`, `c65ccad`, `d7cf4bd`, `2d36fbf`, `7c9b2e2` in `linkr-website`.
+
+Seven are ordinary pages; two carry `<PlannedFeature>` and keep `draft: true` in the
+nav so the sidebar shows a WIP badge while the page still renders in production:
+
+- `project/pipeline` — `status="building"`. The page is a diagram editor with no
+  execution. The app says so itself in a permanent banner, and `entity-io.ts`
+  deliberately excludes `pipeline/` from the export.
+- `project/web-apps` — `status="designed"`. Nothing is implemented; the page is
+  written from `docs/planning/web-apps-plan.md`, including its undecided points.
+
+### Corrections the audits forced
+
+Three things I would have written wrongly from memory:
+
+- **Datasets are not "stored as Parquet"**. Browser mode is IndexedDB; server mode's
+  Parquet is a *cache* over an authoritative CSV/XLSX on disk.
+- **Server-mode datasets are not read-only**, despite six comments in
+  `dataset-store.ts` saying so — those guard dead legacy paths. The live UI edits
+  through `applyOps`/`recordOps`, which has a working server branch.
+- **The ETL Quality tab's Concepts view reads both columns from the target**, not
+  source vs target (already fixed in the warehouse section).
+
+### App-side issues found while documenting the Project section
+
+Not fixed — recorded for a decision:
+
+- `SummaryOverviewTab.tsx:243` renders a hardcoded English `rows` in both locales.
+- `SummaryOverviewTab.tsx:269` wires the Reports section to `count={0}`, so it always
+  shows "coming soon" regardless of content.
+- The Summary header's "Owner" shows the signed-in user, not the project's author
+  (`SummaryPage.tsx:80`).
+- The pipeline inspector panel is not write-gated: a reader can edit a node's label.
+  Server mode rejects it; browser mode silently accepts.
+- The "Datasets" counter on Summary counts pipeline nodes, not datasets — expected
+  while the pipeline is unbuilt, but it will need rewiring with it.
+- More dead keys: `project_nav.data_quality`, 9 in `summary.*`, 8 in
+  `project_settings.*`, 8 in `projects.*`, 4 in `pipeline.*`, 38 in `patient_data.*`,
+  13 in `files.*`/`environments.*`, 61 of 331 in `datasets.*`.
+- `files.ipynb_readonly_notice` is dead — `.ipynb` files ARE editable. Do not
+  document them as read-only on the strength of that string.
+
+### Next
+
+Dashboards (3 drafts), Sharing (3), Administration (5), Reference (3), Reports (3,
+all planned features). Written so far: 7 of 12 sections, 18 drafts remaining.
