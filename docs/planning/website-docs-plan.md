@@ -399,13 +399,21 @@ removed from `docs-nav.ts`, and the skill's four checks pass.
 | Concepts | `entities-and-sharing` |
 | AI & automation | `agents` ⚑ · `llm-providers` · `skills` ⚑ · `mcp-authoring` |
 | Workspace | `overview` · `projects` · `wiki` · `plugins` · `members-and-roles` · `settings` |
-| Warehouse | `schemas` · `databases` · `datamarts` ⚑ · `data-quality` |
+| Warehouse | **whole section** — `schemas` · `databases` · `datamarts` ⚑ · `data-quality` · `data-catalog` · `sql-scripts` · `etl-pipelines` |
+
+### Sections complete
+
+Getting started · Core concepts · Workspace · **Data warehouse** · Concept mapping ·
+AI & automation. Six of twelve, 27 draft pages left.
 
 ⚑ = planned feature, shipped as a `<PlannedFeature>` page (renders in production).
 
-### Next — warehouse section, in nav order
+### Next — the Project section (9 drafts)
 
-`data-catalog` → `sql-scripts` → `etl-pipelines`, then the Project section.
+`overview` is written; the rest are drafts: `datasets`, `cohorts`, `concepts`,
+`patient-data`, `ide`, `pipeline`, `versioning`, `web-apps` ⚑. This is the biggest
+remaining block and the one users hit most, so it comes before Dashboards (3),
+Sharing (3), Administration (5), Reference (3) and Reports (3, all planned).
 
 **Naming trap to handle when writing**: there are two unrelated "catalogs" and two
 unrelated "pipelines". `warehouse/data-catalog` is a DCAT-AP description of a
@@ -429,6 +437,10 @@ Found while documenting data quality, **not fixed** (app-side, needs a decision)
   from the score or surfacing them separately.
 - The MCP `upsert_dq_check` severity enum is `error | warning | info`, but the app's is
   `error | warning | notice`. `info` is not a valid app severity.
+- Another dead key: `sql_scripts.script_db_default` ("défaut"/"default") has zero code
+  references — there is one active database per collection, not a per-script override.
+- `app_warehouse.nav_etl` has no left-sidebar entry; ETL pipelines are reachable only
+  from the workspace home card. Worth checking whether that is deliberate.
 
 Still open, not fixed:
 
