@@ -56,7 +56,7 @@ The app uses a **3-level hierarchy**: App → Workspace → Project. The sidebar
 ```
 / Home
 /workspaces
-/catalog  (stub)
+/catalog
 /settings
 ```
 

@@ -381,6 +381,34 @@ The model is implemented and its surface coverage verified (2026-07-12); as-buil
 | 🔜 | Seed loader: read `LICENSE.md` (and the entity docs) from the bundled default data | S |
 | 🔜 | Plugins: import via Git. Every other entity goes through the shared `ImportSourceDialog` (ZIP + clone-from-Git tabs); `PluginsTab.tsx:466` is the last bare `<input type="file">`. Plugins already push/pull via `EntityVersioningDialog`, so only the import path is missing | S |
 
+## User documentation (website) — [website-docs-plan.md](website-docs-plan.md)
+
+Audited 2026-09-20. `/docs` on linkr-website is **47 % placeholder**: 20 of its 43 pages
+are 17-line `<DraftPage>` stubs, so the sidebar promises nine sections and delivers four.
+The nav also mirrors nothing — `preparing-data` / `exploring-analyzing` map onto neither
+the app's three levels nor each other, and two "gateway" pages duplicate a whole section
+each. Entities shipping today with no page at all: SQL collections, data catalog, wiki,
+plugins, reports, setup wizard, community catalog, organizations, patient-data boards,
+dataset editing.
+
+Planned efforts get **dedicated pages with a `<PlannedFeature>` banner** that shows what is
+coming (agents, skills, reports, IDE web apps, datamarts, SPC and survey widgets) — user-visible
+behaviour only, never architecture.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Dead links (`/docs/more/plugins`, `/docs/presenting/reports`), retire the 2 gateway pages, fix linkr-website's stale `CLAUDE.md` | S |
+| 🤔 | Restructure the nav to mirror the app's three levels, or keep the task-oriented split? | S (decision) |
+| 🤔 | Stubs we will not write this pass: keep `<DraftPage>`, or flip to `wip: true` (non-clickable, honest sidebar)? | S (decision) |
+| 🔜 | `<PlannedFeature>` component + the `agents` and `reports` pages | M |
+| 🔜 | The 19 ships-today pages: databases → datasets → cohorts → patient-data → ide → versioning → wiki first | L |
+| 🔜 | Concept-mapping verification pass — 8 pages from 2026-05, four months of app change behind them (C/CR default, schema presets as entities, qualified table names) | M |
+| 🔜 | Administration (4 pages, server mode) + Reference (glossary, release notes, shortcuts) | M |
+| 🤔 | Release notes hand-written, or generated from tags? | S (decision) |
+
+Closes two open README items that already point at the website: *Export format
+harmonization* and *OMOP C/CR migration* (both "User docs in `../linkr-website`").
+
 ## Long-term vision — [../vision-roadmap.md](../vision-roadmap.md)
 
 Pillars 2 (Monitoring) and 3 (Deployment) not started.
