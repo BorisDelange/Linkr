@@ -728,3 +728,64 @@ one.
 
 Dashboards (3 drafts), Reference (3), Reports (3, all planned features). Written so far:
 **9 of 12 sections**, 9 drafts remaining.
+
+## Last drafts finished — the doc set is complete (2026-09-20)
+
+Nine pages × 2 locales across three sections. **No `DraftPage` remains anywhere, and the
+built sidebar carries zero WIP badges.** Build: 234 pages, 124 internal links and 36
+anchors all resolving.
+
+### Dashboards
+
+- **`analysis-widgets`** — the five statistical analyses, and how the test is chosen
+  (auto via per-group normality, leaning non-parametric on doubt; chi² vs Fisher on the
+  expected-count rule; per-variable pinning). Documented that displaying one needs only
+  **read** access: the server owns the program per analysis and accepts a validated spec,
+  never client code — the opposite of a code widget.
+- **`spc-widgets`** — 10 chart types + auto, the four denominators (incl. patient-days and
+  device-days by overlap), Anhøj by default with the reason WECO stacking was rejected,
+  the single frozen baseline, and the five warnings. Carries a discreet note that the
+  plugin is **built but never exercised in the running app** (plan §3, still 🔜 TO TEST).
+- **`survey-widgets`** — **the brief's premise was wrong and the page corrects it.** The
+  widget *analyses* an imported questionnaire export; it collects nothing. Collection is
+  the patient board's feature, and the page cross-links rather than conflating them.
+  **Only the Goupile preset parses today** — REDCap and XLSForm appear in the dropdown but
+  are not wired to any `.tsx`, so the page says to import them as a plain table meanwhile.
+  Also documents *why* no pie chart for multiple choice, and why a scale must keep its order.
+
+### Reports — banner, and one corrected value
+
+Nothing is built (all 7 plan steps 🔜); only a route, a stub page and a permission exist.
+All three pages keep `status="designed"` and **`mode` changed from `both` to `server`**,
+following this plan's own rule #4 (reports are server-mode only; getting it wrong sends a
+WASM user after a feature that cannot exist for them). The browser-mode availability of
+the exporters is listed as unsettled, since the bundle cost was never measured.
+
+Two traps avoided in the copy: **inserting a figure freezes its filters, not its data**
+(freezing is a second, deliberate act), and **no speaker notes / presenter view / slide
+overview** — absent from the plan, so listed under what is not settled.
+
+### Reference
+
+- **`glossary`** — grouped by domain rather than alphabetical, each term linking to the
+  page that develops it. Draws the two-catalogs distinction again.
+- **`keyboard-shortcuts`** — all 33 bindings extracted from `types/shortcuts.ts`, the R vs
+  Jupyter notebook split, the RStudio/Jupyter presets, conflict detection, and why
+  `Cmd+N` is not used.
+- **`release-notes`** — deliberately **not** a copied changelog: there is no CHANGELOG file
+  and 1066 commits sit between the last two tags. The page explains how to read a version,
+  points at the tagged releases, and covers the asymmetric rollback. It also warns that the
+  health endpoint's version is a different number — see the app-side issue below.
+
+### Status
+
+**All 12 sections written**, FR + EN. Pages carrying a `PlannedFeature` banner (feature
+designed, not built): `project/pipeline`, `project/web-apps`, and the three `reports/*`.
+
+### App-side issues still open (unchanged, none fixed)
+
+`/auth/change-password` called by the UI but never implemented · `app_version`
+`"2.0.0-dev"` vs `VERSION` 2.4.1 on `/health` · `home.action_catalog_description` promises
+plugins the catalog cannot list · `app_versioning.export_section_desc_projects` still names
+the pipeline · SPC missing from `SYSTEM_PLUGIN_IDS` · `LINKR_POOL_TTL_SECONDS` and
+`LINKR_APP_MODE` appear inert.
