@@ -542,3 +542,73 @@ the page's own point. The list-page shots (`cohorts-list`, `databases-list`,
 **Reusable for other sections**: `dash-*` (5) for Dashboards, `ecrf-*` (3) for the
 collection/eCRF story, `analysis-table1`, `widget-config`, `widget-settings`,
 `database-stats`, `board-summary`, `board-overview`.
+
+## Sharing & catalog section written (2026-09-20)
+
+Three pages × 2 locales: `import-export`, `community-catalog`, `publishing`. No
+`PlannedFeature` banner — the catalog app side is complete (planning README §"Default
+data & catalog") and publishing, although manual, is a real procedure rather than a
+missing feature. Build: 232 pages, all four checks clean.
+
+### The load-bearing distinction, repeated on both catalog-facing pages
+
+**Browsing the catalog works in client mode; installing does not.** The reason is worth
+keeping: the index is read through the **GitLab API v4 raw-file route**, the only one
+sending `access-control-allow-origin: *`, so a static/WASM build reads it with no
+backend and no token. Installing clones a repo, which needs the server.
+`DeploymentBadges` has no "partial" value, so the catalog page carries
+`client="unavailable"` plus one sentence saying the badge is about installing.
+
+### Facts that shaped the pages
+
+- **Three import sources, one dialog** — Upload ZIP · From Git · From the catalog
+  (`import-source-dialog.tsx`), the third filtered to the calling page's type. This is
+  the spine of `import-export`.
+- **Conflicts are never resolved silently**: "Create copy" / "Overwrite", matched on
+  `lineageId` **scoped to the target workspace**. The same entity in another workspace
+  is deliberately not a conflict.
+- **Git-linked asymmetry**: an entity's *own* export carries full content; only a
+  **workspace** export reduces it to metadata + pointer. Both locales' hint strings say
+  so explicitly, and the pages now do too.
+- **Credentials are stripped by an allowlist** (`engine`, `inMemory`, `managed`), not a
+  denylist — so a newly added field is withheld until listed. A database export carries
+  **no rows at all**; publishing an open dataset means adding files to the repo by hand,
+  outside the app.
+- **Publishing is manual and has no button.** Fill provenance → push to a public repo →
+  open a merge request on `linkr-catalog`. The app's only mention is the one-line
+  `catalog.contribute` footer. A "Propose to catalog" prefill is 💤 in the planning
+  README, so the page says it is "under consideration" in one sentence rather than
+  carrying a banner.
+- **The licence picker is real and worth documenting**: 12 SPDX licences in 5 families
+  plus a custom option, text snapshotted into `LICENSE.md`, id+name kept in
+  `entity.json`. The page groups them by family with a "which family for what" note —
+  EUPL/CeCILL flagged for European and French contexts.
+- **The Attribution tab is edit-only** (on create the author is you), and **unlocking a
+  field commits the displayed value** — a trap worth a warning callout.
+- **ORCID is entered on the profile, not the entity**, and is how another instance
+  re-resolves the author on import instead of crediting the importer.
+
+### Corrected mid-write
+
+The per-project **Export** tab has **no include-data checkbox** — only the "mark it for
+versioning" hint; `exportZip({})` is called with no options. The checkbox lives in the
+per-entity `entity-versioning-dialog.tsx`. The first draft attributed it to the general
+export window; fixed in both locales, reframed around per-file marking (there is no
+blanket toggle: `BuildProjectZipOptions` is `{ _reserved?: never }`).
+
+Also corrected: the workspace-export table said a project carries its "pipeline", copied
+from the app's own i18n hint — but the pipeline is explicitly not versioned
+(`entity-io.ts`). Replaced with "concept lists". **The app string itself is stale** and
+should be fixed there: `app_versioning.export_section_desc_projects`, both locales.
+
+### Partial installs
+
+Installing a published **workspace** clones each child repo separately and best-effort;
+a private child leaves its content behind and the dialog reports "Installed, but some
+content is missing", naming which. Documented on the catalog page — it is the most
+user-visible edge case of the whole section.
+
+### Remaining
+
+Dashboards (3 drafts), Administration (5), Reference (3), Reports (3, all planned
+features). Written so far: **8 of 12 sections**, 14 drafts remaining.
