@@ -504,3 +504,41 @@ Not fixed — recorded for a decision:
 
 Dashboards (3 drafts), Sharing (3), Administration (5), Reference (3), Reports (3,
 all planned features). Written so far: 7 of 12 sections, 18 drafts remaining.
+
+### Review pass on the Project section
+
+The user reviewed the nine pages in the browser and sent corrections. What changed,
+and what is worth remembering:
+
+- **`project/concepts` was wrong at its root**, not just in its title. It was called
+  "Concepts OMOP" and its prose assumed OMOP throughout, but the page reads whatever
+  **dictionary the schema declares** — `d_items`/`d_labitems` on MIMIC, a home-grown
+  reference table, or OMOP's `concept`. Retitled to **Concepts** (which is also the
+  app's own label in both locales), rewritten around the dictionary, and every
+  general claim made conditional. Two facts surfaced while verifying: a database can
+  declare **several dictionaries** (a `_dict_key` column says which a row came from),
+  and with no code column a concept list can only be copied **by id**.
+  The same OMOP presupposition was fixed in `getting-started/first-project` and
+  `quickstart-browser`.
+- **"Wide format = one row per patient" was an approximation** in four places. It is
+  one row per **unit of analysis** — patient, hospitalization, unit stay, day of stay
+  — chosen exactly as a cohort's level is.
+- **Both `PlannedFeature` pages lost their nav `draft: true`** on request, so the
+  Project section now shows no WIP badge at all. The in-page banners stay: they are
+  what tells a reader the feature is not available.
+- `project/pipeline` gained the concrete "why": the executable chain
+  (database → cohort → scripts → dataset → dashboard) and the daily unit-monitoring
+  dashboard that refreshes itself. That example is what makes the feature legible.
+
+### Screenshots
+
+The demo pages carry 26 screenshots per locale in `public/images/demo/`, rendered by
+`components/demo/DemoShot.astro`, which resolves the `-fr`/`-en` suffix from the URL.
+Five now illustrate Project pages: `cohort-builder`, `concepts`, `board-haemodynamics`,
+`datasets`, `ide`. The `concepts` one happens to be a MIMIC-IV database, so it proves
+the page's own point. The list-page shots (`cohorts-list`, `databases-list`,
+`patient-data-list`) were skipped — one card on an empty list illustrates nothing.
+
+**Reusable for other sections**: `dash-*` (5) for Dashboards, `ecrf-*` (3) for the
+collection/eCRF story, `analysis-table1`, `widget-config`, `widget-settings`,
+`database-stats`, `board-summary`, `board-overview`.
