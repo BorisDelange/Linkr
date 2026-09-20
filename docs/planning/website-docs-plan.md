@@ -384,3 +384,47 @@ Each step ends with the skill's four checks (FR/EN pairing, i18n keys, internal 
   and a versioning family are the two obvious gaps.
 - Screenshots are **not** the house style: frames are hand-drawn React mockups, so they
   survive a UI restyle and theme correctly in dark mode.
+
+---
+
+## 8. Progress log
+
+Pages are counted as done only once both locales are written, `draft: true` is
+removed from `docs-nav.ts`, and the skill's four checks pass.
+
+### Done — 2026-09-20
+
+| Section | Pages |
+|---|---|
+| Concepts | `entities-and-sharing` |
+| AI & automation | `agents` ⚑ · `llm-providers` · `skills` ⚑ · `mcp-authoring` |
+| Workspace | `overview` · `projects` · `wiki` · `plugins` · `members-and-roles` · `settings` |
+| Warehouse | `databases` |
+
+⚑ = planned feature, shipped as a `<PlannedFeature>` page (renders in production).
+
+### Next — warehouse section, in nav order
+
+`schemas` → `datamarts` ⚑ → `data-quality` → `data-catalog` → `sql-scripts` →
+`etl-pipelines`. `schemas` comes first because `databases` leans on it throughout.
+
+### App-side fixes made while documenting
+
+Documenting against the code keeps surfacing labels that no longer match the UI.
+Fixed in `linkr` as they were found:
+
+- `databases.type_database_desc` promised **SQL Server**; the dialog only ever offers
+  PostgreSQL, MySQL, DuckDB and SQLite (commit `d294eef8`).
+
+Still open, not fixed:
+
+- `fr.json` `import_invalid_zip` says "project.json manquant" though the app writes
+  `entity.json`.
+- Dead i18n keys found so far: `workspaces.tab_danger`, `export_include_data`,
+  `project_nav.data_quality`, and the whole `data_sources.*` namespace (zero code
+  references — `type_omop`, `type_file` etc. are not type choices in the product).
+- `databases.identifier_info` says the slug is "le nom du schéma"; it is a DuckDB
+  **catalog** (`ATTACH`), and in server mode the `ds_` prefix does not exist at all.
+
+**Lesson, recorded because it cost time twice**: read the component, not the locale
+file. A key existing in `fr.json` proves nothing about what the UI renders.
