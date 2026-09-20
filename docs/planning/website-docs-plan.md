@@ -399,14 +399,20 @@ removed from `docs-nav.ts`, and the skill's four checks pass.
 | Concepts | `entities-and-sharing` |
 | AI & automation | `agents` ⚑ · `llm-providers` · `skills` ⚑ · `mcp-authoring` |
 | Workspace | `overview` · `projects` · `wiki` · `plugins` · `members-and-roles` · `settings` |
-| Warehouse | `databases` |
+| Warehouse | `schemas` · `databases` · `datamarts` ⚑ · `data-quality` |
 
 ⚑ = planned feature, shipped as a `<PlannedFeature>` page (renders in production).
 
 ### Next — warehouse section, in nav order
 
-`schemas` → `datamarts` ⚑ → `data-quality` → `data-catalog` → `sql-scripts` →
-`etl-pipelines`. `schemas` comes first because `databases` leans on it throughout.
+`data-catalog` → `sql-scripts` → `etl-pipelines`, then the Project section.
+
+**Naming trap to handle when writing**: there are two unrelated "catalogs" and two
+unrelated "pipelines". `warehouse/data-catalog` is a DCAT-AP description of a
+database's contents; `sharing/community-catalog` is the index of published entities.
+`project/pipeline` turns long-format warehouse data into wide datasets;
+`warehouse/etl-pipelines` feeds one database from another. Each page must say which
+one it is not.
 
 ### App-side fixes made while documenting
 
@@ -415,6 +421,14 @@ Fixed in `linkr` as they were found:
 
 - `databases.type_database_desc` promised **SQL Server**; the dialog only ever offers
   PostgreSQL, MySQL, DuckDB and SQLite (commit `d294eef8`).
+
+Found while documenting data quality, **not fixed** (app-side, needs a decision):
+
+- A quality check whose SQL throws counts in the score's denominator but never among
+  the passes, so broken SQL reads as bad data. Worth either excluding errored checks
+  from the score or surfacing them separately.
+- The MCP `upsert_dq_check` severity enum is `error | warning | info`, but the app's is
+  `error | warning | notice`. `info` is not a valid app severity.
 
 Still open, not fixed:
 
