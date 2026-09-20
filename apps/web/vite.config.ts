@@ -53,11 +53,13 @@ function stripCoiInServerMode(serverMode: boolean) {
 // Sub-path deployments (e.g. reverse proxy exposing the app under
 // /docker-9250/): BASE_PATH prefixes all asset URLs and, via Vite's BASE_URL,
 // the router basename in main.tsx. Normalized to /…/ as Vite requires.
-const basePath = (() => {
-  const raw = (process.env.BASE_PATH || '/').trim()
-  if (raw === '' || raw === '/') return '/'
-  return `/${raw.replace(/^\/+|\/+$/g, '')}/`
-})()
+// Set it only when the proxy does NOT strip the prefix — when it does, the app
+// sees "/" and a prefix here would break every asset URL.
+function normalizeBasePath(raw: string | undefined) {
+  const trimmed = (raw || '/').trim()
+  if (trimmed === '' || trimmed === '/') return '/'
+  return `/${trimmed.replace(/^\/+|\/+$/g, '')}/`
+}
 
 export default defineConfig(({ mode }) => {
   // Dev ports are overridable so several git worktrees can run side by side,
@@ -67,6 +69,45 @@ export default defineConfig(({ mode }) => {
   const env = { ...loadEnv(mode, __dirname, ''), ...process.env }
   const webPort = Number(env.WEB_PORT) || 3000
   const apiPort = Number(env.API_PORT) || 8000
+  const basePath = normalizeBasePath(env.BASE_PATH)
+
+  // Remote dev (VS Code container, devbox, VM): the browser is not on the host
+  // running vite, so the server must listen beyond loopback — WEB_HOST=0.0.0.0.
+  const webHost = env.WEB_HOST || undefined
+
+  // Vite refuses requests whose Host header it does not know, which is what a
+  // reverse proxy in front of a remote container sends (chu-example.fr, not
+  // localhost). List those hostnames in WEB_ALLOWED_HOSTS, comma-separated.
+  // "true" disables the check entirely: acceptable on a private network, never
+  // on a public one — it reopens the DNS-rebinding hole the check exists to
+  // close. Unset keeps Vite's default (localhost only).
+  const allowedHostsRaw = (env.WEB_ALLOWED_HOSTS || '').trim()
+  const allowedHosts =
+    allowedHostsRaw === ''
+      ? undefined
+      : allowedHostsRaw === 'true'
+        ? (true as const)
+        : allowedHostsRaw
+            .split(',')
+            .map((h) => h.trim())
+            .filter(Boolean)
+
+  // HMR rides the page's own origin. Behind a TLS-terminating proxy the browser
+  // loads over https on 443, so the websocket must too — otherwise it dials
+  // ws://<proxy>:<webPort>, which the proxy does not serve, and the client
+  // retries forever. WEB_HMR_PROTOCOL/PORT pin it; WEB_HMR_HOST covers a proxy
+  // hostname that differs from the page's.
+  const hmrHost = env.WEB_HMR_HOST?.trim()
+  const hmrProtocol = env.WEB_HMR_PROTOCOL?.trim()
+  const hmrPort = Number(env.WEB_HMR_CLIENT_PORT) || undefined
+  const hmr =
+    hmrHost || hmrProtocol || hmrPort
+      ? {
+          ...(hmrHost ? { host: hmrHost } : {}),
+          ...(hmrProtocol ? { protocol: hmrProtocol } : {}),
+          ...(hmrPort ? { clientPort: hmrPort } : {}),
+        }
+      : undefined
 
   return {
     base: basePath,
@@ -87,6 +128,9 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: webPort,
+      ...(webHost ? { host: webHost } : {}),
+      ...(allowedHosts ? { allowedHosts } : {}),
+      ...(hmr ? { hmr } : {}),
       headers: {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'credentialless',
@@ -101,6 +145,13 @@ export default defineConfig(({ mode }) => {
           ws: true,
         },
       },
+    },
+    // `vite preview` serves the production build — same remote-access
+    // constraints as the dev server, so it honours the same three knobs.
+    preview: {
+      port: webPort,
+      ...(webHost ? { host: webHost } : {}),
+      ...(allowedHosts ? { allowedHosts } : {}),
     },
   }
 })
