@@ -260,7 +260,13 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
           forceMount
           className={`m-0 min-h-0 flex-1 p-0 ${activeTab === 'schema' ? '' : 'hidden'}`}
         >
-          {source.status === 'connected' ? (
+          {/* `configuring` counts as connected here. The browser calls
+              testConnection when it mounts, and that sets `configuring` while it
+              checks — which unmounted the browser, which stopped the check, which
+              set `connected` again, which remounted the browser: the tab flickered
+              between the placeholder and a half-listed schema, and text could not
+              even be selected. A transient status is not a disconnection. */}
+          {source.status === 'connected' || source.status === 'configuring' ? (
             schemaEverOpened && <SchemaBrowser dataSourceId={source.id} />
           ) : (
             <div className="flex h-full flex-col items-center justify-center">

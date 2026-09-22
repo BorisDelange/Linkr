@@ -285,9 +285,19 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
     setSelectedColumn(null)
     setColumnStats(null)
     try {
+      // `discoverTables` reports a table in a module directory by its qualified
+      // name (`hosp.patients`), but information_schema keeps the schema in its own
+      // column — so matching the whole thing against `table_name` found nothing
+      // and every table in such a database listed zero columns.
+      const dot = table.indexOf('.')
+      const tableSchema = dot < 0 ? null : table.slice(0, dot)
+      const tableName = dot < 0 ? table : table.slice(dot + 1)
       const colRows = await duckdbEngine.queryDataSource(
         dataSourceId,
-        `SELECT column_name, data_type, ordinal_position FROM information_schema.columns WHERE table_name = '${escSql(table)}' ORDER BY ordinal_position`,
+        `SELECT column_name, data_type, ordinal_position FROM information_schema.columns` +
+        ` WHERE table_name = '${escSql(tableName)}'` +
+        (tableSchema ? ` AND table_schema = '${escSql(tableSchema)}'` : '') +
+        ` ORDER BY ordinal_position`,
       )
       const cols: ColumnInfo[] = colRows.map((r) => ({
         column_name: String(r.column_name),

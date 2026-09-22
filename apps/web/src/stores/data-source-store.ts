@@ -732,14 +732,22 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     const config = ds.connectionConfig as DatabaseConnectionConfig
 
     busySources.add(id)
-    set((s) => ({
-      dataSources: s.dataSources.map((d) =>
-        d.id === id ? { ...d, status: 'configuring' as DataSourceStatus } : d,
-      ),
-    }))
+    // Only while there is something to configure. Announcing `configuring` for an
+    // already-mounted source made every consumer that gates on `connected` tear
+    // its content down for the length of a check that had nothing to do — the
+    // schema browser calls this on mount, so it unmounted itself mid-listing and
+    // came straight back, over and over.
+    const needsMount = !mountedSources.has(id)
+    if (needsMount) {
+      set((s) => ({
+        dataSources: s.dataSources.map((d) =>
+          d.id === id ? { ...d, status: 'configuring' as DataSourceStatus } : d,
+        ),
+      }))
+    }
 
     try {
-      if (!mountedSources.has(id)) {
+      if (needsMount) {
         if (config.inMemory && ds.schemaMapping?.ddl) {
           // In-memory database: remount from DDL
           await withTimeout(engine.mountEmptyFromDDL(id, ds.schemaMapping.ddl, ds.alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
@@ -803,6 +811,26 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     // Server mode: sources are queried server-side, nothing is mounted in the
     // browser (mounting would download the file bytes — the very thing we avoid).
     if (isServerMode()) return
+
+    /**
+     * A source with nothing to mount, recorded as such.
+     *
+     * These two branches used to `continue` in silence, which left whatever
+     * status the row already carried — `configuring` for a freshly seeded
+     * database — with no console trace and no path back: the source is never
+     * added to `mountedSources`, so every later call repeats the same no-op.
+     * The UI then read "Not connected" for good, and the Schema tab stayed on
+     * its "connect the database" placeholder.
+     */
+    const markUnmountable = async (id: string, reason: string) => {
+      console.warn(`[mountProjectSources] ${id}: ${reason}`)
+      const updated: Partial<DataSource> = { status: 'disconnected', errorMessage: reason }
+      await getStorage().dataSources.update(id, updated)
+      set((s) => ({
+        dataSources: s.dataSources.map((d) => (d.id === id ? { ...d, ...updated } : d)),
+      }))
+      busySources.delete(id)
+    }
     const linkedIds = useAppStore.getState().getProjectLinkedDataSourceIds(projectUid)
     const sources = get().dataSources.filter(
       (ds) => linkedIds.includes(ds.id) && !mountedSources.has(ds.id) && !busySources.has(ds.id),
@@ -815,7 +843,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       try {
         if (config.useFileHandles) {
           const handles = await getStorage().fileHandles.getByDataSource(ds.id)
-          if (handles.length === 0) { busySources.delete(ds.id); continue }
+          if (handles.length === 0) { await markUnmountable(ds.id, 'no file handles stored'); continue }
           const granted = await engine.requestHandlePermissions(handles)
           if (!granted) {
             const updated: Partial<DataSource> = { status: 'disconnected' }
@@ -831,7 +859,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
           await withTimeout(engine.mountDataSourceFromHandles(ds, handles), MOUNT_TIMEOUT, 'mountDataSourceFromHandles')
         } else {
           const files = await getStorage().files.getByDataSource(ds.id)
-          if (files.length === 0) { busySources.delete(ds.id); continue }
+          if (files.length === 0) { await markUnmountable(ds.id, 'no files stored'); continue }
           await withTimeout(engine.mountDataSource(ds, files), MOUNT_TIMEOUT, 'mountDataSource')
         }
         mountedSources.add(ds.id)
