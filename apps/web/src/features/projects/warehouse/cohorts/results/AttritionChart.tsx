@@ -23,7 +23,10 @@ export function AttritionChart({ attrition }: AttritionChartProps) {
     <div className="flex h-full flex-col gap-4 p-4">
       {/* Bar chart */}
       <div className="h-48 min-h-[12rem]">
-        <ResponsiveContainer width="100%" height="100%">
+        {/* The panel sits in an Allotment pane, whose width is only known after
+            the first layout pass. Without a floor Recharts measures -1 there and
+            warns on every mount. */}
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <BarChart
             data={attrition}
             layout="vertical"

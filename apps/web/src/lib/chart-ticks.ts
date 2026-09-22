@@ -36,6 +36,28 @@ export function niceTicks(
 }
 
 /**
+ * Zero-anchored histogram axis: niceTicks' round domain, widened by half a bin
+ * on each side.
+ *
+ * On a numeric axis recharts centres each bar on its x value, so a bar sitting
+ * exactly on the domain's low bound — the one at zero — had half its width
+ * hanging past the Y axis. The ticks stay the round ones; only the domain grows.
+ */
+export function zeroAnchoredHistogramScale(
+  xs: number[],
+): { domain: [number, number]; ticks: number[] } | null {
+  const base = niceTicks(xs, true)
+  if (!base) return null
+  const finite = xs.filter((v) => isFinite(v))
+  if (finite.length < 2) return base
+  const min = Math.min(...finite)
+  const max = Math.max(...finite)
+  const half = (max - min) / (finite.length - 1) / 2
+  if (!(half > 0)) return base
+  return { domain: [base.domain[0] - half, base.domain[1] + half], ticks: base.ticks }
+}
+
+/**
  * Tight histogram axis: the domain hugs the real [min, max] (padded half a bin)
  * with round ticks laid *inside* it. Unlike niceTicks, the low bound tracks the
  * data min instead of flooring to 0, so a range like 467..6025 starts near 467.

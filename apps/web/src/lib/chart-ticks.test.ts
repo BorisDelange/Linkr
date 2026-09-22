@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { niceStep, niceTicks, tightHistogramScale } from './chart-ticks'
+import { niceStep, niceTicks, tightHistogramScale, zeroAnchoredHistogramScale } from './chart-ticks'
 
 describe('niceStep', () => {
   it('rounds up to 1/2/5 × 10ⁿ', () => {
@@ -92,5 +92,34 @@ describe('tightHistogramScale', () => {
   it('returns null for empty or all-non-finite input', () => {
     expect(tightHistogramScale([])).toBeNull()
     expect(tightHistogramScale([NaN, Infinity])).toBeNull()
+  })
+})
+
+describe('zeroAnchoredHistogramScale', () => {
+  it('leaves room for the half bar sitting on zero', () => {
+    // Bins 0..40 by 10: recharts centres each bar on its x value, so without
+    // the padding the bar at 0 spills past the Y axis.
+    const result = zeroAnchoredHistogramScale([0, 10, 20, 30, 40])!
+    expect(result.domain[0]).toBeLessThan(0)
+    expect(result.domain[1]).toBeGreaterThan(40)
+  })
+
+  it('keeps the round ticks niceTicks chose', () => {
+    const xs = [0, 10, 20, 30, 40]
+    expect(zeroAnchoredHistogramScale(xs)!.ticks).toEqual(niceTicks(xs, true)!.ticks)
+  })
+
+  it('pads by half a bin, not an arbitrary margin', () => {
+    const result = zeroAnchoredHistogramScale([0, 10, 20, 30, 40])!
+    expect(result.domain[0]).toBeCloseTo(-5)
+  })
+
+  it('falls back to the unpadded scale when there is no bin width', () => {
+    expect(zeroAnchoredHistogramScale([7])).toEqual(niceTicks([7], true))
+  })
+
+  it('returns null for empty or all-non-finite input', () => {
+    expect(zeroAnchoredHistogramScale([])).toBeNull()
+    expect(zeroAnchoredHistogramScale([NaN, Infinity])).toBeNull()
   })
 })

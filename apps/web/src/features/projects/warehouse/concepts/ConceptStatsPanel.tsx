@@ -6,7 +6,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
-import { niceTicks, tightHistogramScale } from '@/lib/chart-ticks'
+import { zeroAnchoredHistogramScale, tightHistogramScale } from '@/lib/chart-ticks'
 import type { ConceptStats, HistogramBin } from './use-concepts'
 
 interface ConceptStatsPanelProps {
@@ -46,7 +46,7 @@ function Histogram({ data, startAtZero }: { data: HistogramBin[]; startAtZero: b
   // Checked → anchored at zero; unchecked → tightened on the real range (the
   // same pair the mapping editor's histogram uses).
   const xs = data.map((b) => b.bin_start)
-  const scale = startAtZero ? niceTicks(xs, true) : tightHistogramScale(xs)
+  const scale = startAtZero ? zeroAnchoredHistogramScale(xs) : tightHistogramScale(xs)
   const formatTick = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 })
 
   // ~6px per character at fontSize 10, plus the tick mark and padding.
