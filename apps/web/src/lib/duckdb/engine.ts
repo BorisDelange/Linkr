@@ -449,9 +449,14 @@ export async function computeStats(
   const schema = schemaName(dataSourceId)
 
   try {
-    // Table count
+    // Table count. Same `schema OR catalog` test discoverTables makes: an ATTACHed
+    // database holds `ds_…` as the CATALOG and keeps its own schemas underneath
+    // (`main`, or `hosp`/`icu` for a multi-module source), so matching the name
+    // against `table_schema` alone counted none of them — the card read "0 tables"
+    // beside the patient and visit counts it had just queried from those tables.
     const tablesResult = await conn.query(
-      `SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_schema = '${schema}'`,
+      `SELECT COUNT(*) as cnt FROM information_schema.tables` +
+      ` WHERE table_schema = '${schema}' OR table_catalog = '${schema}'`,
     )
     const tableCount = Number(tablesResult.toArray()[0]?.cnt ?? 0)
 
