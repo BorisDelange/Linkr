@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import seedHashesPlugin from './vite-plugin-seed-hashes'
@@ -51,28 +51,25 @@ function stripCoiInServerMode(serverMode: boolean) {
 }
 
 /**
- * Publish the built bundle's own weight into index.html, as `__BOOT_BYTES__`.
+ * Publish the built bundle's own weight as `boot-size.json`.
  *
- * The boot splash shows how much of the app has arrived, and had no total to put
+ * The boot splash reports how much of the app has arrived and had no total to put
  * it against: the boot discovers its chunks as each importer parses, so nothing
  * knows the sum up front — least of all on the first visit, which is the one that
- * waits. The bundle is fully known here, after it is written, so the denominator
- * ships with the page instead of being guessed from a previous run.
+ * waits. The bundle is fully known here, so the denominator ships with the build
+ * instead of being guessed from a previous run.
  *
- * Dev has no bundle to measure (modules are served one by one, unminified), so
- * the placeholder resolves to 0 and the splash shows the count alone.
+ * Dev emits no bundle (modules are served one by one, unminified) and so no file;
+ * the splash falls back to what the browser measured last time, and shows the
+ * count alone until then.
  */
-function injectBootBytes() {
+function injectBootBytes(): Plugin {
   return {
     name: 'inject-boot-bytes',
-    // Rewritten on disk rather than through `transformIndexHtml`: that hook runs
-    // before the chunks exist, and Vite emits index.html after `generateBundle`,
-    // so both would leave the placeholder in the shipped page.
-    // Vite writes index.html AFTER closeBundle, the last Rollup hook, so no hook
-    // can put the figure in the page and a deferred write races the process exit.
-    // The manifest is a build output like any other, so publish the total there
-    // and let the splash fetch it — see `bootTotalBytes` in index.html.
-    generateBundle(_options: unknown, bundle: Record<string, { type: string; code?: string; source?: string | Uint8Array }>) {
+    // Published as its own asset rather than substituted into the page: Vite
+    // writes index.html after `closeBundle`, the last Rollup hook, so no hook can
+    // put a figure in the markup and a deferred write races the process exit.
+    generateBundle(_options, bundle) {
       let total = 0
       for (const file of Object.values(bundle)) {
         const content = file.type === 'chunk' ? file.code : file.source
