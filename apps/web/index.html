@@ -131,50 +131,95 @@
           req.send()
         } catch (e) { /* keep the measured fallback */ }
 
-        function totalBytes() {
-          var bytes = 0
-          var entries = performance.getEntriesByType('resource')
-          for (var i = 0; i < entries.length; i++) {
-            var e = entries[i]
-            if (e.initiatorType === 'script' || e.initiatorType === 'link' || e.initiatorType === 'fetch') {
-              bytes += e.transferSize || 0
-            }
-          }
-          return bytes
-        }
-
         var bar = document.getElementById('boot-splash-bar')
         var fill = bar.firstChild
+        var done = false
 
-        var timer = setInterval(function () {
-          var bytes = totalBytes()
-          if (document.readyState === 'complete') {
-            clearInterval(timer)
-            // Only record a run that actually transferred: a warm cache reports
-            // next to nothing, and storing that would give the next cold visit a
-            // denominator far below what it is really about to download.
-            try { if (bytes > 1048576) localStorage.setItem(TOTAL_KEY, String(bytes)) } catch (e) {}
-            fill.style.width = '100%'
-            detail.textContent = fr ? 'Démarrage…' : 'Starting up…'
-            return
+        function show(bytes) {
+          if (done) return
+          var mb = (bytes / 1048576).toFixed(1)
+          // Past a stale estimate the ratio would read "9.1 / 8.3 MB"; drop the
+          // denominator rather than show a total already overtaken.
+          var known = expected > bytes
+          var text = known
+            ? mb + ' / ' + (expected / 1048576).toFixed(1) + (fr ? ' Mo' : ' MB')
+            : mb + (fr ? ' Mo' : ' MB')
+          detail.textContent = (fr ? 'Téléchargement de l’application… ' : 'Downloading the application… ') + text
+          // The bar needs a total to mean anything; with none it stays hidden
+          // rather than animating a fraction of an unknown.
+          if (known) {
+            bar.hidden = false
+            fill.style.width = Math.min(100, Math.round((bytes / expected) * 100)) + '%'
           }
-          if (bytes > 262144) {
-            var mb = (bytes / 1048576).toFixed(1)
-            // Past a stale estimate the ratio would read "9.1 / 8.3 MB"; drop the
-            // denominator rather than show a total already overtaken.
-            var known = expected > bytes
-            var text = known
-              ? mb + ' / ' + (expected / 1048576).toFixed(1) + (fr ? ' Mo' : ' MB')
-              : mb + (fr ? ' Mo' : ' MB')
-            detail.textContent = (fr ? 'Téléchargement de l’application… ' : 'Downloading the application… ') + text
-            // The bar needs a total to mean anything; with none it stays hidden
-            // rather than animating a fraction of an unknown.
-            if (known) {
-              bar.hidden = false
-              fill.style.width = Math.min(100, Math.round((bytes / expected) * 100)) + '%'
+        }
+
+        function finish(bytes) {
+          if (done) return
+          done = true
+          fill.style.width = '100%'
+          detail.textContent = fr ? 'Démarrage…' : 'Starting up…'
+        }
+
+        // How much of what we read actually crossed the wire. A gzipped response
+        // is decompressed before we see it, and only Resource Timing knows the
+        // encoded size — which it publishes once the response is done, too late
+        // for the bar but in time for the NEXT load. Until then, assume the ~0.3
+        // this bundle compresses to, so the first run is roughly right rather than
+        // three times too fast.
+        var RATIO_KEY = 'boot-bytes-ratio'
+        var ratio = parseFloat(localStorage.getItem(RATIO_KEY) || '0') || 0.3
+
+        // Read the entry chunk ourselves, as a stream.
+        //
+        // Resource Timing cannot drive this: an entry is published only once the
+        // resource has FINISHED, so the one download that dominates a cold boot —
+        // the ~1.2 MB entry chunk — contributes nothing for its whole duration and
+        // then appears at `readyState === 'complete'`, with the wait already over.
+        // Polling it showed a bar that sat at zero and then vanished.
+        //
+        // The browser is fetching this same URL for the module graph, and the two
+        // share one HTTP cache entry, so this reports that download rather than
+        // adding a second one.
+        var entry = document.querySelector('script[type="module"][src]')
+        var url = entry && entry.getAttribute('src')
+
+        if (url && window.fetch && window.ReadableStream) {
+          fetch(url, { credentials: 'same-origin' }).then(function (res) {
+            if (!res.ok || !res.body) return
+            var reader = res.body.getReader()
+            var bytes = 0
+            var pump = function () {
+              return reader.read().then(function (r) {
+                if (r.done) { finish(bytes); return }
+                // `value.length` is decompressed bytes, while `expected` is the
+                // gzipped weight the build measured — so the ratio would run ahead
+                // and hit 100% a third of the way in. Scale by the compression the
+                // response itself reveals.
+                bytes += r.value.length
+                show(Math.round(bytes * ratio))
+                return pump()
+              })
             }
-          }
-        }, 300)
+            return pump()
+          }).catch(function () { /* the module load itself is what matters */ })
+        }
+
+
+        // The module graph is what the app actually waits on, so the splash closes
+        // with the page load rather than with our own read of the entry chunk.
+        window.addEventListener('load', function () {
+          finish(0)
+          try {
+            var es = performance.getEntriesByType('resource')
+            for (var i = 0; i < es.length; i++) {
+              if (!url || es[i].name.indexOf(url) < 0) continue
+              var enc = es[i].encodedBodySize, dec = es[i].decodedBodySize
+              // Recorded for the next cold load: this one is already over.
+              if (enc > 0 && dec > 0) localStorage.setItem(RATIO_KEY, String(enc / dec))
+              if (enc > 0) localStorage.setItem(TOTAL_KEY, String(enc))
+            }
+          } catch (e) { /* the next load simply keeps the previous figures */ }
+        })
       })()
     </script>
     <script type="module" src="/src/main.tsx"></script>
