@@ -832,37 +832,62 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       busySources.delete(id)
     }
     const linkedIds = useAppStore.getState().getProjectLinkedDataSourceIds(projectUid)
+    // `mountingPromises` counts as busy too: ensureMounted (every front-only
+    // query) mounts under that registry alone, and without this we started a
+    // second mount of a source it already had in flight.
     const sources = get().dataSources.filter(
-      (ds) => linkedIds.includes(ds.id) && !mountedSources.has(ds.id) && !busySources.has(ds.id),
+      (ds) => linkedIds.includes(ds.id) && !mountedSources.has(ds.id)
+        && !busySources.has(ds.id) && !mountingPromises.has(ds.id),
     )
 
     for (const ds of sources) {
-      if (busySources.has(ds.id)) continue
+      if (busySources.has(ds.id) || mountingPromises.has(ds.id)) continue
       busySources.add(ds.id)
       const config = ds.connectionConfig as DatabaseConnectionConfig
       try {
-        if (config.useFileHandles) {
-          const handles = await getStorage().fileHandles.getByDataSource(ds.id)
-          if (handles.length === 0) { await markUnmountable(ds.id, 'no file handles stored'); continue }
-          const granted = await engine.requestHandlePermissions(handles)
-          if (!granted) {
-            const updated: Partial<DataSource> = { status: 'disconnected' }
-            await getStorage().dataSources.update(ds.id, updated)
-            set((s) => ({
-              dataSources: s.dataSources.map((d) =>
-                d.id === ds.id ? { ...d, ...updated } : d,
-              ),
-            }))
-            busySources.delete(ds.id)
-            continue
+        let skip: 'no-handles' | 'no-files' | 'denied' | undefined
+        // The mount itself goes through the shared registry, so ensureMounted —
+        // which every front-only query now goes through — joins this one instead
+        // of starting a second mount of the same source. The two used to guard
+        // themselves separately (busySources here, mountingPromises there), and
+        // a page reached directly ran both at once: one ATTACHed a database the
+        // other had just ATTACHed, and the query died with "database with name
+        // ds_… already exists". Visiting Databases first mounted everything
+        // before any page asked, which is why that looked like a workaround.
+        const mount = (async () => {
+          if (config.useFileHandles) {
+            const handles = await getStorage().fileHandles.getByDataSource(ds.id)
+            if (handles.length === 0) { skip = 'no-handles'; return }
+            const granted = await engine.requestHandlePermissions(handles)
+            if (!granted) { skip = 'denied'; return }
+            await withTimeout(engine.mountDataSourceFromHandles(ds, handles), MOUNT_TIMEOUT, 'mountDataSourceFromHandles')
+          } else {
+            const files = await getStorage().files.getByDataSource(ds.id)
+            if (files.length === 0) { skip = 'no-files'; return }
+            await withTimeout(engine.mountDataSource(ds, files), MOUNT_TIMEOUT, 'mountDataSource')
           }
-          await withTimeout(engine.mountDataSourceFromHandles(ds, handles), MOUNT_TIMEOUT, 'mountDataSourceFromHandles')
-        } else {
-          const files = await getStorage().files.getByDataSource(ds.id)
-          if (files.length === 0) { await markUnmountable(ds.id, 'no files stored'); continue }
-          await withTimeout(engine.mountDataSource(ds, files), MOUNT_TIMEOUT, 'mountDataSource')
+          mountedSources.add(ds.id)
+        })()
+        mountingPromises.set(ds.id, mount)
+        try {
+          await mount
+        } finally {
+          mountingPromises.delete(ds.id)
         }
-        mountedSources.add(ds.id)
+
+        if (skip === 'no-handles') { await markUnmountable(ds.id, 'no file handles stored'); continue }
+        if (skip === 'no-files') { await markUnmountable(ds.id, 'no files stored'); continue }
+        if (skip === 'denied') {
+          const updated: Partial<DataSource> = { status: 'disconnected' }
+          await getStorage().dataSources.update(ds.id, updated)
+          set((s) => ({
+            dataSources: s.dataSources.map((d) =>
+              d.id === ds.id ? { ...d, ...updated } : d,
+            ),
+          }))
+          busySources.delete(ds.id)
+          continue
+        }
         const stats = await withTimeout(engine.computeStats(ds.id, ds.schemaMapping), STATS_TIMEOUT, 'computeStats')
         const updated: Partial<DataSource> = { status: 'connected', stats, errorMessage: undefined }
         await getStorage().dataSources.update(ds.id, updated)
@@ -975,3 +1000,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     }
   },
 }))
+
+// Every front-only query now waits for its source to be mounted, instead of
+// each caller having to remember to call ensureMounted first.
+engine.setMountGuard((id) => useDataSourceStore.getState().ensureMounted(id))

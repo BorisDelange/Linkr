@@ -30,6 +30,7 @@ const duckdb_eh_worker = duckdbAsset('duckdb-browser-eh.worker.js')
 // splitter and the role-prefix rewriter agree on what is a comment / literal /
 // dollar-quote (a `;` inside any of those must not split a statement).
 import { splitSqlStatements } from './sql-tokenizer'
+import { shouldGuardMount, isAttachedCatalog } from './mount-guard'
 export { splitSqlStatements }
 
 let _db: duckdb.AsyncDuckDB | null = null
@@ -177,6 +178,21 @@ export function schemaName(dataSourceId: string): string {
 /** Track which data sources are ATTACHed (vs schema-based). */
 const attachedSources = new Set<string>()
 
+/**
+ * Mounts a source if it is not in DuckDB yet, so a query never has to assume
+ * someone else got there first.
+ *
+ * The store owns mounting (it holds the rows, the files and the in-flight
+ * promises) but imports this module, so it injects its `ensureMounted` here
+ * rather than being imported back. Left unset — in tests, or before the store
+ * is created — queries run as they always did.
+ */
+let mountGuard: ((dataSourceId: string) => Promise<void>) | undefined
+
+export function setMountGuard(guard: (dataSourceId: string) => Promise<void>): void {
+  mountGuard = guard
+}
+
 // --- Mount / unmount ---
 
 /**
@@ -322,6 +338,13 @@ export async function discoverTables(dataSourceId: string): Promise<string[]> {
   if (isServerMode()) {
     const tables = await fetchDataSourceSchema(dataSourceId)
     return tables.map((t) => t.name)
+  }
+  // Same wait as queryDataSource: listing the tables of a source that is not
+  // mounted yet returns none, and callers read that as a real answer. That is
+  // how Concepts, reached directly, decided the database had no concept table
+  // and said so instead of loading.
+  if (shouldGuardMount(dataSourceId, !!mountGuard)) {
+    await mountGuard!(dataSourceId)
   }
   const db = await getDuckDB()
   const conn = await db.connect()
@@ -489,6 +512,14 @@ export async function queryDataSource(
     }
     return queryDataSourceOnServer(dataSourceId, sql)
   }
+  // Wait for the source to be in DuckDB before naming its schema. Callers used
+  // to have to do this themselves, and the ones that forgot raced the mount on
+  // a fresh load: the schema was not there yet (or was being dropped and
+  // rebuilt), so the page failed with "No catalog + schema named ds_…" or
+  // "Table ... does not exist" and stayed empty until a reload.
+  if (shouldGuardMount(dataSourceId, !!mountGuard)) {
+    await mountGuard!(dataSourceId)
+  }
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSourceId)
@@ -617,8 +648,27 @@ async function safeDropSchema(
   dataSourceId: string,
 ): Promise<void> {
   const schema = schemaName(dataSourceId)
-  if (attachedSources.has(dataSourceId)) {
-    // ATTACHed database — must DETACH
+  // Ask DuckDB what is actually there rather than trusting `attachedSources`.
+  // That set is module memory: it is filled only once a mount succeeds, so a
+  // mount that failed after its ATTACH, or a store reset (which clears the
+  // store's own mounted set, not this one), leaves a database attached that we
+  // no longer remember. We then took the DROP SCHEMA branch, which does not
+  // detach anything, and the next ATTACH died with "database with name
+  // ds_… already exists".
+  // Same catalog lookup catalogSearchPath already relies on: a row here means a
+  // database is attached under that name, whatever this module remembers.
+  // Schema names are `ds_` + alphanumerics, so they cannot carry a quote.
+  let catalogRows: number | undefined
+  try {
+    const rows = await conn.query(
+      `SELECT 1 FROM information_schema.schemata WHERE catalog_name = '${schema}'`,
+    )
+    catalogRows = rows.toArray().length
+  } catch {
+    // Leave undefined — isAttachedCatalog falls back to what we remember.
+  }
+
+  if (isAttachedCatalog({ remembered: attachedSources.has(dataSourceId), catalogRows })) {
     try {
       await conn.query(`DETACH "${schema}"`)
     } catch {
