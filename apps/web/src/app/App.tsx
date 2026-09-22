@@ -123,13 +123,12 @@ export function App() {
           // then sat at `configuring` for the session, reading as "Not connected"
           // with an empty Schema tab though its data was mounted and queryable.
           loadDataSources(true)
-          // Same reason: the seed resolves each cohort's and patient board's
-          // `dataSourceRef` into a `dataSourceId` only once the databases exist,
-          // i.e. after these stores were filled from the pre-seed rows. Without
-          // this the entities keep an empty database for the whole session —
-          // name in italics on the card, empty dropdown in the edit dialog.
+          // Same reason: the seed resolves each cohort's `dataSourceRef` into a
+          // `dataSourceId` only once the databases exist, i.e. after this store
+          // was filled from the pre-seed rows. Without this a seeded cohort keeps
+          // an empty database for the whole session — name in italics on the
+          // card, empty dropdown in the edit dialog — until the next reload.
           loadCohorts()
-          loadPatientDashboards()
           loadCatalogs()
         })
         .finally(() => { if (!cancelled) setDataSeeded(true) })
