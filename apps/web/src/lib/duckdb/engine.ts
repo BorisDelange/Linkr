@@ -410,9 +410,13 @@ export async function computeStats(
     const tables = await fetchDataSourceSchema(dataSourceId)
     const stats: DataSourceStats = { tableCount: tables.length }
     if (countRows && schemaMapping?.patientTable) {
-      stats.patientCount = await serverCount(dataSourceId, schemaMapping.patientTable.table)
+      stats.patientCount = await serverCount(
+        dataSourceId, schemaMapping.patientTable.table, schemaMapping.patientTable.schema,
+      )
       if (schemaMapping.visitTable) {
-        stats.visitCount = await serverCount(dataSourceId, schemaMapping.visitTable.table)
+        stats.visitCount = await serverCount(
+          dataSourceId, schemaMapping.visitTable.table, schemaMapping.visitTable.schema,
+        )
       }
     }
     return stats
@@ -429,9 +433,13 @@ export async function computeStats(
     const tableCount = Number(tablesResult.toArray()[0]?.cnt ?? 0)
 
     if (schemaMapping?.patientTable) {
-      const patientCount = await safeCount(conn, schema, schemaMapping.patientTable.table)
+      const patientCount = await safeCount(
+        conn, schema, schemaMapping.patientTable.table, schemaMapping.patientTable.schema,
+      )
       const visitCount = schemaMapping.visitTable
-        ? await safeCount(conn, schema, schemaMapping.visitTable.table)
+        ? await safeCount(
+            conn, schema, schemaMapping.visitTable.table, schemaMapping.visitTable.schema,
+          )
         : 0
       return { patientCount, visitCount, tableCount }
     }
@@ -628,25 +636,41 @@ async function safeDropSchema(
 }
 
 /** COUNT(*) on a mapped table via the server query path (server mode). */
-async function serverCount(dataSourceId: string, table: string): Promise<number> {
+async function serverCount(dataSourceId: string, table: string, schema?: string): Promise<number> {
+  // Same mapped-schema rule as safeCount: qualify only when the mapping names a
+  // schema, so a multi-module source counts its rows and a single-schema one
+  // still resolves through the search path.
+  const quote = (id: string) => `"${id.replace(/"/g, '""')}"`
+  const qualified = schema ? `${quote(schema)}.${quote(table)}` : quote(table)
   try {
-    const rows = await queryDataSource(
-      dataSourceId,
-      `SELECT COUNT(*) AS cnt FROM "${table.replace(/"/g, '""')}"`,
-    )
+    const rows = await queryDataSource(dataSourceId, `SELECT COUNT(*) AS cnt FROM ${qualified}`)
     return Number(rows[0]?.cnt ?? 0)
   } catch {
     return 0
   }
 }
 
+/**
+ * COUNT(*) on a mapped table, 0 if it cannot be read.
+ *
+ * `schema` is the mapping's own optional field, not a prefix parsed out of
+ * `table`: a source published as several modules (MIMIC-IV's `hosp`/`icu`) mounts
+ * its views under that schema, so qualifying the table with the catalog alone
+ * looked for `<catalog>.main.patients` and counted 0. When the mapping omits it,
+ * the name stays unqualified on purpose — that is what lets the search path find
+ * it, the way every preset written before schemas existed still works.
+ */
 async function safeCount(
   conn: duckdb.AsyncDuckDBConnection,
-  schema: string,
+  catalog: string,
   table: string,
+  schema?: string,
 ): Promise<number> {
+  const qualified = schema
+    ? `"${catalog}"."${schema}"."${table}"`
+    : `"${catalog}"."${table}"`
   try {
-    const r = await conn.query(`SELECT COUNT(*) as cnt FROM "${schema}"."${table}"`)
+    const r = await conn.query(`SELECT COUNT(*) as cnt FROM ${qualified}`)
     return Number(r.toArray()[0]?.cnt ?? 0)
   } catch {
     return 0

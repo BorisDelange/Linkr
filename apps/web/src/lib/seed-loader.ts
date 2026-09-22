@@ -25,6 +25,8 @@ import {
   resolveDashboardBundle, slugify,
   type CompactSourceConceptIdEntries, type DashboardBundle,
 } from '@/lib/entity-io'
+import i18n from '@/lib/i18n'
+import { beginSeedPhase, reportSeedStep, endSeed } from '@/lib/seed-progress'
 import { deterministicId } from '@/lib/deterministic-id'
 import { fromPathTree, readPathTree, storablePathNode } from '@/lib/entity-tree'
 import { entityKey, resolvePointer, resolveProjectPointers, resolveSlugLanding } from '@/lib/import-identity'
@@ -297,14 +299,38 @@ async function fetchMarkdown(path: string): Promise<string | null> {
   }
 }
 
+/**
+ * A seed binary, or null when the file is absent.
+ *
+ * `!res.ok` is not enough to detect absence: a static host that falls back to the
+ * SPA shell (the dev server does, and so may a Pages host) answers 200 with
+ * `index.html`. That HTML then passes a `byteLength > 0` check and reaches the
+ * consumer as if it were the real payload — DuckDB reported "No magic bytes found"
+ * on an optional scores file that simply does not ship. Reject an HTML body.
+ */
 async function fetchBinary(path: string): Promise<ArrayBuffer | null> {
   try {
     const res = await fetch(path)
     if (!res.ok) return null
+    if (res.headers.get('content-type')?.includes('text/html')) return null
     return await res.arrayBuffer()
   } catch {
     return null
   }
+}
+
+/**
+ * Whether a buffer really is Parquet — it opens AND closes with the `PAR1` magic
+ * bytes. The content-type check in `fetchBinary` misses a host that serves its
+ * SPA fallback as octet-stream, and DuckDB only reports the bad body once the
+ * file is already registered and queried.
+ */
+function isParquet(buf: ArrayBuffer | null): buf is ArrayBuffer {
+  if (!buf || buf.byteLength < 8) return false
+  const magic = [0x50, 0x41, 0x52, 0x31]
+  const head = new Uint8Array(buf, 0, 4)
+  const tail = new Uint8Array(buf, buf.byteLength - 4, 4)
+  return magic.every((b, i) => head[i] === b && tail[i] === b)
 }
 
 // ---------------------------------------------------------------------------
@@ -631,11 +657,13 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
   // --- Structural first-class entities (phase 1: projects, mapping projects, dq, catalogs) ---
   for (const entity of manifest.entities) {
     if (!STRUCTURAL_KINDS.has(entity.type)) continue
+    reportSeedStep(seedLabel(entity.type, entity.id), structuralDone)
     try {
       await loadStructuralEntity(entity, base, wsId, now)
     } catch (err) {
       console.error(`[seed-loader] Failed to load ${entity.type} ${entity.id}:`, err)
     }
+    reportSeedStep(seedLabel(entity.type, entity.id), ++structuralDone)
   }
 
   console.info(`[seed-loader] Workspace "${folder}" loaded successfully`)
@@ -643,6 +671,18 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
 
 /** Phase-1 entity kinds, loaded by loadSeedWorkspace before databases/datasets/etc. */
 const STRUCTURAL_KINDS = new Set<SeedEntityKind>(['project', 'mappingProject', 'dqRuleSet', 'catalog', 'etlPipeline'])
+
+/** Entities finished in phase 1, across every workspace — the unit the boot screen counts. */
+let structuralDone = 0
+
+/**
+ * What the boot screen says about the entity being loaded, e.g. "Project · MIMIC-IV".
+ * Translated here because the seed runs outside React, where no `t` is in scope.
+ */
+function seedLabel(kind: string, id: string): string {
+  const name = i18n.t(`seed.kind.${kind}`, { defaultValue: kind })
+  return `${name} · ${id}`
+}
 
 /** Load one structural (phase-1) entity. Idempotent via a uniform `linkr-seed-<type>-<id>` flag. */
 async function loadStructuralEntity(
@@ -725,7 +765,7 @@ async function loadStructuralEntity(
       }
       // Optional precomputed similarity scores (present only when the export bundled them)
       const scoresBuf = await fetchBinary(`${base}/mapping-projects/${mpFolder}/similarity-scores.parquet`)
-      if (scoresBuf && scoresBuf.byteLength > 0) {
+      if (isParquet(scoresBuf)) {
         const scoresFile = new File([scoresBuf], `${project.id}.parquet`, { type: 'application/octet-stream' })
         if (isServerMode()) {
           const { persistScoresFileOnServer } = await import('@/lib/api/scores')
@@ -1437,6 +1477,46 @@ export function isSeeded(): boolean {
   return !!localStorage.getItem(SEED_KEY)
 }
 
+/**
+ * Whether phase 2 still has anything to install.
+ *
+ * Every phase-2 entity carries its own `linkr-seed-<type>-<id>` flag, so a return
+ * visit re-walks the manifests and skips them all — cheap, but the boot screen
+ * cannot know that in advance and would sit there announcing an install that has
+ * nothing to do. Answer from the flags instead, so the screen is shown only on a
+ * run that will really download something.
+ */
+/**
+ * The id a phase-2 entity's guard flag is keyed on.
+ *
+ * Two kinds key on the row they attach to rather than on their own id — the same
+ * choice `seedConceptMappings`/`seedEtlScripts` make — so reading the flags has to
+ * follow suit or it would always report those two as pending.
+ */
+function dataSeedKeyId(entity: SeedManifestEntity): string {
+  const e = entity as SeedManifestEntity & { projectId?: string; pipelineId?: string }
+  if (entity.type === 'conceptMapping') return e.projectId ?? entity.id
+  if (entity.type === 'etlScript') return e.pipelineId ?? entity.id
+  return entity.id
+}
+
+export async function hasPendingDataSeed(): Promise<boolean> {
+  try {
+    for (const folder of await fetchSeedRoot()) {
+      const manifest = await fetchWorkspaceManifest(folder)
+      if (!manifest) continue
+      for (const entity of manifest.entities) {
+        if (!DATA_KIND_ORDER.includes(entity.type)) continue
+        if (!localStorage.getItem(`linkr-seed-${entity.type}-${dataSeedKeyId(entity)}`)) return true
+      }
+    }
+  } catch {
+    // Unreadable manifest: let the seed run and report as it goes.
+    return true
+  }
+  return false
+}
+
 /** Clear a per-entity seed guard flag (e.g. 'dataset-<id>', 'database-<id>') so it re-seeds. */
 export function clearSeedFlag(suffix: string): void {
   localStorage.removeItem(`linkr-seed-${suffix}`)
@@ -1509,18 +1589,44 @@ async function loadDataEntity(entity: SeedManifestEntity, wsId: string): Promise
  */
 export async function seedWorkspaces(): Promise<void> {
   if (isSeeded()) return
+  // The localStorage guard only closes once the whole seed has finished, so it
+  // cannot stop a second caller that starts while the first is still running —
+  // StrictMode's double mount and a second tab both did, and the two passes then
+  // raced to write the same deterministic ids (ConstraintError, then aborted
+  // transactions). Share the in-flight run instead.
+  _seedWorkspacesPromise ??= runSeedWorkspaces().finally(() => { _seedWorkspacesPromise = null })
+  return _seedWorkspacesPromise
+}
 
+let _seedWorkspacesPromise: Promise<void> | null = null
+
+async function runSeedWorkspaces(): Promise<void> {
   const folders = await fetchSeedRoot()
   if (!folders.length) {
     console.warn('[seed-loader] No seed.json found or empty, skipping seed')
     localStorage.setItem(SEED_KEY, '1')
+    endSeed()
     return
   }
 
+  // Manifests first, so the phase can announce how many entities it will load
+  // rather than counting workspaces — with a single seeded workspace, the latter
+  // is a progress bar that only ever reads 0% or 100%.
+  const manifests: Array<{ folder: string; manifest: WorkspaceManifest }> = []
   for (const folder of folders) {
+    const manifest = await fetchWorkspaceManifest(folder).catch(() => null)
+    if (manifest) manifests.push({ folder, manifest })
+  }
+  const structuralCount = manifests.reduce(
+    (n, { manifest }) => n + manifest.entities.filter((e) => STRUCTURAL_KINDS.has(e.type)).length,
+    0,
+  )
+  beginSeedPhase('structure', structuralCount)
+  structuralDone = 0
+
+  for (const { folder, manifest } of manifests) {
     try {
-      const manifest = await fetchWorkspaceManifest(folder)
-      if (manifest) await loadSeedWorkspace(folder, manifest)
+      await loadSeedWorkspace(folder, manifest)
     } catch (err) {
       console.error(`[seed-loader] Failed to load workspace "${folder}":`, err)
     }
@@ -1536,34 +1642,60 @@ export async function seedWorkspaces(): Promise<void> {
  * (DATA_KIND_ORDER); each step is idempotent via its uniform localStorage flag.
  */
 export async function seedDatabases(): Promise<void> {
-  const folders = await fetchSeedRoot()
-  if (!folders.length) return
+  // Same race as phase 1: the per-entity flags close too late to stop a
+  // concurrent second pass, and these entities carry the heaviest writes.
+  _seedDatabasesPromise ??= runSeedDatabases().finally(() => { _seedDatabasesPromise = null })
+  return _seedDatabasesPromise
+}
 
+let _seedDatabasesPromise: Promise<void> | null = null
+
+async function runSeedDatabases(): Promise<void> {
+  const folders = await fetchSeedRoot()
+  if (!folders.length) {
+    endSeed()
+    return
+  }
+
+  // Resolve every workspace up front so the phase knows its total before the
+  // first (and heaviest) database starts downloading.
+  const targets: Array<{ wsId: string; manifest: WorkspaceManifest }> = []
   for (const folder of folders) {
     // Same manifest resolution as phase 1 — reading `workspace.json` directly
     // missed the `entity.json` a real export writes, so every data entity was
     // skipped while phase 1 had already created the workspace.
     const workspace = await fetchManifest<Workspace>(`${SEED_BASE}/${folder}`, 'workspace')
     if (!workspace) continue
-    const wsId = workspace.id || `seed-${folder}`
-
     const manifest = await fetchWorkspaceManifest(folder)
     if (!manifest) continue
+    targets.push({ wsId: workspace.id || `seed-${folder}`, manifest })
+  }
 
+  const dataCount = targets.reduce(
+    (n, { manifest }) => n + manifest.entities.filter((e) => DATA_KIND_ORDER.includes(e.type)).length,
+    0,
+  )
+  beginSeedPhase('data', dataCount)
+  let done = 0
+
+  for (const { wsId, manifest } of targets) {
     for (const kind of DATA_KIND_ORDER) {
       for (const entity of manifest.entities) {
         if (entity.type !== kind) continue
+        reportSeedStep(seedLabel(entity.type, entity.id), done)
         try {
           await loadDataEntity(entity, wsId)
         } catch (err) {
           console.error(`[seed-loader] Failed to seed ${entity.type} ${entity.id}:`, err)
         }
+        reportSeedStep(seedLabel(entity.type, entity.id), ++done)
       }
     }
 
     await attachSeededEntityLinks(wsId)
   }
 
+  endSeed()
   console.info('[seed-loader] Database seeding complete')
 }
 

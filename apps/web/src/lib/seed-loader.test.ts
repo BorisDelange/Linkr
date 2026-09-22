@@ -141,4 +141,68 @@ describe('seedWorkspaces — git-linked mapping project', () => {
     await seedWorkspaces()
     expect(written.map((m) => m.id)).toEqual(first)
   })
+
+  // Two callers used to race here: the localStorage guard only closes once the
+  // whole seed has finished, so StrictMode's double mount (and a second tab) both
+  // started a full pass, and they collided writing the same deterministic ids.
+  it('shares one run between concurrent callers', async () => {
+    const { seedWorkspaces } = await import('./seed-loader')
+    await Promise.all([seedWorkspaces(), seedWorkspaces()])
+
+    expect(written).toHaveLength(2)
+  })
+})
+
+describe('seedWorkspaces — optional similarity scores', () => {
+  /** Serve the scores path the way a host that falls back to the SPA shell does. */
+  function stubFetchWithSpaFallback(contentType: string) {
+    vi.stubGlobal('fetch', async (url: string) => {
+      const path = String(url).replace(/^.*data\/seed\//, '')
+      const body = TREE[path]
+      if (body !== undefined) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => body,
+          text: async () => JSON.stringify(body),
+        }
+      }
+      // Every absent file — the scores parquet included — answers 200 + index.html.
+      const html = '<!doctype html><html><body><div id="root"></div></body></html>'
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': contentType }),
+        json: async () => { throw new Error('not json') },
+        text: async () => html,
+        arrayBuffer: async () => new TextEncoder().encode(html).buffer,
+      }
+    })
+  }
+
+  it('ignores an SPA-fallback HTML body served for a missing scores file', async () => {
+    const persistScoresFile = vi.fn()
+    vi.doMock('@/lib/concept-mapping/scores-engine', () => ({ persistScoresFile }))
+    stubFetchWithSpaFallback('text/html')
+
+    const { seedWorkspaces } = await import('./seed-loader')
+    await seedWorkspaces()
+
+    expect(persistScoresFile).not.toHaveBeenCalled()
+  })
+
+  // The content-type check alone misses this one: the body is still HTML, but the
+  // host labels it octet-stream. Only the PAR1 magic bytes catch it — otherwise it
+  // reached DuckDB and surfaced as "No magic bytes found at end of file".
+  it('ignores an HTML body served as octet-stream', async () => {
+    const persistScoresFile = vi.fn()
+    vi.doMock('@/lib/concept-mapping/scores-engine', () => ({ persistScoresFile }))
+    stubFetchWithSpaFallback('application/octet-stream')
+
+    const { seedWorkspaces } = await import('./seed-loader')
+    await seedWorkspaces()
+
+    expect(persistScoresFile).not.toHaveBeenCalled()
+  })
 })
