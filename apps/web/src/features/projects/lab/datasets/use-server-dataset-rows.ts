@@ -4,6 +4,7 @@ import {
   type ServerRowFilter,
   type ServerRowsQuery,
 } from '@/lib/api/datasets'
+import { isServerMode } from '@/lib/api-client'
 import { isCategoricalFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import type { DatasetColumn } from '@/types'
 
@@ -71,7 +72,9 @@ export function useServerDatasetRows({
   const [state, setState] = useState<ServerRowsState>({
     rows: [],
     total: 0,
-    loading: true,
+    // Front-only mode never fetches, so the hook must read as idle rather than
+    // as a load that will never finish.
+    loading: isServerMode(),
     error: null,
   })
   const reqId = useRef(0)
@@ -91,6 +94,11 @@ export function useServerDatasetRows({
   const fetchedFile = useRef(fileId)
 
   useEffect(() => {
+    // Front-only mode holds the rows in memory and filters them there; the
+    // caller renders those instead of this state. Without this the hook still
+    // fired its request, which a client-only build answers with a 500 — the
+    // table looked right and the console did not.
+    if (!isServerMode()) return
     const discreteKey = `${fileId}|${page}|${pageSize}|${sortKey}`
     const immediate =
       fetchedRevision.current !== revision || fetchedDiscrete.current !== discreteKey
