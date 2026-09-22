@@ -244,14 +244,29 @@ the agent sees and what prefixes the tools:
 Update in the same change: the server `name`, the docs, and the `linkr-authoring` skill
 that references it.
 
-### `linkr-live`
+### `linkr-live` — a public interface, not an internal component
 
 HTTP MCP server exposing the app actions, backed by the REST API. Tool vocabulary
 derives from the stores — `dashboard-store.ts` is already an id-addressed action API,
 so the schema comes out nearly mechanically. First tranche: dashboard (tabs, widgets,
 layout, filters), then cohorts, datasets.
 
-**The token carries the session's own rights.** Every tool re-checks its permission
+**It is consumed by two kinds of client, and the ACP sidebar is only one of them.**
+The other is any third-party MCP client the institution already runs — LibreChat,
+Claude Desktop, Cursor (§4b). That is not a bonus: it is the reason this batch comes
+before the broker. One server, two surfaces, and a hospital that never installs an
+agent binary still reaches Linkr through the chat client it already deployed.
+
+Three design consequences follow from being consumed by clients we do not control:
+
+- **Self-contained.** No implicit dependency on an ACP session running alongside —
+  auth, discovery and errors must hold on their own.
+- **Tool descriptions written for a stranger.** The consuming model knows nothing of
+  Linkr's vocabulary; a description saying "adds a widget" is useless without saying
+  what a widget, a tab and a project are.
+- **Auth is a first-class entity**, not a session detail (§4b).
+
+**The token carries the caller's own rights.** Every tool re-checks its permission
 server-side: a user without `dashboards:write` drives an agent that cannot write a
 widget. An LLM never exceeds the user driving it.
 
@@ -264,6 +279,94 @@ to the database, so an agent writing through the API leaves the open tab stale.
 Fix: a **notification WebSocket**. After an MCP write the server publishes
 `{project_uid, entity}`; the front reloads the affected store. It carries a signal
 only — never tool calls — so it stays far simpler than a bidirectional bridge.
+
+The mechanism is **client-agnostic**: it keys off the write reaching the REST API, not
+off who sent it. An open Linkr tab therefore refreshes live whether the writer is the
+ACP sidebar or a third-party chat client.
+
+One trap to handle here rather than later: the front reloads the *whole* store for the
+touched entity. If the user is editing a widget at that moment, a reload can discard
+their in-flight work. It already applies to the ACP agent; it gets likelier with an
+external client, because the user cannot see what the agent is doing. **Do not reload a
+store whose editor is open and dirty — surface the change instead of applying it.**
+
+---
+
+## 4b. Third-party MCP clients
+
+The reference case is an institution that already runs **LibreChat** over its data
+warehouse, wired to Jira, GitLab, ClickHouse and Grafana, and wants Linkr in the same
+row. Nothing is built *for* LibreChat: it consumes `linkr-live` like any MCP client,
+and the deliverable is a documented URL plus a token. The cost below is auth and audit,
+not a second integration.
+
+### Authentication — the real work
+
+The ACP path needs no user-visible credential: the broker spawns the agent and hands it
+an ephemeral session token. A third-party client breaks that assumption — it is
+configured by *its own* admin, with a long-lived credential in a config file:
+
+```yaml
+mcpServers:
+  linkr:
+    type: streamable-http
+    url: https://linkr.chu-xxx.fr/mcp/live
+    headers:
+      Authorization: "Bearer ${LINKR_TOKEN}"
+```
+
+So `linkr-live` needs a real **`ApiToken` entity** — created by the user in their
+settings, **scoped to one project**, expiring, revocable in one click, with a
+last-used-at. Effort S/M, not currently costed in §8.
+
+**Per-user tokens, not a shared service token.** A token in the client's *global*
+config makes every one of its users act under one identity: traceability is lost and
+§6's "never more than the user" degrades to "always as much as the widest token". Chat
+clients generally support per-user variables, so each user pastes their own Linkr token
+once. Document that as the supported setup; if a service token is used anyway, mark its
+writes as such in the audit trail. OAuth 2.1 (in the MCP spec, supported by LibreChat)
+is the clean answer but means running an authorization server — do it only if an
+institution asks.
+
+### No confirmation dialog — compensate deliberately
+
+`session/request_permission` is an **ACP** mechanism. MCP has no server-side
+confirmation hook: the client decides, and a third-party client is not ours. The §5
+guarantee — nothing is written without the user seeing it first — therefore **does not
+hold on this surface**. Two ways to compensate, to be chosen before shipping write
+access:
+
+- **read-only by default**, write unlocked only by a token that explicitly carries it —
+  the admin decides, not the model; or
+- **write allowed but traced** — every mutation through an external token is logged and
+  reversible (§5's per-turn undo, generalised).
+
+### Not situated
+
+The ACP sidebar knows the open project, page and tab, which is what makes "add a
+mortality chart *here*" work. An external client has no such referent: the user must
+name the project and the tab. Scoping the token to a project makes the context implicit
+at that level, and `list_projects` / `describe_project` close part of the gap; the
+current page and selection stay out of reach by construction. It is a different
+ergonomics — closer to automation than to assistance — and that is fine.
+
+### Where each surface wins
+
+| | ACP sidebar | Third-party MCP client |
+|---|---|---|
+| Live refresh in the open tab | ✅ | ✅ (same WS) |
+| Knows where the user is | ✅ | ❌ must be named |
+| Confirmation before a write | ✅ blocking, our dialog | ❌ acts, user sees after |
+| Identity / audit | ✅ the user's session | ⚠️ hinges on per-user tokens |
+| Files, scripts, IDE | ✅ | ❌ |
+| Already deployed in the hospital | ❌ binary prerequisite | ✅ often |
+
+### Why not host LibreChat ourselves
+
+It is a full web app (front + back + MongoDB), with its own auth and admin surface
+duplicating ours, on a stack we do not run. Consuming it costs nothing; shipping it
+costs a second service to maintain. If an institution wants an internal ChatGPT, that
+is a deployment *beside* Linkr, not a component inside it.
 
 ---
 
@@ -360,8 +463,8 @@ or members.
 | # | Batch | Effort | Why here |
 |---|---|---|---|
 | 1 | `Skill` entity — CRUD, workspace page, export/import, catalog | M | Standalone value, no dependency on the rest. Well-trodden (clone of SQL collections). |
-| 2 | Project selection + generated `AGENTS.md` + materialise `.agents/skills/` | S/M | Completes 1, prepares the agent. |
-| 3 | MCP `linkr-live` (http, session token, dashboard tools first) + rename the existing one | M | The action surface, testable on its own from any MCP client. |
+| 2 | MCP `linkr-live` (http, dashboard tools first) + `ApiToken` entity + rename the existing one | M/L | **The pivot.** Serves both surfaces, ships on its own, usable from any MCP client with no agent binary anywhere. |
+| 3 | Project selection + generated `AGENTS.md` + materialise `.agents/skills/` | S/M | Completes 1, prepares the agent. |
 | 4 | ACP broker in FastAPI (stdio spawn, WS relay, session lifecycle) | L | The heavy piece. `execution.py` is the model. |
 | 5 | Sidebar: event rendering, `request_permission`, undo, dual mode | L | The product work. |
 | 6 | Notification WS + store reload | S/M | Closes the live loop. |
@@ -369,7 +472,13 @@ or members.
 | 8 | Workspace agent (narrow tools) | M | After, and deliberately limited. |
 
 Batches 1–3 are independently useful and de-risk nothing away; 4–5 are where the real
-cost sits.
+cost sits. **Batch 2 moved ahead of skill materialisation**: it is the only brick both
+surfaces need, and it delivers a usable product on its own — a hospital running a chat
+client reaches Linkr through it without waiting for the broker.
+
+Not costed above, and to fold into batch 2 before opening the surface to third parties:
+per-project `ApiToken` (create / scope / expire / revoke / last-used), an audit trail for
+external writes, and the read-only-vs-write decision of §4b.
 
 ---
 
@@ -440,3 +549,12 @@ this is *not* conversation history, which the agent handles natively.
 11. **One entity = one skill**; `.agents/skills/` by default.
 12. **Agent binaries: documented prerequisite** with probing, no bundling, no
     auto-install.
+13. **`linkr-live` is a public interface** (2026-09-22). Linkr exposes its actions in MCP
+    to third-party clients; the ACP harness is one consumer among others, not the owner
+    of the surface. LibreChat and the like are consumers, never hosted by us (§4b).
+14. **Per-user `ApiToken`, scoped to one project**, for third-party clients. A shared
+    service token loses traceability and breaks §6's "never more than the user"; OAuth
+    2.1 only on demand.
+15. **The §5 confirmation guarantee does not extend to MCP** — the protocol has no
+    server-side confirmation hook. Compensate with read-only-by-default tokens or with
+    traced, reversible writes; decide before opening write access (§4b).

@@ -52,15 +52,21 @@ Provider config is **built** (workspace-scoped, owner-only, Fernet, derived `is_
 `LINKR_ALLOW_REMOTE_LLM=false`). The clinician profile is enforced by *which MCP servers
 are passed to `session/new`*, not by prompting.
 
+**Amended 2026-09-22**: `linkr-live` is a **public interface**, not an internal component
+— third-party MCP clients (LibreChat, Claude Desktop, Cursor) consume it like the ACP
+sidebar does, so it moves ahead in the order and gains a per-project `ApiToken` entity.
+MCP has no confirmation hook, so §5's "nothing is written unseen" does not hold on that
+surface (plan §4b).
+
 | St | Item | Effort |
 |----|------|--------|
 | ✅ | `LlmProvider` + proxy + settings tab + per-surface approval | M |
 | 🔜 | Skills entity (workspace-scoped, one entity = one skill; file tree like SQL collections) | M |
+| 🔜 | **MCP `linkr-live`** (http, dashboard tools) + `ApiToken` (per-project, revocable) + rename existing to `linkr-authoring` — serves both surfaces, ships alone | M/L |
 | 🔜 | Project skill selection + generated `AGENTS.md` + materialise `.agents/skills/` | S/M |
-| 🔜 | MCP `linkr-live` (http + session token, dashboard tools) + rename existing to `linkr-authoring` | M |
 | 🔜 | ACP broker in FastAPI (stdio spawn, WS relay, session lifecycle) — `execution.py` is the model | L |
 | 🔜 | Sidebar: ACP event rendering, `request_permission`, per-turn undo, clinician/dev modes | L |
-| 🔜 | Notification WS + store reload (stores are optimistic-write, nothing listens to the DB) | S/M |
+| 🔜 | Notification WS + store reload (stores are optimistic-write, nothing listens to the DB) — client-agnostic, so an external client refreshes the open tab too; do not reload a dirty open editor | S/M |
 | 🔜 | Delete `lib/agent/` + `DashboardAgentSidebar.tsx` — salvage the confirm/undo UI and tool vocabulary first | S |
 | 💤 | `linkr-live` extended: cohorts, datasets · workspace agent (narrow tools) | M |
 
