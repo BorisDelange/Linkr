@@ -33,7 +33,18 @@ const duckdbFiles = [
 ]
 
 for (const file of duckdbFiles) {
-  copyFileSync(resolve(duckdb, 'dist', file), resolve(duckdbDir, file))
+  const dest = resolve(duckdbDir, file)
+  copyFileSync(resolve(duckdb, 'dist', file), dest)
+  // The workers end on a `sourceMappingURL` comment, but we do not copy the
+  // .map files (several MB each, for a dependency we do not step through). The
+  // browser asks for them anyway, the dev server answers with the SPA's
+  // index.html, and devtools log a JSON parse error on every load. Dropping the
+  // comment keeps the console about our own code.
+  if (file.endsWith('.js')) {
+    const src = readFileSync(dest, 'utf8')
+    const stripped = src.replace(/\n?\/\/# sourceMappingURL=.*\s*$/m, '')
+    if (stripped !== src) writeFileSync(dest, stripped)
+  }
 }
 
 const coiDest = resolve(publicDir, 'coi-serviceworker.js')
