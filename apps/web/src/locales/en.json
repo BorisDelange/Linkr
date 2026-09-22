@@ -1803,7 +1803,7 @@
     "collection_pick_dataset_first": "Choose a dataset on the Dataset tab first.",
     "collection_add_variable": "Add a variable",
     "collection_add_category": "Add a section",
-    "collection_add_category_hint": "Sections group the variables in the collection panel. They are headings only \u2014 they never reach the dataset, and deleting one leaves its variables in place, simply ungrouped.",
+    "collection_add_category_hint": "Sections group the variables in the collection panel. They are headings only — they never reach the dataset, and deleting one leaves its variables in place, simply ungrouped.",
     "collection_edit_category": "Edit section",
     "collection_n_variables": "{{count}} variable",
     "collection_n_variables_plural": "{{count}} variables",
@@ -5395,5 +5395,32 @@
     "spc_warning_overdispersion-prefer-prime": "The data vary {{detail}}× more than the model predicts. The P′ or U′ chart widens the limits accordingly and will alarm less often.",
     "spc_warning_baseline-too-short": "The baseline holds too few periods to fit limits on; every period was used instead.",
     "spc_warning_option-ignored": "The “{{detail}}” denominator does not apply to a measured quantity and was ignored. Set the indicator's nature explicitly to chart a rate."
+  },
+  "boot": {
+    "preparing": "Preparing Linkr…",
+    "installing_content": "Installing the default content…",
+    "installing_data": "Installing databases and dashboards…",
+    "step_count": "{{done}} of {{total}}",
+    "remaining_seconds": "a few seconds left",
+    "remaining_under_minute": "about {{count}}s left",
+    "remaining_minutes_one": "about {{count}} min left",
+    "remaining_minutes_other": "about {{count}} min left",
+    "loading_page": "Loading the page…",
+    "subtitle": "Loading your workspaces and content…"
+  },
+  "seed": {
+    "kind": {
+      "workspace": "Workspace",
+      "project": "Project",
+      "mappingProject": "Mapping project",
+      "dqRuleSet": "Data quality rules",
+      "catalog": "Catalog",
+      "etlPipeline": "ETL pipeline",
+      "database": "Database",
+      "conceptMapping": "Concept mappings",
+      "etlScript": "ETL scripts",
+      "dataset": "Dataset",
+      "dashboard": "Dashboard"
+    }
   }
 }

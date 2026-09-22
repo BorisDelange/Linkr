@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
+import { PageLoading } from '@/components/layout/PageLoading'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { useContextRoleStore } from '@/stores/context-role-store'
@@ -66,8 +67,13 @@ export function WorkspaceGuard({ children }: { children: React.ReactNode }) {
 
   // Block rendering until the workspace context is synced. Once workspaces are loaded and the
   // prefix doesn't resolve to the active workspace, hold (the effect will open it).
+  //
+  // Holding with `null` left the main area blank while the sidebar — which reads
+  // the URL directly — had already moved to the new section, so a navigation read
+  // as a page that had loaded empty. Hold with the same spinner the lazy routes
+  // fall back to, so the transition looks like one thing.
   if (wsUid && workspacesLoaded && resolvedWsId !== activeWorkspaceId) {
-    return null
+    return <PageLoading />
   }
 
   return <>{children}</>

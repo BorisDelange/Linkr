@@ -12,7 +12,171 @@
     <script src="/coi-serviceworker.js"></script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Boot splash. Inline on purpose: it has to paint while the module bundle is
+         still downloading, so it can use no stylesheet, no font and no script of
+         ours. React replaces #root once it mounts, which removes it. Colors are
+         the theme's own background/foreground literals. -->
+    <style>
+      #boot-splash {
+        position: fixed; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 16px;
+        padding: 0 24px;
+        background: oklch(1 0 0); color: oklch(0.554 0.046 257.417);
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 14px;
+      }
+      #boot-splash .ring {
+        width: 24px; height: 24px; border-radius: 50%;
+        border: 2px solid oklch(0.929 0.013 255.508);
+        border-top-color: oklch(0.554 0.046 257.417);
+        animation: boot-spin 0.7s linear infinite;
+      }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-boot-theme="light"]) #boot-splash {
+          background: oklch(0.129 0.042 264.695); color: oklch(0.704 0.04 256.788);
+        }
+        html:not([data-boot-theme="light"]) #boot-splash .ring {
+          border-color: oklch(1 0 0 / 10%); border-top-color: oklch(0.704 0.04 256.788);
+        }
+      }
+      html[data-boot-theme="dark"] #boot-splash {
+        background: oklch(0.129 0.042 264.695); color: oklch(0.704 0.04 256.788);
+      }
+      html[data-boot-theme="dark"] #boot-splash .ring {
+        border-color: oklch(1 0 0 / 10%); border-top-color: oklch(0.704 0.04 256.788);
+      }
+      #boot-splash p { margin: 0; }
+      #boot-splash #boot-splash-detail { font-size: 12px; opacity: 0.75; min-height: 15px; }
+      /* The React boot screen takes over mid-load, so this bar copies it exactly:
+         same max-w-sm width, same h-1.5, same muted track and primary fill. Any
+         difference would read as the design changing under the user. */
+      #boot-splash-bar {
+        width: 100%; max-width: 384px; height: 6px; border-radius: 999px;
+        overflow: hidden; background: oklch(0.968 0.007 247.896);
+      }
+      #boot-splash-bar span {
+        display: block; height: 100%; width: 0%; border-radius: 999px;
+        background: oklch(0.208 0.042 265.755); transition: width 0.3s ease;
+      }
+      html[data-boot-theme="dark"] #boot-splash-bar { background: oklch(0.279 0.041 260.031); }
+      html[data-boot-theme="dark"] #boot-splash-bar span { background: oklch(0.929 0.013 255.508); }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-boot-theme="light"]) #boot-splash-bar { background: oklch(0.279 0.041 260.031); }
+        html:not([data-boot-theme="light"]) #boot-splash-bar span { background: oklch(0.929 0.013 255.508); }
+      }
+      @media (prefers-reduced-motion: reduce) { #boot-splash .ring { animation: none; } }
+    </style>
+    <div id="root">
+      <div id="boot-splash">
+        <div class="ring"></div>
+        <p id="boot-splash-text">Loading Linkr…</p>
+        <div id="boot-splash-bar" hidden><span></span></div>
+        <p id="boot-splash-detail"></p>
+      </div>
+    </div>
+    <script>
+      // i18next is in the bundle this splash is waiting for, so the one string it
+      // shows picks its language here. Stored preference first (the app writes it),
+      // then the browser's — same order the app itself resolves.
+      (function () {
+        var lang = navigator.language || 'en'
+        try {
+          var prefs = JSON.parse(localStorage.getItem('linkr-preferences') || '{}')
+          lang = prefs.language || lang
+          if (lang.slice(0, 2) === 'fr') {
+            document.getElementById('boot-splash-text').textContent = 'Chargement de Linkr…'
+            document.documentElement.lang = 'fr'
+          }
+          // Dark mode is an explicit setting in the app, so a returning user's
+          // choice wins over the OS preference the stylesheet falls back to —
+          // otherwise the splash flashes light before the app repaints dark.
+          if (prefs.darkMode === true) document.documentElement.dataset.bootTheme = 'dark'
+          if (prefs.darkMode === false) document.documentElement.dataset.bootTheme = 'light'
+        } catch (e) { /* defaults in the markup and stylesheet already apply */ }
+
+        // The app bundle is the longest part of a first visit, and it is downloading
+        // while nothing of ours is running yet, so this step could only say "Loading".
+        // Resource Timing is available from the document itself: report what has
+        // actually arrived. Sizes are 0 on a cross-origin response without
+        // Timing-Allow-Origin, and on a cache hit — count bytes only when we get them.
+        var detail = document.getElementById('boot-splash-detail')
+        var fr = lang.slice(0, 2) === 'fr'
+        detail.textContent = fr ? 'Téléchargement de l’application…' : 'Downloading the application…'
+        if (!('performance' in window) || !performance.getEntriesByType) return
+
+        // What to measure the download against. The build writes its own total to
+        // boot-size.json, so even a first visit — the one that actually waits —
+        // gets a real denominator, rather than none until a run has been measured.
+        // Dev emits no such file; there the fallback is what this browser saw last
+        // time. Both are absent on a first dev load, and the count shows alone.
+        // Deliberately not prefixed "linkr-": it is a measurement about this
+        // browser, not app data, and the documented way to force a fresh install
+        // clears every linkr-* key — which would also throw away the one figure
+        // that makes the next cold load legible.
+        var TOTAL_KEY = 'boot-bytes-measured'
+        var expected = parseInt(localStorage.getItem(TOTAL_KEY) || '0', 10) || 0
+        try {
+          var req = new XMLHttpRequest()
+          // Relative to the page, so a sub-path deployment resolves it correctly.
+          req.open('GET', 'boot-size.json', true)
+          req.onload = function () {
+            // A dev server answers 200 with the SPA shell for a file it does not
+            // have, so the body is checked rather than the status.
+            if (req.responseText.charAt(0) !== '{') return
+            try {
+              var n = JSON.parse(req.responseText).bytes
+              if (n > 0) expected = n
+            } catch (e) { /* keep the measured fallback */ }
+          }
+          req.send()
+        } catch (e) { /* keep the measured fallback */ }
+
+        function totalBytes() {
+          var bytes = 0
+          var entries = performance.getEntriesByType('resource')
+          for (var i = 0; i < entries.length; i++) {
+            var e = entries[i]
+            if (e.initiatorType === 'script' || e.initiatorType === 'link' || e.initiatorType === 'fetch') {
+              bytes += e.transferSize || 0
+            }
+          }
+          return bytes
+        }
+
+        var bar = document.getElementById('boot-splash-bar')
+        var fill = bar.firstChild
+
+        var timer = setInterval(function () {
+          var bytes = totalBytes()
+          if (document.readyState === 'complete') {
+            clearInterval(timer)
+            // Only record a run that actually transferred: a warm cache reports
+            // next to nothing, and storing that would give the next cold visit a
+            // denominator far below what it is really about to download.
+            try { if (bytes > 1048576) localStorage.setItem(TOTAL_KEY, String(bytes)) } catch (e) {}
+            fill.style.width = '100%'
+            detail.textContent = fr ? 'Démarrage…' : 'Starting up…'
+            return
+          }
+          if (bytes > 262144) {
+            var mb = (bytes / 1048576).toFixed(1)
+            // Past a stale estimate the ratio would read "9.1 / 8.3 MB"; drop the
+            // denominator rather than show a total already overtaken.
+            var known = expected > bytes
+            var text = known
+              ? mb + ' / ' + (expected / 1048576).toFixed(1) + (fr ? ' Mo' : ' MB')
+              : mb + (fr ? ' Mo' : ' MB')
+            detail.textContent = (fr ? 'Téléchargement de l’application… ' : 'Downloading the application… ') + text
+            // The bar needs a total to mean anything; with none it stays hidden
+            // rather than animating a fraction of an unknown.
+            if (known) {
+              bar.hidden = false
+              fill.style.width = Math.min(100, Math.round((bytes / expected) * 100)) + '%'
+            }
+          }
+        }, 300)
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -16,7 +16,7 @@ import { paths, type SummaryTab } from '@/lib/paths'
 import { buildProjectZip, parseProjectZip, deleteProjectData, importProjectContent, sameProjectSlug } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
 import { resolveProjectPointers } from '@/lib/import-identity'
-import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil, Settings2 } from 'lucide-react'
+import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil, Settings2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
@@ -63,7 +63,7 @@ export function ProjectsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { wsUid } = useResolvedParams()
-  const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject, loadProjects } = useAppStore()
+  const { _projectsRaw, projects, projectsLoaded, getWorkspaceProjects, openProject, deleteProject, loadProjects } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { badgeFor, repoUrlFor: projectRepoUrl, refetch: refetchContentStatuses } =
     useContentBadge('projects', activeWorkspaceId)
@@ -440,7 +440,14 @@ export function ProjectsPage() {
           />
         )}
 
-        {displayProjects.length === 0 ? (
+        {/* "No projects yet" is a claim about the data, so it must not stand in for
+            "not read yet" — during the first-run seed this page announced an empty
+            workspace that was in fact still being filled. */}
+        {!projectsLoaded ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 size={24} className="animate-spin text-muted-foreground" />
+          </div>
+        ) : displayProjects.length === 0 ? (
           <Card className="mt-6">
             <div className="flex flex-col items-center py-12">
               <FolderOpen size={40} className="text-muted-foreground" />

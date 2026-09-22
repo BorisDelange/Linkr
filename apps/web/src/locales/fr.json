@@ -1447,7 +1447,7 @@
     "col_name": "Nom de la colonne",
     "col_name_hint": "Le nom de cette colonne dans le fichier — l'en-tête sous lequel elle est exportée en CSV.",
     "col_meta_label_hint": "Ce que voient les personnes qui saisissent. Par défaut, le nom de la colonne.",
-    "op_position": "N\u00b0",
+    "op_position": "N°",
     "op_set_cell": "{{column}} ligne {{row}} → {{value}}",
     "op_add_row": "Ligne ajoutée ({{row}})",
     "op_remove_row": "Ligne {{row}} supprimée",
@@ -5395,5 +5395,32 @@
     "spc_warning_overdispersion-prefer-prime": "Les données varient {{detail}} fois plus que ne le prévoit le modèle. La carte P′ ou U′ élargit les limites en conséquence et alarmera moins souvent.",
     "spc_warning_baseline-too-short": "La période de référence contient trop peu de périodes pour y ajuster les limites ; toutes les périodes ont été utilisées.",
     "spc_warning_option-ignored": "Le dénominateur « {{detail}} » ne s'applique pas à une grandeur mesurée et a été ignoré. Précisez explicitement la nature de l'indicateur pour suivre un taux."
+  },
+  "boot": {
+    "preparing": "Préparation de Linkr…",
+    "installing_content": "Installation du contenu par défaut…",
+    "installing_data": "Installation des bases et tableaux de bord…",
+    "step_count": "{{done}} sur {{total}}",
+    "remaining_seconds": "quelques secondes restantes",
+    "remaining_under_minute": "environ {{count}} s restantes",
+    "remaining_minutes_one": "environ {{count}} min restante",
+    "remaining_minutes_other": "environ {{count}} min restantes",
+    "loading_page": "Chargement de la page…",
+    "subtitle": "Chargement de vos espaces et contenus…"
+  },
+  "seed": {
+    "kind": {
+      "workspace": "Espace de travail",
+      "project": "Projet",
+      "mappingProject": "Projet d'alignement",
+      "dqRuleSet": "Règles de qualité",
+      "catalog": "Catalogue",
+      "etlPipeline": "Pipeline ETL",
+      "database": "Base de données",
+      "conceptMapping": "Alignements de concepts",
+      "etlScript": "Scripts ETL",
+      "dataset": "Jeu de données",
+      "dashboard": "Tableau de bord"
+    }
   }
 }

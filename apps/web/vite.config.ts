@@ -50,6 +50,44 @@ function stripCoiInServerMode(serverMode: boolean) {
   }
 }
 
+/**
+ * Publish the built bundle's own weight into index.html, as `__BOOT_BYTES__`.
+ *
+ * The boot splash shows how much of the app has arrived, and had no total to put
+ * it against: the boot discovers its chunks as each importer parses, so nothing
+ * knows the sum up front — least of all on the first visit, which is the one that
+ * waits. The bundle is fully known here, after it is written, so the denominator
+ * ships with the page instead of being guessed from a previous run.
+ *
+ * Dev has no bundle to measure (modules are served one by one, unminified), so
+ * the placeholder resolves to 0 and the splash shows the count alone.
+ */
+function injectBootBytes() {
+  return {
+    name: 'inject-boot-bytes',
+    // Rewritten on disk rather than through `transformIndexHtml`: that hook runs
+    // before the chunks exist, and Vite emits index.html after `generateBundle`,
+    // so both would leave the placeholder in the shipped page.
+    // Vite writes index.html AFTER closeBundle, the last Rollup hook, so no hook
+    // can put the figure in the page and a deferred write races the process exit.
+    // The manifest is a build output like any other, so publish the total there
+    // and let the splash fetch it — see `bootTotalBytes` in index.html.
+    generateBundle(_options: unknown, bundle: Record<string, { type: string; code?: string; source?: string | Uint8Array }>) {
+      let total = 0
+      for (const file of Object.values(bundle)) {
+        const content = file.type === 'chunk' ? file.code : file.source
+        if (typeof content === 'string') total += Buffer.byteLength(content)
+        else if (content) total += content.byteLength
+      }
+      this.emitFile({
+        type: 'asset',
+        fileName: 'boot-size.json',
+        source: JSON.stringify({ bytes: total }),
+      })
+    },
+  }
+}
+
 // Sub-path deployments (e.g. reverse proxy exposing the app under
 // /docker-9250/): BASE_PATH prefixes all asset URLs and, via Vite's BASE_URL,
 // the router basename in main.tsx. Normalized to /…/ as Vite requires.
@@ -111,7 +149,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: basePath,
-    plugins: [react(), tailwindcss(), seedHashesPlugin(), stripCoiInServerMode(!!env.VITE_API_URL)],
+    plugins: [react(), tailwindcss(), seedHashesPlugin(), injectBootBytes(), stripCoiInServerMode(!!env.VITE_API_URL)],
     define: {
       __APP_BUILD_HASH__: JSON.stringify(gitHash),
       __APP_VERSION__: JSON.stringify(appVersion),

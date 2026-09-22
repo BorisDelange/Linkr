@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
+import { PageLoading } from '@/components/layout/PageLoading'
 import { useAppStore } from '@/stores/app-store'
 import { useContextRoleStore } from '@/stores/context-role-store'
 import { resolveByIdPrefix } from '@/lib/short-id'
@@ -63,9 +64,12 @@ export function ProjectGuard({ children }: { children: React.ReactNode }) {
   }
 
   // Block rendering until the project context is synced to avoid
-  // a flash of the workspace sidebar on direct URL load.
+  // a flash of the workspace sidebar on direct URL load. Hold with the spinner
+  // the lazy routes fall back to rather than `null`: the sidebar reads the URL
+  // directly and moves at once, so a blank hold read as a page that had loaded
+  // empty while its chunks were still downloading.
   if (uid && projectsLoaded && resolvedUid !== activeProjectUid) {
-    return null
+    return <PageLoading />
   }
 
   return <>{children}</>

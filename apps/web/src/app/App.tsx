@@ -1,6 +1,5 @@
-import { useEffect, lazy, Suspense } from 'react'
+import { useEffect, useState, useSyncExternalStore, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2 } from 'lucide-react'
 import { Routes, Route, Navigate, useLocation } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -11,10 +10,13 @@ import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useVisitStore } from '@/stores/visit-store'
 import { useUserDirectoryStore } from '@/stores/user-directory-store'
-import { seedDatabases } from '@/lib/seed-loader'
+import { seedDatabases, hasPendingDataSeed } from '@/lib/seed-loader'
+import { subscribeSeedProgress, isSeedRunning } from '@/lib/seed-progress'
 import { isServerMode } from '@/lib/api-client'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
+import { BootScreen } from '@/components/layout/BootScreen'
+import { PageLoading } from '@/components/layout/PageLoading'
 import { Header } from '@/components/layout/Header'
 import { StatusBar } from '@/components/layout/StatusBar'
 import { EnvironmentsDialogHost } from '@/features/projects/files/EnvironmentsDialog'
@@ -66,7 +68,7 @@ export function App() {
   const { cohortsLoaded, loadCohorts } = useCohortStore()
   const { pipelinesLoaded, loadPipelines } = usePipelineStore()
   const { catalogsLoaded, loadCatalogs, serviceMappingsLoaded, loadServiceMappings } = useCatalogStore()
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
 
   useEffect(() => {
     loadOrganizations()
@@ -96,14 +98,31 @@ export function App() {
   // server mode it ran on EVERY load — including right after a catalog install
   // had created the workspace, re-seeding bundled Parquet on top of it.
   const hasWorkspaces = useWorkspaceStore((s) => s._workspacesRaw.length > 0)
+  // Phase 2 used to run behind an already-rendered shell, so a first visitor got
+  // a usable-looking app whose content was still downloading — lists read "empty"
+  // rather than "loading". The boot screen now stays up until this resolves.
+  // `null` until we know whether there is anything to install: a return visit
+  // walks the manifests, finds every entity already flagged and finishes without
+  // downloading, so gating the screen on the seed merely running would show an
+  // "installing…" step on every single load.
+  const [dataSeeded, setDataSeeded] = useState<boolean | null>(null)
   useEffect(() => {
     if (isServerMode() || !projectsLoaded || !dataSourcesLoaded || !hasWorkspaces) return
-    seedDatabases()
-      .then(() => {
-        loadProjects()
-        loadDataSources()
-        loadCatalogs()
-      })
+    let cancelled = false
+    hasPendingDataSeed().then((pending) => {
+      if (cancelled) return
+      // Only a run that will really install anything raises the screen; otherwise
+      // the seed still runs (it is what skips each entity) but stays out of sight.
+      setDataSeeded(pending ? false : true)
+      seedDatabases()
+        .then(() => {
+          loadProjects()
+          loadDataSources()
+          loadCatalogs()
+        })
+        .finally(() => { if (!cancelled) setDataSeeded(true) })
+    })
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectsLoaded, dataSourcesLoaded, hasWorkspaces])
 
@@ -152,15 +171,28 @@ export function App() {
     }
   }, [location.pathname])
 
-  if (!organizationsLoaded || !workspacesLoaded || !projectsLoaded || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded || !catalogsLoaded || !serviceMappingsLoaded) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 size={24} className="animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">{t('app.loading')}</p>
-        </div>
-      </div>
-    )
+  // The path alone, so that a page driving its own state through the query string
+  // (a tab, a filter, a selected row) updates in place instead of remounting.
+  const pageKey = location.pathname
+
+  // Subscribed rather than read once: the seed advances outside React, and the
+  // gate has to notice the moment it opens and the moment it closes.
+  const seedRunning = useSyncExternalStore(subscribeSeedProgress, isSeedRunning)
+
+  const storesLoading = !organizationsLoaded || !workspacesLoaded || !projectsLoaded
+    || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded || !catalogsLoaded
+    || !serviceMappingsLoaded
+  // Phase 2 is front-only, and it only runs on a workspace that exists — anywhere
+  // else there is nothing to wait for, so the screen must not gate on it.
+  //
+  // Two conditions, because neither covers the whole install on its own:
+  // `dataSeeded === false` is phase 2 known to have work, and `seedRunning` keeps
+  // the screen up across phase 1 AND the manifest read between the phases — the
+  // gap where the app used to render for ~100ms, flashing the UI mid-install.
+  const seedPending = !isServerMode() && (seedRunning || (hasWorkspaces && dataSeeded === false))
+
+  if (storesLoading || seedPending) {
+    return <BootScreen stage={storesLoading ? 'stores' : 'seed'} />
   }
 
   return (
@@ -170,11 +202,13 @@ export function App() {
       <SidebarInset className="flex flex-col overflow-hidden">
         <Header />
         <main className="flex-1 overflow-hidden">
-          <Suspense fallback={
-            <div className="flex h-full items-center justify-center">
-              <Loader2 size={24} className="animate-spin text-muted-foreground" />
-            </div>
-          }>
+          {/* Keyed on the path so a navigation remounts the boundary.
+              React Router navigates inside a transition, and React keeps the
+              PREVIOUS page on screen for the whole of it rather than showing a
+              fallback — which, with pages that pull a couple of MB of chunks,
+              froze the old screen for seconds with nothing to say a new one was
+              coming. Remounting opts this boundary out of that behaviour. */}
+          <Suspense key={pageKey} fallback={<PageLoading />}>
           <Routes>
             {/* App-level routes */}
             <Route path="/" element={<HomePage />} />
