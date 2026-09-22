@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:client": "VITE_API_URL= vite",
     "build": "tsc -b && vite build",
+    "build:client": "VITE_API_URL= tsc -b && VITE_API_URL= vite build",
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "test": "vitest run",

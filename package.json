@@ -12,6 +12,7 @@
     "test": "cd apps/web && npm run test",
     "dev:web": "cd apps/web && npm run dev",
     "dev:client": "cd apps/web && npm run dev:client",
+    "build:client": "cd apps/web && npm run build:client",
     "dev:api": "node scripts/dev-api.mjs",
     "dev:all": "node scripts/dev-all.mjs",
     "worktree:new": "node scripts/new-worktree.mjs",
