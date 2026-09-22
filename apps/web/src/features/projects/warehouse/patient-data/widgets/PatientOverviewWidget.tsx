@@ -961,6 +961,26 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     return 'jump' as const
   }, [])
 
+  /**
+   * Scroll the concept window of whichever group sits at this height. Returns
+   * false when that row has nothing to scroll, so the caller can fall through.
+   */
+  const scrollGroupAt = useCallback(
+    (py: number, deltaY: number) => {
+      const hit = layoutRef.current.find((row) => py >= row.y && py < row.y + row.rowH)
+      if (!hit) return false
+      const win = layout.windows.get(hit.row.key)
+      if (!win || win.total <= win.shown) return false
+      const cur = offsetsRef.current.get(hit.row.key) ?? 0
+      const next = clamp(cur + (deltaY > 0 ? 1 : -1), 0, win.total - win.shown)
+      if (next === cur) return true
+      offsetsRef.current.set(hit.row.key, next)
+      rebuild()
+      return true
+    },
+    [layout, rebuild],
+  )
+
   const onWheel = useCallback(
     (e: React.WheelEvent<HTMLCanvasElement>) => {
       const rect = e.currentTarget.getBoundingClientRect()
@@ -971,17 +991,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
 
       // Over the labels: scroll THAT group's concept window.
       if (px < l[0].plotL) {
-        const hit = l.find((row) => py >= row.y && py < row.y + row.rowH)
-        if (!hit) return
-        const win = layout.windows.get(hit.row.key)
-        if (!win || win.total <= win.shown) return
-        e.preventDefault()
-        const cur = offsetsRef.current.get(hit.row.key) ?? 0
-        offsetsRef.current.set(
-          hit.row.key,
-          clamp(cur + (e.deltaY > 0 ? 1 : -1), 0, win.total - win.shown),
-        )
-        rebuild()
+        if (scrollGroupAt(py, e.deltaY)) e.preventDefault()
         return
       }
 
@@ -994,10 +1004,18 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         panBy((e.shiftKey ? e.deltaY : e.deltaX) > 0 ? 0.15 : -0.15)
         return
       }
+      // Over the plot a plain wheel scrolls the row under the pointer, exactly
+      // as it does in the gutter beside it — the two halves of a row are one
+      // thing, and zooming on scroll fought every attempt to reach a concept
+      // further down the group. Zoom keeps the modifier, as maps do.
+      if (!e.ctrlKey && !e.metaKey) {
+        if (scrollGroupAt(py, e.deltaY)) return
+        return
+      }
       const centre = msAt(px)
       if (centre != null) zoomBy(e.deltaY > 0 ? 1.25 : 0.8, centre)
     },
-    [view, layout, msAt, zoomBy, panBy, hitRange, rebuild],
+    [view, msAt, zoomBy, panBy, hitRange, scrollGroupAt],
   )
 
   const onMouseDown = useCallback(
