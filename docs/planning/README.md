@@ -59,7 +59,7 @@ Provider config is **built** (workspace-scoped, owner-only, Fernet, derived `is_
 | 🔜 | **PoC (in progress)**: `linkr` MCP with cohort tools (stdio, session token), benched from Claude Code — branch `feature/mcp-live` | M |
 | 🔜 | Same bench with a small open model (OpenCode + OpenRouter free) | S |
 | 🔜 | Split `@linkr/mcp` into `live/` + `files/`; files server announced `linkr-files`, deleted once live covers it | S |
-| 🔜 | Frame: notification WS + store reload (never reload a dirty open editor), `get_ui_context`, action log + per-turn undo | M |
+| 🔜 | Frame: notification WS + store reload (never reload a dirty open editor), notification centre (header bell, "X added by MCP", clearable), `get_ui_context`, action log + per-turn undo | M |
 | 🔜 | HTTP transport + per-project `ApiToken` + tool annotations → local LibreChat beside Linkr | M |
 | 🔜 | `linkr` extended: dashboards (salvage `dashboard-tools.ts`), datasets | M |
 | 🔜 | Skills entity + project selection + generated `AGENTS.md` + `.agents/skills/` | M |

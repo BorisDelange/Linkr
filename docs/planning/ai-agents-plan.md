@@ -312,6 +312,11 @@ What makes an external agent usable next to the app. None of it depends on layer
 - **Action log + per-turn undo.** Every write through the MCP is logged with its
   author and turn; the tab shows it and offers "Undo these changes" (snapshot before
   the turn). Visible, not blocking.
+- **Notification centre** (asked 2026-09-23) — where the log surfaces: a bell in the
+  header, next to the user button, with an unread badge. One line per write — *"Cohort
+  'Adults with lactate > 2' added by MCP · 2 min ago"* — clicking it opens the entity;
+  the list can be cleared. Fed by the same notification WebSocket as live refresh, and
+  persisted server-side so a write made while the tab was closed still shows on return.
 
 ---
 
@@ -378,7 +383,7 @@ or members.
 | 1 | **PoC**: `linkr` MCP, cohort tools, stdio, session token; bench from Claude Code | M | Tests the whole idea at the lowest cost; the tools survive whatever follows. |
 | 2 | Same bench with a small open model (OpenCode + OpenRouter free) | S | Separates tool-design faults from model limits. |
 | 3 | Split `@linkr/mcp` into `live/` + `files/`, announce `linkr-files` | S | Frees the final name; files server deleted once live covers it. |
-| 4 | Frame: notification WS + store reload, `get_ui_context`, action log + per-turn undo | M | Serves every client; what makes a tab-beside-tab agent usable. |
+| 4 | Frame: notification WS + store reload, notification centre (header bell), `get_ui_context`, action log + per-turn undo | M | Serves every client; what makes a tab-beside-tab agent usable. |
 | 5 | HTTP transport + `ApiToken` + tool annotations → LibreChat installed locally beside Linkr | M | The target setup for now. |
 | 6 | `linkr` extended: dashboards (salvage `dashboard-tools.ts`), datasets | M | Replicating a proven pattern. |
 | 7 | `Skill` entity + project selection + `AGENTS.md` + `.agents/skills/` | M | Useful to any harness, incl. LibreChat skills and the IDE terminal. |
