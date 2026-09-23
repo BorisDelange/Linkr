@@ -45,7 +45,6 @@ Only what is useful whatever layer 4 becomes is built now. Reasons for the reord
 | Building block | Where | What it gives |
 |---|---|---|
 | PTY over WebSocket | [execution.py:638](../../apps/api/app/api/v1/routes/execution.py#L638) | an agent CLI runs in the IDE terminal today; also the broker pattern if ACP is ever chosen |
-| `LlmProvider` + proxy | `models/llm_provider.py`, `routes/llm_proxy.py` | provider config, Fernet-encrypted keys, per-surface approval — **done** |
 | Permission catalogue | [permissions.py:26](../../apps/api/app/core/permissions.py#L26) | `"resource:action"`, `require_project_permission` |
 | `@linkr/mcp` | [packages/linkr-mcp](../../packages/linkr-mcp) | a working MCP server over `@linkr/format` — becomes `linkr-files`, then goes (§4) |
 | Action-based dashboard store | [dashboard-store.ts:31](../../apps/web/src/stores/dashboard-store.ts#L31) | ~25 atomic, id-addressed actions — the tool vocabulary for `linkr` |
@@ -117,50 +116,25 @@ datasets, schema mapping, IDE paths), with a user-editable override.
 
 ---
 
-## 2. LLM providers — done, and the safety frame
+## 2. Models and the safety frame — in the client
 
-**Scope: workspace.** `LlmProvider.workspace_id` with `ondelete="CASCADE"`, consistent
-with every other entity. Configured by an **admin** (owner), gated on
-`llm-config:write`, enforced server-side.
+**Linkr configures no model.** The workspace LLM providers (Fernet keys, derived
+`is_local`, per-surface approval, `LINKR_ALLOW_REMOTE_LLM`) were built for the in-app
+assistant and deleted with it: their only caller was gone. The client that runs the
+agent (LibreChat, Claude Code) holds the model and its keys.
 
-**Status: built.** Model, routes, proxy, settings tab, per-surface approval
-(`surfaces`) all exist. What follows is the contract to preserve, not work to do.
+Consequence to keep in mind: **whether prompts leave the institution is now decided by
+the client's configuration**, not structurally by Linkr. An institution that must
+forbid egress does it in its LibreChat deployment (local models only). Linkr's own
+guarantees are unchanged: the agent never does more than the user whose credentials it
+holds, and every tool re-checks permissions server-side.
 
-### Permissions
+Rule for tests and demos: with a remote model, open or synthetic data only (MIMIC-IV
+Demo), never credentialed or clinical databases. With a remote model, dataset rows
+should not be sent as context — schema and aggregates only.
 
-```python
-"skills": RWD,                    # workspace
-"llm-config": ["read", "write"],  # workspace — owner only
-"agents": ["read", "execute"],    # project  — use an agent
-```
-
-`llm-config:write` (who may enable an LLM) is deliberately separate from
-`agents:execute` (who may use one). It must be **explicitly excluded** from
-`_catalogue_perms("write")`, the way `_MEMBER_RESOURCES` already excludes membership
-writes — otherwise editors inherit it.
-
-### Health data and the remote guardrail
-
-**Decided: the agent may reach health data when the admin has configured a local,
-secured provider.** That is the point of the design — a local model behind
-`LINKR_ALLOW_REMOTE_LLM=false` means prompts never leave the institution, so there is
-no reason to cripple the assistant. The guardrail is the *provider*, not the tool set.
-
-The mechanisms that make that safe, all already built:
-
-- `is_local` **derived server-side** from `base_url` (localhost / 127.0.0.1 / ::1 /
-  RFC1918 / no public TLD), never declared by the client.
-- Non-local provider creation requires a recorded acknowledgement
-  (`acknowledged_by_id`, `acknowledged_at`, `acknowledgement_text`) — an audit trail.
-- A permanent red **External API** badge wherever the provider appears, including the
-  sidebar header while it is active.
-- `LINKR_ALLOW_REMOTE_LLM=false` by default — an institution admin structurally forbids
-  egress rather than relying on user discipline. **This is the strongest guarantee in
-  the design.**
-
-Corollary that does *not* change: with a **remote** provider approved, dataset rows must
-not be sent as context — schema and aggregates only. With a local provider that
-restriction is a product choice, not a safety one.
+If an embedded chat ever needs a server-side model again (§5 option b), provider config
+comes back from git history (migration `e5f6a7b8c9d0`, dropped by `bd2a370a8c3a`).
 
 ---
 
@@ -330,7 +304,7 @@ the cohort, embedded previews, or users with no LibreChat deployed.
 | Option | How | For | Against |
 |---|---|---|---|
 | **(a) Linkr UI over LibreChat's Agents API** — *kept in mind* | Linkr renders the chat; LibreChat runs the agent (`/api/agents/v1/chat/completions` or `/responses`, per-user API keys; conversations also show in LibreChat) | no loop to write; MCP, skills, models, quotas managed in one existing tool | API in **beta**; hard dependency on a LibreChat deployment; approval through the API unclear |
-| (b) Light server loop | FastAPI loop via the built `LlmProvider` proxy, calling the same MCP | no external dependency; situated natively | a loop + chat UI to maintain |
+| (b) Light server loop | FastAPI loop calling the same MCP (provider config to restore, §2) | no external dependency; situated natively | a loop + chat UI to maintain |
 | (c) ACP + OpenCode | §3 | files, shell, typed events | the heaviest; coding-oriented agent |
 
 Whatever the option, the UI notes stand: project-wide sidebar (not per page),
@@ -347,7 +321,6 @@ deleted `DashboardAgentSidebar.tsx` (§10; git history at commit `4a1681fd`, aro
 
 - manage permissions and members (an LLM granting access to health data: risk with no
   upside);
-- create or edit an LLM provider (`llm-config:write` stays owner-only);
 - delete a project or a workspace;
 - push to a git remote;
 - read secrets — database passwords are Fernet-encrypted and never returned by the API.
@@ -356,11 +329,10 @@ deleted `DashboardAgentSidebar.tsx` (§10; git history at commit `4a1681fd`, aro
 tool re-checks its permission server-side.
 
 **Bounded by protocol or environment** — no browser control (it cannot click the UI for
-the user); no network egress when `LINKR_ALLOW_REMOTE_LLM=false`; no operation outside
-server mode.
+the user); no operation outside server mode.
 
-**Allowed, deliberately**: reaching health data, when the admin has configured a local
-secured provider (§2).
+**Allowed, deliberately**: reaching health data the user can reach — which model sees
+it is the client's configuration (§2).
 
 ---
 
@@ -456,11 +428,9 @@ Revised 2026-09-23; the 2026-09-02 list (ACP-centred) is replaced, not appended 
 8. **Server mode only.** The WASM assistant is deleted (§10).
 9. **Skills workspace-scoped**, project-selected, catalog-publishable; one entity = one
    skill; `.agents/skills/` by default.
-10. **LLM providers are workspace-scoped**, admin-configured, `llm-config:write`
-    owner-only. Already built.
-11. **Health data is reachable** when the admin configured a local secured provider.
-    `LINKR_ALLOW_REMOTE_LLM=false` by default. Free remote endpoints: open/synthetic
-    data only.
+10. **Linkr configures no model**; the client does. Provider config deleted (§2).
+11. **Health data is reachable** within the user's rights; egress is governed by the
+    client's model choice. Free remote endpoints: open/synthetic data only.
 12. **Script execution by an agent is confirmed**, not free and not forbidden.
 13. **`linkr` is a public interface**; LibreChat and the like are consumers, never
     hosted by us.

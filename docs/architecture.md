@@ -464,12 +464,8 @@ Every versionable entity carries its own documentation — workspace, project, m
 - **Deterministic order.** `attachments/_meta.json` is sorted by attachment id on both sides — neither the IDB index nor a bare `SELECT` promises an order, and a mismatch is a false git diff that flips on every export.
 - **Pull.** `lib/entity-docs-pull.ts` is the shared reader/comparator for all three scopes that pull selectively (project, ETL pipeline, mapping project), including `withEntityDocs`, which folds `README.md`/`LICENSE.md` back onto a manifest during a list-page import.
 
-## LLM providers (as-built)
+## Agents (as-built)
 
-An admin configures the workspace's language models on the server, so a model is set up *for* others and no API key reaches a browser. Server mode only: the Workspace settings → Assistant tab (`features/settings/AgentSettingsTab.tsx`, helpers in `lib/llm/`) is hidden in a client-only (WASM) build, which has no assistant — agents act through the MCP server from external clients (see `docs/planning/ai-agents-plan.md`).
+Linkr has no assistant of its own and configures no language model. Agents run in external clients (Claude Code, LibreChat) and act on the app through the `linkr` MCP server (`packages/linkr-mcp`, see `docs/planning/ai-agents-plan.md`); the model, its keys and whether it is remote are the client's configuration, not Linkr's.
 
-- **Provider config** (`models/llm_provider.py`, `routes/llm_providers.py`, migration `e5f6a7b8c9d0`). Approval is **per surface** (`surfaces: list[str]`) — a model can be good at dashboards and poor in the IDE. `llm-config: [read, write]` is owner-only to write, via `_OWNER_WRITE_RESOURCES`.
-- **Never return the API key.** `_to_response` exists so that no route can leak it by accident; keep serialisation going through it.
-- **Two independent gates for a remote model**: the instance switch (`LINKR_ALLOW_REMOTE_LLM`, default `false`) and the per-provider acknowledgement. They protect against different things — an institution forbidding egress, and a person taking responsibility — so neither replaces the other.
-- **`is_local` is derived server-side** from the URL, never client-declared, and a PATCH cannot walk a provider from local to remote past the guard. `lib/llm/locality.ts` mirrors the rule for the badge only; both sides share test cases.
-- **Removed**: the in-app dashboard assistant, its model bench and its saved conversations (plan §10). Migration `0d1f42d46e99` drops `agent_conversations` and `llm_bench_reports`.
+- **Removed**: the in-app dashboard assistant, its model bench and saved conversations (migration `0d1f42d46e99`), then the workspace LLM providers, their proxy, the `llm-config` permission and `LINKR_ALLOW_REMOTE_LLM` (migration `bd2a370a8c3a`), which had no caller left.

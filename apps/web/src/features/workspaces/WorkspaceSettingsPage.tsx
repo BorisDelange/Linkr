@@ -12,7 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembersTab } from '@/features/settings/MembersTab'
 import { DefaultEnvironmentsTab } from '@/features/workspaces/DefaultEnvironmentsTab'
 import { BadgeCategoriesTab } from '@/features/workspaces/BadgeCategoriesTab'
-import { AgentSettingsTab } from '@/features/settings/AgentSettingsTab'
 import { isServerMode } from '@/lib/api-client'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
@@ -38,13 +37,12 @@ export function WorkspaceSettingsPage() {
   const canDelete = can('workspace-settings:delete')
   // Owner-only, and enforced server-side too: pointing a model at an endpoint
   // decides where prompts (possibly carrying clinical context) go.
-  const canConfigureLlm = can('llm-config:write')
   // The active tab lives in the URL (/settings/members) so reload/back land on
   // the same tab; ?tab= is still read for old links. 'organization' is no longer
   // a tab here (moved to the Edit Workspace dialog); gate the owner-only danger
   // tab and the server-only environments and LLM provider tabs.
   const requestedTab = tab ?? searchParams.get('tab') ?? 'members'
-  const availableTabs = ['members', 'badges', ...(isServerMode() ? ['environments', 'assistant'] : []), ...(canDelete ? ['danger'] : [])]
+  const availableTabs = ['members', 'badges', ...(isServerMode() ? ['environments'] : []), ...(canDelete ? ['danger'] : [])]
   // Hold the requested tab until the role is known: 'danger' is gated on canDelete,
   // which is false while /my-role loads, so a deep-link to it would otherwise snap
   // to 'members' permanently even for the owner.
@@ -89,7 +87,6 @@ export function WorkspaceSettingsPage() {
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           <TabsTrigger value="badges">{t('badge_categories.title')}</TabsTrigger>
           {isServerMode() && <TabsTrigger value="environments">{t('workspace_env.title')}</TabsTrigger>}
-          {isServerMode() && <TabsTrigger value="assistant">{t('settings.tab_agent')}</TabsTrigger>}
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>}
         </TabsList>
 
@@ -112,14 +109,6 @@ export function WorkspaceSettingsPage() {
           </TabsContent>
         )}
 
-        {/* LLM providers (server mode) — the endpoints agents may use */}
-        {isServerMode() && (
-          <TabsContent value="assistant" className="min-h-0 flex-1 overflow-auto pb-6">
-            <div className="mx-auto max-w-3xl">
-              <AgentSettingsTab workspaceId={wsUid} canWrite={canConfigureLlm} />
-            </div>
-          </TabsContent>
-        )}
 
         {/* Danger zone — owner only */}
         {canDelete && (

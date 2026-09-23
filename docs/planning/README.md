@@ -50,12 +50,11 @@ MCP tool annotations. An embedded chat is decided later on evidence — Linkr UI
 LibreChat's Agents API first in line; ACP + OpenCode is a deferred option. Server mode
 only; the WASM assistant is deleted.
 
-Provider config is **built** (workspace-scoped, owner-only, Fernet, derived `is_local`,
-`LINKR_ALLOW_REMOTE_LLM=false`).
+Linkr configures no model: providers, keys and the remote/local choice live in the
+client. The former provider config (and its proxy) is deleted.
 
 | St | Item | Effort |
 |----|------|--------|
-| ✅ | `LlmProvider` + proxy + settings tab + per-surface approval | M |
 | 🔜 | **PoC (in progress)**: `linkr` MCP with cohort tools (stdio, session token), benched from Claude Code — branch `feature/mcp-live` | M |
 | 🔜 | Same bench with a small open model (OpenCode + OpenRouter free) | S |
 | ✅ | Split `@linkr/mcp` into `src/live/` + `src/files/`; files server announced `linkr-files` (kept: live cannot create projects yet — `create-project`/`linkr-authoring` skills use it) | S |
@@ -64,7 +63,7 @@ Provider config is **built** (workspace-scoped, owner-only, Fernet, derived `is_
 | 🔜 | HTTP transport + per-project `ApiToken` + tool annotations → local LibreChat beside Linkr | M |
 | ✅ | `linkr` extended: datasets (incl. `create_dataset_from_query`, written server-side) and dashboards (plugins documented from manifests; key-indicator missing — inline manifest, see plugin-model harmonisation) | M |
 | 🔜 | Skills entity + project selection + generated `AGENTS.md` + `.agents/skills/` | M |
-| ✅ | Delete `lib/agent/` + `DashboardAgentSidebar.tsx` (plugin docs salvaged into the MCP; provider settings kept, locality check moved to `lib/llm/`) | S |
+| ✅ | Delete `lib/agent/` + `DashboardAgentSidebar.tsx` (plugin docs salvaged into the MCP), then the LLM provider config + proxy + `llm-config` permission | S |
 | 🤔 | Embedded chat — (a) Linkr UI over LibreChat Agents API · (b) server loop · (c) ACP + OpenCode | L |
 | 💤 | Workspace agent (narrow tools) | M |
 
