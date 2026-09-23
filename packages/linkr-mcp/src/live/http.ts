@@ -36,6 +36,19 @@ function authorized(headers: Headers): boolean {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
+/** One stderr line per tool call, so a session can be followed from the terminal. */
+function logToolCalls(body: string) {
+  try {
+    const parsed = JSON.parse(body) as unknown
+    for (const msg of Array.isArray(parsed) ? parsed : [parsed]) {
+      const m = msg as { method?: string; params?: { name?: string; arguments?: unknown } }
+      if (m.method !== 'tools/call') continue
+      const args = JSON.stringify(m.params?.arguments ?? {})
+      console.error(`${new Date().toLocaleTimeString()} ${m.params?.name} ${args.length > 200 ? `${args.slice(0, 200)}…` : args}`)
+    }
+  } catch { /* not JSON: the handler reports it */ }
+}
+
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
@@ -52,13 +65,9 @@ createServer(async (req, res) => {
       return
     }
     const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
-    const request = new Request(url, {
-      method: req.method,
-      headers,
-      body: hasBody ? (Readable.toWeb(req) as ReadableStream) : undefined,
-      // @ts-expect-error — required by Node's fetch for a streamed request body
-      duplex: 'half',
-    })
+    const body = hasBody ? await new Response(Readable.toWeb(req) as ReadableStream).text() : undefined
+    if (body) logToolCalls(body)
+    const request = new Request(url, { method: req.method, headers, body })
     const response = await handler.fetch(request)
     res.writeHead(response.status, Object.fromEntries(response.headers))
     if (!response.body) {

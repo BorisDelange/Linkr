@@ -460,7 +460,12 @@ export function registerWarehouseTools(server: Server): void {
     const html = embedReportHtml(renderReportHtml(model, t, { includeSql: include_sql }))
     return {
       content: [
-        { type: 'text', text: summarizeReport(model) },
+        {
+          type: 'text',
+          text: 'The full report is attached below as a UI resource. Show it to the user by writing its marker '
+            + '(\\ui{…}, given after the resource) in your answer, after one introductory sentence; do not retype '
+            + `the report.\n\n${summarizeReport(model)}`,
+        },
         { type: 'resource', resource: { uri: `ui://linkr/cohort-report/${cohort.id}`, mimeType: 'text/html', text: html } },
       ],
     }
