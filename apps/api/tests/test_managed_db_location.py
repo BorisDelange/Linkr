@@ -248,3 +248,30 @@ async def test_moves_the_file_and_points_the_database_at_it(client, tmp_path, mo
     plain = await _source(client, headers, {"engine": "duckdb"})
     r = await client.post(f"{API}/data-sources/{plain['id']}/move-file", headers=headers, json={"path": str(tmp_path / "b" / "x.duckdb")})
     assert r.status_code == 400
+
+
+async def test_deleting_can_remove_the_file_it_created_in_a_server_folder(client, tmp_path, monkeypatch):
+    _set_roots(monkeypatch, str(tmp_path))
+    headers = await _headers(client)
+    kept, gone = tmp_path / "kept.duckdb", tmp_path / "gone.duckdb"
+    for target, delete_data in ((kept, False), (gone, True)):
+        src = await _source(client, headers)
+        r = await client.post(f"{API}/data-sources/{src['id']}/create-from-ddl", headers=headers, json={"ddl": DDL, "path": str(target)})
+        assert r.status_code == 200, r.text
+        r = await client.delete(f"{API}/data-sources/{src['id']}?deleteData={'true' if delete_data else 'false'}", headers=headers)
+        assert r.status_code in (200, 204), r.text
+    assert kept.is_file() and not gone.exists()
+
+
+def test_only_what_linkr_created_is_offered_for_removal():
+    from app.models.data_source import DataSource
+    from app.services.data_source_service import created_data
+
+    assert created_data(DataSource(id="a", connection_config={"engine": "duckdb", "managed": True, "managedPath": "/x/a.duckdb"})) == "file"
+    # In Linkr's own folder the file always goes; a plain connection never offers anything.
+    assert created_data(DataSource(id="b", connection_config={"engine": "duckdb", "managed": True})) is None
+    assert created_data(DataSource(id="c", connection_config={"engine": "postgresql", "schema": "public"})) is None
+    derived = {"target": "schema", "schemaName": "cohort_x"}
+    assert created_data(DataSource(id="d", connection_config={"engine": "postgresql", "schema": "cohort_x"}, derived_from=derived)) == "schema"
+    # Re-pointed at another schema by hand: not Linkr's to drop.
+    assert created_data(DataSource(id="e", connection_config={"engine": "postgresql", "schema": "public"}, derived_from=derived)) is None

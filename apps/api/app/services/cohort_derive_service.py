@@ -191,7 +191,7 @@ async def _derive(db, source, target, body, cohort, mapping, spec, target_spec, 
         target.stats = {"patientCount": patient_count, "tableCount": len([x for x in tables if not x["skipped"]])}
         produced_id = target.id
     elif registered_before is not None:
-        registered_before.derived_from = derived_from
+        registered_before.derived_from = {**derived_from, "schemaName": t.schema_name}
         registered_before.stats = {**(registered_before.stats or {}), "patientCount": patient_count}
         connection_pool.invalidate(registered_before.id)
         produced_id = registered_before.id
@@ -207,7 +207,9 @@ async def _derive(db, source, target, body, cohort, mapping, spec, target_spec, 
             connection_secret=target.connection_secret,
             schema_mapping=copy.deepcopy(mapping),
             schema_source=source.schema_source,
-            derived_from=derived_from,
+            # The schema this derivation created: the one deleting the database
+            # may drop — never whatever the connection is later pointed at.
+            derived_from={**derived_from, "schemaName": t.schema_name},
             status="connected",
             stats={"patientCount": patient_count},
             owner_id=target.owner_id,

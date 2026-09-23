@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Cohort, DataSource, SchemaMapping } from '@/types'
-import { DERIVE_SCHEMA_NAME, derivableReason, derivationRequest, isWritableTarget, rebuildRequest } from './cohort-derive'
+import { DERIVE_SCHEMA_NAME, createdData, derivableReason, derivationRequest, isWritableTarget, rebuildRequest } from './cohort-derive'
 
 const mapping = {
   presetId: 'omop',
@@ -83,5 +83,22 @@ describe('rebuildRequest', () => {
   it('has nothing to rebuild for a SQL schema, or without provenance', () => {
     expect(rebuildRequest(derived({ target: 'schema' }), db())).toBeNull()
     expect(rebuildRequest(db(), db())).toBeNull()
+  })
+})
+
+describe('createdData', () => {
+  const cfg = (c: Record<string, unknown>) => c as unknown as DataSource['connectionConfig']
+  it('offers only what Linkr created, as the server decides', () => {
+    expect(createdData(db({ connectionConfig: cfg({ engine: 'duckdb', managed: true, managedPath: '/srv/a.duckdb' }) })))
+      .toEqual({ kind: 'file', path: '/srv/a.duckdb' })
+    expect(createdData(db())).toBeNull()
+    expect(createdData(db({ connectionConfig: cfg({ engine: 'postgresql', schema: 'public' }) }))).toBeNull()
+    const derivedFrom = {
+      database: { lineageId: 'lin-parent' }, cohort: { key: 'icu', name: { en: 'ICU' } },
+      level: 'patient' as const, criteriaTree: tree, target: 'schema' as const, schemaName: 'cohort_x',
+    }
+    expect(createdData(db({ connectionConfig: cfg({ engine: 'postgresql', schema: 'cohort_x' }), derivedFrom })))
+      .toEqual({ kind: 'schema', schema: 'cohort_x' })
+    expect(createdData(db({ connectionConfig: cfg({ engine: 'postgresql', schema: 'public' }), derivedFrom }))).toBeNull()
   })
 })

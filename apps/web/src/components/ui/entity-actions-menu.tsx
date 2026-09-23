@@ -17,6 +17,8 @@ import { localized } from '@/lib/localized'
 import { cardMenuTriggerClass } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -82,7 +84,14 @@ const AFTER_PULLS: Partial<Record<GitScope, (item: { id: string }) => () => Prom
 
 export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedString | string }> {
   item: T
-  onDelete: (id: string) => void | Promise<void>
+  /** `option`: the delete dialog's checkbox, when `deleteOption` offers one. */
+  onDelete: (id: string, option?: boolean) => void | Promise<void>
+  /**
+   * An extra choice in the delete confirmation, checked by default — a database
+   * Linkr created offers to remove its file or SQL schema too. Null for an item
+   * with nothing to offer.
+   */
+  deleteOption?: (item: T) => string | null
   /** Adds a Duplicate item last before Delete. Omit for an entity that can't be
    *  copied (a workspace, whose contents are too tangled to clone meaningfully). */
   onDuplicate?: (item: T) => void | Promise<void>
@@ -163,6 +172,7 @@ export interface EntityDocsAccessors<T> {
 export function EntityActionsMenu<T extends { id: string; name: LocalizedString | string }>({
   item,
   onDelete,
+  deleteOption,
   onDuplicate,
   onExport,
   getGitRemote,
@@ -195,6 +205,8 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
 
   const [toEdit, setToEdit] = useState<T | null>(null)
   const [toDelete, setToDelete] = useState<T | null>(null)
+  const [deleteOptionChecked, setDeleteOptionChecked] = useState(true)
+  const deleteOptionLabel = toDelete && deleteOption ? deleteOption(toDelete) : null
   const [versioning, setVersioning] = useState<{ item: T; tab: 'export' | 'git' } | null>(null)
 
   // Git versioning is available whenever the entity exposes a remote getter/setter.
@@ -215,7 +227,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   const handleDelete = async () => {
     if (toDelete) {
       const deletedId = toDelete.id
-      await onDelete(deletedId)
+      await onDelete(deletedId, deleteOptionLabel ? deleteOptionChecked : undefined)
       setToDelete(null)
       onDeleted?.(deletedId)
     }
@@ -286,7 +298,12 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
           {!deleteOnly && <DropdownMenuSeparator />}
           <DropdownMenuItem
             disabled={!canDelete}
-            onClick={(e) => { e.stopPropagation(); setToDelete(item) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              // Each confirmation starts checked, whatever the last one was left at.
+              setDeleteOptionChecked(true)
+              setToDelete(item)
+            }}
             className="text-destructive focus:text-destructive"
           >
             <Trash2 size={14} className="text-destructive" />
@@ -332,7 +349,10 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
         )}
 
         {/* Delete confirmation */}
-        <AlertDialog open={!!toDelete} onOpenChange={(open) => { if (!open) setToDelete(null) }}>
+        <AlertDialog
+          open={!!toDelete}
+          onOpenChange={(open) => { if (!open) setToDelete(null) }}
+        >
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>{t(deleteConfirmTitleKey)}</AlertDialogTitle>
@@ -340,6 +360,16 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
                 {t(deleteConfirmDescriptionKey, { name: localized(toDelete?.name, language) })}
               </AlertDialogDescription>
             </AlertDialogHeader>
+            {deleteOptionLabel && (
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="entity-delete-option"
+                  checked={deleteOptionChecked}
+                  onCheckedChange={(v) => setDeleteOptionChecked(v === true)}
+                />
+                <Label htmlFor="entity-delete-option" className="font-normal leading-snug">{deleteOptionLabel}</Label>
+              </div>
+            )}
             <AlertDialogFooter>
               <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
               <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDelete}>{t(deleteLabelKey)}</AlertDialogAction>

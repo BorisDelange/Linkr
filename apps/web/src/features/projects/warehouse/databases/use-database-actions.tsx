@@ -1,4 +1,7 @@
 import { useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
+import { isServerMode } from '@/lib/api-client'
+import { createdData } from '@/lib/cohort-derive'
 import JSZip from 'jszip'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { localized } from '@/lib/localized'
@@ -9,7 +12,9 @@ import type { DataSource, GitRemoteConfig } from '@/types'
 import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 
 export interface DatabaseActions {
-  onDelete: (id: string) => Promise<void> | void
+  onDelete: (id: string, deleteData?: boolean) => Promise<void> | void
+  /** The delete confirmation's "also remove its file / SQL schema" choice. */
+  deleteOption: (item: DataSource) => string | null
   onExport: (item: DataSource) => void
   getGitRemote: (item: DataSource) => GitRemoteConfig | null
   onSaveGitRemote: (item: DataSource, config: GitRemoteConfig | null) => Promise<void>
@@ -29,6 +34,7 @@ export interface DatabaseActions {
  * carries documentation and metadata, never rows — see buildDataSourceFolder.
  */
 export function useDatabaseActions(): DatabaseActions {
+  const { t } = useTranslation()
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const removeDataSource = useDataSourceStore((s) => s.removeDataSource)
 
@@ -47,7 +53,16 @@ export function useDatabaseActions(): DatabaseActions {
   )
 
   return {
-    onDelete: (id) => removeDataSource(id),
+    onDelete: (id, deleteData) => removeDataSource(id, { deleteData }),
+    // Only what Linkr created: a connection someone added points at data that
+    // is not Linkr's to remove. Server mode, where that data lives.
+    deleteOption: (source) => {
+      const created = isServerMode() ? createdData(source) : null
+      if (!created) return null
+      return created.kind === 'file'
+        ? t('databases.delete_created_file', { path: created.path })
+        : t('databases.delete_created_schema', { schema: created.schema })
+    },
     onExport,
     getGitRemote: (source) => source.gitRemoteConfig ?? null,
     onSaveGitRemote,

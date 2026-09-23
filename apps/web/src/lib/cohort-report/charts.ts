@@ -111,52 +111,100 @@ export function horizontalBars(items: ChartItem[], opts: { title: string; width?
   return svg(width, height, parts.join(''), opts.title)
 }
 
-const DONUT_COLORS = ['#0084d8', '#00a7d8', '#004578', '#7fb8e6', '#9aa8b8', '#c9d3de']
+const DONUT_COLORS = ['#1f5e97', '#3b8fb5', '#7fb3d5', '#a9c6de', '#9aa8b8', '#c9d3de']
+
+/** A share as the report's locale writes it: "71,6 %" in French, "71.6%" in English. */
+function formatShare(value: number, total: number, locale: string): string {
+  return new Intl.NumberFormat(locale, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    .format(value / total)
+}
 
 /**
- * A donut with its legend (label, count, share). A suppressed slice (`value:
- * null`) draws no arc and shows its suppressed label with no share — a share of
- * a hidden count would give it back.
+ * A donut with the total in its hole and a legend of shares beside it, laid out
+ * for half a page. A suppressed slice (`value: null`) draws no arc and shows its
+ * suppressed label instead of a share — a share of a hidden count gives it back.
  */
-export function donut(items: ChartItem[], opts: { title: string; width?: number }): string {
-  const width = opts.width ?? 420
-  const size = 150
-  const r = size / 2 - 4
-  const inner = r * 0.58
-  const cx = size / 2 + 4
-  const cy = size / 2 + 4
+export function donut(
+  items: ChartItem[],
+  opts: { title: string; locale: string; centerValue?: string; centerLabel?: string },
+): string {
+  const width = 520
+  const height = 270
+  const cx = 138
+  const cy = 135
+  const r = 100
+  const inner = 68
   const total = items.reduce((sum, i) => sum + (i.count.value ?? 0), 0)
   const parts: string[] = []
   let angle = -Math.PI / 2
-  const point = (a: number, radius: number) => `${(cx + radius * Math.cos(a)).toFixed(2)},${(cy + radius * Math.sin(a)).toFixed(2)}`
+  const point = (a: number, radius: number) => `${(cx + radius * Math.cos(a)).toFixed(2)} ${(cy + radius * Math.sin(a)).toFixed(2)}`
   items.forEach((item, i) => {
     const v = item.count.value ?? 0
     if (!total || v <= 0) return
     const color = DONUT_COLORS[i % DONUT_COLORS.length]
+    const tip = `<title>${escapeXml(`${item.label} : ${item.count.label} (${formatShare(v, total, opts.locale)})`)}</title>`
     if (v === total) {
       // A single full slice: an arc cannot start and end at the same point.
-      parts.push(`<circle cx="${cx}" cy="${cy}" r="${((r + inner) / 2).toFixed(2)}" fill="none" stroke="${color}" stroke-width="${(r - inner).toFixed(2)}" />`)
+      parts.push(`<circle cx="${cx}" cy="${cy}" r="${(r + inner) / 2}" fill="none" stroke="${color}" stroke-width="${r - inner}">${tip}</circle>`)
       return
     }
     const sweep = (v / total) * Math.PI * 2
     const end = angle + sweep
     const large = sweep > Math.PI ? 1 : 0
-    parts.push(
-      `<path d="M${point(angle, r)} A${r},${r} 0 ${large} 1 ${point(end, r)} L${point(end, inner)} A${inner},${inner} 0 ${large} 0 ${point(angle, inner)} Z" fill="${color}" stroke="#ffffff" stroke-width="1.5" />`,
-    )
+    parts.push(`<path d="M ${point(angle, r)} A ${r} ${r} 0 ${large} 1 ${point(end, r)} L ${point(end, inner)} A ${inner} ${inner} 0 ${large} 0 ${point(angle, inner)} Z" fill="${color}">${tip}</path>`)
     angle = end
   })
-  const legendX = size + 28
-  const rowH = 22
-  const top = cy - (items.length * rowH) / 2 + 6
+  if (opts.centerValue) {
+    parts.push(`<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="34" font-weight="600" fill="#1a4c7c">${escapeXml(opts.centerValue)}</text>`)
+    if (opts.centerLabel) {
+      parts.push(`<text x="${cx}" y="${cy + 25}" text-anchor="middle" font-size="15" fill="#77869a">${escapeXml(opts.centerLabel)}</text>`)
+    }
+  }
+  const rowH = 30
+  const top = cy - (items.length * rowH) / 2 + 2
   items.forEach((item, i) => {
     const y = top + i * rowH
-    const share = item.count.value != null && total ? `${((item.count.value / total) * 100).toFixed(1)} %` : ''
-    parts.push(`<rect x="${legendX}" y="${y - 9}" width="10" height="10" rx="2" fill="${DONUT_COLORS[i % DONUT_COLORS.length]}" />`)
-    parts.push(`<text x="${legendX + 16}" y="${y}" font-size="11" fill="${CHART_COLORS.text}">${escapeXml(item.label)}</text>`)
-    parts.push(`<text x="${width - 8}" y="${y}" font-size="11" text-anchor="end" fill="${CHART_COLORS.text}"><tspan font-weight="600">${escapeXml(item.count.label)}</tspan>${share ? `<tspan fill="${CHART_COLORS.muted}" dx="8">${escapeXml(share)}</tspan>` : ''}</text>`)
+    const share = item.count.value != null && total ? formatShare(item.count.value, total, opts.locale) : item.count.label
+    parts.push(`<rect x="252" y="${y}" width="16" height="16" rx="2" fill="${DONUT_COLORS[i % DONUT_COLORS.length]}" />`)
+    parts.push(`<text x="278" y="${y + 13}" font-size="17" fill="${CHART_COLORS.text}">${escapeXml(`${item.label} — ${share}`)}</text>`)
   })
-  return svg(width, size + 8, parts.join(''), opts.title)
+  return svg(width, height, parts.join(''), opts.title)
+}
+
+/**
+ * Columns for half a page (age bands), in the report's figure grid: light grid
+ * lines under a count axis, labels large enough to read once scaled down, and
+ * each column's count in its tooltip rather than over it.
+ */
+export function columnChart(items: ChartItem[], opts: { title: string; unit: string }): string {
+  const width = 520
+  const height = 270
+  const pad = { top: 16, right: 10, bottom: 40, left: 52 }
+  const plotW = width - pad.left - pad.right
+  const plotH = height - pad.top - pad.bottom
+  const { max, step } = niceScale(Math.max(0, ...items.map((i) => i.count.value ?? 0)), 6)
+  const yOf = (v: number) => pad.top + plotH - (v / max) * plotH
+  const parts: string[] = []
+  for (let v = 0; v <= max; v += step) {
+    const y = yOf(v).toFixed(1)
+    parts.push(`<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" stroke="#eef2f7" />`)
+    parts.push(`<text x="${pad.left - 7}" y="${(Number(y) + 5.5).toFixed(1)}" text-anchor="end" font-size="16" fill="${CHART_COLORS.muted}">${escapeXml(v.toLocaleString('en').replace(/,/g, '\u202f'))}</text>`)
+  }
+  const slot = items.length ? plotW / items.length : plotW
+  const barW = slot * 0.58
+  const every = Math.max(1, Math.ceil(items.length / 8))
+  items.forEach((item, i) => {
+    const cx = pad.left + i * slot + slot / 2
+    if (item.count.value != null && item.count.value > 0) {
+      const y = yOf(item.count.value)
+      parts.push(`<rect x="${(cx - barW / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${(pad.top + plotH - y).toFixed(1)}" fill="#1f5e97"><title>${escapeXml(`${item.label} : ${item.count.label} ${opts.unit}`)}</title></rect>`)
+    }
+    if (i % every === 0) {
+      parts.push(`<text x="${cx.toFixed(1)}" y="${height - 12}" text-anchor="middle" font-size="16" fill="#47576f">${escapeXml(item.label)}</text>`)
+    }
+  })
+  parts.push(`<line x1="${pad.left}" y1="${pad.top + plotH}" x2="${width - pad.right}" y2="${pad.top + plotH}" stroke="${CHART_COLORS.axis}" />`)
+  return svg(width, height, parts.join(''), opts.title)
 }
 
 export interface FlowStep {

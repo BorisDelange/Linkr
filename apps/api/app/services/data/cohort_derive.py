@@ -239,6 +239,17 @@ class TargetSpec:
     replace_schema: bool = False
 
 
+def drop_schema(target: TargetSpec) -> None:
+    """Drop the SQL schema a derivation created (`target.schema`), with its tables."""
+    _require_ident(target.schema, "schema name")
+    con = _connect()
+    try:
+        _attach_target(con, target)
+        con.execute(f'DROP SCHEMA IF EXISTS target."{target.schema}" CASCADE')
+    finally:
+        con.close()
+
+
 def _attach_target(con: duckdb.DuckDBPyConnection, target: TargetSpec) -> None:
     if target.kind == "file":
         con.execute(f"ATTACH '{_sql_path(target.path)}' AS target")

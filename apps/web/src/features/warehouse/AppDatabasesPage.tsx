@@ -12,7 +12,7 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
-import type { DataSource, DatabaseConnectionConfig, CustomSchemaPreset } from '@/types'
+import type { DataSource, CustomSchemaPreset } from '@/types'
 import { Database, Plus, FileCode, Search, Plug, ChevronDown, Loader2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -520,16 +520,15 @@ export function AppDatabasesPage() {
               onTestConnection={() => connectAction(ds.id)}
               onDisconnect={() => disconnectDataSource(ds.id)}
               onReconnect={() => reconnectAction(ds.id)}
-              onRemove={() => removeDataSource(ds.id)}
+              onRemove={(deleteData) => removeDataSource(ds.id, { deleteData })}
+              offerDataRemoval
               // The "projects will be unlinked" warning only when there are any:
               // on a database no project uses it stated a consequence that could
               // not happen.
               removeConfirmDescriptionKey={
                 getLinkedProjects(ds.id).length > 0
                   ? 'app_warehouse.delete_confirm_description'
-                  : (ds.connectionConfig as DatabaseConnectionConfig | undefined)?.managedPath
-                    ? 'databases.remove_confirm_description_keeps_file'
-                    : 'databases.remove_confirm_description'
+                  : 'databases.remove_confirm_description'
               }
               belowStats={
                 ds.badges?.length ? <BadgeStrip className="mt-1" badges={ds.badges} /> : undefined

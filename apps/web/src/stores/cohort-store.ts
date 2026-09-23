@@ -322,12 +322,27 @@ export const useCohortStore = create<CohortState>((set, get) => ({
   },
 
   updateCohort: async (id, changes) => {
-    await getStorage().cohorts.update(id, changes)
+    // Shown at once, saved behind: waiting for the round trip made every edit of
+    // the criteria (a toggle, "disable all") lag by a server call. A failed save
+    // puts the cohort back as it was, and the caller still sees the error.
+    const before = get().cohorts.find((c) => c.id === id)
     set((s) => ({
       cohorts: s.cohorts.map((c) =>
         c.id === id ? { ...c, ...changes, updatedAt: new Date().toISOString() } : c,
       ),
     }))
+    try {
+      await getStorage().cohorts.update(id, changes)
+    } catch (err) {
+      // Only the fields this edit touched: a later edit already shown must stay.
+      if (before) {
+        const restored = Object.fromEntries(
+          Object.keys(changes).map((k) => [k, before[k as keyof Cohort]]),
+        ) as Partial<Cohort>
+        set((s) => ({ cohorts: s.cohorts.map((c) => (c.id === id ? { ...c, ...restored } : c)) }))
+      }
+      throw err
+    }
   },
 
   removeCohort: async (id) => {

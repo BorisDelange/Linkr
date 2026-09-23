@@ -265,9 +265,14 @@ export function CohortBuilder() {
             no sidebar entry for it, so the way back is here. */}
         {host.kind === 'database' && (
           <>
-            <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs" onClick={() => navigate(host.listPath)}>
-              <ArrowLeft size={12} />
-              {t('common.back')}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => navigate(host.listPath)}
+              title={t('common.back')}
+              aria-label={t('common.back')}
+            >
+              <ArrowLeft size={14} />
             </Button>
             <span className="max-w-60 truncate text-xs font-medium">{localized(cohort.name, i18n.language)}</span>
             <span className="h-4 w-px bg-border" />
@@ -460,11 +465,13 @@ export function CohortBuilder() {
               onExecute={handleExecute}
               onExportCsv={handleExportCsv}
               renderPatients={
-                host.kind === 'database' && activeSource && mapping?.patientTable && cohort.level !== 'event'
+                activeSource && mapping?.patientTable && cohort.level !== 'event'
                   ? (r) => (
                       <CohortPatientsPanel
                         dataSourceId={activeSource.id}
-                        cohortId={cohort.id}
+                        owner={host.kind === 'project' && host.owner.projectUid
+                          ? { kind: 'project', projectUid: host.owner.projectUid }
+                          : { kind: 'cohort', cohortId: cohort.id }}
                         schemaMapping={mapping}
                         level={cohort.level}
                         rows={r.rows}

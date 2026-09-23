@@ -260,6 +260,9 @@ export interface DerivedFrom {
   target: DerivationTargetKind
   /** Whether the tables with no patient id were copied, so a rebuild does the same. */
   copyPersonless?: boolean
+  /** A declared SQL schema: the schema the derivation created, set by the
+   *  server — the only one deleting the database may drop. */
+  schemaName?: string
   /** Set by the server on each build. */
   builtAt?: string
   patientCount?: number

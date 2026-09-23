@@ -633,7 +633,6 @@
   },
   "databases": {
     "detail_cohorts": "Cohortes",
-    "remove_confirm_description_keeps_file": "Êtes-vous sûr de vouloir supprimer cette base ? Ses statistiques en cache seront supprimées ; son fichier, créé dans un dossier du serveur que vous avez choisi, restera en place.",
     "location": "Emplacement",
     "location_hint": "Où le fichier de la base est écrit. Le dossier de données de Linkr est géré pour vous ; un dossier du serveur garde le fichier où vous le voulez — hors de Linkr, supprimer la base laisse le fichier en place.",
     "location_app": "Dossier de données de Linkr",
@@ -843,7 +842,9 @@
     "server_path_hint": "Cliquez pour parcourir le serveur",
     "allow_writes": "Autoriser Linkr à écrire dans cette base",
     "allow_writes_hint": "Permet de dériver une cohorte vers un nouveau schéma SQL de cette base. L’utilisateur doit avoir le droit CREATE sur la base ; Linkr ne modifie jamais les tables existantes.",
-    "location_move_hint": "À l’enregistrement, le fichier est déplacé à cet emplacement ; rien ne reste à l’ancien."
+    "location_move_hint": "À l’enregistrement, le fichier est déplacé à cet emplacement ; rien ne reste à l’ancien.",
+    "delete_created_file": "Supprimer aussi son fichier, créé par Linkr : {{path}}",
+    "delete_created_schema": "Supprimer aussi le schéma SQL {{schema}}, créé par Linkr depuis une cohorte, avec ses tables"
   },
   "reports": {
     "title": "Rapports",
@@ -1174,7 +1175,8 @@
     "text_not": "NON",
     "text_exclude_hint": "Exclure les documents correspondant à cette recherche",
     "toggle_results": "Afficher ou masquer les résultats",
-    "toggle_builder": "Afficher ou masquer les critères et le SQL"
+    "toggle_builder": "Afficher ou masquer les critères et le SQL",
+    "patients_board_empty_description_project": "Ajoutez un widget à la board patients du projet — les mêmes boards que dans Patient data."
   },
   "datasets": {
     "title": "Jeux de données",

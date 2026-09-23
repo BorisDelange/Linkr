@@ -126,6 +126,12 @@ export async function deriveOnServer(dataSourceId: string, body: DeriveRequest):
   return job
 }
 
+/** Delete a database; `deleteData` also removes the file or SQL schema Linkr
+ *  created for it. */
+export function deleteDataSourceOnServer(dataSourceId: string, opts: { deleteData: boolean }): Promise<void> {
+  return apiRequest(`/data-sources/${dataSourceId}?deleteData=${opts.deleteData}`, { method: 'DELETE' })
+}
+
 /**
  * Move a database Linkr created to another file: a NEW `.duckdb` in a server
  * folder, or back to Linkr's data folder (`path` omitted). The file moves — the

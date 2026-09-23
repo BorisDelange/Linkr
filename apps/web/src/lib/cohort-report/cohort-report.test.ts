@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TFunction } from 'i18next'
 import type { Cohort, SchemaMapping } from '@/types'
-import { donut, flowchart, horizontalBars, niceScale, verticalBars } from './charts'
+import { columnChart, donut, flowchart, horizontalBars, niceScale, verticalBars } from './charts'
 import { describeCriteria } from './describe'
 import { buildCohortReportModel, CohortReportUnavailable, fillMonths } from './model'
 import { buildAgeSql, buildCareUnitSql, buildConceptSql, buildIndexSql, buildVisitCountSql } from './queries'
@@ -222,11 +222,25 @@ describe('donut', () => {
       { label: 'Female', count: { value: 300, label: '300' } },
       { label: 'Male', count: { value: 100, label: '100' } },
       { label: 'Unknown', count: { value: null, label: '<11' } },
-    ], { title: 'Sex' })
+    ], { title: 'Sex', locale: 'fr', centerValue: '411', centerLabel: 'patients' })
     expect(svg.match(/<path /g)).toHaveLength(2)
-    expect(svg).toContain('75.0 %')
-    expect(svg).toContain('&lt;11')
+    // Shares in the report's locale; the suppressed one shows its label instead.
+    expect(svg).toMatch(/Female — 75,0\s%/)
+    expect(svg).toContain('Unknown — &lt;11')
+    expect(svg).toContain('>411<')
     // A single category is a full ring, not a degenerate arc.
-    expect(donut([{ label: 'Female', count: { value: 5, label: '5' } }], { title: 'Sex' })).toContain('<circle')
+    expect(donut([{ label: 'Female', count: { value: 5, label: '5' } }], { title: 'Sex', locale: 'en' })).toContain('<circle')
+  })
+})
+
+describe('columnChart', () => {
+  it('keeps each count in a tooltip and skips suppressed columns', () => {
+    const svg = columnChart([
+      { label: '20–29', count: { value: 40, label: '40' } },
+      { label: '30–39', count: { value: null, label: '<11' } },
+    ], { title: 'Age', unit: 'patients' })
+    expect(svg.match(/<rect /g)).toHaveLength(1)
+    expect(svg).toContain('<title>20–29 : 40 patients</title>')
+    expect(svg).toContain('>30–39<')
   })
 })

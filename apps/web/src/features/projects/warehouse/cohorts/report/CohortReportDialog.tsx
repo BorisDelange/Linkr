@@ -185,7 +185,6 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
                   value={threshold}
                   onChange={(e) => setThreshold(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && thresholdValid) setApplied(thresholdValue) }}
-                  className="w-24"
                 />
               )}
             </FormField>

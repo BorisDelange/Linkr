@@ -580,6 +580,8 @@ export function Header() {
             deleteConfirmTitleKey: 'app_warehouse.unlink_confirm_title',
             deleteConfirmDescriptionKey: 'app_warehouse.unlink_confirm_description',
             onDelete: (id: string) => unlinkDataSource(activeProjectUid, id),
+            // Unlinking removes nothing: no file or schema to offer.
+            deleteOption: undefined,
           }
         : {})}
       onDeleted={handleEntityDeleted}

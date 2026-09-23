@@ -633,7 +633,6 @@
   },
   "databases": {
     "detail_cohorts": "Cohorts",
-    "remove_confirm_description_keeps_file": "Are you sure you want to delete this database? Its cached statistics are deleted; its file, created in a server folder you chose, is left in place.",
     "location": "Location",
     "location_hint": "Where the database file is written. Linkr's data folder is managed for you; a server folder keeps the file where you want it — outside Linkr, deleting the database leaves the file in place.",
     "location_app": "Linkr's data folder",
@@ -843,7 +842,9 @@
     "server_path_hint": "Click to browse the server",
     "allow_writes": "Allow Linkr to write into this database",
     "allow_writes_hint": "Lets a cohort be derived into a new SQL schema here. The user needs the CREATE right on the database; Linkr never changes the existing tables.",
-    "location_move_hint": "On save, the file moves to this location; nothing is left at the old one."
+    "location_move_hint": "On save, the file moves to this location; nothing is left at the old one.",
+    "delete_created_file": "Also delete its file, which Linkr created: {{path}}",
+    "delete_created_schema": "Also drop the SQL schema {{schema}}, which Linkr created from a cohort, with its tables"
   },
   "reports": {
     "title": "Reports",
@@ -1174,7 +1175,8 @@
     "text_not": "NOT",
     "text_exclude_hint": "Exclude notes matching this search",
     "toggle_results": "Show or hide the results",
-    "toggle_builder": "Show or hide the criteria and SQL"
+    "toggle_builder": "Show or hide the criteria and SQL",
+    "patients_board_empty_description_project": "Add a widget to this project's patient board — the same boards as Patient data."
   },
   "datasets": {
     "title": "Datasets",

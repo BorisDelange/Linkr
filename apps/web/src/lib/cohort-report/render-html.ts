@@ -5,7 +5,7 @@
  * part of it), which is how the PDF export is made.
  */
 import type { TFunction } from 'i18next'
-import { donut, escapeXml, flowchart, horizontalBars, verticalBars } from './charts'
+import { columnChart, donut, escapeXml, flowchart, horizontalBars, verticalBars } from './charts'
 import type { CohortReportModel } from './model'
 import { SQL_COLORS, tokenizeSql } from './sql-highlight'
 
@@ -23,7 +23,8 @@ body{background:#dde4ec;font-family:system-ui,-apple-system,'Segoe UI',Helvetica
 header{display:flex;align-items:center;gap:12px;padding-bottom:10px;border-bottom:2px solid var(--blue)}
 header .eyebrow{font-weight:600;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
 header .meta{font-size:9px;color:var(--muted);margin-top:2px}
-h1{font-size:26px;line-height:1.15;color:var(--ink);margin:22px 0 10px;letter-spacing:-.01em}
+h1{font-size:23px;line-height:1.2;color:var(--ink);margin:22px 0 26px;letter-spacing:-.01em}
+.objective{margin:-12px 0 26px}
 h2{font-size:19px;color:var(--blue);margin:0 0 10px;padding-bottom:6px;border-bottom:2px solid #d8e7f3;break-after:avoid}
 h3{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);margin:14px 0 8px;break-after:avoid}
 p,li{font-size:13px;line-height:1.6}
@@ -33,6 +34,8 @@ section{margin-bottom:26px}
 .figure{break-inside:avoid;margin:6px 0 12px}
 .figure svg{max-width:100%;height:auto}
 .figure.center{text-align:center}
+.figure-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px 22px;align-items:start;margin-bottom:6px}
+.figure-grid .figure svg{display:block;width:100%;height:auto}
 .caption{font-size:11px;color:var(--muted);margin-top:4px;text-align:left}
 .kpis{display:grid;grid-template-columns:repeat(var(--cols,3),1fr);gap:12px}
 .kpi{border:1px solid var(--line);border-top:3px solid var(--blue2);padding:14px 16px;text-align:center}
@@ -64,6 +67,16 @@ function table(head: { label: string; right?: boolean }[], rows: string[][]): st
     .map((r) => `<tr>${r.map((c, i) => `<td${head[i]?.right ? ' class="r"' : ''}>${c}</td>`).join('')}</tr>`)
     .join('')
   return `<table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`
+}
+
+/** The sex donut, the cohort's patients in its hole. Shared with the Word file. */
+export function sexDonut(model: CohortReportModel, t: TFunction): string {
+  return donut(model.sex, {
+    title: t('cohort_report.chart_sex'),
+    locale: model.locale,
+    centerValue: model.kpis[0]?.count.label,
+    centerLabel: t('cohort_report.patients_lower'),
+  })
 }
 
 /** The query as coloured spans, escaped. */
@@ -159,12 +172,15 @@ export function renderReportHtml(model: CohortReportModel, t: TFunction, opts: R
   }
 
   const characteristics: string[] = []
+  // Age and sex side by side, each half a page wide; the months below, full width.
+  const halves: string[] = []
   if (model.age.length) {
-    characteristics.push(`<h3>${esc(t('cohort_report.chart_age'))}</h3><div class="figure">${verticalBars(model.age, { title: t('cohort_report.chart_age'), height: 200 })}</div>`)
+    halves.push(`<div class="figure"><h3>${esc(t('cohort_report.chart_age'))}</h3>${columnChart(model.age, { title: t('cohort_report.chart_age'), unit: t('cohort_report.patients_lower') })}</div>`)
   }
   if (model.sex.length) {
-    characteristics.push(`<h3>${esc(t('cohort_report.chart_sex'))}</h3><div class="figure">${donut(model.sex, { title: t('cohort_report.chart_sex') })}</div>`)
+    halves.push(`<div class="figure"><h3>${esc(t('cohort_report.chart_sex'))}</h3>${sexDonut(model, t)}</div>`)
   }
+  if (halves.length) characteristics.push(`<div class="figure-grid">${halves.join('')}</div>`)
   if (model.months.length) {
     characteristics.push(`<h3>${esc(t('cohort_report.chart_months', { unit: model.unitLabel }))}</h3><div class="figure">${verticalBars(model.months, { title: t('cohort_report.chart_months', { unit: model.unitLabel }) })}</div>`)
   }
@@ -213,7 +229,7 @@ export function renderReportHtml(model: CohortReportModel, t: TFunction, opts: R
 <div class="page">
 <header>${LINKR_LOGO_SVG}<div><div class="eyebrow">${esc(t('cohort_report.eyebrow'))}</div><div class="meta">${esc(generated)} · ${esc(model.databaseName)} · v${esc(model.version)}</div></div></header>
 <h1>${esc(model.title)}</h1>
-${model.description ? `<h3>${esc(t('cohort_report.objective'))}</h3><p>${esc(model.description)}</p>` : ''}
+${model.description ? `<div class="objective"><h3>${esc(t('cohort_report.objective'))}</h3><p>${esc(model.description)}</p></div>` : ''}
 ${sections.map((s, i) => `<section><h2>${i + 1}. ${esc(s.title)}</h2>${s.body}</section>`).join('\n')}
 <footer>${esc(t('cohort_report.footer'))}</footer>
 </div>

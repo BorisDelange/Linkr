@@ -4,9 +4,9 @@
  * Loaded on demand: the `docx` library is only fetched when someone exports.
  */
 import type { TFunction } from 'i18next'
-import { donut, flowchart, horizontalBars, verticalBars } from './charts'
+import { columnChart, flowchart, horizontalBars, verticalBars } from './charts'
 import type { CohortReportModel } from './model'
-import { LINKR_LOGO_SVG, sourceRows, type RenderOptions } from './render-html'
+import { LINKR_LOGO_SVG, sexDonut, sourceRows, type RenderOptions } from './render-html'
 import { SQL_COLORS, tokenizeSql } from './sql-highlight'
 
 /** SVG → PNG bytes, with the size to show it at (CSS pixels). Injected, so the
@@ -79,7 +79,7 @@ export async function renderReportDocx(
   children.push(await image(LINKR_LOGO_SVG.replace('width="40" height="35"', 'width="80" height="70"'), 48))
   children.push(eyebrow(t('cohort_report.eyebrow')))
   children.push(text(`${generated} · ${model.databaseName} · v${model.version}`, { size: 16, color: MUTED }))
-  children.push(new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun({ text: model.title, bold: true, size: 44 })], spacing: { before: 240, after: 160 } }))
+  children.push(new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun({ text: model.title, bold: true, size: 40 })], spacing: { before: 240, after: 360 } }))
   if (model.description) {
     children.push(eyebrow(t('cohort_report.objective')))
     children.push(text(model.description))
@@ -145,11 +145,11 @@ export async function renderReportDocx(
     section(t('cohort_report.section_characteristics'))
     if (model.age.length) {
       children.push(eyebrow(t('cohort_report.chart_age')))
-      children.push(await image(verticalBars(model.age, { title: t('cohort_report.chart_age'), height: 200 })))
+      children.push(await image(columnChart(model.age, { title: t('cohort_report.chart_age'), unit: t('cohort_report.patients_lower') }), 420))
     }
     if (model.sex.length) {
       children.push(eyebrow(t('cohort_report.chart_sex')))
-      children.push(await image(donut(model.sex, { title: t('cohort_report.chart_sex') }), 420))
+      children.push(await image(sexDonut(model, t), 420))
     }
     if (model.months.length) {
       const title = t('cohort_report.chart_months', { unit: model.unitLabel })

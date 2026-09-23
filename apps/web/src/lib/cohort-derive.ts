@@ -96,3 +96,18 @@ export function rebuildRequest(
     target: { kind: 'new-database', dataSourceId: derived.id },
   }
 }
+
+/**
+ * What Linkr created for a database and may remove with it — twin of the
+ * server's `created_data`: a DuckDB file it created in a server folder, or the
+ * SQL schema a cohort was derived into. Null for a connection someone added
+ * (Linkr never made that data), and for a file in Linkr's own folder, which
+ * always goes with its database.
+ */
+export function createdData(ds: DataSource): { kind: 'file'; path: string } | { kind: 'schema'; schema: string } | null {
+  const config = ds.connectionConfig as DatabaseConnectionConfig
+  if (config.managed && config.managedPath) return { kind: 'file', path: config.managedPath }
+  const schema = ds.derivedFrom?.schemaName
+  if (schema && config.schema === schema && config.engine && config.engine !== 'duckdb') return { kind: 'schema', schema }
+  return null
+}

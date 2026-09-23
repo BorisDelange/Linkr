@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { useCohortStore } from '@/stores/cohort-store'
-import { createFromDdlOnServer, deriveOnServer, fetchDataSourceSchema, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
+import { createFromDdlOnServer, deleteDataSourceOnServer, deriveOnServer, fetchDataSourceSchema, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import type { DeriveRequest } from '@/lib/api/data-sources'
 import type { DerivationJobResult, Job } from '@/lib/api/environments'
@@ -166,7 +166,9 @@ interface DataSourceState {
   /** Re-validate a server-mode external source (Postgres) using its stored
    *  credentials, refreshing status + stats. No-op in front-only mode. */
   retestDataSource: (id: string) => Promise<void>
-  removeDataSource: (id: string) => Promise<void>
+  /** `deleteData` (server mode) also removes what Linkr created for it — see
+   *  `createdData`. Never offered for a connection someone added. */
+  removeDataSource: (id: string, opts?: { deleteData?: boolean }) => Promise<void>
   testConnection: (id: string) => Promise<void>
   /** Unmount a data source from DuckDB and set status to 'disconnected'. */
   disconnectDataSource: (id: string) => Promise<void>
@@ -733,7 +735,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     }))
   },
 
-  removeDataSource: async (id) => {
+  removeDataSource: async (id, opts) => {
     // Unmount from DuckDB
     if (mountedSources.has(id)) {
       try {
@@ -769,7 +771,8 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
         await storage.patientDashboards.delete(board.id)
       }
     }
-    await getStorage().dataSources.delete(id)
+    if (opts?.deleteData && isServerMode()) await deleteDataSourceOnServer(id, { deleteData: true })
+    else await getStorage().dataSources.delete(id)
     useCohortStore.setState((s) => ({ cohorts: s.cohorts.filter((c) => c.ownerDataSourceId !== id) }))
 
     // Entities pointing at this database keep their now-dangling `dataSourceId`:

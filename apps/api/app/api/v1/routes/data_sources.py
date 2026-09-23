@@ -199,11 +199,19 @@ async def update_data_source(
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_data_source(
     source_id: str,
+    delete_data: bool = Query(default=False, alias="deleteData"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """`deleteData` also removes what Linkr created for the database — a file in
+    a server folder, or the SQL schema a cohort was derived into."""
     source = await _load_source(db, source_id, user, "databases:delete")
-    await data_source_service.delete(db, source)
+    try:
+        await data_source_service.delete(db, source, delete_data=delete_data)
+    except Exception as e:  # noqa: BLE001 — a failed drop keeps the database, and says why
+        if not delete_data:
+            raise
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"could not remove its data: {e}") from e
 
 
 @router.post("/{source_id}/query", response_model=QueryResult)

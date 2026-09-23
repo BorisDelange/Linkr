@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { LayoutGrid, Lock, Pencil, Plus, Search } from 'lucide-react'
+import { LayoutGrid, Lock, Pencil, Plus, Search, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { localized } from '@/lib/localized'
 import { useContextRoleStore } from '@/stores/context-role-store'
 import { isServerMode } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
@@ -14,16 +16,25 @@ import { PatientChartContext } from '@/features/projects/warehouse/patient-data/
 import { PatientChartTabBar } from '@/features/projects/warehouse/patient-data/PatientChartTabBar'
 import { PatientChartGrid } from '@/features/projects/warehouse/patient-data/PatientChartGrid'
 import { AddPatientWidgetDialog } from '@/features/projects/warehouse/patient-data/AddPatientWidgetDialog'
+import { PatientDataSettingsDialog } from '@/features/projects/warehouse/patient-data/PatientDataSettingsDialog'
 import type { CohortLevel, SchemaMapping } from '@/types'
 
 /** Rows listed at once: a cohort result holds up to 10k, and the filter above
  *  the list is how to reach the rest. */
 const LIST_LIMIT = 300
 
+/**
+ * Whose board the patients are reviewed through: a database cohort has its own;
+ * a project cohort uses the project's boards (those of Patient data), picked
+ * from a menu when the project has several.
+ */
+export type PatientsBoardOwner =
+  | { kind: 'cohort'; cohortId: string }
+  | { kind: 'project'; projectUid: string }
+
 interface CohortPatientsPanelProps {
   dataSourceId: string
-  /** The cohort whose board this is: each database cohort has its own. */
-  cohortId: string
+  owner: PatientsBoardOwner
   schemaMapping: SchemaMapping
   level: CohortLevel
   /** The rows of the last execution (`id` at the cohort's level, `patient_id`
@@ -38,27 +49,40 @@ interface ListedRow {
 }
 
 /**
- * The patients of a cohort's current result, through the cohort's own patient
- * board — the same tabs and widgets as Patient data, laid out for what this
- * cohort is about. Reviewing a result needs no materialised cohort: the list is
- * the last execution's rows.
+ * The patients of a cohort's current result, through a patient board — the same
+ * tabs and widgets as Patient data: the cohort's own for a database cohort, the
+ * project's for a project cohort. Reviewing a result needs no materialised
+ * cohort: the list is the last execution's rows.
  */
-export function CohortPatientsPanel({ dataSourceId, cohortId, schemaMapping, level, rows }: CohortPatientsPanelProps) {
-  const { t } = useTranslation()
-  const key = cohortBoardKey(cohortId)
-  // The workspace role answers here — there is no project. Read from the store
-  // (a stable array), so the context below keeps its identity across renders.
-  const permissions = useContextRoleStore((s) => s.workspacePermissions)
+export function CohortPatientsPanel({ dataSourceId, owner, schemaMapping, level, rows }: CohortPatientsPanelProps) {
+  const { t, i18n } = useTranslation()
+  const inProject = owner.kind === 'project'
+  const key = owner.kind === 'project' ? owner.projectUid : cohortBoardKey(owner.cohortId)
+  // A project cohort answers to the project's role; a database cohort to the
+  // workspace's — there is no project. Read from the store (stable arrays), so
+  // the context below keeps its identity across renders.
+  const permissions = useContextRoleStore((s) => (inProject ? s.projectPermissions : s.workspacePermissions))
   const can = useCallback(
     (permission: string) => !isServerMode() || permissions.includes(permission),
     [permissions],
   )
-  const canWrite = can('databases:write')
+  const canWrite = can(inProject ? 'patient-data:write' : 'databases:write')
 
   const loadCohortBoard = usePatientChartStore((s) => s.loadCohortBoard)
   const ensureCohortBoard = usePatientChartStore((s) => s.ensureCohortBoard)
+  const loadProjectDashboards = usePatientChartStore((s) => s.loadProjectDashboards)
+  const createDashboard = usePatientChartStore((s) => s.createDashboard)
+  const setActiveDashboard = usePatientChartStore((s) => s.setActiveDashboard)
   const loaded = usePatientChartStore((s) => s.loaded && s.activeProjectUid === key)
-  const board = usePatientChartStore((s) => s.dashboards.find((d) => d.ownerCohortId === cohortId))
+  const dashboards = usePatientChartStore((s) => s.dashboards)
+  const activeBoardId = usePatientChartStore((s) => s.activeDashboardId[key])
+  const projectBoards = useMemo(
+    () => (owner.kind === 'project' ? dashboards.filter((d) => d.projectUid === owner.projectUid) : []),
+    [dashboards, owner],
+  )
+  const board = owner.kind === 'project'
+    ? projectBoards.find((d) => d.id === activeBoardId) ?? projectBoards[0]
+    : dashboards.find((d) => d.ownerCohortId === owner.cohortId)
   const tabs = usePatientChartStore((s) => s.tabs)
   const widgets = usePatientChartStore((s) => s.widgets)
   const activeTabId = usePatientChartStore((s) => (board ? s.activeTabId[board.id] : undefined))
@@ -73,11 +97,14 @@ export function CohortPatientsPanel({ dataSourceId, cohortId, schemaMapping, lev
 
   const [editMode, setEditMode] = useState(false)
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [filter, setFilter] = useState('')
 
+  const ownerId = owner.kind === 'project' ? owner.projectUid : owner.cohortId
   useEffect(() => {
-    void loadCohortBoard(dataSourceId, cohortId)
-  }, [dataSourceId, cohortId, loadCohortBoard])
+    if (inProject) void loadProjectDashboards(ownerId)
+    else void loadCohortBoard(dataSourceId, ownerId)
+  }, [inProject, dataSourceId, ownerId, loadCohortBoard, loadProjectDashboards])
 
   const listed = useMemo<ListedRow[]>(() => rows.map((r) => ({
     id: String(r.id),
@@ -116,7 +143,8 @@ export function CohortPatientsPanel({ dataSourceId, cohortId, schemaMapping, lev
   )
 
   const startConfiguring = async () => {
-    await ensureCohortBoard(dataSourceId, cohortId)
+    if (owner.kind === 'cohort') await ensureCohortBoard(dataSourceId, owner.cohortId)
+    else if (!board) await createDashboard(owner.projectUid, undefined, undefined, { dataSourceId })
     setEditMode(true)
     setAddWidgetOpen(true)
   }
@@ -128,9 +156,10 @@ export function CohortPatientsPanel({ dataSourceId, cohortId, schemaMapping, lev
     dataSourceId,
     schemaMapping,
     can,
-    // In server mode, R/Python runs in a project's session; this board has none.
-    codeWidgets: !isServerMode(),
-  }), [key, boardId, dataSourceId, schemaMapping, can])
+    // In server mode, R/Python runs in a project's session: only a project's
+    // board has one.
+    codeWidgets: inProject || !isServerMode(),
+  }), [key, boardId, dataSourceId, schemaMapping, can, inProject])
 
   if (!loaded) return null
 
@@ -183,6 +212,18 @@ export function CohortPatientsPanel({ dataSourceId, cohortId, schemaMapping, lev
           {board && tabWidgets.length > 0 || (board && editMode) ? (
             <div className="flex h-full flex-col overflow-hidden">
               <div className="flex shrink-0 items-center border-b px-3">
+                {projectBoards.length > 1 && (
+                  <Select value={board.id} onValueChange={(id) => setActiveDashboard(key, id)}>
+                    <SelectTrigger size="sm" className="mr-2 h-7 w-44 shrink-0 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projectBoards.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>{localized(b.name, i18n.language)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <PatientChartTabBar dashboardId={board.id} editMode={editMode} />
                 <div className="ml-auto flex items-center gap-1 py-1">
                   {editMode && (
@@ -191,6 +232,16 @@ export function CohortPatientsPanel({ dataSourceId, cohortId, schemaMapping, lev
                       {t('dashboard.add_widget')}
                     </Button>
                   )}
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="gap-1"
+                    disabled={!canWrite}
+                    onClick={() => setSettingsOpen(true)}
+                  >
+                    <Settings2 size={13} />
+                    {t('patient_data.settings_title')}
+                  </Button>
                   <Button
                     variant={editMode ? 'default' : 'ghost'}
                     size="xs"
@@ -221,7 +272,9 @@ export function CohortPatientsPanel({ dataSourceId, cohortId, schemaMapping, lev
                   <LayoutGrid size={24} className="text-muted-foreground" />
                 </div>
                 <h3 className="mt-4 text-sm font-medium text-foreground">{t('cohorts.patients_board_empty_title')}</h3>
-                <p className="mt-1.5 text-xs text-muted-foreground">{t('cohorts.patients_board_empty_description')}</p>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {t(inProject ? 'cohorts.patients_board_empty_description_project' : 'cohorts.patients_board_empty_description')}
+                </p>
                 <Button size="sm" className="mt-4 gap-1.5" disabled={!canWrite} onClick={() => void startConfiguring()}>
                   <Plus size={14} />
                   {t('dashboard.add_widget')}
@@ -233,13 +286,17 @@ export function CohortPatientsPanel({ dataSourceId, cohortId, schemaMapping, lev
       </Allotment>
 
       {board && (
-        <AddPatientWidgetDialog
-          open={addWidgetOpen}
-          onOpenChange={setAddWidgetOpen}
-          tabId={currentTabId ?? ''}
-          widgetSpacing={board.widgetSpacing}
-          fitToHeight={board.fitToHeight ?? true}
-        />
+        <>
+          <AddPatientWidgetDialog
+            open={addWidgetOpen}
+            onOpenChange={setAddWidgetOpen}
+            tabId={currentTabId ?? ''}
+            widgetSpacing={board.widgetSpacing}
+            fitToHeight={board.fitToHeight ?? true}
+            fullWidth={!inProject}
+          />
+          <PatientDataSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} dashboardId={board.id} />
+        </>
       )}
     </PatientChartContext.Provider>
   )

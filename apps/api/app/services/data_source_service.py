@@ -273,7 +273,45 @@ async def update(
     return source
 
 
-async def delete(db: AsyncSession, source: DataSource) -> None:
+def created_data(source: DataSource) -> str | None:
+    """What Linkr created for this database and may remove with it: `file` for a
+    DuckDB file in a server folder the user chose, `schema` for the SQL schema a
+    cohort was derived into (a database declared on it). None for anything else
+    — a connection someone added points at data Linkr never made. A file in
+    Linkr's own folder is not listed: it always goes with its database."""
+    config = source.connection_config or {}
+    if is_managed(source) and config.get("managedPath"):
+        return "file"
+    derived = source.derived_from or {}
+    # Only the schema the derivation itself recorded creating, and only while the
+    # connection still points at it: a schema edited in by hand is not Linkr's.
+    schema = derived.get("schemaName")
+    if schema and config.get("schema") == schema and config.get("engine") not in (None, "duckdb"):
+        return "schema"
+    return None
+
+
+async def _drop_created_data(source: DataSource, kind: str) -> None:
+    config = source.connection_config or {}
+    if kind == "file":
+        path = managed_path(source)
+        for part in (path, path.with_name(path.name + ".wal")):
+            part.unlink(missing_ok=True)
+        return
+    from app.services.data import cohort_derive
+
+    target = cohort_derive.TargetSpec("external", config=config, password=connection_password(source), schema=config["schema"])
+    await asyncio.to_thread(cohort_derive.drop_schema, target)
+
+
+async def delete(db: AsyncSession, source: DataSource, delete_data: bool = False) -> None:
+    """Remove a database. `delete_data` also removes what Linkr created for it
+    (see `created_data`) — never data a connection merely points at."""
+    created = created_data(source) if delete_data else None
+    if created:
+        connection_pool.invalidate(source.id)
+        # Before the row: dropping a schema needs the connection's credentials.
+        await _drop_created_data(source, created)
     files = (
         await db.execute(
             select(DataSourceFile).where(DataSourceFile.data_source_id == source.id)

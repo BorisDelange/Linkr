@@ -29,7 +29,10 @@ interface DatabaseCardProps {
   onReconnect?: () => void
   /** The destructive action, run AFTER the menu's own confirmation — the card
    *  must not raise a second dialog of its own. */
-  onRemove: () => void
+  onRemove: (deleteData?: boolean) => void
+  /** A real delete (the workspace's card, not a project's unlink): the
+   *  confirmation then offers to remove what Linkr created for the database. */
+  offerDataRemoval?: boolean
   /** Wording for that action and its confirmation, when the default ("delete this
    *  database") is wrong: a project's card unlinks, and the workspace's card
    *  warns about the projects it is about to unlink. */
@@ -85,6 +88,7 @@ export const DatabaseCard = memo(function DatabaseCard({
   onDisconnect,
   onReconnect,
   onRemove,
+  offerDataRemoval = false,
   removeLabelKey,
   removeConfirmTitleKey,
   removeConfirmDescriptionKey,
@@ -184,7 +188,8 @@ export const DatabaseCard = memo(function DatabaseCard({
           deleteOnly={deleteOnly}
           canEdit={canEdit}
           canDelete={canEdit}
-          onDelete={async () => onRemove()}
+          onDelete={async (_id, deleteData) => onRemove(deleteData)}
+          deleteOption={offerDataRemoval ? actions.deleteOption : undefined}
           deleteLabelKey={removeLabelKey}
           deleteConfirmTitleKey={removeConfirmTitleKey ?? actions.deleteConfirmTitleKey}
           deleteConfirmDescriptionKey={removeConfirmDescriptionKey ?? actions.deleteConfirmDescriptionKey}

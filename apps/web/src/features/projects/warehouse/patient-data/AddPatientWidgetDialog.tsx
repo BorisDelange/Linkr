@@ -35,6 +35,7 @@ import { ConceptSelectField } from './ConceptSelectField'
 import { DatasetsSelectField } from './DatasetsSelectField'
 import { timelineDatasets, type DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { SizedPatientWidgetPreview } from './PatientWidgetPreview'
+import { PATIENT_GRID_COLS, defaultPatientWidgetLayout } from './patient-grid'
 import { usePatientChartContext } from './PatientChartContext'
 import type { Plugin, PluginConfigField } from '@/types/plugin'
 
@@ -59,6 +60,12 @@ interface AddPatientWidgetDialogProps {
   /** Board settings, so the preview is sized against the grid the widget will land on. */
   widgetSpacing?: number
   fitToHeight?: boolean
+  /**
+   * Land every widget full width. A cohort's board sits beside its patient list,
+   * in about half the width of a project's: at the usual half-width default a
+   * widget there came out a quarter of the screen.
+   */
+  fullWidth?: boolean
 }
 
 export function AddPatientWidgetDialog({
@@ -67,10 +74,17 @@ export function AddPatientWidgetDialog({
   tabId,
   widgetSpacing,
   fitToHeight,
+  fullWidth = false,
 }: AddPatientWidgetDialogProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
-  const addWidget = usePatientChartStore((s) => s.addWidget)
+  const storeAddWidget = usePatientChartStore((s) => s.addWidget)
+  const addWidget: typeof storeAddWidget = (tab, pluginId, name, config, language) => {
+    const size = fullWidth
+      ? { w: PATIENT_GRID_COLS, h: Math.max(defaultPatientWidgetLayout(pluginId).h, 20) }
+      : undefined
+    storeAddWidget(tab, pluginId, name, config, language, size)
+  }
 
   // Widget name
   const [widgetName, setWidgetName] = useState('')

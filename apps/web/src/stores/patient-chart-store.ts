@@ -148,6 +148,8 @@ interface PatientChartState {
     name: string,
     initialConfig?: Record<string, unknown>,
     language?: 'python' | 'r',
+    /** Grid size to land at, instead of the plugin's default. */
+    size?: { w: number; h: number },
   ) => void
   removeWidget: (widgetId: string) => void
   renameWidget: (widgetId: string, name: string) => void
@@ -788,9 +790,9 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
 
   // --- Widget CRUD ---
 
-  addWidget: (tabId, pluginId, name, initialConfig, language) => {
+  addWidget: (tabId, pluginId, name, initialConfig, language, size) => {
     const id = uid()
-    const defaultLayout = defaultWidgetLayouts[pluginId] ?? { w: 24, h: 14 }
+    const defaultLayout = size ?? defaultWidgetLayouts[pluginId] ?? { w: 24, h: 14 }
     set((s) => {
       // Place below the lowest widget of this tab, as the dashboard grid does.
       const bottom = s.widgets
