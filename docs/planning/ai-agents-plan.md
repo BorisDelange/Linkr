@@ -410,9 +410,8 @@ the full plan. The raw PTY stays available alongside.
 ### Permissions and undo
 
 `session/request_permission` blocks the agent and renders **our** dialog — the
-confirmation UI already exists at
-[DashboardAgentSidebar.tsx:622](../../apps/web/src/features/projects/dashboard/agent/DashboardAgentSidebar.tsx#L622)
-and is worth salvaging before that file is deleted (§10).
+confirmation UI existed in `DashboardAgentSidebar.tsx` (deleted, §10; recover it from
+git history at commit `4a1681fd`, around line 622).
 
 **Decided: script execution is *confirmed*, not free and not forbidden.** An agent that
 writes an analysis script may run it, but every execution goes through
