@@ -42,6 +42,13 @@ describe('normalizeCriteria', () => {
     expect(b).toMatchObject({ operator: 'OR', exclude: true })
   })
 
+  it('accepts criteria passed as a JSON string, and says what it got otherwise', () => {
+    const { tree, errors } = normalizeCriteria('[{"type": "sex", "config": {"values": ["F"]}}]', MAPPING)
+    expect(errors).toEqual([])
+    expect(tree.children).toHaveLength(1)
+    expect(normalizeCriteria('sex = F', MAPPING).errors[0]).toMatch(/not valid JSON: sex = F/)
+  })
+
   it('recognises nested groups by their children', () => {
     const { tree, errors } = normalizeCriteria({
       children: [{ children: [{ type: 'sex', config: { values: ['M'] } }], exclude: true }],

@@ -55,15 +55,35 @@ type Loose = Record<string, unknown>
 const isObject = (v: unknown): v is Loose => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 
+/** Smaller models often pass the criteria as a JSON-encoded string rather than
+ *  as JSON: accept it, since the schema cannot type a field that takes both an
+ *  object and an array. */
+function parseIfJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    return value
+  }
+}
+
+function describeValue(value: unknown): string {
+  if (typeof value === 'string') return `a string that is not valid JSON: ${value.slice(0, 80)}`
+  return value === null ? 'null' : typeof value
+}
+
 /**
  * Normalise model-written criteria into a stored tree, collecting every problem
  * rather than stopping at the first, so one round trip fixes them all.
  */
-export function normalizeCriteria(input: unknown, mapping: SchemaMapping): NormalizeResult {
+export function normalizeCriteria(raw: unknown, mapping: SchemaMapping): NormalizeResult {
   const errors: string[] = []
   const warnings: string[] = []
+  const input = parseIfJson(raw)
   const rootInput: Loose = Array.isArray(input) ? { children: input } : isObject(input) ? input : { children: [] }
-  if (!Array.isArray(input) && !isObject(input)) errors.push('criteria must be a group object or an array of nodes.')
+  if (!Array.isArray(input) && !isObject(input)) {
+    errors.push(`criteria must be a group object or an array of nodes (JSON), got ${describeValue(input)}.`)
+  }
 
   const group = (raw: Loose, path: string): CriteriaGroupNode => ({
     kind: 'group',
