@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Allotment } from 'allotment'
+import { Allotment, LayoutPriority } from 'allotment'
 import 'allotment/dist/style.css'
 import { LayoutGrid, Lock, Pencil, Plus, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -118,8 +118,10 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
 
   return (
     <PatientChartContext.Provider value={context}>
-      <Allotment>
-        <Allotment.Pane minSize={320}>
+      {/* Not proportional: folding the builder's pane widens this one, and that
+          width goes to the board — the sidebar keeps its pixels. */}
+      <Allotment proportionalLayout={false}>
+        <Allotment.Pane minSize={320} priority={LayoutPriority.High}>
           {board ? (
             <div className="flex h-full flex-col overflow-hidden">
               <div className="flex shrink-0 items-center border-b px-3">
@@ -202,7 +204,7 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
           )}
         </Allotment.Pane>
         {/* The patient sidebar of a project's boards, on the same side. */}
-        <Allotment.Pane preferredSize={320} minSize={220} maxSize={480}>
+        <Allotment.Pane preferredSize={320} minSize={220} maxSize={480} priority={LayoutPriority.Low}>
           <PatientDataSidebar cohort={listedCohort} />
         </Allotment.Pane>
       </Allotment>

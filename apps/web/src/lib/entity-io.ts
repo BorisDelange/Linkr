@@ -2062,6 +2062,10 @@ export async function importProjectContent(
     })
   }
   for (const a of parsed.datasetAnalyses) {
+    // A dataset exported without its data (not marked for versioning) is not
+    // recreated on a server, and an analysis of it has nothing to belong to —
+    // the create was refused, failing the rest of the import.
+    if (isServerMode() && !datasetIdMap.has(a.datasetFileId)) continue
     await storage.datasetAnalyses.create({
       ...a,
       id: mapId(a.id),
