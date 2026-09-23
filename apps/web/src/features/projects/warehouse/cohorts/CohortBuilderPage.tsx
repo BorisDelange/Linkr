@@ -16,6 +16,7 @@ import {
   Upload,
   Download,
   Database,
+  Split,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CustomSqlDot } from '@/components/ui/custom-sql-dot'
@@ -41,6 +42,9 @@ import { SqlPreviewPanel } from './sql/SqlPreviewPanel'
 import { ResultsPanel } from './results/ResultsPanel'
 import { CohortPatientsPanel } from './results/CohortPatientsPanel'
 import { CohortReportDialog } from './report/CohortReportDialog'
+import { CohortDeriveDialog } from './derive/CohortDeriveDialog'
+import { isServerMode } from '@/lib/api-client'
+import { buildCohortKeyMap, cohortKey } from '@/lib/entity-io'
 import { ImportAtlasDialog } from './atlas/ImportAtlasDialog'
 import { ExportAtlasDialog } from './atlas/ExportAtlasDialog'
 import { formatDateTime } from '@/lib/format-helpers'
@@ -86,6 +90,7 @@ export function CohortBuilder() {
   // Among this host's own cohorts only: a database route must not open a
   // project's cohort that happens to share an id prefix, nor the reverse.
   const hostCohorts = useMemo(() => cohorts.filter(host.owns), [cohorts, host.owns])
+  const cohortKeys = useMemo(() => buildCohortKeyMap(hostCohorts), [hostCohorts])
   const cohort = resolveByIdPrefix(hostCohorts, raw.cohortId, (c) => c.id)
   const cohortId = cohort?.id
   const activeSource = useCohortSource(cohort)
@@ -97,6 +102,7 @@ export function CohortBuilder() {
   const [overwriteSqlDialogOpen, setOverwriteSqlDialogOpen] = useState(false)
   const [rematerializeDialogOpen, setRematerializeDialogOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
+  const [deriveOpen, setDeriveOpen] = useState(false)
   const pendingTreeRef = useRef<CriteriaGroupNode | null>(null)
 
   const result = cohortId ? executionResults.get(cohortId) ?? null : null
@@ -328,6 +334,22 @@ export function CohortBuilder() {
           {t('cohort_report.button')}
         </Button>
 
+        {/* A copy of the database filtered on the cohort: written server-side,
+            into a database Linkr owns, so there is nothing to derive into in
+            the browser build. */}
+        {host.kind === 'database' && isServerMode() && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setDeriveOpen(true)}
+            disabled={!activeSource || !can('cohorts:write')}
+            className="h-6 gap-1 text-xs"
+          >
+            <Split size={12} />
+            {t('cohort_derive.button')}
+          </Button>
+        )}
+
         {/* Materialize (freeze membership) */}
         <Button
           variant="outline"
@@ -420,6 +442,16 @@ export function CohortBuilder() {
         cohort={cohort}
         source={activeSource}
       />
+
+      {host.kind === 'database' && activeSource && (
+        <CohortDeriveDialog
+          open={deriveOpen}
+          onOpenChange={setDeriveOpen}
+          cohort={cohort}
+          cohortKey={cohortKeys.get(cohort.id) ?? cohortKey(cohort)}
+          source={activeSource}
+        />
+      )}
 
       {/* Confirm overwriting custom SQL when criteria change */}
       <AlertDialog open={overwriteSqlDialogOpen} onOpenChange={(open) => {

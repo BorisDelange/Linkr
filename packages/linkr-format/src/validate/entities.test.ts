@@ -301,6 +301,25 @@ describe('database', () => {
     ...files,
   })
 
+  it('checks the shape of a derived database\'s provenance', () => {
+    const at = (derivedFrom: unknown) => {
+      const tree = new MemoryTree({
+        'entity.json': JSON.stringify({
+          type: 'database', id: 'sub', alias: 'sub', name: { en: 'Sub' }, inMemory: true,
+          schemaSource: { lineageId: 'l1', label: { en: 'OMOP' } }, derivedFrom,
+        }),
+        'mapping.json': JSON.stringify({}),
+      })
+      return validateEntity(tree, 'database').filter((i) => i.pointer?.startsWith('/derivedFrom'))
+    }
+    expect(at({
+      database: { lineageId: 'p', label: { en: 'Parent' } }, cohort: { key: 'adults', name: { en: 'Adults' } },
+      level: 'patient', criteriaTree: { id: 'root', type: 'group', operator: 'AND', children: [] }, target: 'new-database',
+    })).toEqual([])
+    expect(at({ database: 'p', cohort: {} }).some((i) => i.pointer === '/derivedFrom/database' && i.severity === 'error')).toBe(true)
+    expect(at('p').some((i) => i.severity === 'error')).toBe(true)
+  })
+
   it('validates its own cohorts as a project does', () => {
     const issues = validateEntity(database({
       'cohorts/adults.json': JSON.stringify({ name: { en: 'Adults' }, level: 'ward' }),

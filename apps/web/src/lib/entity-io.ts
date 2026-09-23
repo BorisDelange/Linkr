@@ -35,7 +35,7 @@ import type {
   GitRemoteConfig,
   LocalizedString, TodoItem,
   Organization, OrganizationInfo,
-  AuthorDetails, ProjectBadge,
+  AuthorDetails, ProjectBadge, DerivedFrom,
 } from '@/types'
 import * as engine from '@/lib/duckdb/engine'
 import { localized, toLocalized } from '@/lib/localized'
@@ -979,6 +979,9 @@ export function cohortExportShape(c: Cohort): Record<string, unknown> {
   // The frozen member ids: patient identifiers of THIS database, never meant
   // to leave the instance — and meaningless against anyone else's data.
   delete out.materialization
+  // What this instance derived the cohort into: local database ids, and a
+  // rebuild history only meaningful where those databases exist.
+  delete out.derivations
   // Key-addressed like a dashboard: the FILENAME is the identity, and the local
   // id is re-derived from it on import. Versioning the id instead made every
   // round trip rewrite it — the import re-hashed the repo's id, pushed the new
@@ -1902,7 +1905,7 @@ export async function importProjectContent(
     // tree addressed this cohort, not a property of the cohort.
     // `materialization` was exported before it was stripped: another instance's
     // patient ids, which address nothing here.
-    const { exportKey, materialization: _materialization, ...cohort } = c
+    const { exportKey, materialization: _materialization, derivations: _derivations, ...cohort } = c
     await storage.cohorts.create(
       dropForeignAuthorId({
         ...cohort,
@@ -2836,7 +2839,9 @@ export async function replaceDatabaseCohorts(
   for (const c of incoming) {
     // `materialization`: exported before it was stripped — another instance's
     // patient ids. `projectUid`: a hand-made tree has no business setting one.
-    const { exportKey, materialization: _materialization, projectUid: _projectUid, ...cohort } = c
+    // `derivations` is this instance's: a pull keeps the local record, since
+    // the update merges and the tree never carries one.
+    const { exportKey, materialization: _materialization, projectUid: _projectUid, derivations: _derivations, ...cohort } = c
     const id = deterministicId(dataSourceId, exportKey ?? cohortKey(c))
     keep.add(id)
     const record = dropForeignAuthorId({
@@ -3389,6 +3394,7 @@ interface DatabaseRepoMeta {
   lineageId?: string
   parentLineageId?: string
   badges?: ProjectBadge[]
+  derivedFrom?: DerivedFrom
 }
 
 /**
@@ -3482,6 +3488,7 @@ async function applyClonedDatabase(
     // across instances, the label names it here even when that preset is not
     // installed. Both travel with the repo.
     ...(meta.schemaSource ? { schemaSource: meta.schemaSource } : {}),
+    ...(meta.derivedFrom ? { derivedFrom: meta.derivedFrom } : {}),
     status: 'configuring' as const,
     ...(meta.isVocabularyReference ? { isVocabularyReference: true } : {}),
     ...(meta.version ? { version: meta.version } : {}),

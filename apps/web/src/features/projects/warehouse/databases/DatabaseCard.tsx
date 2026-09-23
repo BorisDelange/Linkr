@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DataSource, DatabaseConnectionConfig } from '@/types'
 import { localized } from '@/lib/localized'
@@ -18,6 +18,7 @@ import { selectedCardClass } from '@/components/ui/use-card-selection'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { useDatabaseActions } from './use-database-actions'
 
 interface DatabaseCardProps {
@@ -106,6 +107,13 @@ export const DatabaseCard = memo(function DatabaseCard({
     (s) => s._workspacesRaw.find((w) => w.id === source.workspaceId)?.organizationId,
   )
 
+  // A database never opened has no stored count: take it once, and keep it.
+  const refreshPatientCount = useDataSourceStore((s) => s.refreshPatientCount)
+  const missingCount = source.status === 'connected' && source.stats?.patientCount == null
+  useEffect(() => {
+    if (missingCount) void refreshPatientCount(source.id)
+  }, [missingCount, source.id, refreshPatientCount])
+
   const summary = getSourceSummary(source, i18n.language)
   const config = source.connectionConfig as DatabaseConnectionConfig
   const needsReconnect = config.useFileHandles && source.status === 'disconnected'
@@ -150,7 +158,7 @@ export const DatabaseCard = memo(function DatabaseCard({
           </p>
 
           {source.stats?.patientCount != null && (
-            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
               <Users size={12} className="shrink-0" />
               <span className="tabular-nums">
                 {t('databases.card_patients', {

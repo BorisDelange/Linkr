@@ -218,6 +218,8 @@ interface CohortState {
   ) => Promise<number>
 
   clearMaterialization: (id: string) => Promise<void>
+  /** Re-read one cohort from storage — after the server changed it (a derivation). */
+  reloadCohort: (id: string) => Promise<void>
 }
 
 /** Whether two cohorts share an owner — the scope of name uniqueness and of a list page. */
@@ -516,5 +518,11 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         c.id === id ? { ...c, materialization: undefined } : c,
       ),
     }))
+  },
+
+  reloadCohort: async (id) => {
+    const fresh = await getStorage().cohorts.getById(id)
+    if (!fresh) return
+    set((s) => ({ cohorts: s.cohorts.map((c) => (c.id === id ? fresh : c)) }))
   },
 }))

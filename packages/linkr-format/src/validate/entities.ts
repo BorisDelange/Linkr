@@ -316,6 +316,28 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
     }
   }
 
+  // A derived database names its parent by portable pointer and snapshots the
+  // cohort it was built from — a new work, not a fork (so no parentLineageId).
+  const derived = db.derivedFrom
+  if (derived != null) {
+    if (!isObject(derived)) {
+      bag.error(path, '/derivedFrom', 'wrong-type', '`derivedFrom` must be an object.')
+    } else {
+      if (!isObject(derived.database)) {
+        bag.error(path, '/derivedFrom/database', 'wrong-type',
+          '`derivedFrom.database` must be a database pointer ({ lineageId, entityId, label }).')
+      }
+      if (!isObject(derived.cohort)) {
+        bag.error(path, '/derivedFrom/cohort', 'wrong-type',
+          '`derivedFrom.cohort` must be an object ({ key, name }).')
+      }
+      if (!isObject(derived.criteriaTree)) {
+        bag.warn(path, '/derivedFrom/criteriaTree', 'missing-field',
+          'No `criteriaTree`: the derived database no longer says which criteria built it.')
+      }
+    }
+  }
+
   // The database's own cohorts: same files, same checks as a project's.
   validateCohortFiles(tree, bag)
   // And its one patient board, in the shape of a project's patient-dashboards/*.json.

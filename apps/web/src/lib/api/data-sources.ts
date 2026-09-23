@@ -1,7 +1,7 @@
 import { apiFetch, apiRequest } from '@/lib/api-client'
 import { uploadFileInChunks } from '@/lib/api/upload'
 import type { DataSourceStorage, FileStorage } from '@/lib/storage'
-import type { ConnectionConfig, DataSource, StoredFile } from '@/types'
+import type { CohortLevel, ConnectionConfig, DataSource, DerivedFrom, StoredFile } from '@/types'
 
 /** Server-side schema introspection result — mirrors engine.IntrospectedTable[]. */
 export interface IntrospectedColumn {
@@ -64,6 +64,70 @@ export function createFromDdlOnServer(
   return apiRequest(`/data-sources/${dataSourceId}/create-from-ddl`, {
     method: 'POST',
     body: JSON.stringify({ ddl, path }),
+  })
+}
+
+/** How a derivation keeps a table's rows: the id it filters on, or none (copied whole). */
+export type DeriveFilter = 'patient' | 'visit' | 'visit_detail' | 'parent_visit'
+
+export interface DerivePlanTable {
+  /** Null for the database's default schema. */
+  schema: string | null
+  table: string
+  filter: DeriveFilter | null
+  column: string | null
+}
+
+/** What deriving a cohort of this database at `level` would do with each table. */
+export function fetchDerivePlan(dataSourceId: string, level: CohortLevel): Promise<DerivePlanTable[]> {
+  return apiRequest(`/data-sources/${dataSourceId}/derive-plan`, {
+    method: 'POST',
+    body: JSON.stringify({ level }),
+  })
+}
+
+export type DeriveTarget =
+  /** `dataSourceId`: a managed database created for it (or derived before, on a rebuild). */
+  | { kind: 'new-database'; dataSourceId: string; path?: string }
+  | {
+      kind: 'schema'
+      dataSourceId: string
+      schemaName: string
+      /** Drop and recreate: a rebuild, confirmed first. */
+      replace?: boolean
+      /** Also declare the schema as a Linkr database (Postgres targets). */
+      registerName?: string
+      registerAlias?: string
+    }
+
+export interface DeriveRequest {
+  /** `buildCohortMembershipSql`: `id`, `patient_id`. */
+  membershipSql: string
+  level: CohortLevel
+  copyPersonless: boolean
+  target: DeriveTarget
+  cohortId?: string
+  derivedFrom?: DerivedFrom
+}
+
+export interface DeriveResult {
+  tables: { schema: string | null; table: string; filter: DeriveFilter | null; rows: number | null; skipped: boolean }[]
+  patientCount: number
+  unitCount: number
+  builtAt: string
+  /** The database produced, or declared for the new schema. */
+  dataSourceId?: string | null
+}
+
+/**
+ * Copy `dataSourceId`'s tables, filtered on a cohort, into a new database or a
+ * new SQL schema. The membership query runs alone and READ_ONLY; the copy runs
+ * only SQL the server writes.
+ */
+export function deriveOnServer(dataSourceId: string, body: DeriveRequest): Promise<DeriveResult> {
+  return apiRequest(`/data-sources/${dataSourceId}/derive`, {
+    method: 'POST',
+    body: JSON.stringify(body),
   })
 }
 

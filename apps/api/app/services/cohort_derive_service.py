@@ -94,6 +94,14 @@ async def derive(
     derived_from = {**(body.derived_from or {}), "builtAt": built_at, "patientCount": patient_count}
 
     produced_id: str | None = None
+    # A rebuild of a schema declared before updates that database, rather than
+    # declaring the same schema a second time.
+    previous = next(
+        (d for d in (cohort.derivations if cohort is not None else None) or []
+         if d.get("targetId") == target.id and d.get("schemaName") == t.schema_name and d.get("registeredId")),
+        None,
+    )
+    registered_before = await db.get(DataSource, previous["registeredId"]) if previous and t.kind == "schema" else None
     if t.kind == "new-database":
         config["managed"] = True
         config.pop("inMemory", None)
@@ -104,6 +112,11 @@ async def derive(
         target.error_message = None
         target.stats = {"patientCount": patient_count, "tableCount": len([x for x in tables if not x["skipped"]])}
         produced_id = target.id
+    elif registered_before is not None:
+        registered_before.derived_from = derived_from
+        registered_before.stats = {**(registered_before.stats or {}), "patientCount": patient_count}
+        connection_pool.invalidate(registered_before.id)
+        produced_id = registered_before.id
     elif t.register_name and target_spec.kind == "external":
         # The subset as a database of its own: same server and credentials, the
         # new schema as its scope. The password never passes through the client.

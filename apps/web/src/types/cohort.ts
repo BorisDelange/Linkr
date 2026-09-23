@@ -219,6 +219,9 @@ export interface Cohort extends Authored {
    * In fullstack mode it lives in the app DB and is shared across users.
    */
   materialization?: CohortMaterialization
+  /** What this cohort was derived into (server mode), newest last — instance
+   *  state recorded by the server, stripped on export like `materialization`. */
+  derivations?: CohortDerivation[]
   /** Schema version for migration; the current value is CURRENT_SCHEMA_VERSION
    *  in cohort-store.ts, which is what migrations stamp. */
   schemaVersion: number
@@ -226,6 +229,40 @@ export interface Cohort extends Authored {
   version?: string
   createdAt: string
   updatedAt: string
+}
+
+// --- Derivation (a copy of the database filtered on the cohort) ---
+
+export type DerivationTargetKind = 'new-database' | 'schema'
+
+export interface CohortDerivation {
+  kind: DerivationTargetKind
+  /** The database written: the new one, or the one the SQL schema was created in. */
+  targetId: string
+  schemaName?: string
+  /** The database declared for that SQL schema, when there is one. */
+  registeredId?: string
+  builtAt: string
+  patientCount: number
+}
+
+/**
+ * Where a derived database came from: a new work (not a fork — `parentLineageId`
+ * stays empty), so the parent is a portable pointer and the cohort a snapshot
+ * that survives the cohort being edited or deleted. Exported with the database.
+ */
+export interface DerivedFrom {
+  database: DataSourceRef
+  cohort: { key: string; name: LocalizedString }
+  level: CohortLevel
+  criteriaTree: CriteriaGroupNode
+  customSql?: string
+  target: DerivationTargetKind
+  /** Whether the tables with no patient id were copied, so a rebuild does the same. */
+  copyPersonless?: boolean
+  /** Set by the server on each build. */
+  builtAt?: string
+  patientCount?: number
 }
 
 // --- Materialization (frozen membership snapshot) ---

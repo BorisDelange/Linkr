@@ -77,6 +77,7 @@ import { DatabaseCohortHost } from '@/features/projects/warehouse/cohorts/cohort
 import { CohortList } from '@/features/projects/warehouse/cohorts/CohortListPage'
 import { CohortBuilder } from '@/features/projects/warehouse/cohorts/CohortBuilderPage'
 import { useDatabaseActions } from './use-database-actions'
+import { DerivedFromCard } from './DerivedFromCard'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
@@ -176,6 +177,14 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   // late, after the tab is already visible.
   const [schemaEverOpened, setSchemaEverOpened] = useState(false)
   if (activeTab === 'schema' && !schemaEverOpened) setSchemaEverOpened(true)
+
+  // Opening a database refreshes the patient count its card shows — once per
+  // opening, when it is reachable.
+  const refreshPatientCount = useDataSourceStore((s) => s.refreshPatientCount)
+  const connected = source?.status === 'connected'
+  useEffect(() => {
+    if (source?.id && connected) void refreshPatientCount(source.id, { force: true })
+  }, [source?.id, connected, refreshPatientCount])
 
   // A cohort's builder has its own route under the database, so it is linkable.
   // Leaving it through another tab goes back to the database's own URL.
@@ -963,6 +972,7 @@ function OverviewTab({
       />
       <div className="flex min-h-0 flex-col gap-4">
         <IdentityCard source={source} onSeeLicense={onSeeLicense} />
+        <DerivedFromCard source={source} />
         <SchemaCard source={source} />
         <ConnectionCard source={source} />
       </div>

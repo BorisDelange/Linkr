@@ -41,9 +41,17 @@ describe('database cohorts — export', () => {
       materialization: { level: 'patient', ids: ['7'], patientIds: ['7'], count: 1, materializedAt: 'x' },
       resultCount: 1,
       attrition: [],
+      derivations: [{ kind: 'new-database', targetId: 'db2', builtAt: 'x', patientCount: 1 }],
     })])
     const zip = new JSZip()
-    await buildDataSourceFolder(zip, 'db/', source, {
+    const derivedFrom = {
+      database: { lineageId: 'parent', label: { en: 'Parent' } },
+      cohort: { key: 'icu', name: { en: 'ICU' } },
+      level: 'patient' as const,
+      criteriaTree: cohort({}).criteriaTree,
+      target: 'new-database' as const,
+    }
+    await buildDataSourceFolder(zip, 'db/', { ...source, derivedFrom }, {
       cohorts: mem.api,
       files: { getByDataSource: async () => [] },
       readmeAttachments: { getByOwner: async () => [] },
@@ -52,9 +60,11 @@ describe('database cohorts — export', () => {
     } as unknown as Storage)
     const out = JSON.parse(await zip.files['db/cohorts/adults.json'].async('string'))
     expect(out.name).toEqual({ en: 'Adults' })
-    for (const leaked of ['materialization', 'resultCount', 'attrition', 'id', 'ownerDataSourceId', 'dataSourceId']) {
+    for (const leaked of ['materialization', 'resultCount', 'attrition', 'derivations', 'id', 'ownerDataSourceId', 'dataSourceId']) {
       expect(out).not.toHaveProperty(leaked)
     }
+    // The database's own provenance does travel: portable pointers only.
+    expect(JSON.parse(await zip.files['db/entity.json'].async('string')).derivedFrom).toEqual(derivedFrom)
   })
 })
 
@@ -64,6 +74,7 @@ describe('database cohorts — import', () => {
     zip.file('cohorts/adults.json', JSON.stringify({
       name: { en: 'Adults' }, level: 'patient', criteriaTree: { kind: 'group' },
       materialization: { patientIds: ['from-elsewhere'] },
+      derivations: [{ targetId: 'elsewhere' }],
       projectUid: 'nope',
     }))
     const mem = memoryCohorts()
@@ -74,6 +85,7 @@ describe('database cohorts — import', () => {
     expect(row.ownerDataSourceId).toBe('db9')
     expect(row.dataSourceId).toBe('db9')
     expect(row).not.toHaveProperty('materialization')
+    expect(row).not.toHaveProperty('derivations')
     expect(row).not.toHaveProperty('projectUid')
     expect(row).not.toHaveProperty('exportKey')
   })

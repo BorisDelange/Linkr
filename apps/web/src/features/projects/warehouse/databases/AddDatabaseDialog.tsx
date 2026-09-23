@@ -41,6 +41,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
@@ -239,6 +240,7 @@ export function AddDatabaseDialog({
         if (config.port) setDbPort(String(config.port))
         if (config.database) setDbDatabase(config.database)
         if (config.schema) setDbSchema(config.schema)
+        setDbAllowWrites(!!config.allowWrites)
         if (config.username) setDbUsername(config.username)
         if (config.password) setDbPassword(config.password)
       } else if (editingSource.sourceType === 'fhir') {
@@ -282,6 +284,7 @@ export function AddDatabaseDialog({
   const [dbPort, setDbPort] = useState('')
   const [dbDatabase, setDbDatabase] = useState('')
   const [dbSchema, setDbSchema] = useState('')
+  const [dbAllowWrites, setDbAllowWrites] = useState(false)
   const [dbUsername, setDbUsername] = useState('')
   const [dbPassword, setDbPassword] = useState('')
 
@@ -311,6 +314,7 @@ export function AddDatabaseDialog({
     setDbPort('')
     setDbDatabase('')
     setDbSchema('')
+    setDbAllowWrites(false)
     setDbUsername('')
     setDbPassword('')
     setFhirBaseUrl('')
@@ -396,6 +400,7 @@ export function AddDatabaseDialog({
                     schema: dbSchema || undefined,
                     username: dbUsername || undefined,
                     password: dbPassword || undefined,
+                    ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
                   }
                 : {}),
             }
@@ -468,6 +473,7 @@ export function AddDatabaseDialog({
               // Only send a password when the user typed one — an empty field
               // leaves the stored (encrypted) credential untouched server-side.
               ...(dbPassword ? { password: dbPassword } : {}),
+              ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
             }
             changes.connectionConfig = connectionConfig
           } else if (bothDatabases) {
@@ -516,6 +522,7 @@ export function AddDatabaseDialog({
                 schema: dbSchema || undefined,
                 username: dbUsername || undefined,
                 password: dbPassword || undefined,
+                ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
               }
             : {}),
         }
@@ -1006,6 +1013,18 @@ export function AddDatabaseDialog({
                       <Label>{t('databases.field_password')}</Label>
                       <PasswordInput value={dbPassword} onChange={(e) => setDbPassword(e.target.value)} />
                     </div>
+                    {/* Every connection is read-only unless its owner says
+                        otherwise: this is what lets a cohort be derived into a
+                        new SQL schema of this database. */}
+                    {dbEngine === 'postgresql' && isServerMode() && (
+                      <div className="col-span-full flex items-start gap-2">
+                        <Checkbox id="db-allow-writes" checked={dbAllowWrites} onCheckedChange={(v) => setDbAllowWrites(v === true)} />
+                        <div className="space-y-0.5">
+                          <Label htmlFor="db-allow-writes">{t('databases.allow_writes')}</Label>
+                          <p className="text-xs text-muted-foreground">{t('databases.allow_writes_hint')}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </>
