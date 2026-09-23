@@ -632,6 +632,8 @@
     "dictionary_replace": "Changer"
   },
   "databases": {
+    "card_patients_one": "{{formatted}} patient",
+    "card_patients_other": "{{formatted}} patients",
     "title": "Bases de données",
     "description": "Gérer les connexions aux bases de données de l'entrepôt.",
     "list_description": "Les bases de données liées à ce projet fournissent les données de son entrepôt et de ses analyses.",

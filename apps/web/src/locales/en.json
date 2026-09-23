@@ -632,6 +632,8 @@
     "dictionary_replace": "Replace"
   },
   "databases": {
+    "card_patients_one": "{{formatted}} patient",
+    "card_patients_other": "{{formatted}} patients",
     "title": "Databases",
     "description": "Manage database connections for the data warehouse.",
     "list_description": "Databases linked to this project provide the data for its warehouse and analyses.",

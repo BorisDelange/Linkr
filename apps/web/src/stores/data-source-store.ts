@@ -16,6 +16,7 @@ import type {
   DataSourceType,
   ConnectionConfig,
   DataSourceStatus,
+  DataSourceStats,
   SchemaMapping,
   SchemaSource,
   StoredFile,
@@ -135,6 +136,12 @@ interface DataSourceState {
   }) => Promise<string>
 
   updateDataSource: (id: string, changes: Partial<DataSource>) => Promise<void>
+  /**
+   * Keep the patient/visit counts of a full statistics run on the source itself,
+   * so a list page can show them without loading every source's stats cache. A
+   * no-op when they have not changed, since each write bumps the server row.
+   */
+  recordRowCounts: (id: string, counts: Pick<DataSourceStats, 'patientCount' | 'visitCount'>) => Promise<void>
   /**
    * Recreate an empty database from the DDL its schema mapping carries.
    *
@@ -538,6 +545,17 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
   },
 
+  recordRowCounts: async (id, counts) => {
+    const ds = get().dataSources.find((d) => d.id === id)
+    if (!ds) return
+    if (ds.stats?.patientCount === counts.patientCount && ds.stats?.visitCount === counts.visitCount) return
+    const updated: Partial<DataSource> = { stats: { ...ds.stats, ...counts } }
+    await getStorage().dataSources.update(id, updated)
+    set((s) => ({
+      dataSources: s.dataSources.map((d) => (d.id === id ? { ...d, ...updated } : d)),
+    }))
+  },
+
   rebuildFromSchema: async (id) => {
     const ds = get().dataSources.find((d) => d.id === id)
     const ddl = ds?.schemaMapping?.ddl
@@ -613,7 +631,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       const stats = await engine
         .computeStats(id, ds.schemaMapping, false)
         .catch(() => ({ tableCount: result.tables.length }))
-      updated = { status: 'connected', errorMessage: undefined, stats }
+      // Merged: a re-test counts no rows, and must not erase the counts the last
+      // "Load statistics" recorded.
+      updated = { status: 'connected', errorMessage: undefined, stats: { ...ds.stats, ...stats } }
     } else {
       updated = { status: 'error', errorMessage: result.error ?? 'Connection failed' }
     }

@@ -9,6 +9,7 @@ import {
   Plug,
   Unplug,
   RefreshCw,
+  Users,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
@@ -147,6 +148,18 @@ export const DatabaseCard = memo(function DatabaseCard({
               {t(`databases.status_${source.status}`)} &middot; {summary}
             </span>
           </p>
+
+          {source.stats?.patientCount != null && (
+            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Users size={12} className="shrink-0" />
+              <span className="tabular-nums">
+                {t('databases.card_patients', {
+                  count: source.stats.patientCount,
+                  formatted: source.stats.patientCount.toLocaleString(i18n.language),
+                })}
+              </span>
+            </p>
+          )}
 
           {/* Error status is shown by the status dot; the full message lives in
               the detail panel. Keep the card light — just the linked-projects strip. */}

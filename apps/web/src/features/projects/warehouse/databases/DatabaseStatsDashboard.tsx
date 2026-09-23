@@ -37,17 +37,32 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
   const [cacheLoaded, setCacheLoaded] = useState(false)
   const autoRefreshed = useRef(false)
 
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+  const recordRowCounts = useDataSourceStore((s) => s.recordRowCounts)
+  const keepCounts = useCallback((stats: DatabaseStatsCache) => {
+    if (!schemaMapping.patientTable) return
+    recordRowCounts(dataSourceId, {
+      patientCount: stats.summary.patientCount,
+      visitCount: schemaMapping.visitTable ? stats.summary.visitCount : undefined,
+    }).catch(() => {})
+  }, [dataSourceId, schemaMapping, recordRowCounts])
+  const keepCountsRef = useRef(keepCounts)
+  keepCountsRef.current = keepCounts
+
   useEffect(() => {
     autoRefreshed.current = false
     setCacheLoaded(false)
     setCache(null)
     getStorage().databaseStatsCache.get(dataSourceId).then((cached) => {
-      if (cached) setCache(cached)
+      if (cached) {
+        setCache(cached)
+        // Backfills the card of a database whose statistics predate the counts
+        // being kept on the source.
+        keepCountsRef.current(cached)
+      }
       setCacheLoaded(true)
     })
   }, [dataSourceId])
-
-  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const refresh = useCallback(async () => {
     setIsLoading(true)
@@ -71,6 +86,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
         const stats = await computeDatabaseStats(dataSourceId, schemaMapping)
         setCache(stats)
         await getStorage().databaseStatsCache.save(stats)
+        keepCounts(stats)
 
         // Per-table counts stream in afterwards, batch by batch, persisting after
         // each batch so a mid-stream tab switch keeps the counts gathered so far.
@@ -95,7 +111,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     } finally {
       setIsLoading(false)
     }
-  }, [dataSourceId, schemaMapping, ensureMounted])
+  }, [dataSourceId, schemaMapping, ensureMounted, keepCounts])
 
   // Auto-compute stats only in front-only mode. In server mode the source may be
   // a database of billions of rows, so we never run COUNT(*) automatically — the
