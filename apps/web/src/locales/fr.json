@@ -984,6 +984,12 @@
     "chart_fail_pct": "Taux d'échec"
   },
   "cohorts": {
+    "results_patients": "Patients",
+    "patients_filter": "Filtrer par identifiant…",
+    "patients_patient": "patient {{id}}",
+    "patients_list_limited": "{{shown}} premiers sur {{total}} — filtrez pour trouver les autres.",
+    "patients_board_empty_title": "Aucun widget",
+    "patients_board_empty_description": "Configurez la board une fois pour cette base : toutes ses cohortes y passent en revue leurs patients.",
     "database_list_description": "Cohortes définies sur cette base, hors de tout projet. Elles suivent la base quand elle est exportée ou versionnée.",
     "title": "Cohortes",
     "create": "Nouvelle cohorte",
@@ -1578,6 +1584,8 @@
     "remove_confirm_description": "Êtes-vous sûr de vouloir supprimer ce sous-ensemble ? Cette action est irréversible."
   },
   "patient_data": {
+    "code_widget_needs_project": "Les widgets R/Python s’exécutent dans la session d’un projet : ils ne sont pas disponibles sur la board d’une base.",
+    "database_board_name": "Revue des cohortes",
     "title": "Données patients",
     "no_data_source": "Aucune source de données configurée.",
     "no_data_source_description": "Ajoutez une base de données avec une table patient pour parcourir les dossiers.",

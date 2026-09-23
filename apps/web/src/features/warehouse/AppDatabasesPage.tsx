@@ -8,6 +8,7 @@ import { paths } from '@/lib/paths'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { formatApiError, isServerMode } from '@/lib/api-client'
 import { useCohortStore } from '@/stores/cohort-store'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
@@ -365,8 +366,9 @@ export function AppDatabasesPage() {
       gitRemote ? { url: gitRemote.url, branch: gitRemote.branch } : undefined,
     )
     await loadDataSources()
-    // The tree may carry the database's own cohorts.
+    // The tree may carry the database's own cohorts and patient board.
     await useCohortStore.getState().loadCohorts()
+    usePatientChartStore.setState({ loaded: false })
   }, [wsUid, loadDataSources])
 
   /** A database repo carries its Parquet, so the ZIP is read as bytes rather than

@@ -231,6 +231,8 @@ export interface DashboardWidgetStorage {
 /** Storage interface for patient dashboard persistence. */
 export interface PatientDashboardStorage {
   getByProject(projectUid: string): Promise<PatientDashboard[]>
+  /** The board a database owns (at most one), not project boards reading it. */
+  getByDatabase(dataSourceId: string): Promise<PatientDashboard[]>
   getById(id: string): Promise<PatientDashboard | undefined>
   create(dashboard: PatientDashboard): Promise<void>
   update(id: string, changes: Partial<PatientDashboard>): Promise<void>

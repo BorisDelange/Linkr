@@ -670,10 +670,18 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     await getStorage().files.deleteByDataSource(id)
     await getStorage().fileHandles.deleteByDataSource(id)
     await getStorage().databaseStatsCache.delete(id)
-    // The database's own cohorts go with it. The server cascades; the browser's
-    // storage has no foreign keys, so they are deleted here.
+    // The database's own cohorts and patient board go with it. The server
+    // cascades; the browser's storage has no foreign keys, so they go here.
     if (!isServerMode()) {
-      for (const c of await getStorage().cohorts.getByDatabase(id)) await getStorage().cohorts.delete(c.id)
+      const storage = getStorage()
+      for (const c of await storage.cohorts.getByDatabase(id)) await storage.cohorts.delete(c.id)
+      for (const board of await storage.patientDashboards.getByDatabase(id)) {
+        for (const tab of await storage.patientDashboardTabs.getByDashboard(board.id)) {
+          await storage.patientDashboardWidgets.deleteByTab(tab.id)
+        }
+        await storage.patientDashboardTabs.deleteByDashboard(board.id)
+        await storage.patientDashboards.delete(board.id)
+      }
     }
     await getStorage().dataSources.delete(id)
     useCohortStore.setState((s) => ({ cohorts: s.cohorts.filter((c) => c.ownerDataSourceId !== id) }))

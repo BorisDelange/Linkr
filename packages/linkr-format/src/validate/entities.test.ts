@@ -308,6 +308,15 @@ describe('database', () => {
     expect(issues.some((i) => i.path === 'cohorts/adults.json' && i.severity === 'error')).toBe(true)
   })
 
+  it('checks the shape of its patient board', () => {
+    const issues = validateEntity(database({ 'patient-board.json': JSON.stringify({ tabs: [] }) }), 'database')
+    expect(issues.some((i) => i.path === 'patient-board.json' && i.severity === 'error')).toBe(true)
+    const ok = validateEntity(database({
+      'patient-board.json': JSON.stringify({ patientDashboard: { name: { en: 'Review' } }, tabs: [], widgets: [] }),
+    }), 'database')
+    expect(ok.filter((i) => i.path === 'patient-board.json')).toEqual([])
+  })
+
   it('accepts a well-formed cohort', () => {
     const issues = validateEntity(database({
       'cohorts/adults.json': JSON.stringify({

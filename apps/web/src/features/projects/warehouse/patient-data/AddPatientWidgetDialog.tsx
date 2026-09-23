@@ -35,6 +35,7 @@ import { ConceptSelectField } from './ConceptSelectField'
 import { DatasetsSelectField } from './DatasetsSelectField'
 import { timelineDatasets, type DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { SizedPatientWidgetPreview } from './PatientWidgetPreview'
+import { usePatientChartContext } from './PatientChartContext'
 import type { Plugin, PluginConfigField } from '@/types/plugin'
 
 /**
@@ -82,7 +83,13 @@ export function AddPatientWidgetDialog({
 
   // All warehouse plugins — built-in widgets (Summary, Timeline, Notes) and
   // custom ones — shown in a single grid harmonized with the dashboard picker.
-  const warehousePlugins = useMemo(() => getWarehousePlugins(), [])
+  // Where R/Python cannot run, the code-backed ones would only land as a card
+  // explaining so.
+  const { codeWidgets = true } = usePatientChartContext()
+  const warehousePlugins = useMemo(
+    () => getWarehousePlugins().filter((p) => codeWidgets || !p.templates),
+    [codeWidgets],
+  )
 
   const resetAndClose = () => {
     setConfigPlugin(null)

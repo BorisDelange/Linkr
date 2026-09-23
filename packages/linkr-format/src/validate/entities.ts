@@ -193,10 +193,14 @@ export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
   return bag.all()
 }
 
+/** A database's own patient board, beside its manifest. */
+const DATABASE_BOARD_FILE = 'patient-board.json'
+
 /**
  * A database tree: metadata, its mapping (`mapping.json` + `schema.ddl`, the
- * same split a schema preset uses), `data/<table>.parquet`, and its own cohorts
- * under `cohorts/` (validated as a project's are).
+ * same split a schema preset uses), `data/<table>.parquet`, its own cohorts
+ * under `cohorts/` (validated as a project's are) and its patient board
+ * (`patient-board.json`).
  *
  * Two things this checks that nothing else can. First, every declared table has
  * its file and every file is declared — a mismatch imports as a database whose
@@ -314,6 +318,18 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
 
   // The database's own cohorts: same files, same checks as a project's.
   validateCohortFiles(tree, bag)
+  // And its one patient board, in the shape of a project's patient-dashboards/*.json.
+  const board = readJson(tree, DATABASE_BOARD_FILE)
+  if (board.ok) {
+    if (!isObject(board.value) || !isObject(board.value.patientDashboard)) {
+      bag.error(DATABASE_BOARD_FILE, '', 'wrong-type',
+        `${DATABASE_BOARD_FILE} must be an object with a \`patientDashboard\`, \`tabs\` and \`widgets\`.`)
+    } else {
+      checkLocalized(bag, DATABASE_BOARD_FILE, '/patientDashboard/name', board.value.patientDashboard.name, { required: true })
+    }
+  } else if (board.error !== 'missing') {
+    bag.error(DATABASE_BOARD_FILE, '', 'invalid-json', `Cannot parse JSON: ${board.error}`)
+  }
 
   const declared = db.tables
   const inMemory = db.inMemory === true

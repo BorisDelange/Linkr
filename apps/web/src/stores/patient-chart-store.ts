@@ -10,6 +10,7 @@ import { toLocalized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { getStorage } from '@/lib/storage'
+import i18n from '@/lib/i18n'
 // The fitting rule is the dashboards', deliberately: both grids answer the same
 // question, and two implementations would drift apart.
 import { fitTabLayouts } from '@/features/projects/dashboard/dashboard-grid'
@@ -101,6 +102,14 @@ interface PatientChartState {
   activeTabId: Record<string, string>
 
   loadProjectDashboards: (projectUid: string) => Promise<void>
+  /**
+   * Load a database's own board (at most one), under `databaseBoardKey(id)` —
+   * the key its selection and `activeProjectUid` then go by. Creates nothing:
+   * a viewer may open a database whose board nobody has configured yet.
+   */
+  loadDatabaseBoard: (dataSourceId: string) => Promise<void>
+  /** The database's board, created (with a first tab) if it has none. */
+  ensureDatabaseBoard: (dataSourceId: string) => Promise<string>
 
   // Selection actions (cascade resets)
   setSelectedCohort: (projectUid: string, cohortId: string | null) => void
@@ -324,6 +333,49 @@ async function migrateLegacyProject(projectUid: string): Promise<{
   return { dashboard, tabs, widgets }
 }
 
+/** The tabs and widgets of `dashboards`, with the legacy shapes read forward. */
+async function loadBoardContents(dashboards: PatientDashboard[]): Promise<{
+  tabs: PatientDashboardTab[]
+  widgets: PatientDashboardWidget[]
+}> {
+  const storage = getStorage()
+  const tabs: PatientDashboardTab[] = []
+  const widgets: PatientDashboardWidget[] = []
+  for (const dash of dashboards) {
+    const boardTabs = await storage.patientDashboardTabs.getByDashboard(dash.id)
+    tabs.push(...boardTabs)
+    for (const tab of boardTabs) {
+      widgets.push(...(await storage.patientDashboardWidgets.getByTab(tab.id)))
+    }
+  }
+  // Imported ZIPs and migrated rows may carry a bare string name.
+  for (const d of dashboards) {
+    if (typeof d.name === 'string') d.name = toLocalized(d.name)
+  }
+  for (const t of tabs) {
+    if (typeof t.name === 'string') t.name = toLocalized(t.name)
+  }
+  for (const w of widgets) {
+    if (typeof w.name === 'string') w.name = toLocalized(w.name)
+    // Boards written before widgets became plain plugin references.
+    if (!w.pluginId) w.pluginId = resolveLegacyPluginId(w as LegacyWidgetShape)
+  }
+  return { tabs, widgets }
+}
+
+/**
+ * The key a board's owner goes by in the store's per-owner maps (selection,
+ * active board, `activeProjectUid`). A project's uid; for a database's board a
+ * prefixed id, which no project uid can collide with.
+ */
+export function databaseBoardKey(dataSourceId: string): string {
+  return `db:${dataSourceId}`
+}
+
+function boardOwnerKey(board: PatientDashboard): string {
+  return board.projectUid ?? databaseBoardKey(board.ownerDataSourceId ?? '')
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -371,28 +423,7 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
         dashboards = []
       }
 
-      const allTabs: PatientDashboardTab[] = []
-      const allWidgets: PatientDashboardWidget[] = []
-      for (const dash of dashboards) {
-        const tabs = await storage.patientDashboardTabs.getByDashboard(dash.id)
-        allTabs.push(...tabs)
-        for (const tab of tabs) {
-          allWidgets.push(...(await storage.patientDashboardWidgets.getByTab(tab.id)))
-        }
-      }
-
-      // Imported ZIPs and migrated rows may carry a bare string name.
-      for (const d of dashboards) {
-        if (typeof d.name === 'string') d.name = toLocalized(d.name)
-      }
-      for (const t of allTabs) {
-        if (typeof t.name === 'string') t.name = toLocalized(t.name)
-      }
-      for (const w of allWidgets) {
-        if (typeof w.name === 'string') w.name = toLocalized(w.name)
-        // Boards written before widgets became plain plugin references.
-        if (!w.pluginId) w.pluginId = resolveLegacyPluginId(w as LegacyWidgetShape)
-      }
+      const { tabs: allTabs, widgets: allWidgets } = await loadBoardContents(dashboards)
 
       const first = [...dashboards].sort((a, b) => a.displayOrder - b.displayOrder)[0]
       set((s) => ({
@@ -413,6 +444,66 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
       console.error('[patient-chart-store] load error:', e)
       set({ loaded: false, loadError: e instanceof Error ? e.message : String(e) })
     }
+  },
+
+  loadDatabaseBoard: async (dataSourceId) => {
+    const key = databaseBoardKey(dataSourceId)
+    if (get().activeProjectUid === key && get().loaded) return
+    try {
+      set({ loadError: null })
+      const dashboards = await getStorage().patientDashboards.getByDatabase(dataSourceId)
+      const { tabs, widgets } = await loadBoardContents(dashboards)
+      set((s) => ({
+        dashboards,
+        tabs,
+        widgets,
+        activeProjectUid: key,
+        loaded: true,
+        activeDashboardId: dashboards[0]
+          ? { ...s.activeDashboardId, [key]: dashboards[0].id }
+          : s.activeDashboardId,
+      }))
+    } catch (e) {
+      console.error('[patient-chart-store] load error:', e)
+      set({ loaded: false, loadError: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  ensureDatabaseBoard: async (dataSourceId) => {
+    const key = databaseBoardKey(dataSourceId)
+    const existing = get().dashboards.find((d) => d.ownerDataSourceId === dataSourceId)
+    if (existing) return existing.id
+    const id = uid()
+    const now = new Date().toISOString()
+    const lang = useAppStore.getState().language
+    const dashboard: PatientDashboard = {
+      id,
+      ownerDataSourceId: dataSourceId,
+      dataSourceId,
+      name: setLocalized({}, lang, i18n.t('patient_data.database_board_name')),
+      displayOrder: 0,
+      version: '0.1.0',
+      ...stampAuthored(),
+      createdAt: now,
+      updatedAt: now,
+    }
+    const tab: PatientDashboardTab = {
+      id: uid(),
+      patientDashboardId: id,
+      name: toLocalized('Tab 1'),
+      displayOrder: 0,
+    }
+    // Persisted before it is shown: a failure must surface here, not as a board
+    // that vanishes on the next load.
+    await getStorage().patientDashboards.create(dashboard)
+    await getStorage().patientDashboardTabs.create(tab)
+    set((s) => ({
+      dashboards: [...s.dashboards, dashboard],
+      tabs: [...s.tabs, tab],
+      activeDashboardId: { ...s.activeDashboardId, [key]: id },
+      activeTabId: { ...s.activeTabId, [id]: tab.id },
+    }))
+    return id
   },
 
   // --- Selection (cascade resets) ---
@@ -582,7 +673,7 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
       getStorage().patientDashboards.delete(dashboardId).catch(warn('removeDashboard'))
 
       const remaining = s.dashboards
-        .filter((d) => d.id !== dashboardId && d.projectUid === board.projectUid)
+        .filter((d) => d.id !== dashboardId && boardOwnerKey(d) === boardOwnerKey(board))
         .sort((a, b) => a.displayOrder - b.displayOrder)
       return {
         dashboards: s.dashboards.filter((d) => d.id !== dashboardId),
@@ -590,7 +681,7 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
         widgets: s.widgets.filter((w) => !tabIds.has(w.tabId)),
         activeDashboardId: {
           ...s.activeDashboardId,
-          [board.projectUid]: remaining[0]?.id ?? '',
+          [boardOwnerKey(board)]: remaining[0]?.id ?? '',
         },
       }
     }),

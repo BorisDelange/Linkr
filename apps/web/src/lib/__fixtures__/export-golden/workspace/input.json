@@ -361,6 +361,69 @@
    }
   ]
  },
+ "databaseBoards": {
+  "ds2": {
+   "patientDashboard": {
+    "id": "dboard-1",
+    "ownerDataSourceId": "ds2",
+    "name": {
+     "en": "Cohort review",
+     "fr": "Revue des cohortes"
+    },
+    "description": null,
+    "dataSourceId": "ds2",
+    "showWidgetTitles": true,
+    "widgetSpacing": null,
+    "fitToHeight": null,
+    "reloadWidgetsOnTabSwitch": null,
+    "syncTimelinesAcrossTabs": null,
+    "collection": {
+     "datasetFileId": "not-in-this-tree",
+     "identityColumns": {}
+    },
+    "displayOrder": 0,
+    "origin": "user",
+    "createdById": null,
+    "createdBy": null,
+    "createdByDetails": null,
+    "createdAt": "2026-03-02T00:00:00.000Z",
+    "updatedAt": "2026-06-04T00:00:00.000Z",
+    "version": "0.1.0"
+   },
+   "tabs": [
+    {
+     "id": "dtab-1",
+     "patientDashboardId": "dboard-1",
+     "name": {
+      "en": "Stay"
+     },
+     "description": null,
+     "displayOrder": 0
+    }
+   ],
+   "widgets": [
+    {
+     "id": "dw-1",
+     "tabId": "dtab-1",
+     "name": {
+      "en": "Summary"
+     },
+     "description": null,
+     "layout": {
+      "x": 0,
+      "y": 0,
+      "w": 48,
+      "h": 24
+     },
+     "pluginId": "linkr-widget-patient-summary",
+     "language": null,
+     "config": {},
+     "customSql": null,
+     "pluginVersion": "1.0.0"
+    }
+   ]
+  }
+ },
  "mappingProjects": [
   {
    "id": "mp1",

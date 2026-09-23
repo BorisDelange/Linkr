@@ -34,6 +34,7 @@ from app.services.export_layout import (
 )
 from app.services.mapping_project_export import build_mapping_project_tree
 from app.services.project_export import (
+    _build_patient_dashboard_json,
     _cohort_export_shape,
     _cohort_keys,
     _drop_local_database,
@@ -379,6 +380,12 @@ def _build_tree() -> dict[str, bytes]:
             shaped = _cohort_export_shape(_drop_local_database(_strip_instance_fields(c)))
             shaped.pop("dataSourceRef", None)
             tree[f"cohorts/{cohort_key}.json"] = _json_bytes(shaped)
+        board = data.get("databaseBoards", {}).get(ds["id"])
+        if board:
+            tree["patient-board.json"] = _build_patient_dashboard_json(
+                {**board["patientDashboard"], "dataSourceRef": None},
+                board["tabs"], board["widgets"], set(),
+            )
         return tree
 
     data_sources = [

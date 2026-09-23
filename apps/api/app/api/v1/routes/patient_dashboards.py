@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_project_permission
+from app.core.permissions import check_project_permission, check_workspace_permission
+from app.models.data_source import DataSource
 from app.models.patient_dashboard import (
     PatientDashboard,
     PatientDashboardTab,
@@ -38,13 +39,51 @@ async def _require_project_access(
     await check_project_permission(db, project, user, permission)
 
 
+# A database's board is part of the database, as its cohorts are: reading it is
+# reading the database, changing it is editing the database.
+_DATABASE_PERMISSION = {
+    "patient-data:read": "databases:read",
+    "patient-data:write": "databases:write",
+    "patient-data:delete": "databases:write",
+}
+
+
+async def _require_database_access(
+    db: AsyncSession, data_source_id: str, user: User, permission: str
+) -> None:
+    source = await db.get(DataSource, data_source_id)
+    if source is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Database not found")
+    if source.workspace_id is not None:
+        await check_workspace_permission(
+            db, source.workspace_id, user, _DATABASE_PERMISSION[permission]
+        )
+
+
+async def _require_owner_access(
+    db: AsyncSession,
+    project_uid: str | None,
+    owner_data_source_id: str | None,
+    user: User,
+    permission: str,
+) -> None:
+    if project_uid:
+        await _require_project_access(db, project_uid, user, permission)
+    elif owner_data_source_id:
+        await _require_database_access(db, owner_data_source_id, user, permission)
+    else:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+
+
 async def _load_dashboard(
     db: AsyncSession, dashboard_id: str, user: User, permission: str
 ) -> PatientDashboard:
     dashboard = await patient_dashboard_service.get(db, dashboard_id)
     if dashboard is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _require_project_access(db, dashboard.project_uid, user, permission)
+    await _require_owner_access(
+        db, dashboard.project_uid, dashboard.owner_data_source_id, user, permission
+    )
     return dashboard
 
 
@@ -73,10 +112,16 @@ async def _load_widget(
 
 @router.get("", response_model=list[PatientDashboardResponse])
 async def list_dashboards(
-    project_uid: str = Query(alias="projectUid"),
+    project_uid: str | None = Query(default=None, alias="projectUid"),
+    data_source_id: str | None = Query(default=None, alias="dataSourceId"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if data_source_id is not None:
+        await _require_database_access(db, data_source_id, user, "patient-data:read")
+        return await patient_dashboard_service.list_for_database(db, data_source_id)
+    if project_uid is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "projectUid or dataSourceId is required")
     await _require_project_access(db, project_uid, user, "patient-data:read")
     return await patient_dashboard_service.list_for_project(db, project_uid)
 
@@ -89,7 +134,20 @@ async def create_dashboard(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(db, body.project_uid, user, "patient-data:write")
+    if bool(body.project_uid) == bool(body.owner_data_source_id):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "a patient board belongs to exactly one project or one database",
+        )
+    await _require_owner_access(
+        db, body.project_uid, body.owner_data_source_id, user, "patient-data:write"
+    )
+    if body.owner_data_source_id:
+        # One board per database: it is the lens every cohort of the database is
+        # reviewed through, not a collection of boards.
+        if await patient_dashboard_service.list_for_database(db, body.owner_data_source_id):
+            raise HTTPException(status.HTTP_409_CONFLICT, "this database already has its patient board")
+        body.data_source_id = body.owner_data_source_id
     return await patient_dashboard_service.create(db, body)
 
 

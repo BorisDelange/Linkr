@@ -45,6 +45,11 @@ from app.schemas.sql_script import SqlScriptCollectionResponse, SqlScriptFileRes
 from app.schemas.user_plugin import UserPluginResponse
 from app.schemas.attachment import WikiAttachmentResponse
 from app.schemas.cohort import CohortResponse
+from app.schemas.patient_dashboard import (
+    PatientDashboardResponse,
+    PatientDashboardTabResponse,
+    PatientDashboardWidgetResponse,
+)
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.entity_docs import license_meta
 from app.services.export_layout import (
@@ -65,6 +70,7 @@ from app.services.export_layout import (
     with_entity_type,
 )
 from app.services.project_export import (
+    _build_patient_dashboard_json,
     _cohort_export_shape,
     _cohort_keys,
     _drop_local_database,
@@ -84,6 +90,7 @@ from app.services import (
     etl_pipeline_service,
     mapping_project_service,
     organization_service,
+    patient_dashboard_service,
     schema_preset_service,
     source_concept_id_service,
     sql_script_service,
@@ -1189,6 +1196,23 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
         # It runs on the database it is exported under; a pointer to itself is noise.
         shaped.pop("dataSourceRef", None)
         tree[f"cohorts/{cohort_key}.json"] = _json(shaped)
+    # Its one patient board — twin of the patient-board.json write in
+    # buildDataSourceFolder. A database tree carries no dataset, hence the empty
+    # set: nothing in the board may point at one.
+    boards = await patient_dashboard_service.list_for_database(db, source.id)
+    if boards:
+        board = boards[0]
+        tabs = await patient_dashboard_service.list_tabs(db, board.id)
+        widgets = []
+        for tab in tabs:
+            widgets.extend(await patient_dashboard_service.list_widgets(db, tab.id))
+        board_dict = {**_dump(PatientDashboardResponse, board), "dataSourceRef": None}
+        tree["patient-board.json"] = _build_patient_dashboard_json(
+            board_dict,
+            [_dump(PatientDashboardTabResponse, t) for t in tabs],
+            [_dump(PatientDashboardWidgetResponse, w) for w in widgets],
+            set(),
+        )
     return tree
 
 

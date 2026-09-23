@@ -131,7 +131,7 @@ export function PatientBoardCard({
             <TruncatedText text={description} className="text-xs text-muted-foreground" />
           )}
         </div>
-        <EntityDatabaseLine projectUid={board.projectUid} dataSourceId={board.dataSourceId} />
+        <EntityDatabaseLine projectUid={board.projectUid ?? ''} dataSourceId={board.dataSourceId} />
        </div>
         <CardMetaFooter
           createdById={board.createdById}

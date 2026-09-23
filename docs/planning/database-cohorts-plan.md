@@ -133,6 +133,12 @@ unchanged.
   Selection state keyed by `db:<id>` instead of projectUid.
 - Patient set addressing (cohort-review §4.1): **in-memory result rows** (already fetched,
   capped at 10k) — enough for review; the SQL-subquery variant is 💤.
+- **As built, one limit**: in server mode an R/Python widget runs in a *project's* session
+  (`/execute` requires `project_uid`: kernel, bindings, `patient-data:execute` on the
+  project). A database's board has no project, so the add-widget picker offers only the
+  SQL component widgets (summary, timeline, notes, overview) there, and a code widget
+  reaching it by import says why instead of failing. Client mode runs them (Pyodide/webR
+  need only the database). 💤 A workspace-scoped execution path would lift it.
 
 Later, the project Cohorts page gets the same tab with a project-owned reserved board.
 
@@ -341,8 +347,8 @@ Ordered so nothing ships that cannot be exported.
 | ✅ | 2. Cohort owner model: types, IDB v43, Alembic, schemas, routes/permissions (§2) — the migration also prepares `patient_dashboards` | M |
 | ✅ | 3. `CohortHost` refactor of the cohort shell (project routes keep working) + Cohorts tab on the database page | M/L |
 | ✅ | 4. Export/import/versioning of database cohorts (§8) — client, server twin, linkr-format, workspace golden | M |
-| 🔜 | 5. Board owner model + `'patients'` tab in `ResultsPanel` + patient list of the result (§3) | M/L |
-| 🔜 | 6. Board in the database export (§8) | S |
+| ✅ | 5. Board owner model + `'patients'` tab in `ResultsPanel` + patient list of the result (§3) — R/Python widgets unavailable there in server mode (no project session) | M/L |
+| ✅ | 6. Board in the database export (§8) — `patient-board.json`, workspace golden | S |
 | 🔜 | 7. Report model + `describeCriterion` + small-cell suppression + SVG charts, with tests (§4) | M |
 | 🔜 | 8. HTML renderer + export dialog + PDF via print | M |
 | 🔜 | 9. Word renderer (`docx`) | M |

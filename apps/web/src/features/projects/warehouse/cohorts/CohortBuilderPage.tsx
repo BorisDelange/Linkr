@@ -38,6 +38,7 @@ import {
 import { CriteriaPanel } from './builder/CriteriaPanel'
 import { SqlPreviewPanel } from './sql/SqlPreviewPanel'
 import { ResultsPanel } from './results/ResultsPanel'
+import { CohortPatientsPanel } from './results/CohortPatientsPanel'
 import { ImportAtlasDialog } from './atlas/ImportAtlasDialog'
 import { ExportAtlasDialog } from './atlas/ExportAtlasDialog'
 import { formatDateTime } from '@/lib/format-helpers'
@@ -375,6 +376,18 @@ export function CohortBuilder() {
               error={executionError}
               onExecute={handleExecute}
               onExportCsv={handleExportCsv}
+              renderPatients={
+                host.kind === 'database' && activeSource && mapping?.patientTable && cohort.level !== 'event'
+                  ? (r) => (
+                      <CohortPatientsPanel
+                        dataSourceId={activeSource.id}
+                        schemaMapping={mapping}
+                        level={cohort.level}
+                        rows={r.rows}
+                      />
+                    )
+                  : undefined
+              }
             />
           </Allotment.Pane>
         </Allotment>

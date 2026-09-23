@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import JSZip from 'jszip'
-import { buildDataSourceFolder, readDatabaseCohorts, replaceDatabaseCohorts } from './entity-io'
+import { buildDataSourceFolder, readDatabaseBoard, readDatabaseCohorts, replaceDatabaseBoard, replaceDatabaseCohorts } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import type { Storage } from '@/lib/storage'
 import type { Cohort, DataSource } from '@/types'
@@ -93,5 +93,47 @@ describe('database cohorts — import', () => {
     await replaceDatabaseCohorts(storage, 'db1', await readDatabaseCohorts(zip, ''))
     expect([...mem.rows.keys()]).toEqual([kept.id])
     expect(mem.rows.get(kept.id)?.level).toBe('visit')
+  })
+})
+
+describe('database patient board — import', () => {
+  it('replaces the database board with the tree’s, ids derived from the database and the keys', async () => {
+    const boards = new Map<string, Record<string, unknown>>([['old', { id: 'old', ownerDataSourceId: 'db1' }]])
+    const tabs = new Map<string, Record<string, unknown>>([['old-tab', { id: 'old-tab', patientDashboardId: 'old' }]])
+    const widgets = new Map<string, Record<string, unknown>>()
+    const storage = {
+      patientDashboards: {
+        getByDatabase: async (id: string) => [...boards.values()].filter((b) => b.ownerDataSourceId === id),
+        create: async (b: Record<string, unknown>) => { boards.set(b.id as string, b) },
+        delete: async (id: string) => { boards.delete(id) },
+      },
+      patientDashboardTabs: {
+        getByDashboard: async (id: string) => [...tabs.values()].filter((t) => t.patientDashboardId === id),
+        create: async (t: Record<string, unknown>) => { tabs.set(t.id as string, t) },
+        deleteByDashboard: async (id: string) => { for (const [k, t] of tabs) if (t.patientDashboardId === id) tabs.delete(k) },
+      },
+      patientDashboardWidgets: {
+        create: async (w: Record<string, unknown>) => { widgets.set(w.id as string, w) },
+        deleteByTab: async () => {},
+      },
+    } as unknown as Storage
+
+    const zip = new JSZip()
+    zip.file('patient-board.json', JSON.stringify({
+      patientDashboard: { name: { en: 'Cohort review' } },
+      tabs: [{ name: { en: 'Stay' }, displayOrder: 0, key: 'cohort-review/stay' }],
+      widgets: [{ name: { en: 'Summary' }, pluginId: 'linkr-widget-patient-summary', config: {}, key: 'cohort-review/stay/summary@0,0', tabKey: 'cohort-review/stay' }],
+    }))
+    await replaceDatabaseBoard(storage, 'db1', await readDatabaseBoard(zip, ''))
+
+    const boardId = deterministicId('db1', 'cohort-review')
+    expect([...boards.keys()]).toEqual([boardId])
+    expect(boards.get(boardId)).toMatchObject({ ownerDataSourceId: 'db1', dataSourceId: 'db1' })
+    expect([...tabs.values()]).toEqual([expect.objectContaining({ id: deterministicId('db1', 'cohort-review/stay'), patientDashboardId: boardId })])
+    expect([...widgets.values()][0]).toMatchObject({ tabId: deterministicId('db1', 'cohort-review/stay') })
+  })
+
+  it('leaves the local board alone when the tree has none', async () => {
+    await expect(replaceDatabaseBoard({} as Storage, 'db1', await readDatabaseBoard(new JSZip(), ''))).resolves.toBeUndefined()
   })
 })

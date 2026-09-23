@@ -1,0 +1,50 @@
+{
+  "patientDashboard": {
+    "name": {
+      "en": "Cohort review",
+      "fr": "Revue des cohortes"
+    },
+    "description": null,
+    "showWidgetTitles": true,
+    "widgetSpacing": null,
+    "fitToHeight": null,
+    "reloadWidgetsOnTabSwitch": null,
+    "syncTimelinesAcrossTabs": null,
+    "displayOrder": 0,
+    "createdBy": null,
+    "createdByDetails": null,
+    "createdAt": "2026-03-02T00:00:00.000Z",
+    "version": "0.1.0"
+  },
+  "tabs": [
+    {
+      "name": {
+        "en": "Stay"
+      },
+      "description": null,
+      "displayOrder": 0,
+      "key": "cohort-review/stay"
+    }
+  ],
+  "widgets": [
+    {
+      "name": {
+        "en": "Summary"
+      },
+      "description": null,
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 48,
+        "h": 24
+      },
+      "pluginId": "linkr-widget-patient-summary",
+      "language": null,
+      "config": {},
+      "customSql": null,
+      "pluginVersion": "1.0.0",
+      "key": "cohort-review/stay/summary@0,0",
+      "tabKey": "cohort-review/stay"
+    }
+  ]
+}

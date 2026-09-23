@@ -1768,6 +1768,11 @@ class IDBPatientDashboardStorage implements PatientDashboardStorage {
     return db.getAllFromIndex('patient_dashboards', 'by-project', projectUid)
   }
 
+  async getByDatabase(dataSourceId: string): Promise<PatientDashboard[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('patient_dashboards', 'by-owner-source', dataSourceId)
+  }
+
   async getById(id: string): Promise<PatientDashboard | undefined> {
     const db = await getDB()
     return db.get('patient_dashboards', id)

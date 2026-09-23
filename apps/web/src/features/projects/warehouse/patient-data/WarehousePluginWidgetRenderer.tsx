@@ -16,12 +16,13 @@ interface WarehousePluginWidgetRendererProps {
 
 export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidgetRendererProps) {
   const { t } = useTranslation()
-  const { dataSourceId, projectUid, schemaMapping } = usePatientChartContext()
+  const { dataSourceId, projectUid, schemaMapping, can, codeWidgets = true } = usePatientChartContext()
   const widget = usePatientChartStore((s) => s.widgets.find((w) => w.id === widgetId))
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
   const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
   const selectedVisitDetailId = usePatientChartStore((s) => s.selectedVisitDetailId[projectUid] ?? null)
-  const canExecute = useMyProjectRole(projectUid).can('patient-data:execute')
+  const projectRole = useMyProjectRole(projectUid)
+  const canExecute = codeWidgets && (can ?? projectRole.can)('patient-data:execute')
 
   const [result, setResult] = useState<RuntimeOutput | null>(null)
   const [loading, setLoading] = useState(false)
@@ -119,6 +120,15 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
       <div className="flex h-full items-center justify-center gap-2 p-3 text-xs text-muted-foreground">
         <AlertTriangle size={14} />
         {t('patient_data.no_plugin_configured')}
+      </div>
+    )
+  }
+
+  if (!codeWidgets) {
+    return (
+      <div className="flex h-full items-center justify-center gap-2 p-3 text-center text-xs text-muted-foreground">
+        <AlertTriangle size={14} className="shrink-0" />
+        {t('patient_data.code_widget_needs_project')}
       </div>
     )
   }
