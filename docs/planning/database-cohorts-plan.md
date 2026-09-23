@@ -116,7 +116,10 @@ linkable). Needs the database **connected**; otherwise the connect banner.
 💤 later: "Copy to a project" (a database cohort becomes a project cohort — same shape, change
 owner).
 
-## 3. Visualisation tab — one patient board per database
+## 3. Visualisation tab — one patient board per database cohort
+
+> **Revised 2026-09-23**: one board **per cohort** (`ownerCohortId`), not per database — each
+> cohort lays out the review its question needs. The text below describes the first version.
 
 **Reuse `PatientDashboard`** with the same owner rule as cohorts (D2 ✅ — this
 is option (a) of the cohort-review plan, and the database owner makes "one per database"
@@ -133,6 +136,12 @@ unchanged.
   Selection state keyed by `db:<id>` instead of projectUid.
 - Patient set addressing (cohort-review §4.1): **in-memory result rows** (already fetched,
   capped at 10k) — enough for review; the SQL-subquery variant is 💤.
+- **As built, one limit**: in server mode an R/Python widget runs in a *project's* session
+  (`/execute` requires `project_uid`: kernel, bindings, `patient-data:execute` on the
+  project). A database's board has no project, so the add-widget picker offers only the
+  SQL component widgets (summary, timeline, notes, overview) there, and a code widget
+  reaching it by import says why instead of failing. Client mode runs them (Pyodide/webR
+  need only the database). 💤 A workspace-scoped execution path would lift it.
 
 Later, the project Cohorts page gets the same tab with a project-owned reserved board.
 
@@ -190,8 +199,8 @@ in-memory.
   (pointed at existing data) stays READ_ONLY, unchanged.
 - `validate-path?expect=writable-dir` on the workspace fs routes (today they check readable
   only), still bounded by `fs_browse_roots`; refuse an existing file unless "overwrite".
-- Delete: a database in `_databases/` deletes its file (today); an owned file elsewhere asks
-  ("also delete the file?").
+- Delete: a database in `_databases/` deletes its file (today); a file created elsewhere is
+  **left in place** (the user put it there to keep it) and the confirmation says so.
 - Export: `serverPath` already stripped; re-import lands in the managed folder.
 
 ## 6. Deriving from a cohort
@@ -273,7 +282,8 @@ derivedFrom?: {
   customSql?: string
   builtAt: string
   patientCount: number
-  target: 'duckdb' | 'sql-schema'
+  target: 'new-database' | 'schema'
+  copyPersonless?: boolean        // so a rebuild repeats the choice
 }
 ```
 
@@ -300,7 +310,7 @@ databases/<eid>/
   entity.json            # + derivedFrom (portable refs only)
   mapping.json  schema.ddl  README.md  LICENSE.md
   cohorts/<key>.json     # same shape + key scheme as project cohorts (cohortKey)
-  patient-board.json     # {patientDashboard, tabs, widgets}, same shape as patient-dashboards/*.json
+  cohort-boards/<key>.json  # each cohort's board {patientDashboard, tabs, widgets}, shape of patient-dashboards/*.json
 ```
 
 - **Strip `materialization`, `resultCount`, `attrition`, `derivations`** from every cohort
@@ -335,18 +345,24 @@ Ordered so nothing ships that cannot be exported.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Q1. Patient count on database cards (§7) | S |
-| 🔜 | Q2. Fix `materializeCohort` 10k cap + strip `materialization` & co. from cohort exports (client + server + goldens) | S |
-| 🔜 | 1. `DatabaseLocationField` + writable-dir validation + Linkr-owned file (§5), wired into Create from schema | M |
-| 🔜 | 2. Cohort owner model: types, IDB v43, Alembic, schemas, routes/permissions (§2) | M |
-| 🔜 | 3. `CohortHost` refactor of the cohort shell (project routes keep working) + Cohorts tab on the database page | M/L |
-| 🔜 | 4. Export/import/versioning of database cohorts (§8) — client, server twin, linkr-format, goldens | M |
-| 🔜 | 5. Board owner model + `'patients'` tab in `ResultsPanel` + patient list of the result (§3) | M/L |
-| 🔜 | 6. Board in the database export (§8) | S |
-| 🔜 | 7. Report model + `describeCriterion` + small-cell suppression + SVG charts, with tests (§4) | M |
-| 🔜 | 8. HTML renderer + export dialog + PDF via print | M |
-| 🔜 | 9. Word renderer (`docx`) | M |
-| 🔜 | 10. Derive dialog + job: target new DuckDB, self-contained copy, provenance, rebuild (§6a) | L |
-| 🔜 | 11. Derive → new schema in a Linkr-owned DuckDB or Postgres (+ write toggle, + register as a database) (§6b) | M/L |
+| ✅ | Q1. Patient count on database cards (§7) — kept on `stats` after a statistics run; server mode still counts nothing on connect | S |
+| ✅ | Q2. Fix `materializeCohort` 10k cap + strip `materialization` from cohort exports (client + server + golden + pull diff + import) | S |
+| ✅ | 1. `DatabaseLocationField` + new-file validation + Linkr-owned file (`managedPath`, set once by create-from-ddl), wired into Create from schema | M |
+| ✅ | 2. Cohort owner model: types, IDB v43, Alembic, schemas, routes/permissions (§2) — the migration also prepares `patient_dashboards` | M |
+| ✅ | 3. `CohortHost` refactor of the cohort shell (project routes keep working) + Cohorts tab on the database page | M/L |
+| ✅ | 4. Export/import/versioning of database cohorts (§8) — client, server twin, linkr-format, workspace golden | M |
+| ✅ | 5. Board owner model + `'patients'` tab in `ResultsPanel` + patient list of the result (§3) — R/Python widgets unavailable there in server mode (no project session) | M/L |
+| ✅ | 6. Board in the database export (§8) — `patient-board.json`, workspace golden | S |
+| ✅ | 7. Report model + `describeCriterion` + small-cell suppression + SVG charts, with tests (§4) — `lib/cohort-report/`, SQL checked on DuckDB for the 3 levels | M |
+| ✅ | 8. HTML renderer + export dialog + PDF via print — *Report* button in every cohort builder (project too) | M |
+| ✅ | 9. Word renderer (`docx`, lazy-loaded chunk) | M |
+| ✅ | 10a. Server: `POST /data-sources/{id}/derive` + `/derive-plan` (`services/data/cohort_derive.py`: two phases, client SQL read-only alone; per-level filtering; new DuckDB or schema; rebuild; `derived_from` + `cohorts.derivations`, migration `f4a5b6c7d8e9`) — tests on files and routes | L |
+| ✅ | 10b. Client: types, `derivations` stripped on export/import, Derive dialog (new DuckDB with location, or SQL schema in a writable database, person-less toggle, plan preview, rebuild of past derivations), `derivedFrom` card with rebuild on the derived database, `derivedFrom` validated in `linkr-format`. Materialize hidden on database cohorts (nothing reads it there) | M |
+| ✅ | 10d. Report review: in-app preview (the exported HTML in a sandboxed frame), flowchart centred, criteria as a bulleted list, month chart with a Y axis and gap-free bars when dense, data tables by rows desc, per-year table dropped (the month chart has it), SQL coloured (HTML + Word), “Data source” block (database, version, schema, patients in the database) | S |
+| ✅ | 10e. Cards: patient count taken once per database (one `COUNT(*)`, two at a time), stored on the row, refreshed on opening; builder panes can be folded as in an analysis | S |
+| ✅ | 10c. Derivation as a workspace job: `jobs.workspace_id` (one owner: project or workspace), `POST …/derive` → 202 + job, progress per table, cancel interrupts the statement in flight and removes what was half-written, a failed first build deletes its database; footer panel follows workspace jobs and re-reads the databases/cohort when a derivation ends | M |
+| ✅ | 10f. Board per cohort (`patient_dashboards.owner_cohort_id`, migration `b6c7d8e9f0a1` drops the unreleased database-wide boards), `cohort-boards/<key>.json` in the database tree (client, server, validator, golden); move a Linkr-owned file from the Edit dialog (`move-file`); report donut + justified text | M |
+| ✅ | 10g. Delete offers to remove what Linkr created (a file in a server folder, a SQL schema declared from a cohort — only the one recorded at derivation, while the connection still points at it), checked by default, never for an added connection; cohort board settings button + full-width widgets; Patients tab in project cohorts (the project's boards); optimistic cohort edits; report age/sex as in BELAMI | M |
+| 🟡 | 11. Server done in 10a; `allowWrites` toggle added to the Postgres dialog (off by default); a rebuild of a declared schema updates that database instead of declaring it again. Left: testing against a real Postgres | M |
 | 🔜 | 12. `docs/architecture.md`, `docs/ui-patterns.md`, user docs in `../linkr-website` (databases + cohorts pages) | S/M |
 | 💤 | Same visualisation tab on project cohorts · copy a database cohort to a project · server-side PDF · report branding (logo, colours) | — |

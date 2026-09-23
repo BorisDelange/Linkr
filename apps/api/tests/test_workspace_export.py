@@ -33,7 +33,13 @@ from app.services.export_layout import (
     with_entity_type,
 )
 from app.services.mapping_project_export import build_mapping_project_tree
-from app.services.project_export import build_project_tree
+from app.services.project_export import (
+    _build_patient_dashboard_json,
+    _cohort_export_shape,
+    _cohort_keys,
+    _drop_local_database,
+    build_project_tree,
+)
 from app.services.entity_docs import entity_doc_files, license_meta, strip_entity_docs
 from app.services.workspace_export import (
     _sanitize_connection_config,
@@ -368,6 +374,22 @@ def _build_tree() -> dict[str, bytes]:
             if isinstance(ddl, str) and ddl:
                 tree[CONTENT_SCHEMA_DDL] = ddl.encode()
         tree.update(entity_doc_files("", ds))
+        # The database's own cohorts, as _data_source_sub_tree writes them.
+        cohorts = data.get("databaseCohorts", {}).get(ds["id"], [])
+        keys = _cohort_keys(cohorts)
+        for cohort_key, c in keys.items():
+            shaped = _cohort_export_shape(_drop_local_database(_strip_instance_fields(c)))
+            shaped.pop("dataSourceRef", None)
+            tree[f"cohorts/{cohort_key}.json"] = _json_bytes(shaped)
+        # Each cohort's board, under that cohort's key.
+        key_of = {c["id"]: k for k, c in keys.items()}
+        board = data.get("databaseBoards", {}).get(ds["id"])
+        if board and board["patientDashboard"].get("ownerCohortId") in key_of:
+            cohort_key = key_of[board["patientDashboard"]["ownerCohortId"]]
+            tree[f"cohort-boards/{cohort_key}.json"] = _build_patient_dashboard_json(
+                {**board["patientDashboard"], "dataSourceRef": None},
+                board["tabs"], board["widgets"], set(),
+            )
         return tree
 
     data_sources = [

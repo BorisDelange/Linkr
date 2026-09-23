@@ -134,7 +134,10 @@ export function CohortCard({
             <TruncatedText text={localized(cohort.description, i18n.language)} className="text-xs text-muted-foreground" />
           )}
         </div>
-        <EntityDatabaseLine projectUid={cohort.projectUid} dataSourceId={cohort.dataSourceId} />
+        {/* A database's own cohort runs on the database whose page lists it. */}
+        {cohort.projectUid && (
+          <EntityDatabaseLine projectUid={cohort.projectUid} dataSourceId={cohort.dataSourceId} />
+        )}
        </div>
         <CardMetaFooter
           createdById={cohort.createdById}

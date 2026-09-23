@@ -11,6 +11,7 @@ import type { Storage } from '@/lib/storage'
 import { APP_VERSION } from '@/lib/version'
 import { MAPPING_DIR } from '@/lib/duckdb/mapping-source'
 import { deterministicId } from '@/lib/deterministic-id'
+import { deletePatientBoard } from '@/lib/cohort-board-storage'
 import { validateImportZip } from '@/lib/import-validation'
 import {
   type PathNode, type TreeNode,
@@ -35,7 +36,7 @@ import type {
   GitRemoteConfig,
   LocalizedString, TodoItem,
   Organization, OrganizationInfo,
-  AuthorDetails, ProjectBadge,
+  AuthorDetails, ProjectBadge, DerivedFrom,
 } from '@/types'
 import * as engine from '@/lib/duckdb/engine'
 import { localized, toLocalized } from '@/lib/localized'
@@ -856,6 +857,84 @@ export function patientDashboardKey(d: PatientDashboard): string {
   return slugify(localized(d.name, 'en') || d.id)
 }
 
+/**
+ * One patient board as its export file holds it: board, tabs and widgets, ids
+ * replaced by content keys. `hasDataset` says which dataset ids this export
+ * carries — a collection or a timeline variable naming any other is dropped
+ * rather than re-imported bound to nothing (see the call sites).
+ */
+export async function patientBoardBundle(
+  d: PatientDashboard,
+  storage: Storage,
+  hasDataset: (datasetFileId: string) => boolean,
+): Promise<{ patientDashboard: Record<string, unknown>; tabs: Record<string, unknown>[]; widgets: Record<string, unknown>[] }> {
+  const tabs = await storage.patientDashboardTabs.getByDashboard(d.id)
+  const widgets: PatientDashboardWidget[] = []
+  for (const tab of tabs) {
+    widgets.push(...(await storage.patientDashboardWidgets.getByTab(tab.id)))
+  }
+  const boardKey = patientDashboardKey(d)
+  const tabKeyMap = buildPatientTabKeyMap(boardKey, tabs)
+  const widgetKeyMap = buildPatientWidgetKeyMap(tabKeyMap, widgets)
+
+  const boardOut = stripInstanceFields(d) as Record<string, unknown>
+  delete boardOut.id
+  // projectUid is the parent's local PK (regenerated on reimport); import re-sets it.
+  delete boardOut.projectUid
+  // A local database UUID addresses nothing elsewhere; `dataSourceRef` beside it
+  // is the portable pointer the import resolves back to a local row.
+  delete boardOut.dataSourceId
+  // A cohort's board reads the database its cohort runs on (for a database's
+  // own cohort, the database it is exported under): no pointer of its own.
+  if (d.ownerDataSourceId || d.ownerCohortId) delete boardOut.dataSourceRef
+  // A manual collection names the dataset it writes into. That id can be stale
+  // the same way a widget's is (configure front-only, where ids are uuids, then
+  // move to server mode, where they are paths) — and exporting it verbatim would
+  // re-import a collection bound to nothing, silently collecting into the void.
+  // Dropped rather than carried: the board then reads as having no collection,
+  // which is what it actually has, and is fixable in one click.
+  const collection = boardOut.collection as { datasetFileId?: string } | undefined
+  if (collection?.datasetFileId && !hasDataset(collection.datasetFileId)) {
+    delete boardOut.collection
+  }
+
+  const tabsOut = tabs
+    .map((tab) => {
+      const out = stripInstanceFields(tab) as Record<string, unknown>
+      const key = tabKeyMap.get(tab.id)!
+      delete out.id
+      delete out.patientDashboardId
+      return { ...out, key }
+    })
+    .sort((a, b) => compareCodePoints(a.key, b.key))
+
+  const widgetsOut = widgets
+    .map((w) => {
+      const out = stripInstanceFields(w) as Record<string, unknown>
+      const key = widgetKeyMap.get(w.id)!
+      const tabKey = tabKeyMap.get(w.tabId)!
+      delete out.id
+      delete out.tabId
+      // A timeline plots dataset variables alongside the warehouse's concepts,
+      // each naming the dataset it reads. Same staleness as a board's collection
+      // above, so the same treatment: a variable pointing at a dataset this
+      // export does not carry is dropped rather than re-imported dangling.
+      const cfg = out.config as Record<string, unknown> | undefined
+      if (Array.isArray(cfg?.datasets)) {
+        const kept = (cfg.datasets as { datasetFileId?: string }[]).filter(
+          (m) => !m.datasetFileId || hasDataset(m.datasetFileId),
+        )
+        if (kept.length !== cfg.datasets.length) {
+          out.config = { ...cfg, datasets: kept }
+        }
+      }
+      return { ...out, key, tabKey }
+    })
+    .sort((a, b) => compareCodePoints(a.tabKey, b.tabKey) || compareCodePoints(a.key, b.key))
+
+  return { patientDashboard: boardOut, tabs: tabsOut, widgets: widgetsOut }
+}
+
 /** cohortKey — slug of the English name, matching the export filename. English
  *  so the filename (and the id derived from it) stays put when the cohort is
  *  renamed in another language.
@@ -880,6 +959,39 @@ export function cohortKey(c: Cohort): string {
  * other's keys — swapped ids on reimport and a diff with no change behind it.
  * Code-point order on the id, matching Python's `sorted(key=str)`.
  */
+/**
+ * What a cohort file holds — its definition, nothing of this instance. Shared by
+ * a project's `cohorts/` and a database's, so the two cannot drift.
+ */
+export function cohortExportShape(c: Cohort): Record<string, unknown> {
+  const out = stripInstanceFields(c) as Record<string, unknown>
+  // A local database UUID addresses nothing elsewhere; `dataSourceRef` beside it
+  // is the portable pointer the import resolves back to a local row.
+  delete out.dataSourceId
+  // A database's own cohort runs on the database it is exported under: the
+  // folder says which, and a pointer to itself would only be noise.
+  if (c.ownerDataSourceId) delete out.dataSourceRef
+  // Run RESULTS, not definition: both count the patients of THIS instance's
+  // database, so an instance holding the repo without the same data exports
+  // different numbers — a diff neither side can settle, re-appearing after
+  // every recompute. Same rule as a data source's `stats` (see
+  // DATA_SOURCE_LOCAL_FIELDS); the criteria that produce them ARE versioned.
+  delete out.attrition
+  delete out.resultCount
+  // The frozen member ids: patient identifiers of THIS database, never meant
+  // to leave the instance — and meaningless against anyone else's data.
+  delete out.materialization
+  // What this instance derived the cohort into: local database ids, and a
+  // rebuild history only meaningful where those databases exist.
+  delete out.derivations
+  // Key-addressed like a dashboard: the FILENAME is the identity, and the local
+  // id is re-derived from it on import. Versioning the id instead made every
+  // round trip rewrite it — the import re-hashed the repo's id, pushed the new
+  // one back, and the next import re-hashed that: churn that never converged.
+  delete out.id
+  return out
+}
+
 export function buildCohortKeyMap(cohorts: Cohort[]): Map<string, string> {
   const keyOf = new Map<string, string>()
   const seen = new Set<string>()
@@ -980,6 +1092,11 @@ const INSTANCE_FIELDS = [
   // on import (every create passes a fresh projectUid), so versioning it only
   // churns the diff — e.g. datasets/_tree.json flipping projectUid on reimport.
   'projectUid',
+  // Same back-reference for a child owned by a database (its cohorts and their
+  // boards): the local id of the database folder it is exported under, and a
+  // board's cohort — which its file key names instead.
+  'ownerDataSourceId',
+  'ownerCohortId',
   // Local database (data source) UUIDs the project points at: meaningless on
   // another instance, and only diff churn here. `linkedDataSourceRefs` — the
   // portable pointers stamped beside them — is deliberately NOT stripped: it is
@@ -1273,23 +1390,7 @@ export async function buildProjectZip(
   const cohorts = await storage.cohorts.getByProject(projectUid)
   const cohortKeys = buildCohortKeyMap(cohorts)
   for (const c of cohorts) {
-    const out = stripInstanceFields(c) as Record<string, unknown>
-    // A local database UUID addresses nothing elsewhere; `dataSourceRef` beside it
-    // is the portable pointer the import resolves back to a local row.
-    delete out.dataSourceId
-    // Run RESULTS, not definition: both count the patients of THIS instance's
-    // database, so an instance holding the repo without the same data exports
-    // different numbers — a diff neither side can settle, re-appearing after
-    // every recompute. Same rule as a data source's `stats` (see
-    // DATA_SOURCE_LOCAL_FIELDS); the criteria that produce them ARE versioned.
-    delete out.attrition
-    delete out.resultCount
-    // Key-addressed like a dashboard: the FILENAME is the identity, and the local
-    // id is re-derived from it on import. Versioning the id instead made every
-    // round trip rewrite it — the import re-hashed the repo's id, pushed the new
-    // one back, and the next import re-hashed that: churn that never converged.
-    delete out.id
-    zip.file(`cohorts/${cohortKeys.get(c.id) ?? cohortKey(c)}.json`, json(out))
+    zip.file(`cohorts/${cohortKeys.get(c.id) ?? cohortKey(c)}.json`, json(cohortExportShape(c)))
   }
 
   // --- concept-lists/ ---
@@ -1389,74 +1490,26 @@ export async function buildProjectZip(
   // --- patient-dashboards/ (each board = board + tabs + widgets in one file) ---
   // Same content-key scheme as dashboards/ above, so a delete+reimport re-derives
   // the same ids and the git diff stays byte-stable.
-  const patientBoards = (await storage.patientDashboards.getByProject(projectUid))
-    .slice()
+  const allPatientBoards = await storage.patientDashboards.getByProject(projectUid)
+  const patientBoards = allPatientBoards
+    .filter((d) => !d.ownerCohortId)
     .sort((a, b) => compareCodePoints(patientDashboardKey(a), patientDashboardKey(b)))
   for (const d of patientBoards) {
-    const tabs = await storage.patientDashboardTabs.getByDashboard(d.id)
-    const widgets: PatientDashboardWidget[] = []
-    for (const tab of tabs) {
-      widgets.push(...(await storage.patientDashboardWidgets.getByTab(tab.id)))
-    }
     const boardKey = patientDashboardKey(d)
-    const tabKeyMap = buildPatientTabKeyMap(boardKey, tabs)
-    const widgetKeyMap = buildPatientWidgetKeyMap(tabKeyMap, widgets)
-
-    const boardOut = stripInstanceFields(d) as Record<string, unknown>
-    delete boardOut.id
-    // projectUid is the parent's local PK (regenerated on reimport); import re-sets it.
-    delete boardOut.projectUid
-    // A local database UUID addresses nothing elsewhere; `dataSourceRef` beside it
-    // is the portable pointer the import resolves back to a local row.
-    delete boardOut.dataSourceId
-    // A manual collection names the dataset it writes into. That id can be stale
-    // the same way a widget's is (configure front-only, where ids are uuids, then
-    // move to server mode, where they are paths) — and exporting it verbatim would
-    // re-import a collection bound to nothing, silently collecting into the void.
-    // Dropped rather than carried: the board then reads as having no collection,
-    // which is what it actually has, and is fixable in one click.
-    const collection = boardOut.collection as { datasetFileId?: string } | undefined
-    if (collection?.datasetFileId && !exportedDatasetIds.has(collection.datasetFileId)) {
-      delete boardOut.collection
-    }
-
-    const tabsOut = tabs
-      .map((tab) => {
-        const out = stripInstanceFields(tab) as Record<string, unknown>
-        const key = tabKeyMap.get(tab.id)!
-        delete out.id
-        delete out.patientDashboardId
-        return { ...out, key }
-      })
-      .sort((a, b) => compareCodePoints(a.key, b.key))
-
-    const widgetsOut = widgets
-      .map((w) => {
-        const out = stripInstanceFields(w) as Record<string, unknown>
-        const key = widgetKeyMap.get(w.id)!
-        const tabKey = tabKeyMap.get(w.tabId)!
-        delete out.id
-        delete out.tabId
-        // A timeline plots dataset variables alongside the warehouse's concepts,
-        // each naming the dataset it reads. Same staleness as a board's collection
-        // above, so the same treatment: a variable pointing at a dataset this
-        // export does not carry is dropped rather than re-imported dangling.
-        const cfg = out.config as Record<string, unknown> | undefined
-        if (Array.isArray(cfg?.datasets)) {
-          const kept = (cfg.datasets as { datasetFileId?: string }[]).filter(
-            (m) => !m.datasetFileId || exportedDatasetIds.has(m.datasetFileId),
-          )
-          if (kept.length !== cfg.datasets.length) {
-            out.config = { ...cfg, datasets: kept }
-          }
-        }
-        return { ...out, key, tabKey }
-      })
-      .sort((a, b) => compareCodePoints(a.tabKey, b.tabKey) || compareCodePoints(a.key, b.key))
-
     zip.file(
       `patient-dashboards/${slugify(localized(d.name, 'en') || boardKey || d.id)}.json`,
-      json({ patientDashboard: boardOut, tabs: tabsOut, widgets: widgetsOut }),
+      json(await patientBoardBundle(d, storage, (id) => exportedDatasetIds.has(id))),
+    )
+  }
+  // --- cohort-boards/ (each cohort's own board, under the cohort's key) ---
+  // Not a Patient data board: it hangs off its cohort, so a board whose cohort
+  // this export does not carry has nothing to be read back into.
+  for (const d of allPatientBoards) {
+    const key = d.ownerCohortId ? cohortKeys.get(d.ownerCohortId) : undefined
+    if (!key) continue
+    zip.file(
+      `${COHORT_BOARDS_DIR}${key}.json`,
+      json(await patientBoardBundle(d, storage, (id) => exportedDatasetIds.has(id))),
     )
   }
 
@@ -1584,6 +1637,9 @@ export interface ParsedProjectZip {
   patientDashboards?: PatientDashboard[]
   patientDashboardTabs?: ParsedPatientDashboardTab[]
   patientDashboardWidgets?: ParsedPatientDashboardWidget[]
+  /** Each cohort's own board (`cohort-boards/<cohort key>.json`), by that key.
+   *  Optional like the patient boards above. */
+  cohortBoards?: Map<string, CohortBoardBundle>
   datasetFiles: DatasetFile[]
   datasetAnalyses: DatasetAnalysis[]
   /** CSV data parsed from _data/ folder, keyed by datasetFileId */
@@ -1866,20 +1922,30 @@ export async function importProjectContent(
   for (const c of parsed.cohorts) {
     // `exportKey` is read from the filename and must not be stored: it is how the
     // tree addressed this cohort, not a property of the cohort.
-    const { exportKey, ...cohort } = c
-    await storage.cohorts.create(
-      dropForeignAuthorId({
-        ...cohort,
-        // Same rule as a patient board: a key-based export carries no id, so the
-        // id comes from the content key and a re-import lands on the same row.
-        // The key is the FILENAME (`exportKey`), which disambiguates two cohorts
-        // sharing a name — deriving it from the name would give them one id and
-        // drop one. `mapId` stays for exports written before the id was dropped.
-        id: c.id ? mapId(c.id) : keyId(exportKey ?? cohortKey(c)),
+    // `materialization` was exported before it was stripped: another instance's
+    // patient ids, which address nothing here.
+    const { exportKey, materialization: _materialization, derivations: _derivations, ...cohort } = c
+    const key = exportKey ?? cohortKey(c)
+    const record = dropForeignAuthorId({
+      ...cohort,
+      // Same rule as a patient board: a key-based export carries no id, so the
+      // id comes from the content key and a re-import lands on the same row.
+      // The key is the FILENAME (`exportKey`), which disambiguates two cohorts
+      // sharing a name — deriving it from the name would give them one id and
+      // drop one. `mapId` stays for exports written before the id was dropped.
+      id: c.id ? mapId(c.id) : keyId(key),
+      projectUid,
+      dataSourceId: localDatabaseId(c.dataSourceRef),
+    })
+    await storage.cohorts.create(record)
+    const board = parsed.cohortBoards?.get(key)
+    if (board) {
+      await createCohortBoard(storage, board, projectCohortBoardKeyId(projectUid, key), {
         projectUid,
-        dataSourceId: localDatabaseId(c.dataSourceRef),
-      }),
-    )
+        ownerCohortId: record.id,
+        dataSourceId: record.dataSourceId,
+      })
+    }
   }
   for (const c of parsed.connections) {
     await storage.connections.create({ ...c, id: mapId(c.id), projectUid })
@@ -1996,6 +2062,10 @@ export async function importProjectContent(
     })
   }
   for (const a of parsed.datasetAnalyses) {
+    // A dataset exported without its data (not marked for versioning) is not
+    // recreated on a server, and an analysis of it has nothing to belong to —
+    // the create was refused, failing the rest of the import.
+    if (isServerMode() && !datasetIdMap.has(a.datasetFileId)) continue
     await storage.datasetAnalyses.create({
       ...a,
       id: mapId(a.id),
@@ -2545,6 +2615,7 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
     project, ideFiles, pipelines, cohorts, conceptLists, connections,
     dashboards, dashboardTabs, dashboardWidgets,
     patientDashboards, patientDashboardTabs, patientDashboardWidgets,
+    cohortBoards: await readCohortBoards(zip, ''),
     datasetFiles, datasetAnalyses, datasetData, datasetRawFiles, attachmentsMeta, attachmentBlobs,
     envSpecs,
   }
@@ -2689,6 +2760,166 @@ export async function buildDataSourceFolder(
   // dropped the publishing organization from the repo.
   await attachEntityOrganization(zip, `${prefix}${ENTITY_MANIFEST}`, source, storage)
   await writeEntityDocs(zip, prefix, source, storage, 'data-source', source.id)
+  // The database's own cohorts — the definitions, never a patient id (see
+  // cohortExportShape). Same file layout and keys as a project's.
+  const cohorts = await storage.cohorts?.getByDatabase(source.id).catch(() => []) ?? []
+  const cohortKeys = buildCohortKeyMap(cohorts)
+  for (const c of cohorts) {
+    zip.file(`${prefix}${DATABASE_COHORTS_DIR}${cohortKeys.get(c.id) ?? cohortKey(c)}.json`, json(cohortExportShape(c)))
+  }
+  // Each cohort's patient board, the lens its patients are reviewed through,
+  // under the cohort's own key. A database tree carries no dataset, so nothing
+  // may point at one.
+  const boards = await storage.patientDashboards?.getByDatabase(source.id).catch(() => []) ?? []
+  for (const board of boards) {
+    const key = board.ownerCohortId ? cohortKeys.get(board.ownerCohortId) : undefined
+    if (!key) continue
+    zip.file(`${prefix}${COHORT_BOARDS_DIR}${key}.json`, json(await patientBoardBundle(board, storage, () => false)))
+  }
+}
+
+/** Where a database or project tree keeps its cohorts' boards (`<cohort key>.json`). */
+export const COHORT_BOARDS_DIR = 'cohort-boards/'
+
+/** A cohort's board as its owner's tree holds it (same shape as a project's
+ *  `patient-dashboards/*.json`). */
+export interface CohortBoardBundle {
+  patientDashboard: PatientDashboard
+  tabs: ParsedPatientDashboardTab[]
+  widgets: ParsedPatientDashboardWidget[]
+}
+
+/** The boards under `prefix + cohort-boards/`, by the key of the cohort each belongs to. */
+export async function readCohortBoards(zip: JSZip, prefix: string): Promise<Map<string, CohortBoardBundle>> {
+  const dir = `${prefix}${COHORT_BOARDS_DIR}`
+  const out = new Map<string, CohortBoardBundle>()
+  for (const [path, entry] of scanFolder(zip, dir)) {
+    const name = path.slice(dir.length)
+    if (!name.endsWith('.json') || name.includes('/')) continue
+    const bundle = JSON.parse(await entry.async('string')) as CohortBoardBundle
+    if (bundle?.patientDashboard) out.set(name.slice(0, -'.json'.length), bundle)
+  }
+  return out
+}
+
+/**
+ * Make the database's cohort boards the tree's, as `replaceDatabaseCohorts`
+ * does for its cohorts — and for the same reason, a tree without any leaves the
+ * local boards alone. Run after the cohorts: a board's cohort id is the one
+ * `replaceDatabaseCohorts` derives from the same key, and every other id is
+ * derived from the database, that key and the board's own content keys.
+ */
+export async function replaceDatabaseBoards(
+  storage: Storage,
+  dataSourceId: string,
+  bundles: Map<string, CohortBoardBundle>,
+): Promise<void> {
+  if (bundles.size === 0) return
+  for (const old of await storage.patientDashboards.getByDatabase(dataSourceId).catch(() => [])) {
+    await deletePatientBoard(storage, old.id)
+  }
+  for (const [cohortKey, bundle] of bundles) {
+    // Scoped by the cohort key: two boards may well share tab and widget keys.
+    await createCohortBoard(storage, bundle, (key) => deterministicId(dataSourceId, `${cohortKey}/${key}`), {
+      ownerDataSourceId: dataSourceId,
+      ownerCohortId: deterministicId(dataSourceId, cohortKey),
+      dataSourceId,
+    })
+  }
+}
+
+/** Ids of a project cohort's board, from its content keys: scoped by the cohort
+ *  key (two boards may share tab keys) and apart from the Patient data boards'. */
+export function projectCohortBoardKeyId(projectUid: string, cohortKey: string): (key: string) => string {
+  return (key) => deterministicId(projectUid, `${COHORT_BOARDS_DIR}${cohortKey}/${key}`)
+}
+
+/**
+ * Write one cohort board read from a tree — board, tabs, widgets — under ids
+ * `keyId` derives from its content keys, owned as `owner` says. The owner fields
+ * a hand-made tree may carry are the tree's word against the folder's: dropped.
+ */
+export async function createCohortBoard(
+  storage: Storage,
+  bundle: CohortBoardBundle,
+  keyId: (key: string) => string,
+  owner: Pick<PatientDashboard, 'projectUid' | 'ownerDataSourceId' | 'ownerCohortId' | 'dataSourceId'>,
+): Promise<void> {
+  const {
+    id: _id, projectUid: _projectUid, ownerDataSourceId: _ownerDataSourceId, ownerCohortId: _ownerCohortId,
+    ...board
+  } = bundle.patientDashboard
+  const boardId = keyId(patientDashboardKey(bundle.patientDashboard))
+  await storage.patientDashboards.create(dropForeignAuthorId({ ...board, ...owner, id: boardId }) as PatientDashboard)
+  for (const tab of bundle.tabs ?? []) {
+    const { key, ...rest } = tab
+    if (!key) continue
+    await storage.patientDashboardTabs.create({ ...rest, id: keyId(key), patientDashboardId: boardId } as PatientDashboardTab)
+  }
+  for (const w of bundle.widgets ?? []) {
+    const { key, tabKey, ...rest } = w
+    if (!key || !tabKey) continue
+    await storage.patientDashboardWidgets.create({ ...rest, id: keyId(key), tabId: keyId(tabKey) } as PatientDashboardWidget)
+  }
+}
+
+/** Where a database tree keeps its own cohorts, relative to the tree root. */
+export const DATABASE_COHORTS_DIR = 'cohorts/'
+
+/** The cohort files under `prefix + cohorts/`, each carrying its filename key. */
+export async function readDatabaseCohorts(zip: JSZip, prefix: string): Promise<Cohort[]> {
+  const dir = `${prefix}${DATABASE_COHORTS_DIR}`
+  const out: Cohort[] = []
+  for (const [path, entry] of scanFolder(zip, dir)) {
+    const key = path.slice(dir.length)
+    if (!key.endsWith('.json') || key.includes('/')) continue
+    const cohort = JSON.parse(await entry.async('string')) as Cohort
+    // The filename is the identity (see `exportKey`).
+    cohort.exportKey = key.slice(0, -'.json'.length)
+    out.push(cohort)
+  }
+  return out
+}
+
+/**
+ * Make the database's own cohorts exactly the ones in the tree: a pull or a
+ * re-import takes the tree whole, as it does for the database itself. Ids are
+ * derived from the database and the file key, so re-importing lands on the same
+ * rows and a cohort removed upstream is removed here.
+ */
+export async function replaceDatabaseCohorts(
+  storage: Storage,
+  dataSourceId: string,
+  incoming: Cohort[],
+): Promise<void> {
+  // A tree with no cohort at all is left alone: git keeps no empty folder, so it
+  // cannot say "the last cohort was deleted" apart from "written before database
+  // cohorts existed" — and reading the second as the first would wipe every
+  // cohort authored here on the first pull of an older repo.
+  if (incoming.length === 0) return
+  const existing = await storage.cohorts.getByDatabase(dataSourceId).catch(() => [])
+  const keep = new Set<string>()
+  for (const c of incoming) {
+    // `materialization`: exported before it was stripped — another instance's
+    // patient ids. `projectUid`: a hand-made tree has no business setting one.
+    // `derivations` is this instance's: a pull keeps the local record, since
+    // the update merges and the tree never carries one.
+    const { exportKey, materialization: _materialization, projectUid: _projectUid, derivations: _derivations, ...cohort } = c
+    const id = deterministicId(dataSourceId, exportKey ?? cohortKey(c))
+    keep.add(id)
+    const record = dropForeignAuthorId({
+      ...cohort,
+      id,
+      ownerDataSourceId: dataSourceId,
+      dataSourceId,
+    }) as Cohort
+    const current = existing.find((e) => e.id === id)
+    if (current) await storage.cohorts.update(id, record)
+    else await storage.cohorts.create(record)
+  }
+  for (const c of existing) {
+    if (!keep.has(c.id)) await storage.cohorts.delete(c.id).catch(() => {})
+  }
 }
 
 /**
@@ -3226,6 +3457,7 @@ interface DatabaseRepoMeta {
   lineageId?: string
   parentLineageId?: string
   badges?: ProjectBadge[]
+  derivedFrom?: DerivedFrom
 }
 
 /**
@@ -3319,6 +3551,7 @@ async function applyClonedDatabase(
     // across instances, the label names it here even when that preset is not
     // installed. Both travel with the repo.
     ...(meta.schemaSource ? { schemaSource: meta.schemaSource } : {}),
+    ...(meta.derivedFrom ? { derivedFrom: meta.derivedFrom } : {}),
     status: 'configuring' as const,
     ...(meta.isVocabularyReference ? { isVocabularyReference: true } : {}),
     ...(meta.version ? { version: meta.version } : {}),
@@ -3372,6 +3605,14 @@ async function applyClonedDatabase(
     workspaceId,
   ).catch((err) => {
     console.error(`[import] attachments failed for "${targetId}":`, err)
+  })
+  // After the row, like the attachments: the server authorizes a database's
+  // cohorts through the database. Never fatal — the database itself imported.
+  await replaceDatabaseCohorts(storage, targetId, await readDatabaseCohorts(zip, '')).catch((err) => {
+    console.error(`[import] cohorts failed for "${targetId}":`, err)
+  })
+  await replaceDatabaseBoards(storage, targetId, await readCohortBoards(zip, '')).catch((err) => {
+    console.error(`[import] patient board failed for "${targetId}":`, err)
   })
 
   // The row has to exist BEFORE its files: in server mode `files.create` registers
@@ -4534,6 +4775,11 @@ export interface ParsedWorkspaceZip {
   projectEntries: ParsedProjectEntry[]
   schemas: CustomSchemaPreset[]
   databases: Partial<DataSource>[]
+  /** Each database's own cohorts, by the parsed database's `id`. */
+  databaseCohorts: Map<string, Cohort[]>
+  /** Each database's own patient board, by the parsed database's `id`. */
+  /** Per database id: its cohorts' boards, by cohort key. */
+  databaseBoards: Map<string, Map<string, CohortBoardBundle>>
   wikiPages: WikiPage[]
   /** The workspace README's own images. */
   workspaceAttachments?: ParsedEntityAttachments
@@ -4728,6 +4974,8 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
 
   // --- databases/ (sanitized connection metadata) ---
   const databases: Partial<DataSource>[] = []
+  const databaseCohorts = new Map<string, Cohort[]>()
+  const databaseBoards = new Map<string, Map<string, CohortBoardBundle>>()
   for (const folder of entityFolders(zipData, 'databases/')) {
     const prefix = `databases/${folder}/`
     const ds = await readEntityManifest<Partial<DataSource> & { schema?: unknown }>(zipData, prefix, 'database')
@@ -4745,6 +4993,8 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const docs = await readEntityDocs(zipData, prefix, ds as { readmeLang?: string })
     if (docs.readme) ds.readme = docs.readme
     if (docs.license) ds.license = docs.license
+    databaseCohorts.set(ds.id, await readDatabaseCohorts(zipData, prefix))
+    databaseBoards.set(ds.id, await readCohortBoards(zipData, prefix))
     databases.push(ds)
   }
   // Flat form written before databases moved to a folder: the whole row, mapping
@@ -5012,7 +5262,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
 
   return {
-    workspace, organization, projects, projectEntries, schemas, databases,
+    workspace, organization, projects, projectEntries, schemas, databases, databaseCohorts, databaseBoards,
     workspaceAttachments: { meta: workspaceAttachments.attachmentsMeta, blobs: workspaceAttachments.attachmentBlobs },
     wikiPages, wikiAttachmentsMeta, wikiAttachmentBlobs,
     sqlCollections, etlPipelines, dqRuleSets, conceptSets,

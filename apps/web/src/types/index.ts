@@ -8,6 +8,7 @@ export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGro
 export { getDefaultDimensions } from './catalog'
 export type { AuthorDetails, Authored, Lineaged } from './author'
 import type { Authored, Lineaged } from './author'
+import type { DerivedFrom } from './cohort'
 // The ops log is defined once, in the format package, because the replay engine
 // there is the shared contract between the client, the server and the validator.
 export type { DatasetOp } from '@linkr/format'
@@ -283,6 +284,13 @@ export interface DatabaseConnectionConfig {
   /** Server mode: a writable DuckDB file the server owns (created from a
    *  schema's DDL), as opposed to an uploaded, read-only source file. */
   managed?: boolean
+  /** Server mode, with `managed`: the file was created in this server folder
+   *  rather than Linkr's data folder. Set by the server alone, once, at creation
+   *  (it refuses to take it from a client); never exported. */
+  managedPath?: string
+  /** Postgres, server mode: the owner lets Linkr create schemas in it (a
+   *  cohort's derivation). Off by default — every connection is read-only. */
+  allowWrites?: boolean
   /** Server mode: an absolute server path this database points at — a DuckDB /
    *  SQLite file, or a folder of Parquet. The data is read where it lies and
    *  never copied, which is the only workable option past the upload ceiling.
@@ -428,6 +436,8 @@ export interface DataSource extends Seedable, Authored, Lineaged {
    * mapping was hand-built rather than taken from a preset.
    */
   schemaSource?: SchemaSource
+  /** Set when this database is a cohort's derivation of another one. */
+  derivedFrom?: DerivedFrom
   status: DataSourceStatus
   stats?: DataSourceStats
   /** Human-readable error message when status is 'error'. */
@@ -712,7 +722,17 @@ export type Language = 'en' | 'fr'
 
 export interface PatientDashboard extends Seedable, Authored {
   id: string
-  projectUid: string
+  /**
+   * The owner — exactly one of the two. A database (`ownerDataSourceId`) holds
+   * one board per cohort (`ownerCohortId`), the board that cohort's patients are
+   * reviewed through, always reading that database. A project holds any number
+   * of Patient data boards, and beside them one board per project cohort
+   * (`ownerCohortId` set), reading the database the cohort runs on — shown with
+   * the cohort, never among the Patient data boards.
+   */
+  projectUid?: string
+  ownerDataSourceId?: string
+  ownerCohortId?: string
   name: LocalizedString
   description?: LocalizedString
   /** Which linked database this board reads. Optional: a board written before
@@ -868,6 +888,9 @@ export type {
   CriteriaTreeNode,
   Cohort,
   CohortMaterialization,
+  CohortDerivation,
+  DerivationTargetKind,
+  DerivedFrom,
   AttritionStep,
   CohortExecutionResult,
 } from './cohort'

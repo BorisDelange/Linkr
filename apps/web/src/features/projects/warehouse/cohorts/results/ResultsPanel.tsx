@@ -1,10 +1,10 @@
 import { useTranslation } from 'react-i18next'
-import { Users, BarChart3, Table2, Download, Loader2, AlertCircle } from 'lucide-react'
+import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ResultsTable } from './ResultsTable'
 import { AttritionChart } from './AttritionChart'
 import type { CohortExecutionResult } from '@/types'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 interface ResultsPanelProps {
   result: CohortExecutionResult | null
@@ -13,11 +13,14 @@ interface ResultsPanelProps {
   error?: string | null
   onExecute: () => void
   onExportCsv: () => void
+  /** A third tab reviewing the result's patients, where the host has a board to
+   *  show them through (a database's cohorts). Rendered only while it is open. */
+  renderPatients?: (result: CohortExecutionResult) => ReactNode
 }
 
-export function ResultsPanel({ result, loading, error, onExecute, onExportCsv }: ResultsPanelProps) {
+export function ResultsPanel({ result, loading, error, onExecute, onExportCsv, renderPatients }: ResultsPanelProps) {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<'results' | 'attrition'>('results')
+  const [activeTab, setActiveTab] = useState<'results' | 'attrition' | 'patients'>('results')
 
   if (!result && !loading) {
     return (
@@ -38,7 +41,7 @@ export function ResultsPanel({ result, loading, error, onExecute, onExportCsv }:
             <p className="text-sm">{t('cohorts.results_empty')}</p>
           </>
         )}
-        <Button variant="outline" size="sm" onClick={onExecute} className="gap-1.5">
+        <Button size="sm" onClick={onExecute} className="gap-1.5">
           {t('cohorts.execute')}
         </Button>
       </div>
@@ -105,6 +108,20 @@ export function ResultsPanel({ result, loading, error, onExecute, onExportCsv }:
               <BarChart3 size={12} />
               {t('cohorts.results_attrition')}
             </button>
+            {renderPatients && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('patients')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                  activeTab === 'patients'
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Contact size={12} />
+                {t('cohorts.results_patients')}
+              </button>
+            )}
           </div>
 
           {/* The results table scrolls and paginates internally; the attrition
@@ -125,6 +142,8 @@ export function ResultsPanel({ result, loading, error, onExecute, onExportCsv }:
                 <ResultsTable rows={result.rows} />
               </div>
             </div>
+          ) : activeTab === 'patients' && renderPatients ? (
+            <div className="min-h-0 flex-1 overflow-hidden">{renderPatients(result)}</div>
           ) : (
             <div className="min-h-0 flex-1 overflow-auto">
               <AttritionChart attrition={result.attrition} />

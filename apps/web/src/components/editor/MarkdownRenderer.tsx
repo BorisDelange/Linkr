@@ -8,6 +8,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import 'katex/dist/katex.min.css'
 import { ExternalLink } from 'lucide-react'
 import { markdownComponents, processCallouts } from '@/components/editor/markdown-components'
+import { foldAccents } from '@/lib/fold-accents'
 
 export { markdownComponents, processCallouts } from '@/components/editor/markdown-components'
 
@@ -91,7 +92,7 @@ function processToc(markdown: string): string {
     if (match) {
       const level = match[1].length
       const text = match[2].trim()
-      const id = text
+      const id = foldAccents(text)
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)/g, '')
@@ -281,7 +282,7 @@ function getHeadingId(children: React.ReactNode): string {
     : Array.isArray(children)
       ? children.map((c) => (typeof c === 'string' ? c : '')).join('')
       : ''
-  return text
+  return foldAccents(text)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')

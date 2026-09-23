@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DataSource, DatabaseConnectionConfig } from '@/types'
 import { localized } from '@/lib/localized'
@@ -9,6 +9,7 @@ import {
   Plug,
   Unplug,
   RefreshCw,
+  Users,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
@@ -17,6 +18,7 @@ import { selectedCardClass } from '@/components/ui/use-card-selection'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { useDatabaseActions } from './use-database-actions'
 
 interface DatabaseCardProps {
@@ -27,7 +29,10 @@ interface DatabaseCardProps {
   onReconnect?: () => void
   /** The destructive action, run AFTER the menu's own confirmation — the card
    *  must not raise a second dialog of its own. */
-  onRemove: () => void
+  onRemove: (deleteData?: boolean) => void
+  /** A real delete (the workspace's card, not a project's unlink): the
+   *  confirmation then offers to remove what Linkr created for the database. */
+  offerDataRemoval?: boolean
   /** Wording for that action and its confirmation, when the default ("delete this
    *  database") is wrong: a project's card unlinks, and the workspace's card
    *  warns about the projects it is about to unlink. */
@@ -83,6 +88,7 @@ export const DatabaseCard = memo(function DatabaseCard({
   onDisconnect,
   onReconnect,
   onRemove,
+  offerDataRemoval = false,
   removeLabelKey,
   removeConfirmTitleKey,
   removeConfirmDescriptionKey,
@@ -104,6 +110,13 @@ export const DatabaseCard = memo(function DatabaseCard({
   const workspaceOrgId = useWorkspaceStore(
     (s) => s._workspacesRaw.find((w) => w.id === source.workspaceId)?.organizationId,
   )
+
+  // A database never opened has no stored count: take it once, and keep it.
+  const refreshPatientCount = useDataSourceStore((s) => s.refreshPatientCount)
+  const missingCount = source.status === 'connected' && source.stats?.patientCount == null
+  useEffect(() => {
+    if (missingCount) void refreshPatientCount(source.id)
+  }, [missingCount, source.id, refreshPatientCount])
 
   const summary = getSourceSummary(source, i18n.language)
   const config = source.connectionConfig as DatabaseConnectionConfig
@@ -139,7 +152,7 @@ export const DatabaseCard = memo(function DatabaseCard({
 
         <div className="min-w-0 flex-1">
           <TruncatedText text={localized(source.name, i18n.language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
-          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
             <span
               className={`size-2 shrink-0 rounded-full ${statusColors[source.status] ?? statusColors.disconnected}`}
             />
@@ -147,6 +160,18 @@ export const DatabaseCard = memo(function DatabaseCard({
               {t(`databases.status_${source.status}`)} &middot; {summary}
             </span>
           </p>
+
+          {source.stats?.patientCount != null && (
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Users size={12} className="shrink-0" />
+              <span className="tabular-nums">
+                {t('databases.card_patients', {
+                  count: source.stats.patientCount,
+                  formatted: source.stats.patientCount.toLocaleString(i18n.language),
+                })}
+              </span>
+            </p>
+          )}
 
           {/* Error status is shown by the status dot; the full message lives in
               the detail panel. Keep the card light — just the linked-projects strip. */}
@@ -163,7 +188,8 @@ export const DatabaseCard = memo(function DatabaseCard({
           deleteOnly={deleteOnly}
           canEdit={canEdit}
           canDelete={canEdit}
-          onDelete={async () => onRemove()}
+          onDelete={async (_id, deleteData) => onRemove(deleteData)}
+          deleteOption={offerDataRemoval ? actions.deleteOption : undefined}
           deleteLabelKey={removeLabelKey}
           deleteConfirmTitleKey={removeConfirmTitleKey ?? actions.deleteConfirmTitleKey}
           deleteConfirmDescriptionKey={removeConfirmDescriptionKey ?? actions.deleteConfirmDescriptionKey}

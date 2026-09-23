@@ -5,16 +5,23 @@ from app.models.base import JSONB_or_JSON, Base, LocalizedText, TimestampMixin
 
 
 class Cohort(Base, TimestampMixin):
-    """A project's cohort definition: a criteria tree (JSON) plus optional SQL
-    override. Cached execution results (count/attrition) are stored but derived —
-    recomputed on demand."""
+    """A cohort definition: a criteria tree (JSON) plus optional SQL override.
+    Cached execution results (count/attrition) are stored but derived —
+    recomputed on demand.
+
+    Owned by exactly one of a project (`project_uid`) or a database
+    (`owner_data_source_id`, the cohorts of the database page); the services
+    enforce the one-owner rule. Deleting the owner deletes the cohort."""
 
     __tablename__ = "cohorts"
 
     # Frontend keys cohorts by client-supplied UUID.
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    project_uid: Mapped[str] = mapped_column(
+    project_uid: Mapped[str | None] = mapped_column(
         ForeignKey("projects.uid", ondelete="CASCADE")
+    )
+    owner_data_source_id: Mapped[str | None] = mapped_column(
+        ForeignKey("data_sources.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[dict] = mapped_column(LocalizedText, default=dict)  # LocalizedString
     description: Mapped[dict | None] = mapped_column(LocalizedText)  # LocalizedString
@@ -33,6 +40,9 @@ class Cohort(Base, TimestampMixin):
     # Frozen membership snapshot (level, ids, patientIds, count, materializedAt).
     # Persisted and shared across users in fullstack mode.
     materialization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # What this cohort was derived into — [{kind, targetId, schemaName?, builtAt,
+    # patientCount}]. Instance state (local ids), never exported.
+    derivations: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     # Matches CURRENT_SCHEMA_VERSION in the frontend's cohort-store: a row the
     # server creates must not read as stale and get re-migrated on the client.
     schema_version: Mapped[int] = mapped_column(Integer, default=5)

@@ -10,6 +10,7 @@ from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
 from app.core.ws_auth import authenticate_ws
+from app.models.cohort import Cohort
 from app.models.data_source import DataSource
 from app.models.user import User
 from app.schemas.concept_cache import (
@@ -24,11 +25,14 @@ from app.schemas.data_source import (
     CompactStatus,
     DatabaseConnectionInfo,
     CreateFromDdlRequest,
+    MoveFileRequest,
     DataSourceCreate,
     DataSourceFileImportRequest,
     DataSourceFileResponse,
     DataSourceResponse,
     DataSourceUpdate,
+    DerivePlanRequest,
+    DeriveRequest,
     EtlRunRequest,
     IntrospectedTable,
     QueryRequest,
@@ -39,11 +43,14 @@ from app.schemas.data_source import (
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
 from app.services import (
     blob_store,
+    cohort_derive_service,
     concept_stats_cache_service,
     data_source_service,
     stats_cache_service,
 )
-from app.services.data import concept_cache_fs, db_connect, managed_db
+from app.services.data import concept_cache_fs, connection_pool, db_connect, managed_db
+from app.services.execution import jobs
+from app.schemas.execution import JobResponse
 
 router = APIRouter(prefix="/data-sources", tags=["data-sources"])
 
@@ -192,11 +199,19 @@ async def update_data_source(
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_data_source(
     source_id: str,
+    delete_data: bool = Query(default=False, alias="deleteData"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """`deleteData` also removes what Linkr created for the database — a file in
+    a server folder, or the SQL schema a cohort was derived into."""
     source = await _load_source(db, source_id, user, "databases:delete")
-    await data_source_service.delete(db, source)
+    try:
+        await data_source_service.delete(db, source, delete_data=delete_data)
+    except Exception as e:  # noqa: BLE001 — a failed drop keeps the database, and says why
+        if not delete_data:
+            raise
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"could not remove its data: {e}") from e
 
 
 @router.post("/{source_id}/query", response_model=QueryResult)
@@ -219,6 +234,99 @@ async def query_data_source(
     return QueryResult(rows=rows)
 
 
+@router.post("/{source_id}/derive-plan")
+async def derive_plan(
+    source_id: str,
+    body: DerivePlanRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """What deriving a cohort of this database would do with each of its tables."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    try:
+        return await cohort_derive_service.plan(db, source, body.level)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+
+
+@router.post("/{source_id}/derive", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
+async def derive(
+    source_id: str,
+    body: DeriveRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Copy this database's tables, filtered on a cohort, into a new database or a
+    new SQL schema — as a job of the database's workspace, returned queued: a
+    copy of a large database takes minutes. Reading the source needs
+    `databases:read`; the target is written, so it needs `databases:write` — and
+    a cohort updated with the result must be one of this database's own.
+
+    Every refusal that needs no data (target, name, write toggle) answers 400
+    here; the job's own failures land on the job."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    target = await _load_source(db, body.target.data_source_id, user, "databases:write")
+    if source.workspace_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "only a workspace database can be derived")
+    cohort = None
+    if body.cohort_id:
+        cohort = await db.get(Cohort, body.cohort_id)
+        if cohort is None or cohort.owner_data_source_id != source.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Cohort not found")
+        # Recording the derivation edits the cohort, i.e. the source database.
+        await _require_source_access(db, source, user, "databases:write")
+    try:
+        await cohort_derive_service.validate(db, source, target, body)
+    except cohort_derive_service.DeriveError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+
+    label = cohort_derive_service.job_label(source, target, body, cohort)
+    job = await jobs.create(db, None, user.id, kind="derive", label=label, workspace_id=source.workspace_id)
+    ids = (source.id, target.id, cohort.id if cohort else None)
+
+    async def run(handle: jobs.JobHandle) -> None:
+        async def progress(pct: int, line: str) -> None:
+            await handle.progress(pct)
+            await handle.log(line)
+
+        async with jobs.async_session() as job_db:
+            src, dst = await job_db.get(DataSource, ids[0]), await job_db.get(DataSource, ids[1])
+            if src is None or dst is None:
+                raise cohort_derive_service.DeriveError("the database was removed")
+            coh = await job_db.get(Cohort, ids[2]) if ids[2] else None
+            result = await cohort_derive_service.derive(job_db, src, dst, body, coh, progress)
+        await handle.log(f"{result['patient_count']} patients, {len([t for t in result['tables'] if not t['skipped']])} tables")
+        await handle.set_result({
+            "targetId": ids[1],
+            "cohortId": ids[2],
+            "dataSourceId": result["data_source_id"],
+            "patientCount": result["patient_count"],
+            "unitCount": result["unit_count"],
+            "builtAt": result["built_at"],
+            "tables": result["tables"],
+        })
+
+    jobs.launch(job.id, run)
+    return JobResponse.model_validate(job, from_attributes=True)
+
+
+@router.post("/{source_id}/move-file", response_model=DataSourceResponse)
+async def move_file(
+    source_id: str,
+    body: MoveFileRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Move a database Linkr created to another file location (a server folder,
+    or back to Linkr's data folder). The file itself moves: nothing is left
+    behind at the old place."""
+    source = await _load_source(db, source_id, user, "databases:write")
+    try:
+        return await data_source_service.move_managed_file(db, source, body.path)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
 @router.post("/{source_id}/create-from-ddl", response_model=DataSourceResponse)
 async def create_from_ddl(
     source_id: str,
@@ -232,14 +340,21 @@ async def create_from_ddl(
     the tables must exist on disk, or every later query hits an empty catalog."""
     source = await _load_source(db, source_id, user, "databases:write")
     try:
-        await asyncio.to_thread(managed_db.create_from_ddl, source.id, body.ddl)
+        config, new_location = data_source_service.claim_managed_location(source, body.path)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    path = managed_db.path_of(source.id, config)
+    # A rebuild replaces a file a warm pooled connection may still hold attached
+    # (browsing the database leaves one): DuckDB would refuse to open it again.
+    connection_pool.invalidate(source.id)
+    try:
+        await asyncio.to_thread(managed_db.create_from_ddl, path, body.ddl)
     except Exception as e:  # noqa: BLE001 — a bad DDL is a client error
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    config = dict(source.connection_config or {})
     config["managed"] = True
     config.pop("inMemory", None)
     return await data_source_service.update(
-        db, source, DataSourceUpdate(connection_config=config)
+        db, source, DataSourceUpdate(connection_config=config), managed_path_set=new_location
     )
 
 

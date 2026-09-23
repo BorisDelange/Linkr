@@ -461,7 +461,6 @@ def query_file(
     """Run SQL against a local DuckDB/SQLite file (server-side). Read-only file;
     CREATE VIEW / temp tables land in the writable `memory` catalog. With
     `pool_key`, the ATTACHed connection is kept warm across calls."""
-    search_path = f"memory,{_ATTACH_ALIAS}"
 
     def _setup() -> duckdb.DuckDBPyConnection:
         con = duckdb.connect()
@@ -473,13 +472,32 @@ def query_file(
     if pool_key is None:
         con = _setup()
         try:
-            return _run_read(con, search_path, sql, arrow)
+            return _run_read(con, _file_search_path(con), sql, arrow)
         finally:
             con.close()
 
     return connection_pool.run_pooled(
-        pool_key, _setup, lambda con: _run_read(con, search_path, sql, arrow)
+        pool_key, _setup, lambda con: _run_read(con, _file_search_path(con), sql, arrow)
     )
+
+
+def _file_search_path(con: duckdb.DuckDBPyConnection) -> str:
+    """`memory`, the attached file, then each of the file's own schemas.
+
+    Without the schemas, a file holding tables outside `main` — a database
+    derived from a multi-schema source keeps MIMIC-IV's `hosp`/`icu` — answered
+    `hosp.patients` with "schema does not exist": a two-part name is looked up
+    through the search path, which named the file's catalog but none of its
+    schemas. Read each run, since a derivation may add a schema to a warm file."""
+    rows = con.execute(
+        "SELECT schema_name FROM information_schema.schemata WHERE catalog_name = ? "
+        "AND schema_name NOT IN ('main', 'information_schema', 'pg_catalog') ORDER BY schema_name",
+        [_ATTACH_ALIAS],
+    ).fetchall()
+    # A name that is not a plain identifier is left off rather than raised on: it
+    # stays reachable fully qualified, and must not break every query on the file.
+    schemas = [f'{_ATTACH_ALIAS}."{r[0]}"' for r in rows if _SAFE_IDENT.fullmatch(str(r[0]))]
+    return ",".join(["memory", _ATTACH_ALIAS, *schemas])
 
 
 def query_file_source(

@@ -1,0 +1,50 @@
+{
+  "patientDashboard": {
+    "name": {
+      "en": "Patient review",
+      "fr": "Revue des patients"
+    },
+    "description": null,
+    "showWidgetTitles": null,
+    "widgetSpacing": null,
+    "fitToHeight": null,
+    "reloadWidgetsOnTabSwitch": null,
+    "syncTimelinesAcrossTabs": null,
+    "displayOrder": 0,
+    "createdBy": null,
+    "createdByDetails": null,
+    "createdAt": "2026-01-05T00:00:00.000Z",
+    "version": "0.1.0"
+  },
+  "tabs": [
+    {
+      "name": {
+        "en": "Vitals"
+      },
+      "description": null,
+      "displayOrder": 0,
+      "key": "patient-review/vitals"
+    }
+  ],
+  "widgets": [
+    {
+      "name": {
+        "en": "Summary"
+      },
+      "description": null,
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 48,
+        "h": 12
+      },
+      "pluginId": "linkr-widget-patient-summary",
+      "language": null,
+      "config": {},
+      "customSql": null,
+      "pluginVersion": "1.0.0",
+      "key": "patient-review/vitals/summary@0,0",
+      "tabKey": "patient-review/vitals"
+    }
+  ]
+}

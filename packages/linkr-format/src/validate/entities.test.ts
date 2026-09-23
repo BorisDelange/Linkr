@@ -290,3 +290,61 @@ describe('canonical shape — what the app would rewrite', () => {
       .some((i) => i.code === 'unsorted-tree')).toBe(false)
   })
 })
+
+describe('database', () => {
+  const database = (files: Record<string, string> = {}) => new MemoryTree({
+    'entity.json': JSON.stringify({
+      type: 'database', id: 'mimic', alias: 'mimic', name: { en: 'MIMIC' }, inMemory: true,
+      schemaSource: { lineageId: 'l1', label: { en: 'OMOP' } },
+    }),
+    'mapping.json': JSON.stringify({}),
+    ...files,
+  })
+
+  it('checks the shape of a derived database\'s provenance', () => {
+    const at = (derivedFrom: unknown) => {
+      const tree = new MemoryTree({
+        'entity.json': JSON.stringify({
+          type: 'database', id: 'sub', alias: 'sub', name: { en: 'Sub' }, inMemory: true,
+          schemaSource: { lineageId: 'l1', label: { en: 'OMOP' } }, derivedFrom,
+        }),
+        'mapping.json': JSON.stringify({}),
+      })
+      return validateEntity(tree, 'database').filter((i) => i.pointer?.startsWith('/derivedFrom'))
+    }
+    expect(at({
+      database: { lineageId: 'p', label: { en: 'Parent' } }, cohort: { key: 'adults', name: { en: 'Adults' } },
+      level: 'patient', criteriaTree: { id: 'root', type: 'group', operator: 'AND', children: [] }, target: 'new-database',
+    })).toEqual([])
+    expect(at({ database: 'p', cohort: {} }).some((i) => i.pointer === '/derivedFrom/database' && i.severity === 'error')).toBe(true)
+    expect(at('p').some((i) => i.severity === 'error')).toBe(true)
+  })
+
+  it('validates its own cohorts as a project does', () => {
+    const issues = validateEntity(database({
+      'cohorts/adults.json': JSON.stringify({ name: { en: 'Adults' }, level: 'ward' }),
+    }), 'database')
+    expect(issues.some((i) => i.path === 'cohorts/adults.json' && i.severity === 'error')).toBe(true)
+  })
+
+  it('checks the shape of its cohorts\' boards, and that each has its cohort', () => {
+    const cohort = { 'cohorts/adults.json': JSON.stringify({ name: { en: 'Adults' }, level: 'patient', criteriaTree: {} }) }
+    const issues = validateEntity(database({ ...cohort, 'cohort-boards/adults.json': JSON.stringify({ tabs: [] }) }), 'database')
+    expect(issues.some((i) => i.path === 'cohort-boards/adults.json' && i.severity === 'error')).toBe(true)
+    const board = JSON.stringify({ patientDashboard: { name: { en: 'Review' } }, tabs: [], widgets: [] })
+    const ok = validateEntity(database({ ...cohort, 'cohort-boards/adults.json': board }), 'database')
+    expect(ok.filter((i) => i.path === 'cohort-boards/adults.json')).toEqual([])
+    const orphan = validateEntity(database({ ...cohort, 'cohort-boards/gone.json': board }), 'database')
+    expect(orphan.find((i) => i.path === 'cohort-boards/gone.json')?.code).toBe('orphan-record')
+  })
+
+  it('accepts a well-formed cohort', () => {
+    const issues = validateEntity(database({
+      'cohorts/adults.json': JSON.stringify({
+        name: { en: 'Adults' }, level: 'patient',
+        criteriaTree: { kind: 'group', children: [{ kind: 'criterion', type: 'age', enabled: true }] },
+      }),
+    }), 'database')
+    expect(issues.filter((i) => i.path.startsWith('cohorts/'))).toEqual([])
+  })
+})

@@ -4,6 +4,7 @@ import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
 import { stampAuthored } from '@/stores/app-store'
 import type { WikiPage, LocalizedString } from '@/types'
+import { foldAccents } from '@/lib/fold-accents'
 
 export type WikiViewMode = 'view' | 'edit'
 
@@ -52,10 +53,8 @@ interface WikiState {
 }
 
 function slugify(title: string): string {
-  return title
+  return foldAccents(title)
     .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
     || 'page'

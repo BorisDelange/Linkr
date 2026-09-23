@@ -45,6 +45,7 @@ import { loadAllSourceConcepts, countAllSourceConcepts } from '@/lib/concept-map
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getStorage } from '@/lib/storage'
 import type { MappingProject, EffectiveMappingStatus, DataSource } from '@/types'
+import { foldAccents } from '@/lib/fold-accents'
 
 interface ExportTabProps {
   project: MappingProject
@@ -156,7 +157,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     return result
   }, [mappingsWithEffective, includedStatuses, approvalRule])
 
-  const slug = localized(project.name, 'en').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  const slug = foldAccents(localized(project.name, 'en')).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
   /** Build the set of (vocab, code) keys that should NOT be appended as source-only rows.
    *  Excludes any code already present in the filtered output. */

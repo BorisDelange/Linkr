@@ -13,7 +13,7 @@ import type {
 const BOARDS = '/patient-dashboards'
 
 /**
- * Server-mode patient-dashboard storage. Boards are project-scoped; their tabs and
+ * Server-mode patient-dashboard storage. Boards belong to a project or a database; their tabs and
  * widgets are flat and keyed by parent id (patientDashboardId / tabId), mirroring
  * the front-only IndexedDB object stores so the store is unchanged.
  */
@@ -21,6 +21,11 @@ export const apiPatientDashboardStorage: PatientDashboardStorage = {
   getByProject: (projectUid) =>
     apiRequest<PatientDashboard[]>(
       `${BOARDS}?projectUid=${encodeURIComponent(projectUid)}`,
+    ),
+
+  getByDatabase: (dataSourceId) =>
+    apiRequest<PatientDashboard[]>(
+      `${BOARDS}?dataSourceId=${encodeURIComponent(dataSourceId)}`,
     ),
 
   getById: async (id) => {

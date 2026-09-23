@@ -335,10 +335,9 @@ the cohort, embedded previews, or users with no LibreChat deployed.
 
 Whatever the option, the UI notes stand: project-wide sidebar (not per page),
 clinician mode (one business-language line per tool call, via a `name → i18n phrase`
-table) vs developer mode (arguments, output, diffs), and the confirm/undo UI to
-salvage from
-[DashboardAgentSidebar.tsx:622](../../apps/web/src/features/projects/dashboard/agent/DashboardAgentSidebar.tsx#L622)
-before it is deleted (§10). Script execution by an agent stays **confirmed**.
+table) vs developer mode (arguments, output, diffs), and the confirm/undo UI of the
+deleted `DashboardAgentSidebar.tsx` (§10; git history at commit `4a1681fd`, around line
+622). Script execution by an agent stays **confirmed**.
 
 ---
 

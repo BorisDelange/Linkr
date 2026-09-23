@@ -45,6 +45,9 @@ export interface SeedManifestEntity {
 export interface SeedInternals {
   schemas?: string[]
   databases?: string[]
+  /** Per database folder (`databases/<folder>`), its cohorts and their boards:
+   *  `cohorts/<key>.json` and `cohort-boards/<key>.json`, relative to it. */
+  databaseCohorts?: Record<string, string[]>
   wikiPages?: string[]
   conceptSets?: string[]
   serviceMappings?: string[]
@@ -184,11 +187,19 @@ export function buildSeedManifest(
   //     mount, so it stays metadata in internals and the workspace import writes
   //     the row like any other pointer. ---
   const dbInternals: string[] = []
+  const dbCohorts: Record<string, string[]> = {}
   for (const folder of foldersIn(tree, 'databases')) {
     const dir = `databases/${folder}`
     const manifest = manifestIn(tree, dir, [MANIFEST.database])
     if (!manifest) continue
     dbInternals.push(`${dir}/${manifest}`)
+    // Listed, since the loader cannot list a folder over HTTP: without this a
+    // seeded database came up with none of the cohorts its tree carries.
+    const cohortFiles = [
+      ...namesIn(tree, `${dir}/cohorts`, '.json').map((n) => `cohorts/${n}`),
+      ...namesIn(tree, `${dir}/cohort-boards`, '.json').map((n) => `cohort-boards/${n}`),
+    ]
+    if (cohortFiles.length) dbCohorts[dir] = cohortFiles
 
     // Derived, never declared: the tables ARE the Parquet files present, so this
     // cannot drift from what the repo ships the way a hand-kept list would. The
@@ -234,6 +245,7 @@ export function buildSeedManifest(
   // Flat pre-folder form: the whole row in one file.
   for (const file of filesIn(tree, 'databases', '.json')) dbInternals.push(file)
   if (dbInternals.length) internals.databases = dbInternals.sort()
+  if (Object.keys(dbCohorts).length) internals.databaseCohorts = dbCohorts
 
   // --- schemas/ → internals ---
   const schemas: string[] = [...filesIn(tree, 'schemas', '.json')]
@@ -319,6 +331,8 @@ export interface SeedProjectIndex {
   scripts?: string[]
   pipelines?: string[]
   cohorts?: string[]
+  /** `cohort-boards/<cohort key>.json` — each cohort's own board, named as its cohort file. */
+  cohortBoards?: string[]
   connections?: string[]
   dashboards?: string[]
   patientDashboards?: string[]
@@ -371,6 +385,7 @@ export function buildSeedProjectIndex(tree: EntityTree, dir: string): SeedProjec
   for (const [sub, key] of [
     ['pipeline', 'pipelines'],
     ['cohorts', 'cohorts'],
+    ['cohort-boards', 'cohortBoards'],
     ['databases', 'connections'],
     ['dashboards', 'dashboards'],
     ['patient-dashboards', 'patientDashboards'],

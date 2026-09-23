@@ -55,6 +55,11 @@ export function usePatientData(
   dataSourceId: string | undefined,
   schemaMapping: SchemaMapping | undefined,
   projectUid: string,
+  /**
+   * The cohort to list, fixed by the caller (a cohort's own Patients tab) in
+   * place of the one picked in the board's selector.
+   */
+  fixedCohort?: Cohort,
 ) {
   const {
     selectedCohortId,
@@ -69,13 +74,16 @@ export function usePatientData(
   const { getProjectCohorts } = useCohortStore()
   const cohorts = getProjectCohorts(projectUid)
 
-  const cohortId = selectedCohortId[projectUid] ?? null
+  const cohortId = fixedCohort ? fixedCohort.id : (selectedCohortId[projectUid] ?? null)
   const patientId = selectedPatientId[projectUid] ?? null
   const visitId = selectedVisitId[projectUid] ?? null
   const visitDetailId = selectedVisitDetailId[projectUid] ?? null
 
-  const selectedCohort: Cohort | null =
-    cohortId ? (cohorts.find((c) => c.id === cohortId) ?? null) : null
+  const selectedCohort: Cohort | null = fixedCohort
+    ?? (cohortId ? (cohorts.find((c) => c.id === cohortId) ?? null) : null)
+  // A fixed cohort's membership changes under the same id (each run of the
+  // builder): part of what the cached pages are keyed by.
+  const membershipKey = `${cohortId ?? 'all'}@${selectedCohort?.materialization?.materializedAt ?? ''}`
 
   // --- Patient filters ---
   const [patientFilters, setPatientFilters] = useState<PatientFilters>({})
@@ -95,7 +103,7 @@ export function usePatientData(
   const loadPatients = useCallback(
     async (page: number) => {
       if (!dataSourceId || !schemaMapping) return
-      const cacheKey = `${cohortId ?? 'all'}-${filtersKey}-${page}`
+      const cacheKey = `${membershipKey}-${filtersKey}-${page}`
       const cached = patientCacheRef.current.get(cacheKey)
       if (cached) {
         setPatients(cached.rows)
@@ -133,7 +141,7 @@ export function usePatientData(
         setPatientsLoading(false)
       }
     },
-    [dataSourceId, schemaMapping, selectedCohort, cohortId, filtersKey, patientFilters],
+    [dataSourceId, schemaMapping, selectedCohort, membershipKey, filtersKey, patientFilters],
   )
 
   // Load patients when page/cohort/filters change
@@ -155,7 +163,13 @@ export function usePatientData(
   useEffect(() => {
     setPatientPage(0)
     patientCacheRef.current.clear()
-  }, [cohortId, filtersKey])
+  }, [membershipKey, filtersKey])
+
+  // A cohort's own tab opens on its first patient, so its board shows someone
+  // before any click. The board's selector leaves the choice to the user.
+  useEffect(() => {
+    if (fixedCohort && !patientId && patients[0]) setSelectedPatient(projectUid, String(patients[0].patient_id))
+  }, [fixedCohort, patientId, patients, projectUid, setSelectedPatient])
 
   // --- Visit list ---
   const [visits, setVisits] = useState<VisitRow[]>([])

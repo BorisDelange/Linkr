@@ -930,3 +930,57 @@ describe('isCompleteProjectPull', () => {
     )).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// A cohort's own board travels with its cohort
+// ---------------------------------------------------------------------------
+
+describe('project pull — cohort boards', () => {
+  const board = (tab: string) => ({
+    patientDashboard: { name: { en: 'Bedside' } },
+    tabs: [{ name: { en: tab }, displayOrder: 0, key: `bedside/${tab.toLowerCase()}` }],
+    widgets: [],
+  })
+
+  it('offers an unchanged cohort whose board changed, and keeps it out of the Patient data boards', async () => {
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    seedLinkedProject(t)
+    t.cohorts.set('local-c', { id: 'local-c', projectUid: P, name: { en: 'Adults' }, level: 'patient' })
+    t.patientDashboards.set('local-b', { id: 'local-b', projectUid: P, ownerCohortId: 'local-c', name: { en: 'Bedside' } })
+    await stubClone((zip) => {
+      zip.file('cohorts/adults.json', JSON.stringify({ name: { en: 'Adults' }, level: 'patient' }))
+      zip.file('cohort-boards/adults.json', JSON.stringify(board('Vitals')))
+      zip.file('patient-dashboards/bedside.json', JSON.stringify(board('Labs')))
+    })
+
+    const prepared = await prepareProjectPull(P, 'main')
+
+    expect(prepared.plan.cohorts).toEqual([{ key: 'adults', label: 'Adults', exists: true }])
+    // The local "Bedside" is the cohort's, not a Patient data board it would overwrite.
+    expect(prepared.plan.patientDashboards).toEqual([{ key: 'bedside', label: 'Bedside', exists: false }])
+  })
+
+  it("replaces a pulled cohort's board with the tree's", async () => {
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    t.projects.set(P, { id: P, uid: P })
+    t.cohorts.set('local-c', { id: 'local-c', projectUid: P, name: { en: 'Adults' }, level: 'patient' })
+    t.patientDashboards.set('local-b', { id: 'local-b', projectUid: P, ownerCohortId: 'local-c', name: { en: 'Old' } })
+    t.patientDashboardTabs.set('local-t', { id: 'local-t', patientDashboardId: 'local-b', name: { en: 'T' } })
+    const parsed = emptyParsed({
+      cohorts: [{ name: { en: 'Adults' }, level: 'patient', exportKey: 'adults' }] as unknown as ParsedProjectZip['cohorts'],
+      cohortBoards: new Map([['adults', board('Vitals') as never]]),
+    })
+
+    await applyProjectPull(P, preparedWith(parsed, null), sel({ cohorts: new Set(['adults']) }))
+
+    expect([...t.cohorts.keys()]).toEqual([did('adults')])
+    const boards = [...t.patientDashboards.values()]
+    expect(boards).toHaveLength(1)
+    expect(boards[0]).toMatchObject({
+      id: did('cohort-boards/adults/bedside'), projectUid: P, ownerCohortId: did('adults'),
+    })
+    expect([...t.patientDashboardTabs.keys()]).toEqual([did('cohort-boards/adults/bedside/vitals')])
+  })
+})

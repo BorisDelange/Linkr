@@ -35,6 +35,8 @@ import { ConceptSelectField } from './ConceptSelectField'
 import { DatasetsSelectField } from './DatasetsSelectField'
 import { timelineDatasets, type DatasetTimelineMapping } from '@/lib/patient-data/dataset-timeline'
 import { SizedPatientWidgetPreview } from './PatientWidgetPreview'
+import { PATIENT_GRID_COLS, defaultPatientWidgetLayout } from './patient-grid'
+import { usePatientChartContext } from './PatientChartContext'
 import type { Plugin, PluginConfigField } from '@/types/plugin'
 
 /**
@@ -48,6 +50,11 @@ import type { Plugin, PluginConfigField } from '@/types/plugin'
  */
 const ADD_PREVIEW_LAYOUT = { w: 26, h: 15 }
 
+/** Where a widget lands on a full-width board — and what its preview shows there. */
+function fullWidthLayout(pluginId: string): { w: number; h: number } {
+  return { w: PATIENT_GRID_COLS, h: Math.max(defaultPatientWidgetLayout(pluginId).h, 20) }
+}
+
 /** Share of the split taken by the config pane, on open and on sash double-click. */
 const CONFIG_PANE_FRACTION = 0.4
 
@@ -58,6 +65,12 @@ interface AddPatientWidgetDialogProps {
   /** Board settings, so the preview is sized against the grid the widget will land on. */
   widgetSpacing?: number
   fitToHeight?: boolean
+  /**
+   * Land every widget full width. A cohort's board sits beside its patient list,
+   * in about half the width of a project's: at the usual half-width default a
+   * widget there came out a quarter of the screen.
+   */
+  fullWidth?: boolean
 }
 
 export function AddPatientWidgetDialog({
@@ -66,10 +79,15 @@ export function AddPatientWidgetDialog({
   tabId,
   widgetSpacing,
   fitToHeight,
+  fullWidth = false,
 }: AddPatientWidgetDialogProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
-  const addWidget = usePatientChartStore((s) => s.addWidget)
+  const storeAddWidget = usePatientChartStore((s) => s.addWidget)
+  const addWidget: typeof storeAddWidget = (tab, pluginId, name, config, language) => {
+    const size = fullWidth ? fullWidthLayout(pluginId) : undefined
+    storeAddWidget(tab, pluginId, name, config, language, size)
+  }
 
   // Widget name
   const [widgetName, setWidgetName] = useState('')
@@ -82,7 +100,13 @@ export function AddPatientWidgetDialog({
 
   // All warehouse plugins — built-in widgets (Summary, Timeline, Notes) and
   // custom ones — shown in a single grid harmonized with the dashboard picker.
-  const warehousePlugins = useMemo(() => getWarehousePlugins(), [])
+  // Where R/Python cannot run, the code-backed ones would only land as a card
+  // explaining so.
+  const { codeWidgets = true } = usePatientChartContext()
+  const warehousePlugins = useMemo(
+    () => getWarehousePlugins().filter((p) => codeWidgets || !p.templates),
+    [codeWidgets],
+  )
 
   const resetAndClose = () => {
     setConfigPlugin(null)
@@ -270,7 +294,10 @@ export function AddPatientWidgetDialog({
                       pluginId={configPlugin.manifest.id}
                       widgetId={previewWidgetId}
                       config={debouncedConfig}
-                      layout={ADD_PREVIEW_LAYOUT}
+                      // On a board about half a project's width, 26 of its 48
+                      // columns previewed a quarter-screen widget: show the one it
+                      // lands as instead, which is a project preview's size.
+                      layout={fullWidth ? fullWidthLayout(configPlugin.manifest.id) : ADD_PREVIEW_LAYOUT}
                       widgetSpacing={widgetSpacing}
                       fitToHeight={fitToHeight}
                     />

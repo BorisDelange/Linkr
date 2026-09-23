@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
+import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { toLocalized } from '@/lib/localized'
@@ -187,8 +189,11 @@ interface CohortState {
    *  when deleted. Its last in-tab run is discarded: it described the old definition. */
   applyRemoteChange: (id: string, deleted: boolean) => Promise<void>
 
+  /** Exactly one owner: `projectUid`, or `ownerDataSourceId` for a database's
+   *  own cohort — which then always runs against that database. */
   addCohort: (source: {
-    projectUid: string
+    projectUid?: string
+    ownerDataSourceId?: string
     name: LocalizedString
     description: LocalizedString
     level: CohortLevel
@@ -218,6 +223,15 @@ interface CohortState {
   ) => Promise<number>
 
   clearMaterialization: (id: string) => Promise<void>
+  /** Re-read one cohort from storage — after the server changed it (a derivation). */
+  reloadCohort: (id: string) => Promise<void>
+}
+
+/** Whether two cohorts share an owner — the scope of name uniqueness and of a list page. */
+export function sameCohortOwner(a: Pick<Cohort, 'projectUid' | 'ownerDataSourceId'>, b: Pick<Cohort, 'projectUid' | 'ownerDataSourceId'>): boolean {
+  return a.projectUid
+    ? a.projectUid === b.projectUid
+    : !!a.ownerDataSourceId && a.ownerDataSourceId === b.ownerDataSourceId
 }
 
 function makeEmptyTree(): CriteriaGroupNode {
@@ -272,14 +286,18 @@ export const useCohortStore = create<CohortState>((set, get) => ({
   },
 
   addCohort: async (source) => {
+    if (!source.projectUid === !source.ownerDataSourceId) {
+      throw new Error('a cohort belongs to exactly one project or one database')
+    }
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     const newCohort: Cohort = {
       id,
-      projectUid: source.projectUid,
+      ...(source.projectUid
+        ? { projectUid: source.projectUid, dataSourceId: source.dataSourceId }
+        : { ownerDataSourceId: source.ownerDataSourceId, dataSourceId: source.ownerDataSourceId }),
       name: source.name,
       description: source.description,
-      dataSourceId: source.dataSourceId,
       dataSourceRef: source.dataSourceRef,
       level: source.level,
       criteriaTree: source.criteriaTree ?? makeEmptyTree(),
@@ -303,7 +321,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     const clone: Cohort = {
       ...structuredClone(source),
       id: crypto.randomUUID(),
-      name: copyName(source.name, state.cohorts.filter((c) => c.projectUid === source.projectUid).map((c) => c.name)),
+      name: copyName(source.name, state.cohorts.filter((c) => sameCohortOwner(c, source)).map((c) => c.name)),
       // Execution output is deliberately dropped: the copy has never run, and
       // carrying a count or a frozen membership over would show numbers that
       // describe the original's last run, not this cohort.
@@ -322,15 +340,34 @@ export const useCohortStore = create<CohortState>((set, get) => ({
   },
 
   updateCohort: async (id, changes) => {
-    await getStorage().cohorts.update(id, changes)
+    // Shown at once, saved behind: waiting for the round trip made every edit of
+    // the criteria (a toggle, "disable all") lag by a server call. A failed save
+    // puts the cohort back as it was, and the caller still sees the error.
+    const before = get().cohorts.find((c) => c.id === id)
     set((s) => ({
       cohorts: s.cohorts.map((c) =>
         c.id === id ? { ...c, ...changes, updatedAt: new Date().toISOString() } : c,
       ),
     }))
+    try {
+      await getStorage().cohorts.update(id, changes)
+    } catch (err) {
+      // Only the fields this edit touched: a later edit already shown must stay.
+      if (before) {
+        const restored = Object.fromEntries(
+          Object.keys(changes).map((k) => [k, before[k as keyof Cohort]]),
+        ) as Partial<Cohort>
+        set((s) => ({ cohorts: s.cohorts.map((c) => (c.id === id ? { ...c, ...restored } : c)) }))
+      }
+      throw err
+    }
   },
 
   removeCohort: async (id) => {
+    const cohort = get().cohorts.find((c) => c.id === id)
+    // The cohort's board goes with it. The server cascades; the browser's
+    // storage has no foreign keys, so it is removed here.
+    if (cohort && !isServerMode()) await deleteCohortBoard(getStorage(), cohort)
     await getStorage().cohorts.delete(id)
     set((s) => ({
       cohorts: s.cohorts.filter((c) => c.id !== id),
@@ -470,7 +507,9 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       // ever with nothing to explain it — surface it as the failure it is.
       if (!sql) throw new Error('EMPTY_QUERY')
 
-      const rows = await engine.queryDataSource(dataSourceId, sql)
+      // Every page: the server caps one response at 10k rows, and a membership
+      // cut there would be a silently smaller cohort.
+      const rows = await engine.queryDataSourceAll(dataSourceId, sql)
       const ids: string[] = []
       const patientSet = new Set<string>()
       for (const row of rows) {
@@ -517,5 +556,11 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         c.id === id ? { ...c, materialization: undefined } : c,
       ),
     }))
+  },
+
+  reloadCohort: async (id) => {
+    const fresh = await getStorage().cohorts.getById(id)
+    if (!fresh) return
+    set((s) => ({ cohorts: s.cohorts.map((c) => (c.id === id ? fresh : c)) }))
   },
 }))

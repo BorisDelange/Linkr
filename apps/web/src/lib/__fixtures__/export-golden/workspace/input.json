@@ -297,6 +297,134 @@
    }
   ]
  },
+ "databaseCohorts": {
+  "ds2": [
+   {
+    "id": "dco-1",
+    "ownerDataSourceId": "ds2",
+    "name": {
+     "en": "ICU adults",
+     "fr": "Adultes en réanimation"
+    },
+    "description": {
+     "en": "age >= 18",
+     "fr": "age >= 18"
+    },
+    "dataSourceId": "ds2",
+    "level": "visit_detail",
+    "criteriaTree": {
+     "kind": "group",
+     "id": "root",
+     "operator": "AND",
+     "children": [
+      {
+       "kind": "criterion",
+       "id": "crit-1",
+       "type": "age",
+       "config": {
+        "ageReference": "admission",
+        "min": 18
+       },
+       "operator": "AND",
+       "exclude": false,
+       "enabled": true
+      }
+     ],
+     "exclude": false,
+     "enabled": true
+    },
+    "customSql": null,
+    "resultCount": 880,
+    "attrition": [
+     {
+      "nodeId": "__total__",
+      "label": "Total",
+      "count": 22015,
+      "excluded": 0
+     }
+    ],
+    "materialization": {
+     "level": "visit_detail",
+     "ids": [
+      "1"
+     ],
+     "patientIds": [
+      "1"
+     ],
+     "count": 1,
+     "materializedAt": "2026-09-01T00:00:00.000Z"
+    },
+    "schemaVersion": 5,
+    "createdAt": "2026-03-01T00:00:00.000Z",
+    "updatedAt": "2026-06-03T00:00:00.000Z",
+    "version": "0.1.0"
+   }
+  ]
+ },
+ "databaseBoards": {
+  "ds2": {
+   "patientDashboard": {
+    "id": "dboard-1",
+    "ownerDataSourceId": "ds2",
+    "ownerCohortId": "dco-1",
+    "name": {
+     "en": "Cohort review",
+     "fr": "Revue des cohortes"
+    },
+    "description": null,
+    "dataSourceId": "ds2",
+    "showWidgetTitles": true,
+    "widgetSpacing": null,
+    "fitToHeight": null,
+    "reloadWidgetsOnTabSwitch": null,
+    "syncTimelinesAcrossTabs": null,
+    "collection": {
+     "datasetFileId": "not-in-this-tree",
+     "identityColumns": {}
+    },
+    "displayOrder": 0,
+    "origin": "user",
+    "createdById": null,
+    "createdBy": null,
+    "createdByDetails": null,
+    "createdAt": "2026-03-02T00:00:00.000Z",
+    "updatedAt": "2026-06-04T00:00:00.000Z",
+    "version": "0.1.0"
+   },
+   "tabs": [
+    {
+     "id": "dtab-1",
+     "patientDashboardId": "dboard-1",
+     "name": {
+      "en": "Stay"
+     },
+     "description": null,
+     "displayOrder": 0
+    }
+   ],
+   "widgets": [
+    {
+     "id": "dw-1",
+     "tabId": "dtab-1",
+     "name": {
+      "en": "Summary"
+     },
+     "description": null,
+     "layout": {
+      "x": 0,
+      "y": 0,
+      "w": 48,
+      "h": 24
+     },
+     "pluginId": "linkr-widget-patient-summary",
+     "language": null,
+     "config": {},
+     "customSql": null,
+     "pluginVersion": "1.0.0"
+    }
+   ]
+  }
+ },
  "mappingProjects": [
   {
    "id": "mp1",

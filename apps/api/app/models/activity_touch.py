@@ -28,7 +28,7 @@ from app.models.sql_script import SqlScriptCollection, SqlScriptFile
 # child class -> (parent class, attribute on the child holding the parent's id).
 # Only DIRECT foreign keys — the id is already on the child, so no query is needed.
 # The parent class must carry updated_at (all of these use TimestampMixin).
-# Cohort (→Project) and DashboardWidget (→Dashboard via tab) are handled inline
+# Cohort (→Project or →DataSource) and DashboardWidget (→Dashboard via tab) are handled inline
 # in the loop below: one to avoid a Project import cycle, the other because it's a
 # two-hop resolve through the identity map.
 _CHILD_TO_PARENT: dict[type, tuple[type, str]] = {
@@ -42,6 +42,7 @@ _CHILD_TO_PARENT: dict[type, tuple[type, str]] = {
 
 def _register() -> None:
     # Import here to avoid a module import cycle (project imports nothing from here).
+    from app.models.data_source import DataSource
     from app.models.project import Project
 
     def _dashboard_id_for_tab(session: Session, tab_id: str | None) -> str | None:
@@ -70,7 +71,9 @@ def _register() -> None:
         for obj in [*session.new, *session.dirty, *session.deleted]:
             cls = type(obj)
             if cls is Cohort:
+                # One of the two is set: a cohort belongs to a project or a database.
                 add(Project, getattr(obj, "project_uid", None))
+                add(DataSource, getattr(obj, "owner_data_source_id", None))
             elif cls is DashboardWidget:
                 # Widget bumps its dashboard; tab_id -> the tab's dashboard_id. Resolve
                 # the tab from objects already in the session (loaded tabs + tabs being

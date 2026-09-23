@@ -16,8 +16,13 @@ class Job(Base, UUIDPKMixin, TimestampMixin):
 
     __tablename__ = "jobs"
 
-    project_uid: Mapped[str] = mapped_column(
-        ForeignKey("projects.uid", ondelete="CASCADE"), index=True
+    # Exactly one owner: a project (environment builds, batch runs) or a
+    # workspace (a database's cohort derivation). Enforced by `jobs.create`.
+    project_uid: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.uid", ondelete="CASCADE"), index=True, nullable=True
+    )
+    workspace_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=True
     )
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True

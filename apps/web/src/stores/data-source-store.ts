@@ -2,11 +2,14 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { createFromDdlOnServer, fetchDataSourceSchema, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
+import { useCohortStore } from '@/stores/cohort-store'
+import { createFromDdlOnServer, deleteDataSourceOnServer, deriveOnServer, fetchDataSourceSchema, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
+import type { DeriveRequest } from '@/lib/api/data-sources'
+import type { DerivationJobResult, Job } from '@/lib/api/environments'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
-import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { qualify, sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { localized } from '@/lib/localized'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -16,6 +19,7 @@ import type {
   DataSourceType,
   ConnectionConfig,
   DataSourceStatus,
+  DataSourceStats,
   SchemaMapping,
   SchemaSource,
   StoredFile,
@@ -136,6 +140,20 @@ interface DataSourceState {
 
   updateDataSource: (id: string, changes: Partial<DataSource>) => Promise<void>
   /**
+   * Keep the patient/visit counts of a full statistics run on the source itself,
+   * so a list page can show them without loading every source's stats cache. A
+   * no-op when they have not changed, since each write bumps the server row.
+   */
+  recordRowCounts: (id: string, counts: Partial<Pick<DataSourceStats, 'patientCount' | 'visitCount'>>) => Promise<void>
+  /**
+   * Count the patients of a connected database (one `COUNT(*)` on its patient
+   * table) and keep the number on the row, so list cards show it without
+   * running the full statistics. Without `force`, a database that already has
+   * a count is not queried again — the card of every database opened once
+   * reads its stored number; opening the database refreshes it.
+   */
+  refreshPatientCount: (id: string, opts?: { force?: boolean }) => Promise<void>
+  /**
    * Recreate an empty database from the DDL its schema mapping carries.
    *
    * A database built from a schema holds no files — the tables live in a
@@ -148,7 +166,9 @@ interface DataSourceState {
   /** Re-validate a server-mode external source (Postgres) using its stored
    *  credentials, refreshing status + stats. No-op in front-only mode. */
   retestDataSource: (id: string) => Promise<void>
-  removeDataSource: (id: string) => Promise<void>
+  /** `deleteData` (server mode) also removes what Linkr created for it — see
+   *  `createdData`. Never offered for a connection someone added. */
+  removeDataSource: (id: string, opts?: { deleteData?: boolean }) => Promise<void>
   testConnection: (id: string) => Promise<void>
   /** Unmount a data source from DuckDB and set status to 'disconnected'. */
   disconnectDataSource: (id: string) => Promise<void>
@@ -169,7 +189,30 @@ interface DataSourceState {
     schemaMapping: SchemaMapping
     ddl: string
     alias?: string
+    /** Server mode: a new `.duckdb` in a server folder, instead of Linkr's data
+     *  folder. */
+    managedPath?: string
   }) => Promise<string>
+
+  /**
+   * Derive a cohort of `parentId` into a new Linkr-owned DuckDB database. The row
+   * is created first (the server writes into a database it already knows); the
+   * copy is a job of the workspace, returned queued, and the server removes the
+   * row again if that job fails. Server mode only.
+   */
+  deriveIntoNewDatabase: (input: {
+    parentId: string
+    name: LocalizedString
+    /** A new `.duckdb` in a server folder; omitted = Linkr's data folder. */
+    path?: string
+    request: Omit<DeriveRequest, 'target'>
+  }) => Promise<{ job: Job; dataSourceId: string }>
+  /** Start a derivation into a database that exists (a new SQL schema, or a
+   *  rebuild), as a job. */
+  runDerivation: (parentId: string, request: DeriveRequest) => Promise<Job>
+  /** A derivation job ended: re-read what it changed — the database it wrote or
+   *  declared (or removed, on a failed first build) and the cohort's record. */
+  derivationFinished: (job: Job) => Promise<void>
 }
 
 /** Timeout for DuckDB mount operations (ms). */
@@ -201,6 +244,44 @@ function definedOnly<T extends object>(obj: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(obj).filter(([, v]) => v !== undefined),
   ) as Partial<T>
+}
+
+/**
+ * Re-read rows the server just rewrote (a derivation): their config, stats and
+ * provenance changed underneath the store, and their cached statistics describe
+ * data that is gone.
+ */
+async function rereadSources(
+  set: (fn: (s: DataSourceState) => Partial<DataSourceState>) => void,
+  ids: string[],
+): Promise<void> {
+  for (const id of new Set(ids)) {
+    await getStorage().databaseStatsCache.delete(id).catch(() => {})
+    const fresh = await getStorage().dataSources.getById(id).catch(() => undefined)
+    if (!fresh) continue
+    set((s) => ({ dataSources: s.dataSources.map((d) => (d.id === id ? fresh : d)) }))
+  }
+}
+
+/** Sources whose patient count is being taken, so two cards cannot both ask. */
+const countingSources = new Set<string>()
+
+/**
+ * Patient counts run two at a time: a list page asks for every database it
+ * shows at once, and each count is a query on a table that may be large.
+ */
+const COUNT_CONCURRENCY = 2
+let countsRunning = 0
+const countWaiters: (() => void)[] = []
+async function inCountQueue<T>(run: () => Promise<T>): Promise<T> {
+  if (countsRunning >= COUNT_CONCURRENCY) await new Promise<void>((resolve) => countWaiters.push(resolve))
+  countsRunning++
+  try {
+    return await run()
+  } finally {
+    countsRunning--
+    countWaiters.shift()?.()
+  }
 }
 
 /** Track which data sources are currently mounted in DuckDB. */
@@ -538,6 +619,35 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
   },
 
+  recordRowCounts: async (id, counts) => {
+    const ds = get().dataSources.find((d) => d.id === id)
+    if (!ds) return
+    const known = definedOnly(counts)
+    if (Object.entries(known).every(([k, v]) => ds.stats?.[k as keyof typeof known] === v)) return
+    const updated: Partial<DataSource> = { stats: { ...ds.stats, ...known } as DataSourceStats }
+    await getStorage().dataSources.update(id, updated)
+    set((s) => ({
+      dataSources: s.dataSources.map((d) => (d.id === id ? { ...d, ...updated } : d)),
+    }))
+  },
+
+  refreshPatientCount: async (id, opts) => {
+    const ds = get().dataSources.find((d) => d.id === id)
+    const patientTable = ds?.schemaMapping?.patientTable
+    if (!ds || !patientTable || ds.status !== 'connected' || countingSources.has(id)) return
+    if (!opts?.force && ds.stats?.patientCount != null) return
+    countingSources.add(id)
+    try {
+      const rows = await inCountQueue(() => engine.queryDataSource(id, `SELECT COUNT(*) AS n FROM ${qualify(patientTable)}`))
+      const n = Number(rows[0]?.n)
+      if (Number.isFinite(n)) await get().recordRowCounts(id, { patientCount: n })
+    } catch {
+      // A card without a count is the state it was already in.
+    } finally {
+      countingSources.delete(id)
+    }
+  },
+
   rebuildFromSchema: async (id) => {
     const ds = get().dataSources.find((d) => d.id === id)
     const ddl = ds?.schemaMapping?.ddl
@@ -595,7 +705,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       try {
         const tables = await fetchDataSourceSchema(id)
         fileUpdate = tables.length > 0
-          ? { status: 'connected', errorMessage: undefined, stats: { tableCount: tables.length } }
+          ? { status: 'connected', errorMessage: undefined, stats: { ...ds.stats, tableCount: tables.length } }
           : { status: 'disconnected', errorMessage: DB_ERROR_NO_DATA_ON_IMPORT }
       } catch (e) {
         fileUpdate = { status: 'error', errorMessage: e instanceof Error ? e.message : String(e) }
@@ -613,7 +723,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       const stats = await engine
         .computeStats(id, ds.schemaMapping, false)
         .catch(() => ({ tableCount: result.tables.length }))
-      updated = { status: 'connected', errorMessage: undefined, stats }
+      // Merged: a re-test counts no rows, and must not erase the counts the last
+      // "Load statistics" recorded.
+      updated = { status: 'connected', errorMessage: undefined, stats: { ...ds.stats, ...stats } }
     } else {
       updated = { status: 'error', errorMessage: result.error ?? 'Connection failed' }
     }
@@ -623,7 +735,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     }))
   },
 
-  removeDataSource: async (id) => {
+  removeDataSource: async (id, opts) => {
     // Unmount from DuckDB
     if (mountedSources.has(id)) {
       try {
@@ -646,12 +758,80 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     await getStorage().files.deleteByDataSource(id)
     await getStorage().fileHandles.deleteByDataSource(id)
     await getStorage().databaseStatsCache.delete(id)
-    await getStorage().dataSources.delete(id)
+    // The database's own cohorts and patient board go with it. The server
+    // cascades; the browser's storage has no foreign keys, so they go here.
+    if (!isServerMode()) {
+      const storage = getStorage()
+      for (const c of await storage.cohorts.getByDatabase(id)) await storage.cohorts.delete(c.id)
+      for (const board of await storage.patientDashboards.getByDatabase(id)) {
+        for (const tab of await storage.patientDashboardTabs.getByDashboard(board.id)) {
+          await storage.patientDashboardWidgets.deleteByTab(tab.id)
+        }
+        await storage.patientDashboardTabs.deleteByDashboard(board.id)
+        await storage.patientDashboards.delete(board.id)
+      }
+    }
+    if (opts?.deleteData && isServerMode()) await deleteDataSourceOnServer(id, { deleteData: true })
+    else await getStorage().dataSources.delete(id)
+    useCohortStore.setState((s) => ({ cohorts: s.cohorts.filter((c) => c.ownerDataSourceId !== id) }))
 
     // Entities pointing at this database keep their now-dangling `dataSourceId`:
     // `resolveProjectSource` drops it for them, and clearing it here would lose
     // the user's choice when the database is only briefly gone (a re-import).
     set((s) => ({ dataSources: s.dataSources.filter((d) => d.id !== id) }))
+  },
+
+  deriveIntoNewDatabase: async ({ parentId, name, path, request }) => {
+    const parent = get().dataSources.find((d) => d.id === parentId)
+    if (!parent) throw new Error('unknown database')
+    const id = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const existingAliases = get().dataSources.map((ds) => ds.alias).filter(Boolean)
+    const alias = ensureUniqueAlias(generateAlias(localized(name, 'en')), existingAliases)
+    // A new work in every respect — own id, entity id, lineage — carrying the
+    // parent's schema, since its tables are the parent's. The parentage is
+    // `derivedFrom`, which the server records with the build.
+    const created: DataSource = {
+      id,
+      alias,
+      name,
+      description: {},
+      sourceType: 'database',
+      connectionConfig: { engine: 'duckdb', managed: true } as unknown as ConnectionConfig,
+      schemaMapping: sanitizeSchemaMapping(parent.schemaMapping),
+      ...(parent.schemaSource ? { schemaSource: parent.schemaSource } : {}),
+      status: 'configuring',
+      workspaceId: parent.workspaceId,
+      version: '0.1.0',
+      ...stampAuthored(),
+      ...stampLineage(),
+      createdAt: now,
+      updatedAt: now,
+    }
+    await getStorage().dataSources.create(created)
+    set((s) => ({ dataSources: [...s.dataSources, created] }))
+    try {
+      const job = await deriveOnServer(parentId, { ...request, target: { kind: 'new-database', dataSourceId: id, path } })
+      return { job, dataSourceId: id }
+    } catch (err) {
+      // Refused before any job started: left in place it would be an empty
+      // database named after the cohort.
+      await get().removeDataSource(id).catch(() => {})
+      throw err
+    }
+  },
+
+  runDerivation: (parentId, request) => deriveOnServer(parentId, request),
+
+  derivationFinished: async (job) => {
+    const result = job.result as unknown as DerivationJobResult | null | undefined
+    // The row list first: a first build that failed was removed server-side,
+    // and a declared SQL schema is a row this store has never seen.
+    await get().loadDataSources(true)
+    if (result) {
+      await rereadSources(set, [result.targetId, ...(result.dataSourceId ? [result.dataSourceId] : [])])
+      if (result.cohortId) await useCohortStore.getState().reloadCohort(result.cohortId).catch(() => {})
+    }
   },
 
   createEmptyDatabase: async (source) => {
@@ -693,7 +873,16 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
     try {
       if (isServerMode()) {
-        await createFromDdlOnServer(id, source.ddl)
+        const created = await createFromDdlOnServer(id, source.ddl, source.managedPath)
+        // The server stamps where the file landed; keep it, so the next edit of
+        // this source does not send a config without it.
+        if (created?.connectionConfig) {
+          set((s) => ({
+            dataSources: s.dataSources.map((ds) =>
+              ds.id === id ? { ...ds, connectionConfig: created.connectionConfig! } : ds,
+            ),
+          }))
+        }
       } else {
         await withTimeout(engine.mountEmptyFromDDL(id, source.ddl, alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
         mountedSources.add(id)
@@ -709,6 +898,12 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     } catch (err) {
       handleDuckDBError(err)
       console.error('Failed to create empty database:', err)
+      // Left in place, a rebuild would recreate it in Linkr's data folder — not
+      // where the user asked. Undo and let the dialog say why.
+      if (source.managedPath) {
+        await get().removeDataSource(id).catch(() => {})
+        throw err
+      }
       const errorMessage = err instanceof Error ? err.message : String(err)
       const updated: Partial<DataSource> = { status: 'error', errorMessage }
       await getStorage().dataSources.update(id, updated)

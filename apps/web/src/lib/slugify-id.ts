@@ -1,11 +1,11 @@
+import { foldAccents } from './fold-accents'
+
 /**
  * Generate a URL-safe identifier from a human-readable name.
  * Rules: lowercase, [a-z0-9-], no leading/trailing hyphens, max 50 chars.
  */
 export function slugifyId(name: string): string {
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+  return foldAccents(name)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')

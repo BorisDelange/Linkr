@@ -4,7 +4,10 @@ Uploaded files live in the content-addressed blob store and are ATTACHed
 READ_ONLY: right for a source you only read. A pipeline target is the opposite —
 it starts empty from a schema's DDL and every ETL script writes into it, so it
 needs a stable, mutable file of its own. That is what this module owns:
-``data_dir/_databases/<source_id>.duckdb``.
+``data_dir/_databases/<source_id>.duckdb`` by default, or the file the user chose
+to create elsewhere on the server (``connectionConfig.managedPath``, see
+``path_of``) — Linkr created it either way, so Linkr may write, rebuild and
+compact it.
 """
 
 from __future__ import annotations
@@ -51,17 +54,27 @@ def path_for(source_id: str) -> Path:
     return _databases_dir() / f"{source_id}.duckdb"
 
 
+def path_of(source_id: str, config: dict | None) -> Path:
+    """The file a managed source owns: the one it was created at, else the default.
+
+    `managedPath` is only ever written by the create-from-ddl, derive and
+    move-file routes, after `fs_browser.validate_new_database_file`; create and update refuse to carry it
+    in from a client (`data_source_service`), since everything here writes to —
+    and a rebuild deletes — whatever file it names."""
+    custom = (config or {}).get("managedPath")
+    return Path(custom) if custom else path_for(source_id)
+
+
 def exists(source_id: str) -> bool:
     return path_for(source_id).exists()
 
 
-def create_from_ddl(source_id: str, ddl: str) -> str:
-    """Create the managed file and run `ddl` in it. Returns the path.
+def create_from_ddl(path: Path, ddl: str) -> str:
+    """Create the managed file at `path` and run `ddl` in it. Returns the path.
 
     Recreates from scratch if a file is already there, so retrying a failed
     creation cannot leave half a schema behind.
     """
-    path = path_for(source_id)
     if path.exists():
         path.unlink()
 
@@ -93,7 +106,7 @@ def delete(source_id: str) -> None:
     path_for(source_id).unlink(missing_ok=True)
 
 
-def data_size(source_id: str) -> int | None:
+def data_size(path: Path) -> int | None:
     """Bytes the data in a managed file actually occupies, or None if unknown.
 
     The file's size on disk is NOT this number: free blocks are counted there and
@@ -105,7 +118,6 @@ def data_size(source_id: str) -> int | None:
     closely but is not a guarantee — the caller must tolerate the final figure
     landing slightly either side of it.
     """
-    path = path_for(source_id)
     if not path.exists():
         return None
     con = duckdb.connect()
@@ -124,7 +136,7 @@ def data_size(source_id: str) -> int | None:
 
 
 def compact(
-    source_id: str, on_bytes: Callable[[int], None] | None = None
+    path: Path, on_bytes: Callable[[int], None] | None = None
 ) -> tuple[int, int]:
     """Rewrite the managed file without its free blocks. Returns (before, after).
 
@@ -152,7 +164,6 @@ def compact(
     has written grow monotonically and near-linearly (measured: 24/46/66/87% at
     one-second intervals), which is enough to drive a progress readout.
     """
-    path = path_for(source_id)
     if not path.exists():
         raise ValueError("the database file is missing")
 

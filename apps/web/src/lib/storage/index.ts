@@ -75,6 +75,8 @@ export interface FileStorage {
 export interface CohortStorage {
   getAll(): Promise<Cohort[]>
   getByProject(projectUid: string): Promise<Cohort[]>
+  /** The cohorts a database owns (its own page's), not project cohorts run against it. */
+  getByDatabase(dataSourceId: string): Promise<Cohort[]>
   getById(id: string): Promise<Cohort | undefined>
   create(cohort: Cohort): Promise<void>
   update(id: string, changes: Partial<Cohort>): Promise<void>
@@ -229,6 +231,8 @@ export interface DashboardWidgetStorage {
 /** Storage interface for patient dashboard persistence. */
 export interface PatientDashboardStorage {
   getByProject(projectUid: string): Promise<PatientDashboard[]>
+  /** The board a database owns (at most one), not project boards reading it. */
+  getByDatabase(dataSourceId: string): Promise<PatientDashboard[]>
   getById(id: string): Promise<PatientDashboard | undefined>
   create(dashboard: PatientDashboard): Promise<void>
   update(id: string, changes: Partial<PatientDashboard>): Promise<void>

@@ -14,7 +14,7 @@ import {
 } from '../layout.js'
 import { readJson, type EntityTree } from '../tree.js'
 import { validateFileTree } from './file-tree.js'
-import { validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
+import { validateCohortBoardFiles, validateCohortFiles, validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
 
 /** Entity kinds that have their own tree, beyond `project`. */
 export type EntityKind =
@@ -195,7 +195,9 @@ export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
 
 /**
  * A database tree: metadata, its mapping (`mapping.json` + `schema.ddl`, the
- * same split a schema preset uses), plus `data/<table>.parquet`.
+ * same split a schema preset uses), `data/<table>.parquet`, its own cohorts
+ * under `cohorts/` and their boards under `cohort-boards/` (validated as a
+ * project's are).
  *
  * Two things this checks that nothing else can. First, every declared table has
  * its file and every file is declared — a mismatch imports as a database whose
@@ -310,6 +312,32 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
         'copy `presetLabel` from the schema preset')
     }
   }
+
+  // A derived database names its parent by portable pointer and snapshots the
+  // cohort it was built from — a new work, not a fork (so no parentLineageId).
+  const derived = db.derivedFrom
+  if (derived != null) {
+    if (!isObject(derived)) {
+      bag.error(path, '/derivedFrom', 'wrong-type', '`derivedFrom` must be an object.')
+    } else {
+      if (!isObject(derived.database)) {
+        bag.error(path, '/derivedFrom/database', 'wrong-type',
+          '`derivedFrom.database` must be a database pointer ({ lineageId, entityId, label }).')
+      }
+      if (!isObject(derived.cohort)) {
+        bag.error(path, '/derivedFrom/cohort', 'wrong-type',
+          '`derivedFrom.cohort` must be an object ({ key, name }).')
+      }
+      if (!isObject(derived.criteriaTree)) {
+        bag.warn(path, '/derivedFrom/criteriaTree', 'missing-field',
+          'No `criteriaTree`: the derived database no longer says which criteria built it.')
+      }
+    }
+  }
+
+  // The database's own cohorts and their boards: same files, same checks as a project's.
+  validateCohortFiles(tree, bag)
+  validateCohortBoardFiles(tree, bag)
 
   const declared = db.tables
   const inMemory = db.inMemory === true

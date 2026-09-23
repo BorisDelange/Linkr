@@ -358,6 +358,18 @@ export function ProjectsPage() {
     await doImport(parsed, true)
   }, [doImport])
 
+  // The conflict dialog's two answers. A failure part-way has already written
+  // the project row, so the list is re-read either way — and the error shown,
+  // where an unawaited call dropped it and left the new project off the list.
+  const importResolved = useCallback(async (parsed: ParsedProjectZip, duplicate: boolean, gitRemote?: ImportGitRemote) => {
+    try {
+      await doImport(parsed, duplicate, gitRemote)
+    } catch (err) {
+      setImportError(formatApiError(err))
+      await loadProjects().catch(() => {})
+    }
+  }, [doImport, loadProjects])
+
   const handleImportSource = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     try {
       const parsed = await parseProjectZip(file)
@@ -387,8 +399,9 @@ export function ProjectsPage() {
       }
     } catch (err) {
       setImportError(formatApiError(err))
+      await loadProjects().catch(() => {})
     }
-  }, [doImport, t, wsUid, activeWorkspaceId])
+  }, [doImport, loadProjects, t, wsUid, activeWorkspaceId])
 
   return (
     <div className="h-full overflow-auto">
@@ -596,8 +609,8 @@ export function ProjectsPage() {
         open={!!importConflict}
         onOpenChange={(open) => { if (!open) setImportConflict(null) }}
         existingName={importConflict?.name ?? ''}
-        onDuplicate={() => { if (importConflict) doImport(importConflict.pending, true, importConflict.gitRemote); setImportConflict(null) }}
-        onOverwrite={() => { if (importConflict) doImport(importConflict.pending, false, importConflict.gitRemote); setImportConflict(null) }}
+        onDuplicate={() => { if (importConflict) void importResolved(importConflict.pending, true, importConflict.gitRemote); setImportConflict(null) }}
+        onOverwrite={() => { if (importConflict) void importResolved(importConflict.pending, false, importConflict.gitRemote); setImportConflict(null) }}
       />
 
       {/* Import project (ZIP upload, git clone, or catalog install) */}

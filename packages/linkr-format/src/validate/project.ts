@@ -6,10 +6,10 @@
  */
 import { checkLocalized, checkString, isObject } from '../check.js'
 import { IssueBag, type Issue } from '../issue.js'
-import { filesIn, readJson, type EntityTree } from '../tree.js'
+import { readJson, type EntityTree } from '../tree.js'
 import { validateDashboards } from './dashboards.js'
 import { validateDatasets } from './datasets.js'
-import { validateCohort } from './records.js'
+import { validateCohortBoardFiles, validateCohortFiles } from './records.js'
 import { validateScripts } from './scripts.js'
 import { checkEmptyBadges, manifestPath } from './entities.js'
 
@@ -21,21 +21,10 @@ export function validateProject(tree: EntityTree): Issue[] {
   const datasets = validateDatasets(tree, bag)
   validateDashboards(tree, bag, datasets)
   validateScripts(tree, bag)
-  validateCohorts(tree, bag)
+  validateCohortFiles(tree, bag)
+  validateCohortBoardFiles(tree, bag)
 
   return bag.all()
-}
-
-/** `cohorts/` — one JSON per cohort. Absent is legitimate. */
-function validateCohorts(tree: EntityTree, bag: IssueBag): void {
-  for (const path of filesIn(tree, 'cohorts', '.json')) {
-    const parsed = readJson(tree, path)
-    if (!parsed.ok) {
-      bag.error(path, '', 'invalid-json', `Cannot parse JSON: ${parsed.error}`)
-      continue
-    }
-    validateCohort(bag, path, parsed.value)
-  }
 }
 
 function validateProjectFile(tree: EntityTree, bag: IssueBag): void {

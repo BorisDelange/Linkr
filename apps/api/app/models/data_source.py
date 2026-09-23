@@ -37,6 +37,11 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     # nothing records where it came from — and the UI cannot name the schema on an
     # instance where that preset is not installed.
     schema_source: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Set on a database derived from a cohort: the parent database (portable
+    # ref), the cohort (key + name), its level, a snapshot of its criteria, when
+    # it was built and on how many patients. Not `parent_lineage_id`: that means
+    # "a copy of the same work", and a subset is a new one.
+    derived_from: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     status: Mapped[str] = mapped_column(String(20), default="configuring")
     stats: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     error_message: Mapped[str | None] = mapped_column(Text)

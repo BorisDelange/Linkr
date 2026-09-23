@@ -12,7 +12,7 @@ import { buildPointer } from '@/lib/import-identity'
 import { localizedRaw, seedLocalizedForEditing, setLocalized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
-import { useCohortStore } from '@/stores/cohort-store'
+import { sameCohortOwner, useCohortStore } from '@/stores/cohort-store'
 import type { DataSourceRef, LocalizedString } from '@/types'
 
 export interface CohortFormData {
@@ -39,6 +39,9 @@ interface CreateCohortDialogProps {
   }
   workspaceId: string | undefined
   projectUid: string | undefined
+  /** A database's own cohort: it runs on that database, so there is no
+   *  database to choose, and its name is unique among that database's cohorts. */
+  ownerDataSourceId?: string
 }
 
 export function CreateCohortDialog({
@@ -48,6 +51,7 @@ export function CreateCohortDialog({
   editing,
   workspaceId,
   projectUid,
+  ownerDataSourceId,
 }: CreateCohortDialogProps) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -74,8 +78,8 @@ export function CreateCohortDialog({
   // Two cohorts sharing a name also collide on export, where the filename is the
   // slug of the name — the disambiguation there is the safety net, this is the cause.
   const siblings = useMemo(
-    () => cohorts.filter((c) => c.projectUid === projectUid),
-    [cohorts, projectUid],
+    () => cohorts.filter((c) => sameCohortOwner(c, { projectUid, ownerDataSourceId })),
+    [cohorts, projectUid, ownerDataSourceId],
   )
   const { nameError, canSubmit } = useUniqueName({
     name,
@@ -92,8 +96,9 @@ export function CreateCohortDialog({
       name: setLocalized(editing?.name, language, name.trim()),
       description: setLocalized(editing?.description, language, description.trim()),
       version: editing?.version ?? '0.1.0',
-      dataSourceId,
-      dataSourceRef: buildPointer(databases, dataSourceId),
+      ...(ownerDataSourceId
+        ? {}
+        : { dataSourceId, dataSourceRef: buildPointer(databases, dataSourceId) }),
     })
     onOpenChange(false)
   }
@@ -150,16 +155,18 @@ export function CreateCohortDialog({
         )}
       </FormField>
 
-      <FormField label={t('cohorts.field_database')}>
-        {() => (
-          <DatabaseSelect
-            workspaceId={workspaceId}
-            projectUid={projectUid}
-            value={dataSourceId}
-            onChange={setDataSourceId}
-          />
-        )}
-      </FormField>
+      {!ownerDataSourceId && (
+        <FormField label={t('cohorts.field_database')}>
+          {() => (
+            <DatabaseSelect
+              workspaceId={workspaceId}
+              projectUid={projectUid}
+              value={dataSourceId}
+              onChange={setDataSourceId}
+            />
+          )}
+        </FormField>
+      )}
     </DialogShell>
   )
 }

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import crypto
+from app.models.cohort import Cohort
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.user import User
 from app.schemas.data_source import (
@@ -209,6 +210,8 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     payload.pop("created_by_id", None)
     config = payload.get("connection_config")
     enforce_server_path(config)
+    if config is not None:
+        config = _keep_managed_path(config, None)
     secret = _extract_secret(config)
     payload["connection_config"] = strip_secrets(config)
     # The git access token never lands in the entity's JSON column (it would be
@@ -227,11 +230,22 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
 
 
 async def update(
-    db: AsyncSession, source: DataSource, data: DataSourceUpdate
+    db: AsyncSession,
+    source: DataSource,
+    data: DataSourceUpdate,
+    *,
+    managed_path_set: str | None = None,
 ) -> DataSource:
+    """`managed_path_set` is create-from-ddl's alone: the validated location of the
+    file it just created. Every other caller keeps the stored one."""
     changes = data.model_dump(exclude_unset=True)
     if "connection_config" in changes:
         enforce_server_path(changes["connection_config"])
+        changes["connection_config"] = _keep_managed_path(
+            changes["connection_config"] or {}, source.connection_config
+        )
+        if managed_path_set:
+            changes["connection_config"]["managedPath"] = managed_path_set
         # A password present in the update re-encrypts; its absence leaves the
         # stored secret untouched (editing other fields won't wipe credentials).
         secret = _extract_secret(changes["connection_config"])
@@ -260,24 +274,78 @@ async def update(
     return source
 
 
-async def delete(db: AsyncSession, source: DataSource) -> None:
+def created_data(source: DataSource) -> str | None:
+    """What Linkr created for this database and may remove with it: `file` for a
+    DuckDB file in a server folder the user chose, `schema` for the SQL schema a
+    cohort was derived into (a database declared on it). None for anything else
+    — a connection someone added points at data Linkr never made. A file in
+    Linkr's own folder is not listed: it always goes with its database."""
+    config = source.connection_config or {}
+    if is_managed(source) and config.get("managedPath"):
+        return "file"
+    derived = source.derived_from or {}
+    # Only the schema the derivation itself recorded creating, and only while the
+    # connection still points at it: a schema edited in by hand is not Linkr's.
+    schema = derived.get("schemaName")
+    if schema and config.get("schema") == schema and config.get("engine") not in (None, "duckdb"):
+        return "schema"
+    return None
+
+
+async def _drop_created_data(source: DataSource, kind: str) -> None:
+    config = source.connection_config or {}
+    if kind == "file":
+        path = managed_path(source)
+        for part in (path, path.with_name(path.name + ".wal")):
+            part.unlink(missing_ok=True)
+        return
+    from app.services.data import cohort_derive
+
+    target = cohort_derive.TargetSpec("external", config=config, password=connection_password(source), schema=config["schema"])
+    await asyncio.to_thread(cohort_derive.drop_schema, target)
+
+
+async def delete(db: AsyncSession, source: DataSource, delete_data: bool = False) -> None:
+    """Remove a database. `delete_data` also removes what Linkr created for it
+    (see `created_data`) — never data a connection merely points at."""
+    created = created_data(source) if delete_data else None
+    if created:
+        connection_pool.invalidate(source.id)
+        # Before the row: dropping a schema needs the connection's credentials.
+        await _drop_created_data(source, created)
     files = (
         await db.execute(
             select(DataSourceFile).where(DataSourceFile.data_source_id == source.id)
         )
     ).scalars().all()
     shas = {f.content_hash for f in files}
-    was_managed = is_managed(source)
+    # A file created in a server folder the user chose is left there: they put it
+    # outside Linkr's data folder to keep it, and may still use it outside Linkr.
+    owns_default_file = is_managed(source) and not (source.connection_config or {}).get("managedPath")
     source_id = source.id
+    await _forget_derivations_into(db, source_id)
     await db.delete(source)  # cascades to data_source_files via FK
     await db.commit()
     connection_pool.invalidate(source_id)
     # A managed file is owned by this source alone — nothing else references it.
-    if was_managed:
+    if owns_default_file:
         managed_db.delete(source_id)
     for sha in shas:
         if not await _sha_still_referenced(db, sha):
             await blob_store.delete(sha)
+
+
+async def _forget_derivations_into(db: AsyncSession, source_id: str) -> None:
+    """Drop the cohorts' records of derivations built into (or declared as)
+    this database: once it is gone there is nothing to rebuild or open."""
+    cohorts = (await db.execute(select(Cohort).where(Cohort.derivations.is_not(None)))).scalars().all()
+    for cohort in cohorts:
+        kept = [
+            d for d in cohort.derivations or []
+            if source_id not in (d.get("targetId"), d.get("registeredId"))
+        ]
+        if len(kept) != len(cohort.derivations or []):
+            cohort.derivations = kept or None
 
 
 # --- Files (blob-backed, deduplicated by sha) ------------------------------
@@ -337,6 +405,99 @@ def is_managed(source: DataSource) -> bool:
     return bool((source.connection_config or {}).get("managed"))
 
 
+def managed_path(source: DataSource) -> Path:
+    """Where a managed source's file lives — Linkr's data folder, or the server
+    folder it was created in."""
+    return managed_db.path_of(source.id, source.connection_config)
+
+
+def claim_managed_location(source: DataSource, requested: str | None) -> tuple[dict, str | None]:
+    """The config a managed file is written under, and the location newly claimed.
+
+    `requested` is a new `*.duckdb` in a server folder; omitted, the file stays
+    where it was first created (or goes to Linkr's data folder). A location is
+    claimed once here — moving it later is `move_managed_file`'s job; see
+    `fs_browser.check_new_database_file` for why an existing file is refused. Raises ValueError with the reason."""
+    config = dict(source.connection_config or {})
+    if not requested:
+        return config, None
+    stored = config.get("managedPath")
+    if stored:
+        if Path(requested).expanduser().resolve() != Path(stored):
+            raise ValueError("a database file cannot be moved once created")
+        return config, None
+    try:
+        location = str(fs_browser.validate_new_database_file(requested))
+    except fs_browser.FsBrowseError as exc:
+        raise ValueError(str(exc)) from exc
+    config["managedPath"] = location
+    return config, location
+
+
+def _move_file(src: Path, dest: Path) -> None:
+    # `shutil.move` renames on one filesystem and copies then deletes across
+    # two; DuckDB's write-ahead log goes with the file, or the move loses the
+    # last writes that were not checkpointed yet.
+    import shutil
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    for suffix in ("", ".wal"):
+        part = src.with_name(src.name + suffix)
+        if part.exists():
+            shutil.move(str(part), str(dest.with_name(dest.name + suffix)))
+
+
+async def move_managed_file(db: AsyncSession, source: DataSource, requested: str | None) -> DataSource:
+    """Move a Linkr-owned database file to a new `*.duckdb` in a server folder
+    (`requested`), or back to Linkr's data folder (None), and point the source at
+    it. The one sanctioned way to change `managedPath` after creation: the new
+    location goes through the same check as a creation (a new file, inside the
+    browse roots, in a writable folder). Raises ValueError with the reason."""
+    if not is_managed(source):
+        raise ValueError("only a database Linkr created can be moved")
+    state = compaction_state(source.id)
+    if state is not None and state.status == "running":
+        raise ValueError("the database is being compacted; move it once that is done")
+    current = managed_path(source)
+    if requested:
+        try:
+            dest = fs_browser.validate_new_database_file(requested)
+        except fs_browser.FsBrowseError as exc:
+            raise ValueError(str(exc)) from exc
+    else:
+        dest = managed_db.path_for(source.id)
+        if dest.exists() and dest.resolve() != current.resolve():
+            raise ValueError("a file already exists in Linkr's data folder for this database")
+    if dest.resolve() == current.resolve():
+        return source
+    # A pooled connection holds the file open; DuckDB must let go before it moves.
+    connection_pool.invalidate(source.id)
+    await asyncio.to_thread(_move_file, current, dest)
+    config = dict(source.connection_config or {})
+    if requested:
+        config["managedPath"] = str(dest)
+    else:
+        config.pop("managedPath", None)
+    source.connection_config = config
+    await db.commit()
+    await db.refresh(source)
+    return source
+
+
+def _keep_managed_path(config: dict, current: dict | None) -> dict:
+    """`managedPath` as the server stored it, whatever the client sent.
+
+    Only create-from-ddl sets it, once, after validating a NEW file inside the
+    browse roots. Taking it from a plain create/PATCH would let a request point a
+    source at any file the server can write — which the ETL then writes into and
+    a rebuild deletes."""
+    out = {k: v for k, v in config.items() if k != "managedPath"}
+    stored = (current or {}).get("managedPath")
+    if stored:
+        out["managedPath"] = stored
+    return out
+
+
 @dataclass
 class CompactionState:
     """Live state of one compaction, polled by the client.
@@ -381,12 +542,12 @@ async def start_compaction(source: DataSource) -> CompactionState:
         raise ValueError("only a server-owned database can be compacted")
 
     source_id = source.id
-    path = managed_db.path_for(source_id)
+    path = managed_path(source)
     if not path.exists():
         raise ValueError("the database file is missing")
 
     size_before = path.stat().st_size
-    data_size = await asyncio.to_thread(managed_db.data_size, source_id)
+    data_size = await asyncio.to_thread(managed_db.data_size, path)
 
     # Checked and registered under one acquisition: two requests arriving together
     # would otherwise both see "not running" and start a second rewrite of the
@@ -413,7 +574,7 @@ async def start_compaction(source: DataSource) -> CompactionState:
 
     def _run() -> None:
         try:
-            before, after = managed_db.compact(source_id, _on_bytes)
+            before, after = managed_db.compact(path, _on_bytes)
         except Exception as e:  # noqa: BLE001 — reported through the polled state
             state.status = "error"
             state.error = str(e)
@@ -459,7 +620,7 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
         )
 
     if is_managed(source):
-        path = managed_db.path_for(source.id)
+        path = managed_path(source)
         return DatabaseConnectionInfo(
             engine="duckdb",
             kind="file",
@@ -551,7 +712,7 @@ async def role_attachments(
             }
             continue
         if is_managed(source):
-            path = managed_db.path_for(source.id)
+            path = managed_path(source)
             if path.exists():
                 out[role] = {"kind": "file", "engine": "duckdb", "path": str(path)}
             continue
@@ -591,7 +752,7 @@ async def run_etl(
         raise ValueError(
             "the pipeline target must be a database created from a schema"
         )
-    target_path = managed_db.path_for(target.id)
+    target_path = managed_path(target)
     if not target_path.exists():
         raise ValueError("the target database file is missing; recreate it")
 
@@ -663,7 +824,7 @@ async def client_recipe(db: AsyncSession, source: DataSource) -> dict:
         }
 
     if is_managed(source):
-        path = managed_db.path_for(source.id)
+        path = managed_path(source)
         return {
             "engine": "duckdb",
             "kind": "managed",
@@ -715,7 +876,7 @@ async def query(db: AsyncSession, source: DataSource, sql: str, arrow: bool = Fa
         )
     if is_managed(source):
         # Server-owned file: nothing in the blob store, read it where it lives.
-        path = managed_db.path_for(source.id)
+        path = managed_path(source)
         if not path.exists():
             raise ValueError("the database file is missing; recreate it")
         return await asyncio.to_thread(
@@ -753,7 +914,7 @@ async def refresh_concept_cache(
     if is_managed(source):
         # Server-owned file: nothing in the blob store, so hand the materializer
         # the path where it lives — same single-DuckDB-file shape as an upload.
-        path = managed_db.path_for(source.id)
+        path = managed_path(source)
         if not path.exists():
             raise ValueError("the database file is missing; recreate it")
         files = [(path.name, str(path))]
@@ -782,7 +943,7 @@ async def introspect(db: AsyncSession, source: DataSource) -> list[dict]:
         return await asyncio.to_thread(db_connect.introspect_external, config, password)
     if is_managed(source):
         # Server-owned file: nothing in the blob store, introspect it in place.
-        path = managed_db.path_for(source.id)
+        path = managed_path(source)
         if not path.exists():
             return []
         return await asyncio.to_thread(db_connect.introspect_file, "duckdb", str(path))
@@ -807,7 +968,7 @@ async def test_connection_stored(
     # once — a held lock, a run interrupted mid-write — stayed `error` forever,
     # its only offered way out being the rebuild that empties it.
     if is_managed(source):
-        path = managed_db.path_for(source.id)
+        path = managed_path(source)
         if not path.exists():
             return False, f"database file not found: {path}", []
         try:

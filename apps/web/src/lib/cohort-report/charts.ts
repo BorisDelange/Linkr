@@ -1,0 +1,264 @@
+/**
+ * The report's charts, as SVG strings.
+ *
+ * Generated, not captured from recharts: the same markup goes into the HTML, is
+ * printed to PDF, and is rasterised into the Word file, so the three outputs
+ * cannot disagree — and nothing has to be mounted to produce them. A suppressed
+ * count (`value: null`) keeps its slot on the axis but draws no bar.
+ */
+import type { ReportCount } from './suppress'
+
+export const CHART_COLORS = {
+  bar: '#0084d8',
+  barDark: '#004578',
+  axis: '#cdd7e3',
+  text: '#33445c',
+  muted: '#667892',
+  box: '#eef6fc',
+  boxBorder: '#0084d8',
+} as const
+
+const FONT = "font-family=\"system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif\""
+
+export function escapeXml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+export interface ChartItem {
+  label: string
+  count: ReportCount
+}
+
+function svg(width: number, height: number, body: string, title: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeXml(title)}" ${FONT}>${body}</svg>`
+}
+
+/** A round axis maximum and its step: 0, 50, 100… rather than 0, 47, 94. */
+export function niceScale(max: number, ticks = 4): { max: number; step: number } {
+  if (max <= 0) return { max: 1, step: 1 }
+  // Counts: never a fractional step.
+  const raw = Math.max(1, max / ticks)
+  const mag = 10 ** Math.floor(Math.log10(raw))
+  const step = [1, 2, 5, 10].map((f) => f * mag).find((s) => s >= raw) ?? 10 * mag
+  return { max: Math.ceil(max / step) * step, step }
+}
+
+/**
+ * Columns over a category axis (months, age bands), with a count axis on the
+ * left. Labels thin out when crowded; past ~40 columns the gaps go too — a
+ * one-pixel gap between hairline bars reads as a border, not as space.
+ */
+export function verticalBars(items: ChartItem[], opts: { title: string; width?: number; height?: number }): string {
+  const width = opts.width ?? 640
+  const height = opts.height ?? 240
+  const { max, step } = niceScale(Math.max(0, ...items.map((i) => i.count.value ?? 0)))
+  const tickLabels: string[] = []
+  for (let v = 0; v <= max; v += step) tickLabels.push(v.toLocaleString('en').replace(/,/g, '\u202f'))
+  const axisW = 10 + Math.max(...tickLabels.map((l) => l.length)) * 5.6
+  const pad = { top: 18, right: 8, bottom: 36, left: axisW }
+  const plotW = width - pad.left - pad.right
+  const plotH = height - pad.top - pad.bottom
+  const slot = items.length ? plotW / items.length : plotW
+  const dense = items.length > 40
+  const barW = dense ? slot : Math.max(2, slot * 0.72)
+  // At most ~12 axis labels, whatever the number of columns.
+  const every = Math.max(1, Math.ceil(items.length / 12))
+  const yOf = (v: number) => pad.top + plotH - (v / max) * plotH
+  const parts: string[] = []
+  tickLabels.forEach((label, i) => {
+    const y = yOf(i * step).toFixed(1)
+    parts.push(`<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" stroke="${CHART_COLORS.axis}"${i ? ' stroke-dasharray="2 3"' : ''} />`)
+    parts.push(`<text x="${pad.left - 5}" y="${(Number(y) + 3).toFixed(1)}" font-size="9" text-anchor="end" fill="${CHART_COLORS.muted}">${escapeXml(label)}</text>`)
+  })
+  parts.push(`<line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${pad.top + plotH}" stroke="${CHART_COLORS.axis}" />`)
+  items.forEach((item, i) => {
+    const x = pad.left + i * slot + (slot - barW) / 2
+    const cx = pad.left + i * slot + slot / 2
+    if (item.count.value != null && item.count.value > 0) {
+      const y = yOf(item.count.value)
+      const h = pad.top + plotH - y
+      parts.push(`<rect x="${x.toFixed(2)}" y="${y.toFixed(1)}" width="${barW.toFixed(2)}" height="${h.toFixed(1)}"${dense ? '' : ' rx="1.5"'} fill="${CHART_COLORS.bar}" />`)
+      if (items.length <= 24) {
+        parts.push(`<text x="${cx.toFixed(1)}" y="${(y - 4).toFixed(1)}" font-size="9" text-anchor="middle" fill="${CHART_COLORS.text}">${escapeXml(item.count.label)}</text>`)
+      }
+    }
+    if (i % every === 0) {
+      parts.push(`<text x="${cx.toFixed(1)}" y="${pad.top + plotH + 14}" font-size="9" text-anchor="middle" fill="${CHART_COLORS.muted}">${escapeXml(item.label)}</text>`)
+    }
+  })
+  return svg(width, height, parts.join(''), opts.title)
+}
+
+/** Bars along a label column (sex, care units, event tables), largest first as given. */
+export function horizontalBars(items: ChartItem[], opts: { title: string; width?: number }): string {
+  const width = opts.width ?? 640
+  const rowH = 22
+  const labelW = Math.min(220, Math.max(80, ...items.map((i) => i.label.length * 6.2)))
+  const valueW = 56
+  const height = Math.max(rowH, items.length * rowH) + 8
+  const plotW = width - labelW - valueW - 16
+  const max = Math.max(1, ...items.map((i) => i.count.value ?? 0))
+  const parts = items.map((item, i) => {
+    const y = 4 + i * rowH
+    const label = item.label.length > 36 ? `${item.label.slice(0, 35)}…` : item.label
+    const w = item.count.value ? (item.count.value / max) * plotW : 0
+    return [
+      `<text x="${labelW - 6}" y="${y + 14}" font-size="10" text-anchor="end" fill="${CHART_COLORS.text}">${escapeXml(label)}</text>`,
+      w > 0 ? `<rect x="${labelW}" y="${y + 4}" width="${w.toFixed(1)}" height="${rowH - 8}" rx="1.5" fill="${CHART_COLORS.bar}" />` : '',
+      `<text x="${(labelW + w + 6).toFixed(1)}" y="${y + 14}" font-size="10" fill="${CHART_COLORS.text}">${escapeXml(item.count.label)}</text>`,
+    ].join('')
+  })
+  return svg(width, height, parts.join(''), opts.title)
+}
+
+const DONUT_COLORS = ['#1f5e97', '#3b8fb5', '#7fb3d5', '#a9c6de', '#9aa8b8', '#c9d3de']
+
+/** A share as the report's locale writes it: "71,6 %" in French, "71.6%" in English. */
+function formatShare(value: number, total: number, locale: string): string {
+  return new Intl.NumberFormat(locale, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    .format(value / total)
+}
+
+/**
+ * A donut with the total in its hole and a legend of shares beside it, laid out
+ * for half a page. A suppressed slice (`value: null`) draws no arc and shows its
+ * suppressed label instead of a share — a share of a hidden count gives it back.
+ */
+export function donut(
+  items: ChartItem[],
+  opts: { title: string; locale: string; centerValue?: string; centerLabel?: string },
+): string {
+  const width = 520
+  const height = 270
+  const cx = 138
+  const cy = 135
+  const r = 100
+  const inner = 68
+  const total = items.reduce((sum, i) => sum + (i.count.value ?? 0), 0)
+  const parts: string[] = []
+  let angle = -Math.PI / 2
+  const point = (a: number, radius: number) => `${(cx + radius * Math.cos(a)).toFixed(2)} ${(cy + radius * Math.sin(a)).toFixed(2)}`
+  items.forEach((item, i) => {
+    const v = item.count.value ?? 0
+    if (!total || v <= 0) return
+    const color = DONUT_COLORS[i % DONUT_COLORS.length]
+    const tip = `<title>${escapeXml(`${item.label} : ${item.count.label} (${formatShare(v, total, opts.locale)})`)}</title>`
+    if (v === total) {
+      // A single full slice: an arc cannot start and end at the same point.
+      parts.push(`<circle cx="${cx}" cy="${cy}" r="${(r + inner) / 2}" fill="none" stroke="${color}" stroke-width="${r - inner}">${tip}</circle>`)
+      return
+    }
+    const sweep = (v / total) * Math.PI * 2
+    const end = angle + sweep
+    const large = sweep > Math.PI ? 1 : 0
+    parts.push(`<path d="M ${point(angle, r)} A ${r} ${r} 0 ${large} 1 ${point(end, r)} L ${point(end, inner)} A ${inner} ${inner} 0 ${large} 0 ${point(angle, inner)} Z" fill="${color}">${tip}</path>`)
+    angle = end
+  })
+  if (opts.centerValue) {
+    parts.push(`<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="34" font-weight="600" fill="#1a4c7c">${escapeXml(opts.centerValue)}</text>`)
+    if (opts.centerLabel) {
+      parts.push(`<text x="${cx}" y="${cy + 25}" text-anchor="middle" font-size="15" fill="#77869a">${escapeXml(opts.centerLabel)}</text>`)
+    }
+  }
+  const rowH = 30
+  const top = cy - (items.length * rowH) / 2 + 2
+  items.forEach((item, i) => {
+    const y = top + i * rowH
+    const share = item.count.value != null && total ? formatShare(item.count.value, total, opts.locale) : item.count.label
+    parts.push(`<rect x="252" y="${y}" width="16" height="16" rx="2" fill="${DONUT_COLORS[i % DONUT_COLORS.length]}" />`)
+    parts.push(`<text x="278" y="${y + 13}" font-size="17" fill="${CHART_COLORS.text}">${escapeXml(`${item.label} — ${share}`)}</text>`)
+  })
+  return svg(width, height, parts.join(''), opts.title)
+}
+
+/**
+ * Columns for half a page (age bands), in the report's figure grid: light grid
+ * lines under a count axis, labels large enough to read once scaled down, and
+ * each column's count in its tooltip rather than over it.
+ */
+export function columnChart(items: ChartItem[], opts: { title: string; unit: string }): string {
+  const width = 520
+  const height = 270
+  const pad = { top: 16, right: 10, bottom: 40, left: 52 }
+  const plotW = width - pad.left - pad.right
+  const plotH = height - pad.top - pad.bottom
+  const { max, step } = niceScale(Math.max(0, ...items.map((i) => i.count.value ?? 0)), 6)
+  const yOf = (v: number) => pad.top + plotH - (v / max) * plotH
+  const parts: string[] = []
+  for (let v = 0; v <= max; v += step) {
+    const y = yOf(v).toFixed(1)
+    parts.push(`<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" stroke="#eef2f7" />`)
+    parts.push(`<text x="${pad.left - 7}" y="${(Number(y) + 5.5).toFixed(1)}" text-anchor="end" font-size="16" fill="${CHART_COLORS.muted}">${escapeXml(v.toLocaleString('en').replace(/,/g, '\u202f'))}</text>`)
+  }
+  const slot = items.length ? plotW / items.length : plotW
+  const barW = slot * 0.58
+  const every = Math.max(1, Math.ceil(items.length / 8))
+  items.forEach((item, i) => {
+    const cx = pad.left + i * slot + slot / 2
+    if (item.count.value != null && item.count.value > 0) {
+      const y = yOf(item.count.value)
+      parts.push(`<rect x="${(cx - barW / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${(pad.top + plotH - y).toFixed(1)}" fill="#1f5e97"><title>${escapeXml(`${item.label} : ${item.count.label} ${opts.unit}`)}</title></rect>`)
+    }
+    if (i % every === 0) {
+      parts.push(`<text x="${cx.toFixed(1)}" y="${height - 12}" text-anchor="middle" font-size="16" fill="#47576f">${escapeXml(item.label)}</text>`)
+    }
+  })
+  parts.push(`<line x1="${pad.left}" y1="${pad.top + plotH}" x2="${width - pad.right}" y2="${pad.top + plotH}" stroke="${CHART_COLORS.axis}" />`)
+  return svg(width, height, parts.join(''), opts.title)
+}
+
+export interface FlowStep {
+  label: string
+  /** "880 stays · 870 patients", already suppressed and formatted. */
+  counts: string
+}
+
+function wrap(text: string, maxChars: number, maxLines: number): string[] {
+  const words = text.split(/\s+/)
+  const lines: string[] = []
+  let line = ''
+  for (const w of words) {
+    if ((line + ' ' + w).trim().length > maxChars && line) {
+      lines.push(line)
+      line = w
+    } else {
+      line = (line + ' ' + w).trim()
+    }
+  }
+  if (line) lines.push(line)
+  if (lines.length > maxLines) {
+    const kept = lines.slice(0, maxLines)
+    kept[maxLines - 1] = `${kept[maxLines - 1].slice(0, maxChars - 1)}…`
+    return kept
+  }
+  return lines
+}
+
+/** The inclusion flowchart: one box per step, top to bottom, the count in each. */
+export function flowchart(steps: FlowStep[], opts: { title: string; width?: number }): string {
+  const width = opts.width ?? 560
+  const boxW = width - 40
+  const boxH = 58
+  const gap = 22
+  const height = steps.length * boxH + Math.max(0, steps.length - 1) * gap + 4
+  const parts: string[] = []
+  steps.forEach((step, i) => {
+    const y = 2 + i * (boxH + gap)
+    const x = 20
+    const last = i === steps.length - 1
+    parts.push(`<rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="6" fill="${last ? CHART_COLORS.barDark : CHART_COLORS.box}" stroke="${CHART_COLORS.boxBorder}" />`)
+    const lines = wrap(step.label, 78, 2)
+    const fg = last ? '#ffffff' : CHART_COLORS.text
+    lines.forEach((l, j) => {
+      parts.push(`<text x="${width / 2}" y="${y + 18 + j * 13}" font-size="11" text-anchor="middle" fill="${fg}">${escapeXml(l)}</text>`)
+    })
+    parts.push(`<text x="${width / 2}" y="${y + boxH - 9}" font-size="12" font-weight="600" text-anchor="middle" fill="${fg}">${escapeXml(step.counts)}</text>`)
+    if (!last) {
+      const ax = width / 2
+      const ay = y + boxH
+      parts.push(`<line x1="${ax}" y1="${ay}" x2="${ax}" y2="${ay + gap - 5}" stroke="${CHART_COLORS.muted}" stroke-width="1.5" />`)
+      parts.push(`<path d="M${ax - 4},${ay + gap - 7} L${ax + 4},${ay + gap - 7} L${ax},${ay + gap - 1} Z" fill="${CHART_COLORS.muted}" />`)
+    }
+  })
+  return svg(width, height, parts.join(''), opts.title)
+}

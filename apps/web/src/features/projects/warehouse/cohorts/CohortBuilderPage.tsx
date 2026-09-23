@@ -1,13 +1,14 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
+import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
-import { useMyProjectRole } from '@/hooks/use-context-role'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { useCohortStore } from '@/stores/cohort-store'
-import { useProjectSource } from '@/stores/data-source-store'
 import * as engine from '@/lib/duckdb/engine'
 import {
+  ArrowLeft,
+  FileText,
   Play,
   Loader2,
   Code2,
@@ -15,7 +16,11 @@ import {
   Upload,
   Download,
   Database,
+  Split,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { CustomSqlDot } from '@/components/ui/custom-sql-dot'
 import {
@@ -38,12 +43,18 @@ import {
 import { CriteriaPanel } from './builder/CriteriaPanel'
 import { SqlPreviewPanel } from './sql/SqlPreviewPanel'
 import { ResultsPanel } from './results/ResultsPanel'
+import { CohortPatientsPanel } from './results/CohortPatientsPanel'
+import { CohortReportDialog } from './report/CohortReportDialog'
+import { CohortDeriveDialog } from './derive/CohortDeriveDialog'
+import { isServerMode } from '@/lib/api-client'
+import { buildCohortKeyMap, cohortKey } from '@/lib/entity-io'
 import { ImportAtlasDialog } from './atlas/ImportAtlasDialog'
 import { ExportAtlasDialog } from './atlas/ExportAtlasDialog'
 import { formatDateTime } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import type { CohortLevel, CriteriaGroupNode } from '@/types'
 import { qualify } from '@/lib/schema-helpers'
+import { ProjectCohortHost, useCohortHost, useCohortSource } from './cohort-host'
 
 const levelOptions: { value: CohortLevel; labelKey: string }[] = [
   { value: 'patient', labelKey: 'cohorts.level_patient' },
@@ -52,10 +63,22 @@ const levelOptions: { value: CohortLevel; labelKey: string }[] = [
   { value: 'event', labelKey: 'cohorts.level_event' },
 ]
 
+/** A project cohort's page. */
 export function CohortBuilderPage() {
-  const { t } = useTranslation()
-  const { projectUid: uid, raw } = useResolvedParams()
-  const { can } = useMyProjectRole(uid)
+  return (
+    <ProjectCohortHost>
+      <CohortBuilder />
+    </ProjectCohortHost>
+  )
+}
+
+/** A cohort's builder in whichever host it sits in — a project, or a database. */
+export function CohortBuilder() {
+  const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
+  const { raw } = useResolvedParams()
+  const host = useCohortHost()
+  const { can } = host
   const {
     cohorts,
     updateCohort,
@@ -67,16 +90,33 @@ export function CohortBuilderPage() {
     executionErrors,
   } = useCohortStore()
 
-  const cohort = resolveByIdPrefix(cohorts, raw.cohortId, (c) => c.id)
+  // Among this host's own cohorts only: a database route must not open a
+  // project's cohort that happens to share an id prefix, nor the reverse.
+  const hostCohorts = useMemo(() => cohorts.filter(host.owns), [cohorts, host.owns])
+  const cohortKeys = useMemo(() => buildCohortKeyMap(hostCohorts), [hostCohorts])
+  const cohort = resolveByIdPrefix(hostCohorts, raw.cohortId, (c) => c.id)
   const cohortId = cohort?.id
-  const activeSource = useProjectSource(uid, cohort?.dataSourceId)
+  const activeSource = useCohortSource(cohort)
   const mapping = activeSource?.schemaMapping
 
-  const [leftView, setLeftView] = useState<'criteria' | 'sql'>('criteria')
+  // `null` hides the left pane: clicking the active view's tab folds it, as in
+  // an analysis. The two panes can never both be hidden.
+  const [leftView, setLeftView] = useState<'criteria' | 'sql' | null>('criteria')
+  const [resultsVisible, setResultsVisible] = useState(true)
+  const lastLeftView = useRef<'criteria' | 'sql'>('criteria')
+  const toggleLeftView = (view: 'criteria' | 'sql') => {
+    if (leftView !== view) setLeftView(view)
+    else if (resultsVisible) {
+      lastLeftView.current = view
+      setLeftView(null)
+    }
+  }
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [overwriteSqlDialogOpen, setOverwriteSqlDialogOpen] = useState(false)
   const [rematerializeDialogOpen, setRematerializeDialogOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
+  const [deriveOpen, setDeriveOpen] = useState(false)
   const pendingTreeRef = useRef<CriteriaGroupNode | null>(null)
 
   const result = cohortId ? executionResults.get(cohortId) ?? null : null
@@ -221,6 +261,41 @@ export function CohortBuilderPage() {
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-3 py-1.5 shrink-0">
+        {/* A project's sidebar leads back to its cohort list; a database tab has
+            no sidebar entry for it, so the way back is here. */}
+        {host.kind === 'database' && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => navigate(host.listPath)}
+            title={t('common.back')}
+            aria-label={t('common.back')}
+          >
+            <ArrowLeft size={14} />
+          </Button>
+        )}
+        {/* Folds the left pane; a view tab below opens it again. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={leftView ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              onClick={() => {
+                if (leftView) { if (resultsVisible) { lastLeftView.current = leftView; setLeftView(null) } }
+                else setLeftView(lastLeftView.current)
+              }}
+            >
+              {leftView ? <Eye size={14} /> : <EyeOff size={14} />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t('cohorts.toggle_builder')}</TooltipContent>
+        </Tooltip>
+        {host.kind === 'database' && (
+          <>
+            <span className="max-w-60 truncate text-xs font-medium">{localized(cohort.name, i18n.language)}</span>
+            <span className="h-4 w-px bg-border" />
+          </>
+        )}
         {/* Level selector — what one row of the result stands for. Unlabelled,
             "Hospitalization" next to a cohort name read like a filter. */}
         <span className="text-xs text-muted-foreground">{t('cohorts.level_label')}</span>
@@ -241,7 +316,7 @@ export function CohortBuilderPage() {
         <div className="flex items-center rounded-md border p-0.5">
           <button
             type="button"
-            onClick={() => setLeftView('criteria')}
+            onClick={() => toggleLeftView('criteria')}
             className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
               leftView === 'criteria'
                 ? 'bg-primary text-primary-foreground'
@@ -253,7 +328,7 @@ export function CohortBuilderPage() {
           </button>
           <button
             type="button"
-            onClick={() => setLeftView('sql')}
+            onClick={() => toggleLeftView('sql')}
             className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
               leftView === 'sql'
                 ? 'bg-primary text-primary-foreground'
@@ -268,8 +343,8 @@ export function CohortBuilderPage() {
 
         <div className="flex-1" />
 
-        {/* Materialization freshness */}
-        {cohort.materialization && (
+        {/* Materialization freshness — a project's notion only (see below). */}
+        {host.kind === 'project' && cohort.materialization && (
           <span
             className="flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-400"
             title={t('cohorts.materialized_tooltip', {
@@ -294,18 +369,44 @@ export function CohortBuilderPage() {
           {t('common.export')}
         </Button>
 
-        {/* Materialize (freeze membership) */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleMaterialize}
-          disabled={loading || !activeSource || cohort.level === 'event' || !can('cohorts:write')}
-          className="h-6 gap-1 text-xs"
-          title={cohort.level === 'event' ? t('cohorts.materialize_event_disabled') : undefined}
-        >
-          <Database size={12} />
-          {t('cohorts.materialize')}
+        {/* A read of the definition, like export: not gated on write. */}
+        <Button variant="ghost" size="sm" onClick={() => setReportOpen(true)} className="h-6 gap-1 text-xs">
+          <FileText size={12} />
+          {t('cohort_report.button')}
         </Button>
+
+        {/* A copy of the database filtered on the cohort: written server-side,
+            into a database Linkr owns, so there is nothing to derive into in
+            the browser build. */}
+        {host.kind === 'database' && isServerMode() && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setDeriveOpen(true)}
+            disabled={!activeSource || !can('cohorts:write')}
+            className="h-6 gap-1 text-xs"
+          >
+            <Split size={12} />
+            {t('cohort_derive.button')}
+          </Button>
+        )}
+
+        {/* Materialize (freeze membership): what a project's Patient data reads.
+            A database cohort has no such reader — its derivations recompute
+            the membership themselves — so it is not offered there. */}
+        {host.kind === 'project' && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleMaterialize}
+            disabled={loading || !activeSource || cohort.level === 'event' || !can('cohorts:write')}
+            className="h-6 gap-1 text-xs"
+            title={cohort.level === 'event' ? t('cohorts.materialize_event_disabled') : undefined}
+          >
+            <Database size={12} />
+            {t('cohorts.materialize')}
+          </Button>
+        )}
 
         {/* Execute */}
         <Button
@@ -317,13 +418,26 @@ export function CohortBuilderPage() {
           {loading ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
           {t('cohorts.execute')}
         </Button>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={resultsVisible ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              onClick={() => { if (!resultsVisible || leftView) setResultsVisible(!resultsVisible) }}
+            >
+              {resultsVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t('cohorts.toggle_results')}</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Main content: split panes */}
       <div className="flex-1 min-h-0">
         <Allotment>
-          <Allotment.Pane preferredSize="50%" minSize={300}>
-            {leftView === 'criteria' ? (
+          <Allotment.Pane preferredSize="50%" minSize={leftView ? 300 : 0} visible={!!leftView}>
+            {leftView !== 'sql' ? (
               <div className="h-full overflow-auto">
                 <CriteriaPanel
                   criteriaTree={cohort.criteriaTree}
@@ -344,13 +458,25 @@ export function CohortBuilderPage() {
               />
             )}
           </Allotment.Pane>
-          <Allotment.Pane preferredSize="50%" minSize={250}>
+          <Allotment.Pane preferredSize="50%" minSize={resultsVisible ? 250 : 0} visible={resultsVisible}>
             <ResultsPanel
               result={result}
               loading={loading}
               error={executionError}
               onExecute={handleExecute}
               onExportCsv={handleExportCsv}
+              renderPatients={
+                activeSource && mapping?.patientTable && cohort.level !== 'event'
+                  ? (r) => (
+                      <CohortPatientsPanel
+                        dataSourceId={activeSource.id}
+                        cohort={cohort}
+                        schemaMapping={mapping}
+                        rows={r.rows}
+                      />
+                    )
+                  : undefined
+              }
             />
           </Allotment.Pane>
         </Allotment>
@@ -367,6 +493,23 @@ export function CohortBuilderPage() {
         onOpenChange={setExportDialogOpen}
         cohort={cohort}
       />
+
+      <CohortReportDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        cohort={cohort}
+        source={activeSource}
+      />
+
+      {host.kind === 'database' && activeSource && (
+        <CohortDeriveDialog
+          open={deriveOpen}
+          onOpenChange={setDeriveOpen}
+          cohort={cohort}
+          cohortKey={cohortKeys.get(cohort.id) ?? cohortKey(cohort)}
+          source={activeSource}
+        />
+      )}
 
       {/* Confirm overwriting custom SQL when criteria change */}
       <AlertDialog open={overwriteSqlDialogOpen} onOpenChange={(open) => {

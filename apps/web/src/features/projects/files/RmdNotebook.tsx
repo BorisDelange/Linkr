@@ -76,6 +76,7 @@ import { defineLinkrThemes } from '@/components/editor/monaco-themes'
 import { useShortcutStore } from '@/stores/shortcut-store'
 import type { KeyCombo, ShortcutActionId } from '@/types/shortcuts'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
+import { foldAccents } from '@/lib/fold-accents'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -912,7 +913,7 @@ ${bodyParts.join('\n')}
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${title.replace(/[^a-zA-Z0-9-_ ]/g, '').trim() || 'notebook'}.html`
+      a.download = `${foldAccents(title).replace(/[^a-zA-Z0-9-_ ]/g, '').trim() || 'notebook'}.html`
       a.click()
       URL.revokeObjectURL(url)
     } finally {

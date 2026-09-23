@@ -151,8 +151,9 @@ class ImportEnvSpecRequest(CamelModel):
 
 class JobResponse(CamelModel):
     id: str
-    project_uid: str
-    kind: str  # 'build' | 'run' | …
+    project_uid: str | None = None
+    workspace_id: str | None = None
+    kind: str  # 'build' | 'run' | 'derive' | …
     label: str
     status: str  # queued | running | done | error | cancelled
     progress: int

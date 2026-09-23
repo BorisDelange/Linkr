@@ -157,6 +157,8 @@ async def _seed(db) -> Project:
         d = group["patientDashboard"]
         db.add(PatientDashboard(
             id=d["id"], project_uid=uid, name=d["name"], description=d["description"],
+            owner_cohort_id=d.get("ownerCohortId"), data_source_id=d.get("dataSourceId"),
+            data_source_ref=d.get("dataSourceRef"),
             show_widget_titles=d["showWidgetTitles"], widget_spacing=d.get("widgetSpacing"),
             fit_to_height=d.get("fitToHeight"),
             reload_widgets_on_tab_switch=d.get("reloadWidgetsOnTabSwitch"),

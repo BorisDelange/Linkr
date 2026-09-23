@@ -71,6 +71,14 @@ interface GoldenInput {
   /** Stored files per data source id — the export reads these to list a
    *  database's tables. */
   dataSourceFiles?: Record<string, { fileName: string }[]>
+  /** Each database's own cohorts, by data source id. */
+  databaseCohorts?: Record<string, Record<string, unknown>[]>
+  /** Each database's own patient board, by data source id. */
+  databaseBoards?: Record<string, {
+    patientDashboard: Record<string, unknown>
+    tabs: Record<string, unknown>[]
+    widgets: Record<string, unknown>[]
+  }>
   mappingProjects: Record<string, unknown>[]
   sourceCsvBase64: string
   mappings: Record<string, unknown>[]
@@ -119,14 +127,29 @@ const storage = {
   // Full project sub-tree (buildProjectZip) reads these; only proj-full is bundled.
   ideFiles: { getByProject: async (uid: string) => input.projectIdeFiles[uid] ?? [] },
   pipelines: { getByProject: async () => [] },
-  cohorts: { getByProject: async () => [] },
+  cohorts: {
+    getByProject: async () => [],
+    getByDatabase: async (id: string) => input.databaseCohorts?.[id] ?? [],
+  },
   connections: { getByProject: async () => [] },
   dashboards: { getByProject: async () => [] },
   dashboardTabs: { getByDashboard: async () => [] },
   dashboardWidgets: { getByTab: async () => [] },
-  patientDashboards: { getByProject: async () => [] },
-  patientDashboardTabs: { getByDashboard: async () => [] },
-  patientDashboardWidgets: { getByTab: async () => [] },
+  patientDashboards: {
+    getByProject: async () => [],
+    getByDatabase: async (id: string) => {
+      const b = input.databaseBoards?.[id]
+      return b ? [b.patientDashboard] : []
+    },
+  },
+  patientDashboardTabs: {
+    getByDashboard: async (id: string) =>
+      Object.values(input.databaseBoards ?? {}).flatMap((b) => b.tabs.filter((t) => t.patientDashboardId === id)),
+  },
+  patientDashboardWidgets: {
+    getByTab: async (id: string) =>
+      Object.values(input.databaseBoards ?? {}).flatMap((b) => b.widgets.filter((w) => w.tabId === id)),
+  },
   datasetFiles: { getByProject: async () => [] },
   datasetData: { get: async () => undefined },
   datasetRawFiles: { get: async () => undefined },

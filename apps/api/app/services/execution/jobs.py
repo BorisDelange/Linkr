@@ -35,10 +35,24 @@ def _sem() -> asyncio.Semaphore:
 
 
 async def create(
-    db: AsyncSession, project_uid: str, user_id: int, kind: str, label: str
+    db: AsyncSession,
+    project_uid: str | None,
+    user_id: int,
+    kind: str,
+    label: str,
+    *,
+    workspace_id: str | None = None,
 ) -> Job:
+    """A queued job owned by a project, or — `project_uid` None — by a workspace."""
+    if (project_uid is None) == (workspace_id is None):
+        raise ValueError("a job belongs to exactly one project or one workspace")
     job = Job(
-        project_uid=project_uid, user_id=user_id, kind=kind, label=label, status="queued"
+        project_uid=project_uid,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        kind=kind,
+        label=label,
+        status="queued",
     )
     db.add(job)
     await db.commit()
@@ -101,6 +115,9 @@ class JobHandle:
     async def progress(self, pct: int) -> None:
         await _set(self.job_id, progress=max(0, min(100, pct)))
 
+    async def set_result(self, result: dict) -> None:
+        await _set(self.job_id, result=result)
+
 
 async def _set(job_id: str, **fields) -> None:
     async with async_session() as db:
@@ -117,12 +134,18 @@ async def cancel(db: AsyncSession, job: Job) -> bool:
     return True
 
 
-async def list_active(db: AsyncSession, project_uid: str, user_id: int) -> list[Job]:
-    """A user's non-terminal jobs for a project (queued/running) plus recently
-    finished ones, newest first — feeds the StatusBar panel."""
+def _owned_by(project_uid: str | None, workspace_id: str | None):
+    return Job.project_uid == project_uid if project_uid is not None else Job.workspace_id == workspace_id
+
+
+async def list_active(
+    db: AsyncSession, project_uid: str | None, user_id: int, *, workspace_id: str | None = None
+) -> list[Job]:
+    """A user's non-terminal jobs for a project — or a workspace — (queued/running)
+    plus recently finished ones, newest first — feeds the StatusBar panel."""
     result = await db.execute(
         select(Job)
-        .where(Job.project_uid == project_uid)
+        .where(_owned_by(project_uid, workspace_id))
         .where(Job.user_id == user_id)
         .order_by(Job.created_at.desc())
         .limit(20)
@@ -130,15 +153,17 @@ async def list_active(db: AsyncSession, project_uid: str, user_id: int) -> list[
     return list(result.scalars().all())
 
 
-async def clear_finished(db: AsyncSession, project_uid: str, user_id: int) -> None:
-    """Remove the user's terminal jobs (done/error/cancelled) for a project — the
-    'clear all' action. Active jobs (queued/running) are kept so a build in flight
-    isn't lost from the panel."""
+async def clear_finished(
+    db: AsyncSession, project_uid: str | None, user_id: int, *, workspace_id: str | None = None
+) -> None:
+    """Remove the user's terminal jobs (done/error/cancelled) for a project or a
+    workspace — the 'clear all' action. Active jobs (queued/running) are kept so
+    a build in flight isn't lost from the panel."""
     from sqlalchemy import delete
 
     await db.execute(
         delete(Job)
-        .where(Job.project_uid == project_uid)
+        .where(_owned_by(project_uid, workspace_id))
         .where(Job.user_id == user_id)
         .where(Job.status.in_(("done", "error", "cancelled")))
     )

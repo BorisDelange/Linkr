@@ -22,7 +22,7 @@ import {
 } from '@/lib/import-identity'
 import { mintEntityId } from '@/components/ui/entity-id-field'
 import { localized } from '@/lib/localized'
-import { deleteProjectData, importProjectContent, createEntityAttachments, projectSlug, reassemblePresetMapping, DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
+import { deleteProjectData, importProjectContent, createEntityAttachments, projectSlug, reassemblePresetMapping, replaceDatabaseBoards, replaceDatabaseCohorts, DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
@@ -452,6 +452,8 @@ export async function importWorkspaceTree(
           name: ds.name, description: ds.description, alias: ds.alias,
           schemaMapping: ds.schemaMapping, updatedAt: now,
         })
+        await replaceDatabaseCohorts(storage, landing, parsed.databaseCohorts?.get(ds.id) ?? [])
+        await replaceDatabaseBoards(storage, landing, parsed.databaseBoards?.get(ds.id) ?? new Map())
         continue
       }
     }
@@ -489,6 +491,10 @@ export async function importWorkspaceTree(
       createdAt: ds.createdAt ?? now,
       updatedAt: now,
     } as DataSource)
+    // After the row: the server authorizes a database's cohorts through it. A
+    // git-linked database carries none here — its clone brings them.
+    await replaceDatabaseCohorts(storage, id, parsed.databaseCohorts?.get(ds.id) ?? [])
+    await replaceDatabaseBoards(storage, id, parsed.databaseBoards?.get(ds.id) ?? new Map())
   }
 
   // --- Import the workspace README's images ---
@@ -769,13 +775,19 @@ export async function importWorkspaceTree(
     const localIdFor = (ref: DataSourceRef | undefined) =>
       ref ? resolvePointer(storedDatabases, ref, targetWsId)?.id : undefined
     for (const uid of importedProjectUids) {
+      const cohortDatabase = new Map<string, string>()
       for (const cohort of await storage.cohorts.getByProject(uid).catch(() => [])) {
         const id = localIdFor(cohort.dataSourceRef)
         if (id) await storage.cohorts.update(cohort.id, { dataSourceId: id }).catch(() => {})
+        const resolved = id ?? cohort.dataSourceId
+        if (resolved) cohortDatabase.set(cohort.id, resolved)
       }
+      // A cohort's board carries no pointer: it reads the database its cohort runs on.
       for (const board of await storage.patientDashboards.getByProject(uid).catch(() => [])) {
-        const id = localIdFor(board.dataSourceRef)
-        if (id) await storage.patientDashboards.update(board.id, { dataSourceId: id }).catch(() => {})
+        const id = board.ownerCohortId ? cohortDatabase.get(board.ownerCohortId) : localIdFor(board.dataSourceRef)
+        if (id && id !== board.dataSourceId) {
+          await storage.patientDashboards.update(board.id, { dataSourceId: id }).catch(() => {})
+        }
       }
     }
   }

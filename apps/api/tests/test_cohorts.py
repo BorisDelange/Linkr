@@ -120,3 +120,110 @@ async def test_non_member_cannot_access(client, db):
     assert (await client.get(f"{API}/cohorts?projectUid={proj}", headers=other)).status_code == 403
     assert (await client.get(f"{API}/cohorts/{c['id']}", headers=other)).status_code == 403
     assert (await client.delete(f"{API}/cohorts/{c['id']}", headers=other)).status_code == 403
+
+
+# --- Cohorts owned by a database (the database page's cohorts) ---------------
+
+
+async def _user(db, client, username: str) -> tuple[int, dict]:
+    user = User(username=username, password_hash=hash_password("pw"), role="user")
+    db.add(user)
+    await db.commit()
+    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw"})
+    return user.id, {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+async def _database(client, headers) -> tuple[str, str]:
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    ds = (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "omop", "name": "OMOP", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb"},
+    })).json()["id"]
+    return ws, ds
+
+
+async def _db_cohort(client, headers, ds: str, cid="dc1", **extra):
+    return await client.post(f"{API}/cohorts", headers=headers, json={
+        "id": cid, "ownerDataSourceId": ds, "name": "Adults", "level": "patient",
+        "criteriaTree": {"type": "group", "op": "and", "children": []}, **extra,
+    })
+
+
+async def test_database_cohort_crud_and_listing(client):
+    headers = await _admin_headers(client)
+    _, ds = await _database(client, headers)
+    proj = await _project(client, headers)
+    await _cohort(client, headers, proj, cid="pc1")
+
+    r = await _db_cohort(client, headers, ds, dataSourceId="some-other-db")
+    assert r.status_code == 201, r.text
+    c = r.json()
+    # A database's cohort runs against that database, whatever was sent.
+    assert c["ownerDataSourceId"] == ds and c["dataSourceId"] == ds and c["projectUid"] is None
+
+    listed = (await client.get(f"{API}/cohorts?dataSourceId={ds}", headers=headers)).json()
+    assert [x["id"] for x in listed] == ["dc1"]
+    everything = (await client.get(f"{API}/cohorts", headers=headers)).json()
+    assert {x["id"] for x in everything} == {"pc1", "dc1"}
+
+    r = await client.patch(f"{API}/cohorts/dc1", headers=headers, json={"dataSourceId": "elsewhere"})
+    assert r.json()["dataSourceId"] == ds
+
+
+async def test_a_cohort_has_exactly_one_owner(client):
+    headers = await _admin_headers(client)
+    _, ds = await _database(client, headers)
+    proj = await _project(client, headers)
+    base = {"name": "X", "level": "patient", "criteriaTree": {}}
+    none = await client.post(f"{API}/cohorts", headers=headers, json={"id": "a", **base})
+    both = await client.post(f"{API}/cohorts", headers=headers, json={
+        "id": "b", "projectUid": proj, "ownerDataSourceId": ds, **base,
+    })
+    assert none.status_code == 422 and both.status_code == 422
+
+
+async def test_database_cohorts_follow_database_permissions(client, db):
+    admin = await _admin_headers(client)
+    ws, ds = await _database(client, admin)
+    await _db_cohort(client, admin, ds)
+    viewer_id, viewer = await _user(db, client, "viewer")
+    _, outsider = await _user(db, client, "outsider")
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": viewer_id, "role": "viewer"})
+
+    assert (await client.get(f"{API}/cohorts/dc1", headers=viewer)).status_code == 200
+    assert (await client.get(f"{API}/cohorts?dataSourceId={ds}", headers=viewer)).status_code == 200
+    assert (await client.patch(f"{API}/cohorts/dc1", headers=viewer, json={"name": "Y"})).status_code == 403
+    assert (await client.delete(f"{API}/cohorts/dc1", headers=viewer)).status_code == 403
+    assert (await _db_cohort(client, viewer, ds, cid="dc2")).status_code == 403
+
+    assert (await client.get(f"{API}/cohorts/dc1", headers=outsider)).status_code == 403
+    assert (await client.get(f"{API}/cohorts", headers=outsider)).json() == []
+    assert [c["id"] for c in (await client.get(f"{API}/cohorts", headers=viewer)).json()] == ["dc1"]
+
+
+async def test_deleting_the_database_deletes_its_cohorts(client):
+    headers = await _admin_headers(client)
+    _, ds = await _database(client, headers)
+    await _db_cohort(client, headers, ds)
+    assert (await client.delete(f"{API}/data-sources/{ds}", headers=headers)).status_code in (200, 204)
+    assert (await client.get(f"{API}/cohorts/dc1", headers=headers)).status_code == 404
+
+
+async def test_database_tree_carries_its_cohorts_without_patient_ids(client, db):
+    import json
+
+    from app.models.data_source import DataSource
+    from app.services.workspace_export_assemble import build_database_tree
+
+    headers = await _admin_headers(client)
+    _, ds = await _database(client, headers)
+    await _db_cohort(client, headers, ds, materialization={"ids": ["42"], "patientIds": ["42"]})
+    await client.patch(f"{API}/cohorts/dc1", headers=headers, json={"resultCount": 1})
+
+    tree = await build_database_tree(db, await db.get(DataSource, ds))
+    exported = json.loads(tree["cohorts/adults.json"])
+    assert exported["name"] == "Adults" and exported["level"] == "patient"
+    for leaked in ("materialization", "resultCount", "attrition", "id", "ownerDataSourceId",
+                   "dataSourceId", "dataSourceRef", "projectUid"):
+        assert leaked not in exported

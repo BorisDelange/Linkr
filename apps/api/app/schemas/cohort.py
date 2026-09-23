@@ -5,7 +5,9 @@ from app.schemas.base import CamelModel
 
 class CohortCreate(CamelModel):
     id: str
-    project_uid: str
+    # Exactly one owner: a project, or a database (the database page's cohorts).
+    project_uid: str | None = None
+    owner_data_source_id: str | None = None
     # LocalizedString. `str` is still accepted so older clients and seed
     # manifests that post a bare name keep working (LocalizedText reads it back).
     name: dict | str = ""
@@ -18,6 +20,7 @@ class CohortCreate(CamelModel):
     result_count: int | None = None
     attrition: list | None = None
     materialization: dict | None = None
+    derivations: list | None = None
     schema_version: int = 5
     # Creation date preserved on import round-trip; absent → server_default stamps now.
     created_at: datetime | None = None
@@ -35,6 +38,7 @@ class CohortUpdate(CamelModel):
     result_count: int | None = None
     attrition: list | None = None
     materialization: dict | None = None
+    derivations: list | None = None
     schema_version: int | None = None
     version: str | None = None
     # Restored on import/clone so the original creation date survives a git
@@ -44,7 +48,8 @@ class CohortUpdate(CamelModel):
 
 class CohortResponse(CamelModel):
     id: str
-    project_uid: str
+    project_uid: str | None = None
+    owner_data_source_id: str | None = None
     name: dict | str
     description: dict | str | None = None
     data_source_id: str | None = None
@@ -55,6 +60,7 @@ class CohortResponse(CamelModel):
     result_count: int | None = None
     attrition: list | None = None
     materialization: dict | None = None
+    derivations: list | None = None
     schema_version: int
     created_at: datetime
     updated_at: datetime

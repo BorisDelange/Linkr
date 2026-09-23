@@ -11,7 +11,7 @@ import { useUniqueName } from '@/hooks/use-unique-name'
 import { localized, setLocalized } from '@/lib/localized'
 import { buildPointer } from '@/lib/import-identity'
 import { cn } from '@/lib/utils'
-import { usePatientChartStore } from '@/stores/patient-chart-store'
+import { isProjectBoard, usePatientChartStore } from '@/stores/patient-chart-store'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { PatientDashboard } from '@/types'
@@ -36,7 +36,7 @@ export function PatientBoardEditDialog({
   const databases = useDatabaseOptions(workspaceId, item.projectUid)
   const allBoards = usePatientChartStore((s) => s.dashboards)
   const siblings = useMemo(
-    () => allBoards.filter((d) => d.projectUid === item.projectUid),
+    () => allBoards.filter((d) => isProjectBoard(d, item.projectUid ?? '')),
     [allBoards, item.projectUid],
   )
   const { nameError, canSubmit } = useUniqueName({

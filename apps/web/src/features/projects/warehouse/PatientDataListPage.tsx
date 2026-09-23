@@ -27,7 +27,7 @@ import { paths } from '@/lib/paths'
 import { localized } from '@/lib/localized'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { usePersistedSort } from '@/lib/use-persisted-sort'
-import { usePatientChartStore } from '@/stores/patient-chart-store'
+import { isProjectBoard, usePatientChartStore } from '@/stores/patient-chart-store'
 import { useAppStore } from '@/stores/app-store'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useUniqueName } from '@/hooks/use-unique-name'
@@ -75,7 +75,7 @@ export function PatientDataListPage() {
   const projectBoards = useMemo(
     () =>
       dashboards
-        .filter((d) => d.projectUid === projectUid)
+        .filter((d) => isProjectBoard(d, projectUid))
         .sort((a, b) => a.displayOrder - b.displayOrder),
     [dashboards, projectUid],
   )

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import {
   Activity,
@@ -19,6 +19,7 @@ import {
   Table,
   Table2,
   Users,
+  UsersRound,
 } from 'lucide-react'
 import type { CustomSchemaPreset, DataSource, DatabaseConnectionConfig, DatabaseStatsCache, SchemaMapping } from '@/types'
 import { localized } from '@/lib/localized'
@@ -72,12 +73,18 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { DatabasePull } from '@/components/versioning/DatabasePull'
+import { DatabaseCohortHost } from '@/features/projects/warehouse/cohorts/cohort-host'
+import { CohortList } from '@/features/projects/warehouse/cohorts/CohortListPage'
+import { CohortBuilder } from '@/features/projects/warehouse/cohorts/CohortBuilderPage'
 import { useDatabaseActions } from './use-database-actions'
+import { DerivedFromCard } from './DerivedFromCard'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useCohortStore } from '@/stores/cohort-store'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 
-const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'readme', 'license', 'versioning'] as const
+const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'cohorts', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
 
 /** What a project may open. `resolveTab` falls back to the default for anything
@@ -114,6 +121,12 @@ interface DatabaseDetailPageProps {
    * the workspace page that owns it; a project only ever links or unlinks.
    */
   readOnly?: boolean
+  /** The `:cohortId` of `…/databases/:dbId/cohorts/:cohortId`: the Cohorts tab
+   *  then shows that cohort's builder instead of the list. */
+  cohortId?: string
+  /** The workspace's database ids — the links this page builds shorten its id
+   *  against them, as the database list does. */
+  siblingIds?: readonly string[]
 }
 
 /**
@@ -124,8 +137,10 @@ interface DatabaseDetailPageProps {
  * export actions, live in the global header badge like every other entity —
  * hence no title here, only the tabs.
  */
-export function DatabaseDetailPage({ source, onBack, readOnly = false }: DatabaseDetailPageProps) {
+export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId, siblingIds = [] }: DatabaseDetailPageProps) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const { wsUid } = useResolvedParams()
   const dbActions = useDatabaseActions()
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
@@ -163,6 +178,24 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
   const [schemaEverOpened, setSchemaEverOpened] = useState(false)
   if (activeTab === 'schema' && !schemaEverOpened) setSchemaEverOpened(true)
 
+  // Opening a database refreshes the patient count its card shows — once per
+  // opening, when it is reachable.
+  const refreshPatientCount = useDataSourceStore((s) => s.refreshPatientCount)
+  const connected = source?.status === 'connected'
+  useEffect(() => {
+    if (source?.id && connected) void refreshPatientCount(source.id, { force: true })
+  }, [source?.id, connected, refreshPatientCount])
+
+  // A cohort's builder has its own route under the database, so it is linkable.
+  // Leaving it through another tab goes back to the database's own URL.
+  const onCohortRoute = !!cohortId && !readOnly
+  const shownTab: DatabaseTabId = onCohortRoute ? 'cohorts' : activeTab
+  const selectTab = (tab: DatabaseTabId) => {
+    if (!onCohortRoute || !source) return setActiveTab(tab)
+    const base = paths.warehouseDatabase(wsUid ?? '', source.id, siblingIds)
+    navigate(tab === 'overview' ? base : `${base}?tab=${tab}`)
+  }
+
   if (!source) {
     return (
       <div className="flex h-full flex-col items-center justify-center">
@@ -184,8 +217,8 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
   return (
     <div className="flex h-full flex-col">
       <Tabs
-        value={activeTab}
-        onValueChange={(v) => setActiveTab(v as DatabaseTabId)}
+        value={shownTab}
+        onValueChange={(v) => selectTab(v as DatabaseTabId)}
         className="flex min-h-0 flex-1 flex-col"
       >
         <div className="flex shrink-0 items-center px-6 py-3">
@@ -204,9 +237,15 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
               {t('databases.detail_schema')}
             </TabsTrigger>
             {!readOnly && (
+              <TabsTrigger value="cohorts">
+                <UsersRound size={14} />
+                {t('databases.detail_cohorts')}
+              </TabsTrigger>
+            )}
+            {!readOnly && (
               <EntitySecondaryTabsTrigger
-                activeTab={activeTab}
-                onSelect={setActiveTab}
+                activeTab={shownTab}
+                onSelect={selectTab}
                 onExport={() => void dbActions.onExport(source)}
               />
             )}
@@ -277,6 +316,14 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
             </div>
           )}
         </TabsContent>
+        {!readOnly && (
+          <TabsContent value="cohorts" className="m-0 min-h-0 flex-1 p-0">
+            <DatabaseCohortHost dataSourceId={source.id} siblingDatabaseIds={siblingIds}>
+              <DatabaseCohortsTab sourceId={source.id} status={source.status} showBuilder={onCohortRoute} />
+            </DatabaseCohortHost>
+          </TabsContent>
+        )}
+
         <TabsContent value="readme" className="m-0 min-h-0 flex-1 p-0">
           <div className="flex h-full flex-col px-6 pb-1.5">
             <DatabaseReadmeTab source={source} editing={readmeEditing} />
@@ -309,7 +356,11 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
               // A pull replaces the row and its files wholesale, behind the store
               // the page reads — without this the tabs keep describing the
               // database that was there before it.
-              onAfterPull={() => loadDataSources()}
+              onAfterPull={() => {
+                void loadDataSources()
+                void useCohortStore.getState().loadCohorts()
+                usePatientChartStore.setState({ loaded: false })
+              }}
               onReinstall={canReinstall ? makeReinstall('databases', source, source.workspaceId) : undefined}
             />
           </div>
@@ -317,6 +368,19 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
       </Tabs>
     </div>
   )
+}
+
+/**
+ * The database's own cohorts: the list, or one cohort's builder. They run on
+ * this database, so it is connected on arrival (a no-op in server mode, where
+ * the server holds the connection).
+ */
+function DatabaseCohortsTab({ sourceId, status, showBuilder }: { sourceId: string; status: DataSource['status']; showBuilder: boolean }) {
+  const testConnection = useDataSourceStore((s) => s.testConnection)
+  useEffect(() => {
+    if (status !== 'connected' && status !== 'configuring') void testConnection(sourceId)
+  }, [sourceId, status, testConnection])
+  return showBuilder ? <CohortBuilder /> : <CohortList />
 }
 
 /** A label/value row whose value gets a tooltip only when it is actually cut. */
@@ -509,6 +573,8 @@ function ConnectionCard({ source }: { source: DataSource }) {
   const [connInfo, setConnInfo] = useState<DatabaseConnectionInfo | null>(null)
   const [filesOpen, setFilesOpen] = useState(false)
   const [compactOpen, setCompactOpen] = useState(false)
+  // A moved file keeps its id and status: re-read the location when it changes.
+  const managedPath = config.managedPath
 
   // Where the data actually sits on the server, so it can be read from an
   // R/Python script outside Linkr. Server mode only: the browser build keeps its
@@ -528,7 +594,7 @@ function ConnectionCard({ source }: { source: DataSource }) {
       .then((r) => { if (!cancelled) setConnInfo(r) })
       .catch(() => { if (!cancelled) setConnInfo(null) })
     return () => { cancelled = true }
-  }, [source.id, source.status])
+  }, [source.id, source.status, managedPath])
 
   const parquetTables = connInfo?.kind === 'parquet-folder' ? connInfo.tables : []
   const filePath = connInfo?.kind === 'file' ? connInfo.path : null
@@ -743,8 +809,10 @@ function OverviewTab({
   // import recorded a reason (or by a path that never did) is disconnected and
   // silent, and gating the banner on the message made the ONLY action that can
   // fix it unreachable — the user had to delete the database and recreate it.
-  const canRebuild = source.status !== 'connected' && !!source.schemaMapping?.ddl
-  const showStatusBanner = source.status !== 'connected' && (!!source.errorMessage || canRebuild)
+  // Not while it is being set up: a derivation job may be writing that file.
+  const configuring = source.status === 'configuring'
+  const canRebuild = source.status !== 'connected' && !configuring && !!source.schemaMapping?.ddl
+  const showStatusBanner = source.status !== 'connected' && (configuring || !!source.errorMessage || canRebuild)
   // Cards show a dash rather than a zero (which would read as "empty"), so
   // without a word here the tab looked like a database with nothing in it.
   // Not while the status banner is up: a database that cannot connect has no
@@ -804,24 +872,35 @@ function OverviewTab({
           a database left disconnected by a data-free import has something to say
           too, and gating this on 'error' alone made those states silent. */}
       {showStatusBanner && (
-        <div className={`col-span-full shrink-0 rounded-lg border px-4 py-3 ${
-          source.status === 'error'
-            ? 'border-destructive/30 bg-destructive/5'
-            : 'border-amber-500/30 bg-amber-500/5'
-        }`}>
-          <p className={`text-xs font-medium ${source.status === 'error' ? 'text-destructive' : 'text-amber-700 dark:text-amber-400'}`}>
-            {t(source.status === 'error' ? 'databases.detail_error' : 'databases.detail_not_connected')}
+        <div className={cn('col-span-full shrink-0 rounded-lg border px-4 py-3',
+          source.status === 'error' ? 'border-destructive/30 bg-destructive/5'
+            : configuring ? 'bg-muted/40'
+              : 'border-amber-500/30 bg-amber-500/5',
+        )}>
+          <p className={cn('flex items-center gap-1.5 text-xs font-medium',
+            source.status === 'error' ? 'text-destructive' : configuring ? 'text-foreground' : 'text-amber-700 dark:text-amber-400',
+          )}>
+            {configuring && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
+            {t(source.status === 'error' ? 'databases.detail_error'
+              : configuring ? 'databases.detail_configuring' : 'databases.detail_not_connected')}
           </p>
-          <p className={`mt-1 break-all text-xs ${source.status === 'error' ? 'font-mono text-destructive/80' : 'text-amber-700/80 dark:text-amber-400/80'}`}>
-            {!source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
-              ? t('databases.imported_without_data')
-              : source.errorMessage}
+          <p className={cn('mt-1 text-xs',
+            source.status === 'error' ? 'break-all font-mono text-destructive/80'
+              : configuring ? 'text-muted-foreground' : 'break-all text-amber-700/80 dark:text-amber-400/80',
+          )}>
+            {configuring && (!source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT)
+              ? t('databases.detail_configuring_hint')
+              : !source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
+                ? t('databases.imported_without_data')
+                : source.errorMessage}
           </p>
           {/* A database built from a schema carries its DDL but never its tables —
               the export leaves the DuckDB file behind on purpose. Offer the one
               action that can fix it, since creation was the only path that ever
               applied the DDL. */}
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          {/* Nothing to do while it is being set up: a job builds it, or a test is
+              already running — kept while the user's own retest spins. */}
+          {(!configuring || retesting) && <div className="mt-2 flex flex-wrap items-center gap-2">
             {/* First, because it is the non-destructive way out and fixes every
                 transient cause. The rebuild below is the last resort. */}
             <Button size="sm" variant="outline" onClick={handleRetest} disabled={retesting || rebuilding}>
@@ -835,7 +914,7 @@ function OverviewTab({
                     carry every row it was loaded with. */}
                 <Button
                   size="sm"
-                  variant="outline"
+                  variant="destructive"
                   onClick={() => setConfirmRebuild(true)}
                   disabled={rebuilding || retesting}
                 >
@@ -847,7 +926,7 @@ function OverviewTab({
                 </span>
               </>
             )}
-          </div>
+          </div>}
         </div>
       )}
 
@@ -883,7 +962,7 @@ function OverviewTab({
             {t('databases.stats_not_computed_hint')}
           </p>
           <div className="mt-2">
-            <Button size="sm" variant="outline" onClick={refreshStats} disabled={statsLoading}>
+            <Button size="sm" onClick={refreshStats} disabled={statsLoading}>
               <BarChart3 size={14} className="mr-1.5" />
               {t('databases.load_statistics')}
             </Button>
@@ -906,8 +985,11 @@ function OverviewTab({
         resolveUrls={resolveAttachmentUrls}
         onEdit={onEditReadme}
       />
-      <div className="flex min-h-0 flex-col gap-4">
+      {/* Scrolls on its own when its cards outgrow the row; the README beside
+          it keeps its height and scrolls inside. */}
+      <div className="-mr-1 flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
         <IdentityCard source={source} onSeeLicense={onSeeLicense} />
+        <DerivedFromCard source={source} />
         <SchemaCard source={source} />
         <ConnectionCard source={source} />
       </div>

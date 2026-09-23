@@ -32,6 +32,15 @@ async def list_for_project(db: AsyncSession, project_uid: str) -> list[PatientDa
     return list(result.scalars().all())
 
 
+async def list_for_database(db: AsyncSession, data_source_id: str) -> list[PatientDashboard]:
+    result = await db.execute(
+        select(PatientDashboard)
+        .where(PatientDashboard.owner_data_source_id == data_source_id)
+        .order_by(PatientDashboard.id)
+    )
+    return list(result.scalars().all())
+
+
 async def get(db: AsyncSession, dashboard_id: str) -> PatientDashboard | None:
     return await db.get(PatientDashboard, dashboard_id)
 

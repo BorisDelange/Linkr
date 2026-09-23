@@ -54,6 +54,8 @@ _INSTANCE_FIELDS = (
     "organizationId",
     "updatedAt",
     "projectUid",
+    "ownerDataSourceId",
+    "ownerCohortId",
     "linkedDataSourceIds",
     # Machine-local server-path bindings — never travel with an export.
     "idePath",
@@ -106,14 +108,16 @@ def _cohort_export_shape(meta: dict) -> dict:
     database, so an instance holding the repo without the same data exports
     different numbers — a diff neither side can settle, coming back after every
     recompute. The criteria that produce them ARE versioned; only the counts go.
-    Same rule as a data source's ``stats``.
+    Same rule as a data source's ``stats``. ``materialization`` goes for a
+    stronger reason: it is the frozen list of THIS database's patient ids, which
+    must never leave the instance.
 
     ``id`` goes too: a cohort is key-addressed like a dashboard, so the FILENAME
     is its identity and the local id is re-derived from it on import. Versioning
     the id made every round trip rewrite it (import re-hashed the repo's id,
     pushed the new one back, next import re-hashed that) — churn with no fixed
     point."""
-    return {k: v for k, v in meta.items() if k not in ("attrition", "resultCount", "id")}
+    return {k: v for k, v in meta.items() if k not in ("attrition", "resultCount", "materialization", "derivations", "id")}
 
 
 def _cohort_keys(cohorts: list[dict]) -> dict[str, dict]:
@@ -816,7 +820,8 @@ def build_project_tree(
     # Names are LocalizedString, so the slug comes from English — the same rule
     # cohortKey uses on the frontend, or the two would export the same cohort
     # under different filenames.
-    for cohort_key, c in _cohort_keys(cohorts).items():
+    cohort_keys = _cohort_keys(cohorts)
+    for cohort_key, c in cohort_keys.items():
         tree[f"cohorts/{cohort_key}.json"] = _json(
             _cohort_export_shape(_drop_local_database(_strip_instance_fields(c)))
         )
@@ -843,10 +848,22 @@ def build_project_tree(
         name = _slugify(_localized_en(d.get("name")) or dash_key or d["id"])
         tree[f"dashboards/{name}.json"] = _build_dashboard_json(d, tabs, widgets)
 
+    # A cohort's own board sits beside the cohort, under its key — twin of the
+    # cohort-boards/ loop in buildProjectZip. It reads the database its cohort
+    # runs on, so no pointer of its own travels; one whose cohort is not in this
+    # export has nothing to hang off and is left out.
+    cohort_key_of = {c["id"]: k for k, c in cohort_keys.items()}
     for group in patient_dashboards or []:
         d = group["patientDashboard"]
         tabs = group.get("tabs", [])
         widgets = group.get("widgets", [])
+        if d.get("ownerCohortId"):
+            cohort_key = cohort_key_of.get(d["ownerCohortId"])
+            if cohort_key is not None:
+                tree[f"cohort-boards/{cohort_key}.json"] = _build_patient_dashboard_json(
+                    {**d, "dataSourceRef": None}, tabs, widgets, {f["id"] for f in dataset_files}
+                )
+            continue
         board_key = _patient_dashboard_key(d)
         name = _slugify(_localized_en(d.get("name")) or board_key or d["id"])
         tree[f"patient-dashboards/{name}.json"] = _build_patient_dashboard_json(

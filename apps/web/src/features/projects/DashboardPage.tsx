@@ -6,7 +6,7 @@ import { useMyProjectRole } from '@/hooks/use-context-role'
 import { GatedButton } from '@/components/ui/gated-button'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
-import { Plus, LayoutGrid, Pencil, Lock, Filter, Settings2, Download, Maximize, Minimize, Sparkles } from 'lucide-react'
+import { Plus, LayoutGrid, Pencil, Lock, Filter, Settings2, Download, Maximize, Minimize } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -19,8 +19,6 @@ import { WidgetGrid } from './dashboard/WidgetGrid'
 import { AddWidgetDialog } from './dashboard/AddWidgetDialog'
 import { DashboardFilterSidebar } from './dashboard/DashboardFilterSidebar'
 import { useDashboardPanelsStore } from '@/stores/dashboard-panels-store'
-import { DashboardAgentSidebar } from './dashboard/agent/DashboardAgentSidebar'
-import { resolveEndpointForSurface, type ResolvedEndpoint } from '@/lib/agent/settings'
 import { DashboardSettingsDialog } from './dashboard/DashboardSettingsDialog'
 import { ExportDashboardDialog } from './dashboard/ExportDashboardDialog'
 import { isWidgetPluginStale } from './dashboard/plugin-drift'
@@ -43,25 +41,8 @@ export function DashboardPage() {
   const [editMode, setEditMode] = useState(false)
   // Panel visibility lives in a store so it survives leaving the page.
   const filterOpen = useDashboardPanelsStore((s) => s.filterOpen)
-  const agentOpen = useDashboardPanelsStore((s) => s.agentOpen)
   const toggleFilterPanel = useDashboardPanelsStore((s) => s.toggleFilter)
-  const toggleAgentPanel = useDashboardPanelsStore((s) => s.toggleAgent)
   const setFilterOpen = useDashboardPanelsStore((s) => s.setFilterOpen)
-  const setAgentOpen = useDashboardPanelsStore((s) => s.setAgentOpen)
-  // Resolved once per mount: in server mode this is whichever model an admin
-  // approved for dashboards, so a change in Settings → Assistant applies when the
-  // user comes back here.
-  const [agent, setAgent] = useState<ResolvedEndpoint>({ endpoint: null, isRemote: false })
-  useEffect(() => {
-    let cancelled = false
-    resolveEndpointForSurface(wsUid ?? '', 'dashboard').then((resolved) => {
-      if (!cancelled) setAgent(resolved)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [wsUid])
-  const { endpoint: agentEndpoint, isRemote: agentIsRemote } = agent
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [exportPreselectId, setExportPreselectId] = useState<string | null>(null)
@@ -336,17 +317,6 @@ export function DashboardPage() {
               ? t('dashboard.toggle_filters_count', { count: activeFilterCount })
               : t('dashboard.toggle_filters')}
           </Button>
-          {canWrite && agentEndpoint ? (
-            <Button
-              variant={agentOpen ? 'default' : 'ghost'}
-              size="xs"
-              className="gap-1"
-              onClick={toggleAgentPanel}
-            >
-              <Sparkles size={12} />
-              {t('agent.open')}
-            </Button>
-          ) : null}
           <Button
             variant="ghost"
             size="icon-xs"
@@ -473,17 +443,6 @@ export function DashboardPage() {
             tabs={dashboardTabs}
             editMode={editMode}
             onClose={() => setFilterOpen(false)}
-          />
-        )}
-
-        {agentOpen && agentEndpoint && (
-          <DashboardAgentSidebar
-            dashboardId={dashboard.id}
-            projectUid={projectUid}
-            workspaceId={wsUid ?? ''}
-            endpoint={agentEndpoint}
-            isRemote={agentIsRemote}
-            onClose={() => setAgentOpen(false)}
           />
         )}
       </div>

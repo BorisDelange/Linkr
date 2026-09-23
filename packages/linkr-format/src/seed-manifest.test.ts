@@ -73,6 +73,20 @@ describe('buildSeedManifest — databases', () => {
     expect(m.internals?.databases).toEqual(['databases/mimic-iv-demo/entity.json'])
   })
 
+  // The loader fetches over HTTP and cannot list a folder: a database's cohorts
+  // and their boards reach a static build only if they are named here.
+  it("lists each database's cohorts and cohort boards for the loader", () => {
+    const m = buildSeedManifest(workspace({
+      'databases/mimic-iv-demo/entity.json': manifest,
+      'databases/mimic-iv-demo/cohorts/adults.json': '{}',
+      'databases/mimic-iv-demo/cohort-boards/adults.json': '{}',
+      'databases/other/entity.json': manifest,
+    }))
+    expect(m.internals?.databaseCohorts).toEqual({
+      'databases/mimic-iv-demo': ['cohorts/adults.json', 'cohort-boards/adults.json'],
+    })
+  })
+
   // Derived from the files present, never from a hand-kept list — the two cannot
   // drift, and adding a table to the repo needs no change here.
   it('derives parquetBase and tables from the repo itself', () => {
@@ -227,6 +241,17 @@ describe('buildSeedProjectIndex', () => {
     expect(buildSeedProjectIndex(tree, 'projects/p')).toMatchObject({
       dashboards: ['icu.json'],
       patientDashboards: ['board.json'],
+    })
+  })
+
+  it('lists cohort boards apart from cohorts', () => {
+    const tree = new MemoryTree({
+      'projects/p/cohorts/adults.json': '{}',
+      'projects/p/cohort-boards/adults.json': '{}',
+    })
+    expect(buildSeedProjectIndex(tree, 'projects/p')).toMatchObject({
+      cohorts: ['adults.json'],
+      cohortBoards: ['adults.json'],
     })
   })
 

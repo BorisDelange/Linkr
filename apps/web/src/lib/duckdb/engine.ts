@@ -31,6 +31,7 @@ const duckdb_eh_worker = duckdbAsset('duckdb-browser-eh.worker.js')
 // dollar-quote (a `;` inside any of those must not split a statement).
 import { splitSqlStatements } from './sql-tokenizer'
 import { shouldGuardMount, isAttachedCatalog } from './mount-guard'
+import { foldAccents } from '@/lib/fold-accents'
 export { splitSqlStatements }
 
 let _db: duckdb.AsyncDuckDB | null = null
@@ -144,7 +145,7 @@ export function resetDuckDB(): void {
  * E.g. "MIMIC-IV Demo (raw)" → "mimic_iv_demo_raw"
  */
 export function generateAlias(name: string): string {
-  return name
+  return foldAccents(name)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_|_$/g, '') || 'db'

@@ -18,7 +18,7 @@ from app.schemas.dashboard import (
     DashboardTabUpdate, DashboardUpdate, DashboardWidgetCreate, DashboardWidgetResponse,
     DashboardWidgetUpdate,
 )
-from app.services import cohort_service, dashboard_service, project_fs
+from app.services import cohort_access, cohort_service, dashboard_service, project_fs
 
 # --- Snapshots (taken by the routes before they write) ----------------------
 
@@ -75,18 +75,24 @@ async def apply(db: AsyncSession, user: User, project_uid: str | None, undo: dic
     kind, op, target, snap = undo["kind"], undo["op"], undo["id"], undo.get("snapshot") or {}
 
     if kind == "cohort":
+        # A cohort may belong to a database rather than a project: check against
+        # whichever owns it, as the cohort routes do.
         if op == "recreate":
-            await _require(db, project_uid, user, "cohorts:write")
+            await cohort_access.require_owner_access(
+                db, snap.get("project_uid"), snap.get("owner_data_source_id"), user, "cohorts:write",
+            )
             await cohort_service.create(db, CohortCreate(**_fields(snap, CohortCreate)))
             return False
         cohort = await cohort_service.get(db, target)
         if cohort is None:
             raise HTTPException(status.HTTP_409_CONFLICT, "The cohort no longer exists")
+        permission = "cohorts:delete" if op == "delete" else "cohorts:write"
+        await cohort_access.require_owner_access(
+            db, cohort.project_uid, cohort.owner_data_source_id, user, permission,
+        )
         if op == "delete":
-            await _require(db, project_uid, user, "cohorts:delete")
             await cohort_service.delete(db, cohort)
             return True
-        await _require(db, project_uid, user, "cohorts:write")
         await cohort_service.update(db, cohort, CohortUpdate(**_fields(snap, CohortUpdate)))
         return False
 

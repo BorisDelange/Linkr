@@ -3,44 +3,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_project_permission
 from app.models.cohort import Cohort
-from app.models.project import Project
 from app.models.user import User
 from app.schemas.cohort import CohortCreate, CohortResponse, CohortUpdate
-from app.services import cohort_service, notification_service, undo_service
+from app.services import cohort_access, cohort_service, notification_service, undo_service
 
 router = APIRouter(prefix="/cohorts", tags=["cohorts"])
-
-
-async def _require_project_access(
-    db: AsyncSession, project_uid: str, user: User, permission: str
-) -> None:
-    """Cohort access derives from the owning project (workspace role inherited,
-    with per-project override applied). Gated on the atomic `cohorts:*` permission."""
-    project = await db.get(Project, project_uid)
-    if project is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    await check_project_permission(db, project, user, permission)
-
 
 async def _load(db: AsyncSession, cohort_id: str, user: User, permission: str) -> Cohort:
     cohort = await cohort_service.get(db, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _require_project_access(db, cohort.project_uid, user, permission)
+    await cohort_access.require_owner_access(
+        db, cohort.project_uid, cohort.owner_data_source_id, user, permission
+    )
     return cohort
 
 
 @router.get("", response_model=list[CohortResponse])
 async def list_cohorts(
     project_uid: str | None = Query(default=None, alias="projectUid"),
+    data_source_id: str | None = Query(default=None, alias="dataSourceId"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if project_uid is not None:
-        await _require_project_access(db, project_uid, user, "cohorts:read")
+        await cohort_access.require_project_access(db, project_uid, user, "cohorts:read")
         return await cohort_service.list_for_project(db, project_uid)
+    if data_source_id is not None:
+        await cohort_access.require_database_access(db, data_source_id, user, "cohorts:read")
+        return await cohort_service.list_for_database(db, data_source_id)
     return await cohort_service.list_for_user(db, user)
 
 
@@ -51,7 +43,17 @@ async def create_cohort(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(db, body.project_uid, user, "cohorts:write")
+    if bool(body.project_uid) == bool(body.owner_data_source_id):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "a cohort belongs to exactly one project or one database",
+        )
+    await cohort_access.require_owner_access(
+        db, body.project_uid, body.owner_data_source_id, user, "cohorts:write"
+    )
+    if body.owner_data_source_id:
+        # A database's cohort runs against that database — never another one.
+        body.data_source_id = body.owner_data_source_id
     cohort = await cohort_service.create(db, body)
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action="created",
@@ -79,6 +81,8 @@ async def update_cohort(
     db: AsyncSession = Depends(get_db),
 ):
     cohort = await _load(db, cohort_id, user, "cohorts:write")
+    if cohort.owner_data_source_id and "data_source_id" in body.model_fields_set:
+        body.data_source_id = cohort.owner_data_source_id
     changed = set(body.model_dump(exclude_unset=True))
     before = undo_service.cohort_snapshot(cohort)
     cohort = await cohort_service.update(db, cohort, body)

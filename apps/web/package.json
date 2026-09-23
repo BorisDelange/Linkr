@@ -43,6 +43,7 @@
     "coi-serviceworker": "^0.1.7",
     "d3-sankey": "^0.12.3",
     "date-fns": "^4.4.0",
+    "docx": "^9.7.1",
     "dygraphs": "^2.2.1",
     "html-to-image": "^1.11.13",
     "i18next": "^25.8.7",

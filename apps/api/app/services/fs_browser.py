@@ -213,6 +213,49 @@ def validate_source_path(path: str) -> None:
         raise FsBrowseError("Server path is not readable by the server")
 
 
+DATABASE_FILE_SUFFIX = ".duckdb"
+
+
+def check_new_database_file(path: str) -> dict:
+    """Check `path` can receive a NEW DuckDB file that Linkr will own: inside the
+    browse roots, named `*.duckdb`, in an existing writable folder, and not already
+    there. Same machine-readable reasons as `validate_dir`.
+
+    Refusing an existing file is the whole point: Linkr writes into a file it owns
+    and a rebuild deletes it, so accepting one would let a user pick someone
+    else's database — or any file — and have it overwritten. Not gated on
+    `enable_code_execution`, like `validate_source_path`: creating a database is
+    not running code."""
+    if not path:
+        return {"ok": False, "reason": "empty"}
+    raw = Path(path).expanduser()
+    if not raw.is_absolute():
+        return {"ok": False, "reason": "not_absolute"}
+    if raw.suffix.lower() != DATABASE_FILE_SUFFIX or raw.name == DATABASE_FILE_SUFFIX:
+        return {"ok": False, "reason": "wrong_extension"}
+    # The file does not exist yet, so only its folder can be resolved: resolving
+    # the folder is what stops a symlinked folder from escaping a root.
+    folder = raw.parent.resolve()
+    target = folder / raw.name
+    if not _within_roots(target):
+        return {"ok": False, "reason": "outside_roots"}
+    if not folder.is_dir():
+        return {"ok": False, "reason": "not_found", "path": str(folder)}
+    if not os.access(folder, os.W_OK):
+        return {"ok": False, "reason": "not_writable", "path": str(folder)}
+    if target.exists() or target.is_symlink():
+        return {"ok": False, "reason": "exists", "path": str(target)}
+    return {"ok": True, "path": str(target)}
+
+
+def validate_new_database_file(path: str) -> Path:
+    """`check_new_database_file` as a guard: the resolved path, or FsBrowseError."""
+    result = check_new_database_file(path)
+    if not result["ok"]:
+        raise FsBrowseError(f"Cannot create the database file here: {result['reason']}")
+    return Path(result["path"])
+
+
 def validate_dir(path: str) -> dict:
     """Check a chosen folder is bindable: it must EXIST, be a directory, and be
     writable by the server process (no mkdir — the admin prepares the folder). The

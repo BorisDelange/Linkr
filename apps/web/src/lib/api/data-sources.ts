@@ -1,7 +1,8 @@
 import { apiFetch, apiRequest } from '@/lib/api-client'
 import { uploadFileInChunks } from '@/lib/api/upload'
+import { notifyJobsChanged, type Job } from '@/lib/api/environments'
 import type { DataSourceStorage, FileStorage } from '@/lib/storage'
-import type { DataSource, StoredFile } from '@/types'
+import type { CohortLevel, ConnectionConfig, DataSource, DerivedFrom, StoredFile } from '@/types'
 
 /** Server-side schema introspection result — mirrors engine.IntrospectedTable[]. */
 export interface IntrospectedColumn {
@@ -54,10 +55,92 @@ export async function queryDataSourceOnServer(
  * DDL. Server-mode counterpart of the browser's mountEmptyFromDDL: without it
  * the source exists in the database but has no tables anywhere.
  */
-export function createFromDdlOnServer(dataSourceId: string, ddl: string): Promise<unknown> {
+export function createFromDdlOnServer(
+  dataSourceId: string,
+  ddl: string,
+  /** A new `.duckdb` in a server folder; omitted = Linkr's data folder, or where
+   *  the file was first created on a rebuild. */
+  path?: string,
+): Promise<{ connectionConfig?: ConnectionConfig }> {
   return apiRequest(`/data-sources/${dataSourceId}/create-from-ddl`, {
     method: 'POST',
-    body: JSON.stringify({ ddl }),
+    body: JSON.stringify({ ddl, path }),
+  })
+}
+
+/** How a derivation keeps a table's rows: the id it filters on, or none (copied whole). */
+export type DeriveFilter = 'patient' | 'visit' | 'visit_detail' | 'parent_visit'
+
+export interface DerivePlanTable {
+  /** Null for the database's default schema. */
+  schema: string | null
+  table: string
+  filter: DeriveFilter | null
+  column: string | null
+}
+
+/** What deriving a cohort of this database at `level` would do with each table. */
+export function fetchDerivePlan(dataSourceId: string, level: CohortLevel): Promise<DerivePlanTable[]> {
+  return apiRequest(`/data-sources/${dataSourceId}/derive-plan`, {
+    method: 'POST',
+    body: JSON.stringify({ level }),
+  })
+}
+
+export type DeriveTarget =
+  /** `dataSourceId`: a managed database created for it (or derived before, on a rebuild). */
+  | { kind: 'new-database'; dataSourceId: string; path?: string }
+  | {
+      kind: 'schema'
+      dataSourceId: string
+      schemaName: string
+      /** Drop and recreate: a rebuild, confirmed first. */
+      replace?: boolean
+      /** Also declare the schema as a Linkr database (Postgres targets). */
+      registerName?: string
+      registerAlias?: string
+    }
+
+export interface DeriveRequest {
+  /** `buildCohortMembershipSql`: `id`, `patient_id`. */
+  membershipSql: string
+  level: CohortLevel
+  copyPersonless: boolean
+  target: DeriveTarget
+  cohortId?: string
+  derivedFrom?: DerivedFrom
+}
+
+/**
+ * Copy `dataSourceId`'s tables, filtered on a cohort, into a new database or a
+ * new SQL schema. The membership query runs alone and READ_ONLY; the copy runs
+ * only SQL the server writes. Returns the queued job of the database's
+ * workspace — the footer's jobs panel follows it from there.
+ */
+export async function deriveOnServer(dataSourceId: string, body: DeriveRequest): Promise<Job> {
+  const job = await apiRequest<Job>(`/data-sources/${dataSourceId}/derive`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  notifyJobsChanged()
+  return job
+}
+
+/** Delete a database; `deleteData` also removes the file or SQL schema Linkr
+ *  created for it. */
+export function deleteDataSourceOnServer(dataSourceId: string, opts: { deleteData: boolean }): Promise<void> {
+  return apiRequest(`/data-sources/${dataSourceId}?deleteData=${opts.deleteData}`, { method: 'DELETE' })
+}
+
+/**
+ * Move a database Linkr created to another file: a NEW `.duckdb` in a server
+ * folder, or back to Linkr's data folder (`path` omitted). The file moves — the
+ * old one is gone afterwards. Returns the source with its new config.
+ */
+export function moveDatabaseFileOnServer(dataSourceId: string, path?: string): Promise<DataSource> {
+  return apiRequest(`/data-sources/${dataSourceId}/move-file`, {
+    method: 'POST',
+    body: JSON.stringify({ path: path ?? null }),
   })
 }
 
