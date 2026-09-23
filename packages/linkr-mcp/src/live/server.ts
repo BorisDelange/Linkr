@@ -400,7 +400,7 @@ server.registerTool('preview_cohort_sql', {
 server.registerTool('run_cohort', {
   description:
     'Run a cohort on its database: total count, attrition (how many remain after each top-level '
-    + 'criterion, in order) and a few sample rows. Saves the count on the cohort, as the app\'s Run button '
+    + 'criterion, in order) and, on request, sample rows. Saves the count on the cohort, as the app\'s Run button '
     + 'does. Check the attrition: a step that removes nobody, or everybody, usually means a wrong criterion.',
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: fromJsonSchema<{ cohort_id: string; sample_rows?: number }>({
@@ -433,7 +433,7 @@ server.registerTool('run_cohort', {
       prev = count
     }
   }
-    // Rows are patient-level data; aggregates are the default (plan §2: with a
+  // Rows are patient-level data; aggregates are the default (plan §2: with a
   // remote model, schema and aggregates only).
   const n = Math.min(sample_rows ?? 0, 50)
   const sampleSql = !cohort.customSql && n > 0 ? buildCohortResultsSql(cohort, mapping, n, 0) : null
