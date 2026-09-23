@@ -213,7 +213,8 @@ server.registerTool('search_concepts', {
     { columnId: 'patient_count', desc: true })
   if (!sql) return failure('Could not build a concept search for this mapping.')
   const rows = await api.query(database_id, sql)
-  const keep = ['concept_id', 'concept_name', 'concept_code', 'vocabulary_id', 'category', '_dict_key',
+  const keep = ['concept_id', 'concept_name', 'concept_code', 'vocabulary_id', 'domain_id', 'concept_class_id',
+    'standard_concept', '_dict_key',
     'record_count', 'patient_count']
   return text(formatRows(rows.map((r) =>
     Object.fromEntries(keep.filter((k) => k in r).map((k) => [k === '_dict_key' ? 'dictionary' : k, r[k]]))), 100))
@@ -406,7 +407,10 @@ server.registerTool('run_cohort', {
     type: 'object',
     properties: {
       cohort_id: { type: 'string' },
-      sample_rows: { type: 'number', description: 'Sample rows to show, default 5, max 50.' },
+      sample_rows: {
+        type: 'number',
+        description: 'Patient-level rows to show, default 0, max 50. Counts and attrition are usually enough.',
+      },
     },
     required: ['cohort_id'],
   }),
@@ -429,7 +433,9 @@ server.registerTool('run_cohort', {
       prev = count
     }
   }
-  const n = Math.min(sample_rows ?? 5, 50)
+    // Rows are patient-level data; aggregates are the default (plan §2: with a
+  // remote model, schema and aggregates only).
+  const n = Math.min(sample_rows ?? 0, 50)
   const sampleSql = !cohort.customSql && n > 0 ? buildCohortResultsSql(cohort, mapping, n, 0) : null
   const sample = sampleSql ? await api.query(dbId, sampleSql) : []
   await api.updateCohort(cohort_id, { resultCount: total, attrition: cohort.customSql ? null : attrition })
