@@ -20,14 +20,14 @@
 # https://hub.docker.com/r/interhop/linkr/tags
 services:
   web:
-    image: interhop/linkr:web-2.4.1
+    image: interhop/linkr:web-2.4.2
     ports:
       - "3000:80"
     depends_on:
       - api
 
   api:
-    image: interhop/linkr:api-2.4.1
+    image: interhop/linkr:api-2.4.2
     ports:
       - "8000:8000"
     environment:
