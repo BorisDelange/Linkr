@@ -87,6 +87,22 @@ def _lock_down_user_sql(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("SET lock_configuration=true")
 
 
+def _forbid_file_access(con: duckdb.DuckDBPyConnection, readable: list[str] | None = None) -> None:
+    """Cut a read-query connection off the server's filesystem, once its source is
+    attached or its views created.
+
+    Without this, the "read-only" query route ran `COPY (…) TO '/any/path'` and
+    `read_csv('/etc/passwd')` as the server's user — and an agent driving the MCP
+    can be talked into sending exactly that. `readable` lists the files the source's
+    own views read (a Parquet folder); an already-attached database stays readable.
+    Irreversible for the connection: DuckDB refuses to turn external access back on,
+    and allowed_paths is frozen with it."""
+    if readable:
+        paths = ", ".join("'" + p.replace("'", "''") + "'" for p in readable)
+        con.execute(f"SET allowed_paths=[{paths}]")
+    con.execute("SET enable_external_access=false")
+
+
 def _connect(extension: str) -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
     # Persist installed extensions under data_dir so INSTALL only hits the
@@ -393,6 +409,7 @@ def query_external(
     def _setup() -> duckdb.DuckDBPyConnection:
         con = _connect(spec["extension"])
         _attach(con, config, password)
+        _forbid_file_access(con)
         return con
 
     if pool_key is None:
@@ -432,6 +449,7 @@ def query_file(
         con = duckdb.connect()
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_file(con, engine, path)
+        _forbid_file_access(con)
         return con
 
     if pool_key is None:
@@ -715,6 +733,7 @@ def query_parquet_folder(
         con = duckdb.connect()
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_parquet_views(con, groups)
+        _forbid_file_access(con, [p for paths in groups.values() for p in paths])
         return con
 
     if pool_key is None:
