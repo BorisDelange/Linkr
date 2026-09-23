@@ -202,23 +202,24 @@ The inventory of all 32 file-entry points is in the plan: 3 done, 5 candidates
 | 🔜 | Category B: datasets, mapping source, scores, IDE and ETL uploads — each needs a "read a server file" backend path | M |
 | 🤔 | `fs_browse_roots` empty = the whole filesystem: keep, or default to a root? | S |
 
-## Databases — datamarts — [database-page-datamarts-plan.md](database-page-datamarts-plan.md)
+## Databases — cohorts, review board, report, derived databases — [database-cohorts-plan.md](database-cohorts-plan.md)
 
-The database detail **page with tabs** shipped (Overview / Statistics / Schema; the old
-right-hand sheet is retired). What remains is **derived sub-databases**: select patients
-with the cohort criteria builder, then either materialise a new Parquet-backed
-`DataSource` or create a schema in the source database. The criteria builder gets
-**extracted and shared**, not forked.
+Supersedes the datamarts plan (a datamart = a materialised database cohort) and absorbs the
+cohort patient-review idea. Cohorts **owned by a database** (same `Cohort` entity, owner
+discriminator), a *Patients* tab next to Attrition with **one patient board per database**,
+a generated **cohort report** (HTML / PDF via print / Word), **derive** a cohort into a new
+DuckDB or a schema, a **location choice** for DuckDB files (app folder or server folder),
+patient count on cards — all carried by the database export.
 
 | St | Item | Effort |
 |----|------|--------|
-| ✅ | Database detail page with tabs, sheet retired | M |
-| 🤔 | Naming (datamart?), entity shape, and where the cohort/datamart line sits | S (decision) |
-| 🔜 | Extract the cohort criteria builder into a shared component | M |
-| 🔜 | Datamart entity + builder + provenance (parent, criteria, built-at) | L |
-| 🔜 | Mode (a): materialise to a new Parquet-backed `DataSource` | M |
-| 🤔 | Mode (b): create a schema in the source DB (permission + engine support) | L |
-| 🤔 | Data quality tab: run a DQ rule set against a database | M |
+| 🔜 | Q1 patient count on cards · Q2 materialisation 10k cap + stop exporting patient ids | S |
+| 🔜 | 1. DuckDB location field + Linkr-owned files (Create from schema) | M |
+| 🔜 | 2–4. Cohort owner model → `CohortHost` refactor + Cohorts tab → export/import/versioning | L |
+| 🔜 | 5–6. Database patient board + *Patients* tab + export | M/L |
+| 🔜 | 7–9. Cohort report: model + SVG charts → HTML + PDF → Word | L |
+| 🔜 | 10–11. Derive (self-contained copy, vocabulary included) → new DuckDB · → new schema (DuckDB / Postgres) | L |
+| 🔜 | 12. Architecture + UI docs + website docs | S/M |
 
 ## Versioning
 
