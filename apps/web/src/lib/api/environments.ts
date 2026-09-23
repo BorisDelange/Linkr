@@ -105,14 +105,29 @@ export interface JobResult {
 
 export interface Job {
   id: string
-  projectUid: string
+  /** Exactly one owner: a project (builds, runs) or a workspace (a database's
+   *  cohort derivation). */
+  projectUid: string | null
+  workspaceId: string | null
   kind: string
   label: string
   status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
   progress: number
   logTail: string
+  /** A 'run' job's artifacts. A 'derive' job carries a `DerivationJobResult`. */
   result?: JobResult | null
   createdAt: string
+}
+
+/** What a finished derivation reports, on its job. */
+export interface DerivationJobResult {
+  targetId: string
+  cohortId: string | null
+  /** The database produced, or declared for the new SQL schema. */
+  dataSourceId: string | null
+  patientCount: number
+  unitCount: number
+  builtAt: string
 }
 
 /** Kick off a manual build; returns the queued job. Poll listJobs for progress. */
@@ -182,6 +197,27 @@ export function setEnvOptions(
 
 export function listJobs(projectUid: string): Promise<Job[]> {
   return apiRequest(`/projects/${projectUid}/jobs`)
+}
+
+const JOBS_CHANGED = 'linkr:jobs-changed'
+
+/** Tell the footer's jobs panel a job was just started, so it shows at once. */
+export function notifyJobsChanged(): void {
+  window.dispatchEvent(new Event(JOBS_CHANGED))
+}
+
+/** Subscribe to `notifyJobsChanged`; returns the unsubscribe. */
+export function onJobsChanged(handler: () => void): () => void {
+  window.addEventListener(JOBS_CHANGED, handler)
+  return () => window.removeEventListener(JOBS_CHANGED, handler)
+}
+
+export function listWorkspaceJobs(workspaceId: string): Promise<Job[]> {
+  return apiRequest(`/workspaces/${workspaceId}/jobs`)
+}
+
+export function clearWorkspaceJobs(workspaceId: string): Promise<void> {
+  return apiRequest(`/workspaces/${workspaceId}/jobs`, { method: 'DELETE' })
 }
 
 export function cancelJob(jobId: string): Promise<void> {

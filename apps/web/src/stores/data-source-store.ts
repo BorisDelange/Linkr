@@ -5,7 +5,8 @@ import { isServerMode } from '@/lib/api-client'
 import { useCohortStore } from '@/stores/cohort-store'
 import { createFromDdlOnServer, deriveOnServer, fetchDataSourceSchema, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
-import type { DeriveRequest, DeriveResult } from '@/lib/api/data-sources'
+import type { DeriveRequest } from '@/lib/api/data-sources'
+import type { DerivationJobResult, Job } from '@/lib/api/environments'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { qualify, sanitizeSchemaMapping } from '@/lib/schema-helpers'
@@ -193,8 +194,9 @@ interface DataSourceState {
 
   /**
    * Derive a cohort of `parentId` into a new Linkr-owned DuckDB database. The row
-   * is created first (the server writes into a database it already knows), and
-   * removed again if the copy fails. Server mode only.
+   * is created first (the server writes into a database it already knows); the
+   * copy is a job of the workspace, returned queued, and the server removes the
+   * row again if that job fails. Server mode only.
    */
   deriveIntoNewDatabase: (input: {
     parentId: string
@@ -202,10 +204,13 @@ interface DataSourceState {
     /** A new `.duckdb` in a server folder; omitted = Linkr's data folder. */
     path?: string
     request: Omit<DeriveRequest, 'target'>
-  }) => Promise<DeriveResult & { dataSourceId: string }>
-  /** Run a derivation into a database that exists (a new SQL schema, or a
-   *  rebuild), then re-read the rows it changed. */
-  runDerivation: (parentId: string, request: DeriveRequest) => Promise<DeriveResult>
+  }) => Promise<Job>
+  /** Start a derivation into a database that exists (a new SQL schema, or a
+   *  rebuild), as a job. */
+  runDerivation: (parentId: string, request: DeriveRequest) => Promise<Job>
+  /** A derivation job ended: re-read what it changed — the database it wrote or
+   *  declared (or removed, on a failed first build) and the cohort's record. */
+  derivationFinished: (job: Job) => Promise<void>
 }
 
 /** Timeout for DuckDB mount operations (ms). */
@@ -802,28 +807,27 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     }
     await getStorage().dataSources.create(created)
     set((s) => ({ dataSources: [...s.dataSources, created] }))
-    let result: DeriveResult
     try {
-      result = await deriveOnServer(parentId, { ...request, target: { kind: 'new-database', dataSourceId: id, path } })
+      return await deriveOnServer(parentId, { ...request, target: { kind: 'new-database', dataSourceId: id, path } })
     } catch (err) {
-      // Left in place it would be an empty database named after the cohort.
+      // Refused before any job started: left in place it would be an empty
+      // database named after the cohort.
       await get().removeDataSource(id).catch(() => {})
       throw err
     }
-    await rereadSources(set, [id])
-    if (request.cohortId) await useCohortStore.getState().reloadCohort(request.cohortId).catch(() => {})
-    return { ...result, dataSourceId: id }
   },
 
-  runDerivation: async (parentId, request) => {
-    const result = await deriveOnServer(parentId, request)
-    const changed = [request.target.dataSourceId, ...(result.dataSourceId ? [result.dataSourceId] : [])]
-    if (result.dataSourceId && !get().dataSources.some((d) => d.id === result.dataSourceId)) {
-      await get().loadDataSources(true)
+  runDerivation: (parentId, request) => deriveOnServer(parentId, request),
+
+  derivationFinished: async (job) => {
+    const result = job.result as unknown as DerivationJobResult | null | undefined
+    // The row list first: a first build that failed was removed server-side,
+    // and a declared SQL schema is a row this store has never seen.
+    await get().loadDataSources(true)
+    if (result) {
+      await rereadSources(set, [result.targetId, ...(result.dataSourceId ? [result.dataSourceId] : [])])
+      if (result.cohortId) await useCohortStore.getState().reloadCohort(result.cohortId).catch(() => {})
     }
-    await rereadSources(set, changed)
-    if (request.cohortId) await useCohortStore.getState().reloadCohort(request.cohortId).catch(() => {})
-    return result
   },
 
   createEmptyDatabase: async (source) => {

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 import { Loader2, RefreshCw } from 'lucide-react'
 import {
   AlertDialog,
@@ -28,11 +27,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { fetchDerivePlan, type DerivePlanTable, type DeriveResult } from '@/lib/api/data-sources'
+import { fetchDerivePlan, type DerivePlanTable } from '@/lib/api/data-sources'
+import type { Job } from '@/lib/api/environments'
 import { generateAlias } from '@/lib/duckdb/engine'
 import { formatDateTime } from '@/lib/format-helpers'
 import { localized, toLocalized } from '@/lib/localized'
-import { paths } from '@/lib/paths'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import type { Cohort, CohortDerivation, DataSource } from '@/types'
 import {
@@ -61,7 +60,6 @@ export function CohortDeriveDialog(props: CohortDeriveDialogProps) {
 
 function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDeriveDialogProps) {
   const { t, i18n } = useTranslation()
-  const navigate = useNavigate()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const deriveIntoNewDatabase = useDataSourceStore((s) => s.deriveIntoNewDatabase)
   const runDerivation = useDataSourceStore((s) => s.runDerivation)
@@ -84,7 +82,6 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   const [planError, setPlanError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<DeriveResult | null>(null)
   const [rebuilding, setRebuilding] = useState<CohortDerivation | null>(null)
 
   const blocked = derivableReason(cohort, source)
@@ -104,20 +101,23 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   const filtered = plan?.filter((p) => p.filter) ?? []
   const personless = plan?.filter((p) => !p.filter) ?? []
 
-  const canConfirm = !blocked && !busy && !result && (
+  const canConfirm = !blocked && !busy && (
     kind === 'new-database'
       ? !!name.trim() && locationValid
       : !!target && schemaValid
   )
 
-  const run = async (go: () => Promise<DeriveResult>) => {
+  // The copy runs as a job of the workspace: once it is queued there is nothing
+  // left to do here, and the footer's jobs panel follows it. Only a refusal
+  // (a name taken, a database that does not allow writes) keeps the dialog open.
+  const run = async (go: () => Promise<Job>) => {
     setBusy(true)
     setError(null)
     try {
-      setResult(await go())
+      await go()
+      onOpenChange(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
-    } finally {
       setBusy(false)
     }
   }
@@ -161,7 +161,6 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   }
   const derivationLabel = (d: CohortDerivation) =>
     d.kind === 'schema' ? `${databaseName(d.targetId)} · ${d.schemaName}` : databaseName(d.targetId)
-  const produced = result?.dataSourceId ?? undefined
   const derivations = cohort.derivations ?? []
 
   return (
@@ -172,38 +171,23 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
         kind="settings"
         title={t('cohort_derive.title')}
         description={t('cohort_derive.description', { name: cohortName })}
-        onConfirm={result ? undefined : confirm}
+        onConfirm={confirm}
         confirmLabel={t('cohort_derive.confirm')}
         confirmDisabled={!canConfirm}
         busy={busy}
-        cancelLabel={result ? t('common.close') : undefined}
         footerExtra={
           <span className="flex items-center gap-2 text-xs text-muted-foreground sm:mr-auto">
             {busy && (
               <>
                 <Loader2 size={13} className="shrink-0 animate-spin" />
-                {t('cohort_derive.running')}
+                {t('cohort_derive.starting')}
               </>
-            )}
-            {result && produced && dataSources.some((d) => d.id === produced) && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  onOpenChange(false)
-                  navigate(paths.warehouseDatabase(source.workspaceId ?? '', produced, dataSources.map((d) => d.id)))
-                }}
-              >
-                {t('cohort_derive.open_database')}
-              </Button>
             )}
           </span>
         }
       >
         {blocked ? (
           <p className="text-sm text-muted-foreground">{t(`cohort_derive.unavailable_${blocked}`)}</p>
-        ) : result ? (
-          <DeriveSummary result={result} />
         ) : (
           <>
             {derivations.length > 0 && (
@@ -406,32 +390,6 @@ function DerivePlan({
                 <td className="px-2 py-1 font-mono">{tableName(p)}</td>
                 <td className="px-2 py-1 text-muted-foreground">
                   {copyPersonless ? t('cohort_derive.filter_whole') : t('cohort_derive.filter_skipped')}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-function DeriveSummary({ result }: { result: DeriveResult }) {
-  const { t } = useTranslation()
-  const written = result.tables.filter((x) => !x.skipped)
-  return (
-    <div className="space-y-2">
-      <p className="text-sm">
-        {t('cohort_derive.done', { tables: written.length, patients: result.patientCount, units: result.unitCount })}
-      </p>
-      <div className="max-h-56 overflow-auto rounded-md border">
-        <table className="w-full text-xs">
-          <tbody>
-            {written.map((x) => (
-              <tr key={tableName(x)} className="border-b last:border-0">
-                <td className="px-2 py-1 font-mono">{tableName(x)}</td>
-                <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
-                  {t('cohort_derive.rows', { count: x.rows ?? 0 })}
                 </td>
               </tr>
             ))}

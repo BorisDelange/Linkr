@@ -5562,8 +5562,6 @@
     "title": "Derive a database from this cohort",
     "description": "Copy every table of this database, keeping only the rows of “{{name}}”. The copy stands on its own: it does not read this database.",
     "confirm": "Derive",
-    "running": "Copying the tables…",
-    "open_database": "Open the database",
     "existing": "Already derived into",
     "built": "Built {{date}} · {{count}} patients",
     "rebuild": "Rebuild",
@@ -5592,9 +5590,6 @@
     "filter_parent_visit": "stays containing the cohort’s unit stays ({{column}})",
     "filter_whole": "copied whole",
     "filter_skipped": "not copied",
-    "done": "{{tables}} tables copied · {{patients}} patients · {{units}} rows at the cohort’s level.",
-    "rows_one": "{{count}} row",
-    "rows_other": "{{count}} rows",
     "unavailable_custom-sql": "This cohort uses custom SQL. A derivation rebuilds the cohort from its criteria, so go back to the criteria first.",
     "unavailable_event-level": "An event-level cohort has no single id to filter the tables on. Choose the patient, stay or unit-stay level.",
     "unavailable_no-mapping": "This database’s schema does not say where its patients are, so the tables cannot be filtered.",
@@ -5606,6 +5601,8 @@
     "provenance_patients": "Patients",
     "provenance_rebuild_hint": "Rebuild it from the criteria recorded here, against the database it was derived from.",
     "provenance_parent_missing": "The database it was derived from is not in this workspace, so it cannot be rebuilt here.",
-    "provenance_rebuild_description": "The tables of this database are replaced by a new copy of “{{database}}”, filtered on the criteria recorded when it was built."
+    "provenance_rebuild_description": "The tables of this database are replaced by a new copy of “{{database}}”, filtered on the criteria recorded when it was built.",
+    "starting": "Starting the derivation…",
+    "started": "Rebuild started — follow it in the jobs panel, at the bottom right."
   }
 }

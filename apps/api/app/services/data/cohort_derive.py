@@ -22,6 +22,8 @@ whole, or skipped when the caller asks.
 from __future__ import annotations
 
 import os
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -253,6 +255,35 @@ def _attach_target(con: duckdb.DuckDBPyConnection, target: TargetSpec) -> None:
     raise ValueError(f"unknown target kind {target.kind!r}")
 
 
+class DeriveCancelled(Exception):
+    """The derivation was stopped by its user; what it wrote is removed."""
+
+
+@dataclass
+class DeriveControl:
+    """How a running derivation reports progress and is stopped, from another
+    thread: `on_table(done, total, table)` after each table, and `cancel()`,
+    which interrupts the statement in flight rather than waiting for it — one
+    `CREATE TABLE … AS SELECT` over a large table can take minutes."""
+
+    on_table: Callable[[int, int, str], None] | None = None
+    cancelled: threading.Event = field(default_factory=threading.Event)
+    _con: duckdb.DuckDBPyConnection | None = None
+
+    def cancel(self) -> None:
+        self.cancelled.set()
+        con = self._con
+        if con is not None:
+            try:
+                con.interrupt()
+            except Exception:  # noqa: BLE001 — already closed: nothing to stop
+                pass
+
+    def check(self) -> None:
+        if self.cancelled.is_set():
+            raise DeriveCancelled("the derivation was cancelled")
+
+
 def _same_file(a: str | None, b: str | None) -> bool:
     return bool(a and b) and os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
 
@@ -264,8 +295,10 @@ def derive(
     mapping: dict,
     level: str,
     copy_personless: bool,
+    control: DeriveControl | None = None,
 ) -> list[dict]:
     """Phase 2: copy every table, filtered, into the target. Returns what was written."""
+    control = control or DeriveControl()
     if level not in LEVELS:
         raise ValueError(f"cannot derive at level {level!r}")
     ids = id_columns(mapping)
@@ -275,6 +308,8 @@ def derive(
         Path(target.path).unlink(missing_ok=True)
 
     con = _connect()
+    control._con = con
+    schema_created = False
     try:
         same_file = source.spec.get("kind") == "file" and target.kind == "file" and _same_file(source.spec.get("path"), target.path)
         _attach_target(con, target)
@@ -316,12 +351,16 @@ def derive(
             if target.replace_schema:
                 con.execute(f'DROP SCHEMA IF EXISTS target."{target.schema}" CASCADE')
             con.execute(f'CREATE SCHEMA target."{target.schema}"')
+            schema_created = True
         else:
             for s in sorted(schemas):
                 con.execute(f'CREATE SCHEMA IF NOT EXISTS target."{_require_ident(s, "schema name")}"')
 
         written: list[dict] = []
-        for schema, table, columns in tables:
+        for done, (schema, table, columns) in enumerate(tables):
+            control.check()
+            if control.on_table:
+                control.on_table(done, len(tables), table)
             how = classify(columns, level, ids)
             if how is None and not copy_personless:
                 written.append({"schema": schema, "table": table, "filter": None, "rows": None, "skipped": True})
@@ -343,15 +382,28 @@ def derive(
                 "rows": int(rows),
                 "skipped": False,
             })
+        control.check()
         if target.kind == "file":
             con.execute("CHECKPOINT target")
         return written
-    except Exception:
-        # A half-written new file is worse than none: it would read as a database
-        # that exists and holds some of the cohort.
+    except Exception as exc:
+        # A half-written copy is worse than none: it would read as a database
+        # (or a schema) that exists and holds some of the cohort.
+        if schema_created:
+            try:
+                con.execute(f'DROP SCHEMA IF EXISTS target."{target.schema}" CASCADE')
+            except Exception:  # noqa: BLE001 — the original error is the one to report
+                pass
+        control._con = None
         con.close()
+        if control.cancelled.is_set() and not isinstance(exc, DeriveCancelled):
+            # The interrupt surfaces as a DuckDB error; say what really happened.
+            if target.kind == "file" and target.fresh_file:
+                Path(target.path).unlink(missing_ok=True)
+            raise DeriveCancelled("the derivation was cancelled") from exc
         if target.kind == "file" and target.fresh_file:
             Path(target.path).unlink(missing_ok=True)
         raise
     finally:
+        control._con = None
         con.close()

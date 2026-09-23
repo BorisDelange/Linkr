@@ -396,11 +396,3 @@ class DeriveRequest(CamelModel):
 class DerivePlanRequest(CamelModel):
     level: str
 
-
-class DeriveResult(CamelModel):
-    tables: list[dict]
-    patient_count: int
-    unit_count: int
-    built_at: str
-    # The database the derivation produced, or declared for the new schema.
-    data_source_id: str | None = None

@@ -5562,8 +5562,6 @@
     "title": "Dériver une base depuis cette cohorte",
     "description": "Copie toutes les tables de cette base en ne gardant que les lignes de « {{name}} ». La copie est autonome : elle ne lit pas cette base.",
     "confirm": "Dériver",
-    "running": "Copie des tables…",
-    "open_database": "Ouvrir la base",
     "existing": "Déjà dérivée vers",
     "built": "Construite le {{date}} · {{count}} patients",
     "rebuild": "Reconstruire",
@@ -5592,9 +5590,6 @@
     "filter_parent_visit": "séjours contenant les séjours en unité de la cohorte ({{column}})",
     "filter_whole": "copiée en entier",
     "filter_skipped": "non copiée",
-    "done": "{{tables}} tables copiées · {{patients}} patients · {{units}} lignes au niveau de la cohorte.",
-    "rows_one": "{{count}} ligne",
-    "rows_other": "{{count}} lignes",
     "unavailable_custom-sql": "Cette cohorte utilise du SQL personnalisé. Une dérivation reconstruit la cohorte à partir de ses critères : revenez d’abord aux critères.",
     "unavailable_event-level": "Une cohorte au niveau événement n’a pas d’identifiant unique sur lequel filtrer les tables. Choisissez le niveau patient, séjour ou séjour en unité.",
     "unavailable_no-mapping": "Le schéma de cette base n’indique pas où sont ses patients : les tables ne peuvent pas être filtrées.",
@@ -5606,6 +5601,8 @@
     "provenance_patients": "Patients",
     "provenance_rebuild_hint": "La reconstruire à partir des critères enregistrés ici, sur la base dont elle est dérivée.",
     "provenance_parent_missing": "La base dont elle est dérivée n’est pas dans cet espace de travail : elle ne peut pas être reconstruite ici.",
-    "provenance_rebuild_description": "Les tables de cette base sont remplacées par une nouvelle copie de « {{database}} », filtrée sur les critères enregistrés lors de sa construction."
+    "provenance_rebuild_description": "Les tables de cette base sont remplacées par une nouvelle copie de « {{database}} », filtrée sur les critères enregistrés lors de sa construction.",
+    "starting": "Lancement de la dérivation…",
+    "started": "Reconstruction lancée : suivez-la dans le panneau des tâches, en bas à droite."
   }
 }

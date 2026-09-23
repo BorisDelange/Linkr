@@ -113,3 +113,30 @@ def test_a_multi_schema_source_goes_to_a_new_database_only(tmp_path):
 def test_plan_describes_each_table_before_anything_runs(source):
     plan = {p["table"]: p["filter"] for p in cohort_derive.plan(source, MAPPING, "visit")}
     assert plan == {"concept": None, "measurement": "visit", "person": "patient", "visit_detail": "visit", "visit_occurrence": "visit"}
+
+
+def test_a_cancelled_derivation_leaves_nothing_behind(source, tmp_path):
+    members = cohort_derive.compute_members(source, "SELECT person_id AS id, person_id AS patient_id FROM person")
+    seen: list[str] = []
+    control = cohort_derive.DeriveControl()
+
+    def on_table(done, total, table):
+        seen.append(table)
+        if done == 1:
+            control.cancel()
+
+    control.on_table = on_table
+    out = tmp_path / "derived.duckdb"
+    with pytest.raises(cohort_derive.DeriveCancelled):
+        cohort_derive.derive(source, TargetSpec("file", path=str(out), fresh_file=True), members, MAPPING, "patient", True, control)
+    assert len(seen) == 2 and not out.exists()
+
+    # Into a schema of an existing file: the half-written schema is dropped.
+    control = cohort_derive.DeriveControl(on_table=lambda done, total, table: control.cancel() if done == 1 else None)
+    with pytest.raises(cohort_derive.DeriveCancelled):
+        cohort_derive.derive(source, TargetSpec("file", path=source.spec["path"], schema="cohort_x"), members, MAPPING, "patient", True, control)
+    con = duckdb.connect(source.spec["path"], read_only=True)
+    try:
+        assert con.execute("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = 'cohort_x'").fetchone()[0] == 0
+    finally:
+        con.close()

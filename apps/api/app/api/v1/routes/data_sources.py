@@ -32,7 +32,6 @@ from app.schemas.data_source import (
     DataSourceUpdate,
     DerivePlanRequest,
     DeriveRequest,
-    DeriveResult,
     EtlRunRequest,
     IntrospectedTable,
     QueryRequest,
@@ -49,6 +48,8 @@ from app.services import (
     stats_cache_service,
 )
 from app.services.data import concept_cache_fs, connection_pool, db_connect, managed_db
+from app.services.execution import jobs
+from app.schemas.execution import JobResponse
 
 router = APIRouter(prefix="/data-sources", tags=["data-sources"])
 
@@ -239,7 +240,7 @@ async def derive_plan(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
 
-@router.post("/{source_id}/derive", response_model=DeriveResult)
+@router.post("/{source_id}/derive", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
 async def derive(
     source_id: str,
     body: DeriveRequest,
@@ -247,11 +248,17 @@ async def derive(
     db: AsyncSession = Depends(get_db),
 ):
     """Copy this database's tables, filtered on a cohort, into a new database or a
-    new SQL schema. Reading the source needs `databases:read`; the target is
-    written, so it needs `databases:write` — and a cohort updated with the result
-    must be one of this database's own."""
+    new SQL schema — as a job of the database's workspace, returned queued: a
+    copy of a large database takes minutes. Reading the source needs
+    `databases:read`; the target is written, so it needs `databases:write` — and
+    a cohort updated with the result must be one of this database's own.
+
+    Every refusal that needs no data (target, name, write toggle) answers 400
+    here; the job's own failures land on the job."""
     source = await _load_source(db, source_id, user, "databases:read")
     target = await _load_source(db, body.target.data_source_id, user, "databases:write")
+    if source.workspace_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "only a workspace database can be derived")
     cohort = None
     if body.cohort_id:
         cohort = await db.get(Cohort, body.cohort_id)
@@ -260,11 +267,38 @@ async def derive(
         # Recording the derivation edits the cohort, i.e. the source database.
         await _require_source_access(db, source, user, "databases:write")
     try:
-        return await cohort_derive_service.derive(db, source, target, body, cohort)
+        await cohort_derive_service.validate(db, source, target, body)
     except cohort_derive_service.DeriveError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
-    except Exception as e:  # noqa: BLE001 — a SQL/engine failure is the diagnosis
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
+
+    label = cohort_derive_service.job_label(source, target, body, cohort)
+    job = await jobs.create(db, None, user.id, kind="derive", label=label, workspace_id=source.workspace_id)
+    ids = (source.id, target.id, cohort.id if cohort else None)
+
+    async def run(handle: jobs.JobHandle) -> None:
+        async def progress(pct: int, line: str) -> None:
+            await handle.progress(pct)
+            await handle.log(line)
+
+        async with jobs.async_session() as job_db:
+            src, dst = await job_db.get(DataSource, ids[0]), await job_db.get(DataSource, ids[1])
+            if src is None or dst is None:
+                raise cohort_derive_service.DeriveError("the database was removed")
+            coh = await job_db.get(Cohort, ids[2]) if ids[2] else None
+            result = await cohort_derive_service.derive(job_db, src, dst, body, coh, progress)
+        await handle.log(f"{result['patient_count']} patients, {len([t for t in result['tables'] if not t['skipped']])} tables")
+        await handle.set_result({
+            "targetId": ids[1],
+            "cohortId": ids[2],
+            "dataSourceId": result["data_source_id"],
+            "patientCount": result["patient_count"],
+            "unitCount": result["unit_count"],
+            "builtAt": result["built_at"],
+            "tables": result["tables"],
+        })
+
+    jobs.launch(job.id, run)
+    return JobResponse.model_validate(job, from_attributes=True)
 
 
 @router.post("/{source_id}/create-from-ddl", response_model=DataSourceResponse)

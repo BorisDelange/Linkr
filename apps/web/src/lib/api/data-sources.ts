@@ -1,5 +1,6 @@
 import { apiFetch, apiRequest } from '@/lib/api-client'
 import { uploadFileInChunks } from '@/lib/api/upload'
+import { notifyJobsChanged, type Job } from '@/lib/api/environments'
 import type { DataSourceStorage, FileStorage } from '@/lib/storage'
 import type { CohortLevel, ConnectionConfig, DataSource, DerivedFrom, StoredFile } from '@/types'
 
@@ -110,25 +111,19 @@ export interface DeriveRequest {
   derivedFrom?: DerivedFrom
 }
 
-export interface DeriveResult {
-  tables: { schema: string | null; table: string; filter: DeriveFilter | null; rows: number | null; skipped: boolean }[]
-  patientCount: number
-  unitCount: number
-  builtAt: string
-  /** The database produced, or declared for the new schema. */
-  dataSourceId?: string | null
-}
-
 /**
  * Copy `dataSourceId`'s tables, filtered on a cohort, into a new database or a
  * new SQL schema. The membership query runs alone and READ_ONLY; the copy runs
- * only SQL the server writes.
+ * only SQL the server writes. Returns the queued job of the database's
+ * workspace — the footer's jobs panel follows it from there.
  */
-export function deriveOnServer(dataSourceId: string, body: DeriveRequest): Promise<DeriveResult> {
-  return apiRequest(`/data-sources/${dataSourceId}/derive`, {
+export async function deriveOnServer(dataSourceId: string, body: DeriveRequest): Promise<Job> {
+  const job = await apiRequest<Job>(`/data-sources/${dataSourceId}/derive`, {
     method: 'POST',
     body: JSON.stringify(body),
   })
+  notifyJobsChanged()
+  return job
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, ScrollText, Trash2 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -10,9 +10,16 @@ import { stripAnsi } from '@/lib/ansi'
 import { cn } from '@/lib/utils'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
-import { listJobs, cancelJob, clearJobs, type Job } from '@/lib/api/environments'
+import { listJobs, listWorkspaceJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type Job } from '@/lib/api/environments'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useDataSourceStore } from '@/stores/data-source-store'
 
 const ACTIVE = new Set(['queued', 'running'])
+
+/** What a job's end changes elsewhere in the app, per kind. */
+function jobFinished(job: Job): void {
+  if (job.kind === 'derive') void useDataSourceStore.getState().derivationFinished(job)
+}
 
 /** True when the poll returned nothing this indicator would draw differently. The
  *  common case by far is "no jobs at all", where re-rendering the footer every 3s
@@ -33,35 +40,53 @@ function sameJobs(a: Job[], b: Job[]): boolean {
 }
 
 /**
- * Footer jobs indicator (server mode): shows active long jobs (env builds today,
- * long runs later) with a popover to view status/log and cancel. Polls while a
- * project is open; hidden entirely in front-only mode.
+ * Footer jobs indicator (server mode): shows active long jobs — environment
+ * builds and runs of the open project, and the jobs of the open workspace (a
+ * database's cohort derivations) — with a popover to view status/log and cancel.
+ * Polls while a workspace is open; hidden entirely in front-only mode.
  */
 export function JobsIndicator() {
   const { t } = useTranslation()
   const projectUid = useProjectRouteUid()
+  const { wsUid } = useResolvedParams()
   const [jobs, setJobs] = useState<Job[]>([])
   const [reloadTick, setReloadTick] = useState(0)
   const [logJobId, setLogJobId] = useState<string | null>(null)
   // Controlled so opening a job's detail modal closes the list, and closing the
   // modal reopens the list (natural back-to-list flow).
   const [popoverOpen, setPopoverOpen] = useState(false)
-  const enabled = isServerMode() && !!projectUid
+  const enabled = isServerMode() && (!!projectUid || !!wsUid)
+  // Last status seen per job: a job moving from active to finished is what
+  // tells the app to re-read what it changed.
+  const seen = useRef(new Map<string, Job['status']>())
+
+  // A job just started somewhere in the app: show it now, not at the next poll.
+  useEffect(() => onJobsChanged(() => setReloadTick((n) => n + 1)), [])
 
   useEffect(() => {
-    if (!enabled || !projectUid) return
+    if (!enabled) return
     let cancelled = false
     const tick = () => {
-      listJobs(projectUid)
-        .then((j) => {
-          if (!cancelled) setJobs((prev) => (sameJobs(prev, j) ? prev : j))
+      Promise.all([
+        projectUid ? listJobs(projectUid) : Promise.resolve([]),
+        wsUid ? listWorkspaceJobs(wsUid).catch(() => []) : Promise.resolve([]),
+      ])
+        .then(([own, workspace]) => {
+          if (cancelled) return
+          const all = [...own, ...workspace].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          for (const job of all) {
+            const before = seen.current.get(job.id)
+            if (before && ACTIVE.has(before) && !ACTIVE.has(job.status)) jobFinished(job)
+            seen.current.set(job.id, job.status)
+          }
+          setJobs((prev) => (sameJobs(prev, all) ? prev : all))
         })
         .catch(() => {})
     }
     tick()
     const id = setInterval(tick, 3000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [enabled, projectUid, reloadTick])
+  }, [enabled, projectUid, wsUid, reloadTick])
 
   const activeCount = jobs.filter((j) => ACTIVE.has(j.status)).length
 
@@ -73,8 +98,10 @@ export function JobsIndicator() {
   }
 
   const onClearAll = async () => {
-    if (!projectUid) return
-    await clearJobs(projectUid)
+    await Promise.all([
+      projectUid ? clearJobs(projectUid) : null,
+      wsUid ? clearWorkspaceJobs(wsUid) : null,
+    ])
     setReloadTick((n) => n + 1)
   }
 
@@ -124,6 +151,9 @@ export function JobsIndicator() {
                 <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">{formatJobTime(job.createdAt)}</span>
                 <JobStatusIcon status={job.status} />
                 <span className="truncate">{job.label}</span>
+                {job.status === 'running' && job.progress > 0 && (
+                  <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.progress}%</span>
+                )}
                 <ScrollText size={11} className="shrink-0 text-muted-foreground/50" />
               </button>
               {ACTIVE.has(job.status) ? (

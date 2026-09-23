@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
-from app.core.permissions import has_project_permission
+from app.core.permissions import check_workspace_permission, has_project_permission
 from app.models.job import Job
 from app.models.project import Project
 from app.models.user import User
@@ -402,6 +402,30 @@ async def clear_finished_jobs(
     panel's 'clear all'. Active jobs are kept."""
     await _require_ide(db, project_uid, user, "read")
     await jobs.clear_finished(db, project_uid, user.id)
+
+
+@router.get("/workspaces/{workspace_id}/jobs", response_model=list[JobResponse])
+async def list_workspace_jobs(
+    workspace_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The caller's recent jobs owned by a workspace (a database's derivations),
+    newest first — the StatusBar panel outside a project. Per-user."""
+    await check_workspace_permission(db, workspace_id, user, "databases:read")
+    rows = await jobs.list_active(db, None, user.id, workspace_id=workspace_id)
+    return [JobResponse.model_validate(j, from_attributes=True) for j in rows]
+
+
+@router.delete("/workspaces/{workspace_id}/jobs", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_finished_workspace_jobs(
+    workspace_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove the caller's finished workspace jobs — the panel's 'clear all'."""
+    await check_workspace_permission(db, workspace_id, user, "databases:read")
+    await jobs.clear_finished(db, None, user.id, workspace_id=workspace_id)
 
 
 @router.post("/jobs/{job_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)

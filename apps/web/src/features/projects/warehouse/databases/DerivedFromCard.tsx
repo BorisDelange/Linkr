@@ -48,6 +48,7 @@ export function DerivedFromCard({ source }: { source: DataSource }) {
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [started, setStarted] = useState(false)
 
   const from = source.derivedFrom
   const parent = from ? resolvePointer(dataSources, from.database, source.workspaceId ?? '') : undefined
@@ -70,6 +71,7 @@ export function DerivedFromCard({ source }: { source: DataSource }) {
     setError(null)
     try {
       await runDerivation(parent.id, request)
+      setStarted(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -122,7 +124,9 @@ export function DerivedFromCard({ source }: { source: DataSource }) {
               {busy ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <RefreshCw size={14} className="mr-1.5" />}
               {t('cohort_derive.rebuild')}
             </Button>
-            <p className="text-[10px] text-muted-foreground">{t('cohort_derive.provenance_rebuild_hint')}</p>
+            <p className="text-[10px] text-muted-foreground">
+              {t(started ? 'cohort_derive.started' : 'cohort_derive.provenance_rebuild_hint')}
+            </p>
           </div>
         ) : (
           <p className="text-[10px] text-muted-foreground">{t('cohort_derive.provenance_parent_missing')}</p>
