@@ -213,7 +213,7 @@ patient count on cards — all carried by the database export.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Q1 patient count on cards · Q2 materialisation 10k cap + stop exporting patient ids | S |
+| ✅ | Q1 patient count on cards · Q2 materialisation 10k cap + stop exporting patient ids | S |
 | 🔜 | 1. DuckDB location field + Linkr-owned files (Create from schema) | M |
 | 🔜 | 2–4. Cohort owner model → `CohortHost` refactor + Cohorts tab → export/import/versioning | L |
 | 🔜 | 5–6. Database patient board + *Patients* tab + export | M/L |

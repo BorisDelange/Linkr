@@ -335,8 +335,8 @@ Ordered so nothing ships that cannot be exported.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Q1. Patient count on database cards (§7) | S |
-| 🔜 | Q2. Fix `materializeCohort` 10k cap + strip `materialization` & co. from cohort exports (client + server + goldens) | S |
+| ✅ | Q1. Patient count on database cards (§7) — kept on `stats` after a statistics run; server mode still counts nothing on connect | S |
+| ✅ | Q2. Fix `materializeCohort` 10k cap + strip `materialization` from cohort exports (client + server + golden + pull diff + import) | S |
 | 🔜 | 1. `DatabaseLocationField` + writable-dir validation + Linkr-owned file (§5), wired into Create from schema | M |
 | 🔜 | 2. Cohort owner model: types, IDB v43, Alembic, schemas, routes/permissions (§2) | M |
 | 🔜 | 3. `CohortHost` refactor of the cohort shell (project routes keep working) + Cohorts tab on the database page | M/L |
