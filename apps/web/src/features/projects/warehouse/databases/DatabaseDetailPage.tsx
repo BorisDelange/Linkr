@@ -898,7 +898,9 @@ function OverviewTab({
               the export leaves the DuckDB file behind on purpose. Offer the one
               action that can fix it, since creation was the only path that ever
               applied the DDL. */}
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          {/* Nothing to do while it is being set up: a job builds it, or a test is
+              already running — kept while the user's own retest spins. */}
+          {(!configuring || retesting) && <div className="mt-2 flex flex-wrap items-center gap-2">
             {/* First, because it is the non-destructive way out and fixes every
                 transient cause. The rebuild below is the last resort. */}
             <Button size="sm" variant="outline" onClick={handleRetest} disabled={retesting || rebuilding}>
@@ -924,7 +926,7 @@ function OverviewTab({
                 </span>
               </>
             )}
-          </div>
+          </div>}
         </div>
       )}
 
