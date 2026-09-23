@@ -385,9 +385,27 @@ def _run_statements(
     return [_row_to_json(dict(zip(names, row))) for row in rows]
 
 
+def _run_read(con: duckdb.DuckDBPyConnection, search_path: str, sql: str, arrow: bool):
+    return _run_to_arrow(con, search_path, sql) if arrow else _run_statements(con, search_path, sql)
+
+
+def _run_to_arrow(con: duckdb.DuckDBPyConnection, search_path: str, sql: str):
+    """`_run_statements` without the row cap, returning the last result as an Arrow
+    table — for server-side consumers that write the whole result somewhere (a
+    dataset from a query) and must not truncate it."""
+    con.execute(f"SET search_path='{search_path}'")
+    result: duckdb.DuckDBPyConnection | None = None
+    for stmt in _split_statements(sql):
+        result = con.execute(stmt)
+    if result is None or result.description is None:
+        raise ValueError("the query returns no rows")
+    return result.fetch_arrow_table()
+
+
 def query_external(
-    config: dict, password: str | None, sql: str, pool_key: str | None = None
-) -> list[dict]:
+    config: dict, password: str | None, sql: str, pool_key: str | None = None,
+    arrow: bool = False,
+):
     """Run SQL against the attached source and return rows as dicts.
 
     Bare table names (``FROM patients``) resolve to the source via search_path,
@@ -415,14 +433,14 @@ def query_external(
     if pool_key is None:
         con = _setup()
         try:
-            return _run_statements(con, search_path, sql)
+            return _run_read(con, search_path, sql, arrow)
         finally:
             con.close()
 
     return connection_pool.run_pooled(
         pool_key,
         _setup,
-        lambda con: _run_statements(con, search_path, sql),
+        lambda con: _run_read(con, search_path, sql, arrow),
     )
 
 
@@ -438,8 +456,8 @@ def _attach_file(con: duckdb.DuckDBPyConnection, engine: str, path: str) -> None
 
 
 def query_file(
-    engine: str, path: str, sql: str, pool_key: str | None = None
-) -> list[dict]:
+    engine: str, path: str, sql: str, pool_key: str | None = None, arrow: bool = False,
+):
     """Run SQL against a local DuckDB/SQLite file (server-side). Read-only file;
     CREATE VIEW / temp tables land in the writable `memory` catalog. With
     `pool_key`, the ATTACHed connection is kept warm across calls."""
@@ -455,12 +473,12 @@ def query_file(
     if pool_key is None:
         con = _setup()
         try:
-            return _run_statements(con, search_path, sql)
+            return _run_read(con, search_path, sql, arrow)
         finally:
             con.close()
 
     return connection_pool.run_pooled(
-        pool_key, _setup, lambda con: _run_statements(con, search_path, sql)
+        pool_key, _setup, lambda con: _run_read(con, search_path, sql, arrow)
     )
 
 
@@ -721,8 +739,8 @@ def _parquet_search_path(groups: dict[tuple[str | None, str], list[str]]) -> str
 
 def query_parquet_folder(
     files: list[tuple[str, str]], known: list[str], sql: str,
-    pool_key: str | None = None,
-) -> list[dict]:
+    pool_key: str | None = None, arrow: bool = False,
+):
     """Run read-only SQL against a folder of Parquet files exposed as views, one
     per table (mirrors the browser mountFileFolder path). With `pool_key`, the
     connection (views created) is kept warm across calls."""
@@ -739,12 +757,12 @@ def query_parquet_folder(
     if pool_key is None:
         con = _setup()
         try:
-            return _run_statements(con, search_path, sql)
+            return _run_read(con, search_path, sql, arrow)
         finally:
             con.close()
 
     return connection_pool.run_pooled(
-        pool_key, _setup, lambda con: _run_statements(con, search_path, sql)
+        pool_key, _setup, lambda con: _run_read(con, search_path, sql, arrow)
     )
 
 

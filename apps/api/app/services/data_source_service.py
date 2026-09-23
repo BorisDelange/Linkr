@@ -702,15 +702,16 @@ async def client_recipe(db: AsyncSession, source: DataSource) -> dict:
 
 # --- Live connection test (external databases) -----------------------------
 
-async def query(db: AsyncSession, source: DataSource, sql: str) -> list[dict]:
+async def query(db: AsyncSession, source: DataSource, sql: str, arrow: bool = False):
     """Run read-only SQL server-side: ATTACH a network DB (decrypting its stored
-    password) or a local DuckDB/SQLite file from the blob store. JSON-ready rows."""
+    password) or a local DuckDB/SQLite file from the blob store. JSON-ready rows,
+    capped; or, with `arrow`, the whole result as an Arrow table."""
     config = dict(source.connection_config or {})
     engine = config.get("engine")
     if engine in _EXTERNAL_ENGINES:
         password = connection_password(source)
         return await asyncio.to_thread(
-            db_connect.query_external, config, password, sql, source.id
+            db_connect.query_external, config, password, sql, source.id, arrow
         )
     if is_managed(source):
         # Server-owned file: nothing in the blob store, read it where it lives.
@@ -718,7 +719,7 @@ async def query(db: AsyncSession, source: DataSource, sql: str) -> list[dict]:
         if not path.exists():
             raise ValueError("the database file is missing; recreate it")
         return await asyncio.to_thread(
-            db_connect.query_file, "duckdb", str(path), sql, source.id
+            db_connect.query_file, "duckdb", str(path), sql, source.id, arrow
         )
     if engine in _FILE_ENGINES:
         files = await _source_files(db, source)
@@ -731,10 +732,10 @@ async def query(db: AsyncSession, source: DataSource, sql: str) -> list[dict]:
         if _is_parquet_folder(config, files):
             known = _known_tables(source)
             return await asyncio.to_thread(
-                db_connect.query_parquet_folder, files, known, sql, source.id
+                db_connect.query_parquet_folder, files, known, sql, source.id, arrow
             )
         return await asyncio.to_thread(
-            db_connect.query_file, engine, files[0][1], sql, source.id
+            db_connect.query_file, engine, files[0][1], sql, source.id, arrow
         )
     raise ValueError(f"queries not supported for engine: {engine}")
 

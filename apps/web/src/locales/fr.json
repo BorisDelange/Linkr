@@ -3245,8 +3245,25 @@
     "title": "Notifications",
     "empty": "Rien pour l'instant. Les modifications faites par un agent (MCP) apparaissent ici.",
     "clear_all": "Effacer",
+    "undo": "Annuler",
+    "undone": "annulé",
+    "undo_failed": "Annulation impossible : l'élément a changé depuis.",
     "entity": {
-      "cohort": "Cohorte"
+      "cohort": "Cohorte",
+      "dashboard": "Dashboard",
+      "dataset": "Dataset"
+    },
+    "part": {
+      "widget": {
+        "created": "Widget « {{name}} » ajouté",
+        "updated": "Widget « {{name}} » modifié",
+        "deleted": "Widget « {{name}} » supprimé"
+      },
+      "tab": {
+        "created": "Onglet « {{name}} » ajouté",
+        "updated": "Onglet « {{name}} » modifié",
+        "deleted": "Onglet « {{name}} » supprimé"
+      }
     },
     "action": {
       "created": "ajout par {{source}}",

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request, status
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +37,8 @@ async def record_change(
     entity_id: str,
     project_uid: str | None,
     label: dict | str | None,
+    detail: dict | None = None,
+    undo: dict | None = None,
     notify: bool = True,
 ) -> None:
     """Tell the user's open tabs an entity changed, and record it in their
@@ -63,11 +65,15 @@ async def record_change(
             entity_id=entity_id,
             project_uid=project_uid,
             label=label if isinstance(label, dict) else {"en": label or ""},
+            detail=detail,
+            undo=undo,
         )
         db.add(row)
         await db.commit()
         await db.refresh(row)
-        event["notification"] = NotificationResponse.model_validate(row).model_dump(mode="json", by_alias=True)
+        response = NotificationResponse.model_validate(row)
+        response.undoable = undo is not None
+        event["notification"] = response.model_dump(mode="json", by_alias=True)
         await _prune(db, user.id)
     notification_hub.publish(user.id, event)
 
@@ -89,14 +95,48 @@ async def _prune(db: AsyncSession, user_id: int) -> None:
         await db.commit()
 
 
-async def list_for_user(db: AsyncSession, user_id: int, limit: int = 50) -> list[Notification]:
+def _undo_key(n: Notification) -> str | None:
+    return f"{n.undo['kind']}:{n.undo['id']}" if n.undo else None
+
+
+async def list_for_user(db: AsyncSession, user_id: int, limit: int = 50) -> list[NotificationResponse]:
     result = await db.execute(
         select(Notification)
         .where(Notification.user_id == user_id)
         .order_by(Notification.created_at.desc())
         .limit(limit)
     )
-    return list(result.scalars())
+    out: list[NotificationResponse] = []
+    # Newest first: only the first live change seen for an item may be undone —
+    # undoing an older one would overwrite what came after it.
+    seen: set[str] = set()
+    for n in result.scalars():
+        response = NotificationResponse.model_validate(n)
+        key = _undo_key(n)
+        response.undoable = key is not None and n.undone_at is None and key not in seen
+        if key is not None and n.undone_at is None:
+            seen.add(key)
+        out.append(response)
+    return out
+
+
+async def undo(db: AsyncSession, user: User, notification_id: str) -> None:
+    from app.services import undo_service
+
+    row = await db.get(Notification, notification_id)
+    if row is None or row.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    listed = {n.id: n for n in await list_for_user(db, user.id, limit=MAX_KEPT)}
+    if not listed.get(row.id) or not listed[row.id].undoable:
+        raise HTTPException(status.HTTP_409_CONFLICT, "A later change touched this item; undo that one first")
+    gone = await undo_service.apply(db, user, row.project_uid, row.undo)
+    row.undone_at = datetime.now(timezone.utc)
+    await db.commit()
+    # The app's own action, so no new notification — but every open tab re-reads.
+    notification_hub.publish(user.id, {
+        "type": "change", "action": "deleted" if gone else "updated",
+        "entityType": row.entity_type, "entityId": row.entity_id, "projectUid": row.project_uid,
+    })
 
 
 async def mark_all_read(db: AsyncSession, user_id: int) -> None:

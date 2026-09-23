@@ -1,5 +1,7 @@
 import asyncio
 import contextlib
+import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +24,24 @@ async def list_notifications(
     return await notification_service.list_for_user(db, user.id)
 
 
+@router.get("/ui-context")
+async def ui_context(user: User = Depends(get_current_user)) -> dict | None:
+    """Where the user is in the Linkr tab they last focused — project, page, open
+    cohort / dashboard / dataset — or null when no tab is open. Lets an agent
+    resolve "this cohort" or "here"."""
+    return notification_hub.get_context(user.id)
+
+
+@router.post("/{notification_id}/undo", status_code=status.HTTP_204_NO_CONTENT)
+async def undo_notification(
+    notification_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reverse the change this notification reports."""
+    await notification_service.undo(db, user, notification_id)
+
+
 @router.post("/read", status_code=status.HTTP_204_NO_CONTENT)
 async def mark_read(
     user: User = Depends(get_current_user),
@@ -40,9 +60,9 @@ async def clear_notifications(
 
 @router.websocket("/ws")
 async def notifications_ws(websocket: WebSocket):
-    """Push entity changes made by external clients to this user's tab. Server →
-    client only; anything the client sends is ignored (it only keeps the socket
-    alive through proxies)."""
+    """Push entity changes made by external clients to this user's tab. The only
+    thing a client sends is where the user is (`ui-context`); anything else is
+    ignored."""
     user = await authenticate_ws(websocket)
     if user is None:
         return
@@ -51,7 +71,18 @@ async def notifications_ws(websocket: WebSocket):
 
     async def drain_client() -> None:
         while True:
-            await websocket.receive_text()
+            raw = await websocket.receive_text()
+            try:
+                message = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(message, dict) or message.get("type") != "ui-context":
+                continue
+            context = message.get("context")
+            if isinstance(context, dict) and len(raw) < 4096:
+                notification_hub.set_context(
+                    user.id, {**context, "reportedAt": datetime.now(timezone.utc).isoformat()}
+                )
 
     reader = asyncio.create_task(drain_client())
     try:

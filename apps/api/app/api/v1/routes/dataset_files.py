@@ -7,7 +7,7 @@ import csv
 import io
 
 import duckdb
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -28,6 +28,7 @@ from app.schemas.dataset_fs import (
     DsCreateFolder,
     DsDelete,
     DsDuplicate,
+    DsFromQuery,
     DsImport,
     DsMove,
     DsNodeResponse,
@@ -38,7 +39,9 @@ from app.schemas.dataset_fs import (
     DsPreviewResponse,
     DsReimport,
 )
-from app.services import blob_store, dataset_service, project_fs
+from app.core.permissions import check_workspace_permission
+from app.models.data_source import DataSource
+from app.services import blob_store, data_source_service, dataset_service, notification_service, project_fs
 from app.services.data import dataset_fs, dataset_parser, dataset_rows, file_reader
 
 router = APIRouter(prefix="/dataset-files", tags=["dataset-files"])
@@ -339,6 +342,57 @@ async def create_empty_dataset(
         dst.unlink(missing_ok=True)
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Create failed: {e}")
     return _file_node(body.project_uid, body.path)
+
+
+@router.post("/from-query", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)
+async def create_dataset_from_query(
+    body: DsFromQuery,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run a read-only query on one of the project's databases and write its full
+    result to datasets/<path> as Parquet (no row cap, unlike /query)."""
+    await _check_project(db, body.project_uid, user, "datasets:write")
+    project = await db.get(Project, body.project_uid)
+    if body.data_source_id not in (project.linked_data_source_ids or []):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This database is not linked to the project")
+    source = await db.get(DataSource, body.data_source_id)
+    if source is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Database not found")
+    if source.workspace_id is not None:
+        await check_workspace_permission(db, source.workspace_id, user, "databases:read")
+
+    path = body.path if body.path.lower().endswith(".parquet") else f"{body.path}.parquet"
+    try:
+        dst = project_fs.dataset_path(body.project_uid, path)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    existed = dst.exists()
+    if existed and not body.replace:
+        raise HTTPException(status.HTTP_409_CONFLICT, "A dataset already exists at this path")
+
+    try:
+        table = await data_source_service.query(db, source, body.sql, arrow=True)
+    except Exception as e:  # noqa: BLE001 — surface SQL errors to the caller
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+
+    import pyarrow.parquet as pq
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    # Written aside then renamed, so a reader never sees half a file.
+    tmp = dst.with_name(f".{dst.name}.tmp")
+    await asyncio.to_thread(pq.write_table, table, tmp)
+    tmp.replace(dst)
+    node = await asyncio.to_thread(_file_node, body.project_uid, path)
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request),
+        action="updated" if existed else "created", entity_type="dataset", entity_id=node.id,
+        project_uid=body.project_uid, label=path,
+        # A replaced file is gone once overwritten: only a creation is undoable.
+        undo=None if existed else {"kind": "dataset", "op": "delete", "id": path},
+    )
+    return node
 
 
 def _file_node(project_uid: str, path: str) -> DsNodeResponse:

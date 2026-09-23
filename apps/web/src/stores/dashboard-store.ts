@@ -29,6 +29,10 @@ interface DashboardState {
 
   // Dashboard CRUD
   loadProjectDashboards: (projectUid: string) => Promise<void>
+  /** Re-read one dashboard (with its tabs and widgets) changed outside this tab —
+   *  an agent over MCP — or drop it when deleted. Keeps the open dashboard, the
+   *  active tabs and the filters, unlike a full project load. */
+  applyRemoteChange: (dashboardId: string, deleted: boolean) => Promise<void>
   createDashboard: (
     projectUid: string,
     name: LocalizedString,
@@ -134,6 +138,34 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   activeDashboardId: null,
   activeTabId: {},
   activeFilters: {},
+
+  applyRemoteChange: async (dashboardId, deleted) => {
+    const storage = getStorage()
+    const dashboard = deleted ? undefined : await storage.dashboards.getById(dashboardId)
+    const tabs = dashboard ? await storage.dashboardTabs.getByDashboard(dashboardId) : []
+    const widgets: DashboardWidget[] = []
+    for (const tab of tabs) widgets.push(...(await storage.dashboardWidgets.getByTab(tab.id)))
+    set((s) => {
+      // Only the project on screen is held in this store; a change elsewhere is
+      // picked up by its next load.
+      if (dashboard && dashboard.projectUid !== s.activeProjectUid) return s
+      const oldTabIds = new Set(s.tabs.filter((t) => t.dashboardId === dashboardId).map((t) => t.id))
+      const tabIds = new Set(tabs.map((t) => t.id))
+      const index = s.dashboards.findIndex((d) => d.id === dashboardId)
+      const dashboards = !dashboard
+        ? s.dashboards.filter((d) => d.id !== dashboardId)
+        : index < 0 ? [...s.dashboards, dashboard] : s.dashboards.map((d) => (d.id === dashboardId ? dashboard : d))
+      const activeTabId = { ...s.activeTabId }
+      if (activeTabId[dashboardId] && !tabIds.has(activeTabId[dashboardId])) delete activeTabId[dashboardId]
+      return {
+        dashboards,
+        tabs: [...s.tabs.filter((t) => t.dashboardId !== dashboardId), ...tabs],
+        widgets: [...s.widgets.filter((w) => !oldTabIds.has(w.tabId)), ...widgets],
+        activeTabId,
+        activeDashboardId: !dashboard && s.activeDashboardId === dashboardId ? null : s.activeDashboardId,
+      }
+    })
+  },
 
   loadProjectDashboards: async (projectUid) => {
     if (get().activeProjectUid === projectUid && get().loaded) return

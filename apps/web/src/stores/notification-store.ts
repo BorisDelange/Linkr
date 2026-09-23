@@ -1,9 +1,11 @@
 import { create } from 'zustand'
 import {
-  clearNotifications, listNotifications, markNotificationsRead, openNotificationSocket,
-  type AppNotification, type ChangeEvent,
+  clearNotifications, listNotifications, markNotificationsRead, openNotificationSocket, undoNotification,
+  type AppNotification, type ChangeEvent, type UiContext,
 } from '@/lib/api/notifications'
 import { useCohortStore } from '@/stores/cohort-store'
+import { useDashboardStore } from '@/stores/dashboard-store'
+import { useDatasetStore } from '@/stores/dataset-store'
 
 /**
  * Applies a change made elsewhere to the store that holds the entity, so an open
@@ -12,6 +14,11 @@ import { useCohortStore } from '@/stores/cohort-store'
  */
 const REFRESHERS: Record<string, (event: ChangeEvent) => Promise<void>> = {
   cohort: (e) => useCohortStore.getState().applyRemoteChange(e.entityId, e.action === 'deleted'),
+  dashboard: (e) => useDashboardStore.getState().applyRemoteChange(e.entityId, e.action === 'deleted'),
+  dataset: async (e) => {
+    const store = useDatasetStore.getState()
+    if (e.projectUid && store.activeProjectUid === e.projectUid) await store.reloadDatasetsFromDisk(e.projectUid)
+  },
 }
 
 const RECONNECT_MS = [1_000, 2_000, 5_000, 10_000, 30_000]
@@ -23,12 +30,24 @@ interface NotificationState {
   disconnect: () => void
   markAllRead: () => Promise<void>
   clearAll: () => Promise<void>
+  /** Reverse the change a notification reports; the list is re-read, since undoing
+   *  one change makes the one before it on the same item undoable. */
+  undo: (id: string) => Promise<void>
+  /** Tell the server where the user is in this tab (sent again on reconnect). */
+  publishContext: (context: UiContext) => void
 }
 
 let socket: WebSocket | null = null
 let wanted = false
 let attempt = 0
 let retryTimer: ReturnType<typeof setTimeout> | undefined
+let lastContext: UiContext | null = null
+
+const sendContext = () => {
+  if (socket?.readyState === WebSocket.OPEN && lastContext) {
+    socket.send(JSON.stringify({ type: 'ui-context', context: lastContext }))
+  }
+}
 
 const countUnread = (items: AppNotification[]) => items.filter((n) => !n.readAt).length
 
@@ -40,6 +59,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
 
   const open = () => {
     socket = openNotificationSocket({
+      onOpen: sendContext,
       onEvent: (event) => {
         attempt = 0
         void REFRESHERS[event.entityType]?.(event)
@@ -92,6 +112,16 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
     clearAll: async () => {
       set({ items: [], unread: 0 })
       await clearNotifications()
+    },
+
+    undo: async (id) => {
+      await undoNotification(id)
+      await reload()
+    },
+
+    publishContext: (context) => {
+      lastContext = context
+      sendContext()
     },
   }
 })

@@ -9,6 +9,8 @@ import asyncio
 from collections import defaultdict
 
 _subscribers: dict[int, set[asyncio.Queue]] = defaultdict(set)
+# Where each user is, as last reported by one of their tabs (the focused one wins).
+_contexts: dict[int, dict] = {}
 
 
 def subscribe(user_id: int) -> asyncio.Queue:
@@ -21,6 +23,16 @@ def unsubscribe(user_id: int, queue: asyncio.Queue) -> None:
     _subscribers[user_id].discard(queue)
     if not _subscribers[user_id]:
         del _subscribers[user_id]
+        # No tab left open: the last position no longer says where the user is.
+        _contexts.pop(user_id, None)
+
+
+def set_context(user_id: int, context: dict) -> None:
+    _contexts[user_id] = context
+
+
+def get_context(user_id: int) -> dict | None:
+    return _contexts.get(user_id)
 
 
 def publish(user_id: int, event: dict) -> None:

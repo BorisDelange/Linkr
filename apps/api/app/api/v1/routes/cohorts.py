@@ -8,7 +8,7 @@ from app.models.cohort import Cohort
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.cohort import CohortCreate, CohortResponse, CohortUpdate
-from app.services import cohort_service, notification_service
+from app.services import cohort_service, notification_service, undo_service
 
 router = APIRouter(prefix="/cohorts", tags=["cohorts"])
 
@@ -56,6 +56,7 @@ async def create_cohort(
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action="created",
         entity_type="cohort", entity_id=cohort.id, project_uid=cohort.project_uid, label=cohort.name,
+        undo={"kind": "cohort", "op": "delete", "id": cohort.id},
     )
     return cohort
 
@@ -79,10 +80,12 @@ async def update_cohort(
 ):
     cohort = await _load(db, cohort_id, user, "cohorts:write")
     changed = set(body.model_dump(exclude_unset=True))
+    before = undo_service.cohort_snapshot(cohort)
     cohort = await cohort_service.update(db, cohort, body)
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action="updated",
         entity_type="cohort", entity_id=cohort.id, project_uid=cohort.project_uid, label=cohort.name,
+        undo={"kind": "cohort", "op": "restore", "id": cohort.id, "snapshot": before},
         notify=not notification_service.is_derived_only(changed),
     )
     return cohort
@@ -97,8 +100,10 @@ async def delete_cohort(
 ):
     cohort = await _load(db, cohort_id, user, "cohorts:delete")
     project_uid, label = cohort.project_uid, cohort.name
+    before = undo_service.cohort_snapshot(cohort)
     await cohort_service.delete(db, cohort)
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action="deleted",
         entity_type="cohort", entity_id=cohort_id, project_uid=project_uid, label=label,
+        undo={"kind": "cohort", "op": "recreate", "id": cohort_id, "snapshot": before},
     )

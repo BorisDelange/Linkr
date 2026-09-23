@@ -45,6 +45,20 @@ class DsCreateEmpty(CamelModel):
     columns: list[dict] = []
 
 
+class DsFromQuery(CamelModel):
+    """Write a database query's full result as a Parquet dataset, server-side.
+
+    The rows go from the database to the project's datasets/ folder without
+    passing through the caller — which matters when the caller is an agent whose
+    context would otherwise carry patient-level data to a model."""
+
+    project_uid: str
+    path: str
+    data_source_id: str
+    sql: str
+    replace: bool = False
+
+
 class DsPreview(CamelModel):
     """Parse an already-uploaded blob WITHOUT persisting it, to drive the import
     dialog's preview server-side (same parser as the eventual import)."""

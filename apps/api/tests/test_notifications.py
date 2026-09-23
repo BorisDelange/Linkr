@@ -58,3 +58,53 @@ async def test_read_and_clear_are_per_user(client, db):
 
     assert (await client.delete(f"{API}/notifications", headers=admin)).status_code == 204
     assert await _list(client, admin) == []
+
+
+async def _undo(client, headers, notification_id):
+    return await client.post(f"{API}/notifications/{notification_id}/undo", headers=headers)
+
+
+async def test_undo_reverses_each_kind_of_cohort_change(client):
+    headers = await _admin_headers(client)
+    agent = {**headers, **MCP}
+    proj = await _project(client, headers)
+
+    await _cohort(client, agent, proj)
+    await client.patch(f"{API}/cohorts/c1", headers=agent, json={"name": {"en": "Renamed"}})
+    renamed, created = await _list(client, headers)
+    # Only the latest change to an item can be undone: the older one would
+    # overwrite what came after it.
+    assert renamed["undoable"] and not created["undoable"]
+    assert (await _undo(client, headers, created["id"])).status_code == 409
+
+    assert (await _undo(client, headers, renamed["id"])).status_code == 204
+    assert (await client.get(f"{API}/cohorts/c1", headers=headers)).json()["name"] == "Adults"
+    renamed, created = await _list(client, headers)
+    assert renamed["undoneAt"] and created["undoable"]
+
+    await _undo(client, headers, created["id"])
+    assert (await client.get(f"{API}/cohorts/c1", headers=headers)).status_code == 404
+
+
+async def test_undo_recreates_a_deleted_cohort_and_widget(client):
+    headers = await _admin_headers(client)
+    agent = {**headers, **MCP}
+    proj = await _project(client, headers)
+    await _cohort(client, headers, proj)
+    await client.delete(f"{API}/cohorts/c1", headers=agent)
+    [deleted] = await _list(client, headers)
+    await _undo(client, headers, deleted["id"])
+    assert (await client.get(f"{API}/cohorts/c1", headers=headers)).json()["name"] == "Adults"
+
+    await client.post(f"{API}/dashboards", headers=headers, json={"id": "d1", "projectUid": proj, "name": {"en": "D"}})
+    await client.post(f"{API}/dashboards/tabs", headers=headers, json={"id": "t1", "dashboardId": "d1", "name": {"en": "T"}})
+    await client.post(f"{API}/dashboards/widgets", headers=headers, json={
+        "id": "w1", "tabId": "t1", "name": {"en": "Chart"}, "layout": {"x": 0, "y": 0, "w": 24, "h": 12},
+        "source": {"type": "plugin", "pluginId": "p", "config": {"a": 1}},
+    })
+    await client.delete(f"{API}/dashboards/widgets/w1", headers=agent)
+    latest = (await _list(client, headers))[0]
+    assert latest["entityType"] == "dashboard" and latest["detail"]["part"] == "widget"
+    await _undo(client, headers, latest["id"])
+    widget = (await client.get(f"{API}/dashboards/widgets/w1", headers=headers)).json()
+    assert widget["source"]["config"] == {"a": 1} and widget["layout"]["w"] == 24

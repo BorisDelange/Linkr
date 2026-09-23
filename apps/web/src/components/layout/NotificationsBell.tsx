@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Bell, Bot, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Bell, Bot, Pencil, Plus, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { isServerMode } from '@/lib/api-client'
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationStore } from '@/stores/notification-store'
+import { useUiContextPublisher } from '@/hooks/use-ui-context-publisher'
 import type { AppNotification } from '@/lib/api/notifications'
 
 const ACTION_ICON = { created: Plus, updated: Pencil, deleted: Trash2 } as const
@@ -34,9 +35,12 @@ export function NotificationsBell() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const loggedIn = useAuthStore((s) => !!s.user)
-  const { items, unread, connect, disconnect, markAllRead, clearAll } = useNotificationStore()
+  const { items, unread, connect, disconnect, markAllRead, clearAll, undo } = useNotificationStore()
+  const [undoing, setUndoing] = useState<string | null>(null)
+  const [undoError, setUndoError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const enabled = isServerMode() && loggedIn
+  useUiContextPublisher(enabled)
 
   useEffect(() => {
     if (!enabled) return
@@ -56,6 +60,8 @@ export function NotificationsBell() {
     const project = useAppStore.getState()._projectsRaw.find((p) => p.uid === n.projectUid)
     if (!project?.workspaceId) return null
     if (n.entityType === 'cohort') return paths.cohort(project.workspaceId, n.projectUid, n.entityId)
+    if (n.entityType === 'dashboard') return paths.dashboard(project.workspaceId, n.projectUid, n.entityId)
+    if (n.entityType === 'dataset') return paths.datasets(project.workspaceId, n.projectUid)
     return null
   }
 
@@ -92,12 +98,12 @@ export function NotificationsBell() {
               const Icon = ACTION_ICON[n.action] ?? Pencil
               const href = target(n)
               return (
-                <li key={n.id}>
+                <li key={n.id} className="group flex items-start gap-1">
                   <button
                     disabled={!href}
                     onClick={() => { if (href) { setOpen(false); navigate(href) } }}
                     className={cn(
-                      'flex w-full items-start gap-2 rounded px-1.5 py-1.5 text-left',
+                      'flex min-w-0 flex-1 items-start gap-2 rounded px-1.5 py-1.5 text-left',
                       href ? 'hover:bg-muted/60' : 'cursor-default',
                     )}
                   >
@@ -109,15 +115,44 @@ export function NotificationsBell() {
                         {t(`notifications.entity.${n.entityType}`, { defaultValue: n.entityType })}{' '}
                         <span className="font-medium">« {localized(n.label, i18n.language) || n.entityId} »</span>
                       </span>
+                      {n.detail && (
+                        <span className="block truncate text-muted-foreground">
+                          {t(`notifications.part.${n.detail.part}.${n.detail.action}`, {
+                            name: localized(n.detail.name, i18n.language),
+                          })}
+                        </span>
+                      )}
                       <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                         <Bot size={10} />
                         {t(`notifications.action.${n.action}`, { source: n.source.toUpperCase() })}
                         {' · '}
                         {relativeTime(n.createdAt, i18n.language)}
+                        {n.undoneAt && <> · {t('notifications.undone')}</>}
                       </span>
+                      {undoError === n.id && (
+                        <span className="block text-[10px] text-destructive">{t('notifications.undo_failed')}</span>
+                      )}
                     </span>
                     {!n.readAt && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
                   </button>
+                  {n.undoable && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={undoing !== null}
+                      className="mt-1 h-6 shrink-0 gap-1 px-1.5 text-[10px] text-muted-foreground"
+                      onClick={() => {
+                        setUndoing(n.id)
+                        setUndoError(null)
+                        undo(n.id)
+                          .catch(() => setUndoError(n.id))
+                          .finally(() => setUndoing(null))
+                      }}
+                    >
+                      <Undo2 size={11} />
+                      {t('notifications.undo')}
+                    </Button>
+                  )}
                 </li>
               )
             })}

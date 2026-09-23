@@ -3245,8 +3245,25 @@
     "title": "Notifications",
     "empty": "Nothing yet. Changes made by an agent (MCP) appear here.",
     "clear_all": "Clear",
+    "undo": "Undo",
+    "undone": "undone",
+    "undo_failed": "Could not undo: the item changed since.",
     "entity": {
-      "cohort": "Cohort"
+      "cohort": "Cohort",
+      "dashboard": "Dashboard",
+      "dataset": "Dataset"
+    },
+    "part": {
+      "widget": {
+        "created": "Widget « {{name}} » added",
+        "updated": "Widget « {{name}} » modified",
+        "deleted": "Widget « {{name}} » deleted"
+      },
+      "tab": {
+        "created": "Tab « {{name}} » added",
+        "updated": "Tab « {{name}} » modified",
+        "deleted": "Tab « {{name}} » deleted"
+      }
     },
     "action": {
       "created": "added by {{source}}",
