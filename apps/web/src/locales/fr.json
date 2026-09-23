@@ -1172,7 +1172,8 @@
     "results_truncated": "{{shown}} lignes affichées sur {{total}} — les autres n’ont pas été chargées. Affinez les critères pour restreindre la cohorte.",
     "text_not": "NON",
     "text_exclude_hint": "Exclure les documents correspondant à cette recherche",
-    "toggle_results": "Afficher ou masquer les résultats"
+    "toggle_results": "Afficher ou masquer les résultats",
+    "toggle_builder": "Afficher ou masquer les critères et le SQL"
   },
   "datasets": {
     "title": "Jeux de données",
@@ -5535,9 +5536,9 @@
     "title": "Rapport de cohorte",
     "description": "Une synthèse autonome de la cohorte : effectifs, flowchart, critères, caractéristiques et méthodologie, calculés à neuf sur la base.",
     "format": "Format",
-    "format_html": "HTML (un fichier, s’ouvre hors ligne)",
-    "format_pdf": "PDF (boîte d’impression)",
-    "format_docx": "Word (.docx)",
+    "format_html": "HTML",
+    "format_pdf": "PDF",
+    "format_docx": "Word",
     "threshold": "Seuil des petits effectifs",
     "threshold_hint": "Les effectifs de 1 jusqu’à cette valeur sont masqués (affichés <N). 11 est la règle habituelle en santé.",
     "include_sql": "Inclure la requête SQL dans la méthodologie",

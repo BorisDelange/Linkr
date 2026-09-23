@@ -103,9 +103,13 @@ export function CohortBuilder() {
   // an analysis. The two panes can never both be hidden.
   const [leftView, setLeftView] = useState<'criteria' | 'sql' | null>('criteria')
   const [resultsVisible, setResultsVisible] = useState(true)
+  const lastLeftView = useRef<'criteria' | 'sql'>('criteria')
   const toggleLeftView = (view: 'criteria' | 'sql') => {
     if (leftView !== view) setLeftView(view)
-    else if (resultsVisible) setLeftView(null)
+    else if (resultsVisible) {
+      lastLeftView.current = view
+      setLeftView(null)
+    }
   }
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
@@ -281,6 +285,23 @@ export function CohortBuilder() {
           </SelectContent>
         </Select>
 
+        {/* Folds the left pane; a view tab below opens it again. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={leftView ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              onClick={() => {
+                if (leftView) { if (resultsVisible) { lastLeftView.current = leftView; setLeftView(null) } }
+                else setLeftView(lastLeftView.current)
+              }}
+            >
+              {leftView ? <Eye size={14} /> : <EyeOff size={14} />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t('cohorts.toggle_builder')}</TooltipContent>
+        </Tooltip>
+
         {/* View toggles (left pane: criteria vs SQL) */}
         <div className="flex items-center rounded-md border p-0.5">
           <button
@@ -312,8 +333,8 @@ export function CohortBuilder() {
 
         <div className="flex-1" />
 
-        {/* Materialization freshness */}
-        {cohort.materialization && (
+        {/* Materialization freshness — a project's notion only (see below). */}
+        {host.kind === 'project' && cohort.materialization && (
           <span
             className="flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-400"
             title={t('cohorts.materialized_tooltip', {

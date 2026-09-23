@@ -162,7 +162,9 @@ export function Header() {
   const schemaId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/schemas\/([^/]+)$/)?.[1]
   // A database detail page exists at both levels — the workspace warehouse and a
   // project's warehouse — and both show the same badge.
-  const dbId = pathname.match(/\/warehouse\/databases\/([^/]+)$/)?.[1]
+  // A database's own cohort lives under it (`…/databases/:id/cohorts/:cohortId`)
+  // and is part of that page, so it keeps the database's title and badge.
+  const dbId = pathname.match(/\/warehouse\/databases\/([^/]+)(?:\/cohorts\/[^/]+)?$/)?.[1]
   // Which of the two we are on. A project only links a database, so its badge
   // offers unlink alone; everything else belongs to the workspace that owns it.
   const dbInProject = /\/projects\/[^/]+\/warehouse\/databases\//.test(pathname)

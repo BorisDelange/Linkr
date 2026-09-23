@@ -128,6 +128,9 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
       open={open}
       onOpenChange={onOpenChange}
       kind="workbench"
+      // An A4 page (210 mm, ~800 px) beside the settings column, without a
+      // horizontal scroll in the preview.
+      className="sm:max-w-[min(1180px,96vw)]"
       title={t('cohort_report.title')}
       description={t('cohort_report.description')}
       onConfirm={() => void exportReport()}
@@ -157,7 +160,7 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
       ) : (
         <div className="flex h-full min-h-0 gap-4">
           <div className="w-56 shrink-0 space-y-4">
-            <FormField label={t('cohort_report.threshold')} hint={t('cohort_report.threshold_hint')}>
+            <FormField label={t('cohort_report.threshold')} hint={t('cohort_report.threshold_hint')} hintInTooltip>
               {({ id }) => (
                 <div className="flex items-center gap-2">
                   <Input

@@ -1172,7 +1172,8 @@
     "results_truncated": "Showing {{shown}} of {{total}} rows — the rest were not loaded. Refine the criteria to narrow the cohort.",
     "text_not": "NOT",
     "text_exclude_hint": "Exclude notes matching this search",
-    "toggle_results": "Show or hide the results"
+    "toggle_results": "Show or hide the results",
+    "toggle_builder": "Show or hide the criteria and SQL"
   },
   "datasets": {
     "title": "Datasets",
@@ -5535,9 +5536,9 @@
     "title": "Cohort report",
     "description": "A self-contained summary of this cohort: counts, flowchart, criteria, characteristics and methodology, computed fresh from the database.",
     "format": "Format",
-    "format_html": "HTML (one file, opens offline)",
-    "format_pdf": "PDF (print dialog)",
-    "format_docx": "Word (.docx)",
+    "format_html": "HTML",
+    "format_pdf": "PDF",
+    "format_docx": "Word",
     "threshold": "Small-cell threshold",
     "threshold_hint": "Counts from 1 up to this value are hidden (shown as <N). 11 is the usual rule for health data.",
     "include_sql": "Include the SQL query in the methodology",
