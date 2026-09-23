@@ -358,6 +358,29 @@ def managed_path(source: DataSource) -> Path:
     return managed_db.path_of(source.id, source.connection_config)
 
 
+def claim_managed_location(source: DataSource, requested: str | None) -> tuple[dict, str | None]:
+    """The config a managed file is written under, and the location newly claimed.
+
+    `requested` is a new `*.duckdb` in a server folder; omitted, the file stays
+    where it was first created (or goes to Linkr's data folder). A location is
+    claimed once and never moved — see `fs_browser.check_new_database_file` for
+    why an existing file is refused. Raises ValueError with the reason."""
+    config = dict(source.connection_config or {})
+    if not requested:
+        return config, None
+    stored = config.get("managedPath")
+    if stored:
+        if Path(requested).expanduser().resolve() != Path(stored):
+            raise ValueError("a database file cannot be moved once created")
+        return config, None
+    try:
+        location = str(fs_browser.validate_new_database_file(requested))
+    except fs_browser.FsBrowseError as exc:
+        raise ValueError(str(exc)) from exc
+    config["managedPath"] = location
+    return config, location
+
+
 def _keep_managed_path(config: dict, current: dict | None) -> dict:
     """`managedPath` as the server stored it, whatever the client sent.
 

@@ -20,6 +20,7 @@ class CohortCreate(CamelModel):
     result_count: int | None = None
     attrition: list | None = None
     materialization: dict | None = None
+    derivations: list | None = None
     schema_version: int = 5
     # Creation date preserved on import round-trip; absent → server_default stamps now.
     created_at: datetime | None = None
@@ -37,6 +38,7 @@ class CohortUpdate(CamelModel):
     result_count: int | None = None
     attrition: list | None = None
     materialization: dict | None = None
+    derivations: list | None = None
     schema_version: int | None = None
     version: str | None = None
     # Restored on import/clone so the original creation date survives a git
@@ -58,6 +60,7 @@ class CohortResponse(CamelModel):
     result_count: int | None = None
     attrition: list | None = None
     materialization: dict | None = None
+    derivations: list | None = None
     schema_version: int
     created_at: datetime
     updated_at: datetime

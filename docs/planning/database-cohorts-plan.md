@@ -352,7 +352,9 @@ Ordered so nothing ships that cannot be exported.
 | ✅ | 7. Report model + `describeCriterion` + small-cell suppression + SVG charts, with tests (§4) — `lib/cohort-report/`, SQL checked on DuckDB for the 3 levels | M |
 | ✅ | 8. HTML renderer + export dialog + PDF via print — *Report* button in every cohort builder (project too) | M |
 | ✅ | 9. Word renderer (`docx`, lazy-loaded chunk) | M |
-| 🔜 | 10. Derive dialog + job: target new DuckDB, self-contained copy, provenance, rebuild (§6a) | L |
-| 🔜 | 11. Derive → new schema in a Linkr-owned DuckDB or Postgres (+ write toggle, + register as a database) (§6b) | M/L |
+| ✅ | 10a. Server: `POST /data-sources/{id}/derive` + `/derive-plan` (`services/data/cohort_derive.py`: two phases, client SQL read-only alone; per-level filtering; new DuckDB or schema; rebuild; `derived_from` + `cohorts.derivations`, migration `f4a5b6c7d8e9`) — tests on files and routes | L |
+| 🔜 | 10b. Client: `derivedFrom` / `derivations` types + strip `derivations` from cohort exports (client side; server already strips) + derive dialog in the database cohort builder (target, name, `DatabaseLocationField`, person-less toggle, plan preview) + rebuild from `derivations` + `derivedFrom` in Overview | M |
+| 🔜 | 10c. Synchronous request for now: move to a job (progress, cancel) if large sources time out | S |
+| 🔜 | 11. Server done in 10a (schema in owned DuckDB or Postgres with `allowWrites`, server-side registration copying the secret). Left: the `allowWrites` toggle in the Postgres database dialog, and testing against a real Postgres | M |
 | 🔜 | 12. `docs/architecture.md`, `docs/ui-patterns.md`, user docs in `../linkr-website` (databases + cohorts pages) | S/M |
 | 💤 | Same visualisation tab on project cohorts · copy a database cohort to a project · server-side PDF · report branding (logo, colours) | — |

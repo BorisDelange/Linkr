@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, status
 from fastapi.responses import Response
@@ -11,6 +10,7 @@ from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
 from app.core.ws_auth import authenticate_ws
+from app.models.cohort import Cohort
 from app.models.data_source import DataSource
 from app.models.user import User
 from app.schemas.concept_cache import (
@@ -30,6 +30,9 @@ from app.schemas.data_source import (
     DataSourceFileResponse,
     DataSourceResponse,
     DataSourceUpdate,
+    DerivePlanRequest,
+    DeriveRequest,
+    DeriveResult,
     EtlRunRequest,
     IntrospectedTable,
     QueryRequest,
@@ -40,9 +43,9 @@ from app.schemas.data_source import (
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
 from app.services import (
     blob_store,
+    cohort_derive_service,
     concept_stats_cache_service,
     data_source_service,
-    fs_browser,
     stats_cache_service,
 )
 from app.services.data import concept_cache_fs, connection_pool, db_connect, managed_db
@@ -221,6 +224,49 @@ async def query_data_source(
     return QueryResult(rows=rows)
 
 
+@router.post("/{source_id}/derive-plan")
+async def derive_plan(
+    source_id: str,
+    body: DerivePlanRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """What deriving a cohort of this database would do with each of its tables."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    try:
+        return await cohort_derive_service.plan(db, source, body.level)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+
+
+@router.post("/{source_id}/derive", response_model=DeriveResult)
+async def derive(
+    source_id: str,
+    body: DeriveRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Copy this database's tables, filtered on a cohort, into a new database or a
+    new SQL schema. Reading the source needs `databases:read`; the target is
+    written, so it needs `databases:write` — and a cohort updated with the result
+    must be one of this database's own."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    target = await _load_source(db, body.target.data_source_id, user, "databases:write")
+    cohort = None
+    if body.cohort_id:
+        cohort = await db.get(Cohort, body.cohort_id)
+        if cohort is None or cohort.owner_data_source_id != source.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Cohort not found")
+        # Recording the derivation edits the cohort, i.e. the source database.
+        await _require_source_access(db, source, user, "databases:write")
+    try:
+        return await cohort_derive_service.derive(db, source, target, body, cohort)
+    except cohort_derive_service.DeriveError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    except Exception as e:  # noqa: BLE001 — a SQL/engine failure is the diagnosis
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
+
+
 @router.post("/{source_id}/create-from-ddl", response_model=DataSourceResponse)
 async def create_from_ddl(
     source_id: str,
@@ -233,20 +279,10 @@ async def create_from_ddl(
     The browser builds the same schema in its own WASM database; in server mode
     the tables must exist on disk, or every later query hits an empty catalog."""
     source = await _load_source(db, source_id, user, "databases:write")
-    config = dict(source.connection_config or {})
-    new_location: str | None = None
-    if body.path:
-        stored = config.get("managedPath")
-        if stored and Path(body.path).expanduser().resolve() != Path(stored):
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST, "a database file cannot be moved once created"
-            )
-        if not stored:
-            try:
-                new_location = str(fs_browser.validate_new_database_file(body.path))
-            except fs_browser.FsBrowseError as exc:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-            config["managedPath"] = new_location
+    try:
+        config, new_location = data_source_service.claim_managed_location(source, body.path)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     path = managed_db.path_of(source.id, config)
     # A rebuild replaces a file a warm pooled connection may still hold attached
     # (browsing the database leaves one): DuckDB would refuse to open it again.

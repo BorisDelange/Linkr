@@ -40,6 +40,9 @@ class Cohort(Base, TimestampMixin):
     # Frozen membership snapshot (level, ids, patientIds, count, materializedAt).
     # Persisted and shared across users in fullstack mode.
     materialization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # What this cohort was derived into — [{kind, targetId, schemaName?, builtAt,
+    # patientCount}]. Instance state (local ids), never exported.
+    derivations: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     # Matches CURRENT_SCHEMA_VERSION in the frontend's cohort-store: a row the
     # server creates must not read as stale and get re-migrated on the client.
     schema_version: Mapped[int] = mapped_column(Integer, default=5)

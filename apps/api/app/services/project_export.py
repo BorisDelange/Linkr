@@ -116,7 +116,7 @@ def _cohort_export_shape(meta: dict) -> dict:
     the id made every round trip rewrite it (import re-hashed the repo's id,
     pushed the new one back, next import re-hashed that) — churn with no fixed
     point."""
-    return {k: v for k, v in meta.items() if k not in ("attrition", "resultCount", "materialization", "id")}
+    return {k: v for k, v in meta.items() if k not in ("attrition", "resultCount", "materialization", "derivations", "id")}
 
 
 def _cohort_keys(cohorts: list[dict]) -> dict[str, dict]:

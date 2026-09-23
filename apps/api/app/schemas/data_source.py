@@ -21,6 +21,7 @@ class DataSourceCreate(CamelModel):
     connection_config: dict = {}  # password/token stripped before persistence
     schema_mapping: dict | None = None
     schema_source: dict | None = None
+    derived_from: dict | None = None
     status: str = "configuring"
     stats: dict | None = None
     error_message: str | None = None
@@ -51,6 +52,7 @@ class DataSourceUpdate(CamelModel):
     connection_config: dict | None = None
     schema_mapping: dict | None = None
     schema_source: dict | None = None
+    derived_from: dict | None = None
     status: str | None = None
     stats: dict | None = None
     error_message: str | None = None
@@ -84,6 +86,7 @@ class DataSourceResponse(CamelModel):
     connection_config: dict
     schema_mapping: dict | None = None
     schema_source: dict | None = None
+    derived_from: dict | None = None
     status: str
     stats: dict | None = None
     error_message: str | None = None
@@ -356,3 +359,48 @@ class ProjectDatabase(CamelModel):
     status: str
     is_vocabulary_reference: bool = False
     connection: DatabaseConnectionInfo
+
+
+class DeriveTarget(CamelModel):
+    """Where a cohort is derived into.
+
+    `new-database`: `data_source_id` is a managed database the client just
+    created (or one derived before, for a rebuild), `path` an optional new file
+    location as in create-from-ddl. `schema`: a new SQL schema `schema_name` in
+    the writable database `data_source_id` — a Linkr-owned DuckDB, or a Postgres
+    whose owner allowed Linkr to write (`connectionConfig.allowWrites`)."""
+
+    kind: str
+    data_source_id: str
+    path: str | None = None
+    schema_name: str | None = None
+    # Drop and recreate the schema: a rebuild, which the client confirms first.
+    replace: bool = False
+    # Also declare the new schema as a Linkr database (Postgres targets).
+    register_name: dict | str | None = None
+    register_alias: str | None = None
+
+
+class DeriveRequest(CamelModel):
+    # The cohort's membership query (`id`, `patient_id`), as the criteria builder
+    # writes it. Runs READ_ONLY against the source, alone — see cohort_derive.
+    membership_sql: str
+    level: str
+    copy_personless: bool = True
+    target: DeriveTarget
+    # Recorded on what the derivation produces, and on the cohort.
+    cohort_id: str | None = None
+    derived_from: dict | None = None
+
+
+class DerivePlanRequest(CamelModel):
+    level: str
+
+
+class DeriveResult(CamelModel):
+    tables: list[dict]
+    patient_count: int
+    unit_count: int
+    built_at: str
+    # The database the derivation produced, or declared for the new schema.
+    data_source_id: str | None = None
