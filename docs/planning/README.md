@@ -58,11 +58,11 @@ Provider config is **built** (workspace-scoped, owner-only, Fernet, derived `is_
 | ✅ | `LlmProvider` + proxy + settings tab + per-surface approval | M |
 | 🔜 | **PoC (in progress)**: `linkr` MCP with cohort tools (stdio, session token), benched from Claude Code — branch `feature/mcp-live` | M |
 | 🔜 | Same bench with a small open model (OpenCode + OpenRouter free) | S |
-| 🔜 | Split `@linkr/mcp` into `live/` + `files/`; files server announced `linkr-files`, deleted once live covers it | S |
-| ✅ | Notification WS + live store refresh + notification centre (header bell, "X added by MCP", clearable) — **cohorts only**; writes marked by `X-Linkr-Client: mcp`; in-process hub (single worker) | M |
-| 🔜 | Frame, rest: other entities (dashboards, datasets), `get_ui_context`, per-turn undo | M |
+| ✅ | Split `@linkr/mcp` into `src/live/` + `src/files/`; files server announced `linkr-files` (kept: live cannot create projects yet — `create-project`/`linkr-authoring` skills use it) | S |
+| ✅ | Security: read-query connections cut off the server filesystem (`COPY TO` / `read_csv` any path were open) | S |
+| ✅ | Frame: notification WS + live refresh + header notification centre for cohorts, dashboards (tab/widget detail), datasets; `get_ui_context` (focused tab); **per-change undo** (latest change per item only) — writes marked `X-Linkr-Client: mcp`; in-process hub (single worker) | M |
 | 🔜 | HTTP transport + per-project `ApiToken` + tool annotations → local LibreChat beside Linkr | M |
-| 🔜 | `linkr` extended: dashboards (salvage `dashboard-tools.ts`), datasets | M |
+| ✅ | `linkr` extended: datasets (incl. `create_dataset_from_query`, written server-side) and dashboards (plugins documented from manifests; key-indicator missing — inline manifest, see plugin-model harmonisation) | M |
 | 🔜 | Skills entity + project selection + generated `AGENTS.md` + `.agents/skills/` | M |
 | 🔜 | Delete `lib/agent/` + `DashboardAgentSidebar.tsx` — salvage the confirm/undo UI and tool vocabulary first | S |
 | 🤔 | Embedded chat — (a) Linkr UI over LibreChat Agents API · (b) server loop · (c) ACP + OpenCode | L |
