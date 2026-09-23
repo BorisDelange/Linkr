@@ -169,7 +169,9 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   }
   const derivationLabel = (d: CohortDerivation) =>
     d.kind === 'schema' ? `${databaseName(d.targetId)} · ${d.schemaName}` : databaseName(d.targetId)
-  const derivations = cohort.derivations ?? []
+  // One whose database is gone has nothing left to rebuild or open. The server
+  // prunes them when a database is deleted; this covers older records.
+  const derivations = (cohort.derivations ?? []).filter((d) => dataSources.some((ds) => ds.id === d.targetId))
 
   return (
     <>

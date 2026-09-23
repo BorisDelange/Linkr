@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import crypto
+from app.models.cohort import Cohort
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.user import User
 from app.schemas.data_source import (
@@ -322,6 +323,7 @@ async def delete(db: AsyncSession, source: DataSource, delete_data: bool = False
     # outside Linkr's data folder to keep it, and may still use it outside Linkr.
     owns_default_file = is_managed(source) and not (source.connection_config or {}).get("managedPath")
     source_id = source.id
+    await _forget_derivations_into(db, source_id)
     await db.delete(source)  # cascades to data_source_files via FK
     await db.commit()
     connection_pool.invalidate(source_id)
@@ -331,6 +333,19 @@ async def delete(db: AsyncSession, source: DataSource, delete_data: bool = False
     for sha in shas:
         if not await _sha_still_referenced(db, sha):
             await blob_store.delete(sha)
+
+
+async def _forget_derivations_into(db: AsyncSession, source_id: str) -> None:
+    """Drop the cohorts' records of derivations built into (or declared as)
+    this database: once it is gone there is nothing to rebuild or open."""
+    cohorts = (await db.execute(select(Cohort).where(Cohort.derivations.is_not(None)))).scalars().all()
+    for cohort in cohorts:
+        kept = [
+            d for d in cohort.derivations or []
+            if source_id not in (d.get("targetId"), d.get("registeredId"))
+        ]
+        if len(kept) != len(cohort.derivations or []):
+            cohort.derivations = kept or None
 
 
 # --- Files (blob-backed, deduplicated by sha) ------------------------------

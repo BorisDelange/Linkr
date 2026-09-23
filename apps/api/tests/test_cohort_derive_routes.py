@@ -103,6 +103,10 @@ async def test_derive_into_a_new_database_and_record_it(client):
     assert job["status"] == "done" and job["result"]["patientCount"] == 2
     assert len((await client.get(f"{API}/cohorts/{cohort}", headers=headers)).json()["derivations"]) == 1
 
+    # Once the database is deleted, the cohort no longer lists it.
+    assert (await client.delete(f"{API}/data-sources/{dst}", headers=headers)).status_code == 204
+    assert not (await client.get(f"{API}/cohorts/{cohort}", headers=headers)).json()["derivations"]
+
 
 async def test_derive_into_a_schema_of_the_source_itself(client):
     headers = await _admin(client)
