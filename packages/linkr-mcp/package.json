@@ -4,11 +4,9 @@
   "private": true,
   "type": "module",
   "bin": {
-    "linkr-mcp-files": "./src/files/server.ts",
     "linkr-mcp": "./src/live/server.ts"
   },
   "scripts": {
-    "start:files": "tsx src/files/server.ts",
     "start": "tsx --tsconfig tsconfig.json src/live/server.ts",
     "start:http": "tsx --tsconfig tsconfig.json src/live/http.ts",
     "test": "vitest run",
@@ -16,8 +14,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
-    "i18next": "^25.8.7",
-    "jszip": "^3.10.1"
+    "i18next": "^25.8.7"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

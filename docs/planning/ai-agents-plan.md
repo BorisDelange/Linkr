@@ -46,7 +46,7 @@ Only what is useful whatever layer 4 becomes is built now. Reasons for the reord
 |---|---|---|
 | PTY over WebSocket | [execution.py:638](../../apps/api/app/api/v1/routes/execution.py#L638) | an agent CLI runs in the IDE terminal today; also the broker pattern if ACP is ever chosen |
 | Permission catalogue | [permissions.py:26](../../apps/api/app/core/permissions.py#L26) | `"resource:action"`, `require_project_permission` |
-| `@linkr/mcp` | [packages/linkr-mcp](../../packages/linkr-mcp) | a working MCP server over `@linkr/format` — becomes `linkr-files`, then goes (§4) |
+| `@linkr/mcp` | [packages/linkr-mcp](../../packages/linkr-mcp) | now the `linkr` live server only; the files server `linkr-files` is deleted (§4) |
 | Action-based dashboard store | [dashboard-store.ts:31](../../apps/web/src/stores/dashboard-store.ts#L31) | ~25 atomic, id-addressed actions — the tool vocabulary for `linkr` |
 | Pure TS query builders | [cohort-query.ts](../../apps/web/src/lib/duckdb/cohort-query.ts), [concept-queries.ts](../../apps/web/src/features/projects/warehouse/concepts/concept-queries.ts) | imported as-is by the MCP (no Python port) |
 | "File collection" entity | `SqlScriptCollection` / `SqlScriptFile` | the exact pattern to clone for Skills |
@@ -190,8 +190,8 @@ CI validation is `@linkr/format`, not the MCP. So:
   and what prefixes the tools (`mcp__linkr__…`);
 - **the files server is announced as `linkr-files`** meanwhile (and the
   `linkr-authoring` skill updated);
-- **`src/files/` is deleted once live covers its uses** — no rename twice, no "old"
-  suffix: it is not an older version, it is another target.
+- **`src/files/` is deleted** (done, with the `linkr-authoring` and `create-project`
+  skills): project creation from outside Linkr goes, until `linkr` gains it.
 
 ### A public interface
 
@@ -415,8 +415,7 @@ Revised 2026-09-23; the 2026-09-02 list (ACP-centred) is replaced, not appended 
 1. **MCP first; the chat surface is external for now** — Claude Code, then LibreChat in
    a tab beside Linkr (§0).
 2. **One MCP server `linkr`** (instance, TypeScript, in `@linkr/mcp`, reusing the front's
-   pure query builders). The files server is announced `linkr-files` and deleted once
-   live covers its uses (§4).
+   pure query builders). The files server `linkr-files` is deleted (§4).
 3. **Tools take explicit ids** and may act anywhere; `get_ui_context` only supplies
    defaults (§4, §4c).
 4. **Approval lives in the client**, steered by `readOnlyHint` / `destructiveHint`; the

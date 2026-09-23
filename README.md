@@ -224,19 +224,12 @@ docs are at http://localhost:8000/docs.
 
 ## Authoring content outside the app
 
-Projects, dashboards, datasets and scripts can be written as an entity tree without opening
-Linkr, and validated against the real format — useful for seeding a portal, building a demo,
-or keeping the public content repos importable.
+An entity tree written outside Linkr — for a portal, or a public content repo — can be
+validated against the real format before import.
 
 ```bash
 # Validate any entity tree (project, SQL collection, ETL pipeline, schema preset)
 npx tsx packages/linkr-format/src/node/cli.ts path/to/entity
-```
-
-Agents get the same thing as an MCP server, which writes the tree and validates every change:
-
-```bash
-claude mcp add linkr-files -- npx tsx "$PWD/packages/linkr-mcp/src/files/server.ts"
 ```
 
 ## Driving a running instance from an agent
@@ -244,7 +237,8 @@ claude mcp add linkr-files -- npx tsx "$PWD/packages/linkr-mcp/src/files/server.
 The `linkr` MCP server acts on a running Linkr server as one user — projects, databases,
 cohorts, datasets, dashboards — through the REST API, so every permission is re-checked. Its
 writes show up live in the open tab and in the header's notification centre, where each one
-can be undone. Configure `packages/linkr-mcp/.env` (template `.env.example`), then:
+can be undone. Configure `packages/linkr-mcp/.env` (template `.env.example`), then register it with Claude Code
+— or run it over HTTP for LibreChat, see `packages/linkr-mcp/README.md`:
 
 ```bash
 claude mcp add linkr -- npx tsx --tsconfig "$PWD/packages/linkr-mcp/tsconfig.json" "$PWD/packages/linkr-mcp/src/live/server.ts"

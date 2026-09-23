@@ -39,8 +39,7 @@ linkr/
 │   ├── linkr-format/             # What a valid entity IS: schemas, id/key derivation,
 │   │                             #   validator, authoring serializer. No I/O, no deps —
 │   │                             #   usable from the browser, Node and CI alike.
-│   └── linkr-mcp/                # MCP servers: `linkr` drives a running instance (REST);
-│                                 #   `linkr-files` authors entity trees on disk
+│   └── linkr-mcp/                # MCP server `linkr`: drives a running instance (REST)
 ├── docker/                       # Docker configs
 ├── docs/                         # Documentation
 └── v1/                           # Legacy R/Shiny codebase (reference only)
@@ -240,7 +239,7 @@ written even when null — omitting it is what made a pointer re-import as a dup
 This section is the reference: the harmonization effort that produced it is finished and
 its plan retired.
 
-## Format package & MCP authoring (as-built)
+## Format package (as-built)
 
 The export format is now described in **two** places, and they must be kept in step:
 
@@ -248,7 +247,6 @@ The export format is now described in **two** places, and they must be kept in s
 |---|---|---|
 | Writer | `apps/web/src/lib/entity-io.ts` | the app's export/import — the reference implementation |
 | Format | `packages/linkr-format/` | schemas, id/key derivation, **validator**, authoring serializer |
-| Tools | `packages/linkr-mcp/` (`linkr-files`) | MCP server exposing the format to any agent (a thin facade; holds no format knowledge) |
 
 > ⚠️ **Change the shape of an exported entity → update the format package in the same
 > change.** A field added to `entity.json`, `dashboards/*.json`, `_tree.json` or any
@@ -298,7 +296,9 @@ the other's schema and report a pile of nonsense.
 The validator also runs on **import** (`parseProjectZip` → `lib/import-validation.ts`),
 reported after a successful import and never blocking: reads stay tolerant by design.
 
-Authoring guidance for agents → `.claude/skills/linkr-authoring/`.
+The authoring MCP server (`linkr-files`) and its skills (`linkr-authoring`,
+`create-project`) are removed: agents act on a running instance through the `linkr` MCP
+server instead. `serializeProject` is left without a caller.
 
 ---
 

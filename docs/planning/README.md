@@ -57,7 +57,7 @@ client. The former provider config (and its proxy) is deleted.
 |----|------|--------|
 | 🔜 | **PoC (in progress)**: `linkr` MCP with cohort tools (stdio, session token), benched from Claude Code — branch `feature/mcp-live` | M |
 | 🔜 | Same bench with a small open model (OpenCode + OpenRouter free) | S |
-| ✅ | Split `@linkr/mcp` into `src/live/` + `src/files/`; files server announced `linkr-files` (kept: live cannot create projects yet — `create-project`/`linkr-authoring` skills use it) | S |
+| ✅ | Files server `linkr-files` and its `linkr-authoring` / `create-project` skills deleted — `linkr` over a running instance is the only MCP | S |
 | ✅ | Security: read-query connections cut off the server filesystem (`COPY TO` / `read_csv` any path were open) | S |
 | ✅ | Frame: notification WS + live refresh + header notification centre for cohorts, dashboards (tab/widget detail), datasets; `get_ui_context` (focused tab); **per-change undo** (latest change per item only) — writes marked `X-Linkr-Client: mcp`; in-process hub (single worker) | M |
 | 🔜 | HTTP transport + per-project `ApiToken` + tool annotations → local LibreChat beside Linkr | M |
@@ -311,24 +311,17 @@ time for WASM (`npm run data:fetch`). Catalog app side is complete and the
 | 🔜 | Import dialog third tab ("from default data"), client-only half, on a shared catalog card/install component | M |
 | 💤 | "Propose to catalog" prefill | S |
 
-## Authoring outside Linkr (MCP)
+## Authoring outside Linkr (format package)
 
-`packages/linkr-format` (schemas + validator) and `packages/linkr-mcp` shipped; as-built in
-`docs/architecture.md` § Format package & MCP authoring. Plan retired 2026-09-03. The MCP
-creates and appends well but has **no update/move/remove and cannot read a tree back**, so
-an agent asked to *modify* an entity falls back to `Read`/`Edit` on the JSON — which the
-skill forbids and which breaks entities (keys and ids are derived).
+`packages/linkr-format` (schemas + validator) shipped; as-built in `docs/architecture.md`
+§ Format package. The authoring MCP server (`linkr-files`) and its skills are **deleted**
+(2026-09-23): agents act on a running instance through the `linkr` MCP server instead,
+so its edit backlog (read-back, update/move/remove tools, skill matrix) is dropped.
 
 | St | Item | Effort |
 |----|------|--------|
 | 🔜 | `validate` in the `linkr-public-content` CI — the CLI detects the kind, so one command covers a mixed repo | S |
-| 🔜 | Spec passthrough + round-trip gate — the 8 dashboard fields + filter `scope` the authoring spec cannot express; prerequisite, else every read-modify-write silently drops them | M |
-| 🔜 | Read-back: `read_entity`, `read_file`, `describe_tree` with configs | M |
-| 🔜 | `update_project`, `update_widget`, `update_script` — the cheap, common edits | S |
-| 🔜 | Move/rename cascades + `format/rekey.ts`: a tab key is `slug(name)` and a widget key embeds its position, so a rename orphans every reference unless keys are recomputed in the same call | M |
-| 🔜 | `remove_*`, each naming its collateral damage before acting | M |
-| 🔜 | Skill matrix: stop implicitly sanctioning a fallback to `Edit` | S |
-| 💤 | Granular edit tools for the 6 standalone kinds | L |
+| 🤔 | `serializeProject` / `ProjectSpec` have no caller left — delete, or keep for a future `create_project` in `linkr` | S |
 
 ## Export format harmonization
 

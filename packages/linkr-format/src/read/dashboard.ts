@@ -3,8 +3,7 @@
  *
  * This is the missing half of read-modify-write. Without it an agent asked to
  * change one widget has to open the JSON itself, and from there it edits derived
- * ids by hand — the failure `linkr-authoring` forbids and that
- * `sql-collection-id-churn` already cost once.
+ * ids by hand — the failure `sql-collection-id-churn` already cost once.
  *
  * The contract is **lossless**: everything the spec cannot express is carried in
  * `extra` (see `Passthrough`), so `serializeProject(readDashboard(file))` returns
