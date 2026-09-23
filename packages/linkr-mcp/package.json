@@ -10,6 +10,7 @@
   "scripts": {
     "start:files": "tsx src/files/server.ts",
     "start": "tsx --tsconfig tsconfig.json src/live/server.ts",
+    "start:http": "tsx --tsconfig tsconfig.json src/live/http.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
