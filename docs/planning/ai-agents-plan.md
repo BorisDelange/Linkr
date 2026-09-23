@@ -1,55 +1,55 @@
 # AI agents — design
 
-**One agent, one sidebar, server mode only.** An external agent binary (OpenCode by
-default) supplies the agentic loop, memory and context compaction; Linkr supplies the
-UI, the actions and the safety frame. They meet over two open protocols:
+**Linkr exposes its actions; it does not host the chat — yet.** One MCP server,
+`linkr`, drives a running instance. Any agent consumes it: Claude Code in a terminal,
+LibreChat in the browser tab next to Linkr, an agent in the project IDE's terminal.
+Linkr adds the *frame* around those agents — live refresh, UI context, an action log
+with undo — not a chat of its own.
 
-- **ACP** (Agent Client Protocol) — the agent streams typed events to our own UI, and
-  asks *us* for permission. No TUI, no ANSI parsing.
-- **MCP** — how the agent acts: on a running instance (`linkr-live`) and on entity
-  trees on disk (`linkr-authoring`).
-
-Mental model: Zed's agent panel, but the tools drive Linkr instead of a code editor.
-
-> **Superseded (2026-09-02).** Earlier revisions of this plan described two separate
-> products — a per-page conversational copilot with an in-house agentic loop, and a
-> CLI agent in the IDE. Both the split and the in-house loop are dropped; see §10 for
-> what was removed and why.
+> **Revised 2026-09-23.** The 2026-09-02 revision put an ACP broker + OpenCode sidebar
+> at the centre. It is now one option among three for a later, *optional* embedded
+> chat (§5), decided after a proof of concept and real use of LibreChat beside Linkr.
+> What moved and why: §0. Earlier history (per-page copilot, in-house loop): §10.
 
 ---
 
-## 0. Architecture
+## 0. Four layers, three settled
 
-```
-Sidebar (project-wide) — two render modes: clinician / developer
-   │  WebSocket — ACP events relayed
-   ▼
-FastAPI — subprocess broker
-   │  spawn (stdio) ──▶ opencode acp
-   │                       │  session/new { mcpServers: [...] }
-   │                       ├─ MCP linkr-live      (http + session token)
-   │                       ├─ files + shell       (native to the agent)
-   │                       └─ skills on disk      .agents/skills/
-   └── WS notification ──▶ front store reloads after a write
-```
-
-Three action surfaces compose:
-
-| Surface | Source | Reach |
+| Layer | Decision | Status |
 |---|---|---|
-| Files + shell | agent-native | write/edit/run code in the project IDE |
-| App actions | MCP `linkr-live` | widgets, tabs, cohorts, datasets, filters |
-| Offline content | MCP `linkr-authoring` | entity trees on disk (already built) |
+| **1. Actions** | MCP server `linkr` on a running instance, cohorts first (§4) | ✅ building |
+| **2. Frame in Linkr** | notification WS + store reload, `get_ui_context`, action log + per-turn undo (§4c) | ✅ settled, client-agnostic |
+| **3. Approval** | in the **client** (LibreChat `toolApproval`, Claude Code permissions), steered by MCP tool annotations (§4b) | ✅ settled |
+| **4. Chat surface** | external for now: Claude Code, then LibreChat in a tab beside Linkr | 🤔 embedded chat open (§5) |
+
+Only what is useful whatever layer 4 becomes is built now. Reasons for the reorder:
+
+- **The MCP is the invariant.** OpenCode over ACP, a server-side loop, LibreChat or
+  Claude Desktop all call the same tools. It is the one investment never thrown away.
+- **ACP only exists to render an agent inside our UI.** Judging whether an agent can
+  build a cohort needs a terminal, not a sidebar.
+- **Tool design and model capability fail differently.** The proof of concept runs
+  the same tasks with a strong reference (Claude Code) and a small open model: if
+  the reference fails, the tools are wrong; if only the small model fails, it is the
+  model.
+- **Chat UIs are a commodity.** History, model choice, providers, quotas, MCP and
+  skill management are what LibreChat / Open WebUI already do, and hospitals deploy
+  them. What is *not* a commodity is the situated context, the live view and the
+  undo — layer 2, which serves every client.
+- **The data scientist already has an agent in the app**: the project IDE has a
+  terminal; `claude` or `opencode` run there with the `linkr` MCP configured — code
+  and app actions, no ACP needed.
 
 ### What already exists and gets reused
 
 | Building block | Where | What it gives |
 |---|---|---|
-| PTY over WebSocket | [execution.py:638](../../apps/api/app/api/v1/routes/execution.py#L638) | the subprocess-broker pattern the ACP relay clones |
+| PTY over WebSocket | [execution.py:638](../../apps/api/app/api/v1/routes/execution.py#L638) | an agent CLI runs in the IDE terminal today; also the broker pattern if ACP is ever chosen |
 | `LlmProvider` + proxy | `models/llm_provider.py`, `routes/llm_proxy.py` | provider config, Fernet-encrypted keys, per-surface approval — **done** |
 | Permission catalogue | [permissions.py:26](../../apps/api/app/core/permissions.py#L26) | `"resource:action"`, `require_project_permission` |
-| `@linkr/mcp` | [packages/linkr-mcp](../../packages/linkr-mcp) | a working MCP server over `@linkr/format` — becomes `linkr-authoring` |
-| Action-based dashboard store | [dashboard-store.ts:31](../../apps/web/src/stores/dashboard-store.ts#L31) | ~25 atomic, id-addressed actions — the tool vocabulary for `linkr-live` |
+| `@linkr/mcp` | [packages/linkr-mcp](../../packages/linkr-mcp) | a working MCP server over `@linkr/format` — becomes `linkr-files`, then goes (§4) |
+| Action-based dashboard store | [dashboard-store.ts:31](../../apps/web/src/stores/dashboard-store.ts#L31) | ~25 atomic, id-addressed actions — the tool vocabulary for `linkr` |
+| Pure TS query builders | [cohort-query.ts](../../apps/web/src/lib/duckdb/cohort-query.ts), [concept-queries.ts](../../apps/web/src/features/projects/warehouse/concepts/concept-queries.ts) | imported as-is by the MCP (no Python port) |
 | "File collection" entity | `SqlScriptCollection` / `SqlScriptFile` | the exact pattern to clone for Skills |
 | Path-keyed versioned tree | [entity-tree.ts](../../apps/web/src/lib/entity-tree.ts) | `_tree.json` keyed by path — git-friendly, no id churn |
 
@@ -164,263 +164,176 @@ restriction is a product choice, not a safety one.
 
 ---
 
-## 3. ACP — the client
+## 3. ACP — a deferred option, not the plan
 
-### Protocol facts (verified 2026-09-02)
+Kept as option (c) for an embedded chat (§5). Nothing here is scheduled. The facts
+below were verified on 2026-09-02 and must be re-checked before use.
 
 | | |
 |---|---|
-| SDK | **`@agentclientprotocol/sdk`** v1.4.0, Apache-2.0, ~7.1M downloads/week. Use the fluent `client()` API; `ClientSideConnection` is deprecated. |
-| Deprecated package | `@zed-industries/agent-client-protocol` — renamed, do not use |
-| Version | **Target v1.** v2 is published but *draft*: it removes the client filesystem API, terminal execution and session modes, and changes the prompt lifecycle (`session/prompt` no longer ends the turn). Supporting both means two code paths. |
-| Transport | **stdio only.** The streamable-HTTP/WebSocket transport is an RFD, not shipped. |
-| Governance | `github.com/agentclientprotocol`, Zed + JetBrains |
+| SDK | `@agentclientprotocol/sdk` (fluent `client()` API; `ClientSideConnection` deprecated; `@zed-industries/agent-client-protocol` is the old name) |
+| Version | v1 stable; v2 draft (drops client fs, terminals, session modes) |
+| Transport | **stdio only** → the agent is a subprocess of a FastAPI broker relaying over WS |
+| Agents | OpenCode (`opencode acp`, native), Gemini CLI (native), Goose (experimental), Claude/Codex via adapters |
+| Traps | stdout is protocol-only (logs to stderr); `killpg` at teardown (same leak as `pty_kernel.py`) |
+| Profile | `session/new { mcpServers }` — a clinician session gets `linkr` and nothing else: no shell, no files |
 
-### Agent choice
-
-| Agent | ACP | Note |
-|---|---|---|
-| **OpenCode** | first-party native (`opencode acp`) | **Default.** Open source, any OpenAI-compatible `baseURL`, so Ollama is first-class. |
-| Gemini CLI | first-party native | The docs call it the reference implementation. Google-oriented. |
-| Goose | first-party, **labeled experimental** by Block | |
-| Claude Agent / Codex | adapters | Claude Code the CLI has **no** first-party ACP — the entry is an adapter over the Claude Agent SDK. |
-
-ACP makes this reversible: the client speaks the protocol, not OpenCode. An agent is a
-name plus an `argv`. **Ship two presets** (OpenCode + Gemini CLI) to prove the
-abstraction holds.
-
-Binaries are a **documented prerequisite**, probed on mount (`opencode --version`) with
-an explicit empty state — never a raw `command not found`. No bundling (image bloat for
-an optional feature), no auto-install (hospital networks are closed).
-
-### The broker
-
-stdio-only means the agent is a subprocess of its client, and our client is a browser.
-So FastAPI brokers: spawn the agent, speak ACP on its pipes, relay events over a
-WebSocket. `execution.py` already does exactly this shape for the PTY.
-
-Two traps:
-
-- **stdout is protocol-only.** An agent logging to stdout corrupts the JSON-RPC stream
-  irrecoverably, and messages must not contain embedded newlines. Logs go to stderr.
-- **`killpg` at teardown** — the same leak already present in `pty_kernel.py`. Fix both.
-
-### Session setup
-
-`session/new` takes an `mcpServers` array (core protocol feature, v1 and v2), with
-`stdio` and `http` transports each gated by a capability in the `initialize` response —
-check `session.mcp.http` before sending, and degrade if absent.
-
-**This is where the profile is enforced.** A clinician session is handed `linkr-live`
-and nothing else: no shell, no file tools. The agent then *cannot* produce code —
-an architectural guarantee, not a prompt instruction.
+Why it lost its central place: OpenCode is a *coding* agent whose long, code-oriented
+system prompt can distract a small model handed only business tools, and ACP is a
+second protocol to maintain for what LibreChat already renders. Its real asset — a
+typed event stream with `session/request_permission` — matters only if we render the
+chat ourselves.
 
 ---
 
-## 4. MCP — two servers
+## 4. MCP — one server, `linkr`
 
-Not two versions of one server: two different targets.
+HTTP-capable MCP server driving a **running instance** through its REST API, written
+in **TypeScript**, in the existing `@linkr/mcp` package.
 
-| | `linkr-authoring` | `linkr-live` |
-|---|---|---|
-| Acts on | **files** (entity trees) | a **running instance** |
-| Transport | stdio | http + session token |
-| Needs | nothing | a server + a session |
-| Use | author content offline, seed a portal | drive the open project |
-| Status | **built** (rename) | to build |
+### Why TypeScript
 
-Merging them would produce a server needing a token for half its tools and a disk path
-for the other — incoherent to configure and to document.
+Linkr's business logic lives in the front: the cohort SQL compiler, OMOP/concept
+queries, the dashboard store's ~25 actions, widget config, DQ checks, `@linkr/format`
+and its validator. The backend stores (CRUD) and executes (SQL, ETL, git, IDE). A TS
+MCP imports that logic unchanged and calls REST for storage and execution — and REST
+re-checks the caller's permissions. A Python MCP would mean porting it: duplication.
 
-### Rename
+Cost to accept: the API image (`rocker/r-ver`) has no Node. In production the server
+runs as a third container (`node:22-alpine`) reverse-proxied by the web nginx at
+`/mcp`. Irrelevant for the proof of concept (stdio, local).
 
-`@linkr/mcp` stays the npm package; what changes is the **name announced to the MCP
-client** ([server.ts:56](../../packages/linkr-mcp/src/server.ts#L56)), since that is what
-the agent sees and what prefixes the tools:
+### One server; the files one goes
 
-- `linkr` → **`linkr-authoring`** (files)
-- new: **`linkr-live`** (instance)
+Once an agent can act on the app, content is created *in* the app and exported or
+versioned with the existing features. Offline file authoring loses its reasons: a
+demo project or a `linkr-public-content` repo can go through a running instance;
+CI validation is `@linkr/format`, not the MCP. So:
 
-Update in the same change: the server `name`, the docs, and the `linkr-authoring` skill
-that references it.
+- **one package `@linkr/mcp`**, split into `src/live/` (new) and `src/files/` (today's
+  code);
+- **the live server takes the final name `linkr`** now — it is what the agent sees
+  and what prefixes the tools (`mcp__linkr__…`);
+- **the files server is announced as `linkr-files`** meanwhile (and the
+  `linkr-authoring` skill updated);
+- **`src/files/` is deleted once live covers its uses** — no rename twice, no "old"
+  suffix: it is not an older version, it is another target.
 
-### `linkr-live` — a public interface, not an internal component
+### A public interface
 
-HTTP MCP server exposing the app actions, backed by the REST API. Tool vocabulary
-derives from the stores — `dashboard-store.ts` is already an id-addressed action API,
-so the schema comes out nearly mechanically. First tranche: dashboard (tabs, widgets,
-layout, filters), then cohorts, datasets.
+Consumed by clients we do not control — Claude Code, LibreChat, Claude Desktop,
+Cursor, an agent in the IDE terminal. Hence:
 
-**It is consumed by two kinds of client, and the ACP sidebar is only one of them.**
-The other is any third-party MCP client the institution already runs — LibreChat,
-Claude Desktop, Cursor (§4b). That is not a bonus: it is the reason this batch comes
-before the broker. One server, two surfaces, and a hospital that never installs an
-agent binary still reaches Linkr through the chat client it already deployed.
+- **Self-contained**: auth, discovery and errors hold on their own.
+- **Tool descriptions written for a stranger**: the model knows nothing of Linkr —
+  say what a project, a cohort, a schema mapping are.
+- **Explicit ids everywhere.** Tools take the project / cohort / tab they act on, and
+  can act on any of them, not only what the user is looking at. `get_ui_context`
+  (§4c) only supplies *defaults* — "add an age > 50 criterion" means the open cohort
+  of the open project; nothing open or ambiguous → the agent asks.
+- **Annotated**: `readOnlyHint` on reads, `destructiveHint` on deletes, so clients
+  auto-approve reads and ask only for writes (§4b).
+- **The token carries the caller's own rights.** REST re-checks every permission: an
+  LLM never exceeds the user driving it.
 
-Three design consequences follow from being consumed by clients we do not control:
+### Proof of concept — cohorts (2026-09-23)
 
-- **Self-contained.** No implicit dependency on an ACP session running alongside —
-  auth, discovery and errors must hold on their own.
-- **Tool descriptions written for a stranger.** The consuming model knows nothing of
-  Linkr's vocabulary; a description saying "adds a widget" is useless without saying
-  what a widget, a tab and a project are.
-- **Auth is a first-class entity**, not a session detail (§4b).
+stdio, auth by the user's own session token, driven from Claude Code first. Tools:
 
-**The token carries the caller's own rights.** Every tool re-checks its permission
-server-side: a user without `dashboards:write` drives an agent that cannot write a
-widget. An LLM never exceeds the user driving it.
+| Step | Tools |
+|---|---|
+| Context | `list_projects`, `get_project_context` (project, linked databases, schema mapping in plain words) |
+| Explore | `describe_database`, `search_concepts` (with record/patient counts), `run_sql` (read-only, row-capped) |
+| Cohort | `list_cohorts`, `get_cohort`, `create_cohort`, `set_cohort_criteria` (typed tree, validated) |
+| Iterate | `preview_cohort_sql`, `run_cohort` (count + attrition), `set_cohort_custom_sql` |
 
-### Live refresh
+Bench: 5–6 tasks on MIMIC-IV demo with expected counts computed beforehand; per run,
+success, tool calls, errors. Same bench on a small open model (OpenCode + an
+OpenRouter free model) afterwards. **Only open/synthetic data on free endpoints** —
+they may log prompts.
 
-The stores are optimistic-write: they mutate local state and push to `getStorage()`
-fire-and-forget, and only ever read back at `loadProjectDashboards()`. Nothing listens
-to the database, so an agent writing through the API leaves the open tab stale.
-
-Fix: a **notification WebSocket**. After an MCP write the server publishes
-`{project_uid, entity}`; the front reloads the affected store. It carries a signal
-only — never tool calls — so it stays far simpler than a bidirectional bridge.
-
-The mechanism is **client-agnostic**: it keys off the write reaching the REST API, not
-off who sent it. An open Linkr tab therefore refreshes live whether the writer is the
-ACP sidebar or a third-party chat client.
-
-One trap to handle here rather than later: the front reloads the *whole* store for the
-touched entity. If the user is editing a widget at that moment, a reload can discard
-their in-flight work. It already applies to the ACP agent; it gets likelier with an
-external client, because the user cannot see what the agent is doing. **Do not reload a
-store whose editor is open and dirty — surface the change instead of applying it.**
+Out of the PoC: live refresh (reload the tab), `ApiToken`, HTTP transport.
 
 ---
 
-## 4b. Third-party MCP clients
+## 4b. Third-party clients, approval and auth
 
-The reference case is an institution that already runs **LibreChat** over its data
-warehouse, wired to Jira, GitLab, ClickHouse and Grafana, and wants Linkr in the same
-row. Nothing is built *for* LibreChat: it consumes `linkr-live` like any MCP client,
-and the deliverable is a documented URL plus a token. The cost below is auth and audit,
-not a second integration.
+The reference case: an institution already running **LibreChat** over its warehouse
+(Jira, GitLab, ClickHouse, Grafana) wants Linkr in the same row. Nothing is built for
+LibreChat: it consumes `linkr` like any MCP client. We do not host it (a full app +
+MongoDB, auth duplicating ours) — it is a deployment *beside* Linkr.
 
-### Authentication — the real work
+### Approval lives in the client
 
-The ACP path needs no user-visible credential: the broker spawns the agent and hands it
-an ephemeral session token. A third-party client breaks that assumption — it is
-configured by *its own* admin, with a long-lived credential in a config file:
+LibreChat has tool approval (`endpoints.agents.toolApproval` in `librechat.yaml`:
+ask / allow / deny by glob, since the human-in-the-loop runtime); Claude Code has its
+permission prompts. Approving where the conversation happens is the right place —
+pushing confirmations into the Linkr tab would interrupt a user busy elsewhere.
+
+Linkr's part: **tool annotations** so the client can tell reads from writes, and
+**an action log + per-turn undo** in the tab (§4c) — visible, never blocking. For a
+client without approval: tokens read-only by default, write only when the token says
+so.
+
+### Authentication
+
+A third-party client holds a long-lived credential in its own config:
 
 ```yaml
 mcpServers:
   linkr:
     type: streamable-http
-    url: https://linkr.chu-xxx.fr/mcp/live
+    url: https://linkr.chu-xxx.fr/mcp
     headers:
       Authorization: "Bearer ${LINKR_TOKEN}"
 ```
 
-So `linkr-live` needs a real **`ApiToken` entity** — created by the user in their
-settings, **scoped to one project**, expiring, revocable in one click, with a
-last-used-at. Effort S/M, not currently costed in §8.
-
-**Per-user tokens, not a shared service token.** A token in the client's *global*
-config makes every one of its users act under one identity: traceability is lost and
-§6's "never more than the user" degrades to "always as much as the widest token". Chat
-clients generally support per-user variables, so each user pastes their own Linkr token
-once. Document that as the supported setup; if a service token is used anyway, mark its
-writes as such in the audit trail. OAuth 2.1 (in the MCP spec, supported by LibreChat)
-is the clean answer but means running an authorization server — do it only if an
-institution asks.
-
-### No confirmation dialog — compensate deliberately
-
-`session/request_permission` is an **ACP** mechanism. MCP has no server-side
-confirmation hook: the client decides, and a third-party client is not ours. The §5
-guarantee — nothing is written without the user seeing it first — therefore **does not
-hold on this surface**. Two ways to compensate, to be chosen before shipping write
-access:
-
-- **read-only by default**, write unlocked only by a token that explicitly carries it —
-  the admin decides, not the model; or
-- **write allowed but traced** — every mutation through an external token is logged and
-  reversible (§5's per-turn undo, generalised).
-
-### Not situated
-
-The ACP sidebar knows the open project, page and tab, which is what makes "add a
-mortality chart *here*" work. An external client has no such referent: the user must
-name the project and the tab. Scoping the token to a project makes the context implicit
-at that level, and `list_projects` / `describe_project` close part of the gap; the
-current page and selection stay out of reach by construction. It is a different
-ergonomics — closer to automation than to assistance — and that is fine.
-
-### Where each surface wins
-
-| | ACP sidebar | Third-party MCP client |
-|---|---|---|
-| Live refresh in the open tab | ✅ | ✅ (same WS) |
-| Knows where the user is | ✅ | ❌ must be named |
-| Confirmation before a write | ✅ blocking, our dialog | ❌ acts, user sees after |
-| Identity / audit | ✅ the user's session | ⚠️ hinges on per-user tokens |
-| Files, scripts, IDE | ✅ | ❌ |
-| Already deployed in the hospital | ❌ binary prerequisite | ✅ often |
-
-### Why not host LibreChat ourselves
-
-It is a full web app (front + back + MongoDB), with its own auth and admin surface
-duplicating ours, on a stack we do not run. Consuming it costs nothing; shipping it
-costs a second service to maintain. If an institution wants an internal ChatGPT, that
-is a deployment *beside* Linkr, not a component inside it.
+So `linkr` needs an **`ApiToken` entity** — created by the user in their settings,
+scoped to one project, expiring, revocable in one click, last-used-at. **Per-user,
+not a shared service token**: a global token makes every user act as one identity,
+losing traceability and §6's "never more than the user". Chat clients support
+per-user variables. OAuth 2.1 only if an institution asks.
 
 ---
 
-## 5. The sidebar
+## 4c. The frame in Linkr — for every client
 
-Project-wide, not per page: a dashboard request needs datasets, which come from the
-pipeline, which comes from the warehouse. One conversation, one history. The tool set
-is filtered by the active page, and a `navigate_to` tool lets the agent move.
+What makes an external agent usable next to the app. None of it depends on layer 4.
 
-**A sidebar, not a page** — the agent must not modify a dashboard the user can no
-longer see. Watching the change land *is* the control. Resizable (`allotment` is
-already a dependency), pattern from `DashboardFilterSidebar.tsx`.
+- **Live refresh.** Stores are optimistic-write and never read back after load, so an
+  agent writing through REST leaves the tab stale. A **notification WebSocket**: after
+  a write the server publishes `{project_uid, entity}`, the front reloads that store.
+  Signal only, never tool calls. Keys off the write reaching REST, so it works for any
+  client. **Never reload a store whose editor is open and dirty** — surface the change
+  instead.
+- **UI context.** The open tab publishes where the user is (project, page, selected
+  cohort / dashboard tab) to the server; `get_ui_context` returns it. It resolves
+  "this cohort", "here" — defaults, never a restriction (§4).
+- **Action log + per-turn undo.** Every write through the MCP is logged with its
+  author and turn; the tab shows it and offers "Undo these changes" (snapshot before
+  the turn). Visible, not blocking.
 
-### Two render modes, one event stream
+---
 
-Same ACP events, two verbosity levels. A `name → i18n phrase` table produces the
-clinician mode; a tool with no entry falls back to raw. A render component, not a
-second application.
+## 5. An embedded chat — open, decided later
 
-**Clinician** — one business-language line per action:
+**For now: LibreChat in a tab beside Linkr.** Whether a chat *inside* Linkr is worth
+it is decided after the PoC and some days of real side-by-side use. An embedded chat
+earns its place only by what a separate tab cannot give: clickable results that open
+the cohort, embedded previews, or users with no LibreChat deployed.
 
-```
-┌─────────────────────────────────┐
-│ 🤖 Assistant     ⚠️ External API │
-├─────────────────────────────────┤
-│ Add a mortality-by-age chart    │
-│                                 │
-│   Reading the patients dataset  │
-│   Created "Mortality by age"    │
-│   Added to the Demographics tab │
-│                                 │
-│ The chart is in place.  [Undo]  │
-├─────────────────────────────────┤
-│ [Ask something…]            [↑] │
-└─────────────────────────────────┘
-```
+| Option | How | For | Against |
+|---|---|---|---|
+| **(a) Linkr UI over LibreChat's Agents API** — *kept in mind* | Linkr renders the chat; LibreChat runs the agent (`/api/agents/v1/chat/completions` or `/responses`, per-user API keys; conversations also show in LibreChat) | no loop to write; MCP, skills, models, quotas managed in one existing tool | API in **beta**; hard dependency on a LibreChat deployment; approval through the API unclear |
+| (b) Light server loop | FastAPI loop via the built `LlmProvider` proxy, calling the same MCP | no external dependency; situated natively | a loop + chat UI to maintain |
+| (c) ACP + OpenCode | §3 | files, shell, typed events | the heaviest; coding-oriented agent |
 
-**Developer** — the same events expanded: JSON arguments, command output, file diffs,
-the full plan. The raw PTY stays available alongside.
-
-### Permissions and undo
-
-`session/request_permission` blocks the agent and renders **our** dialog — the
-confirmation UI already exists at
+Whatever the option, the UI notes stand: project-wide sidebar (not per page),
+clinician mode (one business-language line per tool call, via a `name → i18n phrase`
+table) vs developer mode (arguments, output, diffs), and the confirm/undo UI to
+salvage from
 [DashboardAgentSidebar.tsx:622](../../apps/web/src/features/projects/dashboard/agent/DashboardAgentSidebar.tsx#L622)
-and is worth salvaging before that file is deleted (§10).
-
-**Decided: script execution is *confirmed*, not free and not forbidden.** An agent that
-writes an analysis script may run it, but every execution goes through
-`session/request_permission` with the script shown first. ACP is built for this, the
-mechanism is already there, and it keeps the usefulness without taking away control.
-
-Per-turn **undo** is still to build: snapshot before the agent's turn, offer "Undo these
-changes". No general undo/redo stack — roughly 50 lines.
+before it is deleted (§10). Script execution by an agent stays **confirmed**.
 
 ---
 
@@ -462,25 +375,15 @@ or members.
 
 | # | Batch | Effort | Why here |
 |---|---|---|---|
-| 1 | `Skill` entity — CRUD, workspace page, export/import, catalog | M | Standalone value, no dependency on the rest. Well-trodden (clone of SQL collections). |
-| 2 | MCP `linkr-live` (http, dashboard tools first) + `ApiToken` entity + rename the existing one | M/L | **The pivot.** Serves both surfaces, ships on its own, usable from any MCP client with no agent binary anywhere. |
-| 3 | Project selection + generated `AGENTS.md` + materialise `.agents/skills/` | S/M | Completes 1, prepares the agent. |
-| 4 | ACP broker in FastAPI (stdio spawn, WS relay, session lifecycle) | L | The heavy piece. `execution.py` is the model. |
-| 5 | Sidebar: event rendering, `request_permission`, undo, dual mode | L | The product work. |
-| 6 | Notification WS + store reload | S/M | Closes the live loop. |
-| 7 | `linkr-live` extended: cohorts, datasets | M | Replicating a proven pattern. |
-| 8 | Workspace agent (narrow tools) | M | After, and deliberately limited. |
-
-Batches 1–3 are independently useful and de-risk nothing away; 4–5 are where the real
-cost sits. **Batch 2 moved ahead of skill materialisation**: it is the only brick both
-surfaces need, and it delivers a usable product on its own — a hospital running a chat
-client reaches Linkr through it without waiting for the broker.
-
-Not costed above, and to fold into batch 2 before opening the surface to third parties:
-per-project `ApiToken` (create / scope / expire / revoke / last-used), an audit trail for
-external writes, and the read-only-vs-write decision of §4b.
-
----
+| 1 | **PoC**: `linkr` MCP, cohort tools, stdio, session token; bench from Claude Code | M | Tests the whole idea at the lowest cost; the tools survive whatever follows. |
+| 2 | Same bench with a small open model (OpenCode + OpenRouter free) | S | Separates tool-design faults from model limits. |
+| 3 | Split `@linkr/mcp` into `live/` + `files/`, announce `linkr-files` | S | Frees the final name; files server deleted once live covers it. |
+| 4 | Frame: notification WS + store reload, `get_ui_context`, action log + per-turn undo | M | Serves every client; what makes a tab-beside-tab agent usable. |
+| 5 | HTTP transport + `ApiToken` + tool annotations → LibreChat installed locally beside Linkr | M | The target setup for now. |
+| 6 | `linkr` extended: dashboards (salvage `dashboard-tools.ts`), datasets | M | Replicating a proven pattern. |
+| 7 | `Skill` entity + project selection + `AGENTS.md` + `.agents/skills/` | M | Useful to any harness, incl. LibreChat skills and the IDE terminal. |
+| 8 | Embedded chat (§5) — only if real use shows the need | L | Decided on evidence, option (a) first in line. |
+| 9 | Workspace agent (narrow tools) | M | After, and deliberately limited. |
 
 ## 9. Skills materialised on disk
 
@@ -495,9 +398,8 @@ first" priority.
 
 | Agent | Directory |
 |---|---|
-| OpenCode (default) | `.agents/skills/` |
+| OpenCode, Codex, others | `.agents/skills/` |
 | Claude Code | `.claude/skills/` (it reads only this one) |
-| others | `.agents/skills/` |
 
 ---
 
@@ -508,20 +410,20 @@ contexts, conversations, bench) and `DashboardAgentSidebar.tsx` — ~1500 lines 
 test files and a validated Ollama tool-calling bench.
 
 The reason is not that it failed: it worked, and the spike scored 12/12 on real tasks.
-It is that ACP cannot run in WASM (stdio-only transport, a binary to execute, a REST API
-that does not exist there), so keeping it would mean maintaining two engines for a
-secondary deployment mode, with the static one permanently behind — dashboard only, no
-long-term memory.
+It is that the agent now acts through the `linkr` MCP over the REST API, which does not
+exist in WASM, so keeping it would mean maintaining two engines for a secondary
+deployment mode, with the static one permanently behind — dashboard only, no long-term
+memory.
 
 **Salvage before deleting**: the confirmation and undo UI, the collapsed-tool-line
-rendering, and `dashboard-tools.ts` as the tool vocabulary for `linkr-live`.
+rendering, and `dashboard-tools.ts` as the tool vocabulary for `linkr`.
 
 Consequence to accept: **a static/WASM build has no assistant.** That is a demo or
 portal deployment, not a hospital data scientist's workstation.
 
-**Also dropped**: the per-page copilot (replaced by one project-wide sidebar), and the
-in-house agentic loop (replaced by the agent binary, which brings memory and context
-compaction for free).
+**Also dropped**: the per-page copilot (a future embedded chat, if any, is one
+project-wide sidebar), and the in-house *client-side* loop (the loop belongs to the
+client — LibreChat, Claude Code — or, in option (b), to the server).
 
 **Deferred**: LLM-managed memory. In a clinical setting an auto-written memory
 eventually captures patient detail, and that record outlives the session and is re-sent
@@ -532,29 +434,31 @@ this is *not* conversation history, which the agent handles natively.
 
 ## 11. Decisions taken
 
-1. **One project-wide sidebar**, not a per-page copilot and not a page.
-2. **ACP v1** + `@agentclientprotocol/sdk`, fluent `client()` API. v2 is draft.
-3. **OpenCode by default**, agent configurable; Gemini CLI as the second preset.
-4. **Two MCP servers**: `linkr-authoring` (files, renamed) and `linkr-live` (instance).
-5. **Server mode only.** The WASM assistant is deleted (§10).
-6. **Skills workspace-scoped**, project-selected, catalog-publishable.
-7. **The clinician profile is defined by the MCP servers passed to `session/new`**, not
-   by prompting.
-8. **LLM providers are workspace-scoped**, admin-configured, `llm-config:write`
-   owner-only. Already built.
-9. **Health data is reachable** when the admin configured a local secured provider.
-   `LINKR_ALLOW_REMOTE_LLM=false` by default.
-10. **Script execution is confirmed** through `session/request_permission`, not free and
-    not forbidden.
-11. **One entity = one skill**; `.agents/skills/` by default.
-12. **Agent binaries: documented prerequisite** with probing, no bundling, no
-    auto-install.
-13. **`linkr-live` is a public interface** (2026-09-22). Linkr exposes its actions in MCP
-    to third-party clients; the ACP harness is one consumer among others, not the owner
-    of the surface. LibreChat and the like are consumers, never hosted by us (§4b).
-14. **Per-user `ApiToken`, scoped to one project**, for third-party clients. A shared
-    service token loses traceability and breaks §6's "never more than the user"; OAuth
-    2.1 only on demand.
-15. **The §5 confirmation guarantee does not extend to MCP** — the protocol has no
-    server-side confirmation hook. Compensate with read-only-by-default tokens or with
-    traced, reversible writes; decide before opening write access (§4b).
+Revised 2026-09-23; the 2026-09-02 list (ACP-centred) is replaced, not appended to.
+
+1. **MCP first; the chat surface is external for now** — Claude Code, then LibreChat in
+   a tab beside Linkr (§0).
+2. **One MCP server `linkr`** (instance, TypeScript, in `@linkr/mcp`, reusing the front's
+   pure query builders). The files server is announced `linkr-files` and deleted once
+   live covers its uses (§4).
+3. **Tools take explicit ids** and may act anywhere; `get_ui_context` only supplies
+   defaults (§4, §4c).
+4. **Approval lives in the client**, steered by `readOnlyHint` / `destructiveHint`; the
+   Linkr tab shows an action log with per-turn undo, never a blocking dialog (§4b).
+5. **The frame is client-agnostic**: live refresh, UI context, action log (§4c).
+6. **Embedded chat decided on evidence** (PoC + side-by-side use); option (a), Linkr UI
+   over LibreChat's Agents API, is first in line (§5).
+7. **ACP + OpenCode is a deferred option**, not the plan (§3).
+8. **Server mode only.** The WASM assistant is deleted (§10).
+9. **Skills workspace-scoped**, project-selected, catalog-publishable; one entity = one
+   skill; `.agents/skills/` by default.
+10. **LLM providers are workspace-scoped**, admin-configured, `llm-config:write`
+    owner-only. Already built.
+11. **Health data is reachable** when the admin configured a local secured provider.
+    `LINKR_ALLOW_REMOTE_LLM=false` by default. Free remote endpoints: open/synthetic
+    data only.
+12. **Script execution by an agent is confirmed**, not free and not forbidden.
+13. **`linkr` is a public interface**; LibreChat and the like are consumers, never
+    hosted by us.
+14. **Per-user `ApiToken`, scoped to one project**; OAuth 2.1 only on demand.
+15. **For a client without approval**, tokens are read-only by default.
