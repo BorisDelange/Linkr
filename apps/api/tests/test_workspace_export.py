@@ -33,7 +33,12 @@ from app.services.export_layout import (
     with_entity_type,
 )
 from app.services.mapping_project_export import build_mapping_project_tree
-from app.services.project_export import build_project_tree
+from app.services.project_export import (
+    _cohort_export_shape,
+    _cohort_keys,
+    _drop_local_database,
+    build_project_tree,
+)
 from app.services.entity_docs import entity_doc_files, license_meta, strip_entity_docs
 from app.services.workspace_export import (
     _sanitize_connection_config,
@@ -368,6 +373,12 @@ def _build_tree() -> dict[str, bytes]:
             if isinstance(ddl, str) and ddl:
                 tree[CONTENT_SCHEMA_DDL] = ddl.encode()
         tree.update(entity_doc_files("", ds))
+        # The database's own cohorts, as _data_source_sub_tree writes them.
+        cohorts = data.get("databaseCohorts", {}).get(ds["id"], [])
+        for cohort_key, c in _cohort_keys(cohorts).items():
+            shaped = _cohort_export_shape(_drop_local_database(_strip_instance_fields(c)))
+            shaped.pop("dataSourceRef", None)
+            tree[f"cohorts/{cohort_key}.json"] = _json_bytes(shaped)
         return tree
 
     data_sources = [

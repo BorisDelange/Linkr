@@ -14,7 +14,7 @@ import {
 } from '../layout.js'
 import { readJson, type EntityTree } from '../tree.js'
 import { validateFileTree } from './file-tree.js'
-import { validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
+import { validateCohortFiles, validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
 
 /** Entity kinds that have their own tree, beyond `project`. */
 export type EntityKind =
@@ -195,7 +195,8 @@ export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
 
 /**
  * A database tree: metadata, its mapping (`mapping.json` + `schema.ddl`, the
- * same split a schema preset uses), plus `data/<table>.parquet`.
+ * same split a schema preset uses), `data/<table>.parquet`, and its own cohorts
+ * under `cohorts/` (validated as a project's are).
  *
  * Two things this checks that nothing else can. First, every declared table has
  * its file and every file is declared — a mismatch imports as a database whose
@@ -310,6 +311,9 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
         'copy `presetLabel` from the schema preset')
     }
   }
+
+  // The database's own cohorts: same files, same checks as a project's.
+  validateCohortFiles(tree, bag)
 
   const declared = db.tables
   const inMemory = db.inMemory === true

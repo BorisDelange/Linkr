@@ -1,7 +1,7 @@
 /**
  * Entities that are a metadata file plus a flat array of records: DQ rule sets
- * (`checks.json`), mapping projects (`mappings.json`), and the project-scoped
- * cohorts (`cohorts/*.json`).
+ * (`checks.json`), mapping projects (`mappings.json`), and cohorts
+ * (`cohorts/*.json`, in a project or a database).
  *
  * The checks here are the ones whose absence is silent in the app. A DQ check
  * with no SQL never runs; a mapping row with no target concept id maps nothing;
@@ -10,7 +10,7 @@
  */
 import { checkArray, checkEnum, checkLocalized, checkNumber, checkString, isObject } from '../check.js'
 import type { IssueBag } from '../issue.js'
-import { readJson, type EntityTree } from '../tree.js'
+import { filesIn, readJson, type EntityTree } from '../tree.js'
 import { CONTENT_FILE, MANIFEST } from '../layout.js'
 import { manifestPath } from './entities.js'
 
@@ -142,7 +142,22 @@ export function validateMappingProject(tree: EntityTree, bag: IssueBag): void {
   })
 }
 
-/** `cohorts/*.json` inside a project tree. */
+/**
+ * `cohorts/*.json` — one JSON per cohort, in a project tree or a database tree
+ * (a database's own cohorts). Absent is legitimate.
+ */
+export function validateCohortFiles(tree: EntityTree, bag: IssueBag): void {
+  for (const path of filesIn(tree, 'cohorts', '.json')) {
+    const parsed = readJson(tree, path)
+    if (!parsed.ok) {
+      bag.error(path, '', 'invalid-json', `Cannot parse JSON: ${parsed.error}`)
+      continue
+    }
+    validateCohort(bag, path, parsed.value)
+  }
+}
+
+/** One cohort file. */
 export function validateCohort(
   bag: IssueBag,
   path: string,

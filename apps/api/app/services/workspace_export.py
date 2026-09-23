@@ -76,6 +76,7 @@ _INSTANCE_FIELDS = (
     "organizationId",
     "updatedAt",
     "projectUid",
+    "ownerDataSourceId",
     "linkedDataSourceIds",
 )
 

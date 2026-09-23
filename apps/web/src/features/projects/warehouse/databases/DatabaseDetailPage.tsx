@@ -78,6 +78,7 @@ import { CohortList } from '@/features/projects/warehouse/cohorts/CohortListPage
 import { CohortBuilder } from '@/features/projects/warehouse/cohorts/CohortBuilderPage'
 import { useDatabaseActions } from './use-database-actions'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useCohortStore } from '@/stores/cohort-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 
@@ -345,7 +346,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               // A pull replaces the row and its files wholesale, behind the store
               // the page reads — without this the tabs keep describing the
               // database that was there before it.
-              onAfterPull={() => loadDataSources()}
+              onAfterPull={() => { void loadDataSources(); void useCohortStore.getState().loadCohorts() }}
               onReinstall={canReinstall ? makeReinstall('databases', source, source.workspaceId) : undefined}
             />
           </div>

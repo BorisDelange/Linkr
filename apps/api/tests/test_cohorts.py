@@ -208,3 +208,22 @@ async def test_deleting_the_database_deletes_its_cohorts(client):
     await _db_cohort(client, headers, ds)
     assert (await client.delete(f"{API}/data-sources/{ds}", headers=headers)).status_code in (200, 204)
     assert (await client.get(f"{API}/cohorts/dc1", headers=headers)).status_code == 404
+
+
+async def test_database_tree_carries_its_cohorts_without_patient_ids(client, db):
+    import json
+
+    from app.models.data_source import DataSource
+    from app.services.workspace_export_assemble import build_database_tree
+
+    headers = await _admin_headers(client)
+    _, ds = await _database(client, headers)
+    await _db_cohort(client, headers, ds, materialization={"ids": ["42"], "patientIds": ["42"]})
+    await client.patch(f"{API}/cohorts/dc1", headers=headers, json={"resultCount": 1})
+
+    tree = await build_database_tree(db, await db.get(DataSource, ds))
+    exported = json.loads(tree["cohorts/adults.json"])
+    assert exported["name"] == "Adults" and exported["level"] == "patient"
+    for leaked in ("materialization", "resultCount", "attrition", "id", "ownerDataSourceId",
+                   "dataSourceId", "dataSourceRef", "projectUid"):
+        assert leaked not in exported

@@ -880,6 +880,36 @@ export function cohortKey(c: Cohort): string {
  * other's keys — swapped ids on reimport and a diff with no change behind it.
  * Code-point order on the id, matching Python's `sorted(key=str)`.
  */
+/**
+ * What a cohort file holds — its definition, nothing of this instance. Shared by
+ * a project's `cohorts/` and a database's, so the two cannot drift.
+ */
+export function cohortExportShape(c: Cohort): Record<string, unknown> {
+  const out = stripInstanceFields(c) as Record<string, unknown>
+  // A local database UUID addresses nothing elsewhere; `dataSourceRef` beside it
+  // is the portable pointer the import resolves back to a local row.
+  delete out.dataSourceId
+  // A database's own cohort runs on the database it is exported under: the
+  // folder says which, and a pointer to itself would only be noise.
+  if (c.ownerDataSourceId) delete out.dataSourceRef
+  // Run RESULTS, not definition: both count the patients of THIS instance's
+  // database, so an instance holding the repo without the same data exports
+  // different numbers — a diff neither side can settle, re-appearing after
+  // every recompute. Same rule as a data source's `stats` (see
+  // DATA_SOURCE_LOCAL_FIELDS); the criteria that produce them ARE versioned.
+  delete out.attrition
+  delete out.resultCount
+  // The frozen member ids: patient identifiers of THIS database, never meant
+  // to leave the instance — and meaningless against anyone else's data.
+  delete out.materialization
+  // Key-addressed like a dashboard: the FILENAME is the identity, and the local
+  // id is re-derived from it on import. Versioning the id instead made every
+  // round trip rewrite it — the import re-hashed the repo's id, pushed the new
+  // one back, and the next import re-hashed that: churn that never converged.
+  delete out.id
+  return out
+}
+
 export function buildCohortKeyMap(cohorts: Cohort[]): Map<string, string> {
   const keyOf = new Map<string, string>()
   const seen = new Set<string>()
@@ -1276,26 +1306,7 @@ export async function buildProjectZip(
   const cohorts = await storage.cohorts.getByProject(projectUid)
   const cohortKeys = buildCohortKeyMap(cohorts)
   for (const c of cohorts) {
-    const out = stripInstanceFields(c) as Record<string, unknown>
-    // A local database UUID addresses nothing elsewhere; `dataSourceRef` beside it
-    // is the portable pointer the import resolves back to a local row.
-    delete out.dataSourceId
-    // Run RESULTS, not definition: both count the patients of THIS instance's
-    // database, so an instance holding the repo without the same data exports
-    // different numbers — a diff neither side can settle, re-appearing after
-    // every recompute. Same rule as a data source's `stats` (see
-    // DATA_SOURCE_LOCAL_FIELDS); the criteria that produce them ARE versioned.
-    delete out.attrition
-    delete out.resultCount
-    // The frozen member ids: patient identifiers of THIS database, never meant
-    // to leave the instance — and meaningless against anyone else's data.
-    delete out.materialization
-    // Key-addressed like a dashboard: the FILENAME is the identity, and the local
-    // id is re-derived from it on import. Versioning the id instead made every
-    // round trip rewrite it — the import re-hashed the repo's id, pushed the new
-    // one back, and the next import re-hashed that: churn that never converged.
-    delete out.id
-    zip.file(`cohorts/${cohortKeys.get(c.id) ?? cohortKey(c)}.json`, json(out))
+    zip.file(`cohorts/${cohortKeys.get(c.id) ?? cohortKey(c)}.json`, json(cohortExportShape(c)))
   }
 
   // --- concept-lists/ ---
@@ -2697,6 +2708,70 @@ export async function buildDataSourceFolder(
   // dropped the publishing organization from the repo.
   await attachEntityOrganization(zip, `${prefix}${ENTITY_MANIFEST}`, source, storage)
   await writeEntityDocs(zip, prefix, source, storage, 'data-source', source.id)
+  // The database's own cohorts — the definitions, never a patient id (see
+  // cohortExportShape). Same file layout and keys as a project's.
+  const cohorts = await storage.cohorts?.getByDatabase(source.id).catch(() => []) ?? []
+  const cohortKeys = buildCohortKeyMap(cohorts)
+  for (const c of cohorts) {
+    zip.file(`${prefix}${DATABASE_COHORTS_DIR}${cohortKeys.get(c.id) ?? cohortKey(c)}.json`, json(cohortExportShape(c)))
+  }
+}
+
+/** Where a database tree keeps its own cohorts, relative to the tree root. */
+export const DATABASE_COHORTS_DIR = 'cohorts/'
+
+/** The cohort files under `prefix + cohorts/`, each carrying its filename key. */
+export async function readDatabaseCohorts(zip: JSZip, prefix: string): Promise<Cohort[]> {
+  const dir = `${prefix}${DATABASE_COHORTS_DIR}`
+  const out: Cohort[] = []
+  for (const [path, entry] of scanFolder(zip, dir)) {
+    const key = path.slice(dir.length)
+    if (!key.endsWith('.json') || key.includes('/')) continue
+    const cohort = JSON.parse(await entry.async('string')) as Cohort
+    // The filename is the identity (see `exportKey`).
+    cohort.exportKey = key.slice(0, -'.json'.length)
+    out.push(cohort)
+  }
+  return out
+}
+
+/**
+ * Make the database's own cohorts exactly the ones in the tree: a pull or a
+ * re-import takes the tree whole, as it does for the database itself. Ids are
+ * derived from the database and the file key, so re-importing lands on the same
+ * rows and a cohort removed upstream is removed here.
+ */
+export async function replaceDatabaseCohorts(
+  storage: Storage,
+  dataSourceId: string,
+  incoming: Cohort[],
+): Promise<void> {
+  // A tree with no cohort at all is left alone: git keeps no empty folder, so it
+  // cannot say "the last cohort was deleted" apart from "written before database
+  // cohorts existed" — and reading the second as the first would wipe every
+  // cohort authored here on the first pull of an older repo.
+  if (incoming.length === 0) return
+  const existing = await storage.cohorts.getByDatabase(dataSourceId).catch(() => [])
+  const keep = new Set<string>()
+  for (const c of incoming) {
+    // `materialization`: exported before it was stripped — another instance's
+    // patient ids. `projectUid`: a hand-made tree has no business setting one.
+    const { exportKey, materialization: _materialization, projectUid: _projectUid, ...cohort } = c
+    const id = deterministicId(dataSourceId, exportKey ?? cohortKey(c))
+    keep.add(id)
+    const record = dropForeignAuthorId({
+      ...cohort,
+      id,
+      ownerDataSourceId: dataSourceId,
+      dataSourceId,
+    }) as Cohort
+    const current = existing.find((e) => e.id === id)
+    if (current) await storage.cohorts.update(id, record)
+    else await storage.cohorts.create(record)
+  }
+  for (const c of existing) {
+    if (!keep.has(c.id)) await storage.cohorts.delete(c.id).catch(() => {})
+  }
 }
 
 /**
@@ -3380,6 +3455,11 @@ async function applyClonedDatabase(
     workspaceId,
   ).catch((err) => {
     console.error(`[import] attachments failed for "${targetId}":`, err)
+  })
+  // After the row, like the attachments: the server authorizes a database's
+  // cohorts through the database. Never fatal — the database itself imported.
+  await replaceDatabaseCohorts(storage, targetId, await readDatabaseCohorts(zip, '')).catch((err) => {
+    console.error(`[import] cohorts failed for "${targetId}":`, err)
   })
 
   // The row has to exist BEFORE its files: in server mode `files.create` registers
@@ -4542,6 +4622,8 @@ export interface ParsedWorkspaceZip {
   projectEntries: ParsedProjectEntry[]
   schemas: CustomSchemaPreset[]
   databases: Partial<DataSource>[]
+  /** Each database's own cohorts, by the parsed database's `id`. */
+  databaseCohorts: Map<string, Cohort[]>
   wikiPages: WikiPage[]
   /** The workspace README's own images. */
   workspaceAttachments?: ParsedEntityAttachments
@@ -4736,6 +4818,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
 
   // --- databases/ (sanitized connection metadata) ---
   const databases: Partial<DataSource>[] = []
+  const databaseCohorts = new Map<string, Cohort[]>()
   for (const folder of entityFolders(zipData, 'databases/')) {
     const prefix = `databases/${folder}/`
     const ds = await readEntityManifest<Partial<DataSource> & { schema?: unknown }>(zipData, prefix, 'database')
@@ -4753,6 +4836,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const docs = await readEntityDocs(zipData, prefix, ds as { readmeLang?: string })
     if (docs.readme) ds.readme = docs.readme
     if (docs.license) ds.license = docs.license
+    databaseCohorts.set(ds.id, await readDatabaseCohorts(zipData, prefix))
     databases.push(ds)
   }
   // Flat form written before databases moved to a folder: the whole row, mapping
@@ -5020,7 +5104,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
 
   return {
-    workspace, organization, projects, projectEntries, schemas, databases,
+    workspace, organization, projects, projectEntries, schemas, databases, databaseCohorts,
     workspaceAttachments: { meta: workspaceAttachments.attachmentsMeta, blobs: workspaceAttachments.attachmentBlobs },
     wikiPages, wikiAttachmentsMeta, wikiAttachmentBlobs,
     sqlCollections, etlPipelines, dqRuleSets, conceptSets,

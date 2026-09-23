@@ -1,0 +1,36 @@
+{
+  "name": {
+    "en": "ICU adults",
+    "fr": "Adultes en réanimation"
+  },
+  "description": {
+    "en": "age >= 18",
+    "fr": "age >= 18"
+  },
+  "level": "visit_detail",
+  "criteriaTree": {
+    "kind": "group",
+    "id": "root",
+    "operator": "AND",
+    "children": [
+      {
+        "kind": "criterion",
+        "id": "crit-1",
+        "type": "age",
+        "config": {
+          "ageReference": "admission",
+          "min": 18
+        },
+        "operator": "AND",
+        "exclude": false,
+        "enabled": true
+      }
+    ],
+    "exclude": false,
+    "enabled": true
+  },
+  "customSql": null,
+  "schemaVersion": 5,
+  "createdAt": "2026-03-01T00:00:00.000Z",
+  "version": "0.1.0"
+}

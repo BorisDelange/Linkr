@@ -44,6 +44,7 @@ from app.schemas.source_concept_id import SourceConceptIdRangeResponse
 from app.schemas.sql_script import SqlScriptCollectionResponse, SqlScriptFileResponse
 from app.schemas.user_plugin import UserPluginResponse
 from app.schemas.attachment import WikiAttachmentResponse
+from app.schemas.cohort import CohortResponse
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.entity_docs import license_meta
 from app.services.export_layout import (
@@ -63,12 +64,19 @@ from app.services.export_layout import (
     script_export_path,
     with_entity_type,
 )
-from app.services.project_export import _gitignore_escape, _is_data_ext
+from app.services.project_export import (
+    _cohort_export_shape,
+    _cohort_keys,
+    _drop_local_database,
+    _gitignore_escape,
+    _is_data_ext,
+)
 from app.schemas.wiki_page import WikiPageResponse
 from app.schemas.workspace import WorkspaceResponse
 from app.services import (
     attachment_service,
     blob_store,
+    cohort_service,
     concept_set_service,
     data_catalog_service,
     data_source_service,
@@ -1171,6 +1179,16 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
     # presets had.
     await _attach_org(db, tree, ENTITY_MANIFEST, source)
     tree.update(await _entity_docs(db, "", dumped, "data-source", source.id))
+    # The database's own cohorts — twin of the cohorts/ loop in
+    # buildDataSourceFolder, same shape and keys as a project's (cohortExportShape).
+    cohorts = [
+        _dump(CohortResponse, c) for c in await cohort_service.list_for_database(db, source.id)
+    ]
+    for cohort_key, c in _cohort_keys(cohorts).items():
+        shaped = _cohort_export_shape(_drop_local_database(_strip_instance_fields(c)))
+        # It runs on the database it is exported under; a pointer to itself is noise.
+        shaped.pop("dataSourceRef", None)
+        tree[f"cohorts/{cohort_key}.json"] = _json(shaped)
     return tree
 
 

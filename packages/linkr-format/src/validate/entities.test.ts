@@ -290,3 +290,31 @@ describe('canonical shape — what the app would rewrite', () => {
       .some((i) => i.code === 'unsorted-tree')).toBe(false)
   })
 })
+
+describe('database', () => {
+  const database = (files: Record<string, string> = {}) => new MemoryTree({
+    'entity.json': JSON.stringify({
+      type: 'database', id: 'mimic', alias: 'mimic', name: { en: 'MIMIC' }, inMemory: true,
+      schemaSource: { lineageId: 'l1', label: { en: 'OMOP' } },
+    }),
+    'mapping.json': JSON.stringify({}),
+    ...files,
+  })
+
+  it('validates its own cohorts as a project does', () => {
+    const issues = validateEntity(database({
+      'cohorts/adults.json': JSON.stringify({ name: { en: 'Adults' }, level: 'ward' }),
+    }), 'database')
+    expect(issues.some((i) => i.path === 'cohorts/adults.json' && i.severity === 'error')).toBe(true)
+  })
+
+  it('accepts a well-formed cohort', () => {
+    const issues = validateEntity(database({
+      'cohorts/adults.json': JSON.stringify({
+        name: { en: 'Adults' }, level: 'patient',
+        criteriaTree: { kind: 'group', children: [{ kind: 'criterion', type: 'age', enabled: true }] },
+      }),
+    }), 'database')
+    expect(issues.filter((i) => i.path.startsWith('cohorts/'))).toEqual([])
+  })
+})

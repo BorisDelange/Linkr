@@ -71,6 +71,8 @@ interface GoldenInput {
   /** Stored files per data source id — the export reads these to list a
    *  database's tables. */
   dataSourceFiles?: Record<string, { fileName: string }[]>
+  /** Each database's own cohorts, by data source id. */
+  databaseCohorts?: Record<string, Record<string, unknown>[]>
   mappingProjects: Record<string, unknown>[]
   sourceCsvBase64: string
   mappings: Record<string, unknown>[]
@@ -119,7 +121,10 @@ const storage = {
   // Full project sub-tree (buildProjectZip) reads these; only proj-full is bundled.
   ideFiles: { getByProject: async (uid: string) => input.projectIdeFiles[uid] ?? [] },
   pipelines: { getByProject: async () => [] },
-  cohorts: { getByProject: async () => [] },
+  cohorts: {
+    getByProject: async () => [],
+    getByDatabase: async (id: string) => input.databaseCohorts?.[id] ?? [],
+  },
   connections: { getByProject: async () => [] },
   dashboards: { getByProject: async () => [] },
   dashboardTabs: { getByDashboard: async () => [] },
