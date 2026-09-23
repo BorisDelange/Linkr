@@ -42,12 +42,21 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
+import type { Cohort } from '@/types'
 import { usePatientChartContext } from './PatientChartContext'
 import { usePatientData } from './use-patient-data'
 import { PatientHoverCard } from './PatientHoverCard'
 import { daysBetween, formatDate as fmtDate, formatGender as fmtGender, formatGenderShort as fmtGenderShort, formatStayDuration } from '@/lib/format-helpers'
 
-export function PatientDataSidebar() {
+interface PatientDataSidebarProps {
+  /**
+   * List this cohort's patients, with no cohort selector and no collection
+   * block — a cohort's own Patients tab, where both belong to the project board.
+   */
+  cohort?: Cohort
+}
+
+export function PatientDataSidebar({ cohort }: PatientDataSidebarProps = {}) {
   const { t, i18n } = useTranslation()
   const { projectUid, boardId, dataSourceId, schemaMapping } = usePatientChartContext()
   const { setSelectedCohort } = usePatientChartStore()
@@ -86,7 +95,7 @@ export function PatientDataSidebar() {
     detailIndex,
     goPrevVisitDetail,
     goNextVisitDetail,
-  } = usePatientData(dataSourceId, schemaMapping, projectUid)
+  } = usePatientData(dataSourceId, schemaMapping, projectUid, cohort)
 
   const totalPages = Math.ceil(patientCount / patientPageSize)
   const genderValues = schemaMapping?.genderValues
@@ -171,7 +180,7 @@ export function PatientDataSidebar() {
         <Allotment.Pane minSize={150}>
           <div className="flex h-full flex-col">
             {/* Cohort selector */}
-            <div className="shrink-0 border-b px-3 py-2.5">
+            {!cohort && <div className="shrink-0 border-b px-3 py-2.5">
               <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 {t('patient_data.cohort')}
               </label>
@@ -195,7 +204,7 @@ export function PatientDataSidebar() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </div>}
 
             {/* Patient list */}
             <div className="flex min-h-0 flex-1 flex-col">
@@ -792,13 +801,15 @@ export function PatientDataSidebar() {
               </div>
             )}
 
-            <CollectionStatusBlock
-              projectUid={projectUid}
-              boardId={boardId}
-              personId={patientId}
-              visitId={visitId}
-              visitDetailId={visitDetailId}
-            />
+            {!cohort && (
+              <CollectionStatusBlock
+                projectUid={projectUid}
+                boardId={boardId}
+                personId={patientId}
+                visitId={visitId}
+                visitDetailId={visitDetailId}
+              />
+            )}
           </ScrollArea>
         </Allotment.Pane>
       </Allotment>

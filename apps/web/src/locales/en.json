@@ -991,9 +991,6 @@
   },
   "cohorts": {
     "results_patients": "Patients",
-    "patients_filter": "Filter by id…",
-    "patients_patient": "patient {{id}}",
-    "patients_list_limited": "First {{shown}} of {{total}} — filter to find the others.",
     "patients_board_empty_title": "No widgets yet",
     "patients_board_empty_description": "Lay out this cohort's board: the tabs and widgets its patients are reviewed through.",
     "database_list_description": "Cohorts defined on this database, outside any project. They travel with the database when it is exported or versioned.",

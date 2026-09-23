@@ -991,9 +991,6 @@
   },
   "cohorts": {
     "results_patients": "Patients",
-    "patients_filter": "Filtrer par identifiant…",
-    "patients_patient": "patient {{id}}",
-    "patients_list_limited": "{{shown}} premiers sur {{total}} — filtrez pour trouver les autres.",
     "patients_board_empty_title": "Aucun widget",
     "patients_board_empty_description": "Configurez la board de cette cohorte : les onglets et widgets à travers lesquels ses patients sont passés en revue.",
     "database_list_description": "Cohortes définies sur cette base, hors de tout projet. Elles suivent la base quand elle est exportée ou versionnée.",

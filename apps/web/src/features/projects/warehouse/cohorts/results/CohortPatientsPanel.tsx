@@ -2,40 +2,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { LayoutGrid, Lock, Pencil, Plus, Search, Settings2 } from 'lucide-react'
+import { LayoutGrid, Lock, Pencil, Plus, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { useContextRoleStore } from '@/stores/context-role-store'
 import { isServerMode } from '@/lib/api-client'
-import { cn } from '@/lib/utils'
 import { cohortBoardKey, usePatientChartStore } from '@/stores/patient-chart-store'
 import { PatientChartContext } from '@/features/projects/warehouse/patient-data/PatientChartContext'
 import { PatientChartTabBar } from '@/features/projects/warehouse/patient-data/PatientChartTabBar'
 import { PatientChartGrid } from '@/features/projects/warehouse/patient-data/PatientChartGrid'
 import { AddPatientWidgetDialog } from '@/features/projects/warehouse/patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from '@/features/projects/warehouse/patient-data/PatientDataSettingsDialog'
+import { PatientDataSidebar } from '@/features/projects/warehouse/patient-data/PatientDataSidebar'
 import type { Cohort, SchemaMapping } from '@/types'
-
-/** Rows listed at once: a cohort result holds up to 10k, and the filter above
- *  the list is how to reach the rest. */
-const LIST_LIMIT = 300
 
 interface CohortPatientsPanelProps {
   /** The database the cohort runs on, which its board reads. */
   dataSourceId: string
   /** A project cohort (`projectUid`) or a database's own: its board lives with it. */
-  cohort: Pick<Cohort, 'id' | 'projectUid' | 'level'>
+  cohort: Cohort
   schemaMapping: SchemaMapping
   /** The rows of the last execution (`id` at the cohort's level, `patient_id`
    *  beside it below patient level). */
   rows: Record<string, unknown>[]
-}
-
-interface ListedRow {
-  id: string
-  patientId: string
-  detail: string
 }
 
 /**
@@ -70,49 +58,33 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
   const tabs = usePatientChartStore((s) => s.tabs)
   const widgets = usePatientChartStore((s) => s.widgets)
   const activeTabId = usePatientChartStore((s) => (board ? s.activeTabId[board.id] : undefined))
-  const selectedRowId = usePatientChartStore((s) =>
-    level === 'patient' ? s.selectedPatientId[selectionKey]
-      : level === 'visit' ? s.selectedVisitId[selectionKey]
-        : s.selectedVisitDetailId[selectionKey],
-  ) ?? null
-  const setSelectedPatient = usePatientChartStore((s) => s.setSelectedPatient)
-  const setSelectedVisit = usePatientChartStore((s) => s.setSelectedVisit)
-  const setSelectedVisitDetail = usePatientChartStore((s) => s.setSelectedVisitDetail)
 
   const [editMode, setEditMode] = useState(false)
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [filter, setFilter] = useState('')
 
   useEffect(() => {
     void loadCohortBoard({ dataSourceId, projectUid }, cohort.id)
   }, [dataSourceId, projectUid, cohort.id, loadCohortBoard])
 
-  const listed = useMemo<ListedRow[]>(() => rows.map((r) => ({
-    id: String(r.id),
-    patientId: String(level === 'patient' ? r.id : r.patient_id),
-    detail: [r.gender, r.age_at_admission ?? r.age].filter((v) => v != null && v !== '').join(' · '),
-  })), [rows, level])
-  const shown = useMemo(() => {
-    const q = filter.trim().toLowerCase()
-    const matching = q ? listed.filter((r) => r.id.toLowerCase().includes(q) || r.patientId.toLowerCase().includes(q)) : listed
-    return matching.slice(0, LIST_LIMIT)
-  }, [listed, filter])
-
-  const select = (row: ListedRow) => {
-    setSelectedPatient(selectionKey, row.patientId)
-    if (level === 'visit') setSelectedVisit(selectionKey, row.id)
-    if (level === 'visit_detail') setSelectedVisitDetail(selectionKey, row.id)
-  }
-
-  // Opens on the first row, so the board shows something before any click.
-  useEffect(() => {
-    if (!selectedRowId && listed[0]) {
-      setSelectedPatient(selectionKey, listed[0].patientId)
-      if (level === 'visit') setSelectedVisit(selectionKey, listed[0].id)
-      if (level === 'visit_detail') setSelectedVisitDetail(selectionKey, listed[0].id)
+  // The last execution's patients, handed to the sidebar as a frozen membership:
+  // what is listed is what ran, whatever the criteria have become since — and
+  // whatever the cohort is written in (custom SQL, a unit-stay level).
+  const listedCohort = useMemo<Cohort>(() => {
+    const ids = rows.map((r) => String(r.id))
+    const patientIds = [...new Set(rows.map((r) => String(level === 'patient' ? r.id : r.patient_id)))]
+    return {
+      ...cohort,
+      materialization: {
+        level,
+        ids,
+        patientIds,
+        count: ids.length,
+        // Stands for this run: the sidebar re-reads its pages when it changes.
+        materializedAt: `${ids.length}:${ids[0] ?? ''}:${ids[ids.length - 1] ?? ''}`,
+      },
     }
-  }, [selectedRowId, listed, selectionKey, level, setSelectedPatient, setSelectedVisit, setSelectedVisitDetail])
+  }, [cohort, rows, level])
 
   const boardTabs = useMemo(
     () => tabs.filter((tab) => tab.patientDashboardId === board?.id).sort((a, b) => a.displayOrder - b.displayOrder),
@@ -147,50 +119,8 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
   return (
     <PatientChartContext.Provider value={context}>
       <Allotment>
-        <Allotment.Pane preferredSize={220} minSize={160} maxSize={400}>
-          <div className="flex h-full flex-col border-r">
-            <div className="relative shrink-0 border-b p-2">
-              <Search size={12} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder={t('cohorts.patients_filter')}
-                className="h-7 pl-7 text-xs"
-              />
-            </div>
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="flex flex-col py-1">
-                {shown.map((row) => (
-                  <button
-                    key={row.id}
-                    type="button"
-                    onClick={() => select(row)}
-                    className={cn(
-                      'flex flex-col items-start px-3 py-1.5 text-left text-xs hover:bg-accent',
-                      row.id === selectedRowId && 'bg-accent font-medium',
-                    )}
-                  >
-                    <span className="font-mono">{row.id}</span>
-                    {(level !== 'patient' || row.detail) && (
-                      <span className="text-[10px] text-muted-foreground">
-                        {[level !== 'patient' ? t('cohorts.patients_patient', { id: row.patientId }) : '', row.detail]
-                          .filter(Boolean).join(' · ')}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </ScrollArea>
-            {listed.length > shown.length && (
-              <p className="shrink-0 border-t px-3 py-1.5 text-[10px] text-muted-foreground">
-                {t('cohorts.patients_list_limited', { shown: shown.length, total: listed.length })}
-              </p>
-            )}
-          </div>
-        </Allotment.Pane>
-
         <Allotment.Pane minSize={320}>
-          {board && tabWidgets.length > 0 || (board && editMode) ? (
+          {board ? (
             <div className="flex h-full flex-col overflow-hidden">
               <div className="flex shrink-0 items-center border-b px-3">
                 <PatientChartTabBar dashboardId={board.id} editMode={editMode} />
@@ -223,15 +153,34 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
                   </Button>
                 </div>
               </div>
+              {/* The tab bar stays on an empty tab: it is how to reach the others. */}
               <div className="min-h-0 flex-1 overflow-hidden">
-                <PatientChartGrid
-                  widgets={tabWidgets}
-                  tabs={boardTabs}
-                  editMode={editMode}
-                  hideTitleBars={(board.showWidgetTitles ?? true) === false}
-                  widgetSpacing={board.widgetSpacing}
-                  fitToHeight={board.fitToHeight ?? true}
-                />
+                {tabWidgets.length > 0 ? (
+                  <PatientChartGrid
+                    widgets={tabWidgets}
+                    tabs={boardTabs}
+                    editMode={editMode}
+                    hideTitleBars={(board.showWidgetTitles ?? true) === false}
+                    widgetSpacing={board.widgetSpacing}
+                    fitToHeight={board.fitToHeight ?? true}
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center p-6">
+                    <div className="flex w-full max-w-sm flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 px-4 py-12 text-center">
+                      <div className="flex size-12 items-center justify-center rounded-xl bg-muted">
+                        <LayoutGrid size={24} className="text-muted-foreground" />
+                      </div>
+                      <h3 className="mt-4 text-sm font-medium text-foreground">{t('cohorts.patients_board_empty_title')}</h3>
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        {t('cohorts.patients_board_empty_description')}
+                      </p>
+                      <Button size="sm" className="mt-4 gap-1.5" disabled={!canWrite} onClick={() => void startConfiguring()}>
+                        <Plus size={14} />
+                        {t('dashboard.add_widget')}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -251,6 +200,10 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
               </div>
             </div>
           )}
+        </Allotment.Pane>
+        {/* The patient sidebar of a project's boards, on the same side. */}
+        <Allotment.Pane preferredSize={320} minSize={220} maxSize={480}>
+          <PatientDataSidebar cohort={listedCohort} />
         </Allotment.Pane>
       </Allotment>
 
