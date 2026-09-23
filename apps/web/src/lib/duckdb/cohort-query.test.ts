@@ -132,6 +132,35 @@ describe('buildCohortResultsSql age column', () => {
   })
 })
 
+// MIMIC-IV has neither a birth date nor a birth year, only anchor_age (the age
+// in anchor_year). Unmapped, an age criterion compiled to 1=1 and kept everyone.
+describe('age from the MIMIC-IV anchor pair', () => {
+  const anchored = {
+    ...mapping,
+    patientTable: { table: 'patients', idColumn: 'subject_id', anchorAgeColumn: 'anchor_age', anchorYearColumn: 'anchor_year' },
+  } as unknown as SchemaMapping
+  const withAge = (level: CohortLevel): Cohort => ({
+    ...makeCohort(level),
+    criteriaTree: {
+      ...makeCohort(level).criteriaTree,
+      children: [{
+        kind: 'criterion', id: 'a', type: 'age', operator: 'AND', exclude: false, enabled: true,
+        config: { ageReference: 'admission', min: 50 },
+      }],
+    },
+  } as Cohort)
+
+  it('filters on the age derived from anchor_year - anchor_age', () => {
+    const sql = buildCohortCountSql(withAge('visit'), anchored)!
+    expect(sql).toContain(`DATE_PART('year', "visit"."start"::TIMESTAMP) - (p."anchor_year" - p."anchor_age") >= 50`)
+  })
+
+  it('shows the age in the results', () => {
+    const sql = buildCohortResultsSql(makeCohort('visit'), anchored)!
+    expect(sql).toMatch(/\(p\."anchor_year" - p\."anchor_age"\) AS age_at_admission/)
+  })
+})
+
 // Free-text search over clinical notes. The generated SQL was validated against
 // a real DuckDB: `word` matches "art" but not "artere", `contains` matches both,
 // and quoted input cannot escape the literal.

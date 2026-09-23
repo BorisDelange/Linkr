@@ -512,6 +512,8 @@ function EditablePatientTable({
         <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="person_id" />
         <EditableField label="Birth date" value={val.birthDateColumn ?? ''} onChange={(v) => update('birthDateColumn', v)} placeholder="birth_datetime" />
         <EditableField label="Birth year" value={val.birthYearColumn ?? ''} onChange={(v) => update('birthYearColumn', v)} placeholder="year_of_birth" />
+        <EditableField label="Anchor age" value={val.anchorAgeColumn ?? ''} onChange={(v) => update('anchorAgeColumn', v)} placeholder="anchor_age" />
+        <EditableField label="Anchor year" value={val.anchorYearColumn ?? ''} onChange={(v) => update('anchorYearColumn', v)} placeholder="anchor_year" />
         <EditableField label="Gender" value={val.genderColumn ?? ''} onChange={(v) => update('genderColumn', v)} placeholder="gender_concept_id" />
         <EditableField label="Death date" value={val.deathDateColumn ?? ''} onChange={(v) => update('deathDateColumn', v)} placeholder="dod" />
       </div>

@@ -123,6 +123,29 @@ export function qualify(ref: { schema?: string; table: string }): string {
   return ref.schema ? `"${ref.schema}".${table}` : table
 }
 
+type PatientTable = NonNullable<SchemaMapping['patientTable']>
+
+/**
+ * The patient's birth year as SQL, or null when the mapping cannot tell it: the
+ * birth-year column, else MIMIC-IV's anchor pair (`anchor_year - anchor_age`).
+ * Without the anchor pair every age on MIMIC-IV was unknown, and an age
+ * criterion compiled to `1=1` — it kept everyone, silently.
+ */
+export function birthYearSql(pt: PatientTable | undefined, alias?: string): string | null {
+  if (!pt) return null
+  const col = (c: string) => (alias ? `${alias}."${c}"` : `"${c}"`)
+  if (pt.birthYearColumn) return col(pt.birthYearColumn)
+  if (pt.anchorYearColumn && pt.anchorAgeColumn) return `(${col(pt.anchorYearColumn)} - ${col(pt.anchorAgeColumn)})`
+  return null
+}
+
+/** The columns `birthYearSql` reads, for a GROUP BY. */
+export function birthYearColumns(pt: PatientTable | undefined): string[] {
+  if (!pt) return []
+  if (pt.birthYearColumn) return [pt.birthYearColumn]
+  return pt.anchorYearColumn && pt.anchorAgeColumn ? [pt.anchorYearColumn, pt.anchorAgeColumn] : []
+}
+
 /**
  * Does a discovered table list contain this table?
  *

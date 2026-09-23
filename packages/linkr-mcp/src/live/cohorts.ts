@@ -3,6 +3,7 @@
  * into the exact tree the app stores, and describe trees and schema mappings in
  * words a model can act on. No I/O here — the server does the calls.
  */
+import { birthYearSql } from '@/lib/schema-helpers'
 import { randomUUID } from 'node:crypto'
 import { getNodeLabel } from '@/lib/duckdb/cohort-query'
 import type {
@@ -161,9 +162,9 @@ function checkConfig(
       optionalNumbers('min', 'max')
       if (c.min === undefined && c.max === undefined) errors.push(`${at}: give min and/or max.`)
       const pt = mapping.patientTable
-      if (!pt?.birthDateColumn && !pt?.birthYearColumn) {
+      if (!pt || (!pt.birthDateColumn && !birthYearSql(pt))) {
         warnings.push(
-          `${path}: the schema mapping has no birth date or birth year column, so this age criterion `
+          `${path}: the schema mapping has no birth date, birth year or anchor age/year columns, so this age criterion `
           + 'is IGNORED (it matches everyone). Express age with run_sql / custom SQL on the real columns instead.',
         )
       } else if ((c.ageUnit ?? 'years') !== 'years' && !pt.birthDateColumn) {
@@ -307,10 +308,11 @@ export function describeMapping(m: SchemaMapping): string {
       pt.genderColumn && `sex ${pt.genderColumn}`,
       pt.birthDateColumn && `birth date ${pt.birthDateColumn}`,
       pt.birthYearColumn && `birth year ${pt.birthYearColumn}`,
+      !pt.birthYearColumn && birthYearSql(pt) && `birth year = ${pt.anchorYearColumn} - ${pt.anchorAgeColumn}`,
       pt.deathDateColumn && `death date ${pt.deathDateColumn}`,
     ].filter(Boolean)
     out.push(`Patients: ${q(pt)} (${cols.join(', ')})`)
-    if (!pt.birthDateColumn && !pt.birthYearColumn) {
+    if (!pt.birthDateColumn && !birthYearSql(pt)) {
       out.push('  ⚠ no birth date/year mapped: the "age" criterion cannot work on this database.')
     }
   }

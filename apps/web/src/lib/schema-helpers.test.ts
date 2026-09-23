@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { qualify, qualifyIn, sanitizeSchemaMapping, tableListHas } from './schema-helpers'
+import { birthYearColumns, birthYearSql, qualify, qualifyIn, sanitizeSchemaMapping, tableListHas } from './schema-helpers'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 // Every table/column name in a mapping is interpolated into SQL as a bare
@@ -258,5 +258,23 @@ describe('tableListHas', () => {
   it('is false for a table that is simply absent', () => {
     expect(tableListHas(mimic, { schema: 'icu', table: 'nope' })).toBe(false)
     expect(tableListHas([], { table: 'concept' })).toBe(false)
+  })
+})
+
+describe('birthYearSql', () => {
+  const pt = { table: 'patients', idColumn: 'subject_id' }
+
+  it('prefers the birth-year column, else the anchor pair, else nothing', () => {
+    expect(birthYearSql({ ...pt, birthYearColumn: 'yob', anchorAgeColumn: 'a', anchorYearColumn: 'y' }, 'p')).toBe('p."yob"')
+    expect(birthYearSql({ ...pt, anchorAgeColumn: 'anchor_age', anchorYearColumn: 'anchor_year' }, 'p'))
+      .toBe('(p."anchor_year" - p."anchor_age")')
+    expect(birthYearSql({ ...pt, anchorAgeColumn: 'anchor_age', anchorYearColumn: 'anchor_year' }))
+      .toBe('("anchor_year" - "anchor_age")')
+  })
+
+  it('needs both halves of the anchor pair', () => {
+    expect(birthYearSql({ ...pt, anchorAgeColumn: 'anchor_age' }, 'p')).toBeNull()
+    expect(birthYearColumns({ ...pt, anchorAgeColumn: 'anchor_age' })).toEqual([])
+    expect(birthYearColumns({ ...pt, anchorAgeColumn: 'a', anchorYearColumn: 'y' })).toEqual(['y', 'a'])
   })
 })

@@ -1,6 +1,6 @@
 import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
 import type { DimensionConfig, ServiceMappingRule, PeriodConfig } from '@/types/catalog'
-import { getEventTablesForDictionary, qualify, qualifyIn } from '@/lib/schema-helpers'
+import { birthYearSql, getEventTablesForDictionary, qualify, qualifyIn } from '@/lib/schema-helpers'
 import { escSql as esc } from '@/lib/format-helpers'
 
 /**
@@ -28,8 +28,8 @@ function buildAgeGroupExpr(
 
   const birthExpr = pt.birthDateColumn
     ? `EXTRACT(YEAR FROM AGE(v."${vt.startDateColumn}"::TIMESTAMP, p."${pt.birthDateColumn}"::TIMESTAMP))`
-    : pt.birthYearColumn
-      ? `EXTRACT(YEAR FROM v."${vt.startDateColumn}"::TIMESTAMP) - p."${pt.birthYearColumn}"`
+    : birthYearSql(pt, 'p')
+      ? `EXTRACT(YEAR FROM v."${vt.startDateColumn}"::TIMESTAMP) - ${birthYearSql(pt, 'p')}`
       : null
   if (!birthExpr) return null
 
@@ -500,8 +500,8 @@ export function buildPeriodRowQuery(
   // Age expression (at visit time)
   const birthExpr = pt.birthDateColumn
     ? `EXTRACT(YEAR FROM AGE(v."${vt.startDateColumn}"::TIMESTAMP, p."${pt.birthDateColumn}"::TIMESTAMP))`
-    : pt.birthYearColumn
-      ? `EXTRACT(YEAR FROM v."${vt.startDateColumn}"::TIMESTAMP) - p."${pt.birthYearColumn}"`
+    : birthYearSql(pt, 'p')
+      ? `EXTRACT(YEAR FROM v."${vt.startDateColumn}"::TIMESTAMP) - ${birthYearSql(pt, 'p')}`
       : null
 
   // Service column expression

@@ -17,7 +17,7 @@ import type {
 } from '@/types'
 import type { SchemaMapping, EventTable } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
-import { qualify } from '@/lib/schema-helpers'
+import { birthYearSql, qualify } from '@/lib/schema-helpers'
 
 // ---------------------------------------------------------------------------
 // Untrusted-input guards
@@ -391,9 +391,10 @@ function buildAgeCriteria(
       : pt.birthDateColumn
         ? `DATE_PART('year', ${dateRef}) - DATE_PART('year', ${personRef}."${pt.birthDateColumn}")`
         : null
+  const birthYear = birthYearSql(pt, personRef)
   const yearAge =
-    pt.birthYearColumn && unit === 'years'
-      ? `DATE_PART('year', ${dateRef}::TIMESTAMP) - ${personRef}."${pt.birthYearColumn}"`
+    birthYear && unit === 'years'
+      ? `DATE_PART('year', ${dateRef}::TIMESTAMP) - ${birthYear}`
       : null
 
   let ageExpr: string
@@ -881,7 +882,7 @@ function buildFromClause(
 function selectNeedsPatientAlias(mapping: SchemaMapping): boolean {
   const pt = mapping.patientTable
   if (!pt) return false
-  return Boolean(pt.genderColumn || pt.birthDateColumn || pt.birthYearColumn)
+  return Boolean(pt.genderColumn || pt.birthDateColumn || birthYearSql(pt))
 }
 
 /** Check if any criterion in the tree needs patient table access */
@@ -1027,7 +1028,7 @@ function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTabl
   }
 
   // Age at admission (not current age) — use visit start date when available
-  if (pt?.birthDateColumn || pt?.birthYearColumn) {
+  if (pt && (pt.birthDateColumn || birthYearSql(pt))) {
     const ref = level === 'patient' ? `"${baseTable}"` : 'p'
 
     // Determine the date reference for age calculation
@@ -1059,9 +1060,8 @@ function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTabl
     // outright yields NULL for every row when that column is empty — MIMIC-IV's
     // person.birth_datetime is NULL for all 364k patients while year_of_birth is
     // fully populated — so fall back to the year per row rather than per mapping.
-    const byYear = pt.birthYearColumn
-      ? `DATE_PART('year', ${dateRef}::TIMESTAMP) - ${ref}."${pt.birthYearColumn}"`
-      : null
+    const birthYear = birthYearSql(pt, ref)
+    const byYear = birthYear ? `DATE_PART('year', ${dateRef}::TIMESTAMP) - ${birthYear}` : null
     const byDate = pt.birthDateColumn
       ? `DATE_PART('year', ${dateRef}) - DATE_PART('year', ${ref}."${pt.birthDateColumn}")`
       : null

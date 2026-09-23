@@ -40,7 +40,7 @@ import {
 } from '@/lib/dcat-ap/schema'
 import { buildJsonLd } from '@/lib/dcat-ap/jsonld'
 import type { DataCatalog, CatalogResultCache } from '@/types'
-import { qualify } from '@/lib/schema-helpers'
+import { birthYearColumns, birthYearSql, qualify } from '@/lib/schema-helpers'
 
 interface Props {
   catalog: DataCatalog
@@ -168,8 +168,8 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
           if (pt && vt && (!next['dataset.minTypicalAge'] || !next['dataset.maxTypicalAge'])) {
             const birthExpr = pt.birthDateColumn
               ? `EXTRACT(YEAR FROM AGE(MIN(vo."${vt.startDateColumn}")::TIMESTAMP, p."${pt.birthDateColumn}"::TIMESTAMP))`
-              : pt.birthYearColumn
-                ? `EXTRACT(YEAR FROM MIN(vo."${vt.startDateColumn}")::TIMESTAMP) - p."${pt.birthYearColumn}"`
+              : birthYearSql(pt, 'p')
+                ? `EXTRACT(YEAR FROM MIN(vo."${vt.startDateColumn}")::TIMESTAMP) - ${birthYearSql(pt, 'p')}`
                 : null
             if (birthExpr) {
               try {
@@ -180,7 +180,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
                     FROM ${qualify(pt)} p
                     JOIN ${qualify(vt)} vo ON vo."${vt.patientIdColumn}" = p."${pt.idColumn}"
                     WHERE vo."${vt.startDateColumn}" IS NOT NULL
-                    GROUP BY p."${pt.idColumn}"${pt.birthDateColumn ? `, p."${pt.birthDateColumn}"` : ''}${pt.birthYearColumn ? `, p."${pt.birthYearColumn}"` : ''}
+                    GROUP BY p."${pt.idColumn}"${pt.birthDateColumn ? `, p."${pt.birthDateColumn}"` : ''}${birthYearColumns(pt).map((c) => `, p."${c}"`).join('')}
                   ) sub WHERE age >= 0 AND age < 150
                 `
                 const rows = await queryDataSource(catalog.dataSourceId, ageSql)

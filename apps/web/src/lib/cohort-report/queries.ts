@@ -5,7 +5,7 @@
  * and none of them is written by hand per data model: column names come from
  * the schema mapping, as the cohort builder's own SQL does.
  */
-import { qualify } from '@/lib/schema-helpers'
+import { birthYearSql, qualify } from '@/lib/schema-helpers'
 import type { CohortLevel, ConceptCriteriaConfig, EventTable, SchemaMapping } from '@/types'
 
 const col = (alias: string, column: string) => `${alias}."${column}"`
@@ -96,12 +96,13 @@ export function buildIndexSql(
 /** Members per 10-year age band at their index date, `bin` = the band's lower bound. */
 export function buildAgeSql(indexSql: string, mapping: SchemaMapping): string | null {
   const pt = mapping.patientTable
-  if (!pt || (!pt.birthDateColumn && !pt.birthYearColumn)) return null
+  const birthYear = birthYearSql(pt, 'p')
+  if (!pt || (!pt.birthDateColumn && !birthYear)) return null
   const fromDate = pt.birthDateColumn
     ? `EXTRACT(YEAR FROM age(CAST(i.index_date AS TIMESTAMP), CAST(${col('p', pt.birthDateColumn)} AS TIMESTAMP)))`
     : null
-  const fromYear = pt.birthYearColumn
-    ? `(EXTRACT(YEAR FROM CAST(i.index_date AS TIMESTAMP)) - ${col('p', pt.birthYearColumn)})`
+  const fromYear = birthYear
+    ? `(EXTRACT(YEAR FROM CAST(i.index_date AS TIMESTAMP)) - ${birthYear})`
     : null
   // OMOP maps both, and many databases fill only the year (MIMIC-IV leaves
   // birth_datetime empty): the exact date when present, the year otherwise.

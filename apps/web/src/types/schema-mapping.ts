@@ -55,6 +55,14 @@ export interface SchemaMapping {
     idColumn: string
     birthDateColumn?: string
     birthYearColumn?: string
+    /**
+     * MIMIC-IV has no birth date or year: `anchor_age` is the patient's age in
+     * `anchor_year`, both on the de-identified timeline, so the birth year is
+     * `anchor_year - anchor_age`. Used only when `birthYearColumn` is unset, and
+     * only as a pair. See `birthYearSql`.
+     */
+    anchorAgeColumn?: string
+    anchorYearColumn?: string
     genderColumn?: string
     /** Optional death date column in the patient table (e.g. MIMIC `dod`). */
     deathDateColumn?: string

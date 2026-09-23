@@ -1,7 +1,7 @@
 import { queryDataSource, discoverTables, schemaName } from './engine'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DqCustomCheck } from '@/types'
-import { qualify, tableListHas } from '@/lib/schema-helpers'
+import { birthYearSql, qualify, tableListHas } from '@/lib/schema-helpers'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -233,8 +233,8 @@ function generateSchemaChecks(
     // --- Plausibility: plausible age (0–130) ---
     const birthExpr = pt.birthDateColumn
       ? `EXTRACT(YEAR FROM AGE(v."${vt.startDateColumn}"::TIMESTAMP, p."${pt.birthDateColumn}"::TIMESTAMP))`
-      : pt.birthYearColumn
-        ? `EXTRACT(YEAR FROM v."${vt.startDateColumn}"::TIMESTAMP) - p."${pt.birthYearColumn}"`
+      : birthYearSql(pt, 'p')
+        ? `EXTRACT(YEAR FROM v."${vt.startDateColumn}"::TIMESTAMP) - ${birthYearSql(pt, 'p')}`
         : null
 
     if (birthExpr) {
@@ -288,15 +288,14 @@ function generateSchemaChecks(
 
   // --- Plausibility: events after birth ---
   if (pt && mapping.eventTables && has(pt)) {
-    const birthCol = pt.birthDateColumn ?? pt.birthYearColumn
-    if (birthCol) {
+    if (pt.birthDateColumn || birthYearSql(pt, 'p')) {
       for (const [label, et] of Object.entries(mapping.eventTables)) {
         if (!has(et) || !et.dateColumn) continue
         const patCol = et.patientIdColumn ?? pt.idColumn
 
         const birthCheck = pt.birthDateColumn
           ? `e."${et.dateColumn}"::TIMESTAMP < p."${pt.birthDateColumn}"::TIMESTAMP`
-          : `EXTRACT(YEAR FROM e."${et.dateColumn}"::TIMESTAMP) < p."${pt.birthYearColumn}"`
+          : `EXTRACT(YEAR FROM e."${et.dateColumn}"::TIMESTAMP) < ${birthYearSql(pt, 'p')}`
 
         checks.push({
           id: `schema_event_after_birth_${et.table}`,

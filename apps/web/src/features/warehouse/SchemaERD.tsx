@@ -161,6 +161,8 @@ function buildERDGraph(mapping: SchemaMapping): { nodes: Node<ERDNodeData>[]; ed
     ]
     if (pt.birthDateColumn) columns.push({ name: pt.birthDateColumn, role: 'date' })
     if (pt.birthYearColumn) columns.push({ name: pt.birthYearColumn })
+    if (pt.anchorAgeColumn) columns.push({ name: pt.anchorAgeColumn })
+    if (pt.anchorYearColumn) columns.push({ name: pt.anchorYearColumn })
     if (pt.genderColumn) columns.push({ name: pt.genderColumn })
 
     nodes.push({

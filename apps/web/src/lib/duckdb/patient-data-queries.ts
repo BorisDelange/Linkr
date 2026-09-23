@@ -1,7 +1,7 @@
 import type { Cohort } from '@/types'
 import type { SchemaMapping, EventTable } from '@/types/schema-mapping'
 import { buildCohortQueryParts, escapeLikeTerm, escPatternLiteral } from './cohort-query'
-import { buildConceptJoinCondition, getDictionaryForEvent, qualify, qualifyIn } from '@/lib/schema-helpers'
+import { birthYearColumns, birthYearSql, buildConceptJoinCondition, getDictionaryForEvent, qualify, qualifyIn } from '@/lib/schema-helpers'
 import { pickUnitColumn } from '@/lib/duckdb/patient-overview-queries'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 
@@ -655,7 +655,7 @@ function buildAgeExpr(
   const fromDate = pt.birthDateColumn
     ? `DATE_PART('year', ${q(pt.birthDateColumn)}::TIMESTAMP)`
     : null
-  const fromYear = pt.birthYearColumn ? q(pt.birthYearColumn) : null
+  const fromYear = birthYearSql(pt, alias)
 
   const birthYear =
     fromDate && fromYear ? `COALESCE(${fromDate}, ${fromYear})` : (fromDate ?? fromYear)
@@ -677,7 +677,7 @@ function buildBirthGroupBy(
   alias: string,
   pt: NonNullable<SchemaMapping['patientTable']>,
 ): string {
-  return [pt.birthDateColumn, pt.birthYearColumn]
+  return [pt.birthDateColumn, ...birthYearColumns(pt)]
     .filter((col): col is string => Boolean(col))
     .map((col) => `, ${alias}."${col}"`)
     .join('')
