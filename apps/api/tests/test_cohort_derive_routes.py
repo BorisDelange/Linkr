@@ -174,3 +174,43 @@ async def test_a_failed_first_build_removes_the_database_made_for_it(client):
     # The panel's "clear all" keeps nothing finished.
     await client.delete(f"{API}/workspaces/{ws}/jobs", headers=headers)
     assert (await client.get(f"{API}/workspaces/{ws}/jobs", headers=headers)).json() == []
+
+
+async def test_the_exported_trees_carry_the_provenance_not_the_instance_state(client, db):
+    """What a derivation leaves in version control: the derived database's
+    `derivedFrom` (so a clone knows its parent and can rebuild), never where its
+    file sits on this machine nor whether it may be written; and the parent's
+    cohort file without the record of what it was derived into."""
+    import json
+
+    from app.models.data_source import DataSource
+    from app.services.workspace_export_assemble import build_database_tree
+
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, headers, ws, "src", seed=True)
+    cohort = (await client.post(f"{API}/cohorts", headers=headers, json={
+        "id": "c1", "ownerDataSourceId": src, "name": {"en": "Five"}, "level": "patient", "criteriaTree": {},
+    })).json()["id"]
+    dst = await _managed(client, headers, ws, "cohort_five", seed=False)
+    job = await _derive(client, headers, ws, src, {
+        "membershipSql": MEMBERSHIP, "level": "patient", "cohortId": cohort,
+        "target": {"kind": "new-database", "dataSourceId": dst},
+        "derivedFrom": {"database": {"label": "src"}, "cohort": {"key": "five"}},
+    })
+    assert job["status"] == "done", job
+
+    target = await db.get(DataSource, dst)
+    target.connection_config = {**target.connection_config, "managedPath": "/srv/data/five.duckdb", "allowWrites": True}
+    await db.commit()
+    await db.refresh(target)
+
+    derived = json.loads((await build_database_tree(db, target))["entity.json"])
+    assert derived["derivedFrom"]["cohort"] == {"key": "five"} and derived["derivedFrom"]["patientCount"] == 5
+    assert derived["connectionConfig"] == {"engine": "duckdb", "managed": True}
+
+    source = await db.get(DataSource, src)
+    await db.refresh(source)
+    parent = await build_database_tree(db, source)
+    cohort_file = json.loads(parent["cohorts/five.json"])
+    assert "derivations" not in cohort_file and "materialization" not in cohort_file
