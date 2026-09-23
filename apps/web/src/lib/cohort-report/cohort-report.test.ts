@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TFunction } from 'i18next'
 import type { Cohort, SchemaMapping } from '@/types'
-import { flowchart, horizontalBars, niceScale, verticalBars } from './charts'
+import { donut, flowchart, horizontalBars, niceScale, verticalBars } from './charts'
 import { describeCriteria } from './describe'
 import { buildCohortReportModel, CohortReportUnavailable, fillMonths } from './model'
 import { buildAgeSql, buildCareUnitSql, buildConceptSql, buildIndexSql, buildVisitCountSql } from './queries'
@@ -213,5 +213,20 @@ describe('niceScale', () => {
     expect(niceScale(3)).toEqual({ max: 3, step: 1 })
     expect(niceScale(0)).toEqual({ max: 1, step: 1 })
     expect(niceScale(1234)).toEqual({ max: 1500, step: 500 })
+  })
+})
+
+describe('donut', () => {
+  it('draws one arc per shown count, none for a suppressed one, and gives no share for it', () => {
+    const svg = donut([
+      { label: 'Female', count: { value: 300, label: '300' } },
+      { label: 'Male', count: { value: 100, label: '100' } },
+      { label: 'Unknown', count: { value: null, label: '<11' } },
+    ], { title: 'Sex' })
+    expect(svg.match(/<path /g)).toHaveLength(2)
+    expect(svg).toContain('75.0 %')
+    expect(svg).toContain('&lt;11')
+    // A single category is a full ring, not a degenerate arc.
+    expect(donut([{ label: 'Female', count: { value: 5, label: '5' } }], { title: 'Sex' })).toContain('<circle')
   })
 })

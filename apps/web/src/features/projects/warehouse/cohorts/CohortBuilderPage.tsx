@@ -264,10 +264,14 @@ export function CohortBuilder() {
         {/* A project's sidebar leads back to its cohort list; a database tab has
             no sidebar entry for it, so the way back is here. */}
         {host.kind === 'database' && (
-          <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs" onClick={() => navigate(host.listPath)}>
-            <ArrowLeft size={12} />
-            {localized(cohort.name, i18n.language)}
-          </Button>
+          <>
+            <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs" onClick={() => navigate(host.listPath)}>
+              <ArrowLeft size={12} />
+              {t('common.back')}
+            </Button>
+            <span className="max-w-60 truncate text-xs font-medium">{localized(cohort.name, i18n.language)}</span>
+            <span className="h-4 w-px bg-border" />
+          </>
         )}
         {/* Level selector — what one row of the result stands for. Unlabelled,
             "Hospitalization" next to a cohort name read like a filter. */}

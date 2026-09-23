@@ -5555,7 +5555,7 @@
     "source_schema": "Schéma",
     "source_patients": "Patients dans la base",
     "export": "Exporter",
-    "refresh": "Recalculer avec ce seuil"
+    "recompute": "Recalculer"
   },
   "cohort_derive": {
     "button": "Dériver",
@@ -5584,12 +5584,12 @@
     "plan_loading": "Lecture des tables…",
     "plan_error": "Les tables n’ont pas pu être lues : {{error}}",
     "plan_title": "{{filtered}} tables filtrées · {{personless}} sans données patient",
-    "filter_patient": "patients de la cohorte ({{column}})",
-    "filter_visit": "séjours de la cohorte ({{column}})",
-    "filter_visit_detail": "séjours en unité de la cohorte ({{column}})",
-    "filter_parent_visit": "séjours contenant les séjours en unité de la cohorte ({{column}})",
-    "filter_whole": "copiée en entier",
-    "filter_skipped": "non copiée",
+    "filter_patient": "Patients de la cohorte ({{column}})",
+    "filter_visit": "Séjours de la cohorte ({{column}})",
+    "filter_visit_detail": "Séjours en unité de la cohorte ({{column}})",
+    "filter_parent_visit": "Séjours contenant les séjours en unité de la cohorte ({{column}})",
+    "filter_whole": "Copiée en entier",
+    "filter_skipped": "Non copiée",
     "unavailable_custom-sql": "Cette cohorte utilise du SQL personnalisé. Une dérivation reconstruit la cohorte à partir de ses critères : revenez d’abord aux critères.",
     "unavailable_event-level": "Une cohorte au niveau événement n’a pas d’identifiant unique sur lequel filtrer les tables. Choisissez le niveau patient, séjour ou séjour en unité.",
     "unavailable_no-mapping": "Le schéma de cette base n’indique pas où sont ses patients : les tables ne peuvent pas être filtrées.",

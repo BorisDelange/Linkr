@@ -5,7 +5,7 @@
  * part of it), which is how the PDF export is made.
  */
 import type { TFunction } from 'i18next'
-import { escapeXml, flowchart, horizontalBars, verticalBars } from './charts'
+import { donut, escapeXml, flowchart, horizontalBars, verticalBars } from './charts'
 import type { CohortReportModel } from './model'
 import { SQL_COLORS, tokenizeSql } from './sql-highlight'
 
@@ -27,12 +27,13 @@ h1{font-size:26px;line-height:1.15;color:var(--ink);margin:22px 0 10px;letter-sp
 h2{font-size:19px;color:var(--blue);margin:0 0 10px;padding-bottom:6px;border-bottom:2px solid #d8e7f3;break-after:avoid}
 h3{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);margin:14px 0 8px;break-after:avoid}
 p,li{font-size:13px;line-height:1.6}
+p{text-align:justify;hyphens:auto}
 p{margin:0 0 10px}
 section{margin-bottom:26px}
 .figure{break-inside:avoid;margin:6px 0 12px}
 .figure svg{max-width:100%;height:auto}
 .figure.center{text-align:center}
-.caption{font-size:11px;color:var(--muted);margin-top:4px}
+.caption{font-size:11px;color:var(--muted);margin-top:4px;text-align:left}
 .kpis{display:grid;grid-template-columns:repeat(var(--cols,3),1fr);gap:12px}
 .kpi{border:1px solid var(--line);border-top:3px solid var(--blue2);padding:14px 16px;text-align:center}
 .kpi .v{font-size:26px;font-weight:600;color:var(--blue);line-height:1}
@@ -162,7 +163,7 @@ export function renderReportHtml(model: CohortReportModel, t: TFunction, opts: R
     characteristics.push(`<h3>${esc(t('cohort_report.chart_age'))}</h3><div class="figure">${verticalBars(model.age, { title: t('cohort_report.chart_age'), height: 200 })}</div>`)
   }
   if (model.sex.length) {
-    characteristics.push(`<h3>${esc(t('cohort_report.chart_sex'))}</h3><div class="figure">${horizontalBars(model.sex, { title: t('cohort_report.chart_sex') })}</div>`)
+    characteristics.push(`<h3>${esc(t('cohort_report.chart_sex'))}</h3><div class="figure">${donut(model.sex, { title: t('cohort_report.chart_sex') })}</div>`)
   }
   if (model.months.length) {
     characteristics.push(`<h3>${esc(t('cohort_report.chart_months', { unit: model.unitLabel }))}</h3><div class="figure">${verticalBars(model.months, { title: t('cohort_report.chart_months', { unit: model.unitLabel }) })}</div>`)

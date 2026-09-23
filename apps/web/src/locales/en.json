@@ -5555,7 +5555,7 @@
     "source_schema": "Schema",
     "source_patients": "Patients in the database",
     "export": "Export",
-    "refresh": "Recompute with this threshold"
+    "recompute": "Recompute"
   },
   "cohort_derive": {
     "button": "Derive",
@@ -5584,12 +5584,12 @@
     "plan_loading": "Reading the tables…",
     "plan_error": "The tables could not be read: {{error}}",
     "plan_title": "{{filtered}} tables filtered · {{personless}} without patient data",
-    "filter_patient": "patients of the cohort ({{column}})",
-    "filter_visit": "stays of the cohort ({{column}})",
-    "filter_visit_detail": "unit stays of the cohort ({{column}})",
-    "filter_parent_visit": "stays containing the cohort’s unit stays ({{column}})",
-    "filter_whole": "copied whole",
-    "filter_skipped": "not copied",
+    "filter_patient": "Patients of the cohort ({{column}})",
+    "filter_visit": "Stays of the cohort ({{column}})",
+    "filter_visit_detail": "Unit stays of the cohort ({{column}})",
+    "filter_parent_visit": "Stays containing the cohort’s unit stays ({{column}})",
+    "filter_whole": "Copied whole",
+    "filter_skipped": "Not copied",
     "unavailable_custom-sql": "This cohort uses custom SQL. A derivation rebuilds the cohort from its criteria, so go back to the criteria first.",
     "unavailable_event-level": "An event-level cohort has no single id to filter the tables on. Choose the patient, stay or unit-stay level.",
     "unavailable_no-mapping": "This database’s schema does not say where its patients are, so the tables cannot be filtered.",

@@ -59,8 +59,7 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
   const loading = !blocked && !!source && (!built || built.threshold !== applied)
 
   // The suppression is applied in the model, so a new threshold is a new run —
-  // asked for with the refresh button, not on every keystroke (the report runs
-  // some thirty queries).
+  // asked for with the Recompute button.
   useEffect(() => {
     if (blocked || !source?.schemaMapping) return
     let cancelled = false
@@ -141,16 +140,18 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
       noEnterSubmit
       footerExtra={
         <div className="flex items-center gap-2 sm:mr-auto">
-          <Select value={format} onValueChange={(v) => setFormat(v as ReportFormat)}>
-            <SelectTrigger className="h-8 w-44" aria-label={t('cohort_report.format')}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="html">{t('cohort_report.format_html')}</SelectItem>
-              <SelectItem value="pdf">{t('cohort_report.format_pdf')}</SelectItem>
-              <SelectItem value="docx">{t('cohort_report.format_docx')}</SelectItem>
-            </SelectContent>
-          </Select>
+          {/* The threshold is applied in the model, so a new one is a new run —
+              asked for here, not on every keystroke (some thirty queries). */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={!thresholdValid || thresholdValue === applied || loading || !!message}
+            onClick={() => setApplied(thresholdValue)}
+          >
+            <RefreshCw size={14} />
+            {t('cohort_report.recompute')}
+          </Button>
           <FieldError message={exportError} />
         </div>
       }
@@ -160,30 +161,32 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
       ) : (
         <div className="flex h-full min-h-0 gap-4">
           <div className="w-56 shrink-0 space-y-4">
+            <FormField label={t('cohort_report.format')}>
+              {({ id }) => (
+                <Select value={format} onValueChange={(v) => setFormat(v as ReportFormat)}>
+                  <SelectTrigger id={id}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="html">{t('cohort_report.format_html')}</SelectItem>
+                    <SelectItem value="pdf">{t('cohort_report.format_pdf')}</SelectItem>
+                    <SelectItem value="docx">{t('cohort_report.format_docx')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
             <FormField label={t('cohort_report.threshold')} hint={t('cohort_report.threshold_hint')} hintInTooltip>
               {({ id }) => (
-                <div className="flex items-center gap-2">
-                  <Input
-                    id={id}
-                    type="number"
-                    min={1}
-                    max={1000}
-                    value={threshold}
-                    onChange={(e) => setThreshold(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && thresholdValid) setApplied(thresholdValue) }}
-                    className="w-24"
-                  />
-                  <Button
-                    variant="outline"
-                    size="icon-sm"
-                    title={t('cohort_report.refresh')}
-                    aria-label={t('cohort_report.refresh')}
-                    disabled={!thresholdValid || thresholdValue === applied || loading}
-                    onClick={() => setApplied(thresholdValue)}
-                  >
-                    <RefreshCw size={14} />
-                  </Button>
-                </div>
+                <Input
+                  id={id}
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={threshold}
+                  onChange={(e) => setThreshold(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && thresholdValid) setApplied(thresholdValue) }}
+                  className="w-24"
+                />
               )}
             </FormField>
             <div className="flex items-center gap-2">

@@ -4,7 +4,7 @@
  * Loaded on demand: the `docx` library is only fetched when someone exports.
  */
 import type { TFunction } from 'i18next'
-import { flowchart, horizontalBars, verticalBars } from './charts'
+import { donut, flowchart, horizontalBars, verticalBars } from './charts'
 import type { CohortReportModel } from './model'
 import { LINKR_LOGO_SVG, sourceRows, type RenderOptions } from './render-html'
 import { SQL_COLORS, tokenizeSql } from './sql-highlight'
@@ -41,8 +41,13 @@ export async function renderReportDocx(
       spacing: { after: 120 },
     })
   }
+  // Body text justified, as in the HTML; captions (smaller, set a size) stay left.
   const text = (s: string, o: { size?: number; color?: string; bold?: boolean; italics?: boolean } = {}) =>
-    new Paragraph({ children: [new TextRun({ text: s, size: o.size ?? 21, color: o.color, bold: o.bold, italics: o.italics })], spacing: { after: 120 } })
+    new Paragraph({
+      ...(o.size == null ? { alignment: AlignmentType.JUSTIFIED } : {}),
+      children: [new TextRun({ text: s, size: o.size ?? 21, color: o.color, bold: o.bold, italics: o.italics })],
+      spacing: { after: 120 },
+    })
   const heading = (s: string) =>
     new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun({ text: s, color: BLUE, bold: true, size: 30 })], spacing: { before: 240, after: 120 } })
   const eyebrow = (s: string) =>
@@ -144,7 +149,7 @@ export async function renderReportDocx(
     }
     if (model.sex.length) {
       children.push(eyebrow(t('cohort_report.chart_sex')))
-      children.push(await image(horizontalBars(model.sex, { title: t('cohort_report.chart_sex') })))
+      children.push(await image(donut(model.sex, { title: t('cohort_report.chart_sex') }), 420))
     }
     if (model.months.length) {
       const title = t('cohort_report.chart_months', { unit: model.unitLabel })

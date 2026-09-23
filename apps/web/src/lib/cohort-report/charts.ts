@@ -111,6 +111,54 @@ export function horizontalBars(items: ChartItem[], opts: { title: string; width?
   return svg(width, height, parts.join(''), opts.title)
 }
 
+const DONUT_COLORS = ['#0084d8', '#00a7d8', '#004578', '#7fb8e6', '#9aa8b8', '#c9d3de']
+
+/**
+ * A donut with its legend (label, count, share). A suppressed slice (`value:
+ * null`) draws no arc and shows its suppressed label with no share — a share of
+ * a hidden count would give it back.
+ */
+export function donut(items: ChartItem[], opts: { title: string; width?: number }): string {
+  const width = opts.width ?? 420
+  const size = 150
+  const r = size / 2 - 4
+  const inner = r * 0.58
+  const cx = size / 2 + 4
+  const cy = size / 2 + 4
+  const total = items.reduce((sum, i) => sum + (i.count.value ?? 0), 0)
+  const parts: string[] = []
+  let angle = -Math.PI / 2
+  const point = (a: number, radius: number) => `${(cx + radius * Math.cos(a)).toFixed(2)},${(cy + radius * Math.sin(a)).toFixed(2)}`
+  items.forEach((item, i) => {
+    const v = item.count.value ?? 0
+    if (!total || v <= 0) return
+    const color = DONUT_COLORS[i % DONUT_COLORS.length]
+    if (v === total) {
+      // A single full slice: an arc cannot start and end at the same point.
+      parts.push(`<circle cx="${cx}" cy="${cy}" r="${((r + inner) / 2).toFixed(2)}" fill="none" stroke="${color}" stroke-width="${(r - inner).toFixed(2)}" />`)
+      return
+    }
+    const sweep = (v / total) * Math.PI * 2
+    const end = angle + sweep
+    const large = sweep > Math.PI ? 1 : 0
+    parts.push(
+      `<path d="M${point(angle, r)} A${r},${r} 0 ${large} 1 ${point(end, r)} L${point(end, inner)} A${inner},${inner} 0 ${large} 0 ${point(angle, inner)} Z" fill="${color}" stroke="#ffffff" stroke-width="1.5" />`,
+    )
+    angle = end
+  })
+  const legendX = size + 28
+  const rowH = 22
+  const top = cy - (items.length * rowH) / 2 + 6
+  items.forEach((item, i) => {
+    const y = top + i * rowH
+    const share = item.count.value != null && total ? `${((item.count.value / total) * 100).toFixed(1)} %` : ''
+    parts.push(`<rect x="${legendX}" y="${y - 9}" width="10" height="10" rx="2" fill="${DONUT_COLORS[i % DONUT_COLORS.length]}" />`)
+    parts.push(`<text x="${legendX + 16}" y="${y}" font-size="11" fill="${CHART_COLORS.text}">${escapeXml(item.label)}</text>`)
+    parts.push(`<text x="${width - 8}" y="${y}" font-size="11" text-anchor="end" fill="${CHART_COLORS.text}"><tspan font-weight="600">${escapeXml(item.count.label)}</tspan>${share ? `<tspan fill="${CHART_COLORS.muted}" dx="8">${escapeXml(share)}</tspan>` : ''}</text>`)
+  })
+  return svg(width, size + 8, parts.join(''), opts.title)
+}
+
 export interface FlowStep {
   label: string
   /** "880 stays · 870 patients", already suppressed and formatted. */
