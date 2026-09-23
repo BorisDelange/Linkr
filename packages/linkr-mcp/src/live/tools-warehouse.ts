@@ -8,11 +8,15 @@ import {
   buildConceptsQuery, computeAvailableColumns,
 } from '@/features/projects/warehouse/concepts/concept-queries'
 import { qualify } from '@/lib/schema-helpers'
+import { buildCohortReportModel, CohortReportUnavailable } from '@/lib/cohort-report/model'
+import { renderReportHtml } from '@/lib/cohort-report/render-html'
+import { DEFAULT_SUPPRESSION_THRESHOLD } from '@/lib/cohort-report/suppress'
 import type { AttritionStep, Cohort, CohortLevel, SchemaMapping } from '@/types'
 import {
   COHORT_LEVELS, CRITERIA_FORMAT, applyConceptNames, conceptIdsByTable, describeMapping,
   formatRows, normalizeCriteria, renderTree,
 } from './cohorts.js'
+import { REPORT_LANGUAGES, embedReportHtml, reportTranslator, summarizeReport, type ReportLanguage } from './report.js'
 import {
   READ, WRITE, api, failure, guard, loc, mappingOf, projectDatabases, text, type Server,
 } from './shared.js'
@@ -405,4 +409,60 @@ export function registerWarehouseTools(server: Server): void {
     return text(out.join('\n'))
   }))
 
+  server.registerTool('cohort_report', {
+    title: 'Cohort report',
+    description:
+      'The cohort\'s full report, as the app\'s Report button builds it: counts, inclusion flowchart, criteria, '
+      + 'concepts, age / sex / index-date charts, care units, methodology. Runs the cohort fresh (about 30 queries). '
+      + 'Returns a text summary for you and the report itself as a UI resource that the chat renders inline: '
+      + 'place its marker in your answer where the report should appear, with a short introduction — do not '
+      + 'retype the report. Small counts are suppressed (<threshold). Not available for cohorts with custom SQL '
+      + 'or at event level.',
+    annotations: READ,
+    inputSchema: fromJsonSchema<{ cohort_id: string; language?: ReportLanguage; include_sql?: boolean; threshold?: number }>({
+      type: 'object',
+      properties: {
+        cohort_id: { type: 'string' },
+        language: { type: 'string', enum: [...REPORT_LANGUAGES], description: 'The user\'s language, default en.' },
+        include_sql: { type: 'boolean', description: 'Append the membership SQL under Methodology, default false.' },
+        threshold: {
+          type: 'number',
+          description: `Small-cell suppression threshold, default ${DEFAULT_SUPPRESSION_THRESHOLD}: counts 1 to threshold-1 are hidden.`,
+        },
+      },
+      required: ['cohort_id'],
+    }),
+  }, guard(async ({ cohort_id, language = 'en', include_sql = false, threshold = DEFAULT_SUPPRESSION_THRESHOLD }) => {
+    const cohort = await api.getCohort(cohort_id)
+    const dbId = await cohortDatabase(cohort)
+    const db = await api.getDataSource(dbId)
+    if (!db.schemaMapping) return failure(`Database ${dbId} has no schema mapping; no report is possible.`)
+    const t = await reportTranslator(language)
+    const pick = (v: Record<string, string> | string | null | undefined) =>
+      v == null ? '' : typeof v === 'string' ? v : v[language] ?? loc(v)
+    let model
+    try {
+      model = await buildCohortReportModel({
+        cohort,
+        mapping: db.schemaMapping,
+        databaseName: pick(db.name),
+        databaseVersion: db.version ?? undefined,
+        schemaLabel: pick(db.schemaSource?.label) || pick(db.schemaMapping.presetLabel) || undefined,
+        run: (sql) => api.query(dbId, sql),
+        t,
+        locale: language,
+        threshold: Math.min(Math.max(Math.round(threshold), 1), 1000),
+      })
+    } catch (e) {
+      if (e instanceof CohortReportUnavailable) return failure(t(`cohort_report.unavailable_${e.reason}`))
+      throw e
+    }
+    const html = embedReportHtml(renderReportHtml(model, t, { includeSql: include_sql }))
+    return {
+      content: [
+        { type: 'text', text: summarizeReport(model) },
+        { type: 'resource', resource: { uri: `ui://linkr/cohort-report/${cohort.id}`, mimeType: 'text/html', text: html } },
+      ],
+    }
+  }))
 }

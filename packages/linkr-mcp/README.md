@@ -35,6 +35,7 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `describe_database`, `search_concepts`, `run_sql` | tables and columns; fuzzy concept search with record/patient counts; read-only SQL |
 | `list_cohorts`, `get_cohort`, `create_cohort`, `update_cohort` | criteria validated against the mapping, concept names filled in; or custom SQL |
 | `preview_cohort_sql`, `run_cohort` | generated SQL; count + attrition (sample rows opt-in) |
+| `cohort_report` | the app's cohort report: a text summary for the model + the HTML report as an MCP-UI resource (`ui://`), rendered inline by LibreChat and never sent to the model |
 | `list_datasets`, `describe_dataset`, `preview_dataset` | datasets, columns (ids used by widgets), per-column summaries, rows on request |
 | `create_dataset_from_query` | a query's full result written server-side as a Parquet dataset — rows never transit through the agent |
 | `list_plugins`, `describe_plugin` | widget types, and one plugin's config fields derived from its manifest |

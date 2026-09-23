@@ -33,6 +33,8 @@ export interface DataSource {
   sourceType: string
   status: string
   schemaMapping?: SchemaMapping | null
+  version?: string | null
+  schemaSource?: { label?: Record<string, string> | string | null } | null
   stats?: Record<string, unknown> | null
 }
 

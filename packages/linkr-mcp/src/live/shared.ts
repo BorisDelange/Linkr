@@ -1,5 +1,5 @@
 /** What every tool module shares: the API client, result helpers, annotations. */
-import type { McpServer } from '@modelcontextprotocol/server'
+import type { CallToolResult, McpServer } from '@modelcontextprotocol/server'
 import type { SchemaMapping } from '@/types'
 import { ApiError, LinkrApi, type DataSource } from './api.js'
 
@@ -7,9 +7,11 @@ export type Server = McpServer
 
 export const api = new LinkrApi()
 
-export const text = (body: string) => ({ content: [{ type: 'text' as const, text: body }] })
+export type ToolResult = CallToolResult
+
+export const text = (body: string): ToolResult => ({ content: [{ type: 'text', text: body }] })
 /** Failure the model is meant to read and correct, not a server fault. */
-export const failure = (body: string) => ({ isError: true, content: [{ type: 'text' as const, text: body }] })
+export const failure = (body: string): ToolResult => ({ isError: true, content: [{ type: 'text', text: body }] })
 
 export const READ = { readOnlyHint: true, openWorldHint: false } as const
 export const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const
@@ -18,7 +20,7 @@ export const loc = (v: Record<string, string> | string | null | undefined) =>
   v == null ? '' : typeof v === 'string' ? v : v.en ?? v.fr ?? Object.values(v)[0] ?? ''
 
 /** Run a tool body, turning API errors into readable failures. */
-export const guard = <A>(fn: (args: A) => Promise<ReturnType<typeof text>>) => async (args: A) => {
+export const guard = <A>(fn: (args: A) => Promise<ToolResult>) => async (args: A): Promise<ToolResult> => {
   try {
     return await fn(args)
   } catch (e) {

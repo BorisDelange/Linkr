@@ -62,6 +62,7 @@ client. The former provider config (and its proxy) is deleted.
 | ✅ | Frame: notification WS + live refresh + header notification centre for cohorts, dashboards (tab/widget detail), datasets; `get_ui_context` (focused tab); **per-change undo** (latest change per item only) — writes marked `X-Linkr-Client: mcp`; in-process hub (single worker) | M |
 | 🔜 | HTTP transport + per-project `ApiToken` + tool annotations → local LibreChat beside Linkr | M |
 | ✅ | `linkr` extended: datasets (incl. `create_dataset_from_query`, written server-side) and dashboards (plugins documented from manifests; key-indicator missing — inline manifest, see plugin-model harmonisation) | M |
+| ✅ | `cohort_report`: the cohort report in the chat — summary to the model, HTML as an MCP-UI `ui://` resource rendered inline by LibreChat | S |
 | 🔜 | Skills entity + project selection + generated `AGENTS.md` + `.agents/skills/` | M |
 | ✅ | Delete `lib/agent/` + `DashboardAgentSidebar.tsx` (plugin docs salvaged into the MCP), then the LLM provider config + proxy + `llm-config` permission | S |
 | 🤔 | Embedded chat — (a) Linkr UI over LibreChat Agents API · (b) server loop · (c) ACP + OpenCode | L |
