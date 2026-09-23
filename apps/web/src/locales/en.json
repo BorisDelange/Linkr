@@ -3241,6 +3241,19 @@
     "installed_pkg": "{{name}} installed",
     "error_details": "Show full error"
   },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "Nothing yet. Changes made by an agent (MCP) appear here.",
+    "clear_all": "Clear",
+    "entity": {
+      "cohort": "Cohort"
+    },
+    "action": {
+      "created": "added by {{source}}",
+      "updated": "modified by {{source}}",
+      "deleted": "deleted by {{source}}"
+    }
+  },
   "jobs": {
     "title_one": "{{count}} job",
     "title_other": "{{count}} jobs",

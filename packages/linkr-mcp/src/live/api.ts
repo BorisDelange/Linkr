@@ -105,6 +105,8 @@ export class LinkrApi {
       method,
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
+        // Marks the write as an agent's, so the server notifies the user's open tabs.
+        'X-Linkr-Client': 'mcp',
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,

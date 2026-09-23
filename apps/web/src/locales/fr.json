@@ -3241,6 +3241,19 @@
     "installed_pkg": "{{name}} installé",
     "error_details": "Voir l'erreur complète"
   },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "Rien pour l'instant. Les modifications faites par un agent (MCP) apparaissent ici.",
+    "clear_all": "Effacer",
+    "entity": {
+      "cohort": "Cohorte"
+    },
+    "action": {
+      "created": "ajout par {{source}}",
+      "updated": "modification par {{source}}",
+      "deleted": "suppression par {{source}}"
+    }
+  },
   "jobs": {
     "title_one": "{{count}} tâche",
     "title_other": "{{count}} tâches",

@@ -21,6 +21,7 @@ from app.models.etl_pipeline import EtlFile, EtlPipeline
 from app.models.execution_session import ExecutionSession
 from app.models.environment import Environment
 from app.models.job import Job
+from app.models.notification import Notification
 from app.models.ide_connection import IdeConnection
 from app.models.entity_visit import EntityVisit
 from app.models.user_plugin import UserPlugin
@@ -44,6 +45,7 @@ from app.models.app_settings import AppSettings
 from app.models import activity_touch  # noqa: F401
 
 __all__ = [
+    "Notification",
     "User",
     "GitCredential",
     "AppSettings",

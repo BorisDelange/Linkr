@@ -37,6 +37,7 @@ import { useSchemaPresetActions, toSchemaPresetItem } from '@/features/warehouse
 import { useDatabaseActions } from '@/features/projects/warehouse/databases/use-database-actions'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
+import { NotificationsBell } from '@/components/layout/NotificationsBell'
 import {
   Dialog,
   DialogContent,
@@ -776,6 +777,8 @@ export function Header() {
           <Button variant="ghost" size="icon-sm" onClick={toggleDarkMode}>
             {darkMode ? <Sun size={15} /> : <Moon size={15} />}
           </Button>
+
+          <NotificationsBell />
 
           <div className="ml-1">
             <DropdownMenu>

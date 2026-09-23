@@ -19,6 +19,8 @@ own query builders (`apps/web/src/lib/duckdb/cohort-query.ts`, the concepts page
 Every call goes through the REST API with the user's credentials, so the server
 re-checks every permission — an agent never exceeds the user it acts for. Tools carry
 `readOnlyHint` / `destructiveHint` annotations, so a client can auto-approve reads.
+Every request carries `X-Linkr-Client: mcp`: the server then refreshes the user's open
+tabs and lists the change in the header's notification centre.
 
 Configure it in `packages/linkr-mcp/.env` (gitignored; template `.env.example`):
 `LINKR_API_URL` plus either `LINKR_TOKEN` or `LINKR_USERNAME` + `LINKR_PASSWORD`.

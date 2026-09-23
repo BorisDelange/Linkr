@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -8,7 +8,7 @@ from app.models.cohort import Cohort
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.cohort import CohortCreate, CohortResponse, CohortUpdate
-from app.services import cohort_service
+from app.services import cohort_service, notification_service
 
 router = APIRouter(prefix="/cohorts", tags=["cohorts"])
 
@@ -47,11 +47,17 @@ async def list_cohorts(
 @router.post("", response_model=CohortResponse, status_code=status.HTTP_201_CREATED)
 async def create_cohort(
     body: CohortCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_access(db, body.project_uid, user, "cohorts:write")
-    return await cohort_service.create(db, body)
+    cohort = await cohort_service.create(db, body)
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action="created",
+        entity_type="cohort", entity_id=cohort.id, project_uid=cohort.project_uid, label=cohort.name,
+    )
+    return cohort
 
 
 @router.get("/{cohort_id}", response_model=CohortResponse)
@@ -67,18 +73,32 @@ async def get_cohort(
 async def update_cohort(
     cohort_id: str,
     body: CohortUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     cohort = await _load(db, cohort_id, user, "cohorts:write")
-    return await cohort_service.update(db, cohort, body)
+    changed = set(body.model_dump(exclude_unset=True))
+    cohort = await cohort_service.update(db, cohort, body)
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action="updated",
+        entity_type="cohort", entity_id=cohort.id, project_uid=cohort.project_uid, label=cohort.name,
+        notify=not notification_service.is_derived_only(changed),
+    )
+    return cohort
 
 
 @router.delete("/{cohort_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_cohort(
     cohort_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     cohort = await _load(db, cohort_id, user, "cohorts:delete")
+    project_uid, label = cohort.project_uid, cohort.name
     await cohort_service.delete(db, cohort)
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action="deleted",
+        entity_type="cohort", entity_id=cohort_id, project_uid=project_uid, label=label,
+    )

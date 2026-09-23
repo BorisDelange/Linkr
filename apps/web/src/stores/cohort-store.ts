@@ -183,6 +183,9 @@ interface CohortState {
 
   loadCohorts: () => Promise<void>
   getProjectCohorts: (projectUid: string) => Cohort[]
+  /** Re-read one cohort changed outside this tab (an agent over MCP), or drop it
+   *  when deleted. Its last in-tab run is discarded: it described the old definition. */
+  applyRemoteChange: (id: string, deleted: boolean) => Promise<void>
 
   addCohort: (source: {
     projectUid: string
@@ -253,6 +256,20 @@ export const useCohortStore = create<CohortState>((set, get) => ({
 
   getProjectCohorts: (projectUid) =>
     get().cohorts.filter((c) => c.projectUid === projectUid),
+
+  applyRemoteChange: async (id, deleted) => {
+    const raw = deleted ? undefined : await getStorage().cohorts.getById(id)
+    set((s) => {
+      const results = new Map(s.executionResults)
+      results.delete(id)
+      const others = s.cohorts.filter((c) => c.id !== id)
+      if (!raw) return { cohorts: others, executionResults: results }
+      const cohort = migrateCohortIfNeeded(raw as unknown as Record<string, unknown>)
+      const index = s.cohorts.findIndex((c) => c.id === id)
+      const cohorts = index < 0 ? [...s.cohorts, cohort] : s.cohorts.map((c) => (c.id === id ? cohort : c))
+      return { cohorts, executionResults: results }
+    })
+  },
 
   addCohort: async (source) => {
     const id = crypto.randomUUID()
