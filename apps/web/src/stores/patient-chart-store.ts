@@ -103,13 +103,13 @@ interface PatientChartState {
 
   loadProjectDashboards: (projectUid: string) => Promise<void>
   /**
-   * Load a database's own board (at most one), under `databaseBoardKey(id)` —
+   * Load a database cohort's board (at most one), under `cohortBoardKey(id)` —
    * the key its selection and `activeProjectUid` then go by. Creates nothing:
-   * a viewer may open a database whose board nobody has configured yet.
+   * a viewer may open a cohort whose board nobody has configured yet.
    */
-  loadDatabaseBoard: (dataSourceId: string) => Promise<void>
-  /** The database's board, created (with a first tab) if it has none. */
-  ensureDatabaseBoard: (dataSourceId: string) => Promise<string>
+  loadCohortBoard: (dataSourceId: string, cohortId: string) => Promise<void>
+  /** The cohort's board, created (with a first tab) if it has none. */
+  ensureCohortBoard: (dataSourceId: string, cohortId: string) => Promise<string>
 
   // Selection actions (cascade resets)
   setSelectedCohort: (projectUid: string, cohortId: string | null) => void
@@ -365,15 +365,15 @@ async function loadBoardContents(dashboards: PatientDashboard[]): Promise<{
 
 /**
  * The key a board's owner goes by in the store's per-owner maps (selection,
- * active board, `activeProjectUid`). A project's uid; for a database's board a
- * prefixed id, which no project uid can collide with.
+ * active board, `activeProjectUid`). A project's uid; for a database cohort's
+ * board a prefixed id, which no project uid can collide with.
  */
-export function databaseBoardKey(dataSourceId: string): string {
-  return `db:${dataSourceId}`
+export function cohortBoardKey(cohortId: string): string {
+  return `cohort:${cohortId}`
 }
 
 function boardOwnerKey(board: PatientDashboard): string {
-  return board.projectUid ?? databaseBoardKey(board.ownerDataSourceId ?? '')
+  return board.projectUid ?? cohortBoardKey(board.ownerCohortId ?? '')
 }
 
 // ---------------------------------------------------------------------------
@@ -446,12 +446,13 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
     }
   },
 
-  loadDatabaseBoard: async (dataSourceId) => {
-    const key = databaseBoardKey(dataSourceId)
+  loadCohortBoard: async (dataSourceId, cohortId) => {
+    const key = cohortBoardKey(cohortId)
     if (get().activeProjectUid === key && get().loaded) return
     try {
       set({ loadError: null })
-      const dashboards = await getStorage().patientDashboards.getByDatabase(dataSourceId)
+      const dashboards = (await getStorage().patientDashboards.getByDatabase(dataSourceId))
+        .filter((d) => d.ownerCohortId === cohortId)
       const { tabs, widgets } = await loadBoardContents(dashboards)
       set((s) => ({
         dashboards,
@@ -469,9 +470,9 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
     }
   },
 
-  ensureDatabaseBoard: async (dataSourceId) => {
-    const key = databaseBoardKey(dataSourceId)
-    const existing = get().dashboards.find((d) => d.ownerDataSourceId === dataSourceId)
+  ensureCohortBoard: async (dataSourceId, cohortId) => {
+    const key = cohortBoardKey(cohortId)
+    const existing = get().dashboards.find((d) => d.ownerCohortId === cohortId)
     if (existing) return existing.id
     const id = uid()
     const now = new Date().toISOString()
@@ -479,6 +480,7 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
     const dashboard: PatientDashboard = {
       id,
       ownerDataSourceId: dataSourceId,
+      ownerCohortId: cohortId,
       dataSourceId,
       name: setLocalized({}, lang, i18n.t('patient_data.database_board_name')),
       displayOrder: 0,

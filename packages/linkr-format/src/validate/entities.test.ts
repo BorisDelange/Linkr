@@ -327,13 +327,15 @@ describe('database', () => {
     expect(issues.some((i) => i.path === 'cohorts/adults.json' && i.severity === 'error')).toBe(true)
   })
 
-  it('checks the shape of its patient board', () => {
-    const issues = validateEntity(database({ 'patient-board.json': JSON.stringify({ tabs: [] }) }), 'database')
-    expect(issues.some((i) => i.path === 'patient-board.json' && i.severity === 'error')).toBe(true)
-    const ok = validateEntity(database({
-      'patient-board.json': JSON.stringify({ patientDashboard: { name: { en: 'Review' } }, tabs: [], widgets: [] }),
-    }), 'database')
-    expect(ok.filter((i) => i.path === 'patient-board.json')).toEqual([])
+  it('checks the shape of its cohorts\' boards, and that each has its cohort', () => {
+    const cohort = { 'cohorts/adults.json': JSON.stringify({ name: { en: 'Adults' }, level: 'patient', criteriaTree: {} }) }
+    const issues = validateEntity(database({ ...cohort, 'cohort-boards/adults.json': JSON.stringify({ tabs: [] }) }), 'database')
+    expect(issues.some((i) => i.path === 'cohort-boards/adults.json' && i.severity === 'error')).toBe(true)
+    const board = JSON.stringify({ patientDashboard: { name: { en: 'Review' } }, tabs: [], widgets: [] })
+    const ok = validateEntity(database({ ...cohort, 'cohort-boards/adults.json': board }), 'database')
+    expect(ok.filter((i) => i.path === 'cohort-boards/adults.json')).toEqual([])
+    const orphan = validateEntity(database({ ...cohort, 'cohort-boards/gone.json': board }), 'database')
+    expect(orphan.find((i) => i.path === 'cohort-boards/gone.json')?.code).toBe('orphan-record')
   })
 
   it('accepts a well-formed cohort', () => {

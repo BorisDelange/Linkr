@@ -724,11 +724,13 @@ export interface PatientDashboard extends Seedable, Authored {
   id: string
   /**
    * The owner — exactly one of the two. A project holds any number of boards; a
-   * database (`ownerDataSourceId`) holds one, the board its cohorts are reviewed
-   * through, which always reads that database.
+   * database (`ownerDataSourceId`) holds one per cohort (`ownerCohortId`), the
+   * board that cohort's patients are reviewed through, always reading that
+   * database.
    */
   projectUid?: string
   ownerDataSourceId?: string
+  ownerCohortId?: string
   name: LocalizedString
   description?: LocalizedString
   /** Which linked database this board reads. Optional: a board written before

@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_project_permission, check_workspace_permission
+from app.models.cohort import Cohort
 from app.models.data_source import DataSource
 from app.models.patient_dashboard import (
     PatientDashboard,
@@ -143,11 +144,19 @@ async def create_dashboard(
         db, body.project_uid, body.owner_data_source_id, user, "patient-data:write"
     )
     if body.owner_data_source_id:
-        # One board per database: it is the lens every cohort of the database is
-        # reviewed through, not a collection of boards.
-        if await patient_dashboard_service.list_for_database(db, body.owner_data_source_id):
-            raise HTTPException(status.HTTP_409_CONFLICT, "this database already has its patient board")
+        # A database's boards are its cohorts': one each, the lens that cohort's
+        # patients are reviewed through.
+        cohort = await db.get(Cohort, body.owner_cohort_id) if body.owner_cohort_id else None
+        if cohort is None or cohort.owner_data_source_id != body.owner_data_source_id:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "a database's patient board belongs to one of its cohorts"
+            )
+        boards = await patient_dashboard_service.list_for_database(db, body.owner_data_source_id)
+        if any(b.owner_cohort_id == cohort.id for b in boards):
+            raise HTTPException(status.HTTP_409_CONFLICT, "this cohort already has its patient board")
         body.data_source_id = body.owner_data_source_id
+    else:
+        body.owner_cohort_id = None
     return await patient_dashboard_service.create(db, body)
 
 

@@ -14,13 +14,17 @@ class PatientDashboard(Base, TimestampMixin):
 
     # Frontend keys boards by client-supplied UUID.
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    # Exactly one owner, as for cohorts: a project, or a database (its single
-    # cohort-review board). The services enforce the one-owner rule.
+    # Exactly one owner, as for cohorts: a project, or a database. A database's
+    # boards are its cohorts' — one per cohort (`owner_cohort_id`), each the lens
+    # that cohort's patients are reviewed through. The routes enforce both rules.
     project_uid: Mapped[str | None] = mapped_column(
         ForeignKey("projects.uid", ondelete="CASCADE")
     )
     owner_data_source_id: Mapped[str | None] = mapped_column(
         ForeignKey("data_sources.id", ondelete="CASCADE"), index=True
+    )
+    owner_cohort_id: Mapped[str | None] = mapped_column(
+        ForeignKey("cohorts.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
     description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString

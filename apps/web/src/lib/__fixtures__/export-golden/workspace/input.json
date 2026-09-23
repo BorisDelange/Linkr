@@ -366,6 +366,7 @@
    "patientDashboard": {
     "id": "dboard-1",
     "ownerDataSourceId": "ds2",
+    "ownerCohortId": "dco-1",
     "name": {
      "en": "Cohort review",
      "fr": "Revue des cohortes"

@@ -1191,23 +1191,26 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
     cohorts = [
         _dump(CohortResponse, c) for c in await cohort_service.list_for_database(db, source.id)
     ]
-    for cohort_key, c in _cohort_keys(cohorts).items():
+    keys = _cohort_keys(cohorts)
+    for cohort_key, c in keys.items():
         shaped = _cohort_export_shape(_drop_local_database(_strip_instance_fields(c)))
         # It runs on the database it is exported under; a pointer to itself is noise.
         shaped.pop("dataSourceRef", None)
         tree[f"cohorts/{cohort_key}.json"] = _json(shaped)
-    # Its one patient board — twin of the patient-board.json write in
-    # buildDataSourceFolder. A database tree carries no dataset, hence the empty
-    # set: nothing in the board may point at one.
-    boards = await patient_dashboard_service.list_for_database(db, source.id)
-    if boards:
-        board = boards[0]
+    # Each cohort's patient board, beside it under the cohort's own key — twin of
+    # the cohort-boards/ loop in buildDataSourceFolder. A database tree carries no
+    # dataset, hence the empty set: nothing in a board may point at one.
+    key_of = {c["id"]: k for k, c in keys.items()}
+    for board in await patient_dashboard_service.list_for_database(db, source.id):
+        cohort_key = key_of.get(board.owner_cohort_id)
+        if cohort_key is None:
+            continue
         tabs = await patient_dashboard_service.list_tabs(db, board.id)
         widgets = []
         for tab in tabs:
             widgets.extend(await patient_dashboard_service.list_widgets(db, tab.id))
         board_dict = {**_dump(PatientDashboardResponse, board), "dataSourceRef": None}
-        tree["patient-board.json"] = _build_patient_dashboard_json(
+        tree[f"cohort-boards/{cohort_key}.json"] = _build_patient_dashboard_json(
             board_dict,
             [_dump(PatientDashboardTabResponse, t) for t in tabs],
             [_dump(PatientDashboardWidgetResponse, w) for w in widgets],

@@ -992,7 +992,7 @@
     "patients_patient": "patient {{id}}",
     "patients_list_limited": "First {{shown}} of {{total}} — filter to find the others.",
     "patients_board_empty_title": "No widgets yet",
-    "patients_board_empty_description": "Set up the board once for this database: every cohort of the database reviews its patients through it.",
+    "patients_board_empty_description": "Lay out this cohort's board: the tabs and widgets its patients are reviewed through.",
     "database_list_description": "Cohorts defined on this database, outside any project. They travel with the database when it is exported or versioned.",
     "title": "Cohorts",
     "create": "New cohort",
@@ -1590,7 +1590,7 @@
   },
   "patient_data": {
     "code_widget_needs_project": "R/Python widgets run in a project’s session, so they are not available on a database’s board.",
-    "database_board_name": "Cohort review",
+    "database_board_name": "Patient review",
     "title": "Patient Data",
     "no_data_source": "No data source configured.",
     "no_data_source_description": "Add a database with a patient table to browse patient records.",

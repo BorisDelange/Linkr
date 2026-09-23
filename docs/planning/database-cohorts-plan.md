@@ -116,7 +116,10 @@ linkable). Needs the database **connected**; otherwise the connect banner.
 💤 later: "Copy to a project" (a database cohort becomes a project cohort — same shape, change
 owner).
 
-## 3. Visualisation tab — one patient board per database
+## 3. Visualisation tab — one patient board per database cohort
+
+> **Revised 2026-09-23**: one board **per cohort** (`ownerCohortId`), not per database — each
+> cohort lays out the review its question needs. The text below describes the first version.
 
 **Reuse `PatientDashboard`** with the same owner rule as cohorts (D2 ✅ — this
 is option (a) of the cohort-review plan, and the database owner makes "one per database"
@@ -307,7 +310,7 @@ databases/<eid>/
   entity.json            # + derivedFrom (portable refs only)
   mapping.json  schema.ddl  README.md  LICENSE.md
   cohorts/<key>.json     # same shape + key scheme as project cohorts (cohortKey)
-  patient-board.json     # {patientDashboard, tabs, widgets}, same shape as patient-dashboards/*.json
+  cohort-boards/<key>.json  # each cohort's board {patientDashboard, tabs, widgets}, shape of patient-dashboards/*.json
 ```
 
 - **Strip `materialization`, `resultCount`, `attrition`, `derivations`** from every cohort
@@ -358,6 +361,7 @@ Ordered so nothing ships that cannot be exported.
 | ✅ | 10d. Report review: in-app preview (the exported HTML in a sandboxed frame), flowchart centred, criteria as a bulleted list, month chart with a Y axis and gap-free bars when dense, data tables by rows desc, per-year table dropped (the month chart has it), SQL coloured (HTML + Word), “Data source” block (database, version, schema, patients in the database) | S |
 | ✅ | 10e. Cards: patient count taken once per database (one `COUNT(*)`, two at a time), stored on the row, refreshed on opening; builder panes can be folded as in an analysis | S |
 | ✅ | 10c. Derivation as a workspace job: `jobs.workspace_id` (one owner: project or workspace), `POST …/derive` → 202 + job, progress per table, cancel interrupts the statement in flight and removes what was half-written, a failed first build deletes its database; footer panel follows workspace jobs and re-reads the databases/cohort when a derivation ends | M |
+| ✅ | 10f. Board per cohort (`patient_dashboards.owner_cohort_id`, migration `b6c7d8e9f0a1` drops the unreleased database-wide boards), `cohort-boards/<key>.json` in the database tree (client, server, validator, golden); move a Linkr-owned file from the Edit dialog (`move-file`); report donut + justified text | M |
 | 🟡 | 11. Server done in 10a; `allowWrites` toggle added to the Postgres dialog (off by default); a rebuild of a declared schema updates that database instead of declaring it again. Left: testing against a real Postgres | M |
 | 🔜 | 12. `docs/architecture.md`, `docs/ui-patterns.md`, user docs in `../linkr-website` (databases + cohorts pages) | S/M |
 | 💤 | Same visualisation tab on project cohorts · copy a database cohort to a project · server-side PDF · report branding (logo, colours) | — |

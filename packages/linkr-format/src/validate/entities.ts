@@ -12,7 +12,7 @@ import {
   CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, isEntityType,
   type LayoutKind,
 } from '../layout.js'
-import { readJson, type EntityTree } from '../tree.js'
+import { filesIn, readJson, type EntityTree } from '../tree.js'
 import { validateFileTree } from './file-tree.js'
 import { validateCohortFiles, validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
 
@@ -193,8 +193,8 @@ export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
   return bag.all()
 }
 
-/** A database's own patient board, beside its manifest. */
-const DATABASE_BOARD_FILE = 'patient-board.json'
+/** A database's cohort boards: `cohort-boards/<cohort key>.json`, one per cohort. */
+const DATABASE_BOARDS_DIR = 'cohort-boards'
 
 /**
  * A database tree: metadata, its mapping (`mapping.json` + `schema.ddl`, the
@@ -341,16 +341,26 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
   // The database's own cohorts: same files, same checks as a project's.
   validateCohortFiles(tree, bag)
   // And its one patient board, in the shape of a project's patient-dashboards/*.json.
-  const board = readJson(tree, DATABASE_BOARD_FILE)
-  if (board.ok) {
-    if (!isObject(board.value) || !isObject(board.value.patientDashboard)) {
-      bag.error(DATABASE_BOARD_FILE, '', 'wrong-type',
-        `${DATABASE_BOARD_FILE} must be an object with a \`patientDashboard\`, \`tabs\` and \`widgets\`.`)
-    } else {
-      checkLocalized(bag, DATABASE_BOARD_FILE, '/patientDashboard/name', board.value.patientDashboard.name, { required: true })
+  // And each cohort's board, in the shape of a project's patient-dashboards/*.json,
+  // named for the cohort it belongs to.
+  for (const path of filesIn(tree, DATABASE_BOARDS_DIR, '.json')) {
+    const board = readJson(tree, path)
+    if (!board.ok) {
+      bag.error(path, '', 'invalid-json', `Cannot parse JSON: ${board.error}`)
+      continue
     }
-  } else if (board.error !== 'missing') {
-    bag.error(DATABASE_BOARD_FILE, '', 'invalid-json', `Cannot parse JSON: ${board.error}`)
+    if (!isObject(board.value) || !isObject(board.value.patientDashboard)) {
+      bag.error(path, '', 'wrong-type',
+        `${path} must be an object with a \`patientDashboard\`, \`tabs\` and \`widgets\`.`)
+      continue
+    }
+    checkLocalized(bag, path, '/patientDashboard/name', board.value.patientDashboard.name, { required: true })
+    const cohortFile = `cohorts/${path.slice(DATABASE_BOARDS_DIR.length + 1)}`
+    if (tree.read(cohortFile) === null) {
+      bag.warn(path, '', 'orphan-record',
+        `No ${cohortFile}: a board belongs to the cohort of the same key, and this one has none — it is not imported.`,
+        `rename it after an existing cohort file, or remove it`)
+    }
   }
 
   const declared = db.tables

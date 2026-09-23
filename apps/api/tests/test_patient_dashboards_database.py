@@ -1,6 +1,6 @@
-"""A database's own patient board: the one the cohorts of the database page are
-reviewed through. One per database, gated by the database's permissions, gone
-with the database."""
+"""A database cohort's patient board: the one that cohort's patients are
+reviewed through. One per cohort, under the database — gated by its
+permissions, gone with the cohort or the database."""
 
 from app.core.security import hash_password
 from app.models.user import User
@@ -23,23 +23,37 @@ async def _database(client, headers) -> tuple[str, str]:
     return ws, ds
 
 
-async def _board(client, headers, ds: str, bid="b1"):
+async def _cohort(client, headers, ds: str, cid="c1") -> str:
+    return (await client.post(f"{API}/cohorts", headers=headers, json={
+        "id": cid, "ownerDataSourceId": ds, "name": {"en": cid}, "level": "patient", "criteriaTree": {},
+    })).json()["id"]
+
+
+async def _board(client, headers, ds: str, bid="b1", cohort="c1"):
     return await client.post(f"{API}/patient-dashboards", headers=headers, json={
-        "id": bid, "ownerDataSourceId": ds, "name": {"en": "Review"},
+        "id": bid, "ownerDataSourceId": ds, "ownerCohortId": cohort, "name": {"en": "Review"},
     })
 
 
-async def test_one_board_per_database_running_on_it(client):
+async def test_one_board_per_cohort_running_on_its_database(client):
     headers = await _admin(client)
     _, ds = await _database(client, headers)
+    await _cohort(client, headers, ds, "c1")
+    await _cohort(client, headers, ds, "c2")
     r = await _board(client, headers, ds)
     assert r.status_code == 201, r.text
     assert r.json()["ownerDataSourceId"] == ds and r.json()["dataSourceId"] == ds
-    assert r.json()["projectUid"] is None
+    assert r.json()["ownerCohortId"] == "c1" and r.json()["projectUid"] is None
     assert (await _board(client, headers, ds, bid="b2")).status_code == 409
+    assert (await _board(client, headers, ds, bid="b2", cohort="c2")).status_code == 201
+    # A database board needs a cohort of that very database.
+    assert (await _board(client, headers, ds, bid="b3", cohort=None)).status_code == 422
+    _, other = await _database(client, headers)
+    await _cohort(client, headers, other, "c9")
+    assert (await _board(client, headers, ds, bid="b3", cohort="c9")).status_code == 422
 
     listed = (await client.get(f"{API}/patient-dashboards?dataSourceId={ds}", headers=headers)).json()
-    assert [b["id"] for b in listed] == ["b1"]
+    assert sorted(b["id"] for b in listed) == ["b1", "b2"]
 
     tab = await client.post(f"{API}/patient-dashboards/tabs", headers=headers, json={
         "id": "t1", "patientDashboardId": "b1", "name": {"en": "Tab"}, "displayOrder": 0,
@@ -50,6 +64,7 @@ async def test_one_board_per_database_running_on_it(client):
 async def test_board_follows_database_permissions_and_lifetime(client, db):
     admin = await _admin(client)
     ws, ds = await _database(client, admin)
+    await _cohort(client, admin, ds)
     await _board(client, admin, ds)
     viewer = User(username="viewer", password_hash=hash_password("pw"), role="user")
     db.add(viewer)
@@ -62,7 +77,8 @@ async def test_board_follows_database_permissions_and_lifetime(client, db):
     assert (await client.get(f"{API}/patient-dashboards/b1", headers=vh)).status_code == 200
     assert (await client.patch(f"{API}/patient-dashboards/b1", headers=vh, json={"name": {"en": "X"}})).status_code == 403
 
-    await client.delete(f"{API}/data-sources/{ds}", headers=admin)
+    # Gone with its cohort; and with the database, like everything under it.
+    await client.delete(f"{API}/cohorts/c1", headers=admin)
     assert (await client.get(f"{API}/patient-dashboards/b1", headers=admin)).status_code == 404
 
 

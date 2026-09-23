@@ -3,7 +3,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 
 interface PatientChartContextValue {
   /** The key selection is stored under: the project's uid, or
-   *  `databaseBoardKey(id)` for a database's own board. */
+   *  `cohortBoardKey(id)` for a database cohort's board. */
   projectUid: string
   /** The board being viewed — its settings (collection, sync…) hang off it. */
   boardId: string | undefined

@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useContextRoleStore } from '@/stores/context-role-store'
 import { isServerMode } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
-import { databaseBoardKey, usePatientChartStore } from '@/stores/patient-chart-store'
+import { cohortBoardKey, usePatientChartStore } from '@/stores/patient-chart-store'
 import { PatientChartContext } from '@/features/projects/warehouse/patient-data/PatientChartContext'
 import { PatientChartTabBar } from '@/features/projects/warehouse/patient-data/PatientChartTabBar'
 import { PatientChartGrid } from '@/features/projects/warehouse/patient-data/PatientChartGrid'
@@ -22,6 +22,8 @@ const LIST_LIMIT = 300
 
 interface CohortPatientsPanelProps {
   dataSourceId: string
+  /** The cohort whose board this is: each database cohort has its own. */
+  cohortId: string
   schemaMapping: SchemaMapping
   level: CohortLevel
   /** The rows of the last execution (`id` at the cohort's level, `patient_id`
@@ -36,14 +38,14 @@ interface ListedRow {
 }
 
 /**
- * The patients of a cohort's current result, through the database's one patient
- * board — the same tabs and widgets as Patient data, configured once for the
- * database and shared by all its cohorts. Reviewing a result needs no
- * materialised cohort: the list is the last execution's rows.
+ * The patients of a cohort's current result, through the cohort's own patient
+ * board — the same tabs and widgets as Patient data, laid out for what this
+ * cohort is about. Reviewing a result needs no materialised cohort: the list is
+ * the last execution's rows.
  */
-export function CohortPatientsPanel({ dataSourceId, schemaMapping, level, rows }: CohortPatientsPanelProps) {
+export function CohortPatientsPanel({ dataSourceId, cohortId, schemaMapping, level, rows }: CohortPatientsPanelProps) {
   const { t } = useTranslation()
-  const key = databaseBoardKey(dataSourceId)
+  const key = cohortBoardKey(cohortId)
   // The workspace role answers here — there is no project. Read from the store
   // (a stable array), so the context below keeps its identity across renders.
   const permissions = useContextRoleStore((s) => s.workspacePermissions)
@@ -53,10 +55,10 @@ export function CohortPatientsPanel({ dataSourceId, schemaMapping, level, rows }
   )
   const canWrite = can('databases:write')
 
-  const loadDatabaseBoard = usePatientChartStore((s) => s.loadDatabaseBoard)
-  const ensureDatabaseBoard = usePatientChartStore((s) => s.ensureDatabaseBoard)
+  const loadCohortBoard = usePatientChartStore((s) => s.loadCohortBoard)
+  const ensureCohortBoard = usePatientChartStore((s) => s.ensureCohortBoard)
   const loaded = usePatientChartStore((s) => s.loaded && s.activeProjectUid === key)
-  const board = usePatientChartStore((s) => s.dashboards.find((d) => d.ownerDataSourceId === dataSourceId))
+  const board = usePatientChartStore((s) => s.dashboards.find((d) => d.ownerCohortId === cohortId))
   const tabs = usePatientChartStore((s) => s.tabs)
   const widgets = usePatientChartStore((s) => s.widgets)
   const activeTabId = usePatientChartStore((s) => (board ? s.activeTabId[board.id] : undefined))
@@ -74,8 +76,8 @@ export function CohortPatientsPanel({ dataSourceId, schemaMapping, level, rows }
   const [filter, setFilter] = useState('')
 
   useEffect(() => {
-    void loadDatabaseBoard(dataSourceId)
-  }, [dataSourceId, loadDatabaseBoard])
+    void loadCohortBoard(dataSourceId, cohortId)
+  }, [dataSourceId, cohortId, loadCohortBoard])
 
   const listed = useMemo<ListedRow[]>(() => rows.map((r) => ({
     id: String(r.id),
@@ -114,7 +116,7 @@ export function CohortPatientsPanel({ dataSourceId, schemaMapping, level, rows }
   )
 
   const startConfiguring = async () => {
-    await ensureDatabaseBoard(dataSourceId)
+    await ensureCohortBoard(dataSourceId, cohortId)
     setEditMode(true)
     setAddWidgetOpen(true)
   }

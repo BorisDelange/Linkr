@@ -464,6 +464,7 @@ export function CohortBuilder() {
                   ? (r) => (
                       <CohortPatientsPanel
                         dataSourceId={activeSource.id}
+                        cohortId={cohort.id}
                         schemaMapping={mapping}
                         level={cohort.level}
                         rows={r.rows}

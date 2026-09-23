@@ -7,9 +7,11 @@ from app.schemas.base import CamelModel
 # old localStorage store may carry a bare string — accept both so imports don't 422.
 class PatientDashboardCreate(CamelModel):
     id: str
-    # Exactly one owner: a project, or a database (its single cohort-review board).
+    # Exactly one owner: a project, or a database — then for one of its cohorts
+    # (`owner_cohort_id`), whose patients the board reviews.
     project_uid: str | None = None
     owner_data_source_id: str | None = None
+    owner_cohort_id: str | None = None
     name: dict | str = {}
     description: dict | str | None = None
     data_source_id: str | None = None
@@ -54,6 +56,7 @@ class PatientDashboardResponse(CamelModel):
     id: str
     project_uid: str | None = None
     owner_data_source_id: str | None = None
+    owner_cohort_id: str | None = None
     name: dict | str
     description: dict | str | None = None
     data_source_id: str | None = None

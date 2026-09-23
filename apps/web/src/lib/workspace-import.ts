@@ -22,7 +22,7 @@ import {
 } from '@/lib/import-identity'
 import { mintEntityId } from '@/components/ui/entity-id-field'
 import { localized } from '@/lib/localized'
-import { deleteProjectData, importProjectContent, createEntityAttachments, projectSlug, reassemblePresetMapping, replaceDatabaseBoard, replaceDatabaseCohorts, DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
+import { deleteProjectData, importProjectContent, createEntityAttachments, projectSlug, reassemblePresetMapping, replaceDatabaseBoards, replaceDatabaseCohorts, DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
@@ -453,7 +453,7 @@ export async function importWorkspaceTree(
           schemaMapping: ds.schemaMapping, updatedAt: now,
         })
         await replaceDatabaseCohorts(storage, landing, parsed.databaseCohorts?.get(ds.id) ?? [])
-        await replaceDatabaseBoard(storage, landing, parsed.databaseBoards?.get(ds.id) ?? null)
+        await replaceDatabaseBoards(storage, landing, parsed.databaseBoards?.get(ds.id) ?? new Map())
         continue
       }
     }
@@ -494,7 +494,7 @@ export async function importWorkspaceTree(
     // After the row: the server authorizes a database's cohorts through it. A
     // git-linked database carries none here — its clone brings them.
     await replaceDatabaseCohorts(storage, id, parsed.databaseCohorts?.get(ds.id) ?? [])
-    await replaceDatabaseBoard(storage, id, parsed.databaseBoards?.get(ds.id) ?? null)
+    await replaceDatabaseBoards(storage, id, parsed.databaseBoards?.get(ds.id) ?? new Map())
   }
 
   // --- Import the workspace README's images ---

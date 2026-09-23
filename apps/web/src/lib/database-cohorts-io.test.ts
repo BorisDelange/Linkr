@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import JSZip from 'jszip'
-import { buildDataSourceFolder, readDatabaseBoard, readDatabaseCohorts, replaceDatabaseBoard, replaceDatabaseCohorts } from './entity-io'
+import { buildDataSourceFolder, readDatabaseBoards, readDatabaseCohorts, replaceDatabaseBoards, replaceDatabaseCohorts } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import type { Storage } from '@/lib/storage'
 import type { Cohort, DataSource } from '@/types'
@@ -131,21 +131,26 @@ describe('database patient board — import', () => {
     } as unknown as Storage
 
     const zip = new JSZip()
-    zip.file('patient-board.json', JSON.stringify({
+    const bundle = (tab: string) => JSON.stringify({
       patientDashboard: { name: { en: 'Cohort review' } },
-      tabs: [{ name: { en: 'Stay' }, displayOrder: 0, key: 'cohort-review/stay' }],
+      tabs: [{ name: { en: tab }, displayOrder: 0, key: 'cohort-review/stay' }],
       widgets: [{ name: { en: 'Summary' }, pluginId: 'linkr-widget-patient-summary', config: {}, key: 'cohort-review/stay/summary@0,0', tabKey: 'cohort-review/stay' }],
-    }))
-    await replaceDatabaseBoard(storage, 'db1', await readDatabaseBoard(zip, ''))
+    })
+    // Two cohorts, two boards sharing every content key: scoped by the cohort key.
+    zip.file('cohort-boards/adults.json', bundle('Stay'))
+    zip.file('cohort-boards/icu.json', bundle('ICU stay'))
+    zip.file('cohort-boards/nested/ignored.json', bundle('x'))
+    await replaceDatabaseBoards(storage, 'db1', await readDatabaseBoards(zip, ''))
 
-    const boardId = deterministicId('db1', 'cohort-review')
-    expect([...boards.keys()]).toEqual([boardId])
-    expect(boards.get(boardId)).toMatchObject({ ownerDataSourceId: 'db1', dataSourceId: 'db1' })
-    expect([...tabs.values()]).toEqual([expect.objectContaining({ id: deterministicId('db1', 'cohort-review/stay'), patientDashboardId: boardId })])
-    expect([...widgets.values()][0]).toMatchObject({ tabId: deterministicId('db1', 'cohort-review/stay') })
+    const boardId = deterministicId('db1', 'adults/cohort-review')
+    expect([...boards.keys()].sort()).toEqual([boardId, deterministicId('db1', 'icu/cohort-review')].sort())
+    expect(boards.get(boardId)).toMatchObject({ ownerDataSourceId: 'db1', ownerCohortId: deterministicId('db1', 'adults'), dataSourceId: 'db1' })
+    expect(tabs.get(deterministicId('db1', 'adults/cohort-review/stay'))).toMatchObject({ patientDashboardId: boardId })
+    expect(tabs.size).toBe(2)
+    expect(widgets.size).toBe(2)
   })
 
   it('leaves the local board alone when the tree has none', async () => {
-    await expect(replaceDatabaseBoard({} as Storage, 'db1', await readDatabaseBoard(new JSZip(), ''))).resolves.toBeUndefined()
+    await expect(replaceDatabaseBoards({} as Storage, 'db1', await readDatabaseBoards(new JSZip(), ''))).resolves.toBeUndefined()
   })
 })
