@@ -3,6 +3,7 @@
  * a print job. Kept apart from the renderers, which are pure and tested.
  */
 import type { Rasterize } from './render-docx'
+import { foldAccents } from '@/lib/fold-accents'
 
 /** Draw an SVG string onto a canvas at 2× and return the PNG bytes. */
 export const rasterizeSvg: Rasterize = (svg) =>
@@ -68,8 +69,7 @@ export function printHtml(html: string): Promise<void> {
 
 /** `rapport-cohorte-<slug>-<YYYY-MM-DD>` style base name, without extension. */
 export function reportFileName(prefix: string, title: string, date: Date): string {
-  const slug = title
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const slug = foldAccents(title)
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
     .slice(0, 60) || 'cohort'
   return `${prefix}-${slug}-${date.toISOString().slice(0, 10)}`

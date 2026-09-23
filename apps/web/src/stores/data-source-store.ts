@@ -206,7 +206,7 @@ interface DataSourceState {
     /** A new `.duckdb` in a server folder; omitted = Linkr's data folder. */
     path?: string
     request: Omit<DeriveRequest, 'target'>
-  }) => Promise<Job>
+  }) => Promise<{ job: Job; dataSourceId: string }>
   /** Start a derivation into a database that exists (a new SQL schema, or a
    *  rebuild), as a job. */
   runDerivation: (parentId: string, request: DeriveRequest) => Promise<Job>
@@ -811,7 +811,8 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     await getStorage().dataSources.create(created)
     set((s) => ({ dataSources: [...s.dataSources, created] }))
     try {
-      return await deriveOnServer(parentId, { ...request, target: { kind: 'new-database', dataSourceId: id, path } })
+      const job = await deriveOnServer(parentId, { ...request, target: { kind: 'new-database', dataSourceId: id, path } })
+      return { job, dataSourceId: id }
     } catch (err) {
       // Refused before any job started: left in place it would be an empty
       // database named after the cohort.

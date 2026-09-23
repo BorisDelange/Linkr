@@ -820,7 +820,8 @@ def build_project_tree(
     # Names are LocalizedString, so the slug comes from English — the same rule
     # cohortKey uses on the frontend, or the two would export the same cohort
     # under different filenames.
-    for cohort_key, c in _cohort_keys(cohorts).items():
+    cohort_keys = _cohort_keys(cohorts)
+    for cohort_key, c in cohort_keys.items():
         tree[f"cohorts/{cohort_key}.json"] = _json(
             _cohort_export_shape(_drop_local_database(_strip_instance_fields(c)))
         )
@@ -847,10 +848,22 @@ def build_project_tree(
         name = _slugify(_localized_en(d.get("name")) or dash_key or d["id"])
         tree[f"dashboards/{name}.json"] = _build_dashboard_json(d, tabs, widgets)
 
+    # A cohort's own board sits beside the cohort, under its key — twin of the
+    # cohort-boards/ loop in buildProjectZip. It reads the database its cohort
+    # runs on, so no pointer of its own travels; one whose cohort is not in this
+    # export has nothing to hang off and is left out.
+    cohort_key_of = {c["id"]: k for k, c in cohort_keys.items()}
     for group in patient_dashboards or []:
         d = group["patientDashboard"]
         tabs = group.get("tabs", [])
         widgets = group.get("widgets", [])
+        if d.get("ownerCohortId"):
+            cohort_key = cohort_key_of.get(d["ownerCohortId"])
+            if cohort_key is not None:
+                tree[f"cohort-boards/{cohort_key}.json"] = _build_patient_dashboard_json(
+                    {**d, "dataSourceRef": None}, tabs, widgets, {f["id"] for f in dataset_files}
+                )
+            continue
         board_key = _patient_dashboard_key(d)
         name = _slugify(_localized_en(d.get("name")) or board_key or d["id"])
         tree[f"patient-dashboards/{name}.json"] = _build_patient_dashboard_json(

@@ -12,9 +12,9 @@ import {
   CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, isEntityType,
   type LayoutKind,
 } from '../layout.js'
-import { filesIn, readJson, type EntityTree } from '../tree.js'
+import { readJson, type EntityTree } from '../tree.js'
 import { validateFileTree } from './file-tree.js'
-import { validateCohortFiles, validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
+import { validateCohortBoardFiles, validateCohortFiles, validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
 
 /** Entity kinds that have their own tree, beyond `project`. */
 export type EntityKind =
@@ -193,14 +193,11 @@ export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
   return bag.all()
 }
 
-/** A database's cohort boards: `cohort-boards/<cohort key>.json`, one per cohort. */
-const DATABASE_BOARDS_DIR = 'cohort-boards'
-
 /**
  * A database tree: metadata, its mapping (`mapping.json` + `schema.ddl`, the
  * same split a schema preset uses), `data/<table>.parquet`, its own cohorts
- * under `cohorts/` (validated as a project's are) and its patient board
- * (`patient-board.json`).
+ * under `cohorts/` and their boards under `cohort-boards/` (validated as a
+ * project's are).
  *
  * Two things this checks that nothing else can. First, every declared table has
  * its file and every file is declared — a mismatch imports as a database whose
@@ -338,30 +335,9 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
     }
   }
 
-  // The database's own cohorts: same files, same checks as a project's.
+  // The database's own cohorts and their boards: same files, same checks as a project's.
   validateCohortFiles(tree, bag)
-  // And its one patient board, in the shape of a project's patient-dashboards/*.json.
-  // And each cohort's board, in the shape of a project's patient-dashboards/*.json,
-  // named for the cohort it belongs to.
-  for (const path of filesIn(tree, DATABASE_BOARDS_DIR, '.json')) {
-    const board = readJson(tree, path)
-    if (!board.ok) {
-      bag.error(path, '', 'invalid-json', `Cannot parse JSON: ${board.error}`)
-      continue
-    }
-    if (!isObject(board.value) || !isObject(board.value.patientDashboard)) {
-      bag.error(path, '', 'wrong-type',
-        `${path} must be an object with a \`patientDashboard\`, \`tabs\` and \`widgets\`.`)
-      continue
-    }
-    checkLocalized(bag, path, '/patientDashboard/name', board.value.patientDashboard.name, { required: true })
-    const cohortFile = `cohorts/${path.slice(DATABASE_BOARDS_DIR.length + 1)}`
-    if (tree.read(cohortFile) === null) {
-      bag.warn(path, '', 'orphan-record',
-        `No ${cohortFile}: a board belongs to the cohort of the same key, and this one has none — it is not imported.`,
-        `rename it after an existing cohort file, or remove it`)
-    }
-  }
+  validateCohortBoardFiles(tree, bag)
 
   const declared = db.tables
   const inMemory = db.inMemory === true

@@ -264,16 +264,34 @@ export function CohortBuilder() {
         {/* A project's sidebar leads back to its cohort list; a database tab has
             no sidebar entry for it, so the way back is here. */}
         {host.kind === 'database' && (
-          <>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => navigate(host.listPath)}
+            title={t('common.back')}
+            aria-label={t('common.back')}
+          >
+            <ArrowLeft size={14} />
+          </Button>
+        )}
+        {/* Folds the left pane; a view tab below opens it again. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Button
-              variant="ghost"
+              variant={leftView ? 'secondary' : 'ghost'}
               size="icon-xs"
-              onClick={() => navigate(host.listPath)}
-              title={t('common.back')}
-              aria-label={t('common.back')}
+              onClick={() => {
+                if (leftView) { if (resultsVisible) { lastLeftView.current = leftView; setLeftView(null) } }
+                else setLeftView(lastLeftView.current)
+              }}
             >
-              <ArrowLeft size={14} />
+              {leftView ? <Eye size={14} /> : <EyeOff size={14} />}
             </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t('cohorts.toggle_builder')}</TooltipContent>
+        </Tooltip>
+        {host.kind === 'database' && (
+          <>
             <span className="max-w-60 truncate text-xs font-medium">{localized(cohort.name, i18n.language)}</span>
             <span className="h-4 w-px bg-border" />
           </>
@@ -293,23 +311,6 @@ export function CohortBuilder() {
             ))}
           </SelectContent>
         </Select>
-
-        {/* Folds the left pane; a view tab below opens it again. */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={leftView ? 'secondary' : 'ghost'}
-              size="icon-xs"
-              onClick={() => {
-                if (leftView) { if (resultsVisible) { lastLeftView.current = leftView; setLeftView(null) } }
-                else setLeftView(lastLeftView.current)
-              }}
-            >
-              {leftView ? <Eye size={14} /> : <EyeOff size={14} />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{t('cohorts.toggle_builder')}</TooltipContent>
-        </Tooltip>
 
         {/* View toggles (left pane: criteria vs SQL) */}
         <div className="flex items-center rounded-md border p-0.5">
@@ -469,11 +470,8 @@ export function CohortBuilder() {
                   ? (r) => (
                       <CohortPatientsPanel
                         dataSourceId={activeSource.id}
-                        owner={host.kind === 'project' && host.owner.projectUid
-                          ? { kind: 'project', projectUid: host.owner.projectUid }
-                          : { kind: 'cohort', cohortId: cohort.id }}
+                        cohort={cohort}
                         schemaMapping={mapping}
-                        level={cohort.level}
                         rows={r.rows}
                       />
                     )

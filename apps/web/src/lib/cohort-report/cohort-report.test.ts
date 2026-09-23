@@ -98,6 +98,12 @@ describe('queries', () => {
     expect(buildConceptSql(m, mapping, { eventTableLabel: 'Nope', conceptIds: [1], conceptNames: {} })).toBeNull()
   })
 
+  it('falls back to the birth year when the birth date is empty, as in MIMIC-IV', () => {
+    const idx = buildIndexSql(m, 'visit', mapping)!
+    const both = { table: 'person', idColumn: 'person_id', birthDateColumn: 'birth_datetime', birthYearColumn: 'year_of_birth' }
+    expect(buildAgeSql(idx, { ...mapping, patientTable: both })).toMatch(/COALESCE\(EXTRACT\(YEAR FROM age\(.*p\."year_of_birth"\)\)/s)
+  })
+
   it('needs a birth column for ages and a unit column for care units', () => {
     const idx = buildIndexSql(m, 'visit', mapping)!
     expect(buildAgeSql(idx, { ...mapping, patientTable: { table: 'person', idColumn: 'person_id' } })).toBeNull()

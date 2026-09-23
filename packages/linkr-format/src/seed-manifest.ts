@@ -319,6 +319,8 @@ export interface SeedProjectIndex {
   scripts?: string[]
   pipelines?: string[]
   cohorts?: string[]
+  /** `cohort-boards/<cohort key>.json` — each cohort's own board, named as its cohort file. */
+  cohortBoards?: string[]
   connections?: string[]
   dashboards?: string[]
   patientDashboards?: string[]
@@ -371,6 +373,7 @@ export function buildSeedProjectIndex(tree: EntityTree, dir: string): SeedProjec
   for (const [sub, key] of [
     ['pipeline', 'pipelines'],
     ['cohorts', 'cohorts'],
+    ['cohort-boards', 'cohortBoards'],
     ['databases', 'connections'],
     ['dashboards', 'dashboards'],
     ['patient-dashboards', 'patientDashboards'],

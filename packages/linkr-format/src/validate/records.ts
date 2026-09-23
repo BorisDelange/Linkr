@@ -157,6 +157,36 @@ export function validateCohortFiles(tree: EntityTree, bag: IssueBag): void {
   }
 }
 
+/** Where a project or a database keeps its cohorts' boards: `<cohort key>.json`, one per cohort. */
+const COHORT_BOARDS_DIR = 'cohort-boards'
+
+/**
+ * `cohort-boards/*.json` — each cohort's own board, in the shape of a project's
+ * `patient-dashboards/*.json`, named for the cohort it belongs to. Absent is
+ * legitimate: a board is created the first time someone configures it.
+ */
+export function validateCohortBoardFiles(tree: EntityTree, bag: IssueBag): void {
+  for (const path of filesIn(tree, COHORT_BOARDS_DIR, '.json')) {
+    const board = readJson(tree, path)
+    if (!board.ok) {
+      bag.error(path, '', 'invalid-json', `Cannot parse JSON: ${board.error}`)
+      continue
+    }
+    if (!isObject(board.value) || !isObject(board.value.patientDashboard)) {
+      bag.error(path, '', 'wrong-type',
+        `${path} must be an object with a \`patientDashboard\`, \`tabs\` and \`widgets\`.`)
+      continue
+    }
+    checkLocalized(bag, path, '/patientDashboard/name', board.value.patientDashboard.name, { required: true })
+    const cohortFile = `cohorts/${path.slice(COHORT_BOARDS_DIR.length + 1)}`
+    if (tree.read(cohortFile) === null) {
+      bag.warn(path, '', 'orphan-record',
+        `No ${cohortFile}: a board belongs to the cohort of the same key, and this one has none — it is not imported.`,
+        `rename it after an existing cohort file, or remove it`)
+    }
+  }
+}
+
 /** One cohort file. */
 export function validateCohort(
   bag: IssueBag,

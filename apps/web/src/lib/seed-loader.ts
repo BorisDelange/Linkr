@@ -21,9 +21,9 @@ import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import {
-  attachTreeIds, cohortKey, parseSourceConceptIdEntries, patientDashboardKey, reassemblePresetMapping,
-  resolveDashboardBundle, slugify,
-  type CompactSourceConceptIdEntries, type DashboardBundle,
+  COHORT_BOARDS_DIR, attachTreeIds, createCohortBoard, parseSourceConceptIdEntries, patientDashboardKey,
+  projectCohortBoardKeyId, reassemblePresetMapping, resolveDashboardBundle, slugify,
+  type CohortBoardBundle, type CompactSourceConceptIdEntries, type DashboardBundle,
 } from '@/lib/entity-io'
 import i18n from '@/lib/i18n'
 import { beginSeedPhase, reportSeedStep, endSeed } from '@/lib/seed-progress'
@@ -385,15 +385,25 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
   // repo then land on the same row.
   const keyId = (key: string): string => deterministicId(projectUid, key)
 
-  // --- Cohorts ---
+  // --- Cohorts, each with its own board ---
+  // The key is the filename, as for the ZIP import: it is what tells two cohorts
+  // sharing a name apart, and what names the cohort's board.
+  const cohortBoardFiles = new Set(projectIndex?.cohortBoards ?? [])
   for (const path of projectIndex?.cohorts ?? []) {
     const cohort = await fetchJson<import('@/types').Cohort>(`${base}/cohorts/${path}`)
     if (!cohort) continue
-    await storage.cohorts.create({
-      ...cohort,
-      id: cohort.id || keyId(cohortKey(cohort)),
+    const key = path.replace(/\.json$/, '')
+    const id = cohort.id || keyId(key)
+    const created = await storage.cohorts.create({ ...cohort, id, projectUid })
+      .then(() => true, (err) => { console.error(`[seed-loader] cohort ${path}:`, err); return false })
+    if (!created || !cohortBoardFiles.has(path)) continue
+    const board = await fetchJson<CohortBoardBundle>(`${base}/${COHORT_BOARDS_DIR}${path}`)
+    if (!board?.patientDashboard) continue
+    await createCohortBoard(storage, board, projectCohortBoardKeyId(projectUid, key), {
       projectUid,
-    }).catch((err) => console.error(`[seed-loader] cohort ${path}:`, err))
+      ownerCohortId: id,
+      dataSourceId: cohort.dataSourceId,
+    }).catch((err) => console.error(`[seed-loader] cohort board ${path}:`, err))
   }
 
   // --- Connections (databases/) ---
@@ -1770,12 +1780,18 @@ async function attachSeededEntityLinks(wsId: string): Promise<void> {
     // are reached through it. Their `dataSourceRef` is stripped of local ids like
     // every other pointer — unresolved, a board opens with an empty database.
     for (const project of inWorkspace(await storage.projects.getAll())) {
+      const cohortDatabase = new Map<string, string>()
       for (const cohort of await storage.cohorts.getByProject(project.uid)) {
         const dataSourceId = link(cohort.dataSourceRef, cohort.dataSourceId)
         if (dataSourceId) await storage.cohorts.update(cohort.id, { dataSourceId }).catch(() => {})
+        const resolved = dataSourceId ?? cohort.dataSourceId
+        if (resolved) cohortDatabase.set(cohort.id, resolved)
       }
+      // A cohort's board carries no pointer: it reads the database its cohort runs on.
       for (const board of await storage.patientDashboards.getByProject(project.uid)) {
-        const dataSourceId = link(board.dataSourceRef, board.dataSourceId)
+        const dataSourceId = board.ownerCohortId
+          ? (board.dataSourceId ? undefined : cohortDatabase.get(board.ownerCohortId))
+          : link(board.dataSourceRef, board.dataSourceId)
         if (dataSourceId) await storage.patientDashboards.update(board.id, { dataSourceId }).catch(() => {})
       }
     }

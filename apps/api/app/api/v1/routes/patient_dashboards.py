@@ -155,8 +155,18 @@ async def create_dashboard(
         if any(b.owner_cohort_id == cohort.id for b in boards):
             raise HTTPException(status.HTTP_409_CONFLICT, "this cohort already has its patient board")
         body.data_source_id = body.owner_data_source_id
-    else:
-        body.owner_cohort_id = None
+    elif body.owner_cohort_id:
+        # A project cohort's board: its own, not one of the project's boards —
+        # one per cohort, reading the database the cohort runs on.
+        cohort = await db.get(Cohort, body.owner_cohort_id)
+        if cohort is None or cohort.project_uid != body.project_uid:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "a project's cohort board belongs to one of its cohorts"
+            )
+        boards = await patient_dashboard_service.list_for_project(db, body.project_uid)
+        if any(b.owner_cohort_id == cohort.id for b in boards):
+            raise HTTPException(status.HTTP_409_CONFLICT, "this cohort already has its patient board")
+        body.data_source_id = cohort.data_source_id or body.data_source_id
     return await patient_dashboard_service.create(db, body)
 
 

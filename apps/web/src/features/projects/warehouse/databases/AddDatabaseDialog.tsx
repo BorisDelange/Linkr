@@ -72,6 +72,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { foldAccents } from '@/lib/fold-accents'
 
 type DbTab = 'general' | 'connection' | 'metadata' | 'attribution'
 
@@ -844,7 +845,7 @@ export function AddDatabaseDialog({
                     <Input
                       value={alias}
                       onChange={(e) => {
-                        setAlias(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+                        setAlias(foldAccents(e.target.value).toLowerCase().replace(/[^a-z0-9_]/g, '_'))
                         setAliasManuallyEdited(true)
                       }}
                       placeholder="mimic_iv_raw"

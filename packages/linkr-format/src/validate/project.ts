@@ -9,7 +9,7 @@ import { IssueBag, type Issue } from '../issue.js'
 import { readJson, type EntityTree } from '../tree.js'
 import { validateDashboards } from './dashboards.js'
 import { validateDatasets } from './datasets.js'
-import { validateCohortFiles } from './records.js'
+import { validateCohortBoardFiles, validateCohortFiles } from './records.js'
 import { validateScripts } from './scripts.js'
 import { checkEmptyBadges, manifestPath } from './entities.js'
 
@@ -22,6 +22,7 @@ export function validateProject(tree: EntityTree): Issue[] {
   validateDashboards(tree, bag, datasets)
   validateScripts(tree, bag)
   validateCohortFiles(tree, bag)
+  validateCohortBoardFiles(tree, bag)
 
   return bag.all()
 }

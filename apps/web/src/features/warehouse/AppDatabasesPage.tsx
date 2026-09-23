@@ -55,6 +55,7 @@ import { findLineageMatch } from '@/lib/import-identity'
 import { DatabaseCard } from '@/features/projects/warehouse/databases/DatabaseCard'
 import { AddDatabaseDialog } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
 import { DatabaseDetailPage } from '@/features/projects/warehouse/databases/DatabaseDetailPage'
+import { foldAccents } from '@/lib/fold-accents'
 
 const DATA_SOURCE_STATUSES = ['connected', 'disconnected', 'error', 'configuring'] as const
 const STATUS_DOT: Record<string, string> = {
@@ -222,7 +223,7 @@ function CreateFromPresetDialog({
                 id={id}
                 value={alias}
                 onChange={(e) => {
-                  setAlias(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+                  setAlias(foldAccents(e.target.value).toLowerCase().replace(/[^a-z0-9_]/g, '_'))
                   setAliasManuallyEdited(true)
                 }}
                 placeholder="mimic_iv_raw"

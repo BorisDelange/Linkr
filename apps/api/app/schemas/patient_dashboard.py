@@ -7,8 +7,9 @@ from app.schemas.base import CamelModel
 # old localStorage store may carry a bare string — accept both so imports don't 422.
 class PatientDashboardCreate(CamelModel):
     id: str
-    # Exactly one owner: a project, or a database — then for one of its cohorts
-    # (`owner_cohort_id`), whose patients the board reviews.
+    # Exactly one owner: a project, or a database. A database's board is for one
+    # of its cohorts (`owner_cohort_id`), whose patients it reviews; a project's
+    # may be too — then that cohort's own board, not a Patient data board.
     project_uid: str | None = None
     owner_data_source_id: str | None = None
     owner_cohort_id: str | None = None

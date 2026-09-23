@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { Loader2, RefreshCw } from 'lucide-react'
 import {
   AlertDialog,
@@ -28,10 +29,10 @@ import { Label } from '@/components/ui/label'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { fetchDerivePlan, type DerivePlanTable } from '@/lib/api/data-sources'
-import type { Job } from '@/lib/api/environments'
 import { generateAlias } from '@/lib/duckdb/engine'
 import { formatDateTime } from '@/lib/format-helpers'
 import { localized, toLocalized } from '@/lib/localized'
+import { paths } from '@/lib/paths'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import type { Cohort, CohortDerivation, DataSource } from '@/types'
 import {
@@ -63,6 +64,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const deriveIntoNewDatabase = useDataSourceStore((s) => s.deriveIntoNewDatabase)
   const runDerivation = useDataSourceStore((s) => s.runDerivation)
+  const navigate = useNavigate()
 
   const cohortName = localized(cohort.name, i18n.language)
   const targets = useMemo(
@@ -110,7 +112,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   // The copy runs as a job of the workspace: once it is queued there is nothing
   // left to do here, and the footer's jobs panel follows it. Only a refusal
   // (a name taken, a database that does not allow writes) keeps the dialog open.
-  const run = async (go: () => Promise<Job>) => {
+  const run = async (go: () => Promise<unknown>) => {
     setBusy(true)
     setError(null)
     try {
@@ -126,12 +128,18 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
     if (!canConfirm) return
     const base = { cohort, cohortKey, source, copyPersonless }
     if (kind === 'new-database') {
-      void run(() => deriveIntoNewDatabase({
-        parentId: source.id,
-        name: toLocalized(name.trim()),
-        path: databaseLocationPath(location),
-        request: derivationRequest({ ...base, target: 'new-database' }),
-      }))
+      // To the new database straight away: it reads "being set up" until the
+      // job ends, then connects in place.
+      void run(async () => {
+        const { dataSourceId } = await deriveIntoNewDatabase({
+          parentId: source.id,
+          name: toLocalized(name.trim()),
+          path: databaseLocationPath(location),
+          request: derivationRequest({ ...base, target: 'new-database' }),
+        })
+        const ids = useDataSourceStore.getState().dataSources.map((d) => d.id)
+        navigate(paths.warehouseDatabase(source.workspaceId ?? '', dataSourceId, ids))
+      })
       return
     }
     void run(() => runDerivation(source.id, {

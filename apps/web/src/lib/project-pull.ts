@@ -23,9 +23,11 @@ import { gitCloneToZip, gitSetSyncState } from '@/lib/api/git'
 import { cleanGitUrl } from '@/lib/git-clone'
 import { entityDocsChanged, entityDocsChanges, presentReadme } from '@/lib/entity-docs-pull'
 import { resolveProjectPointers, type PointerRef } from '@/lib/import-identity'
+import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import {
   parseProjectZip,
   importProjectContent,
+  patientBoardBundle,
   slugify,
   stripInstanceFields,
   type ParsedProjectZip,
@@ -236,12 +238,19 @@ export async function prepareProjectPull(
     storage.patientDashboards.getByProject(projectUid),
   ])
 
+  // A cohort's own board is part of the cohort (its changes offer the cohort,
+  // below), not one of the Patient data boards this group offers.
+  const localCohortBoards = localPatientBoards.filter((d) => d.ownerCohortId)
+  const localPatientBoardKeys = new Set(
+    localPatientBoards.filter((d) => !d.ownerCohortId).map(patientDashboardNaturalKey),
+  )
+  const localDatasetIds = new Set(localDatasets.map((f) => f.id))
+
   // Keyed by natural key, and holding the row itself: an entity present on both
   // sides still has to be compared before it is offered as an "update".
   const localCohortByKey = new Map(localCohorts.map((c) => [cohortNaturalKey(c), c] as const))
   const localPipelineByKey = new Map(localPipelines.map((p) => [pipelineNaturalKey(p), p] as const))
   const localDashKeys = new Set(localDashboards.map(dashboardNaturalKey))
-  const localPatientBoardKeys = new Set(localPatientBoards.map(patientDashboardNaturalKey))
   const localScriptById = new Map(localScripts.map((f) => [f.id, f]))
   const localScriptByPath = new Map(
     localScripts
@@ -269,12 +278,19 @@ export async function prepareProjectPull(
   // Like the scripts below: an entity identical to the remote is dropped rather
   // than offered as an overwrite of itself, or every push came straight back as a
   // pull of everything it had just sent.
-  const cohorts: PullItem[] = parsed.cohorts
-    .map((c) => ({ c, key: cohortNaturalKey(c) }))
-    .filter(({ c, key }) => {
-      const local = localCohortByKey.get(key)
-      return !local || !sameExported(local, c)
-    })
+  // A cohort's board travels with it: a board changed upstream offers its cohort.
+  const localBoardShape = async (cohort: Cohort | undefined): Promise<string> => {
+    const board = cohort && localCohortBoards.find((d) => d.ownerCohortId === cohort.id)
+    return board ? stableJson(await patientBoardBundle(board, storage, (id) => localDatasetIds.has(id))) : 'null'
+  }
+  const cohortCandidates = await Promise.all(parsed.cohorts.map(async (c) => {
+    const key = cohortNaturalKey(c)
+    const local = localCohortByKey.get(key)
+    const remoteBoard = stableJson(parsed.cohortBoards?.get(c.exportKey ?? key) ?? null)
+    return { c, key, changed: !local || !sameExported(local, c) || (await localBoardShape(local)) !== remoteBoard }
+  }))
+  const cohorts: PullItem[] = cohortCandidates
+    .filter(({ changed }) => changed)
     .map(({ c, key }) => ({ key, label: localizedEn(c.name) || key, exists: localCohortByKey.has(key) }))
   const pipeline: PullItem[] = parsed.pipelines
     .map((p) => ({ p, key: pipelineNaturalKey(p) }))
@@ -563,7 +579,7 @@ async function deleteOverwrittenEntities(
   if (sel.patientDashboards.size) {
     const local = await storage.patientDashboards.getByProject(projectUid)
     for (const d of local) {
-      if (!sel.patientDashboards.has(patientDashboardNaturalKey(d))) continue
+      if (d.ownerCohortId || !sel.patientDashboards.has(patientDashboardNaturalKey(d))) continue
       // Same teardown order as a dashboard: widgets, then tabs, then the board —
       // the import loops are insert-only, so a leftover child collides on its
       // deterministic id.
@@ -576,7 +592,11 @@ async function deleteOverwrittenEntities(
   if (sel.cohorts.size) {
     const local = await storage.cohorts.getByProject(projectUid)
     for (const c of local) {
-      if (sel.cohorts.has(cohortNaturalKey(c))) await storage.cohorts.delete(c.id)
+      if (!sel.cohorts.has(cohortNaturalKey(c))) continue
+      // Its board is replaced with it, from the tree (or dropped, if the tree has
+      // none). The server would cascade; the browser's storage would not.
+      await deleteCohortBoard(storage, c)
+      await storage.cohorts.delete(c.id)
     }
   }
   if (sel.pipeline.size) {

@@ -775,13 +775,19 @@ export async function importWorkspaceTree(
     const localIdFor = (ref: DataSourceRef | undefined) =>
       ref ? resolvePointer(storedDatabases, ref, targetWsId)?.id : undefined
     for (const uid of importedProjectUids) {
+      const cohortDatabase = new Map<string, string>()
       for (const cohort of await storage.cohorts.getByProject(uid).catch(() => [])) {
         const id = localIdFor(cohort.dataSourceRef)
         if (id) await storage.cohorts.update(cohort.id, { dataSourceId: id }).catch(() => {})
+        const resolved = id ?? cohort.dataSourceId
+        if (resolved) cohortDatabase.set(cohort.id, resolved)
       }
+      // A cohort's board carries no pointer: it reads the database its cohort runs on.
       for (const board of await storage.patientDashboards.getByProject(uid).catch(() => [])) {
-        const id = localIdFor(board.dataSourceRef)
-        if (id) await storage.patientDashboards.update(board.id, { dataSourceId: id }).catch(() => {})
+        const id = board.ownerCohortId ? cohortDatabase.get(board.ownerCohortId) : localIdFor(board.dataSourceRef)
+        if (id && id !== board.dataSourceId) {
+          await storage.patientDashboards.update(board.id, { dataSourceId: id }).catch(() => {})
+        }
       }
     }
   }

@@ -103,13 +103,13 @@ interface PatientChartState {
 
   loadProjectDashboards: (projectUid: string) => Promise<void>
   /**
-   * Load a database cohort's board (at most one), under `cohortBoardKey(id)` —
-   * the key its selection and `activeProjectUid` then go by. Creates nothing:
-   * a viewer may open a cohort whose board nobody has configured yet.
+   * Load a cohort's own board (at most one), under `cohortBoardKey(id)` — the
+   * key its active board and `activeProjectUid` then go by. Creates nothing: a
+   * viewer may open a cohort whose board nobody has configured yet.
    */
-  loadCohortBoard: (dataSourceId: string, cohortId: string) => Promise<void>
+  loadCohortBoard: (owner: CohortBoardOwner, cohortId: string) => Promise<void>
   /** The cohort's board, created (with a first tab) if it has none. */
-  ensureCohortBoard: (dataSourceId: string, cohortId: string) => Promise<string>
+  ensureCohortBoard: (owner: CohortBoardOwner, cohortId: string) => Promise<string>
 
   // Selection actions (cascade resets)
   setSelectedCohort: (projectUid: string, cohortId: string | null) => void
@@ -367,15 +367,31 @@ async function loadBoardContents(dashboards: PatientDashboard[]): Promise<{
 
 /**
  * The key a board's owner goes by in the store's per-owner maps (selection,
- * active board, `activeProjectUid`). A project's uid; for a database cohort's
- * board a prefixed id, which no project uid can collide with.
+ * active board, `activeProjectUid`). A project's uid; for a cohort's own board
+ * — a database's or a project's cohort — a prefixed id, which no project uid
+ * can collide with.
  */
 export function cohortBoardKey(cohortId: string): string {
   return `cohort:${cohortId}`
 }
 
 function boardOwnerKey(board: PatientDashboard): string {
-  return board.projectUid ?? cohortBoardKey(board.ownerCohortId ?? '')
+  return board.ownerCohortId ? cohortBoardKey(board.ownerCohortId) : (board.projectUid ?? '')
+}
+
+/**
+ * Where a cohort's board lives: under its database (`dataSourceId` alone), or
+ * under its project (`projectUid`) — then still reading `dataSourceId`, the
+ * database the cohort runs on.
+ */
+export interface CohortBoardOwner {
+  dataSourceId: string
+  projectUid?: string
+}
+
+/** One of the project's Patient data boards — not one of its cohorts' own. */
+export function isProjectBoard(board: PatientDashboard, projectUid: string): boolean {
+  return board.projectUid === projectUid && !board.ownerCohortId
 }
 
 // ---------------------------------------------------------------------------
@@ -403,10 +419,12 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
     try {
       set({ loadError: null })
       const storage = getStorage()
-      let dashboards = await storage.patientDashboards.getByProject(projectUid)
+      const stored = await storage.patientDashboards.getByProject(projectUid)
+      // The project's cohorts' own boards are theirs, shown with the cohort.
+      let dashboards = stored.filter((d) => !d.ownerCohortId)
 
       // Nothing server-side yet: adopt whatever the old localStorage store held.
-      if (dashboards.length === 0) {
+      if (stored.length === 0) {
         const migrated = await migrateLegacyProject(projectUid)
         if (migrated) {
           set((s) => ({
@@ -448,12 +466,15 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
     }
   },
 
-  loadCohortBoard: async (dataSourceId, cohortId) => {
+  loadCohortBoard: async (owner, cohortId) => {
     const key = cohortBoardKey(cohortId)
     if (get().activeProjectUid === key && get().loaded) return
     try {
       set({ loadError: null })
-      const dashboards = (await getStorage().patientDashboards.getByDatabase(dataSourceId))
+      const storage = getStorage().patientDashboards
+      const dashboards = (await (owner.projectUid
+        ? storage.getByProject(owner.projectUid)
+        : storage.getByDatabase(owner.dataSourceId)))
         .filter((d) => d.ownerCohortId === cohortId)
       const { tabs, widgets } = await loadBoardContents(dashboards)
       set((s) => ({
@@ -472,7 +493,7 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
     }
   },
 
-  ensureCohortBoard: async (dataSourceId, cohortId) => {
+  ensureCohortBoard: async (owner, cohortId) => {
     const key = cohortBoardKey(cohortId)
     const existing = get().dashboards.find((d) => d.ownerCohortId === cohortId)
     if (existing) return existing.id
@@ -481,9 +502,9 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
     const lang = useAppStore.getState().language
     const dashboard: PatientDashboard = {
       id,
-      ownerDataSourceId: dataSourceId,
+      ...(owner.projectUid ? { projectUid: owner.projectUid } : { ownerDataSourceId: owner.dataSourceId }),
       ownerCohortId: cohortId,
-      dataSourceId,
+      dataSourceId: owner.dataSourceId,
       name: setLocalized({}, lang, i18n.t('patient_data.database_board_name')),
       displayOrder: 0,
       version: '0.1.0',
@@ -543,7 +564,7 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
   createDashboard: async (projectUid, name, description, database) => {
     const id = uid()
     const now = new Date().toISOString()
-    const existing = get().dashboards.filter((d) => d.projectUid === projectUid)
+    const existing = get().dashboards.filter((d) => isProjectBoard(d, projectUid))
     // Written into the ACTIVE language only. toLocalized would copy the same
     // string into every language, so a board named in French would then read
     // identically in English with no way to tell it was never translated.
@@ -592,7 +613,7 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
     const source = state.dashboards.find((d) => d.id === dashboardId)
     if (!source) return null
 
-    const siblings = state.dashboards.filter((d) => d.projectUid === source.projectUid)
+    const siblings = state.dashboards.filter((d) => boardOwnerKey(d) === boardOwnerKey(source))
     const now = new Date().toISOString()
     const clone: PatientDashboard = {
       ...structuredClone(source),

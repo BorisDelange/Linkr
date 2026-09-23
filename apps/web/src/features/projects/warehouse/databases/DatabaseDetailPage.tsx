@@ -809,8 +809,10 @@ function OverviewTab({
   // import recorded a reason (or by a path that never did) is disconnected and
   // silent, and gating the banner on the message made the ONLY action that can
   // fix it unreachable — the user had to delete the database and recreate it.
-  const canRebuild = source.status !== 'connected' && !!source.schemaMapping?.ddl
-  const showStatusBanner = source.status !== 'connected' && (!!source.errorMessage || canRebuild)
+  // Not while it is being set up: a derivation job may be writing that file.
+  const configuring = source.status === 'configuring'
+  const canRebuild = source.status !== 'connected' && !configuring && !!source.schemaMapping?.ddl
+  const showStatusBanner = source.status !== 'connected' && (configuring || !!source.errorMessage || canRebuild)
   // Cards show a dash rather than a zero (which would read as "empty"), so
   // without a word here the tab looked like a database with nothing in it.
   // Not while the status banner is up: a database that cannot connect has no
@@ -870,18 +872,27 @@ function OverviewTab({
           a database left disconnected by a data-free import has something to say
           too, and gating this on 'error' alone made those states silent. */}
       {showStatusBanner && (
-        <div className={`col-span-full shrink-0 rounded-lg border px-4 py-3 ${
-          source.status === 'error'
-            ? 'border-destructive/30 bg-destructive/5'
-            : 'border-amber-500/30 bg-amber-500/5'
-        }`}>
-          <p className={`text-xs font-medium ${source.status === 'error' ? 'text-destructive' : 'text-amber-700 dark:text-amber-400'}`}>
-            {t(source.status === 'error' ? 'databases.detail_error' : 'databases.detail_not_connected')}
+        <div className={cn('col-span-full shrink-0 rounded-lg border px-4 py-3',
+          source.status === 'error' ? 'border-destructive/30 bg-destructive/5'
+            : configuring ? 'bg-muted/40'
+              : 'border-amber-500/30 bg-amber-500/5',
+        )}>
+          <p className={cn('flex items-center gap-1.5 text-xs font-medium',
+            source.status === 'error' ? 'text-destructive' : configuring ? 'text-foreground' : 'text-amber-700 dark:text-amber-400',
+          )}>
+            {configuring && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
+            {t(source.status === 'error' ? 'databases.detail_error'
+              : configuring ? 'databases.detail_configuring' : 'databases.detail_not_connected')}
           </p>
-          <p className={`mt-1 break-all text-xs ${source.status === 'error' ? 'font-mono text-destructive/80' : 'text-amber-700/80 dark:text-amber-400/80'}`}>
-            {!source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
-              ? t('databases.imported_without_data')
-              : source.errorMessage}
+          <p className={cn('mt-1 text-xs',
+            source.status === 'error' ? 'break-all font-mono text-destructive/80'
+              : configuring ? 'text-muted-foreground' : 'break-all text-amber-700/80 dark:text-amber-400/80',
+          )}>
+            {configuring && (!source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT)
+              ? t('databases.detail_configuring_hint')
+              : !source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
+                ? t('databases.imported_without_data')
+                : source.errorMessage}
           </p>
           {/* A database built from a schema carries its DDL but never its tables —
               the export leaves the DuckDB file behind on purpose. Offer the one
@@ -901,7 +912,7 @@ function OverviewTab({
                     carry every row it was loaded with. */}
                 <Button
                   size="sm"
-                  variant="outline"
+                  variant="destructive"
                   onClick={() => setConfirmRebuild(true)}
                   disabled={rebuilding || retesting}
                 >
@@ -949,7 +960,7 @@ function OverviewTab({
             {t('databases.stats_not_computed_hint')}
           </p>
           <div className="mt-2">
-            <Button size="sm" variant="outline" onClick={refreshStats} disabled={statsLoading}>
+            <Button size="sm" onClick={refreshStats} disabled={statsLoading}>
               <BarChart3 size={14} className="mr-1.5" />
               {t('databases.load_statistics')}
             </Button>

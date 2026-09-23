@@ -15,7 +15,7 @@ import {
   TooltipProvider,
 } from '@/components/ui/tooltip'
 import { useProjectSource } from '@/stores/data-source-store'
-import { usePatientChartStore } from '@/stores/patient-chart-store'
+import { isProjectBoard, usePatientChartStore } from '@/stores/patient-chart-store'
 import { PatientChartContext } from './patient-data/PatientChartContext'
 import { PatientChartTabBar } from './patient-data/PatientChartTabBar'
 import { PatientChartGrid } from './patient-data/PatientChartGrid'
@@ -156,7 +156,7 @@ export function PatientDataPage() {
   ])
 
   const projectBoards = dashboards
-    .filter((d) => d.projectUid === projectUid)
+    .filter((d) => isProjectBoard(d, projectUid))
     .sort((a, b) => a.displayOrder - b.displayOrder)
   // The URL carries a short id prefix (see short-id.ts), so resolve it against the
   // project's boards rather than matching the raw param.

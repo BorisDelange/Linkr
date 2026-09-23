@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
+import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { toLocalized } from '@/lib/localized'
@@ -347,19 +348,9 @@ export const useCohortStore = create<CohortState>((set, get) => ({
 
   removeCohort: async (id) => {
     const cohort = get().cohorts.find((c) => c.id === id)
-    // A database cohort's board goes with it. The server cascades; the browser's
-    // storage has no foreign keys, so it is removed here (a no-op server-side).
-    if (cohort?.ownerDataSourceId && !isServerMode()) {
-      const storage = getStorage()
-      const boards = await storage.patientDashboards.getByDatabase(cohort.ownerDataSourceId).catch(() => [])
-      for (const board of boards.filter((b) => b.ownerCohortId === id)) {
-        for (const tab of await storage.patientDashboardTabs.getByDashboard(board.id).catch(() => [])) {
-          await storage.patientDashboardWidgets.deleteByTab(tab.id).catch(() => {})
-        }
-        await storage.patientDashboardTabs.deleteByDashboard(board.id).catch(() => {})
-        await storage.patientDashboards.delete(board.id).catch(() => {})
-      }
-    }
+    // The cohort's board goes with it. The server cascades; the browser's
+    // storage has no foreign keys, so it is removed here.
+    if (cohort && !isServerMode()) await deleteCohortBoard(getStorage(), cohort)
     await getStorage().cohorts.delete(id)
     set((s) => ({
       cohorts: s.cohorts.filter((c) => c.id !== id),

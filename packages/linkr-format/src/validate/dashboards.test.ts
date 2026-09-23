@@ -260,4 +260,19 @@ describe('validateProject', () => {
     )
     expect(issues).toEqual([])
   })
+
+  it("checks each cohort's board and names one whose cohort is missing", () => {
+    const board = JSON.stringify({ patientDashboard: { name: { en: 'Review' } }, tabs: [], widgets: [] })
+    const tree = (files: Record<string, string>) => new MemoryTree({
+      'project.json': JSON.stringify({ name: { en: 'P' }, projectId: 'p', appVersion: '2.3.3' }),
+      'cohorts/adults.json': JSON.stringify({ name: { en: 'Adults' }, level: 'patient', criteriaTree: { kind: 'group', id: 'root', operator: 'AND', children: [] } }),
+      ...files,
+    })
+    expect(validateProject(tree({ 'cohort-boards/adults.json': board }))
+      .filter((i) => i.path.startsWith('cohort-boards/'))).toEqual([])
+    expect(validateProject(tree({ 'cohort-boards/adults.json': JSON.stringify({ tabs: [] }) }))
+      .some((i) => i.path === 'cohort-boards/adults.json' && i.severity === 'error')).toBe(true)
+    expect(validateProject(tree({ 'cohort-boards/gone.json': board }))
+      .find((i) => i.path === 'cohort-boards/gone.json')?.code).toBe('orphan-record')
+  })
 })

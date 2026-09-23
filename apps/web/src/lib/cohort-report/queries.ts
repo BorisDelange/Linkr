@@ -97,9 +97,15 @@ export function buildIndexSql(
 export function buildAgeSql(indexSql: string, mapping: SchemaMapping): string | null {
   const pt = mapping.patientTable
   if (!pt || (!pt.birthDateColumn && !pt.birthYearColumn)) return null
-  const age = pt.birthDateColumn
+  const fromDate = pt.birthDateColumn
     ? `EXTRACT(YEAR FROM age(CAST(i.index_date AS TIMESTAMP), CAST(${col('p', pt.birthDateColumn)} AS TIMESTAMP)))`
-    : `(EXTRACT(YEAR FROM CAST(i.index_date AS TIMESTAMP)) - ${col('p', pt.birthYearColumn!)})`
+    : null
+  const fromYear = pt.birthYearColumn
+    ? `(EXTRACT(YEAR FROM CAST(i.index_date AS TIMESTAMP)) - ${col('p', pt.birthYearColumn)})`
+    : null
+  // OMOP maps both, and many databases fill only the year (MIMIC-IV leaves
+  // birth_datetime empty): the exact date when present, the year otherwise.
+  const age = fromDate && fromYear ? `COALESCE(${fromDate}, ${fromYear})` : (fromDate ?? fromYear)
   return [
     'SELECT CAST(FLOOR(a.age / 10) * 10 AS INTEGER) AS bin, COUNT(*) AS n',
     'FROM (',

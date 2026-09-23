@@ -230,6 +230,17 @@ describe('buildSeedProjectIndex', () => {
     })
   })
 
+  it('lists cohort boards apart from cohorts', () => {
+    const tree = new MemoryTree({
+      'projects/p/cohorts/adults.json': '{}',
+      'projects/p/cohort-boards/adults.json': '{}',
+    })
+    expect(buildSeedProjectIndex(tree, 'projects/p')).toMatchObject({
+      cohorts: ['adults.json'],
+      cohortBoards: ['adults.json'],
+    })
+  })
+
   it('separates a CSV the loader parses from a raw upload it restores verbatim', () => {
     const tree = new MemoryTree({
       'projects/p/datasets/_tree.json': '[]',

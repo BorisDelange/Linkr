@@ -755,6 +755,8 @@
     "compact_progress": "{{written}} of about {{total}} — {{percent}}%",
     "compact_progress_unknown": "{{written}} written",
     "detail_error": "Error",
+    "detail_configuring": "Being set up",
+    "detail_configuring_hint": "This database is not connected yet. If it is being built from a cohort, the jobs panel in the footer follows the copy, and the database connects on its own once it is done.",
     "detail_not_connected": "Not connected",
     "imported_without_data": "This database was imported without its data: its repository carries none, or its data files could not be downloaded. Edit its connection to point it at the files, or install it again.",
     "rebuild_from_schema": "Recreate from schema",
@@ -1175,8 +1177,7 @@
     "text_not": "NOT",
     "text_exclude_hint": "Exclude notes matching this search",
     "toggle_results": "Show or hide the results",
-    "toggle_builder": "Show or hide the criteria and SQL",
-    "patients_board_empty_description_project": "Add a widget to this project's patient board — the same boards as Patient data."
+    "toggle_builder": "Show or hide the criteria and SQL"
   },
   "datasets": {
     "title": "Datasets",

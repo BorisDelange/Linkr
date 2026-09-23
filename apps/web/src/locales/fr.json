@@ -755,6 +755,8 @@
     "compact_progress": "{{written}} sur environ {{total}} — {{percent}} %",
     "compact_progress_unknown": "{{written}} écrits",
     "detail_error": "Erreur",
+    "detail_configuring": "En cours de configuration",
+    "detail_configuring_hint": "Cette base n'est pas encore connectée. Si elle est en cours de construction depuis une cohorte, le panneau des jobs, en pied de page, suit la copie : la base se connecte d'elle-même une fois terminée.",
     "detail_not_connected": "Non connectée",
     "imported_without_data": "Cette base a été importée sans ses données : son dépôt n'en contient pas, ou ses fichiers de données n'ont pas pu être téléchargés. Modifiez sa connexion pour la pointer vers les fichiers, ou réinstallez-la.",
     "rebuild_from_schema": "Recréer depuis le schéma",
@@ -1175,8 +1177,7 @@
     "text_not": "NON",
     "text_exclude_hint": "Exclure les documents correspondant à cette recherche",
     "toggle_results": "Afficher ou masquer les résultats",
-    "toggle_builder": "Afficher ou masquer les critères et le SQL",
-    "patients_board_empty_description_project": "Ajoutez un widget à la board patients du projet — les mêmes boards que dans Patient data."
+    "toggle_builder": "Afficher ou masquer les critères et le SQL"
   },
   "datasets": {
     "title": "Jeux de données",

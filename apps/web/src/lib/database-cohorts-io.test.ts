@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import JSZip from 'jszip'
-import { buildDataSourceFolder, readDatabaseBoards, readDatabaseCohorts, replaceDatabaseBoards, replaceDatabaseCohorts } from './entity-io'
+import { buildDataSourceFolder, readCohortBoards, readDatabaseCohorts, replaceDatabaseBoards, replaceDatabaseCohorts } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import type { Storage } from '@/lib/storage'
 import type { Cohort, DataSource } from '@/types'
@@ -140,7 +140,7 @@ describe('database patient board — import', () => {
     zip.file('cohort-boards/adults.json', bundle('Stay'))
     zip.file('cohort-boards/icu.json', bundle('ICU stay'))
     zip.file('cohort-boards/nested/ignored.json', bundle('x'))
-    await replaceDatabaseBoards(storage, 'db1', await readDatabaseBoards(zip, ''))
+    await replaceDatabaseBoards(storage, 'db1', await readCohortBoards(zip, ''))
 
     const boardId = deterministicId('db1', 'adults/cohort-review')
     expect([...boards.keys()].sort()).toEqual([boardId, deterministicId('db1', 'icu/cohort-review')].sort())
@@ -151,6 +151,6 @@ describe('database patient board — import', () => {
   })
 
   it('leaves the local board alone when the tree has none', async () => {
-    await expect(replaceDatabaseBoards({} as Storage, 'db1', await readDatabaseBoards(new JSZip(), ''))).resolves.toBeUndefined()
+    await expect(replaceDatabaseBoards({} as Storage, 'db1', await readCohortBoards(new JSZip(), ''))).resolves.toBeUndefined()
   })
 })

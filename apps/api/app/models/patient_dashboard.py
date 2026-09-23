@@ -16,7 +16,10 @@ class PatientDashboard(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     # Exactly one owner, as for cohorts: a project, or a database. A database's
     # boards are its cohorts' — one per cohort (`owner_cohort_id`), each the lens
-    # that cohort's patients are reviewed through. The routes enforce both rules.
+    # that cohort's patients are reviewed through. A project holds its Patient data
+    # boards (no `owner_cohort_id`) and, beside them, one board per project cohort
+    # (`owner_cohort_id` set, a cohort of that project), which is not one of the
+    # Patient data boards. The routes enforce these rules.
     project_uid: Mapped[str | None] = mapped_column(
         ForeignKey("projects.uid", ondelete="CASCADE")
     )

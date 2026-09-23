@@ -50,6 +50,11 @@ import type { Plugin, PluginConfigField } from '@/types/plugin'
  */
 const ADD_PREVIEW_LAYOUT = { w: 26, h: 15 }
 
+/** Where a widget lands on a full-width board — and what its preview shows there. */
+function fullWidthLayout(pluginId: string): { w: number; h: number } {
+  return { w: PATIENT_GRID_COLS, h: Math.max(defaultPatientWidgetLayout(pluginId).h, 20) }
+}
+
 /** Share of the split taken by the config pane, on open and on sash double-click. */
 const CONFIG_PANE_FRACTION = 0.4
 
@@ -80,9 +85,7 @@ export function AddPatientWidgetDialog({
   const lang = i18n.language as 'en' | 'fr'
   const storeAddWidget = usePatientChartStore((s) => s.addWidget)
   const addWidget: typeof storeAddWidget = (tab, pluginId, name, config, language) => {
-    const size = fullWidth
-      ? { w: PATIENT_GRID_COLS, h: Math.max(defaultPatientWidgetLayout(pluginId).h, 20) }
-      : undefined
+    const size = fullWidth ? fullWidthLayout(pluginId) : undefined
     storeAddWidget(tab, pluginId, name, config, language, size)
   }
 
@@ -291,7 +294,10 @@ export function AddPatientWidgetDialog({
                       pluginId={configPlugin.manifest.id}
                       widgetId={previewWidgetId}
                       config={debouncedConfig}
-                      layout={ADD_PREVIEW_LAYOUT}
+                      // On a board about half a project's width, 26 of its 48
+                      // columns previewed a quarter-screen widget: show the one it
+                      // lands as instead, which is a project preview's size.
+                      layout={fullWidth ? fullWidthLayout(configPlugin.manifest.id) : ADD_PREVIEW_LAYOUT}
                       widgetSpacing={widgetSpacing}
                       fitToHeight={fitToHeight}
                     />
