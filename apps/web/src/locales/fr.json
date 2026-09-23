@@ -3297,9 +3297,9 @@
       }
     },
     "action": {
-      "created": "ajout par {{source}}",
-      "updated": "modification par {{source}}",
-      "deleted": "suppression par {{source}}"
+      "created": "Ajout par {{source}}",
+      "updated": "Modification par {{source}}",
+      "deleted": "Suppression par {{source}}"
     }
   },
   "jobs": {

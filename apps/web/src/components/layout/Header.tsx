@@ -346,7 +346,7 @@ export function Header() {
       trigger={
         <Badge
           variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
           aria-label={t('common.actions')}
         >
           <Puzzle size={10} className="text-muted-foreground" />
@@ -368,7 +368,7 @@ export function Header() {
       trigger={
         <Badge
           variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
           aria-label={t('common.actions')}
         >
           <ArrowRightLeft size={10} className="text-muted-foreground" />
@@ -388,7 +388,7 @@ export function Header() {
       trigger={
         <Badge
           variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
           aria-label={t('common.actions')}
         >
           <LayoutDashboard size={10} className="text-muted-foreground" />
@@ -408,7 +408,7 @@ export function Header() {
       trigger={
         <Badge
           variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
           aria-label={t('common.actions')}
         >
           <UsersRound size={10} className="text-muted-foreground" />
@@ -428,7 +428,7 @@ export function Header() {
       trigger={
         <Badge
           variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
           aria-label={t('common.actions')}
         >
           <User size={10} className="text-muted-foreground" />
@@ -455,7 +455,7 @@ export function Header() {
       trigger={
         <Badge
           variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
           aria-label={t('common.actions')}
         >
           <Workflow size={10} className="text-muted-foreground" />
@@ -479,7 +479,7 @@ export function Header() {
       trigger={
         <Badge
           variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
           aria-label={t('common.actions')}
         >
           <SquareTerminal size={10} className="text-muted-foreground" />
@@ -503,7 +503,7 @@ export function Header() {
       trigger={
         <Badge
           variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
           aria-label={t('common.actions')}
         >
           <BookOpen size={10} className="text-muted-foreground" />
@@ -527,7 +527,7 @@ export function Header() {
       trigger={
         <Badge
           variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
           aria-label={t('common.actions')}
         >
           <ShieldCheck size={10} className="text-muted-foreground" />
@@ -554,7 +554,7 @@ export function Header() {
       trigger={
         <Badge
           variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
           aria-label={t('common.actions')}
         >
           <FileSpreadsheet size={10} className="text-muted-foreground" />
@@ -591,7 +591,7 @@ export function Header() {
       trigger={
         <Badge
           variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
           aria-label={t('common.actions')}
         >
           <DatabaseIcon size={10} className="text-muted-foreground" />
