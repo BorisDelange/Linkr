@@ -5,7 +5,9 @@ from app.schemas.base import CamelModel
 
 class CohortCreate(CamelModel):
     id: str
-    project_uid: str
+    # Exactly one owner: a project, or a database (the database page's cohorts).
+    project_uid: str | None = None
+    owner_data_source_id: str | None = None
     # LocalizedString. `str` is still accepted so older clients and seed
     # manifests that post a bare name keep working (LocalizedText reads it back).
     name: dict | str = ""
@@ -44,7 +46,8 @@ class CohortUpdate(CamelModel):
 
 class CohortResponse(CamelModel):
     id: str
-    project_uid: str
+    project_uid: str | None = None
+    owner_data_source_id: str | None = None
     name: dict | str
     description: dict | str | None = None
     data_source_id: str | None = None

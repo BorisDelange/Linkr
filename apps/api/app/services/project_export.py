@@ -54,6 +54,7 @@ _INSTANCE_FIELDS = (
     "organizationId",
     "updatedAt",
     "projectUid",
+    "ownerDataSourceId",
     "linkedDataSourceIds",
     # Machine-local server-path bindings — never travel with an export.
     "idePath",

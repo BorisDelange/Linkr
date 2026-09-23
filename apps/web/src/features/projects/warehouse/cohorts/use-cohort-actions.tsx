@@ -40,6 +40,7 @@ export function useCohortActions(): CohortActions {
         }}
         workspaceId={workspaceId ?? undefined}
         projectUid={item.projectUid}
+        ownerDataSourceId={item.ownerDataSourceId}
         onSubmit={(data) => { updateCohort(item.id, data) }}
       />
     ),

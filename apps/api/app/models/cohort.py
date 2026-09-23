@@ -5,16 +5,23 @@ from app.models.base import JSONB_or_JSON, Base, LocalizedText, TimestampMixin
 
 
 class Cohort(Base, TimestampMixin):
-    """A project's cohort definition: a criteria tree (JSON) plus optional SQL
-    override. Cached execution results (count/attrition) are stored but derived —
-    recomputed on demand."""
+    """A cohort definition: a criteria tree (JSON) plus optional SQL override.
+    Cached execution results (count/attrition) are stored but derived —
+    recomputed on demand.
+
+    Owned by exactly one of a project (`project_uid`) or a database
+    (`owner_data_source_id`, the cohorts of the database page); the services
+    enforce the one-owner rule. Deleting the owner deletes the cohort."""
 
     __tablename__ = "cohorts"
 
     # Frontend keys cohorts by client-supplied UUID.
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    project_uid: Mapped[str] = mapped_column(
+    project_uid: Mapped[str | None] = mapped_column(
         ForeignKey("projects.uid", ondelete="CASCADE")
+    )
+    owner_data_source_id: Mapped[str | None] = mapped_column(
+        ForeignKey("data_sources.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[dict] = mapped_column(LocalizedText, default=dict)  # LocalizedString
     description: Mapped[dict | None] = mapped_column(LocalizedText)  # LocalizedString

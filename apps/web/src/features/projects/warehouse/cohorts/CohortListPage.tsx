@@ -2,12 +2,9 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import type { Cohort } from '@/types'
-import { useResolvedParams } from '@/hooks/use-resolved-params'
-import { paths } from '@/lib/paths'
 import { useCohortStore } from '@/stores/cohort-store'
 import { useMemo } from 'react'
 import { UsersRound, Plus } from 'lucide-react'
-import { useMyProjectRole } from '@/hooks/use-context-role'
 import { GatedButton } from '@/components/ui/gated-button'
 import { Card } from '@/components/ui/card'
 import { BulkDeleteAction } from '@/components/ui/bulk-delete-action'
@@ -29,11 +26,22 @@ import {
 } from '@/components/ui/alert-dialog'
 import { CohortCard } from './CohortCard'
 import { CreateCohortDialog, type CohortFormData } from './CreateCohortDialog'
+import { ProjectCohortHost, useCohortHost } from './cohort-host'
 
+/** The project's Cohorts page. */
 export function CohortListPage() {
+  return (
+    <ProjectCohortHost>
+      <CohortList />
+    </ProjectCohortHost>
+  )
+}
+
+/** The cohort list of whichever host it sits in — a project page, or a database's tab. */
+export function CohortList() {
   const { t } = useTranslation()
-  const { projectUid: uid, wsUid } = useResolvedParams()
-  const { can } = useMyProjectRole(uid)
+  const host = useCohortHost()
+  const { can } = host
   const navigate = useNavigate()
   const { addCohort, duplicateCohort, removeCohort, updateCohort } = useCohortStore()
   // Subscribe to the cohorts array itself (not the getProjectCohorts action, whose
@@ -43,10 +51,10 @@ export function CohortListPage() {
   const [editingCohort, setEditingCohort] = useState<Cohort | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Cohort | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [sort, setSort] = usePersistedSort('project-cohorts')
+  const [sort, setSort] = usePersistedSort(host.sortKey)
   const language = useAppStore((s) => s.language)
 
-  const cohorts = useMemo(() => (uid ? allCohorts.filter((c) => c.projectUid === uid) : []), [uid, allCohorts])
+  const cohorts = useMemo(() => allCohorts.filter(host.owns), [host.owns, allCohorts])
 
   const filteredCohorts = useMemo(() => {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
@@ -66,15 +74,12 @@ export function CohortListPage() {
 
   const selection = useCardSelection(useMemo(() => filteredCohorts.map((c) => c.id), [filteredCohorts]))
 
-  // Built through `paths` rather than by hand: useResolvedParams returns FULL
-  // uids, so a hand-assembled URL carried full ids while the sidebar matches on
-  // the shortened ones — which silently dropped the Cohorts highlight.
   const cohortIds = useMemo(() => cohorts.map((c) => c.id), [cohorts])
 
   const handleCreate = async (data: CohortFormData) => {
-    if (!uid) return
-    const id = await addCohort({ projectUid: uid, level: 'visit_detail', ...data })
-    navigate(paths.cohort(wsUid ?? '', uid, id, [...cohortIds, id]))
+    if (!host.owner.projectUid && !host.owner.ownerDataSourceId) return
+    const id = await addCohort({ ...host.owner, level: 'visit_detail', ...data })
+    navigate(host.cohortPath(id, [...cohortIds, id]))
   }
 
   const handleEditSubmit = (data: CohortFormData) => {
@@ -84,14 +89,20 @@ export function CohortListPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className={host.kind === 'project' ? 'mx-auto max-w-4xl px-6 py-10' : 'mx-auto max-w-4xl px-6 pt-2 pb-10'}>
         <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">
-              {t('cohorts.list_title')}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">{t('cohorts.list_description')}</p>
-          </div>
+          {/* On a database the tab already says "Cohorts": a second page title
+              under it would only repeat it. */}
+          {host.kind === 'project' ? (
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">
+                {t('cohorts.list_title')}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">{t('cohorts.list_description')}</p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('cohorts.database_list_description')}</p>
+          )}
           <div className="flex shrink-0 items-center gap-1">
             {selection.active ? (
               <BulkDeleteAction
@@ -145,7 +156,7 @@ export function CohortListPage() {
               <CohortCard
                 key={cohort.id}
                 cohort={cohort}
-                href={paths.cohort(wsUid ?? '', uid ?? '', cohort.id, cohortIds)}
+                href={host.cohortPath(cohort.id, cohortIds)}
                 onRemove={() => setDeleteTarget(cohort)}
                 onEdit={() => setEditingCohort(cohort)}
                 onDuplicate={() => { void duplicateCohort(cohort.id) }}
@@ -163,8 +174,9 @@ export function CohortListPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSubmit={handleCreate}
-        workspaceId={wsUid}
-        projectUid={uid}
+        workspaceId={host.workspaceId}
+        projectUid={host.owner.projectUid}
+        ownerDataSourceId={host.owner.ownerDataSourceId}
       />
 
       <CreateCohortDialog
@@ -172,8 +184,9 @@ export function CohortListPage() {
         onOpenChange={(open) => { if (!open) setEditingCohort(null) }}
         onSubmit={handleEditSubmit}
         editing={editingCohort ? { id: editingCohort.id, name: editingCohort.name, description: editingCohort.description, version: editingCohort.version, dataSourceId: editingCohort.dataSourceId } : undefined}
-        workspaceId={wsUid}
-        projectUid={uid}
+        workspaceId={host.workspaceId}
+        projectUid={host.owner.projectUid}
+        ownerDataSourceId={host.owner.ownerDataSourceId}
       />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>

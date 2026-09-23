@@ -338,8 +338,8 @@ Ordered so nothing ships that cannot be exported.
 | ✅ | Q1. Patient count on database cards (§7) — kept on `stats` after a statistics run; server mode still counts nothing on connect | S |
 | ✅ | Q2. Fix `materializeCohort` 10k cap + strip `materialization` from cohort exports (client + server + golden + pull diff + import) | S |
 | ✅ | 1. `DatabaseLocationField` + new-file validation + Linkr-owned file (`managedPath`, set once by create-from-ddl), wired into Create from schema | M |
-| 🔜 | 2. Cohort owner model: types, IDB v43, Alembic, schemas, routes/permissions (§2) | M |
-| 🔜 | 3. `CohortHost` refactor of the cohort shell (project routes keep working) + Cohorts tab on the database page | M/L |
+| ✅ | 2. Cohort owner model: types, IDB v43, Alembic, schemas, routes/permissions (§2) — the migration also prepares `patient_dashboards` | M |
+| ✅ | 3. `CohortHost` refactor of the cohort shell (project routes keep working) + Cohorts tab on the database page | M/L |
 | 🔜 | 4. Export/import/versioning of database cohorts (§8) — client, server twin, linkr-format, goldens | M |
 | 🔜 | 5. Board owner model + `'patients'` tab in `ResultsPanel` + patient list of the result (§3) | M/L |
 | 🔜 | 6. Board in the database export (§8) | S |

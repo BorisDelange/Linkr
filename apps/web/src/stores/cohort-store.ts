@@ -184,8 +184,11 @@ interface CohortState {
   loadCohorts: () => Promise<void>
   getProjectCohorts: (projectUid: string) => Cohort[]
 
+  /** Exactly one owner: `projectUid`, or `ownerDataSourceId` for a database's
+   *  own cohort — which then always runs against that database. */
   addCohort: (source: {
-    projectUid: string
+    projectUid?: string
+    ownerDataSourceId?: string
     name: LocalizedString
     description: LocalizedString
     level: CohortLevel
@@ -215,6 +218,13 @@ interface CohortState {
   ) => Promise<number>
 
   clearMaterialization: (id: string) => Promise<void>
+}
+
+/** Whether two cohorts share an owner — the scope of name uniqueness and of a list page. */
+export function sameCohortOwner(a: Pick<Cohort, 'projectUid' | 'ownerDataSourceId'>, b: Pick<Cohort, 'projectUid' | 'ownerDataSourceId'>): boolean {
+  return a.projectUid
+    ? a.projectUid === b.projectUid
+    : !!a.ownerDataSourceId && a.ownerDataSourceId === b.ownerDataSourceId
 }
 
 function makeEmptyTree(): CriteriaGroupNode {
@@ -255,14 +265,18 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     get().cohorts.filter((c) => c.projectUid === projectUid),
 
   addCohort: async (source) => {
+    if (!source.projectUid === !source.ownerDataSourceId) {
+      throw new Error('a cohort belongs to exactly one project or one database')
+    }
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     const newCohort: Cohort = {
       id,
-      projectUid: source.projectUid,
+      ...(source.projectUid
+        ? { projectUid: source.projectUid, dataSourceId: source.dataSourceId }
+        : { ownerDataSourceId: source.ownerDataSourceId, dataSourceId: source.ownerDataSourceId }),
       name: source.name,
       description: source.description,
-      dataSourceId: source.dataSourceId,
       dataSourceRef: source.dataSourceRef,
       level: source.level,
       criteriaTree: source.criteriaTree ?? makeEmptyTree(),
@@ -286,7 +300,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     const clone: Cohort = {
       ...structuredClone(source),
       id: crypto.randomUUID(),
-      name: copyName(source.name, state.cohorts.filter((c) => c.projectUid === source.projectUid).map((c) => c.name)),
+      name: copyName(source.name, state.cohorts.filter((c) => sameCohortOwner(c, source)).map((c) => c.name)),
       // Execution output is deliberately dropped: the copy has never run, and
       // carrying a count or a frozen membership over would show numbers that
       // describe the original's last run, not this cohort.

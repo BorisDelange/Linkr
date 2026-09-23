@@ -632,6 +632,7 @@
     "dictionary_replace": "Replace"
   },
   "databases": {
+    "detail_cohorts": "Cohorts",
     "remove_confirm_description_keeps_file": "Are you sure you want to delete this database? Its cached statistics are deleted; its file, created in a server folder you chose, is left in place.",
     "location": "Location",
     "location_hint": "Where the database file is written. Linkr's data folder is managed for you; a server folder keeps the file where you want it — outside Linkr, deleting the database leaves the file in place.",
@@ -983,6 +984,7 @@
     "chart_fail_pct": "Failure rate"
   },
   "cohorts": {
+    "database_list_description": "Cohorts defined on this database, outside any project. They travel with the database when it is exported or versioned.",
     "title": "Cohorts",
     "create": "New cohort",
     "list_title": "Cohorts",

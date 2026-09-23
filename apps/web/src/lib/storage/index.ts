@@ -75,6 +75,8 @@ export interface FileStorage {
 export interface CohortStorage {
   getAll(): Promise<Cohort[]>
   getByProject(projectUid: string): Promise<Cohort[]>
+  /** The cohorts a database owns (its own page's), not project cohorts run against it. */
+  getByDatabase(dataSourceId: string): Promise<Cohort[]>
   getById(id: string): Promise<Cohort | undefined>
   create(cohort: Cohort): Promise<void>
   update(id: string, changes: Partial<Cohort>): Promise<void>

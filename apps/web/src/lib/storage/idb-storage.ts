@@ -45,6 +45,7 @@ interface LinkrDB extends DBSchema {
     value: Cohort
     indexes: {
       'by-project': string
+      'by-owner-source': string
     }
   }
   database_stats_cache: {
@@ -153,6 +154,7 @@ interface LinkrDB extends DBSchema {
     value: PatientDashboard
     indexes: {
       'by-project': string
+      'by-owner-source': string
     }
   }
   patient_dashboard_tabs: {
@@ -327,7 +329,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 42
+const DB_VERSION = 43
 
 /**
  * One schema preset, rekeyed for the v41 store (keyPath `presetId` → `id`).
@@ -981,6 +983,17 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
       if (oldVersion < 42) {
         backfillPortableRefs(transaction as unknown as IdbUpgradeTransaction)
       }
+      // Version 43: cohorts and patient boards owned by a database (the database
+      // page's own), beside the project-owned ones. Existing rows keep their
+      // project and are simply absent from the new index.
+      if (oldVersion < 43) {
+        for (const name of ['cohorts', 'patient_dashboards'] as const) {
+          const store = transaction.objectStore(name)
+          if (!store.indexNames.contains('by-owner-source')) {
+            store.createIndex('by-owner-source', 'ownerDataSourceId')
+          }
+        }
+      }
     },
   })
   // Auto-close when another tab requests a deleteDatabase or version upgrade
@@ -1233,6 +1246,11 @@ class IDBCohortStorage implements CohortStorage {
   async getByProject(projectUid: string): Promise<Cohort[]> {
     const db = await getDB()
     return db.getAllFromIndex('cohorts', 'by-project', projectUid)
+  }
+
+  async getByDatabase(dataSourceId: string): Promise<Cohort[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('cohorts', 'by-owner-source', dataSourceId)
   }
 
   async getById(id: string): Promise<Cohort | undefined> {

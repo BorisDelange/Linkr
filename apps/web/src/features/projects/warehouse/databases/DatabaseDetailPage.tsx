@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import {
   Activity,
@@ -19,6 +19,7 @@ import {
   Table,
   Table2,
   Users,
+  UsersRound,
 } from 'lucide-react'
 import type { CustomSchemaPreset, DataSource, DatabaseConnectionConfig, DatabaseStatsCache, SchemaMapping } from '@/types'
 import { localized } from '@/lib/localized'
@@ -72,12 +73,15 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { DatabasePull } from '@/components/versioning/DatabasePull'
+import { DatabaseCohortHost } from '@/features/projects/warehouse/cohorts/cohort-host'
+import { CohortList } from '@/features/projects/warehouse/cohorts/CohortListPage'
+import { CohortBuilder } from '@/features/projects/warehouse/cohorts/CohortBuilderPage'
 import { useDatabaseActions } from './use-database-actions'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 
-const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'readme', 'license', 'versioning'] as const
+const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'cohorts', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
 
 /** What a project may open. `resolveTab` falls back to the default for anything
@@ -114,6 +118,12 @@ interface DatabaseDetailPageProps {
    * the workspace page that owns it; a project only ever links or unlinks.
    */
   readOnly?: boolean
+  /** The `:cohortId` of `…/databases/:dbId/cohorts/:cohortId`: the Cohorts tab
+   *  then shows that cohort's builder instead of the list. */
+  cohortId?: string
+  /** The workspace's database ids — the links this page builds shorten its id
+   *  against them, as the database list does. */
+  siblingIds?: readonly string[]
 }
 
 /**
@@ -124,8 +134,10 @@ interface DatabaseDetailPageProps {
  * export actions, live in the global header badge like every other entity —
  * hence no title here, only the tabs.
  */
-export function DatabaseDetailPage({ source, onBack, readOnly = false }: DatabaseDetailPageProps) {
+export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId, siblingIds = [] }: DatabaseDetailPageProps) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const { wsUid } = useResolvedParams()
   const dbActions = useDatabaseActions()
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
@@ -163,6 +175,16 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
   const [schemaEverOpened, setSchemaEverOpened] = useState(false)
   if (activeTab === 'schema' && !schemaEverOpened) setSchemaEverOpened(true)
 
+  // A cohort's builder has its own route under the database, so it is linkable.
+  // Leaving it through another tab goes back to the database's own URL.
+  const onCohortRoute = !!cohortId && !readOnly
+  const shownTab: DatabaseTabId = onCohortRoute ? 'cohorts' : activeTab
+  const selectTab = (tab: DatabaseTabId) => {
+    if (!onCohortRoute || !source) return setActiveTab(tab)
+    const base = paths.warehouseDatabase(wsUid ?? '', source.id, siblingIds)
+    navigate(tab === 'overview' ? base : `${base}?tab=${tab}`)
+  }
+
   if (!source) {
     return (
       <div className="flex h-full flex-col items-center justify-center">
@@ -184,8 +206,8 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
   return (
     <div className="flex h-full flex-col">
       <Tabs
-        value={activeTab}
-        onValueChange={(v) => setActiveTab(v as DatabaseTabId)}
+        value={shownTab}
+        onValueChange={(v) => selectTab(v as DatabaseTabId)}
         className="flex min-h-0 flex-1 flex-col"
       >
         <div className="flex shrink-0 items-center px-6 py-3">
@@ -204,9 +226,15 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
               {t('databases.detail_schema')}
             </TabsTrigger>
             {!readOnly && (
+              <TabsTrigger value="cohorts">
+                <UsersRound size={14} />
+                {t('databases.detail_cohorts')}
+              </TabsTrigger>
+            )}
+            {!readOnly && (
               <EntitySecondaryTabsTrigger
-                activeTab={activeTab}
-                onSelect={setActiveTab}
+                activeTab={shownTab}
+                onSelect={selectTab}
                 onExport={() => void dbActions.onExport(source)}
               />
             )}
@@ -277,6 +305,14 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
             </div>
           )}
         </TabsContent>
+        {!readOnly && (
+          <TabsContent value="cohorts" className="m-0 min-h-0 flex-1 p-0">
+            <DatabaseCohortHost dataSourceId={source.id} siblingDatabaseIds={siblingIds}>
+              <DatabaseCohortsTab sourceId={source.id} status={source.status} showBuilder={onCohortRoute} />
+            </DatabaseCohortHost>
+          </TabsContent>
+        )}
+
         <TabsContent value="readme" className="m-0 min-h-0 flex-1 p-0">
           <div className="flex h-full flex-col px-6 pb-1.5">
             <DatabaseReadmeTab source={source} editing={readmeEditing} />
@@ -317,6 +353,19 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false }: Databas
       </Tabs>
     </div>
   )
+}
+
+/**
+ * The database's own cohorts: the list, or one cohort's builder. They run on
+ * this database, so it is connected on arrival (a no-op in server mode, where
+ * the server holds the connection).
+ */
+function DatabaseCohortsTab({ sourceId, status, showBuilder }: { sourceId: string; status: DataSource['status']; showBuilder: boolean }) {
+  const testConnection = useDataSourceStore((s) => s.testConnection)
+  useEffect(() => {
+    if (status !== 'connected' && status !== 'configuring') void testConnection(sourceId)
+  }, [sourceId, status, testConnection])
+  return showBuilder ? <CohortBuilder /> : <CohortList />
 }
 
 /** A label/value row whose value gets a tooltip only when it is actually cut. */

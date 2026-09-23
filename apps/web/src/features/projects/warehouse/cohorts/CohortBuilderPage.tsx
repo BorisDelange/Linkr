@@ -1,13 +1,13 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
+import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
-import { useMyProjectRole } from '@/hooks/use-context-role'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { useCohortStore } from '@/stores/cohort-store'
-import { useProjectSource } from '@/stores/data-source-store'
 import * as engine from '@/lib/duckdb/engine'
 import {
+  ArrowLeft,
   Play,
   Loader2,
   Code2,
@@ -44,6 +44,7 @@ import { formatDateTime } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import type { CohortLevel, CriteriaGroupNode } from '@/types'
 import { qualify } from '@/lib/schema-helpers'
+import { ProjectCohortHost, useCohortHost, useCohortSource } from './cohort-host'
 
 const levelOptions: { value: CohortLevel; labelKey: string }[] = [
   { value: 'patient', labelKey: 'cohorts.level_patient' },
@@ -52,10 +53,22 @@ const levelOptions: { value: CohortLevel; labelKey: string }[] = [
   { value: 'event', labelKey: 'cohorts.level_event' },
 ]
 
+/** A project cohort's page. */
 export function CohortBuilderPage() {
-  const { t } = useTranslation()
-  const { projectUid: uid, raw } = useResolvedParams()
-  const { can } = useMyProjectRole(uid)
+  return (
+    <ProjectCohortHost>
+      <CohortBuilder />
+    </ProjectCohortHost>
+  )
+}
+
+/** A cohort's builder in whichever host it sits in — a project, or a database. */
+export function CohortBuilder() {
+  const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
+  const { raw } = useResolvedParams()
+  const host = useCohortHost()
+  const { can } = host
   const {
     cohorts,
     updateCohort,
@@ -67,9 +80,12 @@ export function CohortBuilderPage() {
     executionErrors,
   } = useCohortStore()
 
-  const cohort = resolveByIdPrefix(cohorts, raw.cohortId, (c) => c.id)
+  // Among this host's own cohorts only: a database route must not open a
+  // project's cohort that happens to share an id prefix, nor the reverse.
+  const hostCohorts = useMemo(() => cohorts.filter(host.owns), [cohorts, host.owns])
+  const cohort = resolveByIdPrefix(hostCohorts, raw.cohortId, (c) => c.id)
   const cohortId = cohort?.id
-  const activeSource = useProjectSource(uid, cohort?.dataSourceId)
+  const activeSource = useCohortSource(cohort)
   const mapping = activeSource?.schemaMapping
 
   const [leftView, setLeftView] = useState<'criteria' | 'sql'>('criteria')
@@ -221,6 +237,14 @@ export function CohortBuilderPage() {
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-3 py-1.5 shrink-0">
+        {/* A project's sidebar leads back to its cohort list; a database tab has
+            no sidebar entry for it, so the way back is here. */}
+        {host.kind === 'database' && (
+          <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs" onClick={() => navigate(host.listPath)}>
+            <ArrowLeft size={12} />
+            {localized(cohort.name, i18n.language)}
+          </Button>
+        )}
         {/* Level selector — what one row of the result stands for. Unlabelled,
             "Hospitalization" next to a cohort name read like a filter. */}
         <span className="text-xs text-muted-foreground">{t('cohorts.level_label')}</span>

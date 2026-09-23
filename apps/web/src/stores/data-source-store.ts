@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
+import { useCohortStore } from '@/stores/cohort-store'
 import { createFromDdlOnServer, fetchDataSourceSchema, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import * as engine from '@/lib/duckdb/engine'
@@ -669,7 +670,13 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     await getStorage().files.deleteByDataSource(id)
     await getStorage().fileHandles.deleteByDataSource(id)
     await getStorage().databaseStatsCache.delete(id)
+    // The database's own cohorts go with it. The server cascades; the browser's
+    // storage has no foreign keys, so they are deleted here.
+    if (!isServerMode()) {
+      for (const c of await getStorage().cohorts.getByDatabase(id)) await getStorage().cohorts.delete(c.id)
+    }
     await getStorage().dataSources.delete(id)
+    useCohortStore.setState((s) => ({ cohorts: s.cohorts.filter((c) => c.ownerDataSourceId !== id) }))
 
     // Entities pointing at this database keep their now-dangling `dataSourceId`:
     // `resolveProjectSource` drops it for them, and clearing it here would lose

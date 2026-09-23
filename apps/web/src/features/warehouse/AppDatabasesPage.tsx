@@ -398,6 +398,8 @@ export function AppDatabasesPage() {
       <DatabaseDetailPage
         source={resolveByIdPrefix(visibleSources, raw.dbId, (ds) => ds.id)}
         onBack={() => navigate(paths.warehouseDatabases(wsUid ?? ''))}
+        cohortId={raw.cohortId}
+        siblingIds={siblingIds}
       />
     )
   }

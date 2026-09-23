@@ -632,6 +632,7 @@
     "dictionary_replace": "Changer"
   },
   "databases": {
+    "detail_cohorts": "Cohortes",
     "remove_confirm_description_keeps_file": "Êtes-vous sûr de vouloir supprimer cette base ? Ses statistiques en cache seront supprimées ; son fichier, créé dans un dossier du serveur que vous avez choisi, restera en place.",
     "location": "Emplacement",
     "location_hint": "Où le fichier de la base est écrit. Le dossier de données de Linkr est géré pour vous ; un dossier du serveur garde le fichier où vous le voulez — hors de Linkr, supprimer la base laisse le fichier en place.",
@@ -983,6 +984,7 @@
     "chart_fail_pct": "Taux d'échec"
   },
   "cohorts": {
+    "database_list_description": "Cohortes définies sur cette base, hors de tout projet. Elles suivent la base quand elle est exportée ou versionnée.",
     "title": "Cohortes",
     "create": "Nouvelle cohorte",
     "list_title": "Cohortes",

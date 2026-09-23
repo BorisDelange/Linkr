@@ -14,6 +14,7 @@ export type SortScope =
   | 'project-databases'
   | 'project-dashboards'
   | 'project-cohorts'
+  | 'database-cohorts'
   | 'project-patient-data'
   | 'app-databases'
   | 'schema-presets'

@@ -178,7 +178,13 @@ export type CriteriaTreeNode = CriterionNode | CriteriaGroupNode
 
 export interface Cohort extends Authored {
   id: string
-  projectUid: string
+  /**
+   * The owner — exactly one of the two is set. A project's cohort lives on its
+   * Cohorts page; a database's (`ownerDataSourceId`) on the database page, and
+   * then always runs against that database (`dataSourceId` equals it).
+   */
+  projectUid?: string
+  ownerDataSourceId?: string
   name: LocalizedString
   description: LocalizedString
   /**

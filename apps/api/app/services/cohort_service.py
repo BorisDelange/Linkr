@@ -2,6 +2,7 @@ from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.cohort import Cohort
+from app.models.data_source import DataSource
 from app.models.project import Project
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
@@ -13,24 +14,33 @@ async def list_for_project(db: AsyncSession, project_uid: str) -> list[Cohort]:
     return list(result.scalars().all())
 
 
+async def list_for_database(db: AsyncSession, data_source_id: str) -> list[Cohort]:
+    result = await db.execute(select(Cohort).where(Cohort.owner_data_source_id == data_source_id))
+    return list(result.scalars().all())
+
+
 async def list_for_user(db: AsyncSession, user: User) -> list[Cohort]:
-    """Cohorts in projects the user can reach (admins see all). The store loads
-    everything then filters by project client-side; scope to accessible
-    workspaces in server mode."""
+    """Cohorts the user can reach — in their workspaces' projects and databases
+    (admins see all). The store loads everything then filters by owner
+    client-side."""
     if user.role == "admin":
         result = await db.execute(select(Cohort))
         return list(result.scalars().all())
 
-    result = await db.execute(
+    member_workspaces = select(WorkspaceMember.workspace_id).where(WorkspaceMember.user_id == user.id)
+    in_projects = (
         select(Cohort)
         .join(Project, Project.uid == Cohort.project_uid)
-        .join(
-            WorkspaceMember,
-            WorkspaceMember.workspace_id == Project.workspace_id,
-        )
-        .where(WorkspaceMember.user_id == user.id)
+        .where(Project.workspace_id.in_(member_workspaces))
     )
-    return list(result.scalars().all())
+    in_databases = (
+        select(Cohort)
+        .join(DataSource, DataSource.id == Cohort.owner_data_source_id)
+        .where(DataSource.workspace_id.in_(member_workspaces))
+    )
+    projects = (await db.execute(in_projects)).scalars().all()
+    databases = (await db.execute(in_databases)).scalars().all()
+    return [*projects, *databases]
 
 
 async def get(db: AsyncSession, cohort_id: str) -> Cohort | None:

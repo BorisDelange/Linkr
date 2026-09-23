@@ -980,6 +980,9 @@ const INSTANCE_FIELDS = [
   // on import (every create passes a fresh projectUid), so versioning it only
   // churns the diff — e.g. datasets/_tree.json flipping projectUid on reimport.
   'projectUid',
+  // Same back-reference for a child owned by a database (its cohorts and board):
+  // the local id of the database folder it is exported under.
+  'ownerDataSourceId',
   // Local database (data source) UUIDs the project points at: meaningless on
   // another instance, and only diff churn here. `linkedDataSourceRefs` — the
   // portable pointers stamped beside them — is deliberately NOT stripped: it is

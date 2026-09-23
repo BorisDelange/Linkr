@@ -5,15 +5,18 @@ import type { Cohort } from '@/types'
 const COHORTS = '/cohorts'
 
 /**
- * Server-mode CohortStorage. Cohorts are keyed by id and scoped to a project;
- * `getAll` returns those in the caller's accessible workspaces (the store then
- * filters by project).
+ * Server-mode CohortStorage. Cohorts are keyed by id and owned by a project or
+ * a database; `getAll` returns those in the caller's accessible workspaces (the
+ * store then filters by owner).
  */
 export const apiCohortStorage: CohortStorage = {
   getAll: () => apiRequest<Cohort[]>(COHORTS),
 
   getByProject: (projectUid) =>
     apiRequest<Cohort[]>(`${COHORTS}?projectUid=${encodeURIComponent(projectUid)}`),
+
+  getByDatabase: (dataSourceId) =>
+    apiRequest<Cohort[]>(`${COHORTS}?dataSourceId=${encodeURIComponent(dataSourceId)}`),
 
   getById: async (id) => {
     try {

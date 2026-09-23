@@ -237,6 +237,7 @@ export function App() {
             <Route path="/workspaces/:wsUid/warehouse" element={<WorkspaceGuard><Navigate to="databases" replace /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/databases" element={<WorkspaceGuard><AppDatabasesPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/databases/:dbId" element={<WorkspaceGuard><AppDatabasesPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/databases/:dbId/cohorts/:cohortId" element={<WorkspaceGuard><AppDatabasesPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/schemas" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/schemas/:schemaId" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/schema-presets" element={<WorkspaceGuard><Navigate to="../schemas" replace /></WorkspaceGuard>} />
