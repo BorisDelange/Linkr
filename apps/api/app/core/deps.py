@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.user import User
+from app.services import api_token_service
 
 bearer_scheme = HTTPBearer()
 optional_bearer_scheme = HTTPBearer(auto_error=False)
@@ -20,6 +21,8 @@ async def get_current_user_optional(
     authenticated in another (e.g. /setup/db-info before vs. after setup)."""
     if credentials is None:
         return None
+    if api_token_service.is_api_token(credentials.credentials):
+        return await api_token_service.authenticate(db, credentials.credentials)
     try:
         payload = decode_token(credentials.credentials)
         if payload.get("type") != "access":
@@ -37,7 +40,32 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Decode the Bearer token and return the corresponding User."""
+    """Resolve the Bearer credential to a User: a personal API token (``lnk_…``)
+    or a session access JWT. Both act with the user's own permissions."""
+    if api_token_service.is_api_token(credentials.credentials):
+        return await _api_token_user(credentials.credentials, db)
+    return await get_session_user(credentials, db)
+
+
+async def _api_token_user(token: str, db: AsyncSession) -> User:
+    user = await api_token_service.authenticate(db, token)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid, revoked or expired API token",
+        )
+    return user
+
+
+async def get_session_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Like get_current_user but refuses API tokens: only a session access JWT.
+
+    Guards the token-management routes, so a leaked API token can neither mint
+    new ones nor list or revoke its siblings to hide itself.
+    """
     try:
         payload = decode_token(credentials.credentials)
         if payload.get("type") != "access":
@@ -77,8 +105,11 @@ async def get_kernel_user(
     exists to prevent.
 
     Returning the User means the endpoint's own permission checks still run: the
-    token authenticates, it never authorises.
+    token authenticates, it never authorises. A personal API token counts as an
+    access token here, as it does everywhere else.
     """
+    if api_token_service.is_api_token(credentials.credentials):
+        return await _api_token_user(credentials.credentials, db)
     try:
         payload = decode_token(credentials.credentials)
         token_type = payload.get("type")

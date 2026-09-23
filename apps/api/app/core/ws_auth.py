@@ -3,7 +3,8 @@
 A browser cannot set an Authorization header on a WebSocket handshake, so the
 JWT travels as a `?token=` query param instead. get_current_user (deps.py) is a
 FastAPI HTTP dependency and does not apply to a raw WebSocket, so this replicates
-its checks: decode, require an access token, load an active user.
+its checks: decode, require an access token (or a personal API token), load
+an active user.
 """
 
 from jose import JWTError
@@ -12,6 +13,7 @@ from starlette.websockets import WebSocket
 from app.core.database import async_session
 from app.core.security import decode_token
 from app.models.user import User
+from app.services import api_token_service
 
 # Application-level close code for an authentication failure (4000-4999 is the
 # private-use range). The client shows an error and must NOT reconnect.
@@ -25,6 +27,12 @@ async def authenticate_ws(websocket: WebSocket) -> User | None:
     if not token:
         await websocket.close(code=WS_AUTH_FAILED)
         return None
+    if api_token_service.is_api_token(token):
+        async with async_session() as db:
+            user = await api_token_service.authenticate(db, token)
+        if user is None:
+            await websocket.close(code=WS_AUTH_FAILED)
+        return user
     try:
         payload = decode_token(token)
         if payload.get("type") != "access":

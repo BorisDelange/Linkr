@@ -39,6 +39,7 @@ from app.models.sql_script import SqlScriptCollection, SqlScriptFile
 from app.models.wiki_page import WikiPage
 from app.models.role import Role
 from app.models.git_credential import GitCredential
+from app.models.api_token import ApiToken
 from app.models.app_settings import AppSettings
 # Registers the before_flush listener that bubbles child-write activity up to the
 # owning element's updated_at. Imported last so every mapped class already exists.
@@ -48,6 +49,7 @@ __all__ = [
     "Notification",
     "User",
     "GitCredential",
+    "ApiToken",
     "AppSettings",
     "Project",
     "DataSource",

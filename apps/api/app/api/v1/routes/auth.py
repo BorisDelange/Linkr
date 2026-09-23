@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth_providers import get_auth_provider
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_session_user
 from app.core.permissions import ALL_PERMISSIONS
 from app.core.security import (
     create_access_token,
@@ -16,6 +16,7 @@ from app.core.security import (
 )
 from app.models.role import Role
 from app.models.user import User
+from app.schemas.api_token import ApiTokenCreate, ApiTokenCreated, ApiTokenResponse
 from app.schemas.auth import (
     LoginRequest,
     MeResponse,
@@ -24,6 +25,7 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.schemas.user import ProfileUpdate
+from app.services import api_token_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -135,3 +137,39 @@ async def update_me(
     await db.commit()
     await db.refresh(user)
     return await _build_me(user, db)
+
+
+# Personal API tokens. All three require a session JWT (get_session_user): an API
+# token cannot mint, list or revoke tokens.
+
+
+@router.get("/api-tokens", response_model=list[ApiTokenResponse])
+async def list_api_tokens(
+    user: User = Depends(get_session_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await api_token_service.list_tokens(db, user)
+
+
+@router.post("/api-tokens", response_model=ApiTokenCreated, status_code=status.HTTP_201_CREATED)
+async def create_api_token(
+    body: ApiTokenCreate,
+    user: User = Depends(get_session_user),
+    db: AsyncSession = Depends(get_db),
+):
+    token, plaintext = await api_token_service.create_token(
+        db, user, body.name, body.expires_in_days
+    )
+    return ApiTokenCreated(**ApiTokenResponse.model_validate(token).model_dump(), token=plaintext)
+
+
+@router.delete("/api-tokens/{token_id}", response_model=ApiTokenResponse)
+async def revoke_api_token(
+    token_id: str,
+    user: User = Depends(get_session_user),
+    db: AsyncSession = Depends(get_db),
+):
+    token = await api_token_service.revoke_token(db, user, token_id)
+    if token is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API token not found")
+    return token
