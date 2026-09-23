@@ -1,0 +1,78 @@
+/**
+ * Pure helpers for dashboard widgets: the checks that turn a model's config into
+ * one the widget renders, instead of a blank chart with an empty column picker.
+ */
+import type { PluginManifest } from '@/types/plugin'
+
+/** Dashboards use a 48-column grid (gridV 2); a new widget is half width. */
+export const GRID_COLUMNS = 48
+export const DEFAULT_LAYOUT = { w: 24, h: 12 }
+
+export interface DatasetColumn {
+  id: string
+  name: string
+  type?: string
+}
+
+export interface Layout {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * Resolve the column fields of a config to column ids, and report what cannot be
+ * resolved.
+ *
+ * The config keys columns by id (`col_age`). A model reaches for the name the
+ * user said (`age`), and the widget then rendered blank with no error — so a name
+ * is mapped to its id, case-insensitively, and anything else is reported rather
+ * than stored.
+ */
+export function resolveColumns(
+  config: Record<string, unknown>,
+  manifest: PluginManifest,
+  columns: DatasetColumn[],
+): { config: Record<string, unknown>; errors: string[] } {
+  const ids = new Set(columns.map((c) => c.id))
+  const byName = new Map(columns.map((c) => [c.name.toLowerCase(), c.id]))
+  const errors: string[] = []
+  const resolve = (key: string, value: unknown): unknown => {
+    if (typeof value !== 'string' || value === '' || ids.has(value)) return value
+    const id = byName.get(value.toLowerCase()) ?? (ids.has(`col_${value}`) ? `col_${value}` : undefined)
+    if (id) return id
+    errors.push(`${key}: no column "${value}" (columns: ${columns.map((c) => c.name).join(', ')}).`)
+    return value
+  }
+  const out: Record<string, unknown> = { ...config }
+  for (const [key, field] of Object.entries(manifest.configSchema ?? {})) {
+    if (field.type !== 'column-select' || !(key in out)) continue
+    const value = out[key]
+    out[key] = Array.isArray(value) ? value.map((v) => resolve(key, v)) : resolve(key, value)
+  }
+  const unknown = Object.keys(config).filter((k) => !(k in (manifest.configSchema ?? {})))
+  if (unknown.length) {
+    errors.push(`Unknown config field(s) for ${manifest.id}: ${unknown.join(', ')} — see describe_plugin.`)
+  }
+  return { config: out, errors }
+}
+
+/** Where a new widget goes: the requested layout clamped to the grid, else just
+ *  below the lowest widget of its tab. */
+export function placeWidget(existing: Layout[], requested?: Partial<Layout>): Layout {
+  const bottom = existing.reduce((max, l) => Math.max(max, l.y + l.h), 0)
+  const w = Math.min(Math.max(Math.round(requested?.w ?? DEFAULT_LAYOUT.w), 1), GRID_COLUMNS)
+  return {
+    x: Math.min(Math.max(Math.round(requested?.x ?? 0), 0), GRID_COLUMNS - w),
+    y: Math.max(Math.round(requested?.y ?? bottom), 0),
+    w,
+    h: Math.max(Math.round(requested?.h ?? DEFAULT_LAYOUT.h), 1),
+  }
+}
+
+/** Localized text from what a model writes: the same string in both languages,
+ *  so the label is never blank in the other one. */
+export function bilingual(value: string): Record<string, string> {
+  return { en: value, fr: value }
+}

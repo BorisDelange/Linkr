@@ -30,11 +30,21 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 
 | Tool | Purpose |
 |---|---|
+| `get_ui_context` | where the user is in their last-focused Linkr tab (project, page, open cohort / dashboard + tab / dataset) — the defaults behind "this", "here" |
 | `list_projects`, `get_project_context` | projects; linked databases with their schema mapping in plain words; cohorts |
 | `describe_database`, `search_concepts`, `run_sql` | tables and columns; fuzzy concept search with record/patient counts; read-only SQL |
-| `list_cohorts`, `get_cohort` | cohort definitions, criteria rendered and as JSON |
-| `create_cohort`, `update_cohort` | criteria validated against the mapping, concept names filled in; or custom SQL |
-| `preview_cohort_sql`, `run_cohort` | generated SQL; count + attrition + sample rows |
+| `list_cohorts`, `get_cohort`, `create_cohort`, `update_cohort` | criteria validated against the mapping, concept names filled in; or custom SQL |
+| `preview_cohort_sql`, `run_cohort` | generated SQL; count + attrition (sample rows opt-in) |
+| `list_datasets`, `describe_dataset`, `preview_dataset` | datasets, columns (ids used by widgets), per-column summaries, rows on request |
+| `create_dataset_from_query` | a query's full result written server-side as a Parquet dataset — rows never transit through the agent |
+| `list_plugins`, `describe_plugin` | widget types, and one plugin's config fields derived from its manifest |
+| `list_dashboards`, `describe_dashboard`, `create_dashboard` | dashboards with their tabs and widgets |
+| `add_tab`, `rename_tab`, `add_widget`, `update_widget` | columns by name or id, unknown columns/fields refused, 48-column grid placement |
+| `remove_widget`, `remove_tab` | `destructiveHint` — undoable from the notification centre |
+
+Code: `server.ts` (bootstrap) · `shared.ts` · `tools-context.ts` · `tools-warehouse.ts`
+(projects, databases, cohorts) · `tools-lab.ts` (datasets, plugins, dashboards) · pure
+helpers `cohorts.ts`, `lab.ts`, `plugins.ts` (tested).
 
 ## `linkr-files` — entity trees on disk
 

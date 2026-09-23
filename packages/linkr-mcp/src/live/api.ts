@@ -10,7 +10,7 @@
  * - `LINKR_TOKEN`    — an access token, or
  * - `LINKR_USERNAME` + `LINKR_PASSWORD` — logged in on first use, refreshed on 401.
  */
-import type { Cohort, SchemaMapping } from '@/types'
+import type { Cohort, Dashboard, DashboardTab, DashboardWidget, SchemaMapping } from '@/types'
 
 export interface Project {
   uid: string
@@ -39,6 +39,15 @@ export interface DataSource {
 export interface IntrospectedTable {
   name: string
   columns: { name: string; type: string; nullable: boolean }[]
+}
+
+export interface DatasetNode {
+  id: string
+  name: string
+  type: 'file' | 'folder'
+  path: string
+  columns?: { id: string; name: string; type: string; label?: string; description?: string }[] | null
+  rowCount?: number | null
 }
 
 export class ApiError extends Error {
@@ -151,4 +160,44 @@ export class LinkrApi {
   createCohort = (body: Record<string, unknown>) => this.request<Cohort>('POST', '/cohorts', body)
   updateCohort = (id: string, changes: Record<string, unknown>) =>
     this.request<Cohort>('PATCH', `/cohorts/${encodeURIComponent(id)}`, changes)
+
+  getUiContext = () => this.request<Record<string, unknown> | null>('GET', '/notifications/ui-context')
+
+  listDatasets = (projectUid: string) =>
+    this.request<DatasetNode[]>('GET', `/dataset-files?projectUid=${encodeURIComponent(projectUid)}`)
+  getDatasetMeta = (projectUid: string, path: string) =>
+    this.request<DatasetNode>(
+      'GET', `/dataset-files/meta?projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(path)}`,
+    )
+  getColumnStats = (projectUid: string, path: string, colId: string) =>
+    this.request<Record<string, unknown>>(
+      'GET',
+      `/dataset-files/columns/${encodeURIComponent(colId)}/stats?projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(path)}`,
+    )
+  queryDatasetRows = (projectUid: string, path: string, limit: number) =>
+    this.request<{ rows: Record<string, unknown>[]; total: number }>(
+      'POST', `/dataset-files/rows/query?projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(path)}`,
+      { offset: 0, limit },
+    )
+  datasetFromQuery = (body: { projectUid: string; path: string; dataSourceId: string; sql: string; replace: boolean }) =>
+    this.request<DatasetNode>('POST', '/dataset-files/from-query', body)
+
+  listDashboards = (projectUid: string) =>
+    this.request<Dashboard[]>('GET', `/dashboards?projectUid=${encodeURIComponent(projectUid)}`)
+  getDashboard = (id: string) => this.request<Dashboard>('GET', `/dashboards/${encodeURIComponent(id)}`)
+  createDashboard = (body: Record<string, unknown>) => this.request<Dashboard>('POST', '/dashboards', body)
+  listTabs = (dashboardId: string) =>
+    this.request<DashboardTab[]>('GET', `/dashboards/${encodeURIComponent(dashboardId)}/tabs`)
+  getTab = (id: string) => this.request<DashboardTab>('GET', `/dashboards/tabs/${encodeURIComponent(id)}`)
+  createTab = (body: Record<string, unknown>) => this.request<DashboardTab>('POST', '/dashboards/tabs', body)
+  updateTab = (id: string, changes: Record<string, unknown>) =>
+    this.request<DashboardTab>('PATCH', `/dashboards/tabs/${encodeURIComponent(id)}`, changes)
+  deleteTab = (id: string) => this.request<void>('DELETE', `/dashboards/tabs/${encodeURIComponent(id)}`)
+  listWidgets = (tabId: string) =>
+    this.request<DashboardWidget[]>('GET', `/dashboards/tabs/${encodeURIComponent(tabId)}/widgets`)
+  getWidget = (id: string) => this.request<DashboardWidget>('GET', `/dashboards/widgets/${encodeURIComponent(id)}`)
+  createWidget = (body: Record<string, unknown>) => this.request<DashboardWidget>('POST', '/dashboards/widgets', body)
+  updateWidget = (id: string, changes: Record<string, unknown>) =>
+    this.request<DashboardWidget>('PATCH', `/dashboards/widgets/${encodeURIComponent(id)}`, changes)
+  deleteWidget = (id: string) => this.request<void>('DELETE', `/dashboards/widgets/${encodeURIComponent(id)}`)
 }

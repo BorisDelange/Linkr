@@ -387,7 +387,7 @@ async def create_dataset_from_query(
     node = await asyncio.to_thread(_file_node, body.project_uid, path)
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request),
-        action="updated" if existed else "created", entity_type="dataset", entity_id=node.id,
+        action="updated" if existed else "created", entity_type="dataset", entity_id=path,
         project_uid=body.project_uid, label=path,
         # A replaced file is gone once overwritten: only a creation is undoable.
         undo=None if existed else {"kind": "dataset", "op": "delete", "id": path},
