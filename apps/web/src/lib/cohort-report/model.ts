@@ -12,7 +12,7 @@ import type { ChartItem } from './charts'
 import { describeCriteria, describeCriterion, type DescribedCriterion } from './describe'
 import {
   buildAgeSql, buildCareUnitSql, buildConceptSql, buildCountsSql, buildEventTablesSql,
-  buildIndexSql, buildMonthSql, buildSexSql, buildVisitCountSql, buildYearSql,
+  buildDatabasePatientsSql, buildIndexSql, buildMonthSql, buildSexSql, buildVisitCountSql,
 } from './queries'
 import { suppress, suppressedShare, type ReportCount } from './suppress'
 
@@ -44,7 +44,14 @@ export interface CohortReportModel {
   age: ChartItem[]
   sex: ChartItem[]
   months: ChartItem[]
-  years: { year: string; units: ReportCount; patients: ReportCount }[]
+  /** Where the figures come from, so a reader outside Linkr can place them. */
+  source: {
+    databaseName: string
+    databaseVersion?: string
+    schemaLabel?: string
+    /** Every patient of the database: the denominator of the cohort. */
+    databasePatients: ReportCount | null
+  }
   eventTables: { label: string; rows: ReportCount; patients: ReportCount }[]
   careUnits: ChartItem[]
   /** The membership query every figure is computed from. */
@@ -97,6 +104,9 @@ export async function buildCohortReportModel(args: {
   cohort: Cohort
   mapping: SchemaMapping
   databaseName: string
+  databaseVersion?: string
+  /** The schema the database follows (its preset's label). */
+  schemaLabel?: string
   run: RunQuery
   t: TFunction
   locale: string
@@ -179,18 +189,19 @@ export async function buildCohortReportModel(args: {
     ? fillMonths((await run(buildMonthSql(indexSql))).map((r) => ({ month: String(r.month), n: num(r.n) })))
         .map((m) => ({ label: m.month, count: count(m.n) }))
     : []
-  const years = indexSql
-    ? (await run(buildYearSql(indexSql))).map((r) => ({
-        year: String(r.year),
-        units: count(r.units),
-        patients: count(r.patients),
-      }))
-    : []
-
   const eventSql = buildEventTablesSql(membership, mapping)
   const eventTables = eventSql
-    ? (await run(eventSql)).map((r) => ({ label: String(r.label), rows: count(r.rows), patients: count(r.patients) }))
+    ? (await run(eventSql))
+        .map((r) => ({ label: String(r.label), rows: count(r.rows), patients: count(r.patients), raw: num(r.rows) }))
+        // Largest first; a suppressed count sorts with the small ones it hides.
+        .sort((a, b) => (b.rows.value ?? 0) - (a.rows.value ?? 0) || b.raw - a.raw)
+        .map(({ raw: _raw, ...e }) => e)
     : []
+
+  const databasePatientsSql = buildDatabasePatientsSql(mapping)
+  const databasePatients = databasePatientsSql
+    ? count((await run(databasePatientsSql))[0]?.n)
+    : null
 
   const unitSql = buildCareUnitSql(membership, cohort.level, mapping)
   const careUnits = unitSql
@@ -214,7 +225,12 @@ export async function buildCohortReportModel(args: {
     age,
     sex,
     months,
-    years,
+    source: {
+      databaseName: args.databaseName,
+      ...(args.databaseVersion ? { databaseVersion: args.databaseVersion } : {}),
+      ...(args.schemaLabel ? { schemaLabel: args.schemaLabel } : {}),
+      databasePatients,
+    },
     eventTables,
     careUnits,
     sql: membership,

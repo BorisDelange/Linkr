@@ -1171,7 +1171,8 @@
     "period_pick": "Choisir une date",
     "results_truncated": "{{shown}} lignes affichées sur {{total}} — les autres n’ont pas été chargées. Affinez les critères pour restreindre la cohorte.",
     "text_not": "NON",
-    "text_exclude_hint": "Exclure les documents correspondant à cette recherche"
+    "text_exclude_hint": "Exclure les documents correspondant à cette recherche",
+    "toggle_results": "Afficher ou masquer les résultats"
   },
   "datasets": {
     "title": "Jeux de données",
@@ -5517,7 +5518,6 @@
     "col_label": "Libellé",
     "col_rows": "Lignes",
     "col_coverage": "Couv. %",
-    "col_year": "Année",
     "section_characteristics": "Caractéristiques de la cohorte",
     "chart_age": "Distribution des âges (à la date d’index)",
     "chart_sex": "Patients par sexe",
@@ -5527,7 +5527,6 @@
     "event_tables_intro": "Lignes enregistrées pour les patients de la cohorte, par table d’événements.",
     "chart_units": "Passages par unité de soins",
     "units_caption": "Un séjour passé dans plusieurs unités est compté dans chacune : la somme peut dépasser l’effectif de la cohorte.",
-    "years_title": "Inclusions par année de la date d’index",
     "section_methods": "Méthodologie",
     "methods_text": "La cohorte est construite à partir des critères ci-dessus, appliqués à la base {{database}} ; un enregistrement par {{unit}}. La date d’index est le début de cet enregistrement. Tous les chiffres du rapport sont calculés par la requête ci-dessous, exécutée au moment de la génération.",
     "suppression_text": "Règle des petits effectifs : tout effectif compris entre 1 et {{threshold}} est remplacé par <{{threshold}}, et les pourcentages de ces effectifs ne sont pas donnés, afin qu’aucun petit groupe de patients ne puisse être isolé.",
@@ -5548,7 +5547,14 @@
     "unavailable_event-level": "Le rapport n’est pas disponible au niveau événement.",
     "unavailable_no-query": "Cette cohorte n’a pas encore de requête à décrire.",
     "needs_connection": "Connectez la base pour générer un rapport.",
-    "error": "Le rapport n’a pas pu être généré : {{message}}"
+    "error": "Le rapport n’a pas pu être généré : {{message}}",
+    "source_title": "Source des données",
+    "source_database": "Base",
+    "source_version": "Version",
+    "source_schema": "Schéma",
+    "source_patients": "Patients dans la base",
+    "export": "Exporter",
+    "refresh": "Recalculer avec ce seuil"
   },
   "cohort_derive": {
     "button": "Dériver",

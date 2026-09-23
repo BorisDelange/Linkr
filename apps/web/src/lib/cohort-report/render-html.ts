@@ -7,6 +7,7 @@
 import type { TFunction } from 'i18next'
 import { escapeXml, flowchart, horizontalBars, verticalBars } from './charts'
 import type { CohortReportModel } from './model'
+import { SQL_COLORS, tokenizeSql } from './sql-highlight'
 
 /** The Linkr mark (`public/favicon.svg`), inlined so the file stays self-contained. */
 export const LINKR_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 88" width="40" height="35" aria-label="Linkr"><defs><linearGradient id="linkr-top" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#00d4ff"/><stop offset="100%" stop-color="#2196F3"/></linearGradient></defs><polygon points="5.3,0.4 94.7,0.8 49.8,26.6" fill="url(#linkr-top)"/><polygon points="0.9,9.9 45.5,35.4 45.5,86.9" fill="#004578"/><polygon points="98.6,9.7 54.1,35.4 54.1,86.8" fill="#0084d8"/></svg>`
@@ -30,6 +31,7 @@ p{margin:0 0 10px}
 section{margin-bottom:26px}
 .figure{break-inside:avoid;margin:6px 0 12px}
 .figure svg{max-width:100%;height:auto}
+.figure.center{text-align:center}
 .caption{font-size:11px;color:var(--muted);margin-top:4px}
 .kpis{display:grid;grid-template-columns:repeat(var(--cols,3),1fr);gap:12px}
 .kpi{border:1px solid var(--line);border-top:3px solid var(--blue2);padding:14px 16px;text-align:center}
@@ -40,9 +42,15 @@ th{text-align:left;font-weight:600;color:var(--ink);background:var(--soft);paddi
 td{padding:5px 8px;border-bottom:1px solid var(--soft);vertical-align:top;overflow-wrap:anywhere}
 tr{break-inside:avoid}
 td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
-.crit{list-style:none;padding:0}
-.crit li{padding:4px 0}
-.crit .op{display:inline-block;min-width:34px;font-size:10px;font-weight:600;color:var(--cyan)}
+.crit{list-style:disc;padding-left:20px}
+.crit li{padding:3px 0}
+.crit li::marker{color:var(--blue2)}
+.crit .op{margin-right:6px;font-size:10px;font-weight:600;letter-spacing:.04em;color:var(--cyan)}
+.source{width:auto;min-width:50%;table-layout:auto}
+.source th{width:1%;white-space:nowrap;background:none;font-weight:500;color:var(--muted);border-bottom:1px solid var(--soft)}
+${Object.entries(SQL_COLORS).map(([k, c]) => `.sql .${k}{color:${c}}`).join('')}
+.sql .keyword{font-weight:600}.sql .comment{font-style:italic}
+
 pre{font-family:ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;font-size:9.5px;line-height:1.45;background:var(--soft);padding:10px 12px;white-space:pre-wrap;overflow-wrap:anywhere;break-inside:auto}
 footer{margin-top:26px;padding-top:8px;border-top:1px solid var(--line);font-size:9px;color:var(--muted);text-align:center}
 @page{size:A4;margin:14mm}
@@ -55,6 +63,24 @@ function table(head: { label: string; right?: boolean }[], rows: string[][]): st
     .map((r) => `<tr>${r.map((c, i) => `<td${head[i]?.right ? ' class="r"' : ''}>${c}</td>`).join('')}</tr>`)
     .join('')
   return `<table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`
+}
+
+/** The query as coloured spans, escaped. */
+function highlightSql(sql: string): string {
+  return tokenizeSql(sql)
+    .map((tok) => (tok.kind === 'plain' ? esc(tok.text) : `<span class="${tok.kind}">${esc(tok.text)}</span>`))
+    .join('')
+}
+
+/** Label → value lines describing the database the figures come from. */
+export function sourceRows(model: CohortReportModel, t: TFunction): [string, string][] {
+  const s = model.source
+  return [
+    [t('cohort_report.source_database'), s.databaseName],
+    ...(s.databaseVersion ? [[t('cohort_report.source_version'), s.databaseVersion] as [string, string]] : []),
+    ...(s.schemaLabel ? [[t('cohort_report.source_schema'), s.schemaLabel] as [string, string]] : []),
+    ...(s.databasePatients ? [[t('cohort_report.source_patients'), s.databasePatients.label] as [string, string]] : []),
+  ]
 }
 
 export interface RenderOptions {
@@ -97,7 +123,7 @@ export function renderReportHtml(model: CohortReportModel, t: TFunction, opts: R
     ])
     sections.push({
       title: t('cohort_report.section_flow'),
-      body: `<div class="figure">${flowchart(steps, { title: t('cohort_report.section_flow') })}</div>`
+      body: `<div class="figure center">${flowchart(steps, { title: t('cohort_report.section_flow') })}</div>`
         + `<p class="caption">${esc(t('cohort_report.flow_caption'))}</p>${table(head, rows)}`,
     })
   }
@@ -106,7 +132,7 @@ export function renderReportHtml(model: CohortReportModel, t: TFunction, opts: R
     sections.push({
       title: t('cohort_report.section_criteria'),
       body: `<ul class="crit">${model.criteria
-        .map((c) => `<li style="padding-left:${c.depth * 18}px"><span class="op">${c.operator ? esc(t(`cohort_report.op_${c.operator}`)) : ''}</span>${esc(c.text)}</li>`)
+        .map((c) => `<li style="margin-left:${c.depth * 18}px">${c.operator ? `<span class="op">${esc(t(`cohort_report.op_${c.operator}`))}</span>` : ''}${esc(c.text)}</li>`)
         .join('')}</ul>`,
     })
   }
@@ -162,23 +188,15 @@ export function renderReportHtml(model: CohortReportModel, t: TFunction, opts: R
   if (model.careUnits.length) {
     data.push(`<h3>${esc(t('cohort_report.chart_units'))}</h3><div class="figure">${horizontalBars(model.careUnits.slice(0, 25), { title: t('cohort_report.chart_units') })}</div><p class="caption">${esc(t('cohort_report.units_caption'))}</p>`)
   }
-  if (model.years.length) {
-    data.push(`<h3>${esc(t('cohort_report.years_title'))}</h3>` + table(
-      [
-        { label: t('cohort_report.col_year') },
-        { label: model.unitLabel, right: true },
-        { label: t('cohort_report.kpi_patients'), right: true },
-      ],
-      model.years.map((y) => [esc(y.year), esc(y.units.label), esc(y.patients.label)]),
-    ))
-  }
   if (data.length) sections.push({ title: t('cohort_report.section_data'), body: data.join('') })
 
   sections.push({
     title: t('cohort_report.section_methods'),
-    body: `<p>${esc(t('cohort_report.methods_text', { unit: model.unitLabel, database: model.databaseName }))}</p>`
+    body: `<h3>${esc(t('cohort_report.source_title'))}</h3><table class="source"><tbody>${sourceRows(model, t)
+      .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</tbody></table>`
+      + `<p>${esc(t('cohort_report.methods_text', { unit: model.unitLabel, database: model.databaseName }))}</p>`
       + `<p>${esc(t('cohort_report.suppression_text', { threshold: model.threshold }))}</p>`
-      + (opts.includeSql ? `<h3>SQL</h3><pre>${esc(model.sql)}</pre>` : ''),
+      + (opts.includeSql ? `<h3>SQL</h3><pre class="sql">${highlightSql(model.sql)}</pre>` : ''),
   })
 
   const lang = model.locale.slice(0, 2)

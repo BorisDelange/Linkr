@@ -138,16 +138,11 @@ export function buildMonthSql(indexSql: string): string {
   ].join('\n')
 }
 
-/** Members and distinct patients per year of their index date. */
-export function buildYearSql(indexSql: string): string {
-  return [
-    'SELECT CAST(EXTRACT(YEAR FROM CAST(i.index_date AS TIMESTAMP)) AS INTEGER) AS year,',
-    '  COUNT(*) AS units, COUNT(DISTINCT i.patient_id) AS patients',
-    `FROM (\n${indexSql}\n) i`,
-    'WHERE i.index_date IS NOT NULL',
-    'GROUP BY 1',
-    'ORDER BY 1',
-  ].join('\n')
+/** Every patient of the database, cohort or not. */
+export function buildDatabasePatientsSql(mapping: SchemaMapping): string | null {
+  const pt = mapping.patientTable
+  if (!pt) return null
+  return `SELECT COUNT(*) AS n FROM ${qualify(pt)}`
 }
 
 function eventPatientColumn(et: EventTable, mapping: SchemaMapping): string | undefined {

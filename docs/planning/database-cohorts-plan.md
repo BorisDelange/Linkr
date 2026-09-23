@@ -279,7 +279,8 @@ derivedFrom?: {
   customSql?: string
   builtAt: string
   patientCount: number
-  target: 'duckdb' | 'sql-schema'
+  target: 'new-database' | 'schema'
+  copyPersonless?: boolean        // so a rebuild repeats the choice
 }
 ```
 
@@ -353,8 +354,10 @@ Ordered so nothing ships that cannot be exported.
 | ✅ | 8. HTML renderer + export dialog + PDF via print — *Report* button in every cohort builder (project too) | M |
 | ✅ | 9. Word renderer (`docx`, lazy-loaded chunk) | M |
 | ✅ | 10a. Server: `POST /data-sources/{id}/derive` + `/derive-plan` (`services/data/cohort_derive.py`: two phases, client SQL read-only alone; per-level filtering; new DuckDB or schema; rebuild; `derived_from` + `cohorts.derivations`, migration `f4a5b6c7d8e9`) — tests on files and routes | L |
-| 🔜 | 10b. Client: `derivedFrom` / `derivations` types + strip `derivations` from cohort exports (client side; server already strips) + derive dialog in the database cohort builder (target, name, `DatabaseLocationField`, person-less toggle, plan preview) + rebuild from `derivations` + `derivedFrom` in Overview | M |
+| ✅ | 10b. Client: types, `derivations` stripped on export/import, Derive dialog (new DuckDB with location, or SQL schema in a writable database, person-less toggle, plan preview, rebuild of past derivations), `derivedFrom` card with rebuild on the derived database, `derivedFrom` validated in `linkr-format`. Materialize hidden on database cohorts (nothing reads it there) | M |
+| ✅ | 10d. Report review: in-app preview (the exported HTML in a sandboxed frame), flowchart centred, criteria as a bulleted list, month chart with a Y axis and gap-free bars when dense, data tables by rows desc, per-year table dropped (the month chart has it), SQL coloured (HTML + Word), “Data source” block (database, version, schema, patients in the database) | S |
+| ✅ | 10e. Cards: patient count taken once per database (one `COUNT(*)`, two at a time), stored on the row, refreshed on opening; builder panes can be folded as in an analysis | S |
 | 🔜 | 10c. Synchronous request for now: move to a job (progress, cancel) if large sources time out | S |
-| 🔜 | 11. Server done in 10a (schema in owned DuckDB or Postgres with `allowWrites`, server-side registration copying the secret). Left: the `allowWrites` toggle in the Postgres database dialog, and testing against a real Postgres | M |
+| 🟡 | 11. Server done in 10a; `allowWrites` toggle added to the Postgres dialog (off by default); a rebuild of a declared schema updates that database instead of declaring it again. Left: testing against a real Postgres | M |
 | 🔜 | 12. `docs/architecture.md`, `docs/ui-patterns.md`, user docs in `../linkr-website` (databases + cohorts pages) | S/M |
 | 💤 | Same visualisation tab on project cohorts · copy a database cohort to a project · server-side PDF · report branding (logo, colours) | — |

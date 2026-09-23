@@ -17,7 +17,10 @@ import {
   Download,
   Database,
   Split,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { CustomSqlDot } from '@/components/ui/custom-sql-dot'
 import {
@@ -96,7 +99,14 @@ export function CohortBuilder() {
   const activeSource = useCohortSource(cohort)
   const mapping = activeSource?.schemaMapping
 
-  const [leftView, setLeftView] = useState<'criteria' | 'sql'>('criteria')
+  // `null` hides the left pane: clicking the active view's tab folds it, as in
+  // an analysis. The two panes can never both be hidden.
+  const [leftView, setLeftView] = useState<'criteria' | 'sql' | null>('criteria')
+  const [resultsVisible, setResultsVisible] = useState(true)
+  const toggleLeftView = (view: 'criteria' | 'sql') => {
+    if (leftView !== view) setLeftView(view)
+    else if (resultsVisible) setLeftView(null)
+  }
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [overwriteSqlDialogOpen, setOverwriteSqlDialogOpen] = useState(false)
@@ -275,7 +285,7 @@ export function CohortBuilder() {
         <div className="flex items-center rounded-md border p-0.5">
           <button
             type="button"
-            onClick={() => setLeftView('criteria')}
+            onClick={() => toggleLeftView('criteria')}
             className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
               leftView === 'criteria'
                 ? 'bg-primary text-primary-foreground'
@@ -287,7 +297,7 @@ export function CohortBuilder() {
           </button>
           <button
             type="button"
-            onClick={() => setLeftView('sql')}
+            onClick={() => toggleLeftView('sql')}
             className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
               leftView === 'sql'
                 ? 'bg-primary text-primary-foreground'
@@ -350,18 +360,22 @@ export function CohortBuilder() {
           </Button>
         )}
 
-        {/* Materialize (freeze membership) */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleMaterialize}
-          disabled={loading || !activeSource || cohort.level === 'event' || !can('cohorts:write')}
-          className="h-6 gap-1 text-xs"
-          title={cohort.level === 'event' ? t('cohorts.materialize_event_disabled') : undefined}
-        >
-          <Database size={12} />
-          {t('cohorts.materialize')}
-        </Button>
+        {/* Materialize (freeze membership): what a project's Patient data reads.
+            A database cohort has no such reader — its derivations recompute
+            the membership themselves — so it is not offered there. */}
+        {host.kind === 'project' && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleMaterialize}
+            disabled={loading || !activeSource || cohort.level === 'event' || !can('cohorts:write')}
+            className="h-6 gap-1 text-xs"
+            title={cohort.level === 'event' ? t('cohorts.materialize_event_disabled') : undefined}
+          >
+            <Database size={12} />
+            {t('cohorts.materialize')}
+          </Button>
+        )}
 
         {/* Execute */}
         <Button
@@ -373,13 +387,26 @@ export function CohortBuilder() {
           {loading ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
           {t('cohorts.execute')}
         </Button>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={resultsVisible ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              onClick={() => { if (!resultsVisible || leftView) setResultsVisible(!resultsVisible) }}
+            >
+              {resultsVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t('cohorts.toggle_results')}</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Main content: split panes */}
       <div className="flex-1 min-h-0">
         <Allotment>
-          <Allotment.Pane preferredSize="50%" minSize={300}>
-            {leftView === 'criteria' ? (
+          <Allotment.Pane preferredSize="50%" minSize={leftView ? 300 : 0} visible={!!leftView}>
+            {leftView !== 'sql' ? (
               <div className="h-full overflow-auto">
                 <CriteriaPanel
                   criteriaTree={cohort.criteriaTree}
@@ -400,7 +427,7 @@ export function CohortBuilder() {
               />
             )}
           </Allotment.Pane>
-          <Allotment.Pane preferredSize="50%" minSize={250}>
+          <Allotment.Pane preferredSize="50%" minSize={resultsVisible ? 250 : 0} visible={resultsVisible}>
             <ResultsPanel
               result={result}
               loading={loading}

@@ -33,28 +33,51 @@ function svg(width: number, height: number, body: string, title: string): string
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeXml(title)}" ${FONT}>${body}</svg>`
 }
 
-/** Columns over a category axis (months, age bands). Labels thin out when crowded. */
+/** A round axis maximum and its step: 0, 50, 100… rather than 0, 47, 94. */
+export function niceScale(max: number, ticks = 4): { max: number; step: number } {
+  if (max <= 0) return { max: 1, step: 1 }
+  // Counts: never a fractional step.
+  const raw = Math.max(1, max / ticks)
+  const mag = 10 ** Math.floor(Math.log10(raw))
+  const step = [1, 2, 5, 10].map((f) => f * mag).find((s) => s >= raw) ?? 10 * mag
+  return { max: Math.ceil(max / step) * step, step }
+}
+
+/**
+ * Columns over a category axis (months, age bands), with a count axis on the
+ * left. Labels thin out when crowded; past ~40 columns the gaps go too — a
+ * one-pixel gap between hairline bars reads as a border, not as space.
+ */
 export function verticalBars(items: ChartItem[], opts: { title: string; width?: number; height?: number }): string {
   const width = opts.width ?? 640
   const height = opts.height ?? 240
-  const pad = { top: 18, right: 8, bottom: 36, left: 8 }
+  const { max, step } = niceScale(Math.max(0, ...items.map((i) => i.count.value ?? 0)))
+  const tickLabels: string[] = []
+  for (let v = 0; v <= max; v += step) tickLabels.push(v.toLocaleString('en').replace(/,/g, '\u202f'))
+  const axisW = 10 + Math.max(...tickLabels.map((l) => l.length)) * 5.6
+  const pad = { top: 18, right: 8, bottom: 36, left: axisW }
   const plotW = width - pad.left - pad.right
   const plotH = height - pad.top - pad.bottom
-  const max = Math.max(1, ...items.map((i) => i.count.value ?? 0))
   const slot = items.length ? plotW / items.length : plotW
-  const barW = Math.max(2, slot * 0.72)
+  const dense = items.length > 40
+  const barW = dense ? slot : Math.max(2, slot * 0.72)
   // At most ~12 axis labels, whatever the number of columns.
   const every = Math.max(1, Math.ceil(items.length / 12))
-  const parts: string[] = [
-    `<line x1="${pad.left}" y1="${pad.top + plotH}" x2="${width - pad.right}" y2="${pad.top + plotH}" stroke="${CHART_COLORS.axis}" />`,
-  ]
+  const yOf = (v: number) => pad.top + plotH - (v / max) * plotH
+  const parts: string[] = []
+  tickLabels.forEach((label, i) => {
+    const y = yOf(i * step).toFixed(1)
+    parts.push(`<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" stroke="${CHART_COLORS.axis}"${i ? ' stroke-dasharray="2 3"' : ''} />`)
+    parts.push(`<text x="${pad.left - 5}" y="${(Number(y) + 3).toFixed(1)}" font-size="9" text-anchor="end" fill="${CHART_COLORS.muted}">${escapeXml(label)}</text>`)
+  })
+  parts.push(`<line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${pad.top + plotH}" stroke="${CHART_COLORS.axis}" />`)
   items.forEach((item, i) => {
     const x = pad.left + i * slot + (slot - barW) / 2
     const cx = pad.left + i * slot + slot / 2
     if (item.count.value != null && item.count.value > 0) {
-      const h = (item.count.value / max) * plotH
-      const y = pad.top + plotH - h
-      parts.push(`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="${CHART_COLORS.bar}" />`)
+      const y = yOf(item.count.value)
+      const h = pad.top + plotH - y
+      parts.push(`<rect x="${x.toFixed(2)}" y="${y.toFixed(1)}" width="${barW.toFixed(2)}" height="${h.toFixed(1)}"${dense ? '' : ' rx="1.5"'} fill="${CHART_COLORS.bar}" />`)
       if (items.length <= 24) {
         parts.push(`<text x="${cx.toFixed(1)}" y="${(y - 4).toFixed(1)}" font-size="9" text-anchor="middle" fill="${CHART_COLORS.text}">${escapeXml(item.count.label)}</text>`)
       }

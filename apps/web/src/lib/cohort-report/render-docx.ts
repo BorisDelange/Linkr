@@ -6,7 +6,8 @@
 import type { TFunction } from 'i18next'
 import { flowchart, horizontalBars, verticalBars } from './charts'
 import type { CohortReportModel } from './model'
-import { LINKR_LOGO_SVG, type RenderOptions } from './render-html'
+import { LINKR_LOGO_SVG, sourceRows, type RenderOptions } from './render-html'
+import { SQL_COLORS, tokenizeSql } from './sql-highlight'
 
 /** SVG → PNG bytes, with the size to show it at (CSS pixels). Injected, so the
  *  renderer runs outside a browser in tests. */
@@ -27,10 +28,11 @@ export async function renderReportDocx(
   const d = await import('docx')
   const { Document, Packer, Paragraph, TextRun, ImageRun, Table, TableRow, TableCell, WidthType, AlignmentType, HeadingLevel, ShadingType } = d
 
-  const image = async (svg: string, maxWidth = PAGE_WIDTH_PX) => {
+  const image = async (svg: string, maxWidth = PAGE_WIDTH_PX, center = false) => {
     const png = await rasterize(svg)
     const scale = Math.min(1, maxWidth / png.width)
     return new Paragraph({
+      ...(center ? { alignment: AlignmentType.CENTER } : {}),
       children: [new ImageRun({
         type: 'png',
         data: png.data,
@@ -92,7 +94,7 @@ export async function renderReportDocx(
       counts: withPatients && f.patients
         ? `${f.units.label} ${model.unitLabel} · ${f.patients.label} ${t('cohort_report.patients_lower')}`
         : `${f.units.label} ${model.unitLabel}`,
-    })), { title: t('cohort_report.section_flow') }), 520))
+    })), { title: t('cohort_report.section_flow') }), 520, true))
     children.push(text(t('cohort_report.flow_caption'), { size: 17, color: MUTED, italics: true }))
     children.push(table(
       [
@@ -108,7 +110,7 @@ export async function renderReportDocx(
     section(t('cohort_report.section_criteria'))
     for (const c of model.criteria) {
       children.push(new Paragraph({
-        indent: { left: c.depth * 360 },
+        bullet: { level: Math.min(c.depth, 8) },
         children: [
           ...(c.operator ? [new TextRun({ text: `${t(`cohort_report.op_${c.operator}`)}  `, bold: true, color: CYAN, size: 18 })] : []),
           new TextRun({ text: c.text, size: 21 }),
@@ -152,7 +154,7 @@ export async function renderReportDocx(
     children.push(text(t('cohort_report.suppression_caption', { threshold: model.threshold }), { size: 17, color: MUTED, italics: true }))
   }
 
-  if (model.eventTables.length || model.careUnits.length || model.years.length) {
+  if (model.eventTables.length || model.careUnits.length) {
     section(t('cohort_report.section_data'))
     if (model.eventTables.length) {
       children.push(text(t('cohort_report.event_tables_intro')))
@@ -170,26 +172,31 @@ export async function renderReportDocx(
       children.push(await image(horizontalBars(model.careUnits.slice(0, 25), { title: t('cohort_report.chart_units') })))
       children.push(text(t('cohort_report.units_caption'), { size: 17, color: MUTED, italics: true }))
     }
-    if (model.years.length) {
-      children.push(eyebrow(t('cohort_report.years_title')))
-      children.push(table(
-        [
-          { label: t('cohort_report.col_year') },
-          { label: model.unitLabel, right: true },
-          { label: t('cohort_report.kpi_patients'), right: true },
-        ],
-        model.years.map((y) => [y.year, y.units.label, y.patients.label]),
-      ))
-    }
   }
 
   section(t('cohort_report.section_methods'))
+  children.push(eyebrow(t('cohort_report.source_title')))
+  children.push(new Table({
+    width: { size: 60, type: WidthType.PERCENTAGE },
+    rows: sourceRows(model, t).map(([k, v]) => new TableRow({ children: [cell(k), cell(v)] })),
+  }))
   children.push(text(t('cohort_report.methods_text', { unit: model.unitLabel, database: model.databaseName })))
   children.push(text(t('cohort_report.suppression_text', { threshold: model.threshold })))
   if (opts.includeSql) {
     children.push(eyebrow('SQL'))
     for (const line of model.sql.split('\n')) {
-      children.push(new Paragraph({ children: [new TextRun({ text: line || ' ', font: 'Consolas', size: 15 })] }))
+      children.push(new Paragraph({
+        children: line
+          ? tokenizeSql(line).map((tok) => new TextRun({
+              text: tok.text,
+              font: 'Consolas',
+              size: 15,
+              ...(tok.kind !== 'plain' ? { color: SQL_COLORS[tok.kind].slice(1) } : {}),
+              ...(tok.kind === 'keyword' ? { bold: true } : {}),
+              ...(tok.kind === 'comment' ? { italics: true } : {}),
+            }))
+          : [new TextRun({ text: ' ', font: 'Consolas', size: 15 })],
+      }))
     }
   }
   children.push(text(t('cohort_report.footer'), { size: 16, color: MUTED }))

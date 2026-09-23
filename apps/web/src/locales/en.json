@@ -1171,7 +1171,8 @@
     "period_pick": "Pick a date",
     "results_truncated": "Showing {{shown}} of {{total}} rows — the rest were not loaded. Refine the criteria to narrow the cohort.",
     "text_not": "NOT",
-    "text_exclude_hint": "Exclude notes matching this search"
+    "text_exclude_hint": "Exclude notes matching this search",
+    "toggle_results": "Show or hide the results"
   },
   "datasets": {
     "title": "Datasets",
@@ -5517,7 +5518,6 @@
     "col_label": "Label",
     "col_rows": "Rows",
     "col_coverage": "Coverage %",
-    "col_year": "Year",
     "section_characteristics": "Cohort characteristics",
     "chart_age": "Age distribution (at index date)",
     "chart_sex": "Patients by sex",
@@ -5527,7 +5527,6 @@
     "event_tables_intro": "Rows recorded for the cohort's patients, per event table.",
     "chart_units": "Unit stays per care unit",
     "units_caption": "A stay through several units is counted in each, so the total can exceed the cohort.",
-    "years_title": "Inclusions per year of index date",
     "section_methods": "Methodology",
     "methods_text": "The cohort is built from the criteria above, applied to the database {{database}}; one record per {{unit}}. The index date is the start of that record. Every figure in this report is computed from the query below, run when the report was generated.",
     "suppression_text": "Small-cell rule: any count between 1 and {{threshold}} is replaced by <{{threshold}}, and percentages of such counts are withheld, so that no small group of patients can be singled out.",
@@ -5548,7 +5547,14 @@
     "unavailable_event-level": "A report is not available at event level.",
     "unavailable_no-query": "This cohort has no query to report on yet.",
     "needs_connection": "Connect the database to generate a report.",
-    "error": "The report could not be generated: {{message}}"
+    "error": "The report could not be generated: {{message}}",
+    "source_title": "Data source",
+    "source_database": "Database",
+    "source_version": "Version",
+    "source_schema": "Schema",
+    "source_patients": "Patients in the database",
+    "export": "Export",
+    "refresh": "Recompute with this threshold"
   },
   "cohort_derive": {
     "button": "Derive",

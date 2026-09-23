@@ -148,7 +148,7 @@ export const DatabaseCard = memo(function DatabaseCard({
 
         <div className="min-w-0 flex-1">
           <TruncatedText text={localized(source.name, i18n.language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
-          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
             <span
               className={`size-2 shrink-0 rounded-full ${statusColors[source.status] ?? statusColors.disconnected}`}
             />
@@ -158,7 +158,7 @@ export const DatabaseCard = memo(function DatabaseCard({
           </p>
 
           {source.stats?.patientCount != null && (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
               <Users size={12} className="shrink-0" />
               <span className="tabular-nums">
                 {t('databases.card_patients', {

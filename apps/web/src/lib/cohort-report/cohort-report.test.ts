@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { TFunction } from 'i18next'
 import type { Cohort, SchemaMapping } from '@/types'
-import { flowchart, horizontalBars, verticalBars } from './charts'
+import { flowchart, horizontalBars, niceScale, verticalBars } from './charts'
 import { describeCriteria } from './describe'
 import { buildCohortReportModel, CohortReportUnavailable, fillMonths } from './model'
 import { buildAgeSql, buildCareUnitSql, buildConceptSql, buildIndexSql, buildVisitCountSql } from './queries'
 import { renderReportHtml } from './render-html'
 import { suppress, suppressedShare } from './suppress'
+import { tokenizeSql } from './sql-highlight'
 
 // A key-echoing t: the text shows which key and values a sentence was built from.
 const t = ((key: string, opts?: Record<string, unknown>) =>
@@ -128,8 +129,12 @@ describe('buildCohortReportModel', () => {
     if (sql.includes('AS bin')) return [{ bin: 20, n: 4 }, { bin: 60, n: 300 }]
     if (sql.includes('AS gender')) return [{ gender: '8532', n: 400 }, { gender: '8507', n: 470 }]
     if (sql.includes('AS month')) return [{ month: '2024-01', n: 30 }, { month: '2024-03', n: 2 }]
-    if (sql.includes('AS year')) return [{ year: 2024, units: 902, patients: 870 }]
-    if (sql.includes('AS label')) return [{ label: 'Measurement', rows: 5000, patients: 860 }]
+    if (sql.includes('COUNT(*) AS n FROM')) return [{ n: 40000 }]
+    if (sql.includes('AS label')) return [
+      { label: 'Drug', rows: 7, patients: 5 },
+      { label: 'Condition', rows: 800, patients: 300 },
+      { label: 'Measurement', rows: 5000, patients: 860 },
+    ]
     if (sql.includes('AS unit')) return [{ unit: 'ICU', n: 700 }]
     return []
   }
@@ -146,6 +151,9 @@ describe('buildCohortReportModel', () => {
     expect(model.months.map((m) => m.label)).toEqual(['2024-01', '2024-02', '2024-03'])
     expect(model.months[1].count).toEqual({ value: 0, label: '0' })
     expect(model.months[2].count.value).toBeNull()
+    // Largest first, the suppressed one last.
+    expect(model.eventTables.map((e) => e.label)).toEqual(['Measurement', 'Condition', 'Drug'])
+    expect(model.source).toEqual({ databaseName: 'eHOP', databasePatients: { value: 40000, label: '40,000' } })
   })
 
   it('refuses a hand-written query and the event level', async () => {
@@ -163,8 +171,8 @@ describe('buildCohortReportModel', () => {
     expect(html).not.toContain('ICU <adults>')
     // Nothing is fetched: no external stylesheet, script or image.
     expect(html).not.toMatch(/<(link|script)\b|src="http/)
-    expect(html).toContain('<pre>SELECT DISTINCT')
-    expect(renderReportHtml(model, t, { includeSql: false })).not.toContain('<pre>')
+    expect(html).toContain('<pre class="sql"><span class="keyword">SELECT</span> <span class="keyword">DISTINCT</span>')
+    expect(renderReportHtml(model, t, { includeSql: false })).not.toContain('<pre')
   })
 })
 
@@ -182,5 +190,28 @@ describe('renderReportDocx', () => {
     const doc = await zip.file('word/document.xml')!.async('string')
     expect(doc).toContain('ICU &lt;adults&gt;')
     expect(doc).toContain('&lt;11')
+  })
+})
+
+describe('tokenizeSql', () => {
+  it('colours keywords, not the same words inside strings, identifiers or comments', () => {
+    const toks = tokenizeSql(`SELECT "from" AS x, 'select' -- where\nFROM t1 WHERE n > 10`)
+    const of = (kind: string) => toks.filter((k) => k.kind === kind).map((k) => k.text)
+    expect(of('keyword')).toEqual(['SELECT', 'AS', 'FROM', 'WHERE'])
+    expect(of('identifier')).toEqual(['"from"'])
+    expect(of('string')).toEqual(["'select'"])
+    expect(of('comment')).toEqual(['-- where'])
+    expect(of('number')).toEqual(['10'])
+    // Nothing lost or reordered.
+    expect(toks.map((k) => k.text).join('')).toBe(`SELECT "from" AS x, 'select' -- where\nFROM t1 WHERE n > 10`)
+  })
+})
+
+describe('niceScale', () => {
+  it('rounds the axis up to a whole step', () => {
+    expect(niceScale(47)).toEqual({ max: 60, step: 20 })
+    expect(niceScale(3)).toEqual({ max: 3, step: 1 })
+    expect(niceScale(0)).toEqual({ max: 1, step: 1 })
+    expect(niceScale(1234)).toEqual({ max: 1500, step: 500 })
   })
 })
