@@ -1284,6 +1284,9 @@ export async function buildProjectZip(
     // DATA_SOURCE_LOCAL_FIELDS); the criteria that produce them ARE versioned.
     delete out.attrition
     delete out.resultCount
+    // The frozen member ids: patient identifiers of THIS database, never meant
+    // to leave the instance — and meaningless against anyone else's data.
+    delete out.materialization
     // Key-addressed like a dashboard: the FILENAME is the identity, and the local
     // id is re-derived from it on import. Versioning the id instead made every
     // round trip rewrite it — the import re-hashed the repo's id, pushed the new
@@ -1866,7 +1869,9 @@ export async function importProjectContent(
   for (const c of parsed.cohorts) {
     // `exportKey` is read from the filename and must not be stored: it is how the
     // tree addressed this cohort, not a property of the cohort.
-    const { exportKey, ...cohort } = c
+    // `materialization` was exported before it was stripped: another instance's
+    // patient ids, which address nothing here.
+    const { exportKey, materialization: _materialization, ...cohort } = c
     await storage.cohorts.create(
       dropForeignAuthorId({
         ...cohort,

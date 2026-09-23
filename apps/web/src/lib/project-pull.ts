@@ -152,7 +152,7 @@ const exportShape = (entity: unknown): Record<string, unknown> => {
     dataSourceId: _db, id: _id,
     // Cohort run results: counted against THIS instance's database, so they are
     // not part of the definition the repo holds.
-    attrition: _attrition, resultCount: _resultCount,
+    attrition: _attrition, resultCount: _resultCount, materialization: _materialization,
     // How the tree ADDRESSED the entity (its filename), attached when the ZIP is
     // read. Never written to a file, so comparing it would call every cohort
     // changed — the local side has no such field.

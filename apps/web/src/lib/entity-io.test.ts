@@ -3121,7 +3121,7 @@ describe('export — local database ids never travel', () => {
 // settle. The criteria that produce them stay versioned. (The golden tree pins
 // the bytes; this pins the REASON, so a future field lands on the right side.)
 describe('export — a cohort ships its definition, not its run results', () => {
-  it('drops attrition and resultCount, keeps the criteria', async () => {
+  it('drops attrition, resultCount and the frozen patient ids, keeps the criteria', async () => {
     const storage = {
       projects: { getById: async () => ({ uid: 'p1', name: { en: 'P' }, config: {} }) },
       cohorts: {
@@ -3130,6 +3130,10 @@ describe('export — a cohort ships its definition, not its run results', () => 
           criteriaTree: { kind: 'group', operator: 'AND', children: [] },
           attrition: [{ nodeId: '__total__', label: 'Total', count: 1190 }],
           resultCount: 590,
+          materialization: {
+            level: 'patient', ids: ['101', '102'], patientIds: ['101', '102'],
+            count: 2, materializedAt: '2026-09-23T00:00:00.000Z',
+          },
         }],
       },
     } as unknown as Storage
@@ -3143,6 +3147,8 @@ describe('export — a cohort ships its definition, not its run results', () => 
 
     expect(cohort).not.toHaveProperty('attrition')
     expect(cohort).not.toHaveProperty('resultCount')
+    // Patient ids of this instance's database: never exported.
+    expect(cohort).not.toHaveProperty('materialization')
     expect(cohort.criteriaTree).toEqual({ kind: 'group', operator: 'AND', children: [] })
   })
 

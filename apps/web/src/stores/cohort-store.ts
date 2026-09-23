@@ -453,7 +453,9 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       // ever with nothing to explain it — surface it as the failure it is.
       if (!sql) throw new Error('EMPTY_QUERY')
 
-      const rows = await engine.queryDataSource(dataSourceId, sql)
+      // Every page: the server caps one response at 10k rows, and a membership
+      // cut there would be a silently smaller cohort.
+      const rows = await engine.queryDataSourceAll(dataSourceId, sql)
       const ids: string[] = []
       const patientSet = new Set<string>()
       for (const row of rows) {
