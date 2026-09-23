@@ -17,9 +17,12 @@ import {
   READ, WRITE, api, failure, guard, loc, mappingOf, projectDatabases, text, type Server,
 } from './shared.js'
 
-/** The database a cohort runs on — its own, else the project's first usable one (as the app does). */
+/** The database a cohort runs on — the one owning it, its own, else the project's
+ *  first usable one (as the app does). */
 async function cohortDatabase(cohort: Cohort): Promise<string> {
-  if (cohort.dataSourceId) return cohort.dataSourceId
+  const own = cohort.ownerDataSourceId ?? cohort.dataSourceId
+  if (own) return own
+  if (!cohort.projectUid) throw new Error('This cohort has neither a project nor a database.')
   const dbs = await projectDatabases(cohort.projectUid)
   const usable = dbs.find((d) => d.status === 'connected' && d.schemaMapping?.patientTable)
   if (!usable) throw new Error('This cohort has no database and its project has no usable linked database.')
@@ -45,7 +48,9 @@ async function fillConceptNames(databaseId: string, mapping: SchemaMapping, tree
 function describeCohort(c: Cohort, mapping?: SchemaMapping): string {
   const lines = [
     `Cohort "${loc(c.name)}" (id ${c.id})`,
-    `Project: ${c.projectUid} · level: ${c.level} · database: ${c.dataSourceId ?? '(project default)'}`,
+    c.ownerDataSourceId
+      ? `Database cohort (owner ${c.ownerDataSourceId}) · level: ${c.level}`
+      : `Project: ${c.projectUid} · level: ${c.level} · database: ${c.dataSourceId ?? '(project default)'}`,
   ]
   if (loc(c.description)) lines.push(`Description: ${loc(c.description)}`)
   if (c.resultCount != null) lines.push(`Last count: ${c.resultCount}`)
@@ -304,6 +309,7 @@ export function registerWarehouseTools(server: Server): void {
     }
     if (level !== undefined) changes.level = level
     if (database_id !== undefined) {
+      if (!cohort.projectUid) return failure('This cohort belongs to a database: it always runs on that database.')
       const dbs = await projectDatabases(cohort.projectUid)
       if (!dbs.some((d) => d.id === database_id)) return failure(`Database ${database_id} is not linked to this project.`)
       changes.dataSourceId = database_id
