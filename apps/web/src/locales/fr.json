@@ -842,7 +842,8 @@
     "server_folder": "Dossier serveur",
     "server_path_hint": "Cliquez pour parcourir le serveur",
     "allow_writes": "Autoriser Linkr à écrire dans cette base",
-    "allow_writes_hint": "Permet de dériver une cohorte vers un nouveau schéma SQL de cette base. L’utilisateur doit avoir le droit CREATE sur la base ; Linkr ne modifie jamais les tables existantes."
+    "allow_writes_hint": "Permet de dériver une cohorte vers un nouveau schéma SQL de cette base. L’utilisateur doit avoir le droit CREATE sur la base ; Linkr ne modifie jamais les tables existantes.",
+    "location_move_hint": "À l’enregistrement, le fichier est déplacé à cet emplacement ; rien ne reste à l’ancien."
   },
   "reports": {
     "title": "Rapports",

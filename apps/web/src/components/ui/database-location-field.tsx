@@ -25,6 +25,14 @@ export function databaseLocationPath(location: DatabaseLocation): string | undef
   return `${location.folder.replace(/\/+$/, '')}/${location.fileName.trim()}`
 }
 
+/** The location a stored file path names — the inverse of `databaseLocationPath`.
+ *  No path: the file is in Linkr's data folder. */
+export function databaseLocationOf(path: string | undefined): DatabaseLocation {
+  if (!path) return { kind: 'app' }
+  const cut = path.lastIndexOf('/')
+  return { kind: 'server', folder: path.slice(0, cut) || '/', fileName: path.slice(cut + 1) }
+}
+
 /** `<alias>.duckdb`, the name offered until the user types one. */
 export function defaultDatabaseFileName(alias: string): string {
   return `${alias || 'database'}.duckdb`
@@ -40,6 +48,9 @@ interface Props {
   /** Reports whether the chosen location can be written, so the dialog can gate
    *  its confirm button. The app folder is always valid. */
   onValidityChange: (valid: boolean) => void
+  /** Editing a database that exists: the path its file is at now. Staying there
+   *  is valid — it is the one existing file this field does not refuse. */
+  current?: string
 }
 
 /**
@@ -55,6 +66,7 @@ export function DatabaseLocationField({
   onChange,
   suggestedFileName,
   onValidityChange,
+  current,
 }: Props) {
   const { t } = useTranslation()
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -65,7 +77,8 @@ export function DatabaseLocationField({
    *  the user has since edited is stale and must not be shown. */
   const [check, setCheck] = useState<{ path: string; reason: FsValidationReason | null } | null>(null)
   const path = databaseLocationPath(value)
-  const needsCheck = value.kind === 'server' && !!value.folder && !!value.fileName.trim()
+  const atCurrent = !!current && path === current
+  const needsCheck = value.kind === 'server' && !!value.folder && !!value.fileName.trim() && !atCurrent
 
   useEffect(() => {
     if (!needsCheck || !path) return
@@ -82,7 +95,7 @@ export function DatabaseLocationField({
   }, [needsCheck, path, workspaceId])
 
   const reason: FsValidationReason | 'checking' | null =
-    value.kind === 'app' ? null
+    value.kind === 'app' || atCurrent ? null
       : !needsCheck ? 'empty'
         : check && check.path === path ? check.reason
           : 'checking'

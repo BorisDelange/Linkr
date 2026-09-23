@@ -363,8 +363,8 @@ def claim_managed_location(source: DataSource, requested: str | None) -> tuple[d
 
     `requested` is a new `*.duckdb` in a server folder; omitted, the file stays
     where it was first created (or goes to Linkr's data folder). A location is
-    claimed once and never moved — see `fs_browser.check_new_database_file` for
-    why an existing file is refused. Raises ValueError with the reason."""
+    claimed once here — moving it later is `move_managed_file`'s job; see
+    `fs_browser.check_new_database_file` for why an existing file is refused. Raises ValueError with the reason."""
     config = dict(source.connection_config or {})
     if not requested:
         return config, None
@@ -379,6 +379,56 @@ def claim_managed_location(source: DataSource, requested: str | None) -> tuple[d
         raise ValueError(str(exc)) from exc
     config["managedPath"] = location
     return config, location
+
+
+def _move_file(src: Path, dest: Path) -> None:
+    # `shutil.move` renames on one filesystem and copies then deletes across
+    # two; DuckDB's write-ahead log goes with the file, or the move loses the
+    # last writes that were not checkpointed yet.
+    import shutil
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    for suffix in ("", ".wal"):
+        part = src.with_name(src.name + suffix)
+        if part.exists():
+            shutil.move(str(part), str(dest.with_name(dest.name + suffix)))
+
+
+async def move_managed_file(db: AsyncSession, source: DataSource, requested: str | None) -> DataSource:
+    """Move a Linkr-owned database file to a new `*.duckdb` in a server folder
+    (`requested`), or back to Linkr's data folder (None), and point the source at
+    it. The one sanctioned way to change `managedPath` after creation: the new
+    location goes through the same check as a creation (a new file, inside the
+    browse roots, in a writable folder). Raises ValueError with the reason."""
+    if not is_managed(source):
+        raise ValueError("only a database Linkr created can be moved")
+    state = compaction_state(source.id)
+    if state is not None and state.status == "running":
+        raise ValueError("the database is being compacted; move it once that is done")
+    current = managed_path(source)
+    if requested:
+        try:
+            dest = fs_browser.validate_new_database_file(requested)
+        except fs_browser.FsBrowseError as exc:
+            raise ValueError(str(exc)) from exc
+    else:
+        dest = managed_db.path_for(source.id)
+        if dest.exists() and dest.resolve() != current.resolve():
+            raise ValueError("a file already exists in Linkr's data folder for this database")
+    if dest.resolve() == current.resolve():
+        return source
+    # A pooled connection holds the file open; DuckDB must let go before it moves.
+    connection_pool.invalidate(source.id)
+    await asyncio.to_thread(_move_file, current, dest)
+    config = dict(source.connection_config or {})
+    if requested:
+        config["managedPath"] = str(dest)
+    else:
+        config.pop("managedPath", None)
+    source.connection_config = config
+    await db.commit()
+    await db.refresh(source)
+    return source
 
 
 def _keep_managed_path(config: dict, current: dict | None) -> dict:

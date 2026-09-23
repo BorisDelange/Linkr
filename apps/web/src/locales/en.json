@@ -842,7 +842,8 @@
     "server_folder": "Server folder",
     "server_path_hint": "Click to browse the server",
     "allow_writes": "Allow Linkr to write into this database",
-    "allow_writes_hint": "Lets a cohort be derived into a new SQL schema here. The user needs the CREATE right on the database; Linkr never changes the existing tables."
+    "allow_writes_hint": "Lets a cohort be derived into a new SQL schema here. The user needs the CREATE right on the database; Linkr never changes the existing tables.",
+    "location_move_hint": "On save, the file moves to this location; nothing is left at the old one."
   },
   "reports": {
     "title": "Reports",

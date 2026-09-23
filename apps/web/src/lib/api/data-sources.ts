@@ -127,6 +127,18 @@ export async function deriveOnServer(dataSourceId: string, body: DeriveRequest):
 }
 
 /**
+ * Move a database Linkr created to another file: a NEW `.duckdb` in a server
+ * folder, or back to Linkr's data folder (`path` omitted). The file moves — the
+ * old one is gone afterwards. Returns the source with its new config.
+ */
+export function moveDatabaseFileOnServer(dataSourceId: string, path?: string): Promise<DataSource> {
+  return apiRequest(`/data-sources/${dataSourceId}/move-file`, {
+    method: 'POST',
+    body: JSON.stringify({ path: path ?? null }),
+  })
+}
+
+/**
  * Run ETL SQL server-side: `dataSourceId` is the writable target, `roles` maps
  * a role name (source/vocab) to its data source id so one statement can read
  * one database and write another.

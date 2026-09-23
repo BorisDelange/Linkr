@@ -57,8 +57,8 @@ def path_for(source_id: str) -> Path:
 def path_of(source_id: str, config: dict | None) -> Path:
     """The file a managed source owns: the one it was created at, else the default.
 
-    `managedPath` is only ever written by the create-from-ddl route, after
-    `fs_browser.validate_new_database_file`; create and update refuse to carry it
+    `managedPath` is only ever written by the create-from-ddl, derive and
+    move-file routes, after `fs_browser.validate_new_database_file`; create and update refuse to carry it
     in from a client (`data_source_service`), since everything here writes to —
     and a rebuild deletes — whatever file it names."""
     custom = (config or {}).get("managedPath")

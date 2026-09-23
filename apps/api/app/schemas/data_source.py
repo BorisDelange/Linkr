@@ -160,13 +160,20 @@ class QueryResult(CamelModel):
     rows: list[dict]
 
 
+class MoveFileRequest(CamelModel):
+    """Where a Linkr-owned database file moves: a NEW `*.duckdb` in a server
+    folder, or None for Linkr's data folder."""
+
+    path: str | None = None
+
+
 class CreateFromDdlRequest(CamelModel):
     """Create an empty, server-owned DuckDB file with the schema's DDL applied."""
 
     ddl: str
     # Absolute path of the NEW file to create, in a server folder the user chose.
     # Omitted: Linkr's data folder (`_databases/<id>.duckdb`), or — on a rebuild —
-    # wherever the source was first created. Settable once; never moved after.
+    # wherever the source was first created. Moved later only by `move-file`.
     path: str | None = None
 
 

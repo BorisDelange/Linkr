@@ -573,6 +573,8 @@ function ConnectionCard({ source }: { source: DataSource }) {
   const [connInfo, setConnInfo] = useState<DatabaseConnectionInfo | null>(null)
   const [filesOpen, setFilesOpen] = useState(false)
   const [compactOpen, setCompactOpen] = useState(false)
+  // A moved file keeps its id and status: re-read the location when it changes.
+  const managedPath = config.managedPath
 
   // Where the data actually sits on the server, so it can be read from an
   // R/Python script outside Linkr. Server mode only: the browser build keeps its
@@ -592,7 +594,7 @@ function ConnectionCard({ source }: { source: DataSource }) {
       .then((r) => { if (!cancelled) setConnInfo(r) })
       .catch(() => { if (!cancelled) setConnInfo(null) })
     return () => { cancelled = true }
-  }, [source.id, source.status])
+  }, [source.id, source.status, managedPath])
 
   const parquetTables = connInfo?.kind === 'parquet-folder' ? connInfo.tables : []
   const filePath = connInfo?.kind === 'file' ? connInfo.path : null
@@ -970,7 +972,9 @@ function OverviewTab({
         resolveUrls={resolveAttachmentUrls}
         onEdit={onEditReadme}
       />
-      <div className="flex min-h-0 flex-col gap-4">
+      {/* Scrolls on its own when its cards outgrow the row; the README beside
+          it keeps its height and scrolls inside. */}
+      <div className="-mr-1 flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
         <IdentityCard source={source} onSeeLicense={onSeeLicense} />
         <DerivedFromCard source={source} />
         <SchemaCard source={source} />

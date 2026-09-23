@@ -42,6 +42,15 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  DEFAULT_DATABASE_LOCATION,
+  DatabaseLocationField,
+  databaseLocationOf,
+  databaseLocationPath,
+  defaultDatabaseFileName,
+  type DatabaseLocation,
+} from '@/components/ui/database-location-field'
+import { moveDatabaseFileOnServer } from '@/lib/api/data-sources'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
@@ -241,6 +250,9 @@ export function AddDatabaseDialog({
         if (config.database) setDbDatabase(config.database)
         if (config.schema) setDbSchema(config.schema)
         setDbAllowWrites(!!config.allowWrites)
+        const located = databaseLocationOf(config.managedPath)
+        setFileLocation(located)
+        setInitialFileLocation(located)
         if (config.username) setDbUsername(config.username)
         if (config.password) setDbPassword(config.password)
       } else if (editingSource.sourceType === 'fhir') {
@@ -285,6 +297,11 @@ export function AddDatabaseDialog({
   const [dbDatabase, setDbDatabase] = useState('')
   const [dbSchema, setDbSchema] = useState('')
   const [dbAllowWrites, setDbAllowWrites] = useState(false)
+  // Where a database Linkr created keeps its file, and where it was when the
+  // dialog opened: a change moves the file on save.
+  const [fileLocation, setFileLocation] = useState<DatabaseLocation>(DEFAULT_DATABASE_LOCATION)
+  const [initialFileLocation, setInitialFileLocation] = useState<DatabaseLocation>(DEFAULT_DATABASE_LOCATION)
+  const [fileLocationValid, setFileLocationValid] = useState(true)
   const [dbUsername, setDbUsername] = useState('')
   const [dbPassword, setDbPassword] = useState('')
 
@@ -315,6 +332,8 @@ export function AddDatabaseDialog({
     setDbDatabase('')
     setDbSchema('')
     setDbAllowWrites(false)
+    setFileLocation(DEFAULT_DATABASE_LOCATION)
+    setInitialFileLocation(DEFAULT_DATABASE_LOCATION)
     setDbUsername('')
     setDbPassword('')
     setFhirBaseUrl('')
@@ -361,6 +380,12 @@ export function AddDatabaseDialog({
 
     try {
       if (isEditMode && editingSource) {
+        // First, and alone: if the file cannot move (the name is taken, the
+        // folder is not writable), nothing else of the edit is saved either.
+        if (fileLocationChanged) {
+          const moved = await moveDatabaseFileOnServer(editingSource.id, databaseLocationPath(fileLocation))
+          await updateDataSource(editingSource.id, { connectionConfig: moved.connectionConfig })
+        }
         // Edit mode — update metadata + optionally re-import files
         const mapping = resolveMapping()
         const schemaSource = resolveSchemaSource()
@@ -601,6 +626,9 @@ export function AddDatabaseDialog({
     isEditMode &&
     !!(editingSource?.connectionConfig as DatabaseConnectionConfig | undefined)?.managed
   const needsFileUpload = selectedType === 'database' && isLocalEngine && !isCreatedFromSchema
+  const fileLocationChanged =
+    isCreatedFromSchema && isServerMode()
+    && databaseLocationPath(fileLocation) !== databaseLocationPath(initialFileLocation)
   const isMultiFile = isParquetMode
 
   const totalFileSize = uploadedFiles.reduce((s, f) => s + f.size, 0)
@@ -633,7 +661,7 @@ export function AddDatabaseDialog({
     (selectedType !== 'fhir' || !!fhirBaseUrl.trim()) &&
     !isSizeBlocked
 
-  const canSubmit = isNameValid && isConnectionValid
+  const canSubmit = isNameValid && isConnectionValid && (!fileLocationChanged || fileLocationValid)
 
   // Cmd/Ctrl+S submits the dialog, matching the save shortcut used across the app.
   // A ref holds the latest submit intent so the listener stays stable across renders.
@@ -892,9 +920,24 @@ export function AddDatabaseDialog({
                 </div>
 
                 {isCreatedFromSchema ? (
-                  <p className="rounded-md border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
-                    {t('databases.created_from_schema_note')}
-                  </p>
+                  <>
+                    <p className="rounded-md border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                      {t('databases.created_from_schema_note')}
+                    </p>
+                    {/* The file this database lives in. Machine-local: never
+                        exported nor versioned (the export keeps only `engine`). */}
+                    <DatabaseLocationField
+                      workspaceId={activeWorkspaceId ?? ''}
+                      value={fileLocation}
+                      onChange={setFileLocation}
+                      suggestedFileName={defaultDatabaseFileName(alias || editingSource?.alias || '')}
+                      onValidityChange={setFileLocationValid}
+                      current={databaseLocationPath(initialFileLocation)}
+                    />
+                    {fileLocationChanged && (
+                      <p className="text-xs text-muted-foreground">{t('databases.location_move_hint')}</p>
+                    )}
+                  </>
                 ) : isLocalEngine ? (
                   <>
                     {/* Import mode toggle (only for DuckDB) */}

@@ -8,6 +8,7 @@ import os
 import pytest
 
 from app.services import fs_browser
+from app.services.data import managed_db
 
 API = "/api/v1"
 DDL = "CREATE TABLE person (person_id BIGINT);"
@@ -214,3 +215,36 @@ async def test_validate_path_answers_for_a_new_file(client, tmp_path, monkeypatc
     assert (await check(str(tmp_path / "new.duckdb"), "new-file"))["ok"] is True
     assert (await check(str(tmp_path / "taken.duckdb"), "new-file"))["reason"] == "exists"
     assert (await check(str(tmp_path), "writable-dir"))["ok"] is True
+
+
+async def test_moves_the_file_and_points_the_database_at_it(client, tmp_path, monkeypatch):
+    _set_roots(monkeypatch, str(tmp_path))
+    headers = await _headers(client)
+    src = await _source(client, headers)
+    first = tmp_path / "a" / "study.duckdb"
+    first.parent.mkdir()
+    (tmp_path / "b").mkdir()
+    r = await client.post(f"{API}/data-sources/{src['id']}/create-from-ddl", headers=headers, json={"ddl": DDL, "path": str(first)})
+    assert r.status_code == 200, r.text
+    count = lambda: client.post(f"{API}/data-sources/{src['id']}/query", headers=headers, json={"sql": "SELECT count(*) AS n FROM person"})
+    assert (await count()).status_code == 200  # warms the pool: the move must release it
+
+    second = tmp_path / "b" / "moved.duckdb"
+    r = await client.post(f"{API}/data-sources/{src['id']}/move-file", headers=headers, json={"path": str(second)})
+    assert r.status_code == 200, r.text
+    assert r.json()["connectionConfig"]["managedPath"] == str(second.resolve())
+    assert second.is_file() and not first.exists()
+    assert (await count()).json()["rows"] == [{"n": 0}]
+
+    # Back to Linkr's data folder: no managedPath any more.
+    r = await client.post(f"{API}/data-sources/{src['id']}/move-file", headers=headers, json={"path": None})
+    assert r.status_code == 200 and "managedPath" not in r.json()["connectionConfig"]
+    assert not second.exists() and managed_db.path_for(src["id"]).is_file()
+
+    # An existing file is never overwritten, and a non-managed database cannot move.
+    (tmp_path / "b" / "taken.duckdb").write_text("x")
+    r = await client.post(f"{API}/data-sources/{src['id']}/move-file", headers=headers, json={"path": str(tmp_path / "b" / "taken.duckdb")})
+    assert r.status_code == 400
+    plain = await _source(client, headers, {"engine": "duckdb"})
+    r = await client.post(f"{API}/data-sources/{plain['id']}/move-file", headers=headers, json={"path": str(tmp_path / "b" / "x.duckdb")})
+    assert r.status_code == 400

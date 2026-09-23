@@ -25,6 +25,7 @@ from app.schemas.data_source import (
     CompactStatus,
     DatabaseConnectionInfo,
     CreateFromDdlRequest,
+    MoveFileRequest,
     DataSourceCreate,
     DataSourceFileImportRequest,
     DataSourceFileResponse,
@@ -299,6 +300,23 @@ async def derive(
 
     jobs.launch(job.id, run)
     return JobResponse.model_validate(job, from_attributes=True)
+
+
+@router.post("/{source_id}/move-file", response_model=DataSourceResponse)
+async def move_file(
+    source_id: str,
+    body: MoveFileRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Move a database Linkr created to another file location (a server folder,
+    or back to Linkr's data folder). The file itself moves: nothing is left
+    behind at the old place."""
+    source = await _load_source(db, source_id, user, "databases:write")
+    try:
+        return await data_source_service.move_managed_file(db, source, body.path)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @router.post("/{source_id}/create-from-ddl", response_model=DataSourceResponse)
