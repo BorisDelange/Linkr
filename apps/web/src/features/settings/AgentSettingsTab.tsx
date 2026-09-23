@@ -33,8 +33,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { localized } from '@/lib/localized'
-import { isServerMode } from '@/lib/api-client'
-import { isLocalEndpoint } from '@/lib/agent/locality'
+import { isLocalEndpoint } from '@/lib/llm/locality'
 import {
   createProvider,
   deleteProvider,
@@ -43,14 +42,7 @@ import {
   type AgentSurface,
   type LlmProvider,
 } from '@/lib/api/llm'
-import {
-  DEFAULT_BASE_URL,
-  clearAgentSettings,
-  fetchAvailableModels,
-  loadAgentSettings,
-  providerName,
-  saveAgentSettings,
-} from '@/lib/agent/settings'
+import { DEFAULT_BASE_URL, fetchAvailableModels, providerName } from '@/lib/llm/providers'
 
 type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; detail?: string }
 type ModelsState = { status: 'idle' | 'loading' | 'ok' | 'fail'; list: string[] }
@@ -66,12 +58,11 @@ interface AgentSettingsTabProps {
 }
 
 /**
- * Points Linkr's AI assistant at one or more language models.
+ * The workspace's language-model providers (server mode only).
  *
- * In server mode an admin configures providers for the whole workspace and
- * approves each one per surface, so an ordinary user picks from a vetted list
- * and no API key ever reaches a browser. A client-only (WASM) deployment has no
- * server, so it keeps a single browser-local endpoint.
+ * An admin configures providers for the whole workspace and approves each one
+ * per surface, so an ordinary user picks from a vetted list and no API key ever
+ * reaches a browser.
  *
  * Local endpoints (Ollama, LM Studio, llama.cpp) need only a URL; a remote API
  * forces an explicit, recorded acknowledgement, because prompts carrying clinical
@@ -79,10 +70,8 @@ interface AgentSettingsTabProps {
  */
 export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProps) {
   const { t } = useTranslation()
-  const server = isServerMode()
-
   const [providers, setProviders] = useState<LlmProvider[]>([])
-  const [loading, setLoading] = useState(server)
+  const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<LlmProvider | 'new' | null>(null)
   const [deleting, setDeleting] = useState<LlmProvider | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -90,7 +79,7 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
   /** Re-read the list. The spinner belongs to the first load only — showing it
    *  again after an edit blanks a list the user is already looking at. */
   const refresh = useCallback(async () => {
-    if (!server || !workspaceId) return
+    if (!workspaceId) return
     try {
       setProviders(await listProviders(workspaceId))
       setError(null)
@@ -99,7 +88,7 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
     } finally {
       setLoading(false)
     }
-  }, [server, workspaceId])
+  }, [workspaceId])
 
   useEffect(() => {
     void refresh()
@@ -138,13 +127,8 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
     await refresh()
   }
 
-  // WASM mode: no server to hold a provider list, so keep the single-endpoint form.
-  if (!server) {
-    return <LocalEndpointForm />
-  }
-
   return (
-    <Card className="mt-4">
+    <Card className="mt-2">
       <CardContent className="px-5 pb-5 pt-5">
         <div className="flex items-start gap-2">
           <Bot size={18} className="mt-0.5 shrink-0 text-primary" />
@@ -685,159 +669,5 @@ function ProviderForm({
       ) : null}
       {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
     </div>
-  )
-}
-
-/**
- * WASM mode: one endpoint, stored in this browser. There is no server to hold a
- * shared provider list, nor anywhere safer to keep an API key.
- */
-function LocalEndpointForm() {
-  const { t } = useTranslation()
-  const [initial, setInitial] = useState(() => loadAgentSettings())
-  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? DEFAULT_BASE_URL)
-  const [model, setModel] = useState(initial?.model ?? '')
-  const [apiKey, setApiKey] = useState(initial?.apiKey ?? '')
-  const [acknowledged, setAcknowledged] = useState(Boolean(initial?.acknowledgedAt))
-  const [saved, setSaved] = useState(false)
-
-  const remote = baseUrl.trim().length > 0 && !isLocalEndpoint(baseUrl)
-  const blocked = remote && !acknowledged
-  const incomplete = !baseUrl.trim() || !model.trim()
-
-  const dirty =
-    baseUrl.trim() !== (initial?.baseUrl ?? DEFAULT_BASE_URL) ||
-    model.trim() !== (initial?.model ?? '') ||
-    apiKey.trim() !== (initial?.apiKey ?? '') ||
-    acknowledged !== Boolean(initial?.acknowledgedAt)
-
-  const handleSave = () => {
-    if (blocked) return
-    // Emptying the fields and saving is how you turn the assistant off — no
-    // separate clear button needed.
-    if (incomplete) {
-      clearAgentSettings()
-    } else {
-      saveAgentSettings({
-        baseUrl: baseUrl.trim(),
-        model: model.trim(),
-        apiKey: apiKey.trim() || undefined,
-        acknowledgedAt: remote ? new Date().toISOString() : undefined,
-      })
-    }
-    setInitial(loadAgentSettings())
-    setSaved(true)
-  }
-
-  // The button says "Saved" briefly, then reverts — a confirmation the user
-  // cannot miss, without leaving a stale label next to a since-edited form.
-  useEffect(() => {
-    if (!saved) return
-    const timer = setTimeout(() => setSaved(false), 2000)
-    return () => clearTimeout(timer)
-  }, [saved])
-
-  return (
-    <Card className="mt-4">
-      <CardContent className="px-5 pb-5 pt-5">
-        <div className="flex items-start gap-2">
-          <Bot size={18} className="mt-0.5 shrink-0 text-primary" />
-          <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-foreground">
-              {t('agent.settings_title')}
-            </h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {t('agent.settings_description')}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_16rem]">
-          <div className="space-y-1.5">
-            <Label htmlFor="agent-url-local">{t('agent.settings_base_url')}</Label>
-            <Input
-              id="agent-url-local"
-              value={baseUrl}
-              onChange={(e) => {
-                setBaseUrl(e.target.value)
-                setSaved(false)
-              }}
-              placeholder={DEFAULT_BASE_URL}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              {t('agent.settings_base_url_hint')}
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="agent-model-local">{t('agent.settings_model')}</Label>
-            <Input
-              id="agent-model-local"
-              value={model}
-              onChange={(e) => {
-                setModel(e.target.value)
-                setSaved(false)
-              }}
-              placeholder={t('agent.settings_model_placeholder')}
-            />
-          </div>
-        </div>
-
-        {remote ? (
-          <div className="mt-4 space-y-3 rounded-md border-2 border-destructive bg-destructive/5 p-3">
-            <div className="flex items-start gap-2">
-              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" />
-              <div className="min-w-0 space-y-1">
-                <p className="text-sm font-semibold text-destructive">
-                  {t('agent.remote_warning_title')}
-                </p>
-                <p className="text-xs text-foreground">{t('agent.remote_warning_body')}</p>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="agent-key-local">{t('agent.settings_api_key')}</Label>
-              <Input
-                id="agent-key-local"
-                type="password"
-                value={apiKey}
-                onChange={(e) => {
-                  setApiKey(e.target.value)
-                  setSaved(false)
-                }}
-                autoComplete="off"
-              />
-            </div>
-
-            <label className="flex items-start gap-2 text-xs">
-              <Checkbox
-                checked={acknowledged}
-                onCheckedChange={(value) => {
-                  setAcknowledged(value === true)
-                  setSaved(false)
-                }}
-                className="mt-0.5"
-              />
-              <span>{t('agent.remote_acknowledge')}</span>
-            </label>
-          </div>
-        ) : null}
-
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={handleSave} disabled={blocked || (!dirty && !saved)}>
-            {saved ? <Check size={14} /> : <Save size={14} />}
-            {saved
-              ? incomplete
-                ? t('agent.settings_disabled')
-                : t('agent.settings_saved')
-              : t('common.save')}
-          </Button>
-        </div>
-
-        {blocked ? (
-          <p className="mt-2 text-xs text-destructive">{t('agent.remote_blocked')}</p>
-        ) : null}
-      </CardContent>
-    </Card>
   )
 }

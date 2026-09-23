@@ -18,8 +18,8 @@ export interface AuthUser {
   affiliation?: string | null
   profession?: string | null
   orcid?: string | null
-  // Cross-device user choices (currently the assistant's save-conversations
-  // consent). Purely local UI state stays in localStorage instead.
+  // Cross-device user choices (e.g. each list's sort order). Purely local UI
+  // state stays in localStorage instead.
   preferences?: Record<string, unknown>
 }
 
@@ -202,7 +202,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
       if (!user) return
       // The server stores preferences as one JSON value and replaces it
       // wholesale, so send the merged object — a partial PATCH would drop every
-      // other preference, including a consent flag.
+      // other preference.
       const preferences = { ...(user.preferences ?? {}), [key]: value }
       const next = { ...user, preferences }
       set({ user: next })

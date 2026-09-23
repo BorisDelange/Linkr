@@ -86,7 +86,7 @@ export default defineConfig([
   {
     // Build configs and scripts run in Node, not the browser: `process`,
     // `__dirname` & co. are real globals there. The base block only matches
-    // `.ts`/`.tsx`, so `.mjs`/`.js` scripts (e.g. scripts/agent-bench/run.mjs)
+    // `.ts`/`.tsx`, so `.mjs`/`.js` scripts (e.g. scripts/postinstall.mjs)
     // would be UNLINTED without extending a rule set here — not just missing the
     // node globals. Patterns are dir-relative, so `**/*.config.*` catches configs
     // in subdirs too.
