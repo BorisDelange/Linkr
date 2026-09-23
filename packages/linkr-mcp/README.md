@@ -5,7 +5,7 @@ Two MCP servers, two targets:
 | Server | Entry | Acts on |
 |---|---|---|
 | **`linkr`** | `src/live/server.ts` | a **running Linkr instance**, through its REST API, as one user |
-| `linkr-files` | `src/server.ts` | entity trees **on disk** — to be removed once `linkr` covers its uses |
+| `linkr-files` | `src/files/server.ts` | entity trees **on disk** — to be removed once `linkr` covers its uses |
 
 Plan: [`docs/planning/ai-agents-plan.md`](../../docs/planning/ai-agents-plan.md) §4.
 
@@ -62,7 +62,7 @@ import path reads with no special-casing.
 ## Register it with Claude Code
 
 ```bash
-claude mcp add linkr-files -- npx tsx /absolute/path/to/packages/linkr-mcp/src/server.ts
+claude mcp add linkr-files -- npx tsx /absolute/path/to/packages/linkr-mcp/src/files/server.ts
 ```
 
 Or in `.claude/mcp.json`:
@@ -72,7 +72,7 @@ Or in `.claude/mcp.json`:
   "mcpServers": {
     "linkr-files": {
       "command": "npx",
-      "args": ["tsx", "/absolute/path/to/packages/linkr-mcp/src/server.ts"]
+      "args": ["tsx", "/absolute/path/to/packages/linkr-mcp/src/files/server.ts"]
     }
   }
 }

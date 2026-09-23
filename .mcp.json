@@ -6,7 +6,7 @@
     },
     "linkr-files": {
       "command": "npx",
-      "args": ["-y", "tsx", "packages/linkr-mcp/src/server.ts"]
+      "args": ["-y", "tsx", "packages/linkr-mcp/src/files/server.ts"]
     }
   }
 }

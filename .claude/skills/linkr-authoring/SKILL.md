@@ -169,7 +169,7 @@ check the shape of these fields.
 | `upsert_mappings`, `remove_mappings` | concept-mapping rows, by `sourceConceptCode` |
 | `write_event_table` | one event table of a schema preset (`fields: null` deletes) |
 
-Not registered? `claude mcp add linkr-files -- npx tsx <repo>/packages/linkr-mcp/src/server.ts`
+Not registered? `claude mcp add linkr-files -- npx tsx <repo>/packages/linkr-mcp/src/files/server.ts`
 
 ## Elements
 
