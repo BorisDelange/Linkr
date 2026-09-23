@@ -236,7 +236,18 @@ npx tsx packages/linkr-format/src/node/cli.ts path/to/entity
 Agents get the same thing as an MCP server, which writes the tree and validates every change:
 
 ```bash
-claude mcp add linkr -- npx tsx "$PWD/packages/linkr-mcp/src/server.ts"
+claude mcp add linkr-files -- npx tsx "$PWD/packages/linkr-mcp/src/files/server.ts"
+```
+
+## Driving a running instance from an agent
+
+The `linkr` MCP server acts on a running Linkr server as one user — projects, databases,
+cohorts, datasets, dashboards — through the REST API, so every permission is re-checked. Its
+writes show up live in the open tab and in the header's notification centre, where each one
+can be undone. Configure `packages/linkr-mcp/.env` (template `.env.example`), then:
+
+```bash
+claude mcp add linkr -- npx tsx --tsconfig "$PWD/packages/linkr-mcp/tsconfig.json" "$PWD/packages/linkr-mcp/src/live/server.ts"
 ```
 
 `packages/linkr-mcp/README.md` lists the tools; `packages/linkr-format/README.md` documents
