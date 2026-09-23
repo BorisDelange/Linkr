@@ -41,7 +41,7 @@ export function ResultsPanel({ result, loading, error, onExecute, onExportCsv, r
             <p className="text-sm">{t('cohorts.results_empty')}</p>
           </>
         )}
-        <Button variant="outline" size="sm" onClick={onExecute} className="gap-1.5">
+        <Button size="sm" onClick={onExecute} className="gap-1.5">
           {t('cohorts.execute')}
         </Button>
       </div>
