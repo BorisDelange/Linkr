@@ -217,7 +217,7 @@ patient count on cards — all carried by the database export.
 | ✅ | 1. DuckDB location field + Linkr-owned files (Create from schema) | M |
 | ✅ | 2–4. Cohort owner model → `CohortHost` refactor + Cohorts tab → export/import/versioning | L |
 | ✅ | 5–6. Database patient board + *Patients* tab + export (server mode: SQL widgets only there, R/Python need a project session) | M/L |
-| 🔜 | 7–9. Cohort report: model + SVG charts → HTML + PDF → Word | L |
+| ✅ | 7–9. Cohort report: model + SVG charts → HTML + PDF → Word (every cohort, project included) | L |
 | 🔜 | 10–11. Derive (self-contained copy, vocabulary included) → new DuckDB · → new schema (DuckDB / Postgres) | L |
 | 🔜 | 12. Architecture + UI docs + website docs | S/M |
 

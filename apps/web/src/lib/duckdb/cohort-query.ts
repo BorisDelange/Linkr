@@ -186,10 +186,17 @@ export function buildCohortMembershipSql(cohort: Cohort, mapping: SchemaMapping)
 export function buildAttritionQueries(
   cohort: Cohort,
   mapping: SchemaMapping,
+  /** Also count the distinct patients at each step (`patients` column), beside
+   *  the level's own ids (`cnt`) — the cohort report's flowchart shows both. */
+  opts: { withPatients?: boolean } = {},
 ): { nodeId: string; label: string; sql: string }[] {
   const baseTable = getBaseTable(cohort.level, mapping)
   const idColumn = getIdColumn(cohort.level, mapping)
   if (!baseTable || !idColumn) return []
+  const patientIdCol = getPatientIdColumn(cohort.level, mapping)
+  const countCols = opts.withPatients && patientIdCol
+    ? `  COUNT(DISTINCT "${baseTable}"."${idColumn}") AS cnt,\n  COUNT(DISTINCT "${baseTable}"."${patientIdCol}") AS patients`
+    : `  COUNT(DISTINCT "${baseTable}"."${idColumn}") AS cnt`
 
   const queries: { nodeId: string; label: string; sql: string }[] = []
 
@@ -202,7 +209,7 @@ export function buildAttritionQueries(
     label: 'Total',
     sql: [
       `SELECT`,
-      `  COUNT(DISTINCT "${baseTable}"."${idColumn}") AS cnt`,
+      countCols,
       `FROM`,
       `  ${baseFrom}`,
     ].join('\n'),
@@ -219,7 +226,7 @@ export function buildAttritionQueries(
     const where = buildTreeWhereClause(progressiveTree, cohort.level, mapping, baseTable)
     const lines = [
       `SELECT`,
-      `  COUNT(DISTINCT "${baseTable}"."${idColumn}") AS cnt`,
+      countCols,
       `FROM`,
       `  ${from}`,
     ]

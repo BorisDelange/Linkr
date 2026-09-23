@@ -349,9 +349,9 @@ Ordered so nothing ships that cannot be exported.
 | ✅ | 4. Export/import/versioning of database cohorts (§8) — client, server twin, linkr-format, workspace golden | M |
 | ✅ | 5. Board owner model + `'patients'` tab in `ResultsPanel` + patient list of the result (§3) — R/Python widgets unavailable there in server mode (no project session) | M/L |
 | ✅ | 6. Board in the database export (§8) — `patient-board.json`, workspace golden | S |
-| 🔜 | 7. Report model + `describeCriterion` + small-cell suppression + SVG charts, with tests (§4) | M |
-| 🔜 | 8. HTML renderer + export dialog + PDF via print | M |
-| 🔜 | 9. Word renderer (`docx`) | M |
+| ✅ | 7. Report model + `describeCriterion` + small-cell suppression + SVG charts, with tests (§4) — `lib/cohort-report/`, SQL checked on DuckDB for the 3 levels | M |
+| ✅ | 8. HTML renderer + export dialog + PDF via print — *Report* button in every cohort builder (project too) | M |
+| ✅ | 9. Word renderer (`docx`, lazy-loaded chunk) | M |
 | 🔜 | 10. Derive dialog + job: target new DuckDB, self-contained copy, provenance, rebuild (§6a) | L |
 | 🔜 | 11. Derive → new schema in a Linkr-owned DuckDB or Postgres (+ write toggle, + register as a database) (§6b) | M/L |
 | 🔜 | 12. `docs/architecture.md`, `docs/ui-patterns.md`, user docs in `../linkr-website` (databases + cohorts pages) | S/M |

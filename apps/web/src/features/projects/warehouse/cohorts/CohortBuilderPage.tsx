@@ -8,6 +8,7 @@ import { useCohortStore } from '@/stores/cohort-store'
 import * as engine from '@/lib/duckdb/engine'
 import {
   ArrowLeft,
+  FileText,
   Play,
   Loader2,
   Code2,
@@ -39,6 +40,7 @@ import { CriteriaPanel } from './builder/CriteriaPanel'
 import { SqlPreviewPanel } from './sql/SqlPreviewPanel'
 import { ResultsPanel } from './results/ResultsPanel'
 import { CohortPatientsPanel } from './results/CohortPatientsPanel'
+import { CohortReportDialog } from './report/CohortReportDialog'
 import { ImportAtlasDialog } from './atlas/ImportAtlasDialog'
 import { ExportAtlasDialog } from './atlas/ExportAtlasDialog'
 import { formatDateTime } from '@/lib/format-helpers'
@@ -94,6 +96,7 @@ export function CohortBuilder() {
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [overwriteSqlDialogOpen, setOverwriteSqlDialogOpen] = useState(false)
   const [rematerializeDialogOpen, setRematerializeDialogOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const pendingTreeRef = useRef<CriteriaGroupNode | null>(null)
 
   const result = cohortId ? executionResults.get(cohortId) ?? null : null
@@ -319,6 +322,12 @@ export function CohortBuilder() {
           {t('common.export')}
         </Button>
 
+        {/* A read of the definition, like export: not gated on write. */}
+        <Button variant="ghost" size="sm" onClick={() => setReportOpen(true)} className="h-6 gap-1 text-xs">
+          <FileText size={12} />
+          {t('cohort_report.button')}
+        </Button>
+
         {/* Materialize (freeze membership) */}
         <Button
           variant="outline"
@@ -403,6 +412,13 @@ export function CohortBuilder() {
         open={exportDialogOpen}
         onOpenChange={setExportDialogOpen}
         cohort={cohort}
+      />
+
+      <CohortReportDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        cohort={cohort}
+        source={activeSource}
       />
 
       {/* Confirm overwriting custom SQL when criteria change */}
