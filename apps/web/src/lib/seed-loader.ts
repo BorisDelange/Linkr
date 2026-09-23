@@ -14,15 +14,15 @@ import {
   CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, SCRIPTS_DIR, SIDECAR,
   type LayoutKind, type SeedProjectIndex as FormatSeedProjectIndex,
 } from '@linkr/format'
-import { getStorage } from '@/lib/storage'
+import { getStorage, type Storage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import {
-  COHORT_BOARDS_DIR, attachTreeIds, createCohortBoard, parseSourceConceptIdEntries, patientDashboardKey,
-  projectCohortBoardKeyId, reassemblePresetMapping, resolveDashboardBundle, slugify,
+  COHORT_BOARDS_DIR, DATABASE_COHORTS_DIR, attachTreeIds, createCohortBoard, parseSourceConceptIdEntries, patientDashboardKey,
+  projectCohortBoardKeyId, reassemblePresetMapping, replaceDatabaseBoards, replaceDatabaseCohorts, resolveDashboardBundle, slugify,
   type CohortBoardBundle, type CompactSourceConceptIdEntries, type DashboardBundle,
 } from '@/lib/entity-io'
 import i18n from '@/lib/i18n'
@@ -928,6 +928,9 @@ async function loadWorkspaceInternals(
       createdAt: ds.createdAt ?? now,
       updatedAt: now,
     } as DataSource)
+    // After the row, as the workspace import does: the cohorts belong to it.
+    const dir = path.split('/').slice(0, -1).join('/')
+    await seedDatabaseCohorts(storage, `${base}/${dir}`, id, index.databaseCohorts?.[dir] ?? [])
   }
 
   // --- wiki/ ---
@@ -1076,6 +1079,7 @@ async function loadWorkspaceInternals(
 export interface WorkspaceInternals {
   schemas?: string[]
   databases?: string[]
+  databaseCohorts?: Record<string, string[]>  // 'databases/<folder>' → 'cohorts/<key>.json', 'cohort-boards/<key>.json'
   wikiPages?: string[]             // paths like 'wiki/slug--id.md'
   sqlCollections?: string[]        // folder names under sql-scripts/
   sqlScriptFiles?: Record<string, string>  // 'collection/<tree path>' → relative path
@@ -1093,6 +1097,32 @@ type SeedProjectIndex = FormatSeedProjectIndex
 // ---------------------------------------------------------------------------
 // Database seeding (Parquet files)
 // ---------------------------------------------------------------------------
+
+/**
+ * A database's own cohorts and their boards, from the files the seed index lists
+ * for its folder — the same ids as a ZIP import of that tree, since both go
+ * through replaceDatabaseCohorts / replaceDatabaseBoards.
+ */
+async function seedDatabaseCohorts(storage: Storage, base: string, dataSourceId: string, files: string[]): Promise<void> {
+  const cohorts: import('@/types').Cohort[] = []
+  const boards = new Map<string, CohortBoardBundle>()
+  for (const file of files) {
+    const key = file.slice(file.indexOf('/') + 1).replace(/\.json$/, '')
+    if (file.startsWith(DATABASE_COHORTS_DIR)) {
+      const cohort = await fetchJson<import('@/types').Cohort>(`${base}/${file}`)
+      if (cohort) cohorts.push({ ...cohort, exportKey: key })
+    } else if (file.startsWith(COHORT_BOARDS_DIR)) {
+      const board = await fetchJson<CohortBoardBundle>(`${base}/${file}`)
+      if (board?.patientDashboard) boards.set(key, board)
+    }
+  }
+  try {
+    await replaceDatabaseCohorts(storage, dataSourceId, cohorts)
+    await replaceDatabaseBoards(storage, dataSourceId, boards)
+  } catch (err) {
+    console.error(`[seed-loader] cohorts of database ${dataSourceId}:`, err)
+  }
+}
 
 /**
  * Write the finished row, over phase 1's metadata-only one when it is there.
