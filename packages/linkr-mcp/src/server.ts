@@ -54,7 +54,7 @@ import {
   writeZip,
 } from './tools.js'
 
-const server = new McpServer({ name: 'linkr', version: '0.1.0' })
+const server = new McpServer({ name: 'linkr-files', version: '0.1.0' })
 
 /** Plain-text tool result. */
 const text = (body: string) => ({ content: [{ type: 'text' as const, text: body }] })

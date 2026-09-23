@@ -6,6 +6,7 @@ export default defineConfig({
     alias: {
       '@linkr/format/node/fs-tree': path.resolve(__dirname, '../linkr-format/src/node/fs-tree.ts'),
       '@linkr/format': path.resolve(__dirname, '../linkr-format/src/index.ts'),
+      '@': path.resolve(__dirname, '../../apps/web/src'),
     },
   },
   test: {

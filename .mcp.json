@@ -2,6 +2,10 @@
   "mcpServers": {
     "linkr": {
       "command": "npx",
+      "args": ["-y", "tsx", "--tsconfig", "packages/linkr-mcp/tsconfig.json", "packages/linkr-mcp/src/live/server.ts"]
+    },
+    "linkr-files": {
+      "command": "npx",
       "args": ["-y", "tsx", "packages/linkr-mcp/src/server.ts"]
     }
   }

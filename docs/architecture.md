@@ -39,8 +39,8 @@ linkr/
 │   ├── linkr-format/             # What a valid entity IS: schemas, id/key derivation,
 │   │                             #   validator, authoring serializer. No I/O, no deps —
 │   │                             #   usable from the browser, Node and CI alike.
-│   └── linkr-mcp/                # MCP server exposing the above to any agent, so Linkr
-│                                 #   content can be authored outside the app
+│   └── linkr-mcp/                # MCP servers: `linkr` drives a running instance (REST);
+│                                 #   `linkr-files` authors entity trees on disk
 ├── docker/                       # Docker configs
 ├── docs/                         # Documentation
 └── v1/                           # Legacy R/Shiny codebase (reference only)
@@ -248,7 +248,7 @@ The export format is now described in **two** places, and they must be kept in s
 |---|---|---|
 | Writer | `apps/web/src/lib/entity-io.ts` | the app's export/import — the reference implementation |
 | Format | `packages/linkr-format/` | schemas, id/key derivation, **validator**, authoring serializer |
-| Tools | `packages/linkr-mcp/` | MCP server exposing the format to any agent (a thin facade; holds no format knowledge) |
+| Tools | `packages/linkr-mcp/` (`linkr-files`) | MCP server exposing the format to any agent (a thin facade; holds no format knowledge) |
 
 > ⚠️ **Change the shape of an exported entity → update the format package in the same
 > change.** A field added to `entity.json`, `dashboards/*.json`, `_tree.json` or any

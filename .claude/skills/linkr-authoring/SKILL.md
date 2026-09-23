@@ -1,6 +1,6 @@
 ---
 name: linkr-authoring
-description: Author or edit Linkr content outside the app — a project, dashboard, dataset, plugin, script — as a validated entity tree, using the linkr MCP server. Use when the user wants to build a demo project, seed content for a portal, add a plugin, or fix an entity tree that does not import cleanly.
+description: Author or edit Linkr content outside the app — a project, dashboard, dataset, plugin, script — as a validated entity tree, using the linkr-files MCP server. Use when the user wants to build a demo project, seed content for a portal, add a plugin, or fix an entity tree that does not import cleanly.
 argument-hint: [what to build]
 ---
 
@@ -169,7 +169,7 @@ check the shape of these fields.
 | `upsert_mappings`, `remove_mappings` | concept-mapping rows, by `sourceConceptCode` |
 | `write_event_table` | one event table of a schema preset (`fields: null` deletes) |
 
-Not registered? `claude mcp add linkr -- npx tsx <repo>/packages/linkr-mcp/src/server.ts`
+Not registered? `claude mcp add linkr-files -- npx tsx <repo>/packages/linkr-mcp/src/server.ts`
 
 ## Elements
 

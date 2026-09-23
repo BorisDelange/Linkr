@@ -1,8 +1,43 @@
 # `@linkr/mcp`
 
-An MCP server that lets any agent — Claude Code, OpenCode, Cursor, Codex — **author
-Linkr content outside Linkr**: write a project tree, edit it, and have every change
-validated against the real format.
+Two MCP servers, two targets:
+
+| Server | Entry | Acts on |
+|---|---|---|
+| **`linkr`** | `src/live/server.ts` | a **running Linkr instance**, through its REST API, as one user |
+| `linkr-files` | `src/server.ts` | entity trees **on disk** — to be removed once `linkr` covers its uses |
+
+Plan: [`docs/planning/ai-agents-plan.md`](../../docs/planning/ai-agents-plan.md) §4.
+
+## `linkr` — live
+
+Drives a running server: projects, databases (schema, concepts, read-only SQL) and
+cohorts (create, edit criteria or custom SQL, run with attrition). It reuses the app's
+own query builders (`apps/web/src/lib/duckdb/cohort-query.ts`, the concepts page's
+`concept-queries.ts`) through the `@/` alias, so the SQL it runs is the SQL the app runs.
+
+Every call goes through the REST API with the user's credentials, so the server
+re-checks every permission — an agent never exceeds the user it acts for. Tools carry
+`readOnlyHint` / `destructiveHint` annotations, so a client can auto-approve reads.
+
+Configure it in `packages/linkr-mcp/.env` (gitignored; template `.env.example`):
+`LINKR_API_URL` plus either `LINKR_TOKEN` or `LINKR_USERNAME` + `LINKR_PASSWORD`.
+The repo's `.mcp.json` registers both servers for Claude Code sessions opened here.
+Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json packages/linkr-mcp/src/live/server.ts`
+— the explicit `--tsconfig` is what resolves the `@/` alias into `apps/web/src`.
+
+| Tool | Purpose |
+|---|---|
+| `list_projects`, `get_project_context` | projects; linked databases with their schema mapping in plain words; cohorts |
+| `describe_database`, `search_concepts`, `run_sql` | tables and columns; fuzzy concept search with record/patient counts; read-only SQL |
+| `list_cohorts`, `get_cohort` | cohort definitions, criteria rendered and as JSON |
+| `create_cohort`, `update_cohort` | criteria validated against the mapping, concept names filled in; or custom SQL |
+| `preview_cohort_sql`, `run_cohort` | generated SQL; count + attrition + sample rows |
+
+## `linkr-files` — entity trees on disk
+
+Lets any agent author Linkr content outside Linkr: write a project tree, edit it, and
+have every change validated against the real format.
 
 It contains no format knowledge. Every tool parses its arguments, calls into
 [`@linkr/format`](../linkr-format), and reports what came back. Design:
@@ -15,7 +50,7 @@ import path reads with no special-casing.
 ## Register it with Claude Code
 
 ```bash
-claude mcp add linkr -- npx tsx /absolute/path/to/packages/linkr-mcp/src/server.ts
+claude mcp add linkr-files -- npx tsx /absolute/path/to/packages/linkr-mcp/src/server.ts
 ```
 
 Or in `.claude/mcp.json`:
@@ -23,7 +58,7 @@ Or in `.claude/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "linkr": {
+    "linkr-files": {
       "command": "npx",
       "args": ["tsx", "/absolute/path/to/packages/linkr-mcp/src/server.ts"]
     }

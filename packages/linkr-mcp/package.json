@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "bin": {
-    "linkr-mcp": "./src/server.ts"
+    "linkr-mcp": "./src/server.ts",
+    "linkr-mcp-live": "./src/live/server.ts"
   },
   "scripts": {
     "start": "tsx src/server.ts",
+    "start:live": "tsx --tsconfig tsconfig.json src/live/server.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

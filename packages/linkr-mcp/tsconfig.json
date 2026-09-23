@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "verbatimModuleSyntax": true,
@@ -13,12 +13,14 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "baseUrl": ".",
     "paths": {
       "@linkr/format": ["../linkr-format/src/index.ts"],
-      "@linkr/format/node/fs-tree": ["../linkr-format/src/node/fs-tree.ts"]
+      "@linkr/format/node/fs-tree": ["../linkr-format/src/node/fs-tree.ts"],
+      "@/*": ["../../apps/web/src/*"],
+      "@default-plugins/*": ["../default-plugins/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "../../apps/web/src/types/globals.d.ts", "../../apps/web/src/types/file-system-access.d.ts"]
 }
