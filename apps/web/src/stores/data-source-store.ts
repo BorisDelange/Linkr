@@ -176,6 +176,9 @@ interface DataSourceState {
     schemaMapping: SchemaMapping
     ddl: string
     alias?: string
+    /** Server mode: a new `.duckdb` in a server folder, instead of Linkr's data
+     *  folder. */
+    managedPath?: string
   }) => Promise<string>
 }
 
@@ -613,7 +616,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       try {
         const tables = await fetchDataSourceSchema(id)
         fileUpdate = tables.length > 0
-          ? { status: 'connected', errorMessage: undefined, stats: { tableCount: tables.length } }
+          ? { status: 'connected', errorMessage: undefined, stats: { ...ds.stats, tableCount: tables.length } }
           : { status: 'disconnected', errorMessage: DB_ERROR_NO_DATA_ON_IMPORT }
       } catch (e) {
         fileUpdate = { status: 'error', errorMessage: e instanceof Error ? e.message : String(e) }
@@ -713,7 +716,16 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
     try {
       if (isServerMode()) {
-        await createFromDdlOnServer(id, source.ddl)
+        const created = await createFromDdlOnServer(id, source.ddl, source.managedPath)
+        // The server stamps where the file landed; keep it, so the next edit of
+        // this source does not send a config without it.
+        if (created?.connectionConfig) {
+          set((s) => ({
+            dataSources: s.dataSources.map((ds) =>
+              ds.id === id ? { ...ds, connectionConfig: created.connectionConfig! } : ds,
+            ),
+          }))
+        }
       } else {
         await withTimeout(engine.mountEmptyFromDDL(id, source.ddl, alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
         mountedSources.add(id)
@@ -729,6 +741,12 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     } catch (err) {
       handleDuckDBError(err)
       console.error('Failed to create empty database:', err)
+      // Left in place, a rebuild would recreate it in Linkr's data folder — not
+      // where the user asked. Undo and let the dialog say why.
+      if (source.managedPath) {
+        await get().removeDataSource(id).catch(() => {})
+        throw err
+      }
       const errorMessage = err instanceof Error ? err.message : String(err)
       const updated: Partial<DataSource> = { status: 'error', errorMessage }
       await getStorage().dataSources.update(id, updated)

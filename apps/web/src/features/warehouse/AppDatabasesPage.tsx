@@ -6,11 +6,11 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
-import { isServerMode } from '@/lib/api-client'
+import { formatApiError, isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
-import type { DataSource, CustomSchemaPreset } from '@/types'
+import type { DataSource, DatabaseConnectionConfig, CustomSchemaPreset } from '@/types'
 import { Database, Plus, FileCode, Search, Plug, ChevronDown, Loader2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -21,10 +21,16 @@ import { Input } from '@/components/ui/input'
 import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { usePersistedSort } from '@/lib/use-persisted-sort'
-import { Label } from '@/components/ui/label'
-import { FieldInfo } from '@/components/ui/field-info'
-import { RequiredMark } from '@/components/ui/required-mark'
 import { DialogShell } from '@/components/ui/dialog-shell'
+import { FieldError } from '@/components/ui/field-error'
+import { FormField } from '@/components/ui/form-field'
+import {
+  DatabaseLocationField,
+  DEFAULT_DATABASE_LOCATION,
+  databaseLocationPath,
+  defaultDatabaseFileName,
+  type DatabaseLocation,
+} from '@/components/ui/database-location-field'
 import {
   Select,
   SelectContent,
@@ -77,6 +83,9 @@ function CreateFromPresetDialog({
   const [alias, setAlias] = useState('')
   const [description, setDescription] = useState('')
   const [aliasManuallyEdited, setAliasManuallyEdited] = useState(false)
+  const [location, setLocation] = useState<DatabaseLocation>(DEFAULT_DATABASE_LOCATION)
+  const [locationValid, setLocationValid] = useState(true)
+  const [createError, setCreateError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
   const loadPresets = useCallback(async () => {
@@ -120,6 +129,7 @@ function CreateFromPresetDialog({
   const handleCreate = async () => {
     if (!selectedPreset || !name.trim()) return
     setCreating(true)
+    setCreateError(null)
     try {
       await createEmptyDatabase({
         name: setLocalized({}, language, name.trim()),
@@ -128,6 +138,7 @@ function CreateFromPresetDialog({
         schemaMapping: selectedPreset.mapping,
         ddl: selectedPreset.ddl,
         alias: alias.trim() || undefined,
+        managedPath: databaseLocationPath(location),
       })
       onOpenChange(false)
       setSelectedPresetId('')
@@ -135,6 +146,10 @@ function CreateFromPresetDialog({
       setAlias('')
       setDescription('')
       setAliasManuallyEdited(false)
+      setLocation(DEFAULT_DATABASE_LOCATION)
+    } catch (err) {
+      const formatted = formatApiError(err)
+      setCreateError(formatted.summary ?? formatted.detail ?? String(err))
     } finally {
       setCreating(false)
     }
@@ -148,7 +163,7 @@ function CreateFromPresetDialog({
       description={t('databases.create_from_schema_description')}
       onConfirm={handleCreate}
       confirmLabel={t('common.create')}
-      confirmDisabled={!name.trim() || !selectedPreset}
+      confirmDisabled={!name.trim() || !selectedPreset || !locationValid}
       busy={creating}
       footerExtra={
         /* Running the DDL can take a while on a large schema — say so, rather
@@ -163,61 +178,78 @@ function CreateFromPresetDialog({
         </span>
       }
     >
-          <div className="space-y-2">
-            <Label>{t('databases.schema_preset')}<RequiredMark /></Label>
-            <Select value={selectedPresetId} onValueChange={setSelectedPresetId}>
-              <SelectTrigger>
-                <SelectValue placeholder={t('databases.select_preset')} />
-              </SelectTrigger>
-              <SelectContent>
-                {presetsWithDDL.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {presetsWithDDL.length === 0 && (
-              <p className="text-xs text-muted-foreground">{t('databases.no_presets_with_ddl')}</p>
+          <FormField label={t('databases.schema_preset')} required>
+            {({ id }) => (
+              <>
+                <Select value={selectedPresetId} onValueChange={setSelectedPresetId}>
+                  <SelectTrigger id={id}>
+                    <SelectValue placeholder={t('databases.select_preset')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {presetsWithDDL.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {presetsWithDDL.length === 0 && (
+                  <p className="text-xs text-muted-foreground">{t('databases.no_presets_with_ddl')}</p>
+                )}
+              </>
             )}
-          </div>
+          </FormField>
 
-          <div className="space-y-2">
-            <Label>{t('databases.database_name')}<RequiredMark /></Label>
-            <Input
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value)
-                if (!aliasManuallyEdited) setAlias(generateAlias(e.target.value))
-              }}
-              placeholder={t('databases.database_name_placeholder')}
-            />
-          </div>
+          <FormField label={t('databases.database_name')} required>
+            {({ id }) => (
+              <Input
+                id={id}
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  if (!aliasManuallyEdited) setAlias(generateAlias(e.target.value))
+                }}
+                placeholder={t('databases.database_name_placeholder')}
+              />
+            )}
+          </FormField>
 
-          <div className="space-y-2">
-            <Label className="flex items-center gap-1.5">
-              {t('databases.field_identifier')}
-              <FieldInfo text={t('databases.field_alias_hint')} />
-            </Label>
-            <Input
-              value={alias}
-              onChange={(e) => {
-                setAlias(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
-                setAliasManuallyEdited(true)
-              }}
-              placeholder="mimic_iv_raw"
-              className="font-mono text-xs"
-            />
-          </div>
+          <FormField label={t('databases.field_identifier')} hint={t('databases.field_alias_hint')} hintInTooltip>
+            {({ id }) => (
+              <Input
+                id={id}
+                value={alias}
+                onChange={(e) => {
+                  setAlias(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+                  setAliasManuallyEdited(true)
+                }}
+                placeholder="mimic_iv_raw"
+                className="font-mono text-xs"
+              />
+            )}
+          </FormField>
 
-          <div className="space-y-2">
-            <Label>{t('databases.field_description')}</Label>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('databases.field_description_placeholder')}
+          <FormField label={t('databases.field_description')}>
+            {({ id }) => (
+              <Input
+                id={id}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={t('databases.field_description_placeholder')}
+              />
+            )}
+          </FormField>
+
+          {wsUid && (
+            <DatabaseLocationField
+              workspaceId={wsUid}
+              value={location}
+              onChange={setLocation}
+              suggestedFileName={defaultDatabaseFileName(alias.trim() || generateAlias(name))}
+              onValidityChange={setLocationValid}
             />
-          </div>
+          )}
+          <FieldError message={createError} />
     </DialogShell>
   )
 }
@@ -488,7 +520,9 @@ export function AppDatabasesPage() {
               removeConfirmDescriptionKey={
                 getLinkedProjects(ds.id).length > 0
                   ? 'app_warehouse.delete_confirm_description'
-                  : 'databases.remove_confirm_description'
+                  : (ds.connectionConfig as DatabaseConnectionConfig | undefined)?.managedPath
+                    ? 'databases.remove_confirm_description_keeps_file'
+                    : 'databases.remove_confirm_description'
               }
               belowStats={
                 ds.badges?.length ? <BadgeStrip className="mt-1" badges={ds.badges} /> : undefined

@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, status
 from fastapi.responses import Response
@@ -41,9 +42,10 @@ from app.services import (
     blob_store,
     concept_stats_cache_service,
     data_source_service,
+    fs_browser,
     stats_cache_service,
 )
-from app.services.data import concept_cache_fs, db_connect, managed_db
+from app.services.data import concept_cache_fs, connection_pool, db_connect, managed_db
 
 router = APIRouter(prefix="/data-sources", tags=["data-sources"])
 
@@ -231,15 +233,32 @@ async def create_from_ddl(
     The browser builds the same schema in its own WASM database; in server mode
     the tables must exist on disk, or every later query hits an empty catalog."""
     source = await _load_source(db, source_id, user, "databases:write")
+    config = dict(source.connection_config or {})
+    new_location: str | None = None
+    if body.path:
+        stored = config.get("managedPath")
+        if stored and Path(body.path).expanduser().resolve() != Path(stored):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "a database file cannot be moved once created"
+            )
+        if not stored:
+            try:
+                new_location = str(fs_browser.validate_new_database_file(body.path))
+            except fs_browser.FsBrowseError as exc:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+            config["managedPath"] = new_location
+    path = managed_db.path_of(source.id, config)
+    # A rebuild replaces a file a warm pooled connection may still hold attached
+    # (browsing the database leaves one): DuckDB would refuse to open it again.
+    connection_pool.invalidate(source.id)
     try:
-        await asyncio.to_thread(managed_db.create_from_ddl, source.id, body.ddl)
+        await asyncio.to_thread(managed_db.create_from_ddl, path, body.ddl)
     except Exception as e:  # noqa: BLE001 — a bad DDL is a client error
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    config = dict(source.connection_config or {})
     config["managed"] = True
     config.pop("inMemory", None)
     return await data_source_service.update(
-        db, source, DataSourceUpdate(connection_config=config)
+        db, source, DataSourceUpdate(connection_config=config), managed_path_set=new_location
     )
 
 

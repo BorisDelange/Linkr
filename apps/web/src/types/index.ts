@@ -283,6 +283,10 @@ export interface DatabaseConnectionConfig {
   /** Server mode: a writable DuckDB file the server owns (created from a
    *  schema's DDL), as opposed to an uploaded, read-only source file. */
   managed?: boolean
+  /** Server mode, with `managed`: the file was created in this server folder
+   *  rather than Linkr's data folder. Set by the server alone, once, at creation
+   *  (it refuses to take it from a client); never exported. */
+  managedPath?: string
   /** Server mode: an absolute server path this database points at — a DuckDB /
    *  SQLite file, or a folder of Parquet. The data is read where it lies and
    *  never copied, which is the only workable option past the upload ceiling.

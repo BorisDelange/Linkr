@@ -161,6 +161,10 @@ class CreateFromDdlRequest(CamelModel):
     """Create an empty, server-owned DuckDB file with the schema's DDL applied."""
 
     ddl: str
+    # Absolute path of the NEW file to create, in a server folder the user chose.
+    # Omitted: Linkr's data folder (`_databases/<id>.duckdb`), or — on a rebuild —
+    # wherever the source was first created. Settable once; never moved after.
+    path: str | None = None
 
 
 class EtlRunRequest(CamelModel):

@@ -137,7 +137,8 @@ async def ws_list_dir(
 class ValidatePathBody(BaseModel):
     path: str
     extensions: list[str] | None = None
-    # A Parquet source is a folder, a DuckDB/SQLite source is a file.
+    # A Parquet source is a folder, a DuckDB/SQLite source is a file; "new-file"
+    # is where a database created from a schema will be written.
     expect: str = "file"
 
 
@@ -153,4 +154,8 @@ async def ws_validate_path(
         # Not `validate_dir`: that one demands a WRITABLE folder (it validates a
         # project binding the IDE writes into). A Parquet source is only ever read.
         return fs_browser.validate_readable_dir(body.path)
+    if body.expect == "writable-dir":
+        return fs_browser.validate_dir(body.path)
+    if body.expect == "new-file":
+        return fs_browser.check_new_database_file(body.path)
     return fs_browser.validate_file(body.path, body.extensions)

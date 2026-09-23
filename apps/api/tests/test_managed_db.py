@@ -26,7 +26,7 @@ CREATE TABLE concept (concept_id BIGINT, concept_name VARCHAR);
 
 
 def test_create_from_ddl_makes_a_real_file_with_the_tables(data_dir):
-    path = managed_db.create_from_ddl("11111111-1111-1111-1111-111111111111", DDL)
+    path = managed_db.create_from_ddl(managed_db.path_for("11111111-1111-1111-1111-111111111111"), DDL)
     con = duckdb.connect(path, read_only=True)
     tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
     con.close()
@@ -35,8 +35,8 @@ def test_create_from_ddl_makes_a_real_file_with_the_tables(data_dir):
 
 def test_create_is_idempotent_and_leaves_no_half_schema(data_dir):
     sid = "22222222-2222-2222-2222-222222222222"
-    managed_db.create_from_ddl(sid, DDL)
-    managed_db.create_from_ddl(sid, "CREATE TABLE only_this (x INTEGER);")
+    managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
+    managed_db.create_from_ddl(managed_db.path_for(sid), "CREATE TABLE only_this (x INTEGER);")
     con = duckdb.connect(managed_db.path_for(sid).as_posix(), read_only=True)
     tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
     con.close()
@@ -46,7 +46,7 @@ def test_create_is_idempotent_and_leaves_no_half_schema(data_dir):
 def test_a_failing_ddl_does_not_leave_a_file_behind(data_dir):
     sid = "33333333-3333-3333-3333-333333333333"
     with pytest.raises(Exception):
-        managed_db.create_from_ddl(sid, "CREATE TABLE t (x INTEGER); NOT SQL AT ALL;")
+        managed_db.create_from_ddl(managed_db.path_for(sid), "CREATE TABLE t (x INTEGER); NOT SQL AT ALL;")
     assert not managed_db.exists(sid)
 
 
@@ -59,7 +59,7 @@ def test_foreign_key_constraints_are_skipped(data_dir):
     ALTER TABLE person ADD CONSTRAINT fpk_person_gender FOREIGN KEY
       (gender_concept_id) REFERENCES concept (concept_id);
     """
-    managed_db.create_from_ddl(sid, ddl)
+    managed_db.create_from_ddl(managed_db.path_for(sid), ddl)
     con = duckdb.connect(managed_db.path_for(sid).as_posix(), read_only=True)
     tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
     con.close()
@@ -74,7 +74,7 @@ def test_foreign_key_constraints_are_skipped(data_dir):
 
 def test_delete_removes_the_file(data_dir):
     sid = "44444444-4444-4444-4444-444444444444"
-    managed_db.create_from_ddl(sid, DDL)
+    managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     managed_db.delete(sid)
     assert not managed_db.exists(sid)
     managed_db.delete(sid)  # no error on a second call
@@ -85,7 +85,7 @@ def test_delete_removes_the_file(data_dir):
 
 def _fill(sid: str, rows: int = 300000) -> None:
     """A managed file with a droppable table big enough to leave real slack."""
-    managed_db.create_from_ddl(sid, DDL)
+    managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     con = duckdb.connect(managed_db.path_for(sid).as_posix())
     con.execute(
         "CREATE TABLE junk AS "
@@ -103,7 +103,7 @@ def _leave_slack(sid: str, rows: int = 300000) -> int:
     written after it, so the hole cannot be truncated away. That is the shape an
     ETL rebuilding its tables leaves behind.
     """
-    managed_db.create_from_ddl(sid, DDL)
+    managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     path = managed_db.path_for(sid)
     con = duckdb.connect(path.as_posix())
     con.execute(
@@ -128,20 +128,20 @@ def test_compact_shrinks_a_file_with_stranded_free_blocks(data_dir):
     sid = "c0000000-0000-0000-0000-000000000001"
     after_drop = _leave_slack(sid)
 
-    before, after = managed_db.compact(sid)
+    before, after = managed_db.compact(managed_db.path_for(sid))
     assert before == after_drop  # the drop alone did not reclaim the hole
     assert after < before
 
 
 def test_compact_preserves_tables_and_views(data_dir):
     sid = "c0000000-0000-0000-0000-000000000002"
-    managed_db.create_from_ddl(sid, DDL)
+    managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     con = duckdb.connect(managed_db.path_for(sid).as_posix())
     con.execute("INSERT INTO person VALUES (7, 8507)")
     con.execute("CREATE VIEW v AS SELECT person_id FROM person")
     con.close()
 
-    managed_db.compact(sid)
+    managed_db.compact(managed_db.path_for(sid))
 
     con = duckdb.connect(managed_db.path_for(sid).as_posix(), read_only=True)
     assert con.execute("SELECT person_id FROM person").fetchall() == [(7,)]
@@ -152,7 +152,7 @@ def test_compact_preserves_tables_and_views(data_dir):
 def test_compact_leaves_no_temp_file_behind(data_dir):
     sid = "c0000000-0000-0000-0000-000000000003"
     _fill(sid, rows=1000)
-    managed_db.compact(sid)
+    managed_db.compact(managed_db.path_for(sid))
     leftovers = [p.name for p in managed_db.path_for(sid).parent.iterdir()
                  if "compacting" in p.name]
     assert leftovers == []
@@ -161,7 +161,7 @@ def test_compact_leaves_no_temp_file_behind(data_dir):
 def test_compact_on_a_missing_file_is_a_value_error(data_dir):
     """Not a DuckDB crash: the route maps ValueError to 400, anything else to 422."""
     with pytest.raises(ValueError, match="missing"):
-        managed_db.compact("c0000000-0000-0000-0000-000000000004")
+        managed_db.compact(managed_db.path_for("c0000000-0000-0000-0000-000000000004"))
 
 
 def test_compact_reports_progress_monotonically(data_dir):
@@ -170,7 +170,7 @@ def test_compact_reports_progress_monotonically(data_dir):
     sid = "c0000000-0000-0000-0000-000000000005"
     _fill(sid)
     seen: list[int] = []
-    managed_db.compact(sid, seen.append)
+    managed_db.compact(managed_db.path_for(sid), seen.append)
     assert seen == sorted(seen)
 
 
@@ -180,17 +180,17 @@ def test_data_size_excludes_free_blocks(data_dir):
     sid = "c0000000-0000-0000-0000-000000000006"
     file_size = _leave_slack(sid)
 
-    est = managed_db.data_size(sid)
+    est = managed_db.data_size(managed_db.path_for(sid))
     assert est is not None
     assert est < file_size
 
     # And it predicts the compacted size closely enough to drive a percentage.
-    _, after = managed_db.compact(sid)
+    _, after = managed_db.compact(managed_db.path_for(sid))
     assert abs(after - est) <= max(after, est) * 0.25
 
 
 def test_data_size_is_none_for_a_missing_file(data_dir):
-    assert managed_db.data_size("c0000000-0000-0000-0000-000000000007") is None
+    assert managed_db.data_size(managed_db.path_for("c0000000-0000-0000-0000-000000000007")) is None
 
 
 def test_a_second_compaction_of_the_same_database_is_refused(data_dir):
@@ -225,7 +225,7 @@ def test_a_second_compaction_of_the_same_database_is_refused(data_dir):
 
 def test_etl_writes_to_the_target_and_persists(data_dir):
     sid = "55555555-5555-5555-5555-555555555555"
-    target = managed_db.create_from_ddl(sid, DDL)
+    target = managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     db_connect.run_etl_sql(target, "INSERT INTO target.person VALUES (1, 8507);")
 
     con = duckdb.connect(target, read_only=True)
@@ -235,7 +235,7 @@ def test_etl_writes_to_the_target_and_persists(data_dir):
 
 def test_unqualified_writes_land_on_the_target(data_dir):
     sid = "66666666-6666-6666-6666-666666666666"
-    target = managed_db.create_from_ddl(sid, DDL)
+    target = managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     db_connect.run_etl_sql(target, "INSERT INTO person VALUES (2, 8532);")
     con = duckdb.connect(target, read_only=True)
     assert con.execute("SELECT person_id FROM person").fetchall() == [(2,)]
@@ -251,7 +251,7 @@ def test_one_statement_can_read_a_source_and_write_the_target(data_dir):
     con.close()
 
     sid = "77777777-7777-7777-7777-777777777777"
-    target = managed_db.create_from_ddl(sid, DDL)
+    target = managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     db_connect.run_etl_sql(
         target,
         "INSERT INTO target.person SELECT subject_id, 0 FROM source.patients;",
@@ -270,7 +270,7 @@ def test_a_role_database_is_read_only(data_dir):
     con.close()
 
     sid = "88888888-8888-8888-8888-888888888888"
-    target = managed_db.create_from_ddl(sid, DDL)
+    target = managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     with pytest.raises(Exception):
         db_connect.run_etl_sql(
             target,
@@ -288,7 +288,7 @@ def test_a_parquet_role_is_reachable_by_role_name(data_dir):
     con.close()
 
     sid = "99999999-9999-9999-9999-999999999999"
-    target = managed_db.create_from_ddl(sid, DDL)
+    target = managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     rows = db_connect.run_etl_sql(
         target,
         "SELECT label FROM source.d_items;",
@@ -308,7 +308,7 @@ def test_etl_sql_cannot_install_extensions_or_read_the_filesystem(data_dir):
     attached, external access disabled — so it cannot pull httpfs to exfiltrate or
     read arbitrary paths off the server."""
     sid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-    target = managed_db.create_from_ddl(sid, DDL)
+    target = managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     with pytest.raises(Exception):
         db_connect.run_etl_sql(target, "INSTALL httpfs;")
     with pytest.raises(Exception):
@@ -327,7 +327,7 @@ def test_etl_sql_cannot_install_httpfs_even_when_a_role_needs_the_filesystem(dat
     auto-loading). That handed any script outbound network access. The statement
     check closes it regardless of the external-access state."""
     sid = "cccccccc-cccc-cccc-cccc-cccccccccccc"
-    target = managed_db.create_from_ddl(sid, DDL)
+    target = managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     mapping = {"codes": "code,label\nA,HR\n"}
 
     for sql in ("INSTALL httpfs;", "LOAD httpfs;", "FORCE INSTALL httpfs;"):
@@ -353,7 +353,7 @@ def test_etl_sql_cannot_hide_a_forbidden_statement_behind_a_comment(data_dir):
     with a parquet/mapping role present (external access necessarily on) it really
     did load the extension and reach the network."""
     sid = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
-    target = managed_db.create_from_ddl(sid, DDL)
+    target = managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     mapping = {"codes": "code,label\nA,HR\n"}
 
     for sql in (
@@ -412,7 +412,7 @@ def test_etl_sql_still_runs_normal_statements_mentioning_those_words(data_dir):
     """The check must not fire on the words inside strings or comments — the
     splitter drops both before it looks at the leading keyword."""
     sid = "dddddddd-dddd-dddd-dddd-dddddddddddd"
-    target = managed_db.create_from_ddl(sid, DDL)
+    target = managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     rows = db_connect.run_etl_sql(
         target,
         "-- install httpfs\nSELECT 'ATTACH is fine in a literal' AS s;",
@@ -422,7 +422,7 @@ def test_etl_sql_still_runs_normal_statements_mentioning_those_words(data_dir):
 
 def test_etl_rejects_a_role_name_that_is_not_an_identifier(data_dir):
     sid = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-    target = managed_db.create_from_ddl(sid, DDL)
+    target = managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
     with pytest.raises(Exception):
         db_connect.run_etl_sql(
             target,

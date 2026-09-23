@@ -27,6 +27,8 @@ export type FsValidationReason =
   | 'not_writable'
   | 'not_readable'
   | 'wrong_extension'
+  | 'not_absolute'
+  | 'exists'
 
 export interface FsValidation {
   ok: boolean
@@ -95,7 +97,9 @@ export function fsBrowse(
 export function fsValidatePath(
   workspaceId: string,
   path: string,
-  expect: 'file' | 'dir',
+  /** `new-file`: where a database Linkr creates will be written — a new
+   *  `.duckdb` in a writable folder. */
+  expect: 'file' | 'dir' | 'new-file',
   extensions?: string[],
 ): Promise<FsValidation> {
   return apiRequest<FsValidation>(

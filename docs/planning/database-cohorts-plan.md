@@ -190,8 +190,8 @@ in-memory.
   (pointed at existing data) stays READ_ONLY, unchanged.
 - `validate-path?expect=writable-dir` on the workspace fs routes (today they check readable
   only), still bounded by `fs_browse_roots`; refuse an existing file unless "overwrite".
-- Delete: a database in `_databases/` deletes its file (today); an owned file elsewhere asks
-  ("also delete the file?").
+- Delete: a database in `_databases/` deletes its file (today); a file created elsewhere is
+  **left in place** (the user put it there to keep it) and the confirmation says so.
 - Export: `serverPath` already stripped; re-import lands in the managed folder.
 
 ## 6. Deriving from a cohort
@@ -337,7 +337,7 @@ Ordered so nothing ships that cannot be exported.
 |----|------|--------|
 | ✅ | Q1. Patient count on database cards (§7) — kept on `stats` after a statistics run; server mode still counts nothing on connect | S |
 | ✅ | Q2. Fix `materializeCohort` 10k cap + strip `materialization` from cohort exports (client + server + golden + pull diff + import) | S |
-| 🔜 | 1. `DatabaseLocationField` + writable-dir validation + Linkr-owned file (§5), wired into Create from schema | M |
+| ✅ | 1. `DatabaseLocationField` + new-file validation + Linkr-owned file (`managedPath`, set once by create-from-ddl), wired into Create from schema | M |
 | 🔜 | 2. Cohort owner model: types, IDB v43, Alembic, schemas, routes/permissions (§2) | M |
 | 🔜 | 3. `CohortHost` refactor of the cohort shell (project routes keep working) + Cohorts tab on the database page | M/L |
 | 🔜 | 4. Export/import/versioning of database cohorts (§8) — client, server twin, linkr-format, goldens | M |

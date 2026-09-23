@@ -1,7 +1,7 @@
 import { apiFetch, apiRequest } from '@/lib/api-client'
 import { uploadFileInChunks } from '@/lib/api/upload'
 import type { DataSourceStorage, FileStorage } from '@/lib/storage'
-import type { DataSource, StoredFile } from '@/types'
+import type { ConnectionConfig, DataSource, StoredFile } from '@/types'
 
 /** Server-side schema introspection result — mirrors engine.IntrospectedTable[]. */
 export interface IntrospectedColumn {
@@ -54,10 +54,16 @@ export async function queryDataSourceOnServer(
  * DDL. Server-mode counterpart of the browser's mountEmptyFromDDL: without it
  * the source exists in the database but has no tables anywhere.
  */
-export function createFromDdlOnServer(dataSourceId: string, ddl: string): Promise<unknown> {
+export function createFromDdlOnServer(
+  dataSourceId: string,
+  ddl: string,
+  /** A new `.duckdb` in a server folder; omitted = Linkr's data folder, or where
+   *  the file was first created on a rebuild. */
+  path?: string,
+): Promise<{ connectionConfig?: ConnectionConfig }> {
   return apiRequest(`/data-sources/${dataSourceId}/create-from-ddl`, {
     method: 'POST',
-    body: JSON.stringify({ ddl }),
+    body: JSON.stringify({ ddl, path }),
   })
 }
 
