@@ -46,9 +46,9 @@ class ProfileUpdate(CamelModel):
     affiliation: LocalizedOrStr | None = None
     profession: LocalizedOrStr | None = None
     orcid: str | None = None
-    # Cross-device user choices, currently the assistant's "save conversations"
-    # consent. Replaces the whole object, so a caller must send the merged value;
-    # purely local UI state (panel open, theme) stays in localStorage.
+    # Cross-device user choices (e.g. each list's sort order). Replaces the
+    # whole object, so a caller must send the merged value; purely local UI
+    # state (panel open, theme) stays in localStorage.
     preferences: dict | None = None
 
 

@@ -464,14 +464,12 @@ Every versionable entity carries its own documentation — workspace, project, m
 - **Deterministic order.** `attachments/_meta.json` is sorted by attachment id on both sides — neither the IDB index nor a bare `SELECT` promises an order, and a mismatch is a false git diff that flips on every export.
 - **Pull.** `lib/entity-docs-pull.ts` is the shared reader/comparator for all three scopes that pull selectively (project, ETL pipeline, mapping project), including `withEntityDocs`, which folds `README.md`/`LICENSE.md` back onto a manifest during a list-page import.
 
-## AI assistant: providers, bench & conversations (as-built)
+## LLM providers (as-built)
 
-The assistant's state lives on the server, so an admin can configure a model *for* others, a bench run is visible to everyone, and a conversation survives a reload. Client-only (WASM) deployments have no backend, so every reader keeps a `localStorage` fallback — server when it exists, local otherwise.
+An admin configures the workspace's language models on the server, so a model is set up *for* others and no API key reaches a browser. Server mode only: the Workspace settings → Assistant tab (`features/settings/AgentSettingsTab.tsx`, helpers in `lib/llm/`) is hidden in a client-only (WASM) build, which has no assistant — agents act through the MCP server from external clients (see `docs/planning/ai-agents-plan.md`).
 
 - **Provider config** (`models/llm_provider.py`, `routes/llm_providers.py`, migration `e5f6a7b8c9d0`). Approval is **per surface** (`surfaces: list[str]`) — a model can be good at dashboards and poor in the IDE. `llm-config: [read, write]` is owner-only to write, via `_OWNER_WRITE_RESOURCES`.
 - **Never return the API key.** `_to_response` exists so that no route can leak it by accident; keep serialisation going through it.
 - **Two independent gates for a remote model**: the instance switch (`LINKR_ALLOW_REMOTE_LLM`, default `false`) and the per-provider acknowledgement. They protect against different things — an institution forbidding egress, and a person taking responsibility — so neither replaces the other.
-- **`is_local` is derived server-side** from the URL, never client-declared, and a PATCH cannot walk a provider from local to remote past the guard.
-- **Conversations are per user** (`models/agent_conversation.py`, migration `f6a7b8c9d0e1`). Ownership is enforced **in the query** — `_own()` puts `user_id == user.id` in the WHERE clause and 404s, so another user's thread is unreachable rather than merely hidden, and its existence is not confirmed. `user_id` is absent from the create schema, so a payload cannot file a conversation under someone else's name; the list endpoint returns `messageCount`, never `messages`.
-- **Saving is consent-gated.** `save_conversations` lives in `User.preferences` (not `localStorage`) so the decision follows the user across machines instead of re-defaulting to "on" in a new browser; the server refuses writes when it is off.
-- **UI preferences stay local.** `stores/dashboard-panels-store.ts` (which panel is open) is deliberately `localStorage`: it is per-tab state, not identity, and every other UI preference (language, theme, sidebar) lives there too.
+- **`is_local` is derived server-side** from the URL, never client-declared, and a PATCH cannot walk a provider from local to remote past the guard. `lib/llm/locality.ts` mirrors the rule for the badge only; both sides share test cases.
+- **Removed**: the in-app dashboard assistant, its model bench and its saved conversations (plan §10). Migration `0d1f42d46e99` drops `agent_conversations` and `llm_bench_reports`.

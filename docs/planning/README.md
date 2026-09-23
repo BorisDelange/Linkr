@@ -67,7 +67,7 @@ surface (plan §4b).
 | 🔜 | ACP broker in FastAPI (stdio spawn, WS relay, session lifecycle) — `execution.py` is the model | L |
 | 🔜 | Sidebar: ACP event rendering, `request_permission`, per-turn undo, clinician/dev modes | L |
 | 🔜 | Notification WS + store reload (stores are optimistic-write, nothing listens to the DB) — client-agnostic, so an external client refreshes the open tab too; do not reload a dirty open editor | S/M |
-| 🔜 | Delete `lib/agent/` + `DashboardAgentSidebar.tsx` — salvage the confirm/undo UI and tool vocabulary first | S |
+| ✅ | Delete `lib/agent/` + `DashboardAgentSidebar.tsx` — salvage the confirm/undo UI and tool vocabulary first | S |
 | 💤 | `linkr-live` extended: cohorts, datasets · workspace agent (narrow tools) | M |
 
 ## Reports — [reports-plan.md](reports-plan.md)

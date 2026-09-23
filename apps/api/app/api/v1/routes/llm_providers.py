@@ -9,12 +9,9 @@ from app.core.crypto import encrypt
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
-from app.models.bench_report import BenchReport
 from app.models.llm_provider import LlmProvider
 from app.models.user import User
 from app.schemas.llm_provider import (
-    BenchReportCreate,
-    BenchReportResponse,
     LlmProviderCreate,
     LlmProviderResponse,
     LlmProviderUpdate,
@@ -24,7 +21,6 @@ from app.services.llm.endpoint_locality import is_blocked_endpoint, is_local_end
 router = APIRouter(tags=["llm"])
 
 _PROVIDERS = "/llm-providers"
-_REPORTS = "/llm-bench-reports"
 
 
 def _to_response(provider: LlmProvider) -> dict:
@@ -196,67 +192,4 @@ async def delete_provider(
 ):
     provider = await _load(db, provider_id, user, "llm-config:write")
     await db.delete(provider)
-    await db.commit()
-
-
-# --- Bench reports ---------------------------------------------------------
-
-
-@router.get(_REPORTS, response_model=list[BenchReportResponse])
-async def list_reports(
-    workspace_id: str = Query(alias="workspaceId"),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    await check_workspace_permission(db, workspace_id, user, "llm-config:read")
-    rows = (
-        await db.scalars(
-            select(BenchReport)
-            .where(BenchReport.workspace_id == workspace_id)
-            .order_by(BenchReport.ran_at.desc())
-        )
-    ).all()
-    return rows
-
-
-@router.post(_REPORTS, response_model=BenchReportResponse, status_code=status.HTTP_201_CREATED)
-async def create_report(
-    payload: BenchReportCreate,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    await check_workspace_permission(db, payload.workspace_id, user, "llm-config:write")
-    # One report per (workspace, model): an older run on the same machine is of
-    # no use once a newer one exists.
-    existing = await db.scalars(
-        select(BenchReport).where(
-            BenchReport.workspace_id == payload.workspace_id,
-            BenchReport.model == payload.model,
-        )
-    )
-    for row in existing.all():
-        await db.delete(row)
-
-    report = BenchReport(
-        **payload.model_dump(exclude={"cases"}),
-        cases=[case.model_dump() for case in payload.cases],
-        ran_by_id=user.id,
-    )
-    db.add(report)
-    await db.commit()
-    await db.refresh(report)
-    return report
-
-
-@router.delete(_REPORTS + "/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_report(
-    report_id: str,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    report = await db.get(BenchReport, report_id)
-    if report is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await check_workspace_permission(db, report.workspace_id, user, "llm-config:write")
-    await db.delete(report)
     await db.commit()

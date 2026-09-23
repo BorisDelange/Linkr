@@ -45,7 +45,7 @@ WORKSPACE_CATALOGUE: dict[str, list[str]] = {
     "data-quality": RWD,
     "catalog": RWD,
     "etl": RWD,
-    # Who may configure the AI assistant's models and approve them per surface.
+    # Who may configure the workspace's LLM providers and approve them per surface.
     # Deliberately owner-only by default (see _catalogue_perms): enabling a model
     # decides whether prompts — possibly carrying clinical context — leave the
     # institution, which is not an everyday editing decision.
