@@ -425,6 +425,25 @@ Remaining work: `docs/planning/README.md` (Fullstack backlog).
 
 ---
 
+## Personal API tokens (as-built)
+
+A user mints `lnk_…` keys in Profile → API keys (server mode) for external clients —
+the `linkr` MCP server from LibreChat or Claude Code. Model `ApiToken`
+(`models/api_token.py`, service `services/api_token_service.py`, routes
+`/auth/api-tokens`, migration `83e1d5666f0f`).
+
+- **Only a SHA-256 is stored**; the plaintext is returned once, at creation. A lookup by
+  hash is the whole check, so there is nothing to compare in variable time.
+- **Resolved by the same dependencies as a JWT** (`get_current_user`,
+  `get_current_user_optional`, `get_kernel_user`, the WebSocket `ws_auth`): the key acts
+  with its owner's own permissions, and a disabled owner is refused.
+- **A key cannot manage keys**: the three `/auth/api-tokens` routes take
+  `get_session_user`, which refuses `lnk_…`. A leaked key can neither mint new ones
+  nor revoke its siblings to hide itself.
+- Revoke keeps the row (the list shows it revoked); `last_used_at` is written at most
+  once a minute.
+- Not built: keys scoped to one project, read-only keys.
+
 ## Permissions Model (as-built)
 
 - **Three tiers** — Global / Workspace / Project — over a resources × actions catalogue (`apps/api/app/core/permissions.py`): most resources carry `read/write/delete`. `execute` is split by risk: `ide:execute` = run **arbitrary** code (the RCE-sensitive one), while `patient-data`/`datasets`/`dashboards` carry a **view-time** `execute` (running a widget/analysis, not free-form code). Global resources: `workspaces` (= create), `users`, `roles`, `organizations`, `app-database`, plus cross-cutting `all-workspaces` / `all-projects`; `reports` is reserved (stub page) so roles can pre-grant.

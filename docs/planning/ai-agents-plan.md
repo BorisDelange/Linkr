@@ -263,7 +263,8 @@ mcpServers:
 ```
 
 So `linkr` needs an **`ApiToken` entity** — created by the user in their settings,
-scoped to one project, expiring, revocable in one click, last-used-at. **Per-user,
+scoped to one project, expiring, revocable in one click, last-used-at. **Built**
+(Profile → API keys, `lnk_…`), except the project scope and a read-only variant. **Per-user,
 not a shared service token**: a global token makes every user act as one identity,
 losing traceability and §6's "never more than the user". Chat clients support
 per-user variables. OAuth 2.1 only if an institution asks.

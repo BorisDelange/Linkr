@@ -1,3 +1,4 @@
+import { isServerMode } from '@/lib/api-client'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
@@ -18,6 +19,7 @@ import {
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EditorSettingsForm } from './EditorSettingsForm'
+import { ApiTokensTab } from './ApiTokensTab'
 import { ChangePasswordDialog } from './ChangePasswordDialog'
 import { Info, Lock } from 'lucide-react'
 
@@ -119,6 +121,11 @@ export function ProfilePage() {
             <TabsTrigger value="editor">
               {t('profile.editor')}
             </TabsTrigger>
+            {isServerMode() && (
+              <TabsTrigger value="api-keys">
+                {t('profile.api_keys_tab')}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* Account tab */}
@@ -282,6 +289,12 @@ export function ProfilePage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {isServerMode() && (
+            <TabsContent value="api-keys" className="mt-6">
+              <ApiTokensTab />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
 

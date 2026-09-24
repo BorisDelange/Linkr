@@ -3076,7 +3076,8 @@
     "project_updates": "Project updates",
     "project_updates_description": "Get notified when projects you follow are updated.",
     "dismiss_seed_updates": "Hide data update notifications",
-    "dismiss_seed_updates_description": "Don't show the notification dialog when bundled demo data has been updated in a new version."
+    "dismiss_seed_updates_description": "Don't show the notification dialog when bundled demo data has been updated in a new version.",
+    "api_keys_tab": "API keys"
   },
   "editor": {
     "font_size": "Font size",
@@ -5496,5 +5497,37 @@
     "provenance_rebuild_description": "The tables of this database are replaced by a new copy of “{{database}}”, filtered on the criteria recorded when it was built.",
     "starting": "Starting the derivation…",
     "started": "Rebuild started — follow it in the jobs panel, at the bottom right."
+  },
+  "api_tokens": {
+    "title": "API keys",
+    "description": "Personal keys that let an external client — the Linkr MCP server in LibreChat or Claude Code — act as you, with your permissions, without your password.",
+    "new": "New API key",
+    "empty": "No API key yet.",
+    "key": "Key",
+    "created": "Created",
+    "last_used": "Last used",
+    "never_used": "Never",
+    "expires": "Expires",
+    "never_expires": "Never",
+    "status": "Status",
+    "status_active": "Active",
+    "status_expired": "Expired",
+    "status_revoked": "Revoked",
+    "create_title": "New API key",
+    "create_description": "Name the key after where it will be used, so you know what to revoke.",
+    "name_placeholder": "LibreChat on my laptop",
+    "name_hint": "Only you see this name.",
+    "expiration": "Expiration",
+    "expiry_30": "30 days",
+    "expiry_90": "90 days",
+    "expiry_365": "1 year",
+    "expiry_never": "Never",
+    "created_title": "API key created",
+    "created_description": "Key « {{name}} »",
+    "shown_once_warning": "Copy it now: it will not be shown again. Anyone holding it can act as you until it expires or is revoked.",
+    "usage_hint": "Paste it where the client asks for a Linkr API key (LINKR_TOKEN for the MCP server).",
+    "revoke": "Revoke",
+    "revoke_title": "Revoke this API key?",
+    "revoke_description": "« {{name}} » stops working immediately. This cannot be undone."
   }
 }

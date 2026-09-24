@@ -3076,7 +3076,8 @@
     "project_updates": "Mises à jour de projets",
     "project_updates_description": "Soyez notifié lorsque les projets que vous suivez sont mis à jour.",
     "dismiss_seed_updates": "Masquer les notifications de mise à jour des données",
-    "dismiss_seed_updates_description": "Ne pas afficher la notification lorsque les données intégrées ont été mises à jour dans une nouvelle version."
+    "dismiss_seed_updates_description": "Ne pas afficher la notification lorsque les données intégrées ont été mises à jour dans une nouvelle version.",
+    "api_keys_tab": "Clés API"
   },
   "editor": {
     "font_size": "Taille de police",
@@ -5496,5 +5497,37 @@
     "provenance_rebuild_description": "Les tables de cette base sont remplacées par une nouvelle copie de « {{database}} », filtrée sur les critères enregistrés lors de sa construction.",
     "starting": "Lancement de la dérivation…",
     "started": "Reconstruction lancée : suivez-la dans le panneau des tâches, en bas à droite."
+  },
+  "api_tokens": {
+    "title": "Clés API",
+    "description": "Des clés personnelles qui permettent à un client externe — le serveur MCP de Linkr dans LibreChat ou Claude Code — d'agir en votre nom, avec vos droits, sans votre mot de passe.",
+    "new": "Nouvelle clé API",
+    "empty": "Aucune clé API pour l'instant.",
+    "key": "Clé",
+    "created": "Créée le",
+    "last_used": "Dernière utilisation",
+    "never_used": "Jamais",
+    "expires": "Expire le",
+    "never_expires": "Jamais",
+    "status": "Statut",
+    "status_active": "Active",
+    "status_expired": "Expirée",
+    "status_revoked": "Révoquée",
+    "create_title": "Nouvelle clé API",
+    "create_description": "Nommez la clé d'après l'endroit où elle servira, pour savoir laquelle révoquer.",
+    "name_placeholder": "LibreChat sur mon portable",
+    "name_hint": "Ce nom n'est visible que par vous.",
+    "expiration": "Expiration",
+    "expiry_30": "30 jours",
+    "expiry_90": "90 jours",
+    "expiry_365": "1 an",
+    "expiry_never": "Jamais",
+    "created_title": "Clé API créée",
+    "created_description": "Clé « {{name}} »",
+    "shown_once_warning": "Copiez-la maintenant : elle ne sera plus affichée. Toute personne qui la détient peut agir en votre nom jusqu'à son expiration ou sa révocation.",
+    "usage_hint": "Collez-la là où le client demande une clé API Linkr (LINKR_TOKEN pour le serveur MCP).",
+    "revoke": "Révoquer",
+    "revoke_title": "Révoquer cette clé API ?",
+    "revoke_description": "« {{name}} » cesse de fonctionner immédiatement. Cette action est irréversible."
   }
 }

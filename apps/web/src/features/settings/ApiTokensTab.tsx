@@ -54,15 +54,20 @@ export function ApiTokensTab() {
   const [created, setCreated] = useState<CreatedApiToken | null>(null)
   const [revokeTarget, setRevokeTarget] = useState<ApiToken | null>(null)
 
+  const errorText = useCallback((err: unknown) => {
+    const f = formatApiError(err)
+    return f.summaryKey ? t(f.summaryKey, { count: f.summaryCount ?? 0 }) : (f.summary ?? String(err))
+  }, [t])
+
   const load = useCallback(async () => {
     try {
       setTokens(await listApiTokens())
       setLoadError(null)
     } catch (err) {
       console.error('Failed to load API keys', err)
-      setLoadError(formatApiError(err).summary)
+      setLoadError(errorText(err))
     }
-  }, [])
+  }, [errorText])
 
   useEffect(() => { void load() }, [load])
 
@@ -87,7 +92,7 @@ export function ApiTokensTab() {
       setCreated(token)
       await load()
     } catch (err) {
-      setCreateError(formatApiError(err).summary)
+      setCreateError(errorText(err))
     } finally {
       setSaving(false)
     }
