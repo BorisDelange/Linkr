@@ -60,7 +60,7 @@ client. The former provider config (and its proxy) is deleted.
 | ✅ | Files server `linkr-files` and its `linkr-authoring` / `create-project` skills deleted — `linkr` over a running instance is the only MCP | S |
 | ✅ | Security: read-query connections cut off the server filesystem (`COPY TO` / `read_csv` any path were open) | S |
 | ✅ | Frame: notification WS + live refresh + header notification centre for cohorts, dashboards (tab/widget detail), datasets; `get_ui_context` (focused tab); **per-change undo** (latest change per item only) — writes marked `X-Linkr-Client: mcp`; in-process hub (single worker) | M |
-| 🔜 | HTTP transport + per-project `ApiToken` + tool annotations → local LibreChat beside Linkr | M |
+| ✅ | HTTP transport + personal API keys (`lnk_…`, Profile → API keys; each LibreChat user sends their own) + tool annotations → local LibreChat beside Linkr. Not built: project-scoped and read-only keys | M |
 | ✅ | `linkr` extended: datasets (incl. `create_dataset_from_query`, written server-side) and dashboards (plugins documented from manifests; key-indicator missing — inline manifest, see plugin-model harmonisation) | M |
 | ✅ | `cohort_report`: the cohort report in the chat — summary to the model, HTML as an MCP-UI `ui://` resource rendered inline by LibreChat | S |
 | 🔜 | Skills entity + project selection + generated `AGENTS.md` + `.agents/skills/` | M |

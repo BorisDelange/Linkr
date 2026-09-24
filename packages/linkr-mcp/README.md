@@ -19,7 +19,7 @@ Every request carries `X-Linkr-Client: mcp`: the server then refreshes the user'
 tabs and lists the change in the header's notification centre.
 
 Configure it in `packages/linkr-mcp/.env` (gitignored; template `.env.example`):
-`LINKR_API_URL` plus either `LINKR_TOKEN` or `LINKR_USERNAME` + `LINKR_PASSWORD`.
+`LINKR_API_URL` plus either `LINKR_TOKEN` (a personal API key `lnk_…`) or `LINKR_USERNAME` + `LINKR_PASSWORD`.
 The repo's `.mcp.json` registers it for Claude Code sessions opened here.
 Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json packages/linkr-mcp/src/live/server.ts`
 — the explicit `--tsconfig` is what resolves the `@/` alias into `apps/web/src`.
@@ -49,12 +49,18 @@ helpers `cohorts.ts`, `lab.ts`, `plugins.ts` (tested).
 cd packages/linkr-mcp && npm run start:http   # http://127.0.0.1:3940/mcp
 ```
 
-Streamable HTTP, guarded by `LINKR_MCP_KEY` (≥ 24 characters, in `.env`), sent as
-`Authorization: Bearer <key>` or `X-API-Key`. `LINKR_MCP_HOST` / `LINKR_MCP_PORT`
-override the address (`0.0.0.0` when LibreChat runs in Docker, then reached at
-`host.docker.internal`). In LibreChat: transport *Streamable HTTPS*, auth *API key*,
-header format *Bearer*, and the host listed in `librechat.yaml`
+Each client authenticates with its **own Linkr API key** (Profile → API keys in Linkr,
+`lnk_…`), sent as `Authorization: Bearer <key>` or `X-API-Key`; the tools then act as
+that user. The key is checked against Linkr and the result cached a minute, so a
+revoked key stops working within a minute. Only `LINKR_API_URL` is needed in `.env`.
+In LibreChat: transport *Streamable HTTPS*, auth *API key*, header format *Bearer*,
+**"each user provides their own key"** ticked, and the host listed in `librechat.yaml`
 `mcpSettings.allowedDomains`.
+
+Optional single-user mode: set `LINKR_MCP_KEY` (≥ 24 characters) and a request carrying
+it acts with the `.env` credentials. `LINKR_MCP_HOST` / `LINKR_MCP_PORT` override the
+address (`0.0.0.0` when LibreChat runs in Docker, then reached at
+`host.docker.internal`).
 
 ## Notes
 

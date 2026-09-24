@@ -1,11 +1,24 @@
 /** What every tool module shares: the API client, result helpers, annotations. */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { CallToolResult, McpServer } from '@modelcontextprotocol/server'
 import type { SchemaMapping } from '@/types'
 import { ApiError, LinkrApi, type DataSource } from './api.js'
 
 export type Server = McpServer
 
-export const api = new LinkrApi()
+const envApi = new LinkrApi()
+const requestApi = new AsyncLocalStorage<LinkrApi>()
+
+/** Run `fn` with the API acting as the owner of a personal key (`lnk_…`): the
+ *  HTTP entry serves each client as its own user. */
+export const withApiToken = <T>(token: string, fn: () => T): T =>
+  requestApi.run(new LinkrApi({ LINKR_API_URL: process.env.LINKR_API_URL, LINKR_TOKEN: token }), fn)
+
+/** The Linkr API for the current call: the request's user over HTTP, else the
+ *  credentials of the environment (stdio). */
+export const api: LinkrApi = new Proxy({} as LinkrApi, {
+  get: (_, key) => Reflect.get(requestApi.getStore() ?? envApi, key),
+})
 
 export type ToolResult = CallToolResult
 
