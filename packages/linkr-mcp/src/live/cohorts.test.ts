@@ -129,6 +129,14 @@ describe('rendering', () => {
     expect(renderTree(tree, MAPPING)).toBe('Sex: Female\nOR (dead)\n  Deceased')
   })
 
+  it('shows the value filters of a concept criterion', () => {
+    const { tree } = normalizeCriteria([
+      { type: 'concept', config: { eventTableLabel: 'Lab events', conceptIds: [1], conceptNames: { 1: 'Lactate' },
+        valueFilters: [{ operator: '>', value: 2 }, { operator: 'between', value: 1, value2: 9 }] } },
+    ], MAPPING)
+    expect(renderTree(tree, MAPPING)).toMatch(/Lactate.* \(value > 2 and between 1 and 9\)$/)
+  })
+
   it('describes the mapping and flags a missing birth column', () => {
     const text = describeMapping(MAPPING)
     expect(text).toContain('Patients: hosp.patients')

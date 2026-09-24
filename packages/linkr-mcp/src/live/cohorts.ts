@@ -280,6 +280,17 @@ export function applyConceptNames(tree: CriteriaGroupNode, names: Map<string, Ma
 }
 
 /** The tree as indented lines, the way the builder UI reads it. */
+/** A concept criterion's value filters, which the app's node label leaves out
+ *  (" (value > 120)"), so the model sees the whole condition. */
+function valueFilterSuffix(n: CriteriaTreeNode): string {
+  const filters = (n.kind === 'criterion' && n.type === 'concept'
+    ? (n.config as { valueFilters?: { operator: string; value: number; value2?: number }[] }).valueFilters
+    : undefined) ?? []
+  if (filters.length === 0) return ''
+  const parts = filters.map((f) => (f.operator === 'between' ? `between ${f.value} and ${f.value2}` : `${f.operator} ${f.value}`))
+  return ` (value ${parts.join(' and ')})`
+}
+
 export function renderTree(tree: CriteriaGroupNode, mapping: SchemaMapping): string {
   const lines: string[] = []
   const walk = (n: CriteriaTreeNode, depth: number, first: boolean) => {
@@ -291,7 +302,7 @@ export function renderTree(tree: CriteriaGroupNode, mapping: SchemaMapping): str
       n.children.forEach((c, i) => walk(c, depth + 1, i === 0))
       return
     }
-    lines.push(`${pad}${op}${getNodeLabel(n, mapping)}${off}`)
+    lines.push(`${pad}${op}${getNodeLabel(n, mapping)}${valueFilterSuffix(n)}${off}`)
   }
   tree.children.forEach((c, i) => walk(c, 0, i === 0))
   return lines.length ? lines.join('\n') : '(no criteria: every row at this level)'
