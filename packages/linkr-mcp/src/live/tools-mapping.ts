@@ -16,35 +16,32 @@ import {
   type SourceConceptFilters,
 } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus, getTotalSourceConcepts, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
+import { isOmopConceptTable, resolveVocabularyTarget } from '@/lib/concept-mapping/vocabulary-target'
 import {
   checkJudgement, checkTarget, conceptsByIdSql, describeConcept, describeInfo, describeSourceRow, groupSuggestions,
   indexKeyToSourceKey, mappingPayload, methodForModel, sourceByCodesSql, sourceKeyOf, sourceKeysInSql, sourceRefCandidates,
   synonymSearchSql,
   type SourceRow, type SuggestionInput, type VocabConcept,
 } from './mapping.js'
+import type { DataSource } from './api.js'
 import { READ, WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
 
 const MAX_WRITE = 200
 
 interface Vocabulary { databaseId: string; mapping: SchemaMapping; table: string }
 
-/** An OMOP vocabulary table: the `concept` table, or one mapped with a standard_concept column. */
-const isOmopConceptTable = (t: { table?: string; extraColumns?: Record<string, string> }) =>
-  t.table === 'concept' || !!t.extraColumns?.standard_concept
-
 async function vocabularyOf(project: MappingProject): Promise<Vocabulary> {
-  const databaseId = project.vocabularyDataSourceId || project.dataSourceId
-  const ds = databaseId ? await api.getDataSource(databaseId) : null
-  const tables = ds?.schemaMapping?.conceptTables ?? []
-  const index = tables.findIndex(isOmopConceptTable)
-  if (!ds?.schemaMapping || index < 0) {
+  const ids = [project.vocabularyDataSourceId, project.dataSourceId].filter((id): id is string => !!id)
+  const sources = await Promise.all(ids.map((id) => api.getDataSource(id).catch(() => null)))
+  const [vocabDs, sourceDs] = project.vocabularyDataSourceId ? [sources[0], sources[1]] : [null, sources[0]]
+  const target = resolveVocabularyTarget(project, sourceDs, sources.filter((d): d is DataSource => !!d))
+  if (!target || !isOmopConceptTable(target.dictionary)) {
+    const ds = vocabDs ?? sourceDs
     throw new Error(`${project.vocabularyDataSourceId ? 'The vocabulary database' : 'This project has no vocabulary database, and its source database'} `
       + `${ds ? `"${loc(ds.name)}" ` : ''}has no OMOP concept table. Ask the user to pick an OMOP vocabulary database `
       + '(e.g. an ATHENA import) in the mapping project\'s settings in Linkr.')
   }
-  // The search builder reads the first concept table: put the OMOP one first.
-  const mapping = { ...ds.schemaMapping, conceptTables: [tables[index], ...tables.filter((_, i) => i !== index)] }
-  return { databaseId: ds.id, mapping, table: tables[index].table ?? 'concept' }
+  return { databaseId: target.dsId, mapping: target.mapping, table: target.conceptTable }
 }
 
 /** The source is read from its flat table; a database project must extract it first. */

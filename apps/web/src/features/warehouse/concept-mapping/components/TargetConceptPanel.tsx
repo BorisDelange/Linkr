@@ -81,6 +81,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useRequireIdentity } from './IdentityRequiredDialog'
 import type { MappingProject, DataSource, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
+import { resolveVocabularyTarget } from '@/lib/concept-mapping/vocabulary-target'
 
 interface TargetConceptPanelProps {
   project: MappingProject
@@ -415,15 +416,15 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   }, [sourceConcept?.concept_id])
 
   // Active vocabulary data source + concept table name (shared for detail sheet)
-  const vocabDsInfo = useMemo(() => {
-    const vocabDs = project.vocabularyDataSourceId
-      ? allDataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
-      : null
-    const ds = vocabDs ?? dataSource
-    const mapping = ds?.schemaMapping
-    const dict = (mapping?.conceptTables ?? [])[0]
-    return { dsId: ds?.id, conceptTable: dict?.table ?? 'concept' }
-  }, [project.vocabularyDataSourceId, allDataSources, dataSource])
+  const vocabTarget = useMemo(
+    () => resolveVocabularyTarget(project, dataSource, allDataSources),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the vocabulary id of the project matters
+    [project.vocabularyDataSourceId, allDataSources, dataSource],
+  )
+  const vocabDsInfo = useMemo(
+    () => ({ dsId: vocabTarget?.dsId, conceptTable: vocabTarget?.conceptTable ?? 'concept' }),
+    [vocabTarget],
+  )
 
   // Linked concept sets
   const linkedSets = conceptSets.filter((cs) => (project.conceptSetIds ?? []).includes(cs.id))
@@ -617,14 +618,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   // Load distinct filter options for the search pre-filters
   useEffect(() => {
-    const vocabDs = project.vocabularyDataSourceId
-      ? allDataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
-      : null
-    const targetDsId = vocabDs?.id ?? dataSource?.id
-    const targetMapping = vocabDs?.schemaMapping ?? dataSource?.schemaMapping
-    if (!targetDsId || !targetMapping) return
-    const dict = (targetMapping.conceptTables ?? [])[0]
-    if (!dict) return
+    if (!vocabTarget) return
+    const targetDsId = vocabTarget.dsId
+    const dict = vocabTarget.dictionary
     const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
     const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
     const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
@@ -649,7 +645,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         // Silently fail — filter options remain empty
       }
     })()
-  }, [project.vocabularyDataSourceId, dataSource, allDataSources, ensureMounted])
+  }, [vocabTarget, ensureMounted])
 
   // Reset resolved page when filters change
   useEffect(() => {
@@ -659,11 +655,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [searchWarningOpen, setSearchWarningOpen] = useState(false)
 
   const runSearch = useCallback(async () => {
-    const vocabDs = project.vocabularyDataSourceId
-      ? allDataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
-      : null
-    const targetDsId = vocabDs?.id ?? dataSource?.id
-    const targetMapping = vocabDs?.schemaMapping ?? dataSource?.schemaMapping
+    const targetDsId = vocabTarget?.dsId
+    const targetMapping = vocabTarget?.mapping
     if (!targetDsId || !targetMapping) return
     setSearching(true)
     try {
@@ -685,7 +678,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     } finally {
       setSearching(false)
     }
-  }, [searchTerm, dataSource, project.vocabularyDataSourceId, allDataSources, ensureMounted, searchFilterVocabs, searchFilterDomains, searchFilterClasses, searchFilterStandard, searchMaxResults])
+  }, [searchTerm, vocabTarget, ensureMounted, searchFilterVocabs, searchFilterDomains, searchFilterClasses, searchFilterStandard, searchMaxResults])
 
   /** Submit handler. If the user typed a term but didn't pick any filter, warn first
    *  before launching what may be a multi-second scan over the entire vocabulary. */
@@ -713,11 +706,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const didInitialSearchRef = useRef(false)
   useEffect(() => {
     if (didInitialSearchRef.current) return
-    const targetDsId = project.vocabularyDataSourceId ?? dataSource?.id
-    if (!targetDsId) return
+    if (!vocabTarget) return
     didInitialSearchRef.current = true
     void runSearch()
-  }, [runSearch, project.vocabularyDataSourceId, dataSource?.id])
+  }, [runSearch, vocabTarget])
 
   /** Add mapping from the selected target concept with a given predicate and optional comment. */
   const handleAddSelectedMapping = async (predicate: MappingEquivalence = 'skos:exactMatch', comment = '') => {
@@ -1889,16 +1881,11 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [enrichedSuggestions, setEnrichedSuggestions] = useState<SuggestionCandidate[]>([])
   useEffect(() => {
     if (suggestions.length === 0) { setEnrichedSuggestions([]); return }
-    const dsId = project.vocabularyDataSourceId ?? dataSource?.id
-    const targetMapping = dataSource?.schemaMapping ?? (
-      project.vocabularyDataSourceId
-        ? allDataSources.find((s) => s.id === project.vocabularyDataSourceId)?.schemaMapping
-        : undefined
-    )
-    if (!dsId || !targetMapping) { setEnrichedSuggestions(suggestions); return }
-
-    const dict = (targetMapping.conceptTables ?? [])[0]
-    if (!dict) { setEnrichedSuggestions(suggestions); return }
+    // The vocabulary database with its own mapping: reading it with the source
+    // database's mapping (d_items…) found no concept, so every name was missing.
+    if (!vocabTarget) { setEnrichedSuggestions(suggestions); return }
+    const dsId = vocabTarget.dsId
+    const dict = vocabTarget.dictionary
 
     const ids = suggestions.map((s) => s.concept_id).join(', ')
     const table = dict.table
@@ -1937,7 +1924,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         }
       }))
     }).catch(() => setEnrichedSuggestions(suggestions))
-  }, [suggestions, project.vocabularyDataSourceId, dataSource, allDataSources, ensureMounted])
+  }, [suggestions, vocabTarget, ensureMounted])
 
   const handleImportScoresFile = useCallback(async (file: File) => {
     setSuggestionsImporting(true)
