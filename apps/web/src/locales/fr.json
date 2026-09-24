@@ -3300,17 +3300,22 @@
         "deleted": "Onglet « {{name}} » supprimé"
       },
       "suggestions": {
-        "created": "{{name}} suggestion(s) IA ajoutée(s)"
+        "created_one": "{{count}} suggestion IA ajoutée",
+        "created_other": "{{count}} suggestions IA ajoutées"
       },
       "mappings": {
-        "created": "{{name}} mapping(s) ajouté(s)"
+        "created_one": "{{count}} alignement ajouté",
+        "created_other": "{{count}} alignements ajoutés"
       }
     },
     "action": {
       "created": "Ajout par {{source}}",
       "updated": "Modification par {{source}}",
       "deleted": "Suppression par {{source}}"
-    }
+    },
+    "mapping_ignored": "à ne pas aligner",
+    "more_items_one": "et {{count}} autre",
+    "more_items_other": "et {{count}} autres"
   },
   "jobs": {
     "title_one": "{{count}} tâche",

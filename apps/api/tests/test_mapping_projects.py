@@ -898,7 +898,11 @@ async def test_scores_append_creates_merges_and_notifies(client):
     assert sorted(x["concept_id"] for x in got) == [1, 3027018]
 
     notes = (await client.get(f"{API}/notifications", headers=headers)).json()
-    assert [(n["entityType"], n["detail"]["part"], n["detail"]["name"]) for n in notes] == [
-        ("mapping_project", "suggestions", "1"), ("mapping_project", "suggestions", "1"),
+    assert [(n["entityType"], n["detail"]["part"], n["detail"]["count"]) for n in notes] == [
+        ("mapping_project", "suggestions", 1), ("mapping_project", "suggestions", 1),
     ]
+    assert notes[-1]["detail"]["workspaceId"] == ws
+    assert notes[-1]["detail"]["items"][0] == {
+        "sourceCode": "hr", "sourceName": None, "conceptId": 3027018, "conceptName": None, "equivalence": "skos:closeMatch",
+    }
     assert (await client.post(url, headers=headers, json={"rows": []})).status_code == 400

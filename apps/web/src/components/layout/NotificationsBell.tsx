@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router'
 import { Bell, Bot, Pencil, Plus, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
 import { paths } from '@/lib/paths'
@@ -13,9 +14,41 @@ import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationStore } from '@/stores/notification-store'
 import { useUiContextPublisher } from '@/hooks/use-ui-context-publisher'
-import type { AppNotification } from '@/lib/api/notifications'
+import type { AppNotification, NotificationDetail } from '@/lib/api/notifications'
 
 const ACTION_ICON = { created: Plus, updated: Pencil, deleted: Trash2 } as const
+
+/** Hover detail of a mapping notification: which source concepts went to which targets. */
+function ItemsTooltip({ detail, children }: { detail: NotificationDetail | null; children: React.ReactElement }) {
+  const { t } = useTranslation()
+  const items = detail?.items ?? []
+  if (items.length === 0) return children
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent side="left" sideOffset={8} className="max-w-sm text-left">
+          <ul className="flex flex-col gap-1">
+            {items.map((item, i) => (
+              <li key={i}>
+                <span className="font-medium">{item.sourceName || item.sourceCode}</span>
+                {item.sourceName && <span className="opacity-60"> ({item.sourceCode})</span>}
+                {' → '}
+                {item.conceptId ? (item.conceptName || item.conceptId) : t('notifications.mapping_ignored')}
+                {item.equivalence && item.conceptId ? (
+                  <span className="opacity-60"> · {item.equivalence.replace('skos:', '')}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {(detail?.more ?? 0) > 0 && (
+            <p className="mt-1 opacity-60">{t('notifications.more_items', { count: detail!.more })}</p>
+          )}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
 
 function relativeTime(iso: string, language: string): string {
   const seconds = Math.round((new Date(iso).getTime() - Date.now()) / 1000)
@@ -59,8 +92,9 @@ export function NotificationsBell() {
   const target = (n: AppNotification): string | null => {
     if (n.action === 'deleted') return null
     if (n.entityType === 'mapping_project') {
-      const mappingProject = useConceptMappingStore.getState().mappingProjects.find((p) => p.id === n.entityId)
-      return mappingProject ? paths.warehouseConceptMappingProject(mappingProject.workspaceId, mappingProject.id) : null
+      const workspaceId = useConceptMappingStore.getState().mappingProjects.find((p) => p.id === n.entityId)?.workspaceId
+        ?? n.detail?.workspaceId
+      return workspaceId ? paths.warehouseConceptMappingProject(workspaceId, n.entityId) : null
     }
     if (!n.projectUid) return null
     const project = useAppStore.getState()._projectsRaw.find((p) => p.uid === n.projectUid)
@@ -107,42 +141,46 @@ export function NotificationsBell() {
               const href = target(n)
               return (
                 <li key={n.id} className="group flex items-start gap-1">
-                  <button
-                    disabled={!href}
-                    onClick={() => { if (href) { setOpen(false); navigate(href) } }}
-                    className={cn(
-                      'flex min-w-0 flex-1 items-start gap-2 rounded px-1.5 py-1.5 text-left',
-                      href ? 'hover:bg-muted/60' : 'cursor-default',
-                    )}
-                  >
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted">
-                      <Icon size={11} className="text-muted-foreground" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">
-                        {t(`notifications.entity.${n.entityType}`, { defaultValue: n.entityType })}{' '}
-                        <span className="font-medium">« {localized(n.label, i18n.language) || n.entityId} »</span>
+                  <ItemsTooltip detail={n.detail}>
+                    <button
+                      disabled={!href}
+                      onClick={() => { if (href) { setOpen(false); navigate(href) } }}
+                      className={cn(
+                        'flex min-w-0 flex-1 items-start gap-2 rounded px-1.5 py-1.5 text-left',
+                        href ? 'hover:bg-muted/60' : 'cursor-default',
+                      )}
+                    >
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted">
+                        <Icon size={11} className="text-muted-foreground" />
                       </span>
-                      {n.detail && (
-                        <span className="block truncate text-muted-foreground">
-                          {t(`notifications.part.${n.detail.part}.${n.detail.action}`, {
-                            name: localized(n.detail.name, i18n.language),
-                          })}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">
+                          {t(`notifications.entity.${n.entityType}`, { defaultValue: n.entityType })}{' '}
+                          <span className="font-medium">« {localized(n.label, i18n.language) || n.entityId} »</span>
                         </span>
-                      )}
-                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <Bot size={10} />
-                        {t(`notifications.action.${n.action}`, { source: n.source.toUpperCase() })}
-                        {' · '}
-                        {relativeTime(n.createdAt, i18n.language)}
-                        {n.undoneAt && <> · {t('notifications.undone')}</>}
+                        {n.detail && (
+                          <span className="block truncate text-muted-foreground">
+                            {t(`notifications.part.${n.detail.part}.${n.detail.action}`, {
+                              name: localized(n.detail.name, i18n.language),
+                              // Mapping notifications recorded before `count` carried it in `name`.
+                            count: n.detail.count ?? (Number(localized(n.detail.name, i18n.language)) || undefined),
+                            })}
+                          </span>
+                        )}
+                        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <Bot size={10} />
+                          {t(`notifications.action.${n.action}`, { source: n.source.toUpperCase() })}
+                          {' · '}
+                          {relativeTime(n.createdAt, i18n.language)}
+                          {n.undoneAt && <> · {t('notifications.undone')}</>}
+                        </span>
+                        {undoError === n.id && (
+                          <span className="block text-[10px] text-destructive">{t('notifications.undo_failed')}</span>
+                        )}
                       </span>
-                      {undoError === n.id && (
-                        <span className="block text-[10px] text-destructive">{t('notifications.undo_failed')}</span>
-                      )}
-                    </span>
-                    {!n.readAt && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
-                  </button>
+                      {!n.readAt && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
+                    </button>
+                  </ItemsTooltip>
                   {n.undoable && (
                     <Button
                       variant="ghost"

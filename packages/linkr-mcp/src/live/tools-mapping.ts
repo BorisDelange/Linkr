@@ -458,6 +458,8 @@ export function registerMappingTools(server: Server) {
         createdAt: now,
         conceptSetUid: set?.uid ?? null,
         conceptSetSourceRepo: set?.uid ? set.repo : null,
+        sourceConceptName: typeof source === 'string' ? null : String(source.concept_name ?? ''),
+        conceptName: targets.get(Number(s.concept_id))?.concept_name ?? null,
       }
     })
     if (errors.length) return failure(`Nothing written. Fix these and send the batch again:\n- ${errors.join('\n- ')}`)

@@ -11,6 +11,28 @@ import { apiRequest } from '@/lib/api-client'
 import { wsBaseUrl, WS_AUTH_FAILED } from '@/lib/api/terminal-ws'
 import type { LocalizedString } from '@/types'
 
+/** A concept an agent mapped or suggested, as a mapping notification lists it. */
+export interface MappingNotificationItem {
+  sourceCode: string
+  sourceName: string | null
+  conceptId: number
+  conceptName: string | null
+  equivalence: string | null
+  status?: string | null
+}
+
+/** What changed inside the entity, when not the entity itself: a dashboard's
+ *  widget or tab, or the concepts a mapping write added (first few, plus a count). */
+export interface NotificationDetail {
+  part: 'widget' | 'tab' | 'suggestions' | 'mappings'
+  action: 'created' | 'updated' | 'deleted'
+  name: LocalizedString
+  count?: number
+  workspaceId?: string
+  items?: MappingNotificationItem[]
+  more?: number
+}
+
 export interface AppNotification {
   id: string
   source: string
@@ -20,7 +42,7 @@ export interface AppNotification {
   projectUid: string | null
   label: LocalizedString
   /** What changed inside the entity (a dashboard's widget or tab), when not the entity itself. */
-  detail: { part: 'widget' | 'tab'; action: AppNotification['action']; name: LocalizedString } | null
+  detail: NotificationDetail | null
   readAt: string | null
   undoneAt: string | null
   /** Server-computed: reversible, not yet reversed, and the latest change to its item. */

@@ -69,14 +69,25 @@ async def _load_project(
     return project
 
 
+_NOTIFY_ITEMS = 8
+
+
 async def _notify(
-    db: AsyncSession, request: Request, user: User, project: MappingProject, part: str, count: int
+    db: AsyncSession, request: Request, user: User, project: MappingProject, part: str,
+    items: list[dict], count: int | None = None,
 ) -> None:
+    """Record an agent's mapping write; `items` (source → target) feed the
+    notification's hover detail, capped so a 200-row batch stays one short row."""
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request),
         action="updated", entity_type="mapping_project", entity_id=project.id,
         project_uid=None, label=project.name,
-        detail={"part": part, "action": "created", "name": str(count)},
+        detail={
+            "part": part, "action": "created", "name": str(count if count is not None else len(items)),
+            "count": count if count is not None else len(items),
+            "workspaceId": project.workspace_id,
+            "items": items[:_NOTIFY_ITEMS], "more": max(0, len(items) - _NOTIFY_ITEMS),
+        },
     )
 
 
@@ -486,6 +497,9 @@ class ScoreRowIn(CamelModel):
     created_at: str | None = None
     concept_set_uid: str | None = None
     concept_set_source_repo: str | None = None
+    # Display names for the notification only; not written to the parquet.
+    source_concept_name: str | None = None
+    concept_name: str | None = None
 
 
 class ScoresAppend(CamelModel):
@@ -529,7 +543,14 @@ async def append_scores(
         ),
     )
     if added:
-        await _notify(db, request, user, project, "suggestions", added)
+        # The count comes from the merge (rows already in the file are skipped);
+        # the items are what was sent, for the hover detail.
+        items = [
+            {"sourceCode": r.source_concept_code, "sourceName": r.source_concept_name,
+             "conceptId": r.concept_id, "conceptName": r.concept_name, "equivalence": r.equivalence}
+            for r in body.rows
+        ]
+        await _notify(db, request, user, project, "suggestions", items, added)
     index = await asyncio.to_thread(scores_service.build_index, project_id, str(blob_store.path_for(sha)))
     return {**index, "added": added, "skipped": skipped}
 
@@ -770,7 +791,13 @@ async def create_mappings_batch(
     }
     await svc.create_mappings_batch(db, body.mappings)
     for pid, project in projects.items():
-        await _notify(db, request, user, project, "mappings", sum(m.project_id == pid for m in body.mappings))
+        items = [
+            {"sourceCode": m.source_concept_code, "sourceName": m.source_concept_name,
+             "conceptId": m.target_concept_id, "conceptName": m.target_concept_name,
+             "equivalence": m.equivalence, "status": m.status}
+            for m in body.mappings if m.project_id == pid
+        ]
+        await _notify(db, request, user, project, "mappings", items)
 
 
 @router.post(_MAP + "/delete-by-projects", status_code=status.HTTP_204_NO_CONTENT)

@@ -3300,17 +3300,22 @@
         "deleted": "Tab « {{name}} » deleted"
       },
       "suggestions": {
-        "created": "{{name}} AI suggestion(s) added"
+        "created_one": "{{count}} AI suggestion added",
+        "created_other": "{{count}} AI suggestions added"
       },
       "mappings": {
-        "created": "{{name}} mapping(s) added"
+        "created_one": "{{count}} mapping added",
+        "created_other": "{{count}} mappings added"
       }
     },
     "action": {
       "created": "Added by {{source}}",
       "updated": "Modified by {{source}}",
       "deleted": "Deleted by {{source}}"
-    }
+    },
+    "mapping_ignored": "not to be mapped",
+    "more_items_one": "and {{count}} more",
+    "more_items_other": "and {{count}} more"
   },
   "jobs": {
     "title_one": "{{count}} job",
