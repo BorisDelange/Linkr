@@ -19,7 +19,35 @@ export interface DocsIndex {
   pages: DocPage[]
 }
 
-const fold = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+export function parseDocsIndex(raw: string): DocsIndex {
+  const index = JSON.parse(raw) as DocsIndex
+  if (!Array.isArray(index?.pages)) throw new Error('no pages')
+  return index
+}
+
+export interface DocsSource {
+  label: string
+  load: () => Promise<string>
+}
+
+/**
+ * The first source that yields a valid index, in order (typically the live
+ * site, then the copy shipped with the MCP for instances without internet).
+ * Throws with every source's reason when none does.
+ */
+export async function loadFirstIndex(sources: DocsSource[]): Promise<{ index: DocsIndex; source: DocsSource }> {
+  const reasons: string[] = []
+  for (const source of sources) {
+    try {
+      return { index: parseDocsIndex(await source.load()), source }
+    } catch (e) {
+      reasons.push(`${source.label}: ${(e as Error).message}`)
+    }
+  }
+  throw new Error(reasons.join('; '))
+}
+
+const fold =(s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
 
 /** Query words worth matching: accents and case folded, very short words dropped. */
 export function queryTerms(query: string): string[] {

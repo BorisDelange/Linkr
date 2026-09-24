@@ -11,7 +11,8 @@
     "start:http": "tsx --tsconfig tsconfig.json src/live/http.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "skill:pack": "rm -f dist/concept-mapping.zip && mkdir -p dist && cd skills && zip -rq ../dist/concept-mapping.zip concept-mapping -x 'concept-mapping/TODO.md' '*/__pycache__/*' '*.pyc' '*/.DS_Store'"
+    "skill:pack": "rm -f dist/concept-mapping.zip && mkdir -p dist && cd skills && zip -rq ../dist/concept-mapping.zip concept-mapping -x 'concept-mapping/TODO.md' '*/__pycache__/*' '*.pyc' '*/.DS_Store'",
+    "docs:snapshot": "tsx --tsconfig tsconfig.json src/docs-snapshot.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",

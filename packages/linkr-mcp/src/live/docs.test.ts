@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findPage, queryTerms, scorePage, searchDocs, snippet, type DocPage, type DocsIndex } from './docs'
+import { findPage, loadFirstIndex, parseDocsIndex, queryTerms, scorePage, searchDocs, snippet, type DocPage, type DocsIndex } from './docs'
 
 const page = (over: Partial<DocPage>): DocPage => ({
   url: '/en/docs/x/', lang: 'en', title: 'X', section: 'S', description: '', text: '', ...over,
@@ -47,5 +47,30 @@ describe('findPage', () => {
     expect(findPage(index, 'https://linkr.interhop.org/en/docs/cohorts')?.title).toBe('Cohorts')
     expect(findPage(index, 'docs/concept-mapping/suggestions/#scores')?.lang).toBe('fr')
     expect(findPage(index, '/nope/')).toBeUndefined()
+  })
+})
+
+describe('parseDocsIndex / loadFirstIndex', () => {
+  const ok = JSON.stringify(index)
+
+  it('rejects a document without pages', () => {
+    expect(() => parseDocsIndex('{"generatedAt":""}')).toThrow('no pages')
+    expect(() => parseDocsIndex('<html>')).toThrow()
+  })
+
+  it('takes the first source yielding a valid index', async () => {
+    const { source } = await loadFirstIndex([
+      { label: 'site', load: () => Promise.reject(new Error('offline')) },
+      { label: 'broken', load: async () => '{}' },
+      { label: 'bundled copy', load: async () => ok },
+    ])
+    expect(source.label).toBe('bundled copy')
+  })
+
+  it('reports every reason when none does', async () => {
+    await expect(loadFirstIndex([
+      { label: 'site', load: () => Promise.reject(new Error('offline')) },
+      { label: 'bundled copy', load: async () => '{}' },
+    ])).rejects.toThrow('site: offline; bundled copy: no pages')
   })
 })

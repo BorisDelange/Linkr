@@ -54,7 +54,7 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `create_mappings` | mappings (status unchecked) for picks the user confirmed; already-mapped sources skipped; project stats refreshed |
 | `remove_ai_suggestions` | withdraw a model's `ai/<model>` rows, all or for some source concepts (`destructiveHint`) |
 | `find_sources_for_targets` | reverse lookup: the source concepts suggestions link to given targets or a concept set's resolved concepts |
-| `search_docs`, `read_doc` | the user documentation (linkr.interhop.org): keyword search over the `docs-index.json` the website publishes at build (cached an hour; `LINKR_DOCS_INDEX` points elsewhere, e.g. a local website build), then a page in full as Markdown |
+| `search_docs`, `read_doc` | the user documentation (linkr.interhop.org): keyword search over the `docs-index.json` the website publishes at build (cached an hour; `LINKR_DOCS_INDEX` points elsewhere, e.g. a local website build; when the site is unreachable, falls back to the copy in `data/docs-index.json.gz`, refreshed with `npm run docs:snapshot`), then a page in full as Markdown |
 | `list_database_cohorts`, `plan_cohort_derivation` | a database's own cohorts; whether a cohort can be derived and what the copy does with each table |
 | `derive_database_from_cohort` | the app's *Derive*: a new database (or SQL schema) restricted to a cohort — creates the managed target first, starts the server job, returns its `job_id` at once |
 | `get_job_status`, `cancel_job` | a job's status, progress, log tail and, for a finished derivation, the database id to query |
