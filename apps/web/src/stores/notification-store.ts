@@ -5,9 +5,11 @@ import {
 } from '@/lib/api/notifications'
 import { useCohortStore } from '@/stores/cohort-store'
 import { useConceptListStore } from '@/stores/concept-list-store'
+import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useFileStore } from '@/stores/file-store'
+import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 
 /**
  * Applies a change made elsewhere to the store that holds the entity, so an open
@@ -24,6 +26,11 @@ const REFRESHERS: Record<string, (event: ChangeEvent) => Promise<void>> = {
   dataset: async (e) => {
     const store = useDatasetStore.getState()
     if (e.projectUid && store.activeProjectUid === e.projectUid) await store.reloadDatasetsFromDisk(e.projectUid)
+  },
+  mapping_project: async (e) => {
+    const mappings = useConceptMappingStore.getState()
+    if (mappings.activeProjectId === e.entityId) await mappings.loadProjectMappings(e.entityId, { force: true })
+    await useSuggestionScoresStore.getState().reindexProject(e.entityId)
   },
 }
 

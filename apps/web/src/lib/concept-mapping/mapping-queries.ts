@@ -478,6 +478,8 @@ export interface StandardConceptSearchFilters {
   conceptClassIds?: string[]
   standardConcepts?: string[]
   validConcept?: string
+  /** Restrict to these concept ids (e.g. a concept set's resolved concepts). */
+  conceptIds?: number[]
 }
 
 /**
@@ -525,6 +527,10 @@ export function buildStandardConceptSearchQuery(
   }
   if (filters?.validConcept === 'valid' && dict.extraColumns?.valid_end_date) {
     filterConds.push(`d.${dict.extraColumns.valid_end_date} > CURRENT_DATE`)
+  }
+  if (filters?.conceptIds) {
+    const ids = filters.conceptIds.filter((id) => Number.isInteger(id))
+    filterConds.push(ids.length ? `d.${idCol} IN (${ids.join(',')})` : 'FALSE')
   }
   const filterClause = filterConds.length > 0 ? ` AND ${filterConds.join(' AND ')}` : ''
 
@@ -600,6 +606,10 @@ export function buildStandardConceptSearchCountQuery(
   }
   if (filters?.validConcept === 'valid' && dict.extraColumns?.valid_end_date) {
     filterConds.push(`d.${dict.extraColumns.valid_end_date} > CURRENT_DATE`)
+  }
+  if (filters?.conceptIds) {
+    const ids = filters.conceptIds.filter((id) => Number.isInteger(id))
+    filterConds.push(ids.length ? `d.${idCol} IN (${ids.join(',')})` : 'FALSE')
   }
 
   const term = searchTerm.trim()

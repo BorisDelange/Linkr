@@ -140,3 +140,35 @@ def test_legacy_parquet_without_concept_set_columns():
     got = svc.query_scores(path, "LOINC", "1234-5")
     assert len(got) == 1
     assert got[0]["concept_set_uid"] is None
+
+
+def test_append_rows_creates_then_merges_without_overwriting(tmp_path):
+    row = {
+        "source_vocabulary_id": "REA", "source_concept_code": "hr", "concept_id": 3027018,
+        "method": "ai/qwen3", "score": 0.9, "equivalence": "skos:closeMatch", "comment": "first",
+    }
+    first = str(tmp_path / "1.parquet")
+    assert svc.append_rows(None, [row, row], first) == (1, 1)
+
+    second = str(tmp_path / "2.parquet")
+    changed = {**row, "comment": "second"}
+    other = {**row, "concept_id": 3027019}
+    assert svc.append_rows(first, [changed, other], second) == (1, 1)
+    rows = svc.query_scores(second, "REA", "hr")
+    assert sorted((r["concept_id"], r["comment"]) for r in rows) == [(3027018, "first"), (3027019, "first")]
+
+
+def test_append_rows_keeps_legacy_file_columns(tmp_path):
+    legacy = _write_parquet(
+        [{"source_vocabulary_id": "LOINC", "source_concept_code": "1", "concept_id": "5",
+          "method": "semantic/biolord", "score": "0.7"}],
+        ["source_vocabulary_id", "source_concept_code", "concept_id", "method", "score"],
+    )
+    out = str(tmp_path / "out.parquet")
+    new = {"source_vocabulary_id": "LOINC", "source_concept_code": "1", "concept_id": 6,
+           "method": "ai/m", "score": 0.8, "concept_set_uid": "u1"}
+    assert svc.append_rows(legacy, [new], out) == (1, 0)
+    index = svc.build_index("p", out)
+    assert index["rowCount"] == 2
+    assert index["categorySourceKeys"]["agentic"] == ["LOINC::1"]
+    assert index["categorySourceKeys"]["data_dictionary"] == ["LOINC::1"]

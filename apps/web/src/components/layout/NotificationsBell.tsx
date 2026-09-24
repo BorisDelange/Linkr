@@ -8,6 +8,7 @@ import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
 import { paths } from '@/lib/paths'
 import { cn } from '@/lib/utils'
+import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationStore } from '@/stores/notification-store'
@@ -56,7 +57,12 @@ export function NotificationsBell() {
   }
 
   const target = (n: AppNotification): string | null => {
-    if (n.action === 'deleted' || !n.projectUid) return null
+    if (n.action === 'deleted') return null
+    if (n.entityType === 'mapping_project') {
+      const mappingProject = useConceptMappingStore.getState().mappingProjects.find((p) => p.id === n.entityId)
+      return mappingProject ? paths.warehouseConceptMappingProject(mappingProject.workspaceId, mappingProject.id) : null
+    }
+    if (!n.projectUid) return null
     const project = useAppStore.getState()._projectsRaw.find((p) => p.uid === n.projectUid)
     if (!project?.workspaceId) return null
     if (n.entityType === 'cohort') return paths.cohort(project.workspaceId, n.projectUid, n.entityId)

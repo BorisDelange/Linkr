@@ -3285,7 +3285,8 @@
       "dashboard": "Dashboard",
       "dataset": "Dataset",
       "script": "Script",
-      "concept_list": "Liste de concepts"
+      "concept_list": "Liste de concepts",
+      "mapping_project": "Projet de mapping"
     },
     "part": {
       "widget": {
@@ -3297,6 +3298,12 @@
         "created": "Onglet « {{name}} » ajouté",
         "updated": "Onglet « {{name}} » modifié",
         "deleted": "Onglet « {{name}} » supprimé"
+      },
+      "suggestions": {
+        "created": "{{name}} suggestion(s) IA ajoutée(s)"
+      },
+      "mappings": {
+        "created": "{{name}} mapping(s) ajouté(s)"
       }
     },
     "action": {

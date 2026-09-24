@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,8 +24,11 @@ from app.schemas.mapping_project import (
     ServiceMappingUpdate,
 )
 import asyncio
+import os
+import tempfile
+from pathlib import Path
 
-from app.services import blob_store
+from app.services import blob_store, notification_service
 from app.services import mapping_project_service as svc
 from app.services import source_concept_id_service as sci_svc
 from app.services.data.global_table_service import _localized
@@ -64,6 +67,17 @@ async def _load_project(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await check_workspace_permission(db, project.workspace_id, user, permission)
     return project
+
+
+async def _notify(
+    db: AsyncSession, request: Request, user: User, project: MappingProject, part: str, count: int
+) -> None:
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request),
+        action="updated", entity_type="mapping_project", entity_id=project.id,
+        project_uid=None, label=project.name,
+        detail={"part": part, "action": "created", "name": str(count)},
+    )
 
 
 async def _load_mapping(
@@ -461,6 +475,65 @@ async def query_scores(
     )
 
 
+class ScoreRowIn(CamelModel):
+    source_vocabulary_id: str
+    source_concept_code: str
+    concept_id: int
+    method: str
+    score: float
+    equivalence: str | None = None
+    comment: str | None = None
+    created_at: str | None = None
+    concept_set_uid: str | None = None
+    concept_set_source_repo: str | None = None
+
+
+class ScoresAppend(CamelModel):
+    rows: list[ScoreRowIn]
+
+
+@router.post(_PROJ + "/{project_id}/scores/append")
+async def append_scores(
+    project_id: str,
+    body: ScoresAppend,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add suggestion rows (typically an agent's `ai/<model>` matches) to the
+    project's scores file, creating it when there is none. Rows whose key is
+    already in the file are skipped. Returns the new ScoresIndex plus the
+    added/skipped counts."""
+    project = await _load_project(db, project_id, user, "concept-mapping:write")
+    if not body.rows:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No rows")
+    existing = (
+        str(blob_store.path_for(project.scores_file_sha))
+        if project.scores_file_sha and blob_store.exists(project.scores_file_sha)
+        else None
+    )
+    fd, tmp = tempfile.mkstemp(suffix=".parquet")
+    os.close(fd)
+    try:
+        rows = [r.model_dump() for r in body.rows]
+        added, skipped = await asyncio.to_thread(scores_service.append_rows, existing, rows, tmp)
+        sha, _ = await blob_store.store_file(Path(tmp))
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    await svc.update(
+        db,
+        project,
+        MappingProjectUpdate(
+            scores_file_sha=sha,
+            scores_file_name=project.scores_file_name or "similarity-scores.parquet",
+        ),
+    )
+    if added:
+        await _notify(db, request, user, project, "suggestions", added)
+    index = await asyncio.to_thread(scores_service.build_index, project_id, str(blob_store.path_for(sha)))
+    return {**index, "added": added, "skipped": skipped}
+
+
 @router.get(_PROJ + "/{project_id}/scores-file")
 async def get_scores_file(
     project_id: str,
@@ -687,12 +760,17 @@ async def create_mapping(
 @router.post(_MAP + "/batch", status_code=status.HTTP_204_NO_CONTENT)
 async def create_mappings_batch(
     body: ConceptMappingBatch,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    for pid in {m.project_id for m in body.mappings}:
-        await _load_project(db, pid, user, "concept-mapping:write")
+    projects = {
+        pid: await _load_project(db, pid, user, "concept-mapping:write")
+        for pid in {m.project_id for m in body.mappings}
+    }
     await svc.create_mappings_batch(db, body.mappings)
+    for pid, project in projects.items():
+        await _notify(db, request, user, project, "mappings", sum(m.project_id == pid for m in body.mappings))
 
 
 @router.post(_MAP + "/delete-by-projects", status_code=status.HTTP_204_NO_CONTENT)

@@ -184,3 +184,59 @@ def _row_to_parsed(r: dict) -> dict | None:
         "concept_set_uid": concept_set_uid,
         "concept_set_source_repo": concept_set_source_repo,
     }
+
+
+SCORE_COLUMNS = (
+    "source_vocabulary_id",
+    "source_concept_code",
+    "concept_id",
+    "method",
+    "score",
+    "equivalence",
+    "comment",
+    "created_at",
+    "concept_set_uid",
+    "concept_set_source_repo",
+)
+
+_KEY = "source_vocabulary_id, source_concept_code, concept_id, method"
+
+
+def append_rows(existing_path: str | None, rows: list[dict], out_path: str) -> tuple[int, int]:
+    """Write `existing_path` plus the new `rows` to `out_path` as one parquet.
+    Rows are keyed on (vocabulary, code, concept_id, method); a key already in
+    the file — or repeated in `rows` — is skipped, never overwritten, so a
+    reviewer's view of a suggestion does not change under them. Returns
+    (added, skipped)."""
+    con = _connect()
+    try:
+        con.execute(
+            "CREATE TEMP TABLE incoming (source_vocabulary_id VARCHAR, source_concept_code VARCHAR, "
+            "concept_id BIGINT, method VARCHAR, score DOUBLE, equivalence VARCHAR, comment VARCHAR, "
+            "created_at VARCHAR, concept_set_uid VARCHAR, concept_set_source_repo VARCHAR)"
+        )
+        con.executemany(
+            "INSERT INTO incoming VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [[r.get(c) for c in SCORE_COLUMNS] for r in rows],
+        )
+        con.execute(
+            f"CREATE TEMP TABLE fresh AS SELECT * FROM incoming "
+            f"QUALIFY row_number() OVER (PARTITION BY {_KEY}) = 1"
+        )
+        if existing_path:
+            con.execute(
+                f"DELETE FROM fresh WHERE ({_KEY}) IN "
+                f"(SELECT ({_KEY}) FROM read_parquet(?))",
+                [existing_path],
+            )
+            source = "SELECT * FROM read_parquet(?) UNION ALL BY NAME SELECT * FROM fresh"
+            params = [existing_path]
+        else:
+            source = "SELECT * FROM fresh"
+            params = []
+        added = int(con.execute("SELECT COUNT(*) FROM fresh").fetchone()[0])
+        escaped = out_path.replace("'", "''")
+        con.execute(f"COPY ({source}) TO '{escaped}' (FORMAT PARQUET)", params)
+        return added, len(rows) - added
+    finally:
+        con.close()

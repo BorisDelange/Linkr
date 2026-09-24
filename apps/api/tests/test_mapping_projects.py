@@ -873,3 +873,32 @@ async def test_export_zip_builds_server_side(client):
     # Source CSV is written verbatim.
     assert zf.read("source-concepts.csv") == csv
     assert zf.read(".gitignore") == b"*.parquet\nreview/\nstate.json\n"
+
+
+async def test_scores_append_creates_merges_and_notifies(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _project(client, headers, ws, source_type="file")
+    url = f"{API}/mapping-projects/{p['id']}/scores/append"
+    row = {"sourceVocabularyId": "REA", "sourceConceptCode": "hr", "conceptId": 3027018,
+           "method": "ai/qwen3", "score": 0.9, "equivalence": "skos:closeMatch", "comment": "HR"}
+    mcp = {**headers, "X-Linkr-Client": "mcp"}
+
+    r = await client.post(url, headers=mcp, json={"rows": [row]})
+    assert r.status_code == 200, r.text
+    assert (r.json()["added"], r.json()["skipped"]) == (1, 0)
+    assert r.json()["categorySourceKeys"]["agentic"] == ["REA::hr"]
+
+    r = await client.post(url, headers=mcp, json={"rows": [row, {**row, "conceptId": 1}]})
+    assert (r.json()["added"], r.json()["skipped"], r.json()["rowCount"]) == (1, 1, 2)
+    got = (await client.post(
+        f"{API}/mapping-projects/{p['id']}/scores/query", headers=headers,
+        json={"vocabularyId": "REA", "conceptCode": "hr"},
+    )).json()
+    assert sorted(x["concept_id"] for x in got) == [1, 3027018]
+
+    notes = (await client.get(f"{API}/notifications", headers=headers)).json()
+    assert [(n["entityType"], n["detail"]["part"], n["detail"]["name"]) for n in notes] == [
+        ("mapping_project", "suggestions", "1"), ("mapping_project", "suggestions", "1"),
+    ]
+    assert (await client.post(url, headers=headers, json={"rows": []})).status_code == 400

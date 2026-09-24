@@ -253,6 +253,12 @@ describe('buildStandardConceptSearchQuery', () => {
     expect(sql).toContain("concept_class_id IN ('Clinical Finding')")
     expect(sql).toContain("standard_concept IN ('S')")
   })
+
+  it('restricts to a concept id list, and to nothing when the list is empty', () => {
+    expect(buildStandardConceptSearchQuery(vocabMapping, 'sodium', { conceptIds: [3019550, 3000285] }, 25))
+      .toContain('d.concept_id IN (3019550,3000285)')
+    expect(buildStandardConceptSearchQuery(vocabMapping, '', { conceptIds: [] }, 25)).toContain('WHERE FALSE')
+  })
 })
 
 describe('buildFileSourceConceptsQuery — source concept id search', () => {
