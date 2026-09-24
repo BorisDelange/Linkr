@@ -3,7 +3,10 @@ import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
 import type { DashboardWidget } from '@/types'
 import { formatRows } from './cohorts.js'
-import { bilingual, buildFilter, placeWidget, resolveColumns, type DatasetColumn, type Layout } from './lab.js'
+import { columnId } from '@linkr/format'
+import {
+  bilingual, buildFilter, columnMetaMap, findColumn, placeWidget, resolveColumns, type DatasetColumn, type Layout,
+} from './lab.js'
 import { findPlugin, listPlugins, pluginDoc, pluginSummary } from './plugins.js'
 import {
   DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server,
@@ -432,5 +435,116 @@ export function registerLabTools(server: Server): void {
     }
     await api.updateDashboard(dashboard_id, { filterConfig: filters.filter((f) => f.id !== filter_id) })
     return text(`Removed filter ${filter_id}.`)
+  }))
+
+  server.registerTool('rename_dataset_column', {
+    description: 'Rename a dataset column. Its id follows the name (col_<name>), so widgets and filters that used '
+      + 'the old column must then be updated (describe_dashboard). Recorded in the dataset\'s edit history, where '
+      + 'the user can undo it.',
+    annotations: WRITE,
+    inputSchema: fromJsonSchema<{ project_uid: string; path: string; column: string; new_name: string }>({
+      type: 'object',
+      properties: {
+        project_uid: { type: 'string' }, path: { type: 'string' },
+        column: { type: 'string', description: 'Name or id.' }, new_name: { type: 'string' },
+      },
+      required: ['project_uid', 'path', 'column', 'new_name'],
+    }),
+  }, guard(async ({ project_uid, path, column, new_name }) => {
+    const columns = await datasetColumns(project_uid, path)
+    const col = findColumn(columns, column)
+    if (!col) return failure(`No column "${column}" (columns: ${columns.map((c) => c.name).join(', ')}).`)
+    const to = columnId(new_name)
+    if (columns.some((c) => c.id === to && c.id !== col.id)) return failure(`A column "${new_name}" already exists.`)
+    await api.datasetOps(project_uid, path, [{ id: randomUUID(), at: Date.now(), type: 'renameColumn', column: col.id, to, toName: new_name }])
+    return text(`Renamed ${col.name} → ${new_name} (id ${to}).`)
+  }))
+
+  server.registerTool('remove_dataset_columns', {
+    description: 'Remove columns from a dataset. The raw file is untouched: the removal is an entry in the '
+      + 'dataset\'s edit history, which the user can undo in Linkr. Ask the user first.',
+    annotations: DESTRUCTIVE,
+    inputSchema: fromJsonSchema<{ project_uid: string; path: string; columns: string[] }>({
+      type: 'object',
+      properties: {
+        project_uid: { type: 'string' }, path: { type: 'string' },
+        columns: { type: 'array', items: { type: 'string' }, description: 'Names or ids.' },
+      },
+      required: ['project_uid', 'path', 'columns'],
+    }),
+  }, guard(async ({ project_uid, path, columns: refs }) => {
+    const columns = await datasetColumns(project_uid, path)
+    const found = refs.map((r) => findColumn(columns, r))
+    const missing = refs.filter((_, i) => !found[i])
+    if (missing.length) return failure(`No column ${missing.map((m) => `"${m}"`).join(', ')} (columns: ${columns.map((c) => c.name).join(', ')}).`)
+    const group = randomUUID()
+    await api.datasetOps(project_uid, path, found.map((c) => (
+      { id: randomUUID(), at: Date.now(), group, type: 'removeColumn', column: c!.id }
+    )))
+    return text(`Removed ${found.map((c) => c!.name).join(', ')}.`)
+  }))
+
+  server.registerTool('set_column_metadata', {
+    description: 'Document a dataset column: its label (a readable name shown in tables and charts), description, '
+      + 'and value labels (code → meaning, e.g. {"1": "Male", "2": "Female"}). An empty string clears a field.',
+    annotations: WRITE,
+    inputSchema: fromJsonSchema<{
+      project_uid: string; path: string; column: string; label?: string; description?: string; value_labels?: Record<string, string>
+    }>({
+      type: 'object',
+      properties: {
+        project_uid: { type: 'string' }, path: { type: 'string' }, column: { type: 'string', description: 'Name or id.' },
+        label: { type: 'string' }, description: { type: 'string' },
+        value_labels: { type: 'object', additionalProperties: { type: 'string' } },
+      },
+      required: ['project_uid', 'path', 'column'],
+    }),
+  }, guard(async ({ project_uid, path, column, label, description, value_labels }) => {
+    const meta = await api.getDatasetMeta(project_uid, path)
+    const columns = (meta.columns ?? []).map((c) => ({ ...c }))
+    const col = findColumn(columns, column)
+    if (!col) return failure(`No column "${column}" (columns: ${columns.map((c) => c.name).join(', ')}).`)
+    await api.setColumnMeta(project_uid, path, columnMetaMap(columns, col.id, { label, description, valueLabels: value_labels }))
+    return text(`Updated the metadata of ${col.name}.`)
+  }))
+
+  server.registerTool('duplicate_dataset', {
+    description: 'Copy a dataset\'s raw file to a sibling with a new file name (keep the extension).',
+    annotations: WRITE,
+    inputSchema: fromJsonSchema<{ project_uid: string; path: string; new_name: string }>({
+      type: 'object',
+      properties: { project_uid: { type: 'string' }, path: { type: 'string' }, new_name: { type: 'string' } },
+      required: ['project_uid', 'path', 'new_name'],
+    }),
+  }, guard(async ({ project_uid, path, new_name }) => {
+    const node = await api.duplicateDataset(project_uid, path, new_name)
+    return text(`Duplicated to ${node.path}.`)
+  }))
+
+  server.registerTool('move_dataset', {
+    description: 'Rename or move a dataset (or folder) within the project. Widgets pointing at the old path must '
+      + 'then be updated.',
+    annotations: WRITE,
+    inputSchema: fromJsonSchema<{ project_uid: string; path: string; new_path: string }>({
+      type: 'object',
+      properties: { project_uid: { type: 'string' }, path: { type: 'string' }, new_path: { type: 'string' } },
+      required: ['project_uid', 'path', 'new_path'],
+    }),
+  }, guard(async ({ project_uid, path, new_path }) => {
+    await api.moveDataset(project_uid, path, new_path)
+    return text(`Moved ${path} → ${new_path}.`)
+  }))
+
+  server.registerTool('delete_dataset', {
+    description: 'Delete a dataset file or folder. Irreversible: ask the user first.',
+    annotations: DESTRUCTIVE,
+    inputSchema: fromJsonSchema<{ project_uid: string; path: string }>({
+      type: 'object',
+      properties: { project_uid: { type: 'string' }, path: { type: 'string' } },
+      required: ['project_uid', 'path'],
+    }),
+  }, guard(async ({ project_uid, path }) => {
+    await api.deleteDataset(project_uid, path)
+    return text(`Deleted ${path}.`)
   }))
 }

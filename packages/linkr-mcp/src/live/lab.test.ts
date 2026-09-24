@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PluginManifest } from '@/types/plugin'
-import { GRID_COLUMNS, buildFilter, placeWidget, resolveColumns } from './lab'
+import { GRID_COLUMNS, buildFilter, columnMetaMap, findColumn, placeWidget, resolveColumns } from './lab'
 import { findPlugin, listPlugins, pluginDoc } from './plugins'
 
 const MANIFEST = {
@@ -80,5 +80,31 @@ describe('buildFilter', () => {
   it('refuses an unknown column or an input type that does not fit', () => {
     expect(make('weight').error).toMatch(/No column "weight"/)
     expect(make('sex', { inputType: 'range' }).error).toMatch(/allowed: multi-select, checkbox, single-select/)
+  })
+})
+
+describe('columnMetaMap', () => {
+  const columns = [
+    { id: 'col_sex', name: 'sex', type: 'string', label: 'Sex', valueLabels: { F: 'Female' } },
+    { id: 'col_age', name: 'age', type: 'number', description: 'At admission' },
+  ]
+
+  it('changes one column and sends every other one back as it was', () => {
+    expect(columnMetaMap(columns, 'col_age', { label: 'Age (years)' })).toEqual({
+      col_sex: { label: 'Sex', valueLabels: { F: 'Female' } },
+      col_age: { description: 'At admission', label: 'Age (years)' },
+    })
+  })
+
+  it('clears a field with an empty string, dropping a column left empty', () => {
+    expect(columnMetaMap(columns, 'col_age', { description: '' })).toEqual({
+      col_sex: { label: 'Sex', valueLabels: { F: 'Female' } },
+    })
+  })
+
+  it('finds a column by id or name', () => {
+    expect(findColumn(columns, 'SEX')?.id).toBe('col_sex')
+    expect(findColumn(columns, 'col_age')?.name).toBe('age')
+    expect(findColumn(columns, 'weight')).toBeUndefined()
   })
 })

@@ -11,6 +11,7 @@
  * - `LINKR_USERNAME` + `LINKR_PASSWORD` — logged in on first use, refreshed on 401.
  */
 import type { Cohort, Dashboard, DashboardTab, DashboardWidget, SchemaMapping } from '@/types'
+import type { ExecutionOutput, RunLanguage } from './ide.js'
 
 export interface Project {
   uid: string
@@ -48,8 +49,17 @@ export interface DatasetNode {
   name: string
   type: 'file' | 'folder'
   path: string
-  columns?: { id: string; name: string; type: string; label?: string; description?: string }[] | null
+  columns?: ({ id: string; name: string; type: string; label?: string; description?: string } & Record<string, unknown>)[] | null
   rowCount?: number | null
+}
+
+export interface IdeFile {
+  id: string
+  name: string
+  type: 'file' | 'folder'
+  path: string
+  language?: string | null
+  content?: string | null
 }
 
 export class ApiError extends Error {
@@ -182,6 +192,16 @@ export class LinkrApi {
       'POST', `/dataset-files/rows/query?projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(path)}`,
       { offset: 0, limit },
     )
+  datasetOps = (projectUid: string, path: string, ops: Record<string, unknown>[]) =>
+    this.request<{ node: DatasetNode }>('POST', '/dataset-files/ops', { projectUid, path, ops })
+  setColumnMeta = (projectUid: string, path: string, columns: Record<string, Record<string, unknown>>) =>
+    this.request<DatasetNode>('POST', '/dataset-files/columns/meta', { projectUid, path, columns })
+  duplicateDataset = (projectUid: string, path: string, newName: string) =>
+    this.request<DatasetNode>('POST', '/dataset-files/duplicate', { projectUid, path, newName })
+  moveDataset = (projectUid: string, path: string, newPath: string) =>
+    this.request<void>('POST', '/dataset-files/move', { projectUid, path, newPath })
+  deleteDataset = (projectUid: string, path: string) =>
+    this.request<void>('POST', '/dataset-files/delete', { projectUid, path })
   datasetFromQuery = (body: { projectUid: string; path: string; dataSourceId: string; sql: string; replace: boolean }) =>
     this.request<DatasetNode>('POST', '/dataset-files/from-query', body)
 
@@ -206,4 +226,19 @@ export class LinkrApi {
   updateWidget = (id: string, changes: Record<string, unknown>) =>
     this.request<DashboardWidget>('PATCH', `/dashboards/widgets/${encodeURIComponent(id)}`, changes)
   deleteWidget = (id: string) => this.request<void>('DELETE', `/dashboards/widgets/${encodeURIComponent(id)}`)
+
+  listScripts = (projectUid: string) =>
+    this.request<IdeFile[]>('GET', `/ide-files?projectUid=${encodeURIComponent(projectUid)}`)
+  createScript = (projectUid: string, path: string, content: string, type: 'file' | 'folder' = 'file') =>
+    this.request<IdeFile>('POST', '/ide-files', { projectUid, path, type, content })
+  saveScript = (projectUid: string, path: string, content: string) =>
+    this.request<void>('PUT', '/ide-files/content', { projectUid, path, content })
+  moveScript = (projectUid: string, path: string, newPath: string) =>
+    this.request<void>('POST', '/ide-files/move', { projectUid, path, newPath })
+  deleteScript = (projectUid: string, path: string) =>
+    this.request<void>('POST', '/ide-files/delete', { projectUid, path })
+  execute = (body: {
+    projectUid: string; language: RunLanguage; code: string; sessionId?: string
+    datasetFileId?: string; connectionId?: string; label?: string
+  }) => this.request<ExecutionOutput>('POST', '/execute', body)
 }

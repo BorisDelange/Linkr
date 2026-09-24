@@ -120,3 +120,43 @@ export function buildFilter(args: {
     },
   }
 }
+
+/** The editorial fields a column's sidecar metadata holds; the endpoint takes the
+ *  whole set for every column, so the others must be sent back unchanged. */
+const COLUMN_META_FIELDS = ['label', 'description', 'valueLabels', 'withTime', 'required', 'min', 'max', 'allowedValues']
+
+export interface ColumnMetaChange {
+  label?: string
+  description?: string
+  valueLabels?: Record<string, string>
+}
+
+/**
+ * The full column-metadata map with one column changed: every other column keeps
+ * what it had, and an empty string clears a field.
+ */
+export function columnMetaMap(
+  columns: (DatasetColumn & Record<string, unknown>)[],
+  columnId: string,
+  change: ColumnMetaChange,
+): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {}
+  for (const col of columns) {
+    const entry: Record<string, unknown> = {}
+    for (const f of COLUMN_META_FIELDS) if (col[f] !== undefined && col[f] !== null) entry[f] = col[f]
+    if (col.id === columnId) {
+      for (const [k, v] of Object.entries(change)) {
+        if (v === undefined) continue
+        if (v === '') delete entry[k]
+        else entry[k] = v
+      }
+    }
+    if (Object.keys(entry).length) out[col.id] = entry
+  }
+  return out
+}
+
+/** A column by id or name (case-insensitive). */
+export function findColumn<T extends DatasetColumn>(columns: T[], ref: string): T | undefined {
+  return columns.find((c) => c.id === ref) ?? columns.find((c) => c.name.toLowerCase() === ref.toLowerCase())
+}
