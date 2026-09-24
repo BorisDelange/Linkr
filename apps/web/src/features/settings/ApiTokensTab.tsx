@@ -127,7 +127,7 @@ export function ApiTokensTab() {
       accessor: (r) => r.createdAt,
       display: (r) => formatDateTimeLocale(r.createdAt, i18n.language),
       filter: 'none',
-      size: 150,
+      size: 140,
     },
     {
       id: 'lastUsedAt',
@@ -135,7 +135,7 @@ export function ApiTokensTab() {
       accessor: (r) => r.lastUsedAt ?? '',
       display: (r) => (r.lastUsedAt ? formatDateTimeLocale(r.lastUsedAt, i18n.language) : t('api_tokens.never_used')),
       filter: 'none',
-      size: 150,
+      size: 140,
     },
     {
       id: 'expiresAt',
@@ -143,7 +143,7 @@ export function ApiTokensTab() {
       accessor: (r) => r.expiresAt ?? '9999',
       display: (r) => (r.expiresAt ? formatDateTimeLocale(r.expiresAt, i18n.language) : t('api_tokens.never_expires')),
       filter: 'none',
-      size: 150,
+      size: 140,
     },
     {
       id: 'status',

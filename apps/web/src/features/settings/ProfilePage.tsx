@@ -1,4 +1,5 @@
 import { isServerMode } from '@/lib/api-client'
+import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
@@ -101,7 +102,8 @@ export function ProfilePage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10">
+      {/* The API keys table needs more width than the forms of the other tabs. */}
+      <div className={cn('mx-auto px-6 py-10', currentTab === 'api-keys' ? 'max-w-5xl' : 'max-w-3xl')}>
         <h1 className="text-2xl font-bold text-foreground text-center">
           {t('profile.title')}
         </h1>
