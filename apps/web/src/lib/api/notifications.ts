@@ -33,7 +33,7 @@ export const hasDetailDialog = (n: AppNotification) =>
 /** What changed inside the entity, when not the entity itself: a dashboard's
  *  widget or tab, or the concepts a mapping write added (first few, plus a count). */
 export interface NotificationDetail {
-  part: 'widget' | 'tab' | 'suggestions' | 'mappings'
+  part: 'widget' | 'tab' | 'suggestions' | 'mappings' | 'materialization'
   action: 'created' | 'updated' | 'deleted'
   name: LocalizedString
   count?: number

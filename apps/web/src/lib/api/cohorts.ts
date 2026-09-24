@@ -38,3 +38,11 @@ export const apiCohortStorage: CohortStorage = {
     await apiRequest(`${COHORTS}/${id}`, { method: 'DELETE' })
   },
 }
+
+/** Freeze a cohort's membership server-side: the server runs `membershipSql`
+ *  whole (no row cap) and stores the snapshot. Returns the updated cohort. */
+export const materializeCohortOnServer = (id: string, body: { membershipSql: string; dataSourceId: string }) =>
+  apiRequest<Cohort>(`${COHORTS}/${encodeURIComponent(id)}/materialize`, { method: 'POST', body: JSON.stringify(body) })
+
+export const clearCohortMaterializationOnServer = (id: string) =>
+  apiRequest<Cohort>(`${COHORTS}/${encodeURIComponent(id)}/materialization`, { method: 'DELETE' })

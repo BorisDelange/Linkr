@@ -65,3 +65,11 @@ class CohortResponse(CamelModel):
     created_at: datetime
     updated_at: datetime
     version: str
+
+
+class CohortMaterializeRequest(CamelModel):
+    # The cohort's membership query (`id`, `patient_id`), as the criteria builder
+    # writes it (buildCohortMembershipSql). Runs read-only against the database.
+    membership_sql: str
+    # The database it runs on; default the cohort's own.
+    data_source_id: str | None = None
