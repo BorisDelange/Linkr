@@ -37,6 +37,20 @@ services:
     volumes:
       - linkr-data:/root/.linkr
 
+  # MCP server: lets agents (LibreChat, OpenCode…) act on this instance, each with
+  # their own Linkr API key (User settings → API keys). Point the client at
+  # http://<host>:3940/mcp. A request without a valid key is refused.
+  mcp:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp
+    ports:
+      - "3940:3940"
+    environment:
+      - LINKR_API_URL=http://api:8000
+    depends_on:
+      - api
+
   # Uncomment for PostgreSQL in production (and point LINKR_DATABASE_URL at it):
   # db:
   #   image: postgres:16-alpine

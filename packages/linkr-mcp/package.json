@@ -19,6 +19,7 @@
     "i18next": "^25.8.7"
   },
   "devDependencies": {
+    "esbuild": "0.27.3",
     "tsx": "^4.19.2",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

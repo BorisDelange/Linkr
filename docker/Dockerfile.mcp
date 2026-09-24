@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1.7
+# The Linkr MCP server (packages/linkr-mcp), HTTP entry: agents in LibreChat,
+# OpenCode… reach a running Linkr through it, each with their own API key.
+# Build context is the repo root (see docker-compose.yml).
+FROM node:22-alpine AS build
+WORKDIR /app
+
+# The server imports the app's own query builders (apps/web/src through the `@/`
+# alias) and @linkr/format, so their source must sit at the same relative place.
+# Only the MCP workspace's dependencies are installed: nothing the bundle pulls
+# from apps/web needs one of the web app's packages.
+COPY package.json package-lock.json ./
+COPY packages/linkr-mcp/ packages/linkr-mcp/
+COPY packages/linkr-format/ packages/linkr-format/
+COPY apps/web/src/ apps/web/src/
+RUN npm ci --workspace @linkr/mcp --ignore-scripts
+
+# One self-contained file, written where the source entry lives: the server finds
+# its runtime files relative to itself (../../data, the app's locales, the
+# analysis plugins), so the bundle keeps the repo layout instead of rewriting paths.
+WORKDIR /app/packages/linkr-mcp
+RUN npx esbuild src/live/http.ts --bundle --platform=node --format=esm --target=node22 \
+      --tsconfig=tsconfig.json --outfile=src/live/http.mjs --log-level=warning
+
+FROM node:22-alpine
+WORKDIR /app
+COPY --from=build /app/packages/linkr-mcp/src/live/http.mjs packages/linkr-mcp/src/live/http.mjs
+# Offline copy of the user docs, for search_docs when linkr.interhop.org is unreachable.
+COPY packages/linkr-mcp/data/ packages/linkr-mcp/data/
+# Read at runtime: the cohort report's labels, and the analysis plugins' manifests.
+COPY apps/web/src/locales/ apps/web/src/locales/
+COPY packages/default-plugins/analyses/ packages/default-plugins/analyses/
+
+ENV NODE_ENV=production \
+    LINKR_MCP_HOST=0.0.0.0 \
+    LINKR_MCP_PORT=3940
+EXPOSE 3940
+USER node
+CMD ["node", "packages/linkr-mcp/src/live/http.mjs"]

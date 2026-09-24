@@ -79,8 +79,8 @@ pages:
 # sits on main publishes ONCE — no double build between the branch pipeline and
 # main, and no image overwritten unless the same tag is deliberately re-made.
 #
-# Both images ship from one Docker Hub repository, so the ROLE goes in the tag:
-#   interhop/linkr:api-2.4.1   interhop/linkr:web-2.4.1   (+ -latest)
+# All images ship from one Docker Hub repository, so the ROLE goes in the tag:
+#   interhop/linkr:api-2.4.1   interhop/linkr:web-2.4.1   interhop/linkr:mcp-2.4.1   (+ -latest)
 #
 # The web image is built with VITE_API_URL=/ (server mode): it expects the api
 # image beside it behind a proxy, exactly as docker/docker-compose.yml wires
@@ -122,6 +122,8 @@ pages:
     # version, silently. Both lines must name the tag being published.
     - |
       HUB=docker/docker-compose.hub.yml
+      # TODO(release): add mcp here once docker-compose.hub.yml gains the mcp
+      # service — on the first release that publishes its image, not before.
       for role in api web; do
         grep -q "interhop/linkr:$role-$VER\$" "$HUB" || {
           echo "$HUB does not pin $role-$VER:"; grep -n 'image:' "$HUB"; exit 1; }
@@ -144,3 +146,9 @@ docker:web:
     - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile docker/Dockerfile.web
       --build-arg VITE_API_URL=/
       --destination interhop/linkr:web-$VER --destination interhop/linkr:web-latest
+
+docker:mcp:
+  extends: .kaniko
+  script:
+    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile docker/Dockerfile.mcp
+      --destination interhop/linkr:mcp-$VER --destination interhop/linkr:mcp-latest
