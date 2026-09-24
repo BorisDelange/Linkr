@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,3 +73,26 @@ async def delete(db: AsyncSession, cohort: Cohort) -> None:
 async def delete_for_project(db: AsyncSession, project_uid: str) -> None:
     await db.execute(sa_delete(Cohort).where(Cohort.project_uid == project_uid))
     await db.commit()
+
+
+def _member_id(value) -> str:
+    # As the browser's String(): an integral DOUBLE reads "5", not "5.0".
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def build_materialization(
+    level: str, ids: list, patient_ids: list, materialized_at: datetime
+) -> dict:
+    """The frozen membership stored on a cohort (CohortMaterialization on the
+    front), from the `id` and `patient_id` columns of its membership query."""
+    members = [_member_id(v) for v in ids if v is not None]
+    patients = dict.fromkeys(_member_id(v) for v in patient_ids if v is not None)
+    return {
+        "level": level,
+        "ids": members,
+        "patientIds": list(patients),
+        "count": len(members),
+        "materializedAt": materialized_at.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+    }

@@ -23,7 +23,7 @@ import {
 
 /** The database a cohort runs on — the one owning it, its own, else the project's
  *  first usable one (as the app does). */
-async function cohortDatabase(cohort: Cohort): Promise<string> {
+export async function cohortDatabase(cohort: Cohort): Promise<string> {
   const own = cohort.ownerDataSourceId ?? cohort.dataSourceId
   if (own) return own
   if (!cohort.projectUid) throw new Error('This cohort has neither a project nor a database.')
@@ -49,7 +49,7 @@ async function fillConceptNames(databaseId: string, mapping: SchemaMapping, tree
   applyConceptNames(tree, names)
 }
 
-function describeCohort(c: Cohort, mapping?: SchemaMapping): string {
+export function describeCohort(c: Cohort, mapping?: SchemaMapping): string {
   const lines = [
     `Cohort "${loc(c.name)}" (id ${c.id})`,
     c.ownerDataSourceId

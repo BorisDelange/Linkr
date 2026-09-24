@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Upload, AlertTriangle } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
-import { importAtlasCohort, type ImportResult } from './atlas-converter'
+import { importAtlasCohort, isAtlasCohortDefinition, type ImportResult } from './atlas-converter'
 import type { CriteriaGroupNode } from '@/types'
 
 interface ImportAtlasDialogProps {
@@ -29,7 +29,7 @@ export function ImportAtlasDialog({ open, onOpenChange, onImport }: ImportAtlasD
     reader.onload = () => {
       try {
         const json = JSON.parse(reader.result as string)
-        if (!json.ConceptSets && !json.PrimaryCriteria) {
+        if (!isAtlasCohortDefinition(json)) {
           setError(t('cohorts.atlas_invalid_format'))
           return
         }

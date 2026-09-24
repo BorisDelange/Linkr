@@ -3308,6 +3308,11 @@
       "mappings": {
         "created_one": "{{count}} alignement ajouté",
         "created_other": "{{count}} alignements ajoutés"
+      },
+      "materialization": {
+        "created_one": "Composition figée : {{count}} membre",
+        "created_other": "Composition figée : {{count}} membres",
+        "deleted": "Composition figée supprimée"
       }
     },
     "action": {

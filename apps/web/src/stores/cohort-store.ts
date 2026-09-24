@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
+import { clearCohortMaterializationOnServer, materializeCohortOnServer } from '@/lib/api/cohorts'
+import { materializationFromRows } from '@/lib/cohort-materialization'
 import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
@@ -507,34 +509,28 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       // ever with nothing to explain it — surface it as the failure it is.
       if (!sql) throw new Error('EMPTY_QUERY')
 
-      // Every page: the server caps one response at 10k rows, and a membership
-      // cut there would be a silently smaller cohort.
-      const rows = await engine.queryDataSourceAll(dataSourceId, sql)
-      const ids: string[] = []
-      const patientSet = new Set<string>()
-      for (const row of rows) {
-        if (row.id != null) ids.push(String(row.id))
-        if (row.patient_id != null) patientSet.add(String(row.patient_id))
+      let materialization: CohortMaterialization
+      if (isServerMode()) {
+        // The server runs the whole membership and stores it — the same endpoint
+        // an agent (MCP freeze_cohort) calls.
+        const saved = await materializeCohortOnServer(id, { membershipSql: sql, dataSourceId })
+        if (!saved.materialization) throw new Error('The server stored no materialization')
+        materialization = saved.materialization
+      } else {
+        const rows = await engine.queryDataSourceAll(dataSourceId, sql)
+        materialization = materializationFromRows(cohort.level, rows, new Date().toISOString())
+        await getStorage().cohorts.update(id, { materialization, resultCount: materialization.count })
       }
-
-      const materialization: CohortMaterialization = {
-        level: cohort.level,
-        ids,
-        patientIds: [...patientSet],
-        count: ids.length,
-        materializedAt: new Date().toISOString(),
-      }
-
-      await getStorage().cohorts.update(id, { materialization, resultCount: ids.length })
+      const count = materialization.count
 
       set((s) => ({
         cohorts: s.cohorts.map((c) =>
-          c.id === id ? { ...c, materialization, resultCount: ids.length } : c,
+          c.id === id ? { ...c, materialization, resultCount: count } : c,
         ),
         executionLoading: new Map(s.executionLoading).set(id, false),
       }))
 
-      return ids.length
+      return count
     } catch (err) {
       set((s) => ({
         executionLoading: new Map(s.executionLoading).set(id, false),
@@ -548,9 +544,8 @@ export const useCohortStore = create<CohortState>((set, get) => ({
   },
 
   clearMaterialization: async (id) => {
-    // `null` (not `undefined`) so it survives JSON serialization to the backend
-    // and actually clears the stored column in fullstack mode.
-    await getStorage().cohorts.update(id, { materialization: null } as unknown as Partial<Cohort>)
+    if (isServerMode()) await clearCohortMaterializationOnServer(id)
+    else await getStorage().cohorts.update(id, { materialization: undefined })
     set((s) => ({
       cohorts: s.cohorts.map((c) =>
         c.id === id ? { ...c, materialization: undefined } : c,

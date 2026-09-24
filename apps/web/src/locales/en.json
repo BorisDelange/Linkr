@@ -3308,6 +3308,11 @@
       "mappings": {
         "created_one": "{{count}} mapping added",
         "created_other": "{{count}} mappings added"
+      },
+      "materialization": {
+        "created_one": "Membership frozen: {{count}} member",
+        "created_other": "Membership frozen: {{count}} members",
+        "deleted": "Frozen membership cleared"
       }
     },
     "action": {
