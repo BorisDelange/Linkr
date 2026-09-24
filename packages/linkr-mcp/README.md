@@ -50,12 +50,15 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `search_vocabulary`, `get_vocabulary_concept` | OMOP targets in the project's vocabulary database (name, synonyms, filters, a concept set's resolved concepts); relationships, ancestors, descendants |
 | `add_ai_suggestions` | `ai/<model>` rows appended to the project's scores file — shown in the Suggestions panel for review; unknown / non-standard targets refused, existing rows kept |
 | `create_mappings` | mappings (status unchecked) for picks the user confirmed; already-mapped sources skipped; project stats refreshed |
+| `list_database_cohorts`, `plan_cohort_derivation` | a database's own cohorts; whether a cohort can be derived and what the copy does with each table |
+| `derive_database_from_cohort` | the app's *Derive*: a new database (or SQL schema) restricted to a cohort — creates the managed target first, starts the server job, returns its `job_id` at once |
+| `get_job_status`, `cancel_job` | a job's status, progress, log tail and, for a finished derivation, the database id to query |
 
 Code: `server.ts` / `http.ts` (entries) · `build.ts` · `shared.ts` · `tools-context.ts` ·
 `tools-warehouse.ts` (projects, databases, cohorts, report) · `tools-concepts.ts` ·
 `tools-lab.ts` (datasets, plugins, dashboards) · `tools-ide.ts` (scripts, runs) · `tools-mapping.ts`
-(concept mapping) · pure helpers `cohorts.ts`, `concepts.ts`, `lab.ts`, `ide.ts`, `mapping.ts`, `report.ts`,
-`plugins.ts` (tested).
+(concept mapping) · `tools-derive.ts` (derived databases, jobs) · pure helpers `cohorts.ts`, `concepts.ts`, `lab.ts`,
+`ide.ts`, `mapping.ts`, `report.ts`, `derive.ts`, `plugins.ts` (tested).
 
 ## Skills
 

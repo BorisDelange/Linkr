@@ -14,6 +14,8 @@ import type {
   Cohort, ConceptList, ConceptMapping, ConceptSet, Dashboard, DashboardTab, DashboardWidget, MappingProject,
   MappingProjectStats, SchemaMapping, ScoresIndex,
 } from '@/types'
+import type { DerivePlanTable, DeriveRequest } from '@/lib/api/data-sources'
+import type { Job } from '@/lib/api/environments'
 import type { ExecutionOutput, RunLanguage } from './ide.js'
 
 export interface Project {
@@ -303,4 +305,17 @@ export class LinkrApi {
     this.request<ServerScoresIndex & { added: number; skipped: number }>(
       'POST', `/mapping-projects/${encodeURIComponent(id)}/scores/append`, { rows },
     )
+
+  // Derived databases, jobs
+  listDatabaseCohorts = (dataSourceId: string) =>
+    this.request<Cohort[]>('GET', `/cohorts?dataSourceId=${encodeURIComponent(dataSourceId)}`)
+  createDataSource = (body: Record<string, unknown>) => this.request<DataSource>('POST', '/data-sources', body)
+  deleteDataSource = (id: string) => this.request<void>('DELETE', `/data-sources/${encodeURIComponent(id)}`)
+  derivePlan = (id: string, level: string) =>
+    this.request<DerivePlanTable[]>('POST', `/data-sources/${encodeURIComponent(id)}/derive-plan`, { level })
+  /** Starts the copy as a job of the database's workspace; returns it queued. */
+  derive = (id: string, body: DeriveRequest) =>
+    this.request<Job>('POST', `/data-sources/${encodeURIComponent(id)}/derive`, body)
+  getJob = (id: string) => this.request<Job>('GET', `/jobs/${encodeURIComponent(id)}`)
+  cancelJob = (id: string) => this.request<void>('POST', `/jobs/${encodeURIComponent(id)}/cancel`)
 }
