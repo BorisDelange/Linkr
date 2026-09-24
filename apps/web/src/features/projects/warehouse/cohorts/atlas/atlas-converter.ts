@@ -5,11 +5,18 @@
  * cohort-definition JSON format (ConceptSets, PrimaryCriteria, InclusionRules,
  * DemographicCriteriaList).
  *
- * Limitations (logged as warnings):
- *  – EndStrategy / CensoringCriteria / CollapseSettings are dropped on import
- *  – Temporal correlations (StartWindow/EndWindow) are dropped on import
- *  – visit_detail level has no ATLAS equivalent
- *  – Eras / ObservationPeriod criteria are not supported
+ * Pure (no browser API): the MCP's import_atlas_cohort runs it too.
+ *
+ * Limitations — every one is reported in the import warnings, so the user (or
+ * the agent) knows what the Linkr cohort does not carry over:
+ *  – EndStrategy / CensoringCriteria / CollapseSettings / CensorWindow
+ *  – temporal windows (StartWindow/EndWindow), RestrictVisit, observation windows
+ *  – event limits (first / last event per person)
+ *  – AT_LEAST / AT_MOST groups (imported as ALL), "exactly 0" occurrences
+ *  – excluded or mapped concept-set items, descendant expansion
+ *  – domain attributes other than the concept set and ValueAsNumber
+ *  – Race / Ethnicity, eras, ObservationPeriod and other unsupported domains
+ *  – visit_detail level has no ATLAS equivalent (export)
  */
 
 import type {
@@ -75,7 +82,9 @@ interface AtlasCorrelatedCriteria {
     End?: { Days?: number; Coeff: number }
     UseEventEnd?: boolean
   }
-  Occurrence?: { Type: number; Count: number }
+  Occurrence?: { Type: number; Count: number; IsDistinct?: boolean }
+  RestrictVisit?: boolean
+  IgnoreObservationPeriod?: boolean
 }
 
 interface AtlasDemographicCriteria {
@@ -83,6 +92,8 @@ interface AtlasDemographicCriteria {
   Gender?: AtlasGenderConcept[]
   Race?: AtlasGenderConcept[]
   Ethnicity?: AtlasGenderConcept[]
+  OccurrenceStartDate?: unknown
+  OccurrenceEndDate?: unknown
 }
 
 interface AtlasCriteriaGroup {
@@ -99,7 +110,7 @@ interface AtlasInclusionRule {
   expression: AtlasCriteriaGroup
 }
 
-interface AtlasCohortDefinition {
+export interface AtlasCohortDefinition {
   cdmVersionRange?: string
   ConceptSets: AtlasConceptSet[]
   PrimaryCriteria: {
@@ -155,7 +166,15 @@ const GENDER_FEMALE = 8532
 
 export interface ImportResult {
   criteriaTree: CriteriaGroupNode
+  /** What the Linkr cohort does not carry over, one sentence each, deduplicated. */
   warnings: string[]
+}
+
+/** Whether a parsed JSON looks like an ATLAS cohort definition at all. */
+export function isAtlasCohortDefinition(json: unknown): json is AtlasCohortDefinition {
+  if (typeof json !== 'object' || json === null || Array.isArray(json)) return false
+  const o = json as Record<string, unknown>
+  return !!o.ConceptSets || !!o.PrimaryCriteria
 }
 
 export function importAtlasCohort(json: AtlasCohortDefinition): ImportResult {
@@ -164,13 +183,37 @@ export function importAtlasCohort(json: AtlasCohortDefinition): ImportResult {
   for (const cs of json.ConceptSets ?? []) {
     conceptSetMap.set(cs.id, cs)
   }
+  warnConceptSetItems(json.ConceptSets ?? [], warnings)
 
   const rootChildren: CriteriaTreeNode[] = []
 
   // --- PrimaryCriteria → concept criteria ---
-  for (const entry of json.PrimaryCriteria?.CriteriaList ?? []) {
+  const primary = json.PrimaryCriteria?.CriteriaList ?? []
+  for (const entry of primary) {
     const node = importDomainCriterion(entry, conceptSetMap, warnings)
     if (node) rootChildren.push(node)
+  }
+  if (primary.length > 1) {
+    warnings.push(
+      `ATLAS treats the ${primary.length} primary (entry event) criteria as alternatives — any one qualifies — `
+      + 'but they were imported as separate criteria that must ALL match.',
+    )
+  }
+  const window = json.PrimaryCriteria?.ObservationWindow
+  if (window && (window.PriorDays || window.PostDays)) {
+    warnings.push(
+      `The entry event's observation window (${window.PriorDays ?? 0} days before, ${window.PostDays ?? 0} days after) was dropped.`,
+    )
+  }
+  const limits: [string, { Type: string } | undefined][] = [
+    ['PrimaryCriteriaLimit', json.PrimaryCriteria?.PrimaryCriteriaLimit],
+    ['QualifiedLimit', json.QualifiedLimit],
+    ['ExpressionLimit', json.ExpressionLimit],
+  ]
+  for (const [name, limit] of limits) {
+    if (limit?.Type && limit.Type !== 'All') {
+      warnings.push(`${name} "${limit.Type}" (which event to keep per person) was dropped: every matching record counts.`)
+    }
   }
 
   // --- AdditionalCriteria ---
@@ -184,13 +227,11 @@ export function importAtlasCohort(json: AtlasCohortDefinition): ImportResult {
 
   // --- InclusionRules ---
   for (const rule of json.InclusionRules ?? []) {
-    const group = importCriteriaGroup(rule.expression, conceptSetMap, warnings)
-    group.label = rule.name || 'Inclusion Rule'
-
     // AT_MOST + Count 0 → exclude
-    if (rule.expression.Type === 'AT_MOST' && rule.expression.Count === 0) {
-      group.exclude = true
-    }
+    const excludes = rule.expression.Type === 'AT_MOST' && rule.expression.Count === 0
+    const group = importCriteriaGroup(rule.expression, conceptSetMap, warnings, excludes)
+    group.label = rule.name || 'Inclusion Rule'
+    if (excludes) group.exclude = true
 
     if (group.children.length > 0) {
       rootChildren.push(group)
@@ -201,6 +242,9 @@ export function importAtlasCohort(json: AtlasCohortDefinition): ImportResult {
   if (json.EndStrategy) warnings.push('EndStrategy is not supported and was skipped.')
   if (json.CensoringCriteria?.length) warnings.push('CensoringCriteria are not supported and were skipped.')
   if (json.CollapseSettings) warnings.push('CollapseSettings is not supported and was skipped.')
+  if (json.CensorWindow?.StartDate || json.CensorWindow?.EndDate) {
+    warnings.push('CensorWindow (study start/end dates) is not supported and was skipped.')
+  }
 
   const criteriaTree: CriteriaGroupNode = {
     kind: 'group',
@@ -211,13 +255,31 @@ export function importAtlasCohort(json: AtlasCohortDefinition): ImportResult {
     enabled: true,
   }
 
-  return { criteriaTree, warnings }
+  return { criteriaTree, warnings: [...new Set(warnings)] }
+}
+
+/** Concept-set content the import cannot honour: it keeps each set's listed,
+ *  non-excluded concepts, nothing more. */
+function warnConceptSetItems(sets: AtlasConceptSet[], warnings: string[]): void {
+  for (const cs of sets) {
+    const items = cs.expression?.items ?? []
+    const excluded = items.filter((i) => i.isExcluded).length
+    const mapped = items.filter((i) => i.includeMapped && !i.isExcluded).length
+    if (excluded) {
+      warnings.push(`Concept set "${cs.name}": ${excluded} excluded concept(s) were dropped — they are not subtracted from the set.`)
+    }
+    if (mapped) {
+      warnings.push(`Concept set "${cs.name}": includeMapped is not supported — ${mapped} concept(s) keep only their own id, not the source concepts mapped to them.`)
+    }
+  }
 }
 
 function importCriteriaGroup(
   group: AtlasCriteriaGroup,
   conceptSets: Map<number, AtlasConceptSet>,
   warnings: string[],
+  /** An inclusion rule's AT_MOST 0 root, which the caller turns into an exclusion. */
+  exclusionRoot = false,
 ): CriteriaGroupNode {
   // ATLAS: ALL = all children linked by AND, ANY = all children linked by OR
   const childOperator = group.Type === 'ANY' ? 'OR' : 'AND'
@@ -231,8 +293,16 @@ function importCriteriaGroup(
 
   // Demographics
   for (const demo of group.DemographicCriteriaList ?? []) {
-    const nodes = importDemographicCriteria(demo)
+    const nodes = importDemographicCriteria(demo, warnings)
     children.push(...nodes)
+  }
+
+  if ((group.Type === 'AT_LEAST' || group.Type === 'AT_MOST') && !exclusionRoot) {
+    warnings.push(`A group "${group.Type === 'AT_LEAST' ? 'at least' : 'at most'} ${group.Count ?? 0} of" was imported as "all of".`)
+  }
+  const directChildren = children.length + (group.Groups?.length ?? 0)
+  if (exclusionRoot && directChildren > 1) {
+    warnings.push('An "at most 0 of" rule (none may match) with several criteria was imported as excluding patients who match ALL of them, not ANY of them.')
   }
 
   // Nested groups
@@ -266,7 +336,7 @@ function importDomainCriterion(
   const domainKey = Object.keys(entry).find((k) => ATLAS_DOMAIN_MAP[k])
   if (!domainKey) {
     const keys = Object.keys(entry).join(', ')
-    warnings.push(`Unsupported primary criterion type: ${keys}`)
+    warnings.push(`Unsupported primary criterion type: ${keys} (dropped).`)
     return null
   }
 
@@ -283,7 +353,7 @@ function importCorrelatedCriterion(
   const domainKey = Object.keys(entry).find((k) => ATLAS_DOMAIN_MAP[k])
   if (!domainKey) {
     const keys = Object.keys(entry).join(', ')
-    warnings.push(`Unsupported correlated criterion type: ${keys}`)
+    warnings.push(`Unsupported correlated criterion type: ${keys} (dropped).`)
     return null
   }
 
@@ -293,9 +363,21 @@ function importCorrelatedCriterion(
 
   const config = node.config as ConceptCriteriaConfig
 
-  // Time window from ATLAS is noted as a warning (not supported in our model)
-  if (cc.StartWindow?.Start?.Days || cc.StartWindow?.End?.Days) {
-    warnings.push('Time window constraint was ignored (not supported).')
+  // Time windows relative to the index event have no equivalent in our model.
+  const windowed = [cc.StartWindow, cc.EndWindow].some(
+    (w) => w && (w.Start?.Days != null || w.End?.Days != null || w.UseEventEnd),
+  )
+  if (windowed) {
+    warnings.push('Time window constraint (relative to the entry event) was ignored: the criterion applies at any time.')
+  }
+  if (cc.RestrictVisit) warnings.push('"Restrict to the same visit" was ignored.')
+  if (cc.Occurrence?.IsDistinct) warnings.push('"Distinct" occurrence counting was ignored: every record counts.')
+
+  if (cc.Occurrence && cc.Occurrence.Count === 0 && cc.Occurrence.Type !== 2) {
+    warnings.push(
+      `"${cc.Occurrence.Type === 0 ? 'exactly' : 'at most'} 0 occurrences" of ${domainKey} (i.e. none) was ignored: the criterion `
+      + 'now requires at least one record. Set it to exclude to express "none".',
+    )
   }
 
   // Extract occurrence count
@@ -324,8 +406,16 @@ function buildConceptCriterion(
   const eventTableLabel = ATLAS_DOMAIN_MAP[domainKey]
   if (!eventTableLabel) return null
 
+  const ignored = Object.keys(domainObj ?? {}).filter(
+    (k) => !HANDLED_ATTRIBUTES.has(k) && !isEmptyAttribute(domainObj[k]),
+  )
+
   // Handle Death domain specially
   if (domainKey === 'Death') {
+    const deathIgnored = Object.keys(domainObj ?? {}).filter((k) => !isEmptyAttribute(domainObj[k]))
+    if (deathIgnored.length) {
+      warnings.push(`Death criterion: ${deathIgnored.join(', ')} ignored — imported as "patient is dead".`)
+    }
     return {
       kind: 'criterion',
       id: crypto.randomUUID(),
@@ -342,6 +432,15 @@ function buildConceptCriterion(
 
   const conceptIds: number[] = []
   const conceptNames: Record<number, string> = {}
+
+  if (codesetId == null) {
+    warnings.push(`A ${domainKey} criterion has no concept set: it was imported with no concept.`)
+  } else if (!cs) {
+    warnings.push(`A ${domainKey} criterion names concept set ${codesetId}, which the definition does not contain: it was imported with no concept.`)
+  }
+  if (ignored.length) {
+    warnings.push(`${domainKey} criterion: ${ignored.join(', ')} ignored (not supported).`)
+  }
 
   if (cs) {
     for (const item of cs.expression.items) {
@@ -371,6 +470,7 @@ function buildConceptCriterion(
       lte: '<=',
       bt: 'between',
     }
+    if (!opMap[vr.Op]) warnings.push(`A value filter "${vr.Op}" is not supported: it was imported as "> ${vr.Value}".`)
     valueFilters = [{
       operator: opMap[vr.Op] ?? '>',
       value: vr.Value,
@@ -378,15 +478,11 @@ function buildConceptCriterion(
     }]
   }
 
-  // Inline demographics (Age, Gender on the domain criterion)
-  const inlineDemoNodes: CriterionNode[] = []
-  if (domainObj.Age) {
-    const ageNode = importAgeRange(domainObj.Age)
-    if (ageNode) inlineDemoNodes.push(ageNode)
-  }
-  if (domainObj.Gender?.length) {
-    const sexNode = importGenderList(domainObj.Gender)
-    if (sexNode) inlineDemoNodes.push(sexNode)
+  // Age / Gender set on the domain criterion itself (at the event date) are not
+  // carried over: the concept node alone is returned.
+  const inline = [domainObj.Age ? 'Age' : null, domainObj.Gender?.length ? 'Gender' : null].filter(Boolean)
+  if (inline.length) {
+    warnings.push(`${inline.join(' and ')} set on a ${domainKey} criterion ${inline.length > 1 ? 'were' : 'was'} dropped: add ${inline.length > 1 ? 'them' : 'it'} as separate criteria.`)
   }
 
   const conceptNode: CriterionNode = {
@@ -404,21 +500,27 @@ function buildConceptCriterion(
     enabled: true,
   }
 
-  // If there are no inline demographics, just return the concept node
-  // (inline demographics are rare, we skip them with a warning for now)
-  if (inlineDemoNodes.length > 0) {
-    warnings.push('Inline demographics on domain criteria were converted to separate criteria nodes.')
-  }
-
   return conceptNode
 }
 
-function importDemographicCriteria(demo: AtlasDemographicCriteria): CriterionNode[] {
+/** Domain-criterion attributes the import reads (Age / Gender are reported apart). */
+const HANDLED_ATTRIBUTES = new Set(['CodesetId', 'ValueAsNumber', 'Age', 'Gender'])
+
+function isEmptyAttribute(value: unknown): boolean {
+  return value == null || value === false || (Array.isArray(value) && value.length === 0)
+}
+
+function importDemographicCriteria(demo: AtlasDemographicCriteria, warnings: string[]): CriterionNode[] {
   const nodes: CriterionNode[] = []
+  const ignored = Object.keys(demo).filter(
+    (k) => k !== 'Age' && k !== 'Gender' && !isEmptyAttribute(demo[k as keyof AtlasDemographicCriteria]),
+  )
+  if (ignored.length) warnings.push(`Demographic criteria: ${ignored.join(', ')} ignored (not supported).`)
 
   if (demo.Age) {
     const node = importAgeRange(demo.Age)
     if (node) nodes.push(node)
+    else warnings.push(`An age condition "${demo.Age.Op}" is not supported and was dropped.`)
   }
 
   if (demo.Gender?.length) {
