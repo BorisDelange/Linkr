@@ -69,15 +69,17 @@ async def _load_project(
     return project
 
 
-_NOTIFY_ITEMS = 8
+# A write is at most a few hundred rows (the MCP caps a call at 200); the cap
+# only bounds what one notification row can hold.
+_NOTIFY_ITEMS = 500
 
 
 async def _notify(
     db: AsyncSession, request: Request, user: User, project: MappingProject, part: str,
     items: list[dict], count: int | None = None,
 ) -> None:
-    """Record an agent's mapping write; `items` (source → target) feed the
-    notification's hover detail, capped so a 200-row batch stays one short row."""
+    """Record an agent's mapping write; `items` (source → target, with the
+    agent's judgement) feed the notification's detail dialog."""
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request),
         action="updated", entity_type="mapping_project", entity_id=project.id,
@@ -546,8 +548,9 @@ async def append_scores(
         # The count comes from the merge (rows already in the file are skipped);
         # the items are what was sent, for the hover detail.
         items = [
-            {"sourceCode": r.source_concept_code, "sourceName": r.source_concept_name,
-             "conceptId": r.concept_id, "conceptName": r.concept_name, "equivalence": r.equivalence}
+            {"sourceVocabularyId": r.source_vocabulary_id, "sourceCode": r.source_concept_code,
+             "sourceName": r.source_concept_name, "conceptId": r.concept_id, "conceptName": r.concept_name,
+             "equivalence": r.equivalence, "score": r.score, "comment": r.comment}
             for r in body.rows
         ]
         await _notify(db, request, user, project, "suggestions", items, added)
@@ -792,9 +795,10 @@ async def create_mappings_batch(
     await svc.create_mappings_batch(db, body.mappings)
     for pid, project in projects.items():
         items = [
-            {"sourceCode": m.source_concept_code, "sourceName": m.source_concept_name,
-             "conceptId": m.target_concept_id, "conceptName": m.target_concept_name,
-             "equivalence": m.equivalence, "status": m.status}
+            {"sourceVocabularyId": m.source_vocabulary_id, "sourceCode": m.source_concept_code,
+             "sourceName": m.source_concept_name, "conceptId": m.target_concept_id,
+             "conceptName": m.target_concept_name, "equivalence": m.equivalence, "score": m.match_score,
+             "status": m.status, "comment": next((c.get("text") for c in m.comments or [] if isinstance(c, dict)), None)}
             for m in body.mappings if m.project_id == pid
         ]
         await _notify(db, request, user, project, "mappings", items)

@@ -903,6 +903,7 @@ async def test_scores_append_creates_merges_and_notifies(client):
     ]
     assert notes[-1]["detail"]["workspaceId"] == ws
     assert notes[-1]["detail"]["items"][0] == {
-        "sourceCode": "hr", "sourceName": None, "conceptId": 3027018, "conceptName": None, "equivalence": "skos:closeMatch",
+        "sourceVocabularyId": "REA", "sourceCode": "hr", "sourceName": None, "conceptId": 3027018,
+        "conceptName": None, "equivalence": "skos:closeMatch", "score": 0.9, "comment": "HR",
     }
     assert (await client.post(url, headers=headers, json={"rows": []})).status_code == 400

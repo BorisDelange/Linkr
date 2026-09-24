@@ -3315,7 +3315,19 @@
     },
     "mapping_ignored": "not to be mapped",
     "more_items_one": "and {{count}} more",
-    "more_items_other": "and {{count}} more"
+    "more_items_other": "and {{count}} more",
+    "show_details": "Show details",
+    "detail": {
+      "source": "Source concept",
+      "source_code": "Code",
+      "target": "Target concept",
+      "concept_id": "Concept id",
+      "equivalence": "Equivalence",
+      "score": "Score",
+      "status": "Status",
+      "comment": "Comment",
+      "open_tab": "Open the {{tab}} tab"
+    }
   },
   "jobs": {
     "title_one": "{{count}} job",

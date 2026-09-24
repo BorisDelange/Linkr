@@ -13,13 +13,22 @@ import type { LocalizedString } from '@/types'
 
 /** A concept an agent mapped or suggested, as a mapping notification lists it. */
 export interface MappingNotificationItem {
+  sourceVocabularyId?: string | null
   sourceCode: string
   sourceName: string | null
   conceptId: number
   conceptName: string | null
   equivalence: string | null
+  score?: number | null
   status?: string | null
+  comment?: string | null
 }
+
+/** Details worth a dialog, by part; the others stay a one-line summary. */
+const DETAIL_DIALOG_PARTS = new Set<NotificationDetail['part']>(['suggestions', 'mappings'])
+
+export const hasDetailDialog = (n: AppNotification) =>
+  !!n.detail && DETAIL_DIALOG_PARTS.has(n.detail.part) && (n.detail.items?.length ?? 0) > 0
 
 /** What changed inside the entity, when not the entity itself: a dashboard's
  *  widget or tab, or the concepts a mapping write added (first few, plus a count). */

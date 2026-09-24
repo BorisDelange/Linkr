@@ -3315,7 +3315,19 @@
     },
     "mapping_ignored": "à ne pas aligner",
     "more_items_one": "et {{count}} autre",
-    "more_items_other": "et {{count}} autres"
+    "more_items_other": "et {{count}} autres",
+    "show_details": "Voir le détail",
+    "detail": {
+      "source": "Concept source",
+      "source_code": "Code",
+      "target": "Concept cible",
+      "concept_id": "ID concept",
+      "equivalence": "Équivalence",
+      "score": "Score",
+      "status": "Statut",
+      "comment": "Commentaire",
+      "open_tab": "Ouvrir l'onglet {{tab}}"
+    }
   },
   "jobs": {
     "title_one": "{{count}} tâche",
