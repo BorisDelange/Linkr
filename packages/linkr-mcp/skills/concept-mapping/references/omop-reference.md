@@ -81,6 +81,21 @@ score.
 6. **Device** — catheters, probes, drains.
 7. **Not to map** — bed identifiers, internal system codes, workflow steps.
 
+## A variable, or one of its values?
+
+Flowsheet and lab dictionaries mix **variables** ("Ventilation mode") with
+**values** that were given their own code ("Assist/Control"). OMOP models the
+second as a question concept plus an answer concept (`Answer of` /
+`Has answer` in `get_vocabulary_concept`).
+
+- The source is a **variable** → map to the question concept (usually a
+  Measurement or Observation).
+- The source is a **value** → the question concept loses the value: not an
+  exactMatch. Suggest the question concept as `skos:broadMatch`, name the
+  answer concept (id and name) in the comment, and let the reviewer decide.
+  Suggest the answer concept alone (a `Meas Value`) only when the project maps
+  values.
+
 ## Suggestion methods
 
 | Method | Source |

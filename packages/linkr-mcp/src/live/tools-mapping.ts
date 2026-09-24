@@ -18,7 +18,8 @@ import {
 import { effectiveMappingStatus, getTotalSourceConcepts, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import {
   checkJudgement, checkTarget, conceptsByIdSql, describeConcept, describeInfo, describeSourceRow, groupSuggestions,
-  indexKeyToSourceKey, mappingPayload, methodForModel, sourceByCodesSql, sourceKeyOf, synonymSearchSql,
+  indexKeyToSourceKey, mappingPayload, methodForModel, sourceByCodesSql, sourceKeyOf, sourceKeysInSql, sourceRefCandidates,
+  synonymSearchSql,
   type SourceRow, type SuggestionInput, type VocabConcept,
 } from './mapping.js'
 import { READ, WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
@@ -65,7 +66,8 @@ async function conceptsById(v: Vocabulary, ids: number[]): Promise<Map<number, V
 
 async function sourcesByCode(project: MappingProject, codes: { code: string; vocabularyId?: string | null }[]) {
   const hasVocabulary = hasVocabularyColumn(project)
-  const rows = codes.length ? await api.queryMappingSource(project.id, sourceByCodesSql(codes, hasVocabulary)) as SourceRow[] : []
+  const refs = codes.flatMap((c) => sourceRefCandidates(c.code, c.vocabularyId))
+  const rows = refs.length ? await api.queryMappingSource(project.id, sourceByCodesSql(refs, hasVocabulary)) as SourceRow[] : []
   const byKey = new Map<string, SourceRow>()
   const byCode = new Map<string, SourceRow[]>()
   for (const r of rows) {
@@ -73,12 +75,16 @@ async function sourcesByCode(project: MappingProject, codes: { code: string; voc
     byCode.set(String(r.concept_code), [...(byCode.get(String(r.concept_code)) ?? []), r])
   }
   /** The row for a code, or why there is none (unknown, or ambiguous without a vocabulary). */
-  return (code: string, vocabularyId?: string | null): SourceRow | string => {
+  const resolve = (code: string, vocabularyId?: string | null): SourceRow | string => {
     if (hasVocabulary && vocabularyId) return byKey.get(sourceKeyOf(vocabularyId, code)) ?? `no source concept ${vocabularyId}/${code}`
     const matches = byCode.get(code) ?? []
     if (matches.length === 1) return matches[0]
     if (matches.length === 0) return `no source concept with code ${code}`
     return `code ${code} exists in several vocabularies (${matches.map((m) => String(m.vocabulary_id)).join(', ')}): give vocabulary_id`
+  }
+  return (code: string, vocabularyId?: string | null): SourceRow | string => {
+    const [asGiven, ...others] = sourceRefCandidates(code, vocabularyId).map((r) => resolve(r.code, r.vocabularyId))
+    return typeof asGiven !== 'string' ? asGiven : others.find((r) => typeof r !== 'string') ?? asGiven
   }
 }
 
@@ -161,11 +167,15 @@ export function registerMappingTools(server: Server) {
       + `${cm.subcategoryColumn ? ', subcategory' : ''}${cm.recordCountColumn ? ', record_count' : ''}${cm.patientCountColumn ? ', patient_count' : ''}`
       + `${cm.infoJsonColumn ? ', info_json (metadata)' : ''}.`)
     if (cm.categoryColumn) {
-      const records = cm.recordCountColumn ? ', SUM(record_count) AS records' : ''
+      const done = (await api.listMappings(p.id)).map((m) => sourceKeyOf(m.sourceVocabularyId, m.sourceConceptCode))
+      const open = `NOT ${sourceKeysInSql([...new Set(done)], hasVocabularyColumn(p))}`
+      const records = cm.recordCountColumn
+        ? `, SUM(CASE WHEN ${open} AND record_count > 0 THEN 1 ELSE 0 END) AS open_with_records` : ''
       const rows = await api.queryMappingSource(p.id,
-        `SELECT category, COUNT(*) AS n${records} FROM source_concepts GROUP BY category ORDER BY n DESC LIMIT 40`)
-      lines.push('', 'Categories:', ...rows.map((r) =>
-        `  ${String(r.category ?? '(none)')}: ${String(r.n)} concepts${r.records != null ? `, ${String(r.records)} records` : ''}`))
+        `SELECT category, COUNT(*) AS n, SUM(CASE WHEN ${open} THEN 1 ELSE 0 END) AS open${records}
+FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
+      lines.push('', `Categories (concepts · unmapped${records ? ' · unmapped with records' : ''}):`, ...rows.map((r) =>
+        `  ${String(r.category ?? '(none)')}: ${String(r.n)} · ${String(r.open)}${records ? ` · ${String(r.open_with_records)}` : ''}`))
     }
     return text(lines.join('\n'))
   }))
@@ -239,23 +249,24 @@ export function registerMappingTools(server: Server) {
     description: 'One source concept in full: its metadata (units, value distribution, categories, hospital units…), '
       + 'its existing mappings, and its precomputed / AI suggestions with the target names.',
     annotations: READ,
-    inputSchema: fromJsonSchema<{ mapping_project_id: string; concept_code: string; vocabulary_id?: string }>({
+    inputSchema: fromJsonSchema<{ mapping_project_id: string; concept_code: string; vocabulary_id?: string; full_metadata?: boolean }>({
       type: 'object',
       properties: {
         mapping_project_id: { type: 'string' },
-        concept_code: { type: 'string' },
+        concept_code: { type: 'string', description: 'The code, or vocabulary/code as list_source_concepts prints it.' },
         vocabulary_id: { type: 'string', description: 'The source vocabulary, when codes repeat across vocabularies.' },
+        full_metadata: { type: 'boolean', description: 'All metadata (per-year distribution, every ward). Default: reduced.' },
       },
       required: ['mapping_project_id', 'concept_code'],
     }),
-  }, guard(async ({ mapping_project_id, concept_code, vocabulary_id }) => {
+  }, guard(async ({ mapping_project_id, concept_code, vocabulary_id, full_metadata }) => {
     const p = await api.getMappingProject(mapping_project_id)
     requireFlat(p)
     const found = (await sourcesByCode(p, [{ code: concept_code, vocabularyId: vocabulary_id }]))(concept_code, vocabulary_id)
     if (typeof found === 'string') return failure(`Not found: ${found}.`)
     const vocab = String(found.vocabulary_id ?? '')
     const lines = [describeSourceRow(found).replace(/^- /, 'Source concept: ')]
-    if (found.info_json != null) lines.push('', 'Metadata (info_json):', describeInfo(found.info_json))
+    if (found.info_json != null) lines.push('', 'Metadata (info_json):', describeInfo(found.info_json, 4000, full_metadata))
     const extra = Object.entries(found).filter(([k, v]) =>
       v != null && v !== '' && !['concept_id', 'concept_name', 'concept_code', 'vocabulary_id', 'info_json', 'category',
         'subcategory', 'record_count', 'patient_count', 'terminology_name'].includes(k))
@@ -403,7 +414,7 @@ export function registerMappingTools(server: Server) {
           items: {
             type: 'object',
             properties: {
-              concept_code: { type: 'string', description: 'Source concept code.' },
+              concept_code: { type: 'string', description: 'Source concept code (or vocabulary/code as listed).' },
               vocabulary_id: { type: 'string', description: 'Source vocabulary, when codes repeat across vocabularies.' },
               concept_id: { type: ['number', 'string'], description: 'Standard OMOP target concept id.' },
               score: { type: ['number', 'string'], description: 'Your confidence, 0–1.' },

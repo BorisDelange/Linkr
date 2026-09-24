@@ -78,12 +78,27 @@ export function infoSummary(raw: unknown): string {
   return parts.join(' · ')
 }
 
-/** The whole metadata, readable, cut to a budget. */
-export function describeInfo(raw: unknown, maxChars = 4000): string {
+/**
+ * The metadata, readable, cut to a budget. By default the bulky blocks that
+ * rarely decide a target are reduced: no histogram (the percentiles say it),
+ * the date range without the per-year breakdown, the top three wards.
+ */
+export function describeInfo(raw: unknown, maxChars = 4000, full = false): string {
   const info = parseInfo(raw)
   if (!info) return typeof raw === 'string' && raw.trim() ? raw.slice(0, maxChars) : '(none)'
-  // The histogram repeats what the percentiles say, at twenty times the length.
   const { histogram: _histogram, ...rest } = info
+  if (!full) {
+    const temporal = rest.temporal_distribution as Record<string, unknown> | undefined
+    if (temporal && typeof temporal === 'object') {
+      rest.temporal_distribution = { start_date: temporal.start_date, end_date: temporal.end_date }
+    }
+    if (Array.isArray(rest.hospital_units) && rest.hospital_units.length > 3) {
+      rest.hospital_units = [...rest.hospital_units.slice(0, 3), `… ${rest.hospital_units.length - 3} more`]
+    }
+    if (Array.isArray(rest.categorical_data) && rest.categorical_data.length > 15) {
+      rest.categorical_data = [...rest.categorical_data.slice(0, 15), `… ${rest.categorical_data.length - 15} more`]
+    }
+  }
   const body = JSON.stringify(rest, null, 1)
   return body.length <= maxChars ? body : `${body.slice(0, maxChars)}\n… (${body.length - maxChars} more characters cut)`
 }
@@ -126,6 +141,32 @@ export function synonymSearchSql(table: string, term: string, standardOnly: bool
 FROM concept_synonym cs JOIN ${table} c ON c.concept_id = cs.concept_id
 WHERE ${conds.join(' AND ')}${standardOnly ? " AND c.standard_concept = 'S'" : ''}
 GROUP BY ALL ORDER BY length(MIN(cs.concept_synonym_name)), c.concept_id LIMIT ${limit}`
+}
+
+/**
+ * The ways a source reference given by an agent can be read. Listings print a
+ * concept as `vocabulary/code`, and agents paste that whole token as the code:
+ * without an explicit vocabulary, `a/b` is also tried as vocabulary `a`, code `b`
+ * (after the code as given, since a code may itself contain a slash).
+ */
+export function sourceRefCandidates(code: string, vocabularyId?: string | null): { code: string; vocabularyId?: string | null }[] {
+  const refs: { code: string; vocabularyId?: string | null }[] = [{ code, vocabularyId }]
+  const slash = code.indexOf('/')
+  if (!vocabularyId && slash > 0 && slash < code.length - 1) {
+    refs.push({ code: code.slice(slash + 1), vocabularyId: code.slice(0, slash) })
+  }
+  return refs
+}
+
+/** SQL predicate: the row's source key is one of `keys` (`vocabulary\0code`). */
+export function sourceKeysInSql(keys: string[], hasVocabulary: boolean): string {
+  if (keys.length === 0) return 'FALSE'
+  const parsed = keys.map((k) => {
+    const i = k.indexOf('\0')
+    return { vocab: k.slice(0, i), code: k.slice(i + 1) }
+  })
+  if (!hasVocabulary) return `concept_code IN (${[...new Set(parsed.map((p) => `'${escSql(p.code)}'`))].join(',')})`
+  return `(vocabulary_id, concept_code) IN (${parsed.map((p) => `('${escSql(p.vocab)}','${escSql(p.code)}')`).join(',')})`
 }
 
 /** A source concept's lookup by code, and by vocabulary when the source has one. */

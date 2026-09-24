@@ -13,8 +13,8 @@ compatibility: >-
   Needs the Linkr MCP server (packages/linkr-mcp) connected with the user's
   Linkr API key. Works with any model and any MCP client that loads Agent Skills.
 metadata:
-  version: "2.0.0"
-  citation: Linkr concept-mapping skill v2.0.0
+  version: "2.0.1"
+  citation: Linkr concept-mapping skill v2.0.1
 ---
 
 # Concept mapping with Linkr
@@ -55,7 +55,9 @@ with `metadata.version` above. Any change to this folder bumps the version
      concept confirmed by the user before it is written).
    - **Scope** — which concepts: a category, the most frequent unmapped ones, a
      name pattern, specific codes, or those with precomputed suggestions
-     (`with_suggestions`). Show the count and a few examples before starting.
+     (`with_suggestions`). `get_mapping_project` gives each category's unmapped
+     count; show the count and a few examples before starting, and say so when
+     the scope holds fewer concepts than asked.
    - **Candidates per concept** (suggestions only, default 3) and whether they
      want to see each batch before it is written (default: no — the review
      happens in Linkr).
@@ -67,11 +69,17 @@ Your **model name** is needed by `add_ai_suggestions` (it becomes the method
 
 ## Step 2 — Map, batch by batch
 
-Batches of about 10 concepts. For each concept:
+Batches of about 10 concepts. Concepts are listed as `vocabulary/code`
+(`d_labitems/50812`); tools take that token, or the code alone as
+`concept_code` with `vocabulary_id` beside it. For each concept:
 
-1. `get_source_concept` — read the name **and the metadata**: unit, value
+1. `get_source_concept` (`mapping_project_id`, `concept_code`) — read the name **and the metadata**: unit, value
    range and percentiles, categorical values, category path, hospital units.
    The metadata is what separates near-identical targets.
+   If the name and the metadata say nothing you can interpret — a single
+   letter, an anonymised placeholder (`STX3`, `UTX7`), a tube or billing flag
+   — stop there: do not search the vocabulary for it, list it in the summary
+   as not interpretable.
 2. Decide the domain, then follow the procedure for it:
    - Measurement, Condition, Procedure, Observation → `references/clinical.md`
    - Drug → `references/drugs.md`

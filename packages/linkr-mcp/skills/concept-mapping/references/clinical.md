@@ -69,6 +69,11 @@ difference, lower for alternatives. Write the comment per `omop-reference.md`.
   offer `status: "ignored"` (bed identifiers, internal codes) or `"flagged"`.
 - **Two equally good targets**: suggest both with close scores; in mappings
   mode, ask the user.
+- **A value coded as its own concept** ("Assist/Control", "Intubated"): see
+  *A variable, or one of its values?* in `omop-reference.md`.
+- **A code whose meaning cannot be recovered** (single letters, anonymised
+  placeholders, specimen-tube or billing flags): do not search for it; report
+  it as not interpretable.
 - **A drug in a clinical batch**: set it aside for `drugs.md`.
 
 ## 5. Presenting

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkJudgement, checkTarget, describeInfo, describeSourceRow, groupSuggestions, indexKeyToSourceKey, infoSummary, mappingPayload,
-  methodForModel, sourceByCodesSql, synonymSearchSql, type VocabConcept,
+  methodForModel, sourceByCodesSql, sourceKeysInSql, sourceRefCandidates, synonymSearchSql, type VocabConcept,
 } from './mapping'
 import type { ScoreRow } from './api'
 
@@ -124,5 +124,37 @@ describe('describeInfo', () => {
     expect(describeInfo({ unit: 'bpm', histogram: [{ x: 1, count: 2 }] })).toBe('{\n "unit": "bpm"\n}')
     expect(describeInfo({ a: 'x'.repeat(50) }, 10)).toMatch(/more characters cut/)
     expect(describeInfo(null)).toBe('(none)')
+  })
+})
+
+describe('sourceRefCandidates', () => {
+  it('also reads a pasted vocabulary/code token, after the code as given', () => {
+    expect(sourceRefCandidates('d_labitems/50812')).toEqual([
+      { code: 'd_labitems/50812', vocabularyId: undefined }, { code: '50812', vocabularyId: 'd_labitems' },
+    ])
+    expect(sourceRefCandidates('a/b', 'REA')).toEqual([{ code: 'a/b', vocabularyId: 'REA' }])
+    expect(sourceRefCandidates('/x')).toHaveLength(1)
+    expect(sourceRefCandidates('x/')).toHaveLength(1)
+  })
+})
+
+describe('sourceKeysInSql', () => {
+  it('matches on vocabulary and code, on code alone without vocabularies, and nothing when empty', () => {
+    expect(sourceKeysInSql(["REA\0a'b"], true)).toBe("(vocabulary_id, concept_code) IN (('REA','a''b'))")
+    expect(sourceKeysInSql(['\0a', 'X\0a'], false)).toBe("concept_code IN ('a')")
+    expect(sourceKeysInSql([], true)).toBe('FALSE')
+  })
+})
+
+describe('describeInfo reduction', () => {
+  const info = {
+    temporal_distribution: { start_date: '2090-01-01', end_date: '2097-09-04', by_year: [{ year: 2090, percentage: 27 }] },
+    hospital_units: ['a', 'b', 'c', 'd', 'e'],
+  }
+  it('keeps the date range and the top wards unless asked for everything', () => {
+    const reduced = JSON.parse(describeInfo(info).replace(/\n/g, ''))
+    expect(reduced.temporal_distribution).toEqual({ start_date: '2090-01-01', end_date: '2097-09-04' })
+    expect(reduced.hospital_units).toEqual(['a', 'b', 'c', '… 2 more'])
+    expect(JSON.parse(describeInfo(info, 4000, true)).temporal_distribution.by_year).toHaveLength(1)
   })
 })

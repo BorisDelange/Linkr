@@ -8,6 +8,20 @@ Semantic versioning: `MAJOR.MINOR.PATCH`.
 The `metadata.version` field in `SKILL.md` frontmatter must match the top entry here.
 Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**.
 
+## 2.0.1 — 2026-09-24
+
+### Fixed
+- First end-to-end run by another model (Sonnet, MIMIC-IV Demo) stumbled on
+  three gaps: it passed the listed `vocabulary/code` token as `concept_code`
+  (the tools now accept it; SKILL.md names the parameters), it had no rule for
+  codes whose meaning is unrecoverable (single letters, anonymised
+  placeholders, tube flags: now "stop, report as not interpretable"), and it
+  mapped a coded value ("Assist/Control") to its question concept as an
+  exactMatch — `omop-reference.md` now explains variables vs values (broadMatch
+  to the question, the answer concept named in the comment).
+- Scope: `get_mapping_project` gives unmapped counts per category; the skill
+  asks to say when a scope holds fewer concepts than requested.
+
 ## 2.0.0 — 2026-09-24
 
 ### Changed (breaking)
