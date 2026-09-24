@@ -48,12 +48,17 @@ export function describeItems(items: ConceptListItem[], limit = 100): string {
 }
 
 /** A concept set's expression and resolution, as text. */
-export function describeConceptSet(set: ConceptSet, limit = 100): string {
+export function describeConceptSet(set: ConceptSet, limit = 100, language = 'en'): string {
   const items = set.expression?.items ?? []
   const lines = [
     `Concept set "${set.name}" (concept_set_id ${set.id})${set.category ? ` — ${set.category}${set.subcategory ? ` / ${set.subcategory}` : ''}` : ''}`,
   ]
+  if (set.uniqueId) lines.push(`uniqueId ${set.uniqueId}${set.sourceRepo ? ` · from ${set.sourceRepo}` : ''}`)
   if (set.description) lines.push(set.description)
+  const translations = set.translations ?? {}
+  const long = translations[language]?.longDescription ?? translations.en?.longDescription
+    ?? Object.values(translations).find((t) => t.longDescription)?.longDescription
+  if (long) lines.push('', 'Long description:', long.trim())
   lines.push('', `Expression (${items.length} item(s)):`)
   for (const it of items.slice(0, limit)) {
     const flags = [it.isExcluded && 'EXCLUDED', it.includeDescendants && '+descendants', it.includeMapped && '+mapped'].filter(Boolean)

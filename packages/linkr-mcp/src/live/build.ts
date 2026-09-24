@@ -4,6 +4,7 @@ import { registerConceptTools } from './tools-concepts.js'
 import { registerContextTools } from './tools-context.js'
 import { registerIdeTools } from './tools-ide.js'
 import { registerLabTools } from './tools-lab.js'
+import { registerMappingTools } from './tools-mapping.js'
 import { registerWarehouseTools } from './tools-warehouse.js'
 
 export function buildServer(): McpServer {
@@ -13,5 +14,6 @@ export function buildServer(): McpServer {
   registerConceptTools(server)
   registerLabTools(server)
   registerIdeTools(server)
+  registerMappingTools(server)
   return server
 }

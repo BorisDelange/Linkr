@@ -32,7 +32,7 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `list_cohorts`, `get_cohort`, `create_cohort`, `update_cohort`, `delete_cohort` | criteria validated against the mapping, concept names filled in; or custom SQL |
 | `preview_cohort_sql`, `run_cohort` | generated SQL; count + attrition (sample rows opt-in) |
 | `cohort_report` | the app's cohort report: a text summary for the model + the HTML report as an MCP-UI resource (`ui://`), rendered inline by LibreChat and never sent to the model |
-| `list_concept_sets`, `get_concept_set` | the workspace's imported data dictionaries (read-only) with their resolved concept ids |
+| `list_concept_sets`, `get_concept_set` | the workspace's imported data dictionaries (read-only): resolved concept ids, `uniqueId`, long description with its Mapping Notes |
 | `list_concept_lists`, `get_concept_list`, `create_concept_list`, `update_concept_list`, `delete_concept_list` | the project's hand-picked concept lists |
 | `list_datasets`, `describe_dataset`, `preview_dataset` | datasets, columns (ids used by widgets), per-column summaries, rows on request |
 | `create_dataset_from_query` | a query's full result written server-side as a Parquet dataset — rows never transit through the agent |
@@ -45,11 +45,26 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `remove_widget`, `remove_tab` | `destructiveHint` — undoable from the notification centre |
 | `list_scripts`, `read_script`, `write_script`, `move_script`, `delete_script` | the project's IDE scripts, shown live in the user's IDE |
 | `run_code`, `run_script` | R or Python in the project's server kernel (session `default`, shared with the IDE); stdout, stderr, returned table; figures as a `ui://` resource |
+| `list_mapping_projects`, `get_mapping_project` | concept-mapping projects: progress, vocabulary database, suggestions file, source categories |
+| `list_source_concepts`, `get_source_concept` | source concepts by status / category / name / has-suggestions, with their metadata (`info_json`), existing mappings and suggestions |
+| `search_vocabulary`, `get_vocabulary_concept` | OMOP targets in the project's vocabulary database (name, synonyms, filters, a concept set's resolved concepts); relationships, ancestors, descendants |
+| `add_ai_suggestions` | `ai/<model>` rows appended to the project's scores file — shown in the Suggestions panel for review; unknown / non-standard targets refused, existing rows kept |
+| `create_mappings` | mappings (status unchecked) for picks the user confirmed; already-mapped sources skipped; project stats refreshed |
 
 Code: `server.ts` / `http.ts` (entries) · `build.ts` · `shared.ts` · `tools-context.ts` ·
 `tools-warehouse.ts` (projects, databases, cohorts, report) · `tools-concepts.ts` ·
-`tools-lab.ts` (datasets, plugins, dashboards) · `tools-ide.ts` (scripts, runs) · pure
-helpers `cohorts.ts`, `concepts.ts`, `lab.ts`, `ide.ts`, `report.ts`, `plugins.ts` (tested).
+`tools-lab.ts` (datasets, plugins, dashboards) · `tools-ide.ts` (scripts, runs) · `tools-mapping.ts`
+(concept mapping) · pure helpers `cohorts.ts`, `concepts.ts`, `lab.ts`, `ide.ts`, `mapping.ts`, `report.ts`,
+`plugins.ts` (tested).
+
+## Skills
+
+`skills/` holds the procedures agents follow with these tools, in the open Agent Skills
+format (any model, any client that loads skills). `concept-mapping` maps local codes to
+OMOP concepts through the mapping tools; it is versioned for citation (`metadata.version`,
+`CHANGELOG.md`). `npm run skill:pack` builds `dist/concept-mapping.zip` for LibreChat's
+skill import; Claude Code reads it through the `.claude/skills/concept-mapping` link.
+Setup: [`FORKING.md`](../../FORKING.md).
 
 ## Run it for LibreChat (HTTP)
 

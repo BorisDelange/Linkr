@@ -10,7 +10,10 @@
  * - `LINKR_TOKEN`    — an access token, or
  * - `LINKR_USERNAME` + `LINKR_PASSWORD` — logged in on first use, refreshed on 401.
  */
-import type { Cohort, ConceptList, ConceptSet, Dashboard, DashboardTab, DashboardWidget, SchemaMapping } from '@/types'
+import type {
+  Cohort, ConceptList, ConceptMapping, ConceptSet, Dashboard, DashboardTab, DashboardWidget, MappingProject,
+  MappingProjectStats, SchemaMapping, ScoresIndex,
+} from '@/types'
 import type { ExecutionOutput, RunLanguage } from './ide.js'
 
 export interface Project {
@@ -37,6 +40,33 @@ export interface DataSource {
   version?: string | null
   schemaSource?: { label?: Record<string, string> | string | null } | null
   stats?: Record<string, unknown> | null
+}
+
+export interface CurrentUser {
+  id: number
+  username: string
+  firstName?: string | null
+  lastName?: string | null
+}
+
+/** A precomputed or agent suggestion, as the scores endpoints return it. */
+export interface ScoreRow {
+  source_vocabulary_id: string
+  source_concept_code: string
+  concept_id: number
+  method: string
+  score: number
+  equivalence: string
+  comment: string | null
+  created_at: string | null
+  concept_set_uid: string | null
+  concept_set_source_repo: string | null
+}
+
+/** The index the scores endpoints return: source keys are `vocabulary::code`. */
+export type ServerScoresIndex = Omit<ScoresIndex, 'sourceKeys' | 'categorySourceKeys'> & {
+  sourceKeys: string[]
+  categorySourceKeys: Record<string, string[]>
 }
 
 export interface IntrospectedTable {
@@ -252,4 +282,25 @@ export class LinkrApi {
   updateConceptList = (id: string, changes: Record<string, unknown>) =>
     this.request<ConceptList>('PATCH', `/concept-lists/${encodeURIComponent(id)}`, changes)
   deleteConceptList = (id: string) => this.request<void>('DELETE', `/concept-lists/${encodeURIComponent(id)}`)
+
+  me = () => this.request<CurrentUser>('GET', '/auth/me')
+
+  listMappingProjects = (workspaceId?: string) =>
+    this.request<MappingProject[]>('GET', `/mapping-projects${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ''}`)
+  getMappingProject = (id: string) => this.request<MappingProject>('GET', `/mapping-projects/${encodeURIComponent(id)}`)
+  updateMappingProject = (id: string, changes: Record<string, unknown>) =>
+    this.request<MappingProject>('PATCH', `/mapping-projects/${encodeURIComponent(id)}`, changes)
+  /** SQL over the project's flat source, exposed as the `source_concepts` view. */
+  queryMappingSource = (id: string, sql: string) =>
+    this.request<Record<string, unknown>[]>('POST', `/mapping-projects/${encodeURIComponent(id)}/query`, { sql })
+  listMappings = (id: string) => this.request<ConceptMapping[]>('GET', `/mapping-projects/${encodeURIComponent(id)}/mappings`)
+  mappingStats = (id: string) => this.request<MappingProjectStats>('GET', `/mapping-projects/${encodeURIComponent(id)}/stats`)
+  createMappings = (mappings: Record<string, unknown>[]) => this.request<void>('POST', '/concept-mappings/batch', { mappings })
+  scoresIndex = (id: string) => this.request<ServerScoresIndex | null>('GET', `/mapping-projects/${encodeURIComponent(id)}/scores-index`)
+  queryScores = (id: string, vocabularyId: string, conceptCode: string) =>
+    this.request<ScoreRow[]>('POST', `/mapping-projects/${encodeURIComponent(id)}/scores/query`, { vocabularyId, conceptCode })
+  appendScores = (id: string, rows: Record<string, unknown>[]) =>
+    this.request<ServerScoresIndex & { added: number; skipped: number }>(
+      'POST', `/mapping-projects/${encodeURIComponent(id)}/scores/append`, { rows },
+    )
 }

@@ -19,37 +19,43 @@ const ITEMS_SCHEMA = {
 
 export function registerConceptTools(server: Server) {
   server.registerTool('list_concept_sets', {
-    description: 'Concept sets of the project\'s workspace: imported data dictionaries (OHDSI expressions), '
-      + 'read-only. get_concept_set gives the concept ids to reuse in a cohort\'s concept criterion.',
+    description: 'Concept sets of a workspace: imported data dictionaries (OHDSI expressions), read-only. '
+      + 'get_concept_set gives the concept ids to reuse in a cohort\'s concept criterion, and a set\'s mapping notes.',
     annotations: READ,
-    inputSchema: fromJsonSchema<{ project_uid: string; search?: string }>({
+    inputSchema: fromJsonSchema<{ project_uid?: string; workspace_id?: string; search?: string }>({
       type: 'object',
       properties: {
-        project_uid: { type: 'string' },
+        project_uid: { type: 'string', description: 'The project whose workspace to list.' },
+        workspace_id: { type: 'string', description: 'Or the workspace directly (e.g. a mapping project\'s).' },
         search: { type: 'string', description: 'Case-insensitive filter on name / category.' },
       },
-      required: ['project_uid'],
     }),
-  }, guard(async ({ project_uid, search }) => {
-    const project = await api.getProject(project_uid)
+  }, guard(async ({ project_uid, workspace_id, search }) => {
+    if (!project_uid && !workspace_id) return failure('Give project_uid or workspace_id.')
+    const workspaceId = workspace_id ?? (await api.getProject(project_uid!)).workspaceId ?? undefined
     const q = search?.toLowerCase()
-    const sets = (await api.listConceptSets(project.workspaceId ?? undefined))
+    const sets = (await api.listConceptSets(workspaceId))
       .filter((s) => !q || `${s.name} ${s.category ?? ''} ${s.subcategory ?? ''}`.toLowerCase().includes(q))
     if (sets.length === 0) return text(q ? `No concept set matches "${search}".` : 'No concept set in this workspace.')
     return text(sets.slice(0, 100).map((s) =>
-      `- ${s.name}${s.category ? ` (${s.category})` : ''} — concept_set_id: ${s.id} · ${s.expression?.items?.length ?? 0} item(s)`
-      + `${s.resolvedConceptIds ? ` · ${s.resolvedConceptIds.length} resolved` : ''}`).join('\n')
+      `- ${s.name}${s.category ? ` (${s.category}${s.subcategory ? ` / ${s.subcategory}` : ''})` : ''} — concept_set_id: ${s.id}`
+      + ` · ${s.expression?.items?.length ?? 0} item(s)${s.resolvedConceptIds ? ` · ${s.resolvedConceptIds.length} resolved` : ''}`).join('\n')
       + (sets.length > 100 ? `\n… ${sets.length - 100} more: narrow with search.` : ''))
   }))
 
   server.registerTool('get_concept_set', {
-    description: 'One concept set: its expression (concepts with descendant / mapped / excluded flags) and the '
-      + 'resolved concept ids.',
+    description: 'One concept set: its expression (concepts with descendant / mapped / excluded flags), the resolved '
+      + 'concept ids, and its long description — whose "Mapping Notes" say which target to prefer when mapping onto it.',
     annotations: READ,
-    inputSchema: fromJsonSchema<{ concept_set_id: string }>({
-      type: 'object', properties: { concept_set_id: { type: 'string' } }, required: ['concept_set_id'],
+    inputSchema: fromJsonSchema<{ concept_set_id: string; language?: string }>({
+      type: 'object',
+      properties: {
+        concept_set_id: { type: 'string' },
+        language: { type: 'string', description: 'Language of the long description (default en, else any available).' },
+      },
+      required: ['concept_set_id'],
     }),
-  }, guard(async ({ concept_set_id }) => text(describeConceptSet(await api.getConceptSet(concept_set_id)))))
+  }, guard(async ({ concept_set_id, language }) => text(describeConceptSet(await api.getConceptSet(concept_set_id), 100, language))))
 
   server.registerTool('list_concept_lists', {
     description: 'The project\'s concept lists: concepts picked by hand, which travel with the project.',
