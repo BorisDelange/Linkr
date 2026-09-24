@@ -83,9 +83,12 @@ Stop at the first that genuinely fits:
    next.
 2. List its resolved concepts (`search_vocabulary`, `concept_set_id`, empty
    query), read its Mapping Notes.
-3. Find the source concepts that belong to it: `list_source_concepts` with
-   `search` on the set's clinical terms (in the source's language too) and the
-   matching `category`; check each with `get_source_concept`.
+3. Find the source concepts that belong to it: first
+   `find_sources_for_targets` with the set's `concept_set_id` (default
+   `min_score` 0.5) — the sources precomputed scores already link to its
+   concepts; then `list_source_concepts` with `search` on the set's clinical
+   terms (in the source's language too) for terse labels that scored low.
+   Check each with `get_source_concept`.
 4. Suggest every source that genuinely fits — N sources → 1 target is normal.
 5. Present by set:
 

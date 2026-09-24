@@ -46,10 +46,12 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `list_scripts`, `read_script`, `write_script`, `move_script`, `delete_script` | the project's IDE scripts, shown live in the user's IDE |
 | `run_code`, `run_script` | R or Python in the project's server kernel (session `default`, shared with the IDE); stdout, stderr, returned table; figures as a `ui://` resource |
 | `list_mapping_projects`, `get_mapping_project` | concept-mapping projects: progress, vocabulary database, suggestions file, source categories |
-| `list_source_concepts`, `get_source_concept` | source concepts by status / category / name / has-suggestions, with their metadata (`info_json`), existing mappings and suggestions |
+| `list_source_concepts`, `get_source_concept` | source concepts by status / category / name / has-suggestions, with their metadata (`info_json`), existing mappings and suggestions; a database project not yet extracted is read straight from its dictionaries (no counts, no metadata) |
 | `search_vocabulary`, `get_vocabulary_concept` | OMOP targets in the project's vocabulary database (name, synonyms, filters, a concept set's resolved concepts); relationships, ancestors, descendants |
 | `add_ai_suggestions` | `ai/<model>` rows appended to the project's scores file — shown in the Suggestions panel for review; unknown / non-standard targets refused, existing rows kept |
 | `create_mappings` | mappings (status unchecked) for picks the user confirmed; already-mapped sources skipped; project stats refreshed |
+| `remove_ai_suggestions` | withdraw a model's `ai/<model>` rows, all or for some source concepts (`destructiveHint`) |
+| `find_sources_for_targets` | reverse lookup: the source concepts suggestions link to given targets or a concept set's resolved concepts |
 
 Code: `server.ts` / `http.ts` (entries) · `build.ts` · `shared.ts` · `tools-context.ts` ·
 `tools-warehouse.ts` (projects, databases, cohorts, report) · `tools-concepts.ts` ·

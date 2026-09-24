@@ -558,6 +558,85 @@ async def append_scores(
     return {**index, "added": added, "skipped": skipped}
 
 
+class ScoreSourceKey(CamelModel):
+    vocabulary_id: str
+    concept_code: str
+
+
+class ScoresRemove(CamelModel):
+    methods: list[str]
+    # Only these source concepts; all of them when absent.
+    sources: list[ScoreSourceKey] | None = None
+
+
+@router.post(_PROJ + "/{project_id}/scores/remove")
+async def remove_scores(
+    project_id: str,
+    body: ScoresRemove,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Drop the rows of some methods (e.g. one agent's `ai/<model>` suggestions)
+    from the project's scores file; the file goes when nothing remains. Returns
+    the new index (null without a file) and the removed count."""
+    project = await _load_project(db, project_id, user, "concept-mapping:write")
+    if not body.methods:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No method")
+    if not project.scores_file_sha or not blob_store.exists(project.scores_file_sha):
+        return {"index": None, "removed": 0}
+    path = str(blob_store.path_for(project.scores_file_sha))
+    keys = [(k.vocabulary_id, k.concept_code) for k in body.sources] if body.sources is not None else None
+    fd, tmp = tempfile.mkstemp(suffix=".parquet")
+    os.close(fd)
+    try:
+        removed, remaining = await asyncio.to_thread(scores_service.remove_rows, path, body.methods, keys, tmp)
+        if removed == 0:
+            return {"index": await asyncio.to_thread(scores_service.build_index, project_id, path), "removed": 0}
+        sha = (await blob_store.store_file(Path(tmp)))[0] if remaining else None
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    await svc.update(
+        db, project,
+        MappingProjectUpdate(scores_file_sha=sha, scores_file_name=project.scores_file_name if sha else None),
+    )
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request),
+        action="updated", entity_type="mapping_project", entity_id=project.id,
+        project_uid=None, label=project.name,
+        detail={"part": "suggestions", "action": "deleted", "name": str(removed), "count": removed,
+                "workspaceId": project.workspace_id},
+    )
+    index = await asyncio.to_thread(scores_service.build_index, project_id, str(blob_store.path_for(sha))) if sha else None
+    return {"index": index, "removed": removed}
+
+
+class ScoresByTarget(CamelModel):
+    concept_ids: list[int]
+    min_score: float = 0
+    methods: list[str] | None = None
+    limit: int = 500
+
+
+@router.post(_PROJ + "/{project_id}/scores/by-target")
+async def query_scores_by_target(
+    project_id: str,
+    body: ScoresByTarget,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Score rows whose target is one of `conceptIds`: the source concepts
+    matched to these targets, best first. Serves aligning onto a concept set."""
+    project = await _load_project(db, project_id, user, "concept-mapping:read")
+    if not project.scores_file_sha or not blob_store.exists(project.scores_file_sha):
+        return []
+    path = str(blob_store.path_for(project.scores_file_sha))
+    return await asyncio.to_thread(
+        scores_service.query_by_targets, path, body.concept_ids, body.min_score, body.methods,
+        max(1, min(body.limit, 5000)),
+    )
+
+
 @router.get(_PROJ + "/{project_id}/scores-file")
 async def get_scores_file(
     project_id: str,

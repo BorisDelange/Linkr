@@ -299,6 +299,14 @@ export class LinkrApi {
   scoresIndex = (id: string) => this.request<ServerScoresIndex | null>('GET', `/mapping-projects/${encodeURIComponent(id)}/scores-index`)
   queryScores = (id: string, vocabularyId: string, conceptCode: string) =>
     this.request<ScoreRow[]>('POST', `/mapping-projects/${encodeURIComponent(id)}/scores/query`, { vocabularyId, conceptCode })
+  removeScores = (id: string, methods: string[], sources?: { vocabularyId: string; conceptCode: string }[]) =>
+    this.request<{ index: ServerScoresIndex | null; removed: number }>(
+      'POST', `/mapping-projects/${encodeURIComponent(id)}/scores/remove`, { methods, ...(sources ? { sources } : {}) },
+    )
+  scoresByTarget = (id: string, conceptIds: number[], minScore: number, methods?: string[]) =>
+    this.request<ScoreRow[]>('POST', `/mapping-projects/${encodeURIComponent(id)}/scores/by-target`, {
+      conceptIds, minScore, ...(methods?.length ? { methods } : {}),
+    })
   appendScores = (id: string, rows: Record<string, unknown>[]) =>
     this.request<ServerScoresIndex & { added: number; skipped: number }>(
       'POST', `/mapping-projects/${encodeURIComponent(id)}/scores/append`, { rows },

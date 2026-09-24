@@ -240,3 +240,61 @@ def append_rows(existing_path: str | None, rows: list[dict], out_path: str) -> t
         return added, len(rows) - added
     finally:
         con.close()
+
+
+def remove_rows(
+    path: str, methods: list[str], source_keys: list[tuple[str, str]] | None, out_path: str
+) -> tuple[int, int]:
+    """Write `path` minus the rows of `methods` (only for `source_keys` when
+    given) to `out_path`. Returns (removed, remaining); the caller drops the file
+    when nothing remains."""
+    con = _connect()
+    try:
+        con.execute("CREATE TEMP TABLE methods (method VARCHAR)")
+        con.executemany("INSERT INTO methods VALUES (?)", [[m] for m in methods])
+        cond = "method IN (SELECT method FROM methods)"
+        if source_keys is not None:
+            con.execute("CREATE TEMP TABLE sources (v VARCHAR, c VARCHAR)")
+            con.executemany("INSERT INTO sources VALUES (?, ?)", [list(k) for k in source_keys])
+            cond += " AND (source_vocabulary_id, source_concept_code) IN (SELECT (v, c) FROM sources)"
+        total = int(con.execute("SELECT COUNT(*) FROM read_parquet(?)", [path]).fetchone()[0])
+        removed = int(
+            con.execute(f"SELECT COUNT(*) FROM read_parquet(?) WHERE {cond}", [path]).fetchone()[0]
+        )
+        remaining = total - removed
+        if remaining:
+            escaped = out_path.replace("'", "''")
+            con.execute(
+                f"COPY (SELECT * FROM read_parquet(?) WHERE NOT ({cond})) TO '{escaped}' (FORMAT PARQUET)",
+                [path],
+            )
+        return removed, remaining
+    finally:
+        con.close()
+
+
+def query_by_targets(
+    path: str, concept_ids: list[int], min_score: float, methods: list[str] | None, limit: int
+) -> list[dict]:
+    """Score rows pointing at any of `concept_ids` — which source concepts were
+    matched to these targets, best first (the reverse of `query_scores`)."""
+    if not concept_ids:
+        return []
+    con = _connect()
+    try:
+        con.execute("CREATE TEMP TABLE targets (id BIGINT)")
+        con.executemany("INSERT INTO targets VALUES (?)", [[i] for i in concept_ids])
+        where = "concept_id IN (SELECT id FROM targets) AND score >= ?"
+        params: list = [path, min_score]
+        if methods:
+            con.execute("CREATE TEMP TABLE methods (method VARCHAR)")
+            con.executemany("INSERT INTO methods VALUES (?)", [[m] for m in methods])
+            where += " AND method IN (SELECT method FROM methods)"
+        result = con.execute(
+            f"SELECT * FROM read_parquet(?) WHERE {where} ORDER BY score DESC LIMIT {int(limit)}",
+            params,
+        )
+        cols = [d[0] for d in result.description]
+        return [p for p in (_row_to_parsed(dict(zip(cols, raw))) for raw in result.fetchall()) if p]
+    finally:
+        con.close()

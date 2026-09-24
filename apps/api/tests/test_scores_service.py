@@ -172,3 +172,34 @@ def test_append_rows_keeps_legacy_file_columns(tmp_path):
     assert index["rowCount"] == 2
     assert index["categorySourceKeys"]["agentic"] == ["LOINC::1"]
     assert index["categorySourceKeys"]["data_dictionary"] == ["LOINC::1"]
+
+
+def test_remove_rows_by_method_and_source(tmp_path):
+    base = {"source_vocabulary_id": "REA", "concept_id": 1, "score": 0.5}
+    rows = [
+        {**base, "source_concept_code": "a", "method": "ai/x"},
+        {**base, "source_concept_code": "b", "method": "ai/x"},
+        {**base, "source_concept_code": "a", "method": "semantic/biolord"},
+    ]
+    path = str(tmp_path / "s.parquet")
+    svc.append_rows(None, rows, path)
+    out = str(tmp_path / "o.parquet")
+    assert svc.remove_rows(path, ["ai/x"], [("REA", "a")], out) == (1, 2)
+    assert sorted((r["source_concept_code"], r["method"]) for r in
+                  svc.query_scores(out, "REA", "a") + svc.query_scores(out, "REA", "b")) == [
+        ("a", "semantic/biolord"), ("b", "ai/x")]
+    assert svc.remove_rows(path, ["ai/x", "semantic/biolord"], None, str(tmp_path / "e.parquet")) == (3, 0)
+
+
+def test_query_by_targets(tmp_path):
+    base = {"source_vocabulary_id": "REA", "method": "semantic/biolord"}
+    path = str(tmp_path / "s.parquet")
+    svc.append_rows(None, [
+        {**base, "source_concept_code": "a", "concept_id": 1, "score": 0.9},
+        {**base, "source_concept_code": "b", "concept_id": 1, "score": 0.4},
+        {**base, "source_concept_code": "c", "concept_id": 2, "score": 0.8},
+        {**base, "source_concept_code": "d", "concept_id": 1, "score": 0.7, "method": "ai/x"},
+    ], path)
+    got = svc.query_by_targets(path, [1], 0.5, None, 10)
+    assert [(r["source_concept_code"], r["score"]) for r in got] == [("a", 0.9), ("d", 0.7)]
+    assert [r["source_concept_code"] for r in svc.query_by_targets(path, [1, 2], 0, ["semantic/biolord"], 10)] == ["a", "c", "b"]

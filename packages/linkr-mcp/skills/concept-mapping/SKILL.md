@@ -13,8 +13,8 @@ compatibility: >-
   Needs the Linkr MCP server (packages/linkr-mcp) connected with the user's
   Linkr API key. Works with any model and any MCP client that loads Agent Skills.
 metadata:
-  version: "2.0.1"
-  citation: Linkr concept-mapping skill v2.0.1
+  version: "2.1.0"
+  citation: Linkr concept-mapping skill v2.1.0
 ---
 
 # Concept mapping with Linkr
@@ -39,8 +39,10 @@ with `metadata.version` above. Any change to this folder bumps the version
 | `search_vocabulary` | Target search (English terms, code or id), standard concepts by default; filters by domain, vocabulary, class; `concept_set_id` for a data dictionary. |
 | `get_vocabulary_concept` | A target's relationships (`Maps to`…), synonyms, ancestors, descendants. |
 | `list_concept_sets` / `get_concept_set` | Data dictionaries of the workspace and their Mapping Notes. |
+| `find_sources_for_targets` | The reverse lookup: source concepts that suggestions link to given targets (ids or a concept set). |
 | `add_ai_suggestions` | **Default output.** Suggestions shown in the app's Suggestions panel (category AI). |
 | `create_mappings` | Mappings (status unchecked). **Only for picks the user confirmed one by one.** |
+| `remove_ai_suggestions` | Withdraw your suggestions (all of a model's, or some concepts'), e.g. after a wrong batch. |
 
 ## Step 1 — Find the project and agree on the session
 
@@ -49,6 +51,9 @@ with `metadata.version` above. Any change to this folder bumps the version
    1786 of 5636 mapped, no precomputed suggestions, vocabulary ATHENA."*
 2. If the vocabulary database is reported unusable, stop and relay the fix to
    the user (pick an OMOP vocabulary database in the project's settings).
+   A database project not yet extracted still works, without counts or
+   metadata: say so, and suggest the extraction (Source concepts tab) when the
+   metadata would decide between targets.
 3. Ask, once per session, and keep the answers:
    - **Output** — *suggestions* (default: `add_ai_suggestions`, a reviewer
      accepts or rejects them in Linkr) or *mappings* (`create_mappings`, every
@@ -101,7 +106,8 @@ Then write the batch:
 The tools refuse a batch with an unknown source code, an unknown, invalid or
 non-standard target, a missing comment, or an equivalence outside the SKOS set.
 Nothing is written in that case: fix the items listed and send the batch again.
-Existing suggestions and mappings are never overwritten.
+Existing suggestions and mappings are never overwritten. If a batch you wrote
+turns out wrong, withdraw it with `remove_ai_suggestions` and write it again.
 
 ## Step 3 — After each batch
 

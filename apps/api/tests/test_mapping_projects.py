@@ -907,3 +907,23 @@ async def test_scores_append_creates_merges_and_notifies(client):
         "conceptName": None, "equivalence": "skos:closeMatch", "score": 0.9, "comment": "HR",
     }
     assert (await client.post(url, headers=headers, json={"rows": []})).status_code == 400
+
+
+async def test_scores_remove_and_by_target(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _project(client, headers, ws, source_type="file")
+    base = f"{API}/mapping-projects/{p['id']}/scores"
+    row = {"sourceVocabularyId": "REA", "sourceConceptCode": "hr", "conceptId": 5, "method": "ai/x", "score": 0.9}
+    await client.post(f"{base}/append", headers=headers, json={"rows": [row, {**row, "sourceConceptCode": "rr"}]})
+
+    got = (await client.post(f"{base}/by-target", headers=headers, json={"conceptIds": [5], "minScore": 0.5})).json()
+    assert sorted(r["source_concept_code"] for r in got) == ["hr", "rr"]
+
+    r = (await client.post(f"{base}/remove", headers=headers, json={
+        "methods": ["ai/x"], "sources": [{"vocabularyId": "REA", "conceptCode": "hr"}]})).json()
+    assert r["removed"] == 1 and r["index"]["sourceKeys"] == ["REA::rr"]
+    r = (await client.post(f"{base}/remove", headers=headers, json={"methods": ["ai/x"]})).json()
+    assert r == {"index": None, "removed": 1}
+    assert (await client.get(f"{API}/mapping-projects/{p['id']}", headers=headers)).json()["scoresFileSha"] is None
+    assert (await client.post(f"{base}/by-target", headers=headers, json={"conceptIds": [5]})).json() == []

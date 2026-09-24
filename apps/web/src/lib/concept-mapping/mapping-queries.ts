@@ -135,6 +135,20 @@ export function buildSourceConceptsQuery(
 }
 
 /**
+ * A database's concept dictionaries as one relation shaped like a flat
+ * source's `source_concepts` view — concept_id, concept_name, concept_code,
+ * vocabulary_id and the optional category / subcategory / extra columns, but no
+ * counts and no info_json. Lets a caller run the file-source builders against a
+ * database project that has not been extracted
+ * (`WITH source_concepts AS (…) <builder SQL>`). Empty when the mapping has no
+ * concept dictionary.
+ */
+export function buildSourceConceptsRelation(mapping: SchemaMapping): string {
+  const parts = buildConceptUnionParts(mapping.conceptTables ?? [])
+  return parts.join(' UNION ALL ')
+}
+
+/**
  * Build a single query that computes record_count and patient_count for ALL
  * concepts in the data source in one pass (using GROUP BY). This should be
  * called once and cached — never on every page change.
@@ -264,11 +278,15 @@ function buildConceptUnionParts(dicts: ConceptDictionary[]): string[] {
     // When idColumn is absent (code-only tables like d_icd_diagnoses), generate a
     // deterministic integer hash from the code column so the rest of the pipeline
     // (which expects concept_id as number) keeps working.
-    const idExpr = dict.idColumn
-      ? `d.${dict.idColumn} AS concept_id`
-      : `(hash(d.${dict.codeColumn ?? 'id'}) % 2147483647)::INTEGER AS concept_id`
+    const idValue = dict.idColumn
+      ? `d.${dict.idColumn}`
+      : `(hash(d.${dict.codeColumn ?? 'id'}) % 2147483647)::INTEGER`
+    const idExpr = `${idValue} AS concept_id`
     const nameCol = dict.nameColumn ?? 'concept_name'
-    const codeCol = dict.codeColumn ? `, d.${dict.codeColumn} AS concept_code` : ", '' AS concept_code"
+    // Without a code column the id is the code, as the extraction writes it
+    // (buildDictionaryPageQuery): an empty code gave every concept of the table
+    // the same (vocabulary, code) key, so one mapping marked them all mapped.
+    const codeCol = dict.codeColumn ? `, d.${dict.codeColumn} AS concept_code` : `, CAST(${idValue} AS VARCHAR) AS concept_code`
 
     // Backward compat: support both terminologyIdColumn and deprecated vocabularyColumn.
     // When neither exists, use the table name as a stable vocabulary identifier.

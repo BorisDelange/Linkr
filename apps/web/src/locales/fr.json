@@ -3301,7 +3301,9 @@
       },
       "suggestions": {
         "created_one": "{{count}} suggestion IA ajoutée",
-        "created_other": "{{count}} suggestions IA ajoutées"
+        "created_other": "{{count}} suggestions IA ajoutées",
+        "deleted_one": "{{count}} suggestion IA retirée",
+        "deleted_other": "{{count}} suggestions IA retirées"
       },
       "mappings": {
         "created_one": "{{count}} alignement ajouté",
@@ -4822,7 +4824,11 @@
     "extract_done_hint_travels": "Ils voyagent avec le projet à l'export et lors de la synchronisation git.",
     "vocab_import_select_server_folder": "Choisir sur le serveur",
     "vocab_import_no_tables_found": "Aucune table de vocabulaire trouvée dans ce dossier.",
-    "vocab_import_server_needs_parquet": "Ce dossier contient des tables de vocabulaire en CSV. Un dossier serveur est lu en Parquet — convertissez-les, ou téléversez le dossier."
+    "vocab_import_server_needs_parquet": "Ce dossier contient des tables de vocabulaire en CSV. Un dossier serveur est lu en Parquet — convertissez-les, ou téléversez le dossier.",
+    "suggestions_methods_section": "Méthodes du fichier",
+    "suggestions_remove_method": "Retirer les suggestions {{method}}",
+    "suggestions_remove_method_title": "Retirer ces suggestions ?",
+    "suggestions_remove_method_desc": "Toutes les suggestions de la méthode {{method}} seront retirées du fichier de scores. Les autres méthodes et les alignements sont conservés."
   },
   "data_catalog": {
     "title": "Catalogue de données",

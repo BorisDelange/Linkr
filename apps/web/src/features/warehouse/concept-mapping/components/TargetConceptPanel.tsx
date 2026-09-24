@@ -82,6 +82,7 @@ import { useRequireIdentity } from './IdentityRequiredDialog'
 import type { MappingProject, DataSource, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
 import { resolveVocabularyTarget } from '@/lib/concept-mapping/vocabulary-target'
+import { isServerMode } from '@/lib/api-client'
 
 interface TargetConceptPanelProps {
   project: MappingProject
@@ -394,6 +395,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [weights, setWeights] = useState<Record<string, number>>({ ...DEFAULT_WEIGHTS })
   const [suggestionsSettingsOpen, setSuggestionsSettingsOpen] = useState(false)
   const [suggestionsDeleteConfirmOpen, setSuggestionsDeleteConfirmOpen] = useState(false)
+  // The method whose rows the user asked to remove (confirm dialog open when set).
+  const [methodToRemove, setMethodToRemove] = useState<string | null>(null)
 
   // Concept detail sheet
   const [conceptDetailOpen, setConceptDetailOpen] = useState(false)
@@ -1804,7 +1807,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const noVocabAvailable = !project.vocabularyDataSourceId && !dataSource
 
   // ─── Suggestions: from imported scores ───────────────────────────────────
-  const { index: scoresIndex, loadProjectMeta, importScores, deleteProjectScores, queryScoresForSource, hasSuggestionsFor } = useSuggestionScoresStore()
+  const { index: scoresIndex, loadProjectMeta, importScores, deleteProjectScores, removeMethods, queryScoresForSource, hasSuggestionsFor } = useSuggestionScoresStore()
 
   useEffect(() => {
     loadProjectMeta(project.id)
@@ -2378,7 +2381,29 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
               )
             })}
           </div>
-          <div className="mt-5 border-t pt-3 text-[11px] text-muted-foreground">
+          {isServerMode() && (scoresIndex?.methods.length ?? 0) > 0 && (
+            <div className="mt-5 border-t pt-3">
+              <SectionLabel as="p" className="mb-2 tracking-wide">{t('concept_mapping.suggestions_methods_section')}</SectionLabel>
+              <ul className="space-y-1">
+                {scoresIndex!.methods.map((method) => (
+                  <li key={method} className="flex items-center justify-between gap-2 text-xs">
+                    <code className="truncate font-mono text-foreground">{method}</code>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label={t('concept_mapping.suggestions_remove_method', { method })}
+                      title={t('concept_mapping.suggestions_remove_method', { method })}
+                      onClick={() => setMethodToRemove(method)}
+                    >
+                      <Trash2 size={12} />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="mt-5 border-t pt-3 text-xs text-muted-foreground">
             {totalProjectScores > 0 ? (
               <>
                 {t('concept_mapping.suggestions_scores_loaded_from', { formattedCount: totalProjectScores.toLocaleString() })}{' '}
@@ -2432,6 +2457,32 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             onClick={() => {
               deleteProjectScores(project.id)
               setSuggestionsDeleteConfirmOpen(false)
+            }}
+          >
+            {t('common.delete')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    <AlertDialog open={methodToRemove !== null} onOpenChange={(open) => { if (!open) setMethodToRemove(null) }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('concept_mapping.suggestions_remove_method_title')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('concept_mapping.suggestions_remove_method_desc', { method: methodToRemove ?? '' })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-white hover:bg-destructive/90"
+            onClick={() => {
+              const method = methodToRemove
+              setMethodToRemove(null)
+              if (!method) return
+              removeMethods(project.id, [method]).catch((err) => {
+                setSuggestionsImportError(err instanceof Error ? err.message : String(err))
+              })
             }}
           >
             {t('common.delete')}

@@ -10,6 +10,7 @@ import {
   fetchScoresIndexFromServer,
   queryScoresForSourceOnServer,
   deleteScoresFileOnServer,
+  removeScoreMethodsOnServer,
 } from '@/lib/api/scores'
 
 interface SuggestionScoresState {
@@ -23,6 +24,8 @@ interface SuggestionScoresState {
   reindexProject: (projectId: string) => Promise<void>
   importScores: (projectId: string, file: File) => Promise<ScoresIndex>
   deleteProjectScores: (projectId: string) => Promise<void>
+  /** Drop the rows of some methods from the scores file (server mode). */
+  removeMethods: (projectId: string, methods: string[]) => Promise<number>
 
   hasSuggestionsFor: (vocabId: string, code: string) => boolean
   queryScoresForSource: (vocabId: string, code: string) => Promise<ParsedScoreRow[]>
@@ -47,8 +50,10 @@ export const useSuggestionScoresStore = create<SuggestionScoresState>((set, get)
     const index = isServerMode()
       ? await fetchScoresIndexFromServer(projectId)
       : await buildIndex(projectId)
-    if (!index) return
-    if (!isServerMode()) await getStorage().scoresMeta.put(index)
+    // In server mode no index means the file is gone (all suggestions removed
+    // elsewhere): the stale one would keep showing suggestion badges.
+    if (!index && !isServerMode()) return
+    if (index && !isServerMode()) await getStorage().scoresMeta.put(index)
     if (get().activeProjectId === projectId) set({ index })
   },
 
@@ -83,6 +88,12 @@ export const useSuggestionScoresStore = create<SuggestionScoresState>((set, get)
     if (get().activeProjectId === projectId) {
       set({ index: null, loaded: true })
     }
+  },
+
+  async removeMethods(projectId, methods) {
+    const { index, removed } = await removeScoreMethodsOnServer(projectId, methods)
+    if (get().activeProjectId === projectId) set({ index, loaded: true })
+    return removed
   },
 
   hasSuggestionsFor(vocabId, code) {

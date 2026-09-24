@@ -8,6 +8,18 @@ Semantic versioning: `MAJOR.MINOR.PATCH`.
 The `metadata.version` field in `SKILL.md` frontmatter must match the top entry here.
 Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**.
 
+## 2.1.0 — 2026-09-24
+
+### Added
+- `find_sources_for_targets` (the reverse suggestion lookup) drives the
+  dictionary-first loop in `data-dictionary.md`: the sources scores already
+  link to a set's concepts come first, text search second.
+- `remove_ai_suggestions` withdraws a model's suggestions, all or for some
+  concepts; the skill says to use it for a wrong batch.
+- Database projects not yet extracted are readable (no counts, no metadata);
+  the skill says to mention it and suggest the extraction when metadata would
+  decide.
+
 ## 2.0.1 — 2026-09-24
 
 ### Fixed

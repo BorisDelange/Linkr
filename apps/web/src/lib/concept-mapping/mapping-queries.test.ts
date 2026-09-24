@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildFileSourceConceptsQuery, buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildSourceConceptsGroupCountQuery, buildFileSourceConceptsGroupCountQuery, buildStandardConceptSearchQuery } from './mapping-queries'
+import { buildFileSourceConceptsQuery, buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildSourceConceptsGroupCountQuery, buildFileSourceConceptsGroupCountQuery, buildStandardConceptSearchQuery, buildSourceConceptsRelation } from './mapping-queries'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 const mapping: SchemaMapping = {
@@ -321,5 +321,18 @@ describe('buildFileSourceConceptsQuery — pagination is a stable window', () =>
 
   it('still applies the window after the tiebreaker', () => {
     expect(q({}, { columnId: 'record_count', desc: true })).toContain('LIMIT 50 OFFSET 50')
+  })
+})
+
+describe('buildSourceConceptsRelation', () => {
+  it('unions every dictionary with the source_concepts columns, and is empty without one', () => {
+    const two = { ...mapping, conceptTables: [...mapping.conceptTables!, { key: 'd_labitems', table: 'd_labitems', idColumn: 'itemid', nameColumn: 'label' }] } as SchemaMapping
+    const sql = buildSourceConceptsRelation(two)
+    expect(sql.split('UNION ALL')).toHaveLength(2)
+    expect(sql).toContain('AS concept_name')
+    expect(sql).toContain('AS vocabulary_id')
+    // No code column (MIMIC d_items): the id stands in, as the extraction writes it.
+    expect(sql).toContain('CAST(d.itemid AS VARCHAR) AS concept_code')
+    expect(buildSourceConceptsRelation({ eventTables: [], conceptTables: [] } as unknown as SchemaMapping)).toBe('')
   })
 })

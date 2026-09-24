@@ -3301,7 +3301,9 @@
       },
       "suggestions": {
         "created_one": "{{count}} AI suggestion added",
-        "created_other": "{{count}} AI suggestions added"
+        "created_other": "{{count}} AI suggestions added",
+        "deleted_one": "{{count}} AI suggestion removed",
+        "deleted_other": "{{count}} AI suggestions removed"
       },
       "mappings": {
         "created_one": "{{count}} mapping added",
@@ -4822,7 +4824,11 @@
     "extract_done_hint_travels": "They travel with the project on export and git sync.",
     "vocab_import_select_server_folder": "Choose on the server",
     "vocab_import_no_tables_found": "No vocabulary table found in this folder.",
-    "vocab_import_server_needs_parquet": "This folder holds CSV vocabulary tables. A server folder is read as Parquet — convert them, or upload the folder instead."
+    "vocab_import_server_needs_parquet": "This folder holds CSV vocabulary tables. A server folder is read as Parquet — convert them, or upload the folder instead.",
+    "suggestions_methods_section": "Methods in the file",
+    "suggestions_remove_method": "Remove the {{method}} suggestions",
+    "suggestions_remove_method_title": "Remove these suggestions?",
+    "suggestions_remove_method_desc": "Every suggestion of the method {{method}} will be removed from the scores file. The other methods and the mappings are kept."
   },
   "data_catalog": {
     "title": "Data Catalog",

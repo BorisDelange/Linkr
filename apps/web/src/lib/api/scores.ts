@@ -74,6 +74,19 @@ export function queryScoresForSourceOnServer(
   })
 }
 
+/** Drop every row of `methods` (e.g. one agent's `ai/<model>` suggestions) from
+ *  the project's scores file. Null index when nothing remains. */
+export async function removeScoreMethodsOnServer(
+  projectId: string,
+  methods: string[],
+): Promise<{ index: ScoresIndex | null; removed: number }> {
+  const res = await apiRequest<{ index: ScoresIndexWire | null; removed: number }>(`${PROJ}/${projectId}/scores/remove`, {
+    method: 'POST',
+    body: JSON.stringify({ methods }),
+  })
+  return { index: res.index ? toScoresIndex(res.index) : null, removed: res.removed }
+}
+
 export async function deleteScoresFileOnServer(projectId: string): Promise<void> {
   await apiRequest(`${PROJ}/${projectId}/scores-file`, { method: 'DELETE' })
 }

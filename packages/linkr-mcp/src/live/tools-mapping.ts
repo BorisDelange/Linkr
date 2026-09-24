@@ -12,7 +12,7 @@ import {
   buildConceptRelationsQuery, buildConceptSynonymsQuery,
 } from '@/lib/concept-mapping/concept-detail-queries'
 import {
-  buildFileSourceConceptsCountQuery, buildFileSourceConceptsQuery, buildStandardConceptSearchQuery,
+  buildFileSourceConceptsCountQuery, buildFileSourceConceptsQuery, buildSourceConceptsRelation, buildStandardConceptSearchQuery,
   type SourceConceptFilters,
 } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus, getTotalSourceConcepts, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
@@ -24,7 +24,7 @@ import {
   type SourceRow, type SuggestionInput, type VocabConcept,
 } from './mapping.js'
 import type { DataSource } from './api.js'
-import { READ, WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
+import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
 
 const MAX_WRITE = 200
 
@@ -44,15 +44,48 @@ async function vocabularyOf(project: MappingProject): Promise<Vocabulary> {
   return { databaseId: target.dsId, mapping: target.mapping, table: target.conceptTable }
 }
 
-/** The source is read from its flat table; a database project must extract it first. */
-function requireFlat(project: MappingProject) {
-  if (!readsFromFlatSource(project)) {
-    throw new Error('This project reads its source concepts straight from a database that has not been extracted yet. '
-      + 'Ask the user to run the extraction in Linkr (mapping project → Source concepts tab), then try again.')
+/**
+ * Where a project's source concepts are read. Every tool queries a relation
+ * named `source_concepts`: the server's view over the flat source (an imported
+ * file, or a database project once extracted), or — for a database project not
+ * extracted yet — the database's dictionaries unioned into the same shape, with
+ * no counts and no metadata.
+ */
+interface Source {
+  query: (sql: string) => Promise<Record<string, unknown>[]>
+  extracted: boolean
+  columns: { vocabulary: boolean; category: boolean; subcategory: boolean; records: boolean; patients: boolean; info: boolean }
+}
+
+async function sourceOf(project: MappingProject): Promise<Source> {
+  if (readsFromFlatSource(project)) {
+    const cm = project.fileSourceData?.columnMapping ?? {}
+    return {
+      query: (sql) => api.queryMappingSource(project.id, sql),
+      extracted: true,
+      columns: {
+        vocabulary: !!cm.terminologyColumn, category: !!cm.categoryColumn, subcategory: !!cm.subcategoryColumn,
+        records: !!cm.recordCountColumn, patients: !!cm.patientCountColumn, info: !!cm.infoJsonColumn,
+      },
+    }
+  }
+  if (!project.dataSourceId) throw new Error('This mapping project has no source database.')
+  const ds = await api.getDataSource(project.dataSourceId)
+  const dicts = ds.schemaMapping?.conceptTables ?? []
+  const relation = ds.schemaMapping ? buildSourceConceptsRelation(ds.schemaMapping) : ''
+  if (!relation) throw new Error(`The source database "${loc(ds.name)}" has no concept dictionary in its schema mapping.`)
+  return {
+    query: (sql) => api.query(ds.id, `WITH source_concepts AS (${relation}) ${sql}`),
+    extracted: false,
+    columns: {
+      vocabulary: true, category: dicts.some((d) => d.categoryColumn), subcategory: dicts.some((d) => d.subcategoryColumn),
+      records: false, patients: false, info: false,
+    },
   }
 }
 
-const hasVocabularyColumn = (p: MappingProject) => !!p.fileSourceData?.columnMapping?.terminologyColumn
+const NOT_EXTRACTED_NOTE = 'This database project has not been extracted: no record counts and no metadata (units, '
+  + 'distributions). The extraction (mapping project → Source concepts tab in Linkr) would add them.'
 
 async function conceptsById(v: Vocabulary, ids: number[]): Promise<Map<number, VocabConcept>> {
   const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))]
@@ -61,10 +94,10 @@ async function conceptsById(v: Vocabulary, ids: number[]): Promise<Map<number, V
   return new Map(rows.map((r) => [Number(r.concept_id), { ...r, concept_id: Number(r.concept_id) }]))
 }
 
-async function sourcesByCode(project: MappingProject, codes: { code: string; vocabularyId?: string | null }[]) {
-  const hasVocabulary = hasVocabularyColumn(project)
+async function sourcesByCode(source: Source, codes: { code: string; vocabularyId?: string | null }[]) {
+  const hasVocabulary = source.columns.vocabulary
   const refs = codes.flatMap((c) => sourceRefCandidates(c.code, c.vocabularyId))
-  const rows = refs.length ? await api.queryMappingSource(project.id, sourceByCodesSql(refs, hasVocabulary)) as SourceRow[] : []
+  const rows = refs.length ? await source.query(sourceByCodesSql(refs, hasVocabulary)) as SourceRow[] : []
   const byKey = new Map<string, SourceRow>()
   const byCode = new Map<string, SourceRow[]>()
   for (const r of rows) {
@@ -155,20 +188,18 @@ export function registerMappingTools(server: Server) {
     } else {
       lines.push('Suggestions file: none (no precomputed scores).')
     }
-    if (!readsFromFlatSource(p)) {
-      lines.push('', 'Source: a database whose concepts have not been extracted yet — ask the user to run the extraction in Linkr.')
-      return text(lines.join('\n'))
-    }
-    const cm = p.fileSourceData?.columnMapping ?? {}
-    lines.push('', `Source columns available: code, name${cm.terminologyColumn ? ', vocabulary_id' : ''}${cm.categoryColumn ? ', category' : ''}`
-      + `${cm.subcategoryColumn ? ', subcategory' : ''}${cm.recordCountColumn ? ', record_count' : ''}${cm.patientCountColumn ? ', patient_count' : ''}`
-      + `${cm.infoJsonColumn ? ', info_json (metadata)' : ''}.`)
-    if (cm.categoryColumn) {
+    const src = await sourceOf(p)
+    const cm = src.columns
+    if (!src.extracted) lines.push('', NOT_EXTRACTED_NOTE)
+    lines.push('', `Source columns available: code, name${cm.vocabulary ? ', vocabulary_id' : ''}${cm.category ? ', category' : ''}`
+      + `${cm.subcategory ? ', subcategory' : ''}${cm.records ? ', record_count' : ''}${cm.patients ? ', patient_count' : ''}`
+      + `${cm.info ? ', info_json (metadata)' : ''}.`)
+    if (cm.category) {
       const done = (await api.listMappings(p.id)).map((m) => sourceKeyOf(m.sourceVocabularyId, m.sourceConceptCode))
-      const open = `NOT ${sourceKeysInSql([...new Set(done)], hasVocabularyColumn(p))}`
-      const records = cm.recordCountColumn
+      const open = `NOT ${sourceKeysInSql([...new Set(done)], cm.vocabulary)}`
+      const records = cm.records
         ? `, SUM(CASE WHEN ${open} AND record_count > 0 THEN 1 ELSE 0 END) AS open_with_records` : ''
-      const rows = await api.queryMappingSource(p.id,
+      const rows = await src.query(
         `SELECT category, COUNT(*) AS n, SUM(CASE WHEN ${open} THEN 1 ELSE 0 END) AS open${records}
 FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       lines.push('', `Categories (concepts · unmapped${records ? ' · unmapped with records' : ''}):`, ...rows.map((r) =>
@@ -200,8 +231,8 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
     }),
   }, guard(async ({ mapping_project_id, status = 'unmapped', category, search, with_suggestions, sort, limit = 25, offset = 0 }) => {
     const p = await api.getMappingProject(mapping_project_id)
-    requireFlat(p)
-    const cm = p.fileSourceData?.columnMapping ?? {}
+    const src = await sourceOf(p)
+    const cm = src.columns
     const mappings = await api.listMappings(p.id)
     const byKey = new Map<string, ConceptMapping[]>()
     for (const m of mappings) {
@@ -215,7 +246,7 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       filters.ignoredKeys = mappings.filter((m) => m.status === 'ignored').map((m) => sourceKeyOf(m.sourceVocabularyId, m.sourceConceptCode))
     }
     if (category) {
-      if (!cm.categoryColumn) return failure('This source has no category column.')
+      if (!cm.category) return failure('This source has no category column.')
       filters.category = [category]
     }
     if (search?.trim()) filters.searchTextFuzzy = search.trim()
@@ -224,13 +255,13 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       filters.hasSuggestionCategoryFilter = true
       filters.suggestionCategoryKeys = (index?.sourceKeys ?? []).map(indexKeyToSourceKey)
     }
-    const column = sort === 'name' ? null : sort === 'patients' ? (cm.patientCountColumn ? 'patient_count' : null)
-      : (cm.recordCountColumn ? 'record_count' : null)
+    const column = sort === 'name' ? null : sort === 'patients' ? (cm.patients ? 'patient_count' : null)
+      : (cm.records ? 'record_count' : null)
     const sorting = column && !filters.searchTextFuzzy ? { columnId: column, desc: true } : null
     const size = Math.min(Math.max(1, Math.floor(limit)), 100)
     const [rows, count] = await Promise.all([
-      api.queryMappingSource(p.id, buildFileSourceConceptsQuery(filters, sorting, size, Math.max(0, Math.floor(offset)))),
-      api.queryMappingSource(p.id, buildFileSourceConceptsCountQuery(filters)),
+      src.query(buildFileSourceConceptsQuery(filters, sorting, size, Math.max(0, Math.floor(offset)))),
+      src.query(buildFileSourceConceptsCountQuery(filters)),
     ])
     const total = Number(count[0]?.total ?? 0)
     if (rows.length === 0) return text(`No source concept matches (${total} in total for these filters).`)
@@ -239,7 +270,8 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       return describeSourceRow(r, existing ? statusLabel(existing) : undefined)
     })
     const end = offset + rows.length
-    return text(`${total} source concept(s) match; showing ${offset + 1}–${end}.${end < total ? ` Next page: offset ${end}.` : ''}\n\n${body.join('\n')}`)
+    return text(`${total} source concept(s) match; showing ${offset + 1}–${end}.${end < total ? ` Next page: offset ${end}.` : ''}`
+      + `${src.extracted ? '' : `\n${NOT_EXTRACTED_NOTE}`}\n\n${body.join('\n')}`)
   }))
 
   server.registerTool('get_source_concept', {
@@ -258,12 +290,13 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
     }),
   }, guard(async ({ mapping_project_id, concept_code, vocabulary_id, full_metadata }) => {
     const p = await api.getMappingProject(mapping_project_id)
-    requireFlat(p)
-    const found = (await sourcesByCode(p, [{ code: concept_code, vocabularyId: vocabulary_id }]))(concept_code, vocabulary_id)
+    const src = await sourceOf(p)
+    const found = (await sourcesByCode(src, [{ code: concept_code, vocabularyId: vocabulary_id }]))(concept_code, vocabulary_id)
     if (typeof found === 'string') return failure(`Not found: ${found}.`)
     const vocab = String(found.vocabulary_id ?? '')
     const lines = [describeSourceRow(found).replace(/^- /, 'Source concept: ')]
     if (found.info_json != null) lines.push('', 'Metadata (info_json):', describeInfo(found.info_json, 4000, full_metadata))
+    if (!src.extracted) lines.push('', NOT_EXTRACTED_NOTE)
     const extra = Object.entries(found).filter(([k, v]) =>
       v != null && v !== '' && !['concept_id', 'concept_name', 'concept_code', 'vocabulary_id', 'info_json', 'category',
         'subcategory', 'record_count', 'patient_count', 'terminology_name'].includes(k))
@@ -430,12 +463,12 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
     if (!suggestions?.length) return failure('No suggestion given.')
     if (suggestions.length > MAX_WRITE) return failure(`At most ${MAX_WRITE} suggestions per call.`)
     const p = await api.getMappingProject(mapping_project_id)
-    requireFlat(p)
+    const src = await sourceOf(p)
     const v = await vocabularyOf(p)
     const errors: string[] = []
     const label = (s: SuggestionInput, i: number) => `#${i + 1} (${s.vocabulary_id ? `${s.vocabulary_id}/` : ''}${s.concept_code} → ${s.concept_id})`
     suggestions.forEach((s, i) => errors.push(...checkJudgement(s, label(s, i))))
-    const lookup = await sourcesByCode(p, suggestions.map((s) => ({ code: String(s.concept_code), vocabularyId: s.vocabulary_id })))
+    const lookup = await sourcesByCode(src, suggestions.map((s) => ({ code: String(s.concept_code), vocabularyId: s.vocabulary_id })))
     const targets = await conceptsById(v, suggestions.map((s) => Number(s.concept_id)))
     const sets = new Map<string, { uid: string | null; repo: string | null }>()
     for (const id of new Set(suggestions.map((s) => s.concept_set_id).filter((x): x is string => !!x))) {
@@ -457,7 +490,8 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       const set = s.concept_set_id ? sets.get(s.concept_set_id) : undefined
       return {
         sourceVocabularyId: typeof source === 'string' ? '' : String(source.vocabulary_id ?? ''),
-        sourceConceptCode: String(s.concept_code),
+        // The resolved code, not the one given: `vocabulary/code` tokens are accepted as input.
+        sourceConceptCode: typeof source === 'string' ? String(s.concept_code) : String(source.concept_code ?? ''),
         conceptId: Number(s.concept_id),
         method,
         score: Number(s.score),
@@ -477,6 +511,100 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
     return text(`Added ${result.added} suggestion(s) as ${method} on ${sources} source concept(s)`
       + `${result.skipped ? `; ${result.skipped} already there, kept as they were` : ''}. `
       + 'They are in the Suggestions panel of the mapping editor, awaiting review.')
+  }))
+
+  server.registerTool('remove_ai_suggestions', {
+    description: 'Withdraw AI suggestions from a mapping project: every ai/<model> row of that model, or only those of '
+      + 'some source concepts. Precomputed scores and mappings are never touched.',
+    annotations: DESTRUCTIVE,
+    inputSchema: fromJsonSchema<{ mapping_project_id: string; model: string; concept_codes?: string[] }>({
+      type: 'object',
+      properties: {
+        mapping_project_id: { type: 'string' },
+        model: { type: 'string', description: 'The model name used when adding them, or the method itself (ai/…).' },
+        concept_codes: {
+          type: 'array', items: { type: 'string' },
+          description: 'Only these source concepts (code or vocabulary/code). All of them when omitted.',
+        },
+      },
+      required: ['mapping_project_id', 'model'],
+    }),
+  }, guard(async ({ mapping_project_id, model, concept_codes }) => {
+    const method = model.trim().startsWith('ai/') ? model.trim() : methodForModel(model)
+    const p = await api.getMappingProject(mapping_project_id)
+    const index = await api.scoresIndex(p.id)
+    if (!index?.methods.includes(method)) {
+      const ai = index?.methods.filter((m) => m.startsWith('ai/')) ?? []
+      return failure(`No suggestion of ${method} in this project.${ai.length ? ` AI methods present: ${ai.join(', ')}.` : ''}`)
+    }
+    let sources: { vocabularyId: string; conceptCode: string }[] | undefined
+    if (concept_codes?.length) {
+      const lookup = await sourcesByCode(await sourceOf(p), concept_codes.map((code) => ({ code })))
+      const errors: string[] = []
+      sources = []
+      for (const code of concept_codes) {
+        const found = lookup(code)
+        if (typeof found === 'string') errors.push(found)
+        else sources.push({ vocabularyId: String(found.vocabulary_id ?? ''), conceptCode: String(found.concept_code ?? '') })
+      }
+      if (errors.length) return failure(`Nothing removed:\n- ${errors.join('\n- ')}`)
+    }
+    const { removed } = await api.removeScores(p.id, [method], sources)
+    return text(removed ? `Removed ${removed} suggestion(s) of ${method}.` : `No suggestion of ${method} matched.`)
+  }))
+
+  server.registerTool('find_sources_for_targets', {
+    description: 'The reverse lookup: which source concepts precomputed or AI suggestions link to given target '
+      + 'concepts — a concept set\'s resolved concepts, or explicit ids. Serves aligning a data dictionary set by set.',
+    annotations: READ,
+    inputSchema: fromJsonSchema<{
+      mapping_project_id: string; concept_ids?: (number | string)[]; concept_set_id?: string; min_score?: number | string
+      methods?: string[]
+    }>({
+      type: 'object',
+      properties: {
+        mapping_project_id: { type: 'string' },
+        concept_ids: { type: 'array', items: { type: ['number', 'string'] }, description: 'Target concept ids.' },
+        concept_set_id: { type: 'string', description: 'Or a concept set: its resolved concepts are the targets.' },
+        min_score: { type: ['number', 'string'], description: 'Default 0.5.' },
+        methods: { type: 'array', items: { type: 'string' }, description: 'e.g. ["semantic/biolord"]. Default: all.' },
+      },
+      required: ['mapping_project_id'],
+    }),
+  }, guard(async ({ mapping_project_id, concept_ids, concept_set_id, min_score = 0.5, methods }) => {
+    let ids = (concept_ids ?? []).map(Number).filter(Number.isInteger)
+    if (concept_set_id) {
+      const set = await api.getConceptSet(concept_set_id)
+      ids = [...ids, ...(set.resolvedConceptIds ?? set.expression.items.filter((i) => !i.isExcluded).map((i) => i.concept.conceptId))]
+    }
+    if (ids.length === 0) return failure('Give concept_ids or a concept_set_id with concepts.')
+    const p = await api.getMappingProject(mapping_project_id)
+    const rows = await api.scoresByTarget(p.id, [...new Set(ids)], Number(min_score), methods)
+    if (rows.length === 0) return text(`No suggestion reaches these ${ids.length} target(s) with a score ≥ ${min_score}.`)
+    const src = await sourceOf(p)
+    const lookup = await sourcesByCode(src, rows.map((r) => ({ code: r.source_concept_code, vocabularyId: r.source_vocabulary_id })))
+    const mapped = new Set((await api.listMappings(p.id)).map((m) => sourceKeyOf(m.sourceVocabularyId, m.sourceConceptCode)))
+    let names = new Map<number, VocabConcept>()
+    try { names = await conceptsById(await vocabularyOf(p), [...new Set(rows.map((r) => r.concept_id))]) } catch { /* names optional */ }
+    const byTarget = new Map<number, typeof rows>()
+    for (const r of rows) byTarget.set(r.concept_id, [...(byTarget.get(r.concept_id) ?? []), r])
+    const lines = [`${rows.length} suggestion(s) reach ${byTarget.size} of the ${new Set(ids).size} target(s):`]
+    for (const [conceptId, rs] of byTarget) {
+      const c = names.get(conceptId)
+      lines.push('', c ? describeConcept(c) : String(conceptId))
+      const seen = new Set<string>()
+      for (const r of rs) {
+        const key = sourceKeyOf(r.source_vocabulary_id, r.source_concept_code)
+        if (seen.has(key)) continue
+        seen.add(key)
+        const source = lookup(r.source_concept_code, r.source_vocabulary_id)
+        const name = typeof source === 'string' ? '' : ` ${String(source.concept_name ?? '')}`
+        const methodsHere = rs.filter((x) => sourceKeyOf(x.source_vocabulary_id, x.source_concept_code) === key)
+          .map((x) => `${x.method} ${x.score.toFixed(2)}`).join(', ')
+        lines.push(`  ${r.source_vocabulary_id}/${r.source_concept_code}${name} — ${methodsHere}${mapped.has(key) ? ' · already mapped' : ''}`)
+      }
+    }
+    return text(lines.join('\n'))
   }))
 
   server.registerTool('create_mappings', {
@@ -521,14 +649,14 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
     if (mappings.length > MAX_WRITE) return failure(`At most ${MAX_WRITE} mappings per call.`)
     if (mapped_by === 'model' && !model?.trim()) return failure('model is required when mapped_by is "model".')
     const p = await api.getMappingProject(mapping_project_id)
-    requireFlat(p)
+    const src = await sourceOf(p)
     const v = await vocabularyOf(p)
     const me = await api.me()
     const author = mapped_by === 'model' ? model!.trim() : (`${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.username)
     const errors: string[] = []
     const label = (m: { concept_code: string; vocabulary_id?: string }, i: number) =>
       `#${i + 1} (${m.vocabulary_id ? `${m.vocabulary_id}/` : ''}${m.concept_code})`
-    const lookup = await sourcesByCode(p, mappings.map((m) => ({ code: String(m.concept_code), vocabularyId: m.vocabulary_id })))
+    const lookup = await sourcesByCode(src, mappings.map((m) => ({ code: String(m.concept_code), vocabularyId: m.vocabulary_id })))
     const targets = await conceptsById(v, mappings.map((m) => Number(m.concept_id)))
     const existing = new Set((await api.listMappings(p.id)).filter((m) => m.status !== 'rejected')
       .map((m) => sourceKeyOf(m.sourceVocabularyId, m.sourceConceptCode)))
