@@ -3286,7 +3286,8 @@
       "dataset": "Dataset",
       "script": "Script",
       "concept_list": "Concept list",
-      "mapping_project": "Mapping project"
+      "mapping_project": "Mapping project",
+      "database": "Database"
     },
     "part": {
       "widget": {
@@ -3306,6 +3307,12 @@
       "mappings": {
         "created_one": "{{count}} mapping added",
         "created_other": "{{count}} mappings added"
+      },
+      "derivation": {
+        "started": "Being built from cohort « {{name}} »",
+        "done_one": "Built from cohort « {{name}} » ({{count}} patient)",
+        "done_other": "Built from cohort « {{name}} » ({{count}} patients)",
+        "failed": "Build from cohort « {{name}} » failed"
       }
     },
     "action": {

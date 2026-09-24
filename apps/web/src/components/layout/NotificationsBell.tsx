@@ -9,6 +9,7 @@ import { localized } from '@/lib/localized'
 import { paths } from '@/lib/paths'
 import { cn } from '@/lib/utils'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationStore } from '@/stores/notification-store'
@@ -68,6 +69,12 @@ export function NotificationsBell() {
       // editor, whose Suggestions panel shows suggestions.
       const tab = n.detail?.part === 'mappings' ? 'mappings' : n.detail?.part === 'suggestions' ? 'editor' : null
       return `${paths.warehouseConceptMappingProject(workspaceId, n.entityId)}${tab ? `?tab=${tab}` : ''}`
+    }
+    if (n.entityType === 'database') {
+      const sources = useDataSourceStore.getState().dataSources
+      const workspaceId = sources.find((d) => d.id === n.entityId)?.workspaceId ?? n.detail?.workspaceId
+      if (!workspaceId) return null
+      return paths.warehouseDatabase(workspaceId, n.entityId, sources.map((d) => d.id))
     }
     if (!n.projectUid) return null
     const project = useAppStore.getState()._projectsRaw.find((p) => p.uid === n.projectUid)

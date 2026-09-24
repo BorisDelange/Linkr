@@ -5,6 +5,7 @@ import { isServerMode } from '@/lib/api-client'
 import { useCohortStore } from '@/stores/cohort-store'
 import { createFromDdlOnServer, deleteDataSourceOnServer, deriveOnServer, fetchDataSourceSchema, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
+import { derivedDatabaseRow } from '@/lib/cohort-derive'
 import type { DeriveRequest } from '@/lib/api/data-sources'
 import type { DerivationJobResult, Job } from '@/lib/api/environments'
 import * as engine from '@/lib/duckdb/engine'
@@ -213,6 +214,8 @@ interface DataSourceState {
   /** A derivation job ended: re-read what it changed — the database it wrote or
    *  declared (or removed, on a failed first build) and the cohort's record. */
   derivationFinished: (job: Job) => Promise<void>
+  /** Another client (an agent) changed or removed this database: re-read it. */
+  applyRemoteChange: (id: string, deleted: boolean) => Promise<void>
 }
 
 /** Timeout for DuckDB mount operations (ms). */
@@ -787,22 +790,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     const existingAliases = get().dataSources.map((ds) => ds.alias).filter(Boolean)
-    const alias = ensureUniqueAlias(generateAlias(localized(name, 'en')), existingAliases)
-    // A new work in every respect — own id, entity id, lineage — carrying the
-    // parent's schema, since its tables are the parent's. The parentage is
-    // `derivedFrom`, which the server records with the build.
     const created: DataSource = {
       id,
-      alias,
-      name,
-      description: {},
-      sourceType: 'database',
-      connectionConfig: { engine: 'duckdb', managed: true } as unknown as ConnectionConfig,
-      schemaMapping: sanitizeSchemaMapping(parent.schemaMapping),
-      ...(parent.schemaSource ? { schemaSource: parent.schemaSource } : {}),
-      status: 'configuring',
-      workspaceId: parent.workspaceId,
-      version: '0.1.0',
+      ...derivedDatabaseRow(parent, name, existingAliases),
       ...stampAuthored(),
       ...stampLineage(),
       createdAt: now,
@@ -832,6 +822,11 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       await rereadSources(set, [result.targetId, ...(result.dataSourceId ? [result.dataSourceId] : [])])
       if (result.cohortId) await useCohortStore.getState().reloadCohort(result.cohortId).catch(() => {})
     }
+  },
+
+  applyRemoteChange: async (id, deleted) => {
+    await get().loadDataSources(true)
+    if (!deleted) await rereadSources(set, [id])
   },
 
   createEmptyDatabase: async (source) => {

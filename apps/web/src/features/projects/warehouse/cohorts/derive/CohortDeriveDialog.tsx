@@ -38,6 +38,7 @@ import type { Cohort, CohortDerivation, DataSource } from '@/types'
 import {
   derivationRequest,
   DERIVE_SCHEMA_NAME,
+  defaultDeriveSchemaName,
   derivableReason,
   isWritableTarget,
 } from '@/lib/cohort-derive'
@@ -77,7 +78,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   const [location, setLocation] = useState<DatabaseLocation>(DEFAULT_DATABASE_LOCATION)
   const [locationValid, setLocationValid] = useState(true)
   const [targetId, setTargetId] = useState(() => (isWritableTarget(source) ? source.id : targets[0]?.id ?? ''))
-  const [schemaName, setSchemaName] = useState(() => `cohort_${generateAlias(localized(cohort.name, 'en'))}`.slice(0, 63))
+  const [schemaName, setSchemaName] = useState(() => defaultDeriveSchemaName(cohort))
   const [register, setRegister] = useState(true)
   const [copyPersonless, setCopyPersonless] = useState(true)
   const [plan, setPlan] = useState<DerivePlanTable[] | null>(null)

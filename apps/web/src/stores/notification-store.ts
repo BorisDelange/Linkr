@@ -7,6 +7,7 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { useConceptListStore } from '@/stores/concept-list-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useFileStore } from '@/stores/file-store'
 import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
@@ -27,6 +28,7 @@ const REFRESHERS: Record<string, (event: ChangeEvent) => Promise<void>> = {
     const store = useDatasetStore.getState()
     if (e.projectUid && store.activeProjectUid === e.projectUid) await store.reloadDatasetsFromDisk(e.projectUid)
   },
+  database: (e) => useDataSourceStore.getState().applyRemoteChange(e.entityId, e.action === 'deleted'),
   mapping_project: async (e) => {
     const mappings = useConceptMappingStore.getState()
     if (mappings.activeProjectId === e.entityId) await mappings.loadProjectMappings(e.entityId, { force: true })

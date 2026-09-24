@@ -31,10 +31,11 @@ export const hasDetailDialog = (n: AppNotification) =>
   !!n.detail && DETAIL_DIALOG_PARTS.has(n.detail.part) && (n.detail.items?.length ?? 0) > 0
 
 /** What changed inside the entity, when not the entity itself: a dashboard's
- *  widget or tab, or the concepts a mapping write added (first few, plus a count). */
+ *  widget or tab, the concepts a mapping write added (first few, plus a count),
+ *  or how a database's derivation from a cohort went (`name` the cohort). */
 export interface NotificationDetail {
-  part: 'widget' | 'tab' | 'suggestions' | 'mappings'
-  action: 'created' | 'updated' | 'deleted'
+  part: 'widget' | 'tab' | 'suggestions' | 'mappings' | 'derivation'
+  action: 'created' | 'updated' | 'deleted' | 'started' | 'done' | 'failed'
   name: LocalizedString
   count?: number
   workspaceId?: string

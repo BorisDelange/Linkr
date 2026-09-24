@@ -214,3 +214,63 @@ async def test_the_exported_trees_carry_the_provenance_not_the_instance_state(cl
     parent = await build_database_tree(db, source)
     cohort_file = json.loads(parent["cohorts/five.json"])
     assert "derivations" not in cohort_file and "materialization" not in cohort_file
+
+
+MCP = {"X-Linkr-Client": "mcp"}
+
+
+async def test_an_agent_derivation_is_notified_and_its_job_readable_by_id(client, db):
+    """An external client (the MCP) follows its job by id, and its user sees the
+    database in the notification centre when the job starts and when it ends."""
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, headers, ws, "src", seed=True)
+    cohort = (await client.post(f"{API}/cohorts", headers=headers, json={
+        "id": "c1", "ownerDataSourceId": src, "name": {"en": "Five"}, "level": "patient", "criteriaTree": {},
+    })).json()["id"]
+    dst = await _managed(client, headers, ws, "cohort_five", seed=False)
+
+    job = await _derive(client, {**headers, **MCP}, ws, src, {
+        "membershipSql": MEMBERSHIP, "level": "patient", "cohortId": cohort,
+        "target": {"kind": "new-database", "dataSourceId": dst},
+    })
+    assert job["status"] == "done", job
+    by_id = (await client.get(f"{API}/jobs/{job['id']}", headers=headers)).json()
+    assert by_id["status"] == "done" and by_id["result"]["dataSourceId"] == dst
+
+    done, started = (await client.get(f"{API}/notifications", headers=headers)).json()[:2]
+    assert started["entityType"] == "database" and started["entityId"] == dst and started["action"] == "created"
+    assert started["detail"] == {"part": "derivation", "action": "started", "name": {"en": "Five"}, "workspaceId": ws}
+    assert done["action"] == "updated" and done["detail"]["action"] == "done" and done["detail"]["count"] == 5
+    assert done["label"] == {"en": "cohort_five"}
+
+    # The app's own UI records nothing.
+    await client.delete(f"{API}/notifications", headers=headers)
+    await _derive(client, headers, ws, src, {
+        "membershipSql": MEMBERSHIP, "level": "patient", "cohortId": cohort,
+        "target": {"kind": "new-database", "dataSourceId": dst},
+    })
+    assert (await client.get(f"{API}/notifications", headers=headers)).json() == []
+
+    # Someone else's job is not theirs to read.
+    other = User(username="other", password_hash=hash_password("pw"), role="user")
+    db.add(other)
+    await db.commit()
+    token = (await client.post(f"{API}/auth/login", json={"username": "other", "password": "pw"})).json()["access_token"]
+    assert (await client.get(f"{API}/jobs/{job['id']}", headers={"Authorization": f"Bearer {token}"})).status_code == 404
+
+
+async def test_a_failed_agent_derivation_notifies_the_removed_database(client):
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, headers, ws, "src", seed=True)
+    dst = await _managed(client, headers, ws, "cohort_bad", seed=False)
+    job = await _derive(client, {**headers, **MCP}, ws, src, {
+        "membershipSql": "SELECT no_such_column AS id, 1 AS patient_id FROM person", "level": "patient",
+        "target": {"kind": "new-database", "dataSourceId": dst},
+        "derivedFrom": {"cohort": {"key": "bad", "name": {"en": "Bad"}}},
+    })
+    assert job["status"] == "error", job
+    failed = (await client.get(f"{API}/notifications", headers=headers)).json()[0]
+    assert failed["action"] == "deleted" and failed["entityId"] == dst
+    assert failed["detail"]["action"] == "failed" and failed["detail"]["name"] == {"en": "Bad"}

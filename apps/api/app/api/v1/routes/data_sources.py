@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.websockets import WebSocketDisconnect
@@ -46,6 +46,7 @@ from app.services import (
     cohort_derive_service,
     concept_stats_cache_service,
     data_source_service,
+    notification_service,
     stats_cache_service,
 )
 from app.services.data import concept_cache_fs, connection_pool, db_connect, managed_db
@@ -249,10 +250,50 @@ async def derive_plan(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
 
+async def _notify_derivation(
+    client: str | None,
+    user_id: int,
+    workspace_id: str | None,
+    database_id: str,
+    what: dict | str | None,
+    phase: str,
+    patient_count: int | None = None,
+) -> None:
+    """Tell an external client's user how a derivation it started went: `done`
+    (the database it produced), or `failed` — a deleted database when the job
+    removed the one made for its first build. In its own session: the job's
+    runs in a worker, and the request's is gone by then."""
+    if client is None:
+        return
+    async with jobs.async_session() as db:
+        user = await db.get(User, user_id)
+        database = await db.get(DataSource, database_id)
+        if user is None:
+            return
+        await notification_service.record_change(
+            db, user=user, source=client,
+            action="deleted" if database is None else "updated",
+            entity_type="database", entity_id=database_id, project_uid=None,
+            label=database.name if database is not None else what,
+            detail=_derivation_detail(phase, what, workspace_id, patient_count),
+        )
+
+
+def _derivation_detail(phase: str, what: dict | str | None, workspace_id: str | None, count: int | None = None) -> dict:
+    return {
+        "part": "derivation",
+        "action": phase,
+        "name": what if isinstance(what, dict) else {"en": what or ""},
+        **({"count": count} if count is not None else {}),
+        **({"workspaceId": workspace_id} if workspace_id else {}),
+    }
+
+
 @router.post("/{source_id}/derive", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
 async def derive(
     source_id: str,
     body: DeriveRequest,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -263,7 +304,8 @@ async def derive(
     a cohort updated with the result must be one of this database's own.
 
     Every refusal that needs no data (target, name, write toggle) answers 400
-    here; the job's own failures land on the job."""
+    here; the job's own failures land on the job. An external client's user is
+    notified when the job starts and when it ends."""
     source = await _load_source(db, source_id, user, "databases:read")
     target = await _load_source(db, body.target.data_source_id, user, "databases:write")
     if source.workspace_id is None:
@@ -283,18 +325,26 @@ async def derive(
     label = cohort_derive_service.job_label(source, target, body, cohort)
     job = await jobs.create(db, None, user.id, kind="derive", label=label, workspace_id=source.workspace_id)
     ids = (source.id, target.id, cohort.id if cohort else None)
+    client = notification_service.client_source(request)
+    what = cohort.name if cohort is not None else ((body.derived_from or {}).get("cohort") or {}).get("name") or source.name
+    workspace_id, user_id = source.workspace_id, user.id
 
     async def run(handle: jobs.JobHandle) -> None:
         async def progress(pct: int, line: str) -> None:
             await handle.progress(pct)
             await handle.log(line)
 
-        async with jobs.async_session() as job_db:
-            src, dst = await job_db.get(DataSource, ids[0]), await job_db.get(DataSource, ids[1])
-            if src is None or dst is None:
-                raise cohort_derive_service.DeriveError("the database was removed")
-            coh = await job_db.get(Cohort, ids[2]) if ids[2] else None
-            result = await cohort_derive_service.derive(job_db, src, dst, body, coh, progress)
+        try:
+            async with jobs.async_session() as job_db:
+                src, dst = await job_db.get(DataSource, ids[0]), await job_db.get(DataSource, ids[1])
+                if src is None or dst is None:
+                    raise cohort_derive_service.DeriveError("the database was removed")
+                coh = await job_db.get(Cohort, ids[2]) if ids[2] else None
+                result = await cohort_derive_service.derive(job_db, src, dst, body, coh, progress)
+        except BaseException:
+            with contextlib.suppress(Exception):
+                await _notify_derivation(client, user_id, workspace_id, ids[1], what, "failed")
+            raise
         await handle.log(f"{result['patient_count']} patients, {len([t for t in result['tables'] if not t['skipped']])} tables")
         await handle.set_result({
             "targetId": ids[1],
@@ -305,7 +355,17 @@ async def derive(
             "builtAt": result["built_at"],
             "tables": result["tables"],
         })
+        with contextlib.suppress(Exception):
+            await _notify_derivation(
+                client, user_id, workspace_id, result["data_source_id"] or ids[1], what, "done", result["patient_count"],
+            )
 
+    await notification_service.record_change(
+        db, user=user, source=client,
+        action="created" if body.target.kind == "new-database" and target.derived_from is None else "updated",
+        entity_type="database", entity_id=target.id, project_uid=None, label=target.name,
+        detail=_derivation_detail("started", what, workspace_id),
+    )
     jobs.launch(job.id, run)
     return JobResponse.model_validate(job, from_attributes=True)
 

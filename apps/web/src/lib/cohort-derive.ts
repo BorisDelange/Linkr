@@ -3,9 +3,14 @@
  * databases can receive one, whether a cohort can be derived at all, and the
  * request the server runs (see `apps/api/app/services/data/cohort_derive.py`).
  */
+import { ensureUniqueAlias, generateAlias } from '@/lib/alias'
 import type { DeriveRequest } from '@/lib/api/data-sources'
 import { buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
-import type { Cohort, DataSource, DatabaseConnectionConfig, DerivedFrom } from '@/types'
+import { localized } from '@/lib/localized'
+import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import type {
+  Cohort, ConnectionConfig, DataSource, DatabaseConnectionConfig, DerivedFrom, LocalizedString,
+} from '@/types'
 
 /** A SQL schema name the server accepts (`cohort_derive_service._SCHEMA_NAME`). */
 export const DERIVE_SCHEMA_NAME = /^[a-z_][a-z0-9_]{0,62}$/
@@ -21,6 +26,33 @@ export function isWritableTarget(ds: DataSource): boolean {
   if (config.engine === 'duckdb') return !!config.managed
   if (config.engine === 'postgresql') return !!config.allowWrites
   return false
+}
+
+/** The schema name offered for a cohort derived into a SQL schema. */
+export function defaultDeriveSchemaName(cohort: Pick<Cohort, 'name'>): string {
+  return `cohort_${generateAlias(localized(cohort.name, 'en'))}`.slice(0, 63)
+}
+
+/**
+ * The row of a new database a cohort of `parent` is derived into, before the
+ * job fills it: created first, since the server writes into a database it
+ * already knows. A new work in every respect — its caller adds the id, lineage
+ * and authorship — carrying the parent's schema, since its tables are the
+ * parent's. The parentage is `derivedFrom`, which the server records with the build.
+ */
+export function derivedDatabaseRow(parent: DataSource, name: LocalizedString, existingAliases: string[]) {
+  return {
+    alias: ensureUniqueAlias(generateAlias(localized(name, 'en')), existingAliases),
+    name,
+    description: {},
+    sourceType: 'database',
+    connectionConfig: { engine: 'duckdb', managed: true } as unknown as ConnectionConfig,
+    schemaMapping: sanitizeSchemaMapping(parent.schemaMapping),
+    ...(parent.schemaSource ? { schemaSource: parent.schemaSource } : {}),
+    status: 'configuring',
+    workspaceId: parent.workspaceId,
+    version: '0.1.0',
+  } satisfies Partial<DataSource>
 }
 
 /** What a derivation is built from: a cohort, or the snapshot a derived database keeps. */
