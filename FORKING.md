@@ -1,115 +1,88 @@
-# Forking Linkr to use the Claude Code skills
+# Mapping concepts with an AI agent
 
-This guide is for users who want to fork Linkr in order to run the Claude Code skills bundled in `.claude/skills/` (concept mapping, plugin scaffolding, etc.) against their own local data — OHDSI vocabularies, mapping projects, model caches.
+Linkr ships a **concept-mapping skill**: a procedure an AI agent follows to map
+a hospital's local codes to OMOP standard concepts inside a Linkr mapping
+project. It lives in [`packages/linkr-mcp/skills/concept-mapping/`](packages/linkr-mcp/skills/concept-mapping/)
+and is written in the open [Agent Skills](https://agentskills.io) format, so it
+works with any model in any client that loads skills — LibreChat, Claude Code,
+and others.
 
-The skills read a small local config file (`config.local.json`) so paths only have to be set once, instead of being prompted at every session start.
+The agent works on the live project through the **Linkr MCP server**: it reads
+the source concepts and their metadata, searches the OMOP vocabulary, and
+leaves AI suggestions (or, when the user confirms them, mappings) that a human
+reviews in Linkr. No export, no local files.
 
-> **Full user documentation:** [Concept mapping — Suggestions](https://linkr.interhop.org/docs/concept-mapping/suggestions/) on the Linkr website covers what the skill does, the suggestion pipeline (syntactic + semantic), and how mappings flow back into Linkr. The present file is the technical setup guide that complements it.
+> **User documentation:** [Concept mapping — Suggestions](https://linkr.interhop.org/docs/concept-mapping/suggestions/)
+> on the Linkr website. This file is the technical setup.
 
-## 1. Clone the repository
+## 1. What you need
 
-```bash
-git clone git@framagit.org:interhop/linkr/linkr.git
-cd linkr
-```
+- A Linkr server (full-stack mode) with the mapping project, and an **OMOP
+  vocabulary database** set in the project's settings (an ATHENA import).
+- The **Linkr MCP server** running (`packages/linkr-mcp`, see its README) and
+  connected to your client with your **Linkr API key** (Profile → API keys).
+- A model allowed to see the data. Source terminologies carry value
+  distributions and ward names: with a remote model, use open data or a model
+  you are permitted to send them to.
 
-If you plan to contribute back, fork the project on Framagit first and clone your fork instead.
+## 2. LibreChat
 
-## 2. Install Claude Code
+1. Build the skill archive: `cd packages/linkr-mcp && npm run skill:pack` →
+   `dist/concept-mapping.zip`.
+2. In LibreChat, import it as a skill (Skills → import).
+3. Connect the Linkr MCP server, reinitialise it so LibreChat lists the mapping
+   tools, and enable them (and the skill) for your agent.
+4. Ask, for example: *"Map the unmapped Blood Gas concepts of the MIMIC-IV Demo
+   mapping project."*
 
-The skills run inside [Claude Code](https://claude.ai/code). Install the CLI or the VS Code extension and open the repo with it. The skills under `.claude/skills/` are auto-discovered.
+Re-run `skill:pack` and re-import after changing the skill.
 
-## 3. Create your local config
+## 3. Claude Code
 
-```bash
-cp config.local.example.json config.local.json
-```
+`.claude/skills/concept-mapping` links to the skill folder, and `.mcp.json`
+declares the Linkr MCP server: opening the repository is enough. Set
+`LINKR_API_URL` and `LINKR_TOKEN` (your API key) in `packages/linkr-mcp/.env`.
 
-Edit `config.local.json` with absolute paths that exist on your machine:
+## 4. Optional: precomputed suggestion scores
 
-```json
-{
-  "concept-mapping": {
-    "vocab_dir":    "/path/to/ohdsi-vocabularies",
-    "models_dir":   "/path/to/bert-models-cache",
-    "projects_dir": "/path/to/mapping-projects"
-  }
-}
-```
+Syntactic (Jaro-Winkler) and semantic (BioLORD embeddings) scores give every
+source concept a ranked shortlist before an agent looks at it — a large gain
+for drugs. They are computed outside the chat, in a terminal, by the skill's
+two scripts, then loaded into the project in Linkr. The full procedure —
+inputs, memory limits, loading without losing existing AI suggestions — is in
+[`references/precompute.md`](packages/linkr-mcp/skills/concept-mapping/references/precompute.md).
 
-`config.local.json` is gitignored — it is machine-specific and must never be committed.
+1. Download the vocabularies from [Athena](https://athena.ohdsi.org/) and
+   convert them to Parquet:
 
-### What each path is for
-
-| Key | Contents | How it is used |
-|---|---|---|
-| `vocab_dir` | Folder with the OHDSI vocabularies (`CONCEPT.parquet`, `CONCEPT_SYNONYM.parquet`, `CONCEPT_RELATIONSHIP.parquet`, `CONCEPT_ANCESTOR.parquet`). | DuckDB queries during mapping; embeddings are co-located here as `concept_embeddings.parquet`. |
-| `models_dir` | Local cache for `sentence-transformers` models (BioLORD-2023-M ~440 MB). | Set as `TRANSFORMERS_CACHE` when running the precompute scripts so the model is downloaded once. |
-| `projects_dir` | Folder containing one sub-folder per mapping project (each with `project.json`, `source-concepts.csv`, `mappings.json`, …). | The orchestrator derives `<projects_dir>/<project-name>/` as the working directory. |
-
-## 4. Download the OHDSI vocabularies
-
-The skills don't ship vocabularies. Download them from [Athena](https://athena.ohdsi.org/) (free account required) and convert the CSVs to Parquet for fast querying:
-
-```bash
-# Place the downloaded CSVs into vocab_dir, then:
-duckdb -c "
-  COPY (SELECT * FROM read_csv_auto('CONCEPT.csv',          sep='\t')) TO 'CONCEPT.parquet'           (FORMAT PARQUET, COMPRESSION ZSTD);
-  COPY (SELECT * FROM read_csv_auto('CONCEPT_SYNONYM.csv',  sep='\t')) TO 'CONCEPT_SYNONYM.parquet'   (FORMAT PARQUET, COMPRESSION ZSTD);
-  COPY (SELECT * FROM read_csv_auto('CONCEPT_RELATIONSHIP.csv', sep='\t')) TO 'CONCEPT_RELATIONSHIP.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
-  COPY (SELECT * FROM read_csv_auto('CONCEPT_ANCESTOR.csv', sep='\t')) TO 'CONCEPT_ANCESTOR.parquet'  (FORMAT PARQUET, COMPRESSION ZSTD);
-"
-```
-
-## 5. Install the Python dependencies for the precompute scripts
-
-The concept-mapping skill calls two Python scripts (`embed_concepts.py`, `compute_scores.py`) that compute similarity scores once per project. Install their dependencies:
-
-```bash
-pip install pandas pyarrow numpy rapidfuzz sentence-transformers
-```
-
-These are only needed for the precompute step — the rest of the skill uses DuckDB and Claude directly.
-
-## 6. Generate concept embeddings (once per vocabulary release)
-
-```bash
-TRANSFORMERS_CACHE=<models_dir> python \
-  .claude/skills/concept-mapping/scripts/embed_concepts.py \
-  --concept <vocab_dir>/CONCEPT.parquet
-```
-
-On the first run, `sentence-transformers` automatically downloads the [BioLORD-2023-M](https://huggingface.co/FremyCompany/BioLORD-2023-M) model (~440 MB) from Hugging Face Hub into `<models_dir>` (or `~/.cache/huggingface/` if `TRANSFORMERS_CACHE` is unset). The model is public — no Hugging Face account needed. Subsequent runs read from the cache, no network required.
-
-Output goes to `<vocab_dir>/concept_embeddings.parquet`. This is a multi-hour run on CPU for the full vocabulary (~4M concepts). The script writes incrementally and resumes safely on interruption.
-
-## 7. Create a mapping project in Linkr and export it
-
-Mapping projects are created and managed in Linkr itself — that is where you import the source dictionary, configure target vocabularies, review suggestions, and validate mappings. The skill operates on a snapshot exported from Linkr.
-
-1. In Linkr, go to **Data Warehouse → Concept Mapping** and create a new project. Import your source concept dictionary (CSV with at least `terminology`, `concept_code`, `concept_name`).
-2. When you want Claude to generate suggestions, **export the project** from Linkr — this produces a ZIP containing `project.json`, `source-concepts.csv`, and `mappings.json`.
-3. Unzip it under `<projects_dir>` (or hand the ZIP directly to the skill):
-
-   ```
-   <projects_dir>/my-project/
-   ├── project.json
-   ├── source-concepts.csv
-   └── mappings.json
+   ```bash
+   duckdb -c "
+     COPY (SELECT * FROM read_csv_auto('CONCEPT.csv', sep='\t')) TO 'CONCEPT.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+   "
    ```
 
-4. Ask Claude to run the skill on the project folder or ZIP:
+2. Install the dependencies:
 
-   > /concept-mapping `<projects_dir>/my-project`
+   ```bash
+   pip install pandas pyarrow numpy rapidfuzz duckdb sentence-transformers faiss-cpu
+   ```
 
-   The skill reads `config.local.json`, finds the right paths, loads the project, runs the precompute scripts (Section 6 + `compute_scores.py`), and follows the domain-appropriate mapping procedure (clinical concepts or drugs) — all in one skill.
+3. Embed the vocabulary, once per release (several hours on CPU; resumes after
+   an interruption). The public
+   [BioLORD-2023-M](https://huggingface.co/FremyCompany/BioLORD-2023-M) model
+   (~440 MB) is downloaded on first run:
 
-5. Once the skill has appended new mappings to `mappings.json`, import the updated file back into Linkr to continue review and validation there.
+   ```bash
+   python packages/linkr-mcp/skills/concept-mapping/scripts/embed_concepts.py \
+     --concept <vocab_dir>/CONCEPT.parquet
+   ```
 
-## 8. Optional: the review dashboard
-
-After the first batch, the skill can launch a small static dashboard showing progress, computed methods, recent sessions, and file status. It reads `state.json` (written by the skill) and is served via `python -m http.server` from the project folder. Open `http://localhost:8765/review/` once running.
+4. Score the project's source concepts (always with target filters), then load
+   `similarity-scores.parquet` in the mapping editor (Suggestions → load
+   scores file).
 
 ## Contributing back
 
-Changes to the skills themselves (the files under `.claude/skills/`) are tracked in git — push them to a branch on your fork and open a merge request. Changes to `config.local.json` are never committed.
+The skill is versioned for citation (`metadata.version` in `SKILL.md`, plus
+`CHANGELOG.md`): bump it with every change. Push to a branch of your fork and
+open a merge request.

@@ -5,8 +5,40 @@ Semantic versioning: `MAJOR.MINOR.PATCH`.
 - **MINOR** — new capability or mapping procedure, backward-compatible.
 - **PATCH** — clarifications, prompt wording, bug fixes with no behavioural change.
 
-The `version:` field in `SKILL.md` frontmatter must match the top entry here.
+The `metadata.version` field in `SKILL.md` frontmatter must match the top entry here.
 Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**.
+
+## 2.0.0 — 2026-09-24
+
+### Changed (breaking)
+- **Works through the Linkr MCP server instead of files.** The skill no longer
+  reads an exported ZIP, loads a DuckDB session in `/tmp`, or rewrites
+  `mappings.json`: it lists source concepts and their metadata, searches the
+  OMOP vocabulary and writes through MCP tools (`list_source_concepts`,
+  `get_source_concept`, `search_vocabulary`, `get_vocabulary_concept`,
+  `add_ai_suggestions`, `create_mappings`). Everything lands in the app, where
+  it is reviewed. The tools check what they write — unknown source codes,
+  unknown / invalid / non-standard targets, missing comments and non-SKOS
+  equivalences are refused — and never overwrite an existing row.
+- **Model-independent.** Written in the open Agent Skills format
+  (`metadata.version`, no client-specific tools), so any model in any client
+  that loads skills (LibreChat, Claude Code…) follows the same procedure. It
+  moved from `.claude/skills/` to `packages/linkr-mcp/skills/`, next to the
+  tools it drives.
+- **AI suggestions are written to the project's scores file by the server**
+  (`POST /mapping-projects/{id}/scores/append`), which creates it when absent
+  and keeps existing rows.
+- **Data-dictionary mode reads Linkr's concept sets** (resolved concepts,
+  Mapping Notes from the long description, `uniqueId`) instead of a folder of
+  JSON files; `add_ai_suggestions` stamps `concept_set_uid` from the set.
+- References renamed: `mapping-ai.md` → `clinical.md`, `mapping-drug.md` →
+  `drugs.md`, `omop-duckdb-reference.md` → `omop-reference.md`,
+  `running-scripts.md` → `precompute.md`.
+
+### Removed
+- `review-template/` and `state.json` (the app's Progress tab replaces them),
+  `update_state.py`, `update_project_stats.py` (the tools refresh the project's
+  stats), `config.local.json` paths, the `mappings.json` serialisation rules.
 
 ## 1.0.4 — 2026-08-13
 

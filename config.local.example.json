@@ -1,9 +1,0 @@
-{
-  "_comment": "Copy this file to config.local.json and fill in your local paths. This file is committed; config.local.json is gitignored.",
-
-  "concept-mapping": {
-    "vocab_dir":    "/path/to/ohdsi-vocabularies",
-    "models_dir":   "/path/to/bert-models-cache",
-    "projects_dir": "/path/to/mapping-projects"
-  }
-}

@@ -1,7 +1,7 @@
 # TODO — concept-mapping skill (future versions)
 
 Roadmap for the next skill versions. Each item, when shipped, becomes a
-`CHANGELOG.md` entry + a `version:` bump. Not scheduled work — a backlog.
+`CHANGELOG.md` entry + a `metadata.version` bump. Not scheduled work — a backlog.
 
 Both items below trace back to the future-work section of the UCD→RxNorm study:
 Delange et al., *A Hybrid Pipeline for Mapping French UCD Drug Codes to RxNorm
@@ -14,7 +14,7 @@ were pharmaceutical-form misalignments**. The paper's own future-work opening:
 *"leveraging RUIM's relationships with international multilingual terminologies
 (e.g., EDQM Standard Terms for pharmaceutical forms) could address
 pharmaceutical form misalignment more systematically than label-based extraction
-alone."* Today `mapping-drug.md` extracts the dose form by regex/keyword on the
+alone."* Today `references/drugs.md` extracts the dose form by regex/keyword on the
 source label (Step 1 + Step 3a) — brittle and language-bound.
 
 **What EDQM gives us.**
@@ -36,7 +36,7 @@ source label (Step 1 + Step 3a) — brittle and language-bound.
 **Sketch of the change (not designed yet).**
 - Add an optional EDQM dose-form reference to the config/knowledge base
   (see item 2): the EDQM term list + the EDQM↔RxNorm form crosswalk.
-- In `mapping-drug.md` Step 1/3a, when the national terminology exposes an EDQM
+- In `references/drugs.md` Step 1/3a, when the national terminology exposes an EDQM
   form (e.g. French UCD via RUIM), resolve the source dose form *through EDQM*
   first, then map EDQM→RxNorm dose form via the crosswalk, instead of
   regex-guessing from the label. Fall back to label extraction only when no
@@ -76,7 +76,7 @@ country / terminology, records:
   AI), mirroring the MIE 2026 three-stage design
 - multilingual pivots available (e.g. EDQM for forms — links back to item 1)
 
-Then `mapping-drug.md` (and later `mapping-ai.md`) would consult this registry
+Then `references/drugs.md` (and later `references/clinical.md`) would consult this registry
 at the start of a batch: if the source terminology is known, use its reference
 crosswalk as the Strategy-0 / pre-computed proposals before falling back to the
 generic ATC/RxNorm traversal.
