@@ -108,3 +108,27 @@ async def test_undo_recreates_a_deleted_cohort_and_widget(client):
     await _undo(client, headers, latest["id"])
     widget = (await client.get(f"{API}/dashboards/widgets/w1", headers=headers)).json()
     assert widget["source"]["config"] == {"a": 1} and widget["layout"]["w"] == 24
+
+
+async def test_scripts_and_concept_lists_written_by_an_agent_are_notified(client):
+    headers = await _admin_headers(client)
+    agent = {**headers, **MCP}
+    proj = await _project(client, headers)
+
+    body = {"projectUid": proj, "path": "analysis/t1.R", "content": "1"}
+    assert (await client.post(f"{API}/ide-files", headers=headers, json=body)).status_code == 201
+    assert await _list(client, headers) == []
+    r = await client.put(f"{API}/ide-files/content", headers=agent, json={**body, "content": "2"})
+    assert r.status_code == 204
+    r = await client.post(f"{API}/ide-files/delete", headers=agent, json={"projectUid": proj, "path": "analysis/t1.R"})
+    assert r.status_code == 204
+    deleted, updated = await _list(client, headers)
+    assert (updated["entityType"], updated["action"], updated["entityId"]) == ("script", "updated", "analysis/t1.R")
+    assert deleted["action"] == "deleted" and not deleted["undoable"]
+
+    r = await client.post(f"{API}/concept-lists", headers=agent, json={
+        "id": "cl1", "projectUid": proj, "name": {"en": "Labs"}, "items": [{"conceptId": 1}],
+    })
+    assert r.status_code == 201
+    latest = (await _list(client, headers))[0]
+    assert (latest["entityType"], latest["action"], latest["label"]) == ("concept_list", "created", {"en": "Labs"})

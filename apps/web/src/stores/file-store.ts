@@ -82,6 +82,10 @@ interface FileState {
   /** Server mode: re-scan projects/<uid>/scripts/ from disk (initial load, refresh
    *  button, and after every mutation so external changes and renames settle). */
   reloadFromDisk: (projectUid: string) => Promise<void>
+  /** A script changed outside this tab (an agent over MCP): re-scan the open
+   *  project, unless an edit here is still waiting to be saved — reloading would
+   *  cancel that save, and the user's own typing wins. */
+  applyRemoteChange: (projectUid: string) => Promise<void>
   createFile: (name: string, parentId: string | null, language: string) => void
   /**
    * Create a file WITH its content and persist it, resolving to its final id.
@@ -670,6 +674,11 @@ export const useFileStore = create<FileState>((set, get) => ({
   selectedFileId: null,
   activeProjectUid: null,
   openFileIds: [],
+
+  applyRemoteChange: async (projectUid) => {
+    if (get().activeProjectUid !== projectUid || _contentSaveTimers.size > 0) return
+    await get().reloadFromDisk(projectUid)
+  },
 
   reloadFromDisk: async (projectUid) => {
     const storage = getStorage()

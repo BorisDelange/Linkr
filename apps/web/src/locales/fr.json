@@ -3283,7 +3283,9 @@
     "entity": {
       "cohort": "Cohorte",
       "dashboard": "Dashboard",
-      "dataset": "Dataset"
+      "dataset": "Dataset",
+      "script": "Script",
+      "concept_list": "Liste de concepts"
     },
     "part": {
       "widget": {

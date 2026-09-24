@@ -395,6 +395,15 @@ async def create_dataset_from_query(
     return node
 
 
+async def _notify_dataset(
+    db: AsyncSession, request: Request, user: User, action: str, project_uid: str, path: str,
+) -> None:
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action=action,
+        entity_type="dataset", entity_id=path, project_uid=project_uid, label=path,
+    )
+
+
 def _file_node(project_uid: str, path: str) -> DsNodeResponse:
     columns = row_count = parse_options = None
     try:
@@ -433,6 +442,7 @@ async def reimport_dataset(
 @router.post("/columns/meta", response_model=DsNodeResponse)
 async def set_column_meta(
     body: DsColumnMeta,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -449,12 +459,14 @@ async def set_column_meta(
         # another already stored (e.g. columnTypes).
         merged = {**(dataset_fs.read_parse_options(body.project_uid, body.path) or {}), **body.parse_options}
         dataset_fs.write_parse_options(body.project_uid, body.path, merged)
+    await _notify_dataset(db, request, user, "updated", body.project_uid, body.path)
     return _file_node(body.project_uid, body.path)
 
 
 @router.post("/ops", response_model=DsOpsResponse)
 async def record_ops(
     body: DsOps,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -475,12 +487,14 @@ async def record_ops(
     # Rebuild off-thread: replay materialises every row, so it must not block the
     # event loop on a large dataset.
     await asyncio.to_thread(dataset_fs.resolve_cache, body.project_uid, body.path)
+    await _notify_dataset(db, request, user, "updated", body.project_uid, body.path)
     return DsOpsResponse(node=_file_node(body.project_uid, body.path), ops=ops)
 
 
 @router.post("/duplicate", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)
 async def duplicate_dataset(
     body: DsDuplicate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -498,6 +512,7 @@ async def duplicate_dataset(
     if not src.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
     shutil.copyfile(src, dst)
+    await _notify_dataset(db, request, user, "created", body.project_uid, new_path)
     return _file_node(body.project_uid, new_path)
 
 
@@ -523,6 +538,7 @@ async def create_folder(
 @router.post("/move", status_code=status.HTTP_204_NO_CONTENT)
 async def move_dataset(
     body: DsMove,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -535,11 +551,13 @@ async def move_dataset(
     if src.exists():
         dst.parent.mkdir(parents=True, exist_ok=True)
         src.replace(dst)
+        await _notify_dataset(db, request, user, "updated", body.project_uid, body.new_path)
 
 
 @router.post("/delete", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_dataset(
     body: DsDelete,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -554,6 +572,7 @@ async def delete_dataset(
         shutil.rmtree(p, ignore_errors=True)
     elif p.is_file():
         p.unlink(missing_ok=True)
+    await _notify_dataset(db, request, user, "deleted", body.project_uid, body.path)
     dataset_fs.purge_orphans(body.project_uid)
     await dataset_service.reconcile_analyses(db, body.project_uid)
 

@@ -62,6 +62,8 @@ export function NotificationsBell() {
     if (n.entityType === 'cohort') return paths.cohort(project.workspaceId, n.projectUid, n.entityId)
     if (n.entityType === 'dashboard') return paths.dashboard(project.workspaceId, n.projectUid, n.entityId)
     if (n.entityType === 'dataset') return paths.datasets(project.workspaceId, n.projectUid)
+    if (n.entityType === 'script') return paths.ide(project.workspaceId, n.projectUid)
+    if (n.entityType === 'concept_list') return paths.concepts(project.workspaceId, n.projectUid)
     return null
   }
 

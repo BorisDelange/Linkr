@@ -4,8 +4,10 @@ import {
   type AppNotification, type ChangeEvent, type UiContext,
 } from '@/lib/api/notifications'
 import { useCohortStore } from '@/stores/cohort-store'
+import { useConceptListStore } from '@/stores/concept-list-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { useFileStore } from '@/stores/file-store'
 
 /**
  * Applies a change made elsewhere to the store that holds the entity, so an open
@@ -15,6 +17,10 @@ import { useDatasetStore } from '@/stores/dataset-store'
 const REFRESHERS: Record<string, (event: ChangeEvent) => Promise<void>> = {
   cohort: (e) => useCohortStore.getState().applyRemoteChange(e.entityId, e.action === 'deleted'),
   dashboard: (e) => useDashboardStore.getState().applyRemoteChange(e.entityId, e.action === 'deleted'),
+  script: async (e) => {
+    if (e.projectUid) await useFileStore.getState().applyRemoteChange(e.projectUid)
+  },
+  concept_list: () => useConceptListStore.getState().loadConceptLists(),
   dataset: async (e) => {
     const store = useDatasetStore.getState()
     if (e.projectUid && store.activeProjectUid === e.projectUid) await store.reloadDatasetsFromDisk(e.projectUid)

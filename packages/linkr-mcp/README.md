@@ -29,19 +29,27 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `get_ui_context` | where the user is in their last-focused Linkr tab (project, page, open cohort / dashboard + tab / dataset) — the defaults behind "this", "here" |
 | `list_projects`, `get_project_context` | projects; linked databases with their schema mapping in plain words; cohorts |
 | `describe_database`, `search_concepts`, `run_sql` | tables and columns; fuzzy concept search with record/patient counts; read-only SQL |
-| `list_cohorts`, `get_cohort`, `create_cohort`, `update_cohort` | criteria validated against the mapping, concept names filled in; or custom SQL |
+| `list_cohorts`, `get_cohort`, `create_cohort`, `update_cohort`, `delete_cohort` | criteria validated against the mapping, concept names filled in; or custom SQL |
 | `preview_cohort_sql`, `run_cohort` | generated SQL; count + attrition (sample rows opt-in) |
 | `cohort_report` | the app's cohort report: a text summary for the model + the HTML report as an MCP-UI resource (`ui://`), rendered inline by LibreChat and never sent to the model |
+| `list_concept_sets`, `get_concept_set` | the workspace's imported data dictionaries (read-only) with their resolved concept ids |
+| `list_concept_lists`, `get_concept_list`, `create_concept_list`, `update_concept_list`, `delete_concept_list` | the project's hand-picked concept lists |
 | `list_datasets`, `describe_dataset`, `preview_dataset` | datasets, columns (ids used by widgets), per-column summaries, rows on request |
 | `create_dataset_from_query` | a query's full result written server-side as a Parquet dataset — rows never transit through the agent |
+| `rename_dataset_column`, `remove_dataset_columns`, `set_column_metadata` | column edits recorded in the dataset's edit history (undoable in Linkr); labels, descriptions, value labels |
+| `duplicate_dataset`, `move_dataset`, `delete_dataset` | files in the project's datasets |
 | `list_plugins`, `describe_plugin` | widget types, and one plugin's config fields derived from its manifest |
-| `list_dashboards`, `describe_dashboard`, `create_dashboard` | dashboards with their tabs and widgets |
+| `list_dashboards`, `describe_dashboard`, `create_dashboard`, `update_dashboard`, `delete_dashboard` | dashboards with their tabs, widgets and filters |
+| `add_dashboard_filter`, `remove_dashboard_filter` | the filter sidebar: a dataset column, range or multi-select by type, optionally limited to tabs |
 | `add_tab`, `rename_tab`, `add_widget`, `update_widget` | columns by name or id, unknown columns/fields refused, 48-column grid placement |
 | `remove_widget`, `remove_tab` | `destructiveHint` — undoable from the notification centre |
+| `list_scripts`, `read_script`, `write_script`, `move_script`, `delete_script` | the project's IDE scripts, shown live in the user's IDE |
+| `run_code`, `run_script` | R or Python in the project's server kernel (session `default`, shared with the IDE); stdout, stderr, returned table; figures as a `ui://` resource |
 
-Code: `server.ts` (bootstrap) · `shared.ts` · `tools-context.ts` · `tools-warehouse.ts`
-(projects, databases, cohorts) · `tools-lab.ts` (datasets, plugins, dashboards) · pure
-helpers `cohorts.ts`, `lab.ts`, `plugins.ts` (tested).
+Code: `server.ts` / `http.ts` (entries) · `build.ts` · `shared.ts` · `tools-context.ts` ·
+`tools-warehouse.ts` (projects, databases, cohorts, report) · `tools-concepts.ts` ·
+`tools-lab.ts` (datasets, plugins, dashboards) · `tools-ide.ts` (scripts, runs) · pure
+helpers `cohorts.ts`, `concepts.ts`, `lab.ts`, `ide.ts`, `report.ts`, `plugins.ts` (tested).
 
 ## Run it for LibreChat (HTTP)
 

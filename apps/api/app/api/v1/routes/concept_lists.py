@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -12,7 +12,7 @@ from app.schemas.concept_list import (
     ConceptListResponse,
     ConceptListUpdate,
 )
-from app.services import concept_list_service
+from app.services import concept_list_service, notification_service
 
 router = APIRouter(prefix="/concept-lists", tags=["concept-lists"])
 
@@ -38,6 +38,14 @@ async def _load(
     return concept_list
 
 
+async def _notify(db: AsyncSession, request: Request, user: User, action: str, concept_list: ConceptList) -> None:
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action=action,
+        entity_type="concept_list", entity_id=concept_list.id, project_uid=concept_list.project_uid,
+        label=concept_list.name,
+    )
+
+
 @router.get("", response_model=list[ConceptListResponse])
 async def list_concept_lists(
     project_uid: str | None = Query(default=None, alias="projectUid"),
@@ -53,11 +61,14 @@ async def list_concept_lists(
 @router.post("", response_model=ConceptListResponse, status_code=status.HTTP_201_CREATED)
 async def create_concept_list(
     body: ConceptListCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_access(db, body.project_uid, user, "concepts:write")
-    return await concept_list_service.create(db, body)
+    created = await concept_list_service.create(db, body)
+    await _notify(db, request, user, "created", created)
+    return created
 
 
 @router.get("/{concept_list_id}", response_model=ConceptListResponse)
@@ -73,18 +84,23 @@ async def get_concept_list(
 async def update_concept_list(
     concept_list_id: str,
     body: ConceptListUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     concept_list = await _load(db, concept_list_id, user, "concepts:write")
-    return await concept_list_service.update(db, concept_list, body)
+    updated = await concept_list_service.update(db, concept_list, body)
+    await _notify(db, request, user, "updated", updated)
+    return updated
 
 
 @router.delete("/{concept_list_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_concept_list(
     concept_list_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     concept_list = await _load(db, concept_list_id, user, "concepts:delete")
+    await _notify(db, request, user, "deleted", concept_list)
     await concept_list_service.delete(db, concept_list)

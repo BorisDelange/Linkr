@@ -4,7 +4,7 @@ any means (terminal, git) appear in the IDE. No DB table backs these files."""
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -19,9 +19,16 @@ from app.schemas.ide_file import (
     IdeFileResponse,
     IdeFileWrite,
 )
-from app.services import project_fs
+from app.services import notification_service, project_fs
 
 router = APIRouter(prefix="/ide-files", tags=["ide-files"])
+
+
+async def _notify(db: AsyncSession, request: Request, user: User, action: str, project_uid: str, path: str) -> None:
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action=action,
+        entity_type="script", entity_id=path, project_uid=project_uid, label=path,
+    )
 
 
 async def _check_project(db: AsyncSession, project_uid: str, user: User, permission: str) -> None:
@@ -68,6 +75,7 @@ async def list_files(
 @router.post("", response_model=IdeFileResponse, status_code=status.HTTP_201_CREATED)
 async def create_file(
     body: IdeFileCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -79,6 +87,7 @@ async def create_file(
             project_fs.write_script(body.project_uid, body.path, body.content or "")
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    await _notify(db, request, user, "created", body.project_uid, body.path)
     return IdeFileResponse(
         id=project_fs.node_id("ide", body.path),
         name=body.path.rsplit("/", 1)[-1],
@@ -94,6 +103,7 @@ async def create_file(
 @router.put("/content", status_code=status.HTTP_204_NO_CONTENT)
 async def save_content(
     body: IdeFileWrite,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -102,11 +112,13 @@ async def save_content(
         project_fs.write_script(body.project_uid, body.path, body.content)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    await _notify(db, request, user, "updated", body.project_uid, body.path)
 
 
 @router.post("/move", status_code=status.HTTP_204_NO_CONTENT)
 async def move_file(
     body: IdeFileMove,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -115,11 +127,13 @@ async def move_file(
         project_fs.move_script(body.project_uid, body.path, body.new_path)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    await _notify(db, request, user, "updated", body.project_uid, body.new_path)
 
 
 @router.post("/delete", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_file(
     body: IdeFileDelete,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -128,3 +142,4 @@ async def delete_file(
         project_fs.delete_script(body.project_uid, body.path)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    await _notify(db, request, user, "deleted", body.project_uid, body.path)
