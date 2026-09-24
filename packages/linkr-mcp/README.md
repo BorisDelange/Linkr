@@ -31,6 +31,8 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `describe_database`, `search_concepts`, `run_sql` | tables and columns; fuzzy concept search with record/patient counts; read-only SQL |
 | `list_cohorts`, `get_cohort`, `create_cohort`, `update_cohort`, `delete_cohort` | criteria validated against the mapping, concept names filled in; or custom SQL |
 | `preview_cohort_sql`, `run_cohort` | generated SQL; count + attrition (sample rows opt-in) |
+| `freeze_cohort`, `unfreeze_cohort` | the app's Materialize: the server runs the full membership and stores it as the cohort's frozen list (what Patient data reads); project cohorts, not event level |
+| `import_atlas_cohort` | a cohort from an OHDSI ATLAS definition (object or JSON string), with the app's converter; lists every ATLAS feature dropped and whether the criteria fit the database's mapping |
 | `cohort_report` | the app's cohort report: a text summary for the model + the HTML report as an MCP-UI resource (`ui://`), rendered inline by LibreChat and never sent to the model |
 | `list_concept_sets`, `get_concept_set` | the workspace's imported data dictionaries (read-only): resolved concept ids, `uniqueId`, long description with its Mapping Notes |
 | `list_concept_lists`, `get_concept_list`, `create_concept_list`, `update_concept_list`, `delete_concept_list` | the project's hand-picked concept lists |
@@ -52,9 +54,9 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `create_mappings` | mappings (status unchecked) for picks the user confirmed; already-mapped sources skipped; project stats refreshed |
 
 Code: `server.ts` / `http.ts` (entries) · `build.ts` · `shared.ts` · `tools-context.ts` ·
-`tools-warehouse.ts` (projects, databases, cohorts, report) · `tools-concepts.ts` ·
+`tools-warehouse.ts` (projects, databases, cohorts, report) · `tools-cohorts-extra.ts` (freeze, ATLAS import) · `tools-concepts.ts` ·
 `tools-lab.ts` (datasets, plugins, dashboards) · `tools-ide.ts` (scripts, runs) · `tools-mapping.ts`
-(concept mapping) · pure helpers `cohorts.ts`, `concepts.ts`, `lab.ts`, `ide.ts`, `mapping.ts`, `report.ts`,
+(concept mapping) · pure helpers `cohorts.ts`, `cohorts-extra.ts`, `concepts.ts`, `lab.ts`, `ide.ts`, `mapping.ts`, `report.ts`,
 `plugins.ts` (tested).
 
 ## Skills

@@ -303,4 +303,11 @@ export class LinkrApi {
     this.request<ServerScoresIndex & { added: number; skipped: number }>(
       'POST', `/mapping-projects/${encodeURIComponent(id)}/scores/append`, { rows },
     )
+
+  // Cohorts: freeze, ATLAS import
+  /** The server runs the membership query whole and stores it as the cohort's materialization. */
+  materializeCohort = (id: string, body: { membershipSql: string; dataSourceId: string }) =>
+    this.request<Cohort>('POST', `/cohorts/${encodeURIComponent(id)}/materialize`, body)
+  clearCohortMaterialization = (id: string) =>
+    this.request<Cohort>('DELETE', `/cohorts/${encodeURIComponent(id)}/materialization`)
 }
