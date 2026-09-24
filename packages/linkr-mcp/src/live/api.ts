@@ -10,7 +10,7 @@
  * - `LINKR_TOKEN`    — an access token, or
  * - `LINKR_USERNAME` + `LINKR_PASSWORD` — logged in on first use, refreshed on 401.
  */
-import type { Cohort, Dashboard, DashboardTab, DashboardWidget, SchemaMapping } from '@/types'
+import type { Cohort, ConceptList, ConceptSet, Dashboard, DashboardTab, DashboardWidget, SchemaMapping } from '@/types'
 import type { ExecutionOutput, RunLanguage } from './ide.js'
 
 export interface Project {
@@ -241,4 +241,15 @@ export class LinkrApi {
     projectUid: string; language: RunLanguage; code: string; sessionId?: string
     datasetFileId?: string; connectionId?: string; label?: string
   }) => this.request<ExecutionOutput>('POST', '/execute', body)
+
+  listConceptSets = (workspaceId?: string) =>
+    this.request<ConceptSet[]>('GET', `/concept-sets${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ''}`)
+  getConceptSet = (id: string) => this.request<ConceptSet>('GET', `/concept-sets/${encodeURIComponent(id)}`)
+  listConceptLists = (projectUid: string) =>
+    this.request<ConceptList[]>('GET', `/concept-lists?projectUid=${encodeURIComponent(projectUid)}`)
+  getConceptList = (id: string) => this.request<ConceptList>('GET', `/concept-lists/${encodeURIComponent(id)}`)
+  createConceptList = (body: Record<string, unknown>) => this.request<ConceptList>('POST', '/concept-lists', body)
+  updateConceptList = (id: string, changes: Record<string, unknown>) =>
+    this.request<ConceptList>('PATCH', `/concept-lists/${encodeURIComponent(id)}`, changes)
+  deleteConceptList = (id: string) => this.request<void>('DELETE', `/concept-lists/${encodeURIComponent(id)}`)
 }
