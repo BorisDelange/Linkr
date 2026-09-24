@@ -31,7 +31,6 @@ const duckdb_eh_worker = duckdbAsset('duckdb-browser-eh.worker.js')
 // dollar-quote (a `;` inside any of those must not split a statement).
 import { splitSqlStatements } from './sql-tokenizer'
 import { shouldGuardMount, isAttachedCatalog } from './mount-guard'
-import { foldAccents } from '@/lib/fold-accents'
 export { splitSqlStatements }
 
 let _db: duckdb.AsyncDuckDB | null = null
@@ -140,26 +139,7 @@ export function resetDuckDB(): void {
 
 // --- Schema naming ---
 
-/**
- * Generate a DuckDB-safe alias (slug) from a human-readable name.
- * E.g. "MIMIC-IV Demo (raw)" → "mimic_iv_demo_raw"
- */
-export function generateAlias(name: string): string {
-  return foldAccents(name)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_|_$/g, '') || 'db'
-}
-
-/**
- * Ensure alias is unique among existing aliases by appending _2, _3, etc.
- */
-export function ensureUniqueAlias(alias: string, existingAliases: string[]): string {
-  if (!existingAliases.includes(alias)) return alias
-  let i = 2
-  while (existingAliases.includes(`${alias}_${i}`)) i++
-  return `${alias}_${i}`
-}
+export { ensureUniqueAlias, generateAlias } from '@/lib/alias'
 
 /** Maps dataSourceId → alias for schema naming. Populated by mount calls. */
 const aliasMap = new Map<string, string>()

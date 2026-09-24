@@ -3286,7 +3286,8 @@
       "dataset": "Dataset",
       "script": "Script",
       "concept_list": "Concept list",
-      "mapping_project": "Mapping project"
+      "mapping_project": "Mapping project",
+      "database": "Database"
     },
     "part": {
       "widget": {
@@ -3313,6 +3314,12 @@
         "created_one": "Membership frozen: {{count}} member",
         "created_other": "Membership frozen: {{count}} members",
         "deleted": "Frozen membership cleared"
+      },
+      "derivation": {
+        "started": "Being built from cohort « {{name}} »",
+        "done_one": "Built from cohort « {{name}} » ({{count}} patient)",
+        "done_other": "Built from cohort « {{name}} » ({{count}} patients)",
+        "failed": "Build from cohort « {{name}} » failed"
       }
     },
     "action": {

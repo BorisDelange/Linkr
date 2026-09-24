@@ -55,12 +55,15 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `remove_ai_suggestions` | withdraw a model's `ai/<model>` rows, all or for some source concepts (`destructiveHint`) |
 | `find_sources_for_targets` | reverse lookup: the source concepts suggestions link to given targets or a concept set's resolved concepts |
 | `search_docs`, `read_doc` | the user documentation (linkr.interhop.org): keyword search over the `docs-index.json` the website publishes at build (cached an hour; `LINKR_DOCS_INDEX` points elsewhere, e.g. a local website build), then a page in full as Markdown |
+| `list_database_cohorts`, `plan_cohort_derivation` | a database's own cohorts; whether a cohort can be derived and what the copy does with each table |
+| `derive_database_from_cohort` | the app's *Derive*: a new database (or SQL schema) restricted to a cohort — creates the managed target first, starts the server job, returns its `job_id` at once |
+| `get_job_status`, `cancel_job` | a job's status, progress, log tail and, for a finished derivation, the database id to query |
 
 Code: `server.ts` / `http.ts` (entries) · `build.ts` · `shared.ts` · `tools-context.ts` ·
 `tools-warehouse.ts` (projects, databases, cohorts, report) · `tools-cohorts-extra.ts` (freeze, ATLAS import) · `tools-concepts.ts` ·
 `tools-lab.ts` (datasets, plugins, dashboards) · `tools-ide.ts` (scripts, runs) · `tools-mapping.ts`
-(concept mapping) · `tools-docs.ts` (documentation) · pure helpers `cohorts.ts`, `cohorts-extra.ts`, `concepts.ts`,
-`docs.ts`, `lab.ts`, `ide.ts`, `mapping.ts`, `report.ts`,
+(concept mapping) · `tools-docs.ts` (documentation) · `tools-derive.ts` (derived databases, jobs) · pure helpers
+`cohorts.ts`, `cohorts-extra.ts`, `concepts.ts`, `derive.ts`, `docs.ts`, `lab.ts`, `ide.ts`, `mapping.ts`, `report.ts`,
 `plugins.ts` (tested).
 
 ## Skills

@@ -3286,7 +3286,8 @@
       "dataset": "Dataset",
       "script": "Script",
       "concept_list": "Liste de concepts",
-      "mapping_project": "Projet de mapping"
+      "mapping_project": "Projet de mapping",
+      "database": "Base de données"
     },
     "part": {
       "widget": {
@@ -3313,6 +3314,12 @@
         "created_one": "Composition figée : {{count}} membre",
         "created_other": "Composition figée : {{count}} membres",
         "deleted": "Composition figée supprimée"
+      },
+      "derivation": {
+        "started": "En cours de création à partir de la cohorte « {{name}} »",
+        "done_one": "Créée à partir de la cohorte « {{name}} » ({{count}} patient)",
+        "done_other": "Créée à partir de la cohorte « {{name}} » ({{count}} patients)",
+        "failed": "Échec de la création à partir de la cohorte « {{name}} »"
       }
     },
     "action": {

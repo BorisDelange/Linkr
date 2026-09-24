@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Cohort, DataSource, SchemaMapping } from '@/types'
-import { DERIVE_SCHEMA_NAME, createdData, derivableReason, derivationRequest, isWritableTarget, rebuildRequest } from './cohort-derive'
+import {
+  DERIVE_SCHEMA_NAME, createdData, defaultDeriveSchemaName, derivableReason, derivationRequest, derivedDatabaseRow,
+  isWritableTarget, rebuildRequest,
+} from './cohort-derive'
 
 const mapping = {
   presetId: 'omop',
@@ -100,5 +103,24 @@ describe('createdData', () => {
     expect(createdData(db({ connectionConfig: cfg({ engine: 'postgresql', schema: 'cohort_x' }), derivedFrom })))
       .toEqual({ kind: 'schema', schema: 'cohort_x' })
     expect(createdData(db({ connectionConfig: cfg({ engine: 'postgresql', schema: 'public' }), derivedFrom }))).toBeNull()
+  })
+})
+
+describe('derivedDatabaseRow', () => {
+  it('is a managed DuckDB with the parent\'s schema, a unique alias, being set up', () => {
+    const schemaSource = { label: 'OMOP' } as unknown as DataSource['schemaSource']
+    expect(derivedDatabaseRow(db({ schemaSource }), { en: 'ICU adults' }, ['icu_adults'])).toEqual({
+      alias: 'icu_adults_2', name: { en: 'ICU adults' }, description: {}, sourceType: 'database',
+      connectionConfig: { engine: 'duckdb', managed: true }, schemaMapping: mapping, schemaSource,
+      status: 'configuring', workspaceId: 'ws', version: '0.1.0',
+    })
+    expect(derivedDatabaseRow(db(), { en: 'X' }, [])).not.toHaveProperty('schemaSource')
+  })
+})
+
+describe('defaultDeriveSchemaName', () => {
+  it('is a valid schema name from the English name', () => {
+    expect(defaultDeriveSchemaName({ name: { en: 'Réa adultes (2024)', fr: 'x' } })).toBe('cohort_rea_adultes_2024')
+    expect(DERIVE_SCHEMA_NAME.test(defaultDeriveSchemaName({ name: { en: 'a'.repeat(100) } }))).toBe(true)
   })
 })

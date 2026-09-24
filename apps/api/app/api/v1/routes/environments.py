@@ -428,6 +428,20 @@ async def clear_finished_workspace_jobs(
     await jobs.clear_finished(db, None, user.id, workspace_id=workspace_id)
 
 
+@router.get("/jobs/{job_id}", response_model=JobResponse)
+async def get_job(
+    job_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """One job, for a client that started it and follows it without the panel
+    (an agent polling a derivation). Only the owner may read it, like cancel."""
+    job = await db.get(Job, job_id)
+    if job is None or job.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+    return JobResponse.model_validate(job, from_attributes=True)
+
+
 @router.post("/jobs/{job_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_job(
     job_id: str,
