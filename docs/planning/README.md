@@ -362,6 +362,23 @@ The model is implemented and its surface coverage verified (2026-07-12); as-buil
 | 💤 | Group-access rework bucket: `workspace_id is None → no check` pattern + `update_project` destination-workspace check | M |
 | 💤 | Minors: inline gating by context, organizations read open to all, test-connection SSRF | S–M |
 
+## Per-user database credentials — [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md)
+
+Today one password per external database, shared by everyone who can read it — the
+database's grants and audit see a single login. Target: a **personal account per
+(user, database)** by default (`DatabaseCredential`, like `GitCredential`), a shared
+service account only as an explicit, badged choice; warm connections and derived
+caches keyed per principal; jobs resolve the launcher's login at run time; no password
+reachable by an agent through `client_recipe`. File-based databases stay the storage
+admin's job: Linkr only adds per-workspace browse roots.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🤔 | Arbitrate: default mode, per-principal caches, recipe policy under API keys | S |
+| 🔜 | Model + resolver (428 `CredentialRequired`) + pool/caches per principal + routes | M–L |
+| 🔜 | Front: credential dialog, database auth mode, *Database accounts* settings tab | M |
+| 🔜 | Per-workspace browse roots for file-based databases | M |
+
 ## Other backlog items
 
 | St | Item | Effort |
