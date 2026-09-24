@@ -230,7 +230,7 @@ Copy these; they are what `ConceptDataTable` renders.
 | Body cell | `overflow-hidden truncate px-2 py-1 text-xs` |
 | Inline filter input | `h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px]` |
 | Empty state row | `h-16 text-center text-xs text-muted-foreground` |
-| Footer bar | `border-t px-3 py-1.5`, counter `text-[10px]`. **Left:** result count + column menu. **Right:** page arrows and `n / m`. Same in every table — don't rebuild it. |
+| Footer bar | `border-t px-3 py-1.5`, counter `text-[10px]`. **Left:** result count + column menu (it lists every column but those with an empty `header` — actions, row checkbox). **Right:** page arrows and `n / m`. Same in every table — don't rebuild it. |
 | Sticky header (when needed) | `sticky top-0 z-10 bg-muted` |
 
 Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits

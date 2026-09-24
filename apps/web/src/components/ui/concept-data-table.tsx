@@ -752,7 +752,9 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
             {filtered.length} / {data.length} {t('common.results').toLowerCase()}
           </span>
           <ColumnVisibilityMenu
-            items={table.getAllColumns().map((col) => ({
+            // An unlabelled column is a control (actions, row checkbox), not data:
+            // it has no name to list and nothing to gain from being hidden.
+            items={table.getAllColumns().filter((col) => colById.get(col.id)?.header !== '').map((col) => ({
               id: col.id,
               label: colById.get(col.id)?.header ?? col.id,
               visible: col.getIsVisible(),
