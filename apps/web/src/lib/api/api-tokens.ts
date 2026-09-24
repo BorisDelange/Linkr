@@ -1,6 +1,6 @@
 /**
  * Personal API keys (server mode): let an external client — the `linkr` MCP
- * server in LibreChat or Claude Code — act as the user without a password.
+ * server in LibreChat or OpenCode — act as the user without a password.
  * Managing them needs a session login; a key cannot list, mint or revoke keys.
  */
 import { apiRequest } from '@/lib/api-client'

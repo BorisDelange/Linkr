@@ -5545,7 +5545,7 @@
   },
   "api_tokens": {
     "title": "API keys",
-    "description": "Personal keys that let an external client — the Linkr MCP server in LibreChat or Claude Code — act as you, with your permissions, without your password.",
+    "description": "Personal keys that let an external client — the Linkr MCP server in LibreChat or OpenCode — act as you, with your permissions, without your password.",
     "new": "New API key",
     "empty": "No API key yet.",
     "key": "Key",

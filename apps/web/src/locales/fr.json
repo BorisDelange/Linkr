@@ -5545,7 +5545,7 @@
   },
   "api_tokens": {
     "title": "Clés API",
-    "description": "Des clés personnelles qui permettent à un client externe — le serveur MCP de Linkr dans LibreChat ou Claude Code — d'agir en votre nom, avec vos droits, sans votre mot de passe.",
+    "description": "Des clés personnelles qui permettent à un client externe — le serveur MCP de Linkr dans LibreChat ou OpenCode — d'agir en votre nom, avec vos droits, sans votre mot de passe.",
     "new": "Nouvelle clé API",
     "empty": "Aucune clé API pour l'instant.",
     "key": "Clé",
