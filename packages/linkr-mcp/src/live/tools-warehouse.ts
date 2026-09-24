@@ -18,7 +18,7 @@ import {
 } from './cohorts.js'
 import { REPORT_LANGUAGES, embedReportHtml, reportTranslator, summarizeReport, type ReportLanguage } from './report.js'
 import {
-  READ, WRITE, api, failure, guard, loc, mappingOf, projectDatabases, text, type Server,
+  DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, mappingOf, projectDatabases, text, type Server,
 } from './shared.js'
 
 /** The database a cohort runs on — the one owning it, its own, else the project's
@@ -336,6 +336,18 @@ export function registerWarehouseTools(server: Server): void {
     if (updated.customSql && criteria !== undefined) warnings.push('This cohort has custom SQL: the criteria are ignored until custom_sql is set to null.')
     const warn = warnings.length ? `\n\nWarnings:\n- ${warnings.join('\n- ')}` : ''
     return text(`Updated.\n\n${describeCohort(updated, mapping ?? await mappingOf(dbId).catch(() => undefined))}${warn}`)
+  }))
+
+  server.registerTool('delete_cohort', {
+    description: 'Delete a cohort. Ask the user first; they can undo it from Linkr\'s notifications.',
+    annotations: DESTRUCTIVE,
+    inputSchema: fromJsonSchema<{ cohort_id: string }>({
+      type: 'object', properties: { cohort_id: { type: 'string' } }, required: ['cohort_id'],
+    }),
+  }, guard(async ({ cohort_id }) => {
+    const cohort = await api.getCohort(cohort_id)
+    await api.deleteCohort(cohort_id)
+    return text(`Deleted cohort "${loc(cohort.name)}".`)
   }))
 
   server.registerTool('preview_cohort_sql', {

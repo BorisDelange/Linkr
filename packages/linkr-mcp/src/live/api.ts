@@ -162,6 +162,7 @@ export class LinkrApi {
   createCohort = (body: Record<string, unknown>) => this.request<Cohort>('POST', '/cohorts', body)
   updateCohort = (id: string, changes: Record<string, unknown>) =>
     this.request<Cohort>('PATCH', `/cohorts/${encodeURIComponent(id)}`, changes)
+  deleteCohort = (id: string) => this.request<void>('DELETE', `/cohorts/${encodeURIComponent(id)}`)
 
   getUiContext = () => this.request<Record<string, unknown> | null>('GET', '/notifications/ui-context')
 
@@ -188,6 +189,9 @@ export class LinkrApi {
     this.request<Dashboard[]>('GET', `/dashboards?projectUid=${encodeURIComponent(projectUid)}`)
   getDashboard = (id: string) => this.request<Dashboard>('GET', `/dashboards/${encodeURIComponent(id)}`)
   createDashboard = (body: Record<string, unknown>) => this.request<Dashboard>('POST', '/dashboards', body)
+  updateDashboard = (id: string, changes: Record<string, unknown>) =>
+    this.request<Dashboard>('PATCH', `/dashboards/${encodeURIComponent(id)}`, changes)
+  deleteDashboard = (id: string) => this.request<void>('DELETE', `/dashboards/${encodeURIComponent(id)}`)
   listTabs = (dashboardId: string) =>
     this.request<DashboardTab[]>('GET', `/dashboards/${encodeURIComponent(dashboardId)}/tabs`)
   getTab = (id: string) => this.request<DashboardTab>('GET', `/dashboards/tabs/${encodeURIComponent(id)}`)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PluginManifest } from '@/types/plugin'
-import { GRID_COLUMNS, placeWidget, resolveColumns } from './lab'
+import { GRID_COLUMNS, buildFilter, placeWidget, resolveColumns } from './lab'
 import { findPlugin, listPlugins, pluginDoc } from './plugins'
 
 const MANIFEST = {
@@ -59,5 +59,26 @@ describe('plugins', () => {
     const doc = pluginDoc(findPlugin('plot-builder')!)
     expect(doc).toContain('xColumn (column')
     expect(doc).not.toMatch(/colorPalette|legendFontSize/)
+  })
+})
+
+describe('buildFilter', () => {
+  const columns = [
+    { id: 'col_age', name: 'age', type: 'number' },
+    { id: 'col_sex', name: 'sex', type: 'string' },
+    { id: 'col_adm', name: 'admission', type: 'date' },
+  ]
+  const make = (column: string, extra: { inputType?: string; tabIds?: string[] } = {}) =>
+    buildFilter({ id: 'f1', datasetPath: 'data/icu.parquet', column, columns, ...extra })
+
+  it('picks the app defaults by column type and resolves names', () => {
+    expect(make('Age').filter).toMatchObject({ columnId: 'col_age', type: 'numeric', inputType: 'range', scope: { type: 'all' } })
+    expect(make('col_sex').filter).toMatchObject({ type: 'categorical', inputType: 'multi-select' })
+    expect(make('admission', { tabIds: ['t1'] }).filter).toMatchObject({ type: 'date', scope: { type: 'tabs', tabIds: ['t1'] } })
+  })
+
+  it('refuses an unknown column or an input type that does not fit', () => {
+    expect(make('weight').error).toMatch(/No column "weight"/)
+    expect(make('sex', { inputType: 'range' }).error).toMatch(/allowed: multi-select, checkbox, single-select/)
   })
 })

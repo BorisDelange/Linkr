@@ -2,6 +2,7 @@
  * Pure helpers for dashboard widgets: the checks that turn a model's config into
  * one the widget renders, instead of a blank chart with an empty column picker.
  */
+import type { DashboardFilter } from '@/types'
 import type { PluginManifest } from '@/types/plugin'
 
 /** Dashboards use a 48-column grid (gridV 2); a new widget is half width. */
@@ -75,4 +76,47 @@ export function placeWidget(existing: Layout[], requested?: Partial<Layout>): La
  *  so the label is never blank in the other one. */
 export function bilingual(value: string): Record<string, string> {
   return { en: value, fr: value }
+}
+
+const INPUT_TYPES: Record<DashboardFilter['type'], DashboardFilter['inputType'][]> = {
+  categorical: ['multi-select', 'checkbox', 'single-select'],
+  numeric: ['range', 'double-range', 'multi-select', 'checkbox', 'single-select'],
+  date: ['range', 'slider', 'multi-select', 'checkbox', 'single-select'],
+}
+
+/**
+ * A dashboard filter on one dataset column, with the defaults the app's filter
+ * dialog picks (numbers and dates as a range, the rest as a multi-select), or an
+ * error naming what is allowed.
+ */
+export function buildFilter(args: {
+  id: string
+  datasetPath: string
+  column: string
+  columns: DatasetColumn[]
+  inputType?: string
+  label?: string
+  tabIds?: string[]
+}): { filter?: DashboardFilter; error?: string } {
+  const col = args.columns.find((c) => c.id === args.column)
+    ?? args.columns.find((c) => c.name.toLowerCase() === args.column.toLowerCase())
+  if (!col) return { error: `No column "${args.column}" (columns: ${args.columns.map((c) => c.name).join(', ')}).` }
+  const type: DashboardFilter['type'] = col.type === 'number' ? 'numeric' : col.type === 'date' ? 'date' : 'categorical'
+  const allowed = INPUT_TYPES[type]
+  const inputType = (args.inputType ?? allowed[0]) as DashboardFilter['inputType']
+  if (!allowed.includes(inputType)) {
+    return { error: `input_type "${args.inputType}" does not fit a ${type} column (allowed: ${allowed.join(', ')}).` }
+  }
+  return {
+    filter: {
+      id: args.id,
+      datasetFileId: args.datasetPath,
+      columnId: col.id,
+      columnName: col.name,
+      type,
+      inputType,
+      ...(args.label ? { label: bilingual(args.label) } : {}),
+      scope: args.tabIds?.length ? { type: 'tabs', tabIds: args.tabIds } : { type: 'all' },
+    },
+  }
 }

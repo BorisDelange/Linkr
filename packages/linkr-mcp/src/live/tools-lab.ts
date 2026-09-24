@@ -3,7 +3,7 @@ import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
 import type { DashboardWidget } from '@/types'
 import { formatRows } from './cohorts.js'
-import { bilingual, placeWidget, resolveColumns, type DatasetColumn, type Layout } from './lab.js'
+import { bilingual, buildFilter, placeWidget, resolveColumns, type DatasetColumn, type Layout } from './lab.js'
 import { findPlugin, listPlugins, pluginDoc, pluginSummary } from './plugins.js'
 import {
   DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server,
@@ -181,6 +181,10 @@ export function registerLabTools(server: Server): void {
       for (const w of await api.listWidgets(tab.id)) out.push(describeWidget(w))
     }
     if (tabs.length === 0) out.push('  (no tab)')
+    for (const f of dashboard.filterConfig ?? []) {
+      const scope = f.scope?.type === 'tabs' ? ` on tabs ${f.scope.tabIds.join(', ')}` : ''
+      out.push(`  filter ${f.columnName} (${f.type}, ${f.inputType}) on ${f.datasetFileId}${scope} — filter_id: ${f.id}`)
+    }
     return text(out.join('\n'))
   }))
 
@@ -338,5 +342,95 @@ export function registerLabTools(server: Server): void {
   }, guard(async ({ tab_id }) => {
     await api.deleteTab(tab_id)
     return text(`Deleted tab ${tab_id}.`)
+  }))
+
+  server.registerTool('update_dashboard', {
+    description: 'Rename a dashboard, change its description or its default dataset.',
+    annotations: WRITE,
+    inputSchema: fromJsonSchema<{ dashboard_id: string; name?: string; description?: string; dataset_path?: string }>({
+      type: 'object',
+      properties: {
+        dashboard_id: { type: 'string' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        dataset_path: { type: 'string', description: 'New default dataset for widgets that do not name one.' },
+      },
+      required: ['dashboard_id'],
+    }),
+  }, guard(async ({ dashboard_id, name, description, dataset_path }) => {
+    const changes: Record<string, unknown> = {}
+    if (name !== undefined) changes.name = bilingual(name)
+    if (description !== undefined) changes.description = bilingual(description)
+    if (dataset_path !== undefined) changes.defaultDatasetFileId = dataset_path
+    if (Object.keys(changes).length === 0) return failure('Nothing to change: give name, description or dataset_path.')
+    const dashboard = await api.updateDashboard(dashboard_id, changes)
+    return text(`Updated dashboard "${loc(dashboard.name)}".`)
+  }))
+
+  server.registerTool('delete_dashboard', {
+    description: 'Delete a dashboard with all its tabs and widgets. Ask the user first; they can undo it from '
+      + 'Linkr\'s notifications.',
+    annotations: DESTRUCTIVE,
+    inputSchema: fromJsonSchema<{ dashboard_id: string }>({
+      type: 'object', properties: { dashboard_id: { type: 'string' } }, required: ['dashboard_id'],
+    }),
+  }, guard(async ({ dashboard_id }) => {
+    const dashboard = await api.getDashboard(dashboard_id)
+    await api.deleteDashboard(dashboard_id)
+    return text(`Deleted dashboard "${loc(dashboard.name)}".`)
+  }))
+
+  server.registerTool('add_dashboard_filter', {
+    description: 'Add a filter to a dashboard\'s filter sidebar: one column of a dataset, which then filters every '
+      + 'widget reading that dataset (and, by column name, the other datasets). Numbers and dates default to a '
+      + 'range, other columns to a multi-select.',
+    annotations: WRITE,
+    inputSchema: fromJsonSchema<{
+      dashboard_id: string; column: string; dataset_path?: string; input_type?: string; label?: string; tab_ids?: string[]
+    }>({
+      type: 'object',
+      properties: {
+        dashboard_id: { type: 'string' },
+        column: { type: 'string', description: 'Column name or id.' },
+        dataset_path: { type: 'string', description: 'Default: the dashboard\'s default dataset.' },
+        input_type: {
+          type: 'string',
+          enum: ['multi-select', 'checkbox', 'single-select', 'range', 'double-range', 'slider'],
+          description: 'range / double-range for numbers, range / slider for dates.',
+        },
+        label: { type: 'string', description: 'Shown instead of the column name.' },
+        tab_ids: { type: 'array', items: { type: 'string' }, description: 'Limit the filter to these tabs. Default: all.' },
+      },
+      required: ['dashboard_id', 'column'],
+    }),
+  }, guard(async ({ dashboard_id, column, dataset_path, input_type, label, tab_ids }) => {
+    const dashboard = await api.getDashboard(dashboard_id)
+    const dataset = dataset_path ?? dashboard.defaultDatasetFileId
+    if (!dataset) return failure('This dashboard has no default dataset: give dataset_path.')
+    const built = buildFilter({
+      id: randomUUID(), datasetPath: dataset, column,
+      columns: await datasetColumns(dashboard.projectUid, dataset), inputType: input_type, label, tabIds: tab_ids,
+    })
+    if (!built.filter) return failure(built.error!)
+    await api.updateDashboard(dashboard_id, { filterConfig: [...(dashboard.filterConfig ?? []), built.filter] })
+    return text(`Added filter on ${built.filter.columnName} (${built.filter.inputType}) — filter_id: ${built.filter.id}`)
+  }))
+
+  server.registerTool('remove_dashboard_filter', {
+    description: 'Remove one filter from a dashboard (filter ids: describe_dashboard).',
+    annotations: WRITE,
+    inputSchema: fromJsonSchema<{ dashboard_id: string; filter_id: string }>({
+      type: 'object',
+      properties: { dashboard_id: { type: 'string' }, filter_id: { type: 'string' } },
+      required: ['dashboard_id', 'filter_id'],
+    }),
+  }, guard(async ({ dashboard_id, filter_id }) => {
+    const dashboard = await api.getDashboard(dashboard_id)
+    const filters = dashboard.filterConfig ?? []
+    if (!filters.some((f) => f.id === filter_id)) {
+      return failure(`No filter ${filter_id} on this dashboard (filters: ${filters.map((f) => `${f.id} ${f.columnName}`).join(', ') || 'none'}).`)
+    }
+    await api.updateDashboard(dashboard_id, { filterConfig: filters.filter((f) => f.id !== filter_id) })
+    return text(`Removed filter ${filter_id}.`)
   }))
 }
