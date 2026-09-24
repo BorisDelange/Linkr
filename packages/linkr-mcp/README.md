@@ -52,11 +52,13 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `create_mappings` | mappings (status unchecked) for picks the user confirmed; already-mapped sources skipped; project stats refreshed |
 | `remove_ai_suggestions` | withdraw a model's `ai/<model>` rows, all or for some source concepts (`destructiveHint`) |
 | `find_sources_for_targets` | reverse lookup: the source concepts suggestions link to given targets or a concept set's resolved concepts |
+| `search_docs`, `read_doc` | the user documentation (linkr.interhop.org): keyword search over the `docs-index.json` the website publishes at build (cached an hour; `LINKR_DOCS_INDEX` points elsewhere, e.g. a local website build), then a page in full as Markdown |
 
 Code: `server.ts` / `http.ts` (entries) · `build.ts` · `shared.ts` · `tools-context.ts` ·
 `tools-warehouse.ts` (projects, databases, cohorts, report) · `tools-concepts.ts` ·
 `tools-lab.ts` (datasets, plugins, dashboards) · `tools-ide.ts` (scripts, runs) · `tools-mapping.ts`
-(concept mapping) · pure helpers `cohorts.ts`, `concepts.ts`, `lab.ts`, `ide.ts`, `mapping.ts`, `report.ts`,
+(concept mapping) · `tools-docs.ts` (documentation) · pure helpers `cohorts.ts`, `concepts.ts`, `docs.ts`, `lab.ts`, `ide.ts`,
+`mapping.ts`, `report.ts`,
 `plugins.ts` (tested).
 
 ## Skills

@@ -2,6 +2,7 @@
 import { McpServer } from '@modelcontextprotocol/server'
 import { registerConceptTools } from './tools-concepts.js'
 import { registerContextTools } from './tools-context.js'
+import { registerDocsTools } from './tools-docs.js'
 import { registerIdeTools } from './tools-ide.js'
 import { registerLabTools } from './tools-lab.js'
 import { registerMappingTools } from './tools-mapping.js'
@@ -15,5 +16,6 @@ export function buildServer(): McpServer {
   registerLabTools(server)
   registerIdeTools(server)
   registerMappingTools(server)
+  registerDocsTools(server)
   return server
 }
