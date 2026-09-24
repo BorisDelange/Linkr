@@ -28,6 +28,7 @@ import type {
   CriteriaType,
   CriteriaConfig,
   SchemaMapping,
+  CohortLevel,
 } from '@/types'
 
 interface CriteriaPanelProps {
@@ -38,6 +39,7 @@ interface CriteriaPanelProps {
   visitDateRange?: { minDate: string; maxDate: string }
   dataSourceId?: string
   schemaMapping?: SchemaMapping
+  cohortLevel?: CohortLevel
 }
 
 // --- Immutable tree helpers ---
@@ -131,6 +133,7 @@ export function CriteriaPanel({
   visitDateRange,
   dataSourceId,
   schemaMapping,
+  cohortLevel,
 }: CriteriaPanelProps) {
   const { t } = useTranslation()
 
@@ -278,6 +281,7 @@ export function CriteriaPanel({
                     visitDateRange={visitDateRange}
                     dataSourceId={dataSourceId}
                     schemaMapping={schemaMapping}
+                    cohortLevel={cohortLevel}
                     collapseSignal={collapseSignal}
                   />
                 ) : (
@@ -295,6 +299,7 @@ export function CriteriaPanel({
                     visitDateRange={visitDateRange}
                     dataSourceId={dataSourceId}
                     schemaMapping={schemaMapping}
+                    cohortLevel={cohortLevel}
                   />
                 )}
               </div>

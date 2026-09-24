@@ -41,6 +41,7 @@ import type {
   CriteriaType,
   CriteriaConfig,
   SchemaMapping,
+  CohortLevel,
 } from '@/types'
 
 interface CriteriaGroupNodeComponentProps {
@@ -57,6 +58,7 @@ interface CriteriaGroupNodeComponentProps {
   visitDateRange?: { minDate: string; maxDate: string }
   dataSourceId?: string
   schemaMapping?: SchemaMapping
+  cohortLevel?: CohortLevel
 }
 
 export function CriteriaGroupNodeComponent({
@@ -73,6 +75,7 @@ export function CriteriaGroupNodeComponent({
   visitDateRange,
   dataSourceId,
   schemaMapping,
+  cohortLevel,
 }: CriteriaGroupNodeComponentProps) {
   const { t } = useTranslation()
   const [editingLabel, setEditingLabel] = useState(false)
@@ -296,6 +299,7 @@ export function CriteriaGroupNodeComponent({
                           visitDateRange={visitDateRange}
                           dataSourceId={dataSourceId}
                           schemaMapping={schemaMapping}
+                          cohortLevel={cohortLevel}
                         />
                       ) : (
                         <CriteriaGroupNodeComponent
@@ -312,6 +316,7 @@ export function CriteriaGroupNodeComponent({
                           visitDateRange={visitDateRange}
                           dataSourceId={dataSourceId}
                           schemaMapping={schemaMapping}
+                          cohortLevel={cohortLevel}
                         />
                       )}
                     </div>

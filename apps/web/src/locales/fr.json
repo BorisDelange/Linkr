@@ -1139,6 +1139,7 @@
     "age_unit_months": "mois",
     "age_unit_days": "jours",
     "age_needs_birth_date": "Ce schéma n'a pas de colonne de date de naissance, seulement une année. Un âge en jours ou en mois ne peut pas être calculé et ce critère ne sélectionnera personne.",
+    "concept_not_bound_to_stay": "Cette table d'événements n'a pas de date dans le mapping du schéma : ce critère ne peut pas être limité au séjour et retient les événements à n'importe quel moment de l'historique du patient.",
     "duration_months": "Mois",
     "death_reference_any": "À n’importe quel moment",
     "level_label": "Une ligne par",

@@ -447,6 +447,7 @@ export function CohortBuilder() {
                   visitDateRange={visitDateRange}
                   dataSourceId={activeSource?.id}
                   schemaMapping={mapping}
+                  cohortLevel={cohort.level}
                 />
               </div>
             ) : (

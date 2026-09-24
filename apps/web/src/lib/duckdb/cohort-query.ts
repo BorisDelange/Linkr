@@ -618,7 +618,7 @@ function buildTextCriteria(
   const combined = buildPrecedenceClause(conditions)
 
   // Notes hang off the patient; at visit level, narrow to the visit when the
-  // mapping says which visit a note belongs to.
+  // mapping says which visit a note belongs to, else to the stay's dates.
   const linkCol =
     level === 'patient'
       ? `n."${nt.patientIdColumn}" = "${baseTable}"."${mapping.patientTable?.idColumn ?? 'person_id'}"`
@@ -626,6 +626,9 @@ function buildTextCriteria(
   const links = [linkCol]
   if (level === 'visit' && nt.visitIdColumn && mapping.visitTable) {
     links.push(`n."${nt.visitIdColumn}" = "${baseTable}"."${mapping.visitTable.idColumn}"`)
+  } else {
+    const window = stayWindowClause(level, mapping, baseTable, nt.dateColumn ? `n."${nt.dateColumn}"` : undefined)
+    if (window) links.push(window)
   }
 
   return `EXISTS (SELECT 1 FROM ${qualify(nt)} n WHERE ${links.join(' AND ')} AND (${combined}))`
@@ -752,6 +755,55 @@ function buildCareSiteCriteria(
   ].join('\n')
 }
 
+// --- Stay window ---
+
+/**
+ * `eventDate` falls inside the stay whose bounds are `start`..`end`. Compared at
+ * day precision whenever either side carries no time (midnight, as a DATE casts):
+ * an OMOP `visit_end_date` must still admit that day's 14:00 measurement, and a
+ * date-only event must still count on the admission day. A NULL bound is open —
+ * a stay still in progress has no end.
+ */
+export function withinStaySql(eventDate: string, start: string, end: string | null): string {
+  const ts = (x: string) => `CAST(${x} AS TIMESTAMP)`
+  const dayOnly = (x: string) => `${ts(x)} = CAST(CAST(${x} AS DATE) AS TIMESTAMP)`
+  const bound = (b: string, op: '>=' | '<=') =>
+    `(${b} IS NULL OR CASE WHEN ${dayOnly(eventDate)} OR ${dayOnly(b)}`
+    + ` THEN CAST(${eventDate} AS DATE) ${op} CAST(${b} AS DATE) ELSE ${ts(eventDate)} ${op} ${ts(b)} END)`
+  return [bound(start, '>='), ...(end ? [bound(end, '<=')] : [])].join(' AND ')
+}
+
+/**
+ * At a stay level, the clause keeping an event to the stay being selected, else
+ * null (patient level, or no date to compare). Without it a criterion was tied
+ * to the patient only, and "stays with a lactate > 2" kept every stay of anyone
+ * who ever had one.
+ */
+function stayWindowClause(
+  level: CohortLevel,
+  mapping: SchemaMapping,
+  baseTable: string,
+  eventDate: string | undefined,
+): string | null {
+  if (level !== 'visit' && level !== 'visit_detail') return null
+  const start = getStartDateColumn(level, mapping)
+  if (!eventDate || !start) return null
+  const end = getEndDateColumn(level, mapping)
+  return withinStaySql(eventDate, `"${baseTable}"."${start}"`, end ? `"${baseTable}"."${end}"` : null)
+}
+
+/** Whether a concept criterion on this event table can be kept to the stay at
+ *  this level; false means it still matches any time in the patient's history. */
+export function conceptCriterionBoundToStay(
+  level: CohortLevel,
+  mapping: SchemaMapping,
+  eventTableLabel: string,
+): boolean {
+  if (level !== 'visit' && level !== 'visit_detail') return true
+  const et = mapping.eventTables?.[eventTableLabel]
+  return Boolean(et?.dateColumn && getStartDateColumn(level, mapping))
+}
+
 // --- Concept ---
 
 function buildConceptCriteria(
@@ -782,6 +834,8 @@ function buildConceptCriteria(
 
   // Link to base table patient
   conditions.push(`e."${et.patientIdColumn ?? patientIdCol}" = "${baseTable}"."${patientIdCol}"`)
+  const window = stayWindowClause(level, mapping, baseTable, et.dateColumn ? `e."${et.dateColumn}"` : undefined)
+  if (window) conditions.push(window)
 
   // Multiple value filters (ANDed together). Operator and bounds are both
   // validated: an imported cohort can put arbitrary strings in either.

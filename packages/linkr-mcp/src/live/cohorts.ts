@@ -43,7 +43,10 @@ Criterion types and their config:
               "occurrenceCount"?: {"operator": ">="|">"|"="|"<="|"<", "count": n}}
              conceptIds come from search_concepts; names are filled in for you.
 - text:      {"searches": [{"field": "title"|"text", "terms": ["..."], "mode"?: "contains"|"word"|"regex",
-              "anyTerm"?: true, "exclude"?: false}], "label"?: "..."}  (needs a note table)`
+              "anyTerm"?: true, "exclude"?: false}], "label"?: "..."}  (needs a note table)
+
+At visit and visit_detail level, a concept or text criterion only counts events dated within the stay
+(between its start and end); use the patient level for "at any time".`
 
 export interface NormalizeResult {
   tree: CriteriaGroupNode

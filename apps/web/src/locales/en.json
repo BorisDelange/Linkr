@@ -1139,6 +1139,7 @@
     "age_unit_months": "months",
     "age_unit_days": "days",
     "age_needs_birth_date": "This schema has no birth date column, only a birth year. An age in days or months cannot be computed and this criterion will match no one.",
+    "concept_not_bound_to_stay": "This event table has no date in the schema mapping, so it cannot be limited to the stay: this criterion matches events at any time in the patient's history.",
     "duration_months": "Months",
     "death_reference_any": "At any time",
     "level_label": "One row per",

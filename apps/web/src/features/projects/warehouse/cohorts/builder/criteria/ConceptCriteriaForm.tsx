@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, X, Plus, Search } from 'lucide-react'
+import { AlertTriangle, ChevronRight, X, Plus, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
@@ -18,22 +18,27 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import type { ConceptCriteriaConfig, ValueFilter } from '@/types'
+import { conceptCriterionBoundToStay } from '@/lib/duckdb/cohort-query'
+import type { CohortLevel, ConceptCriteriaConfig, SchemaMapping, ValueFilter } from '@/types'
 
 interface ConceptCriteriaFormProps {
   config: ConceptCriteriaConfig
   onChange: (config: ConceptCriteriaConfig) => void
   eventTableLabels: string[]
   onOpenConceptPicker?: () => void
+  cohortLevel?: CohortLevel
+  schemaMapping?: SchemaMapping
 }
 
 const VALUE_OPERATORS = ['>', '>=', '=', '<=', '<', '!=', 'between'] as const
 const COUNT_OPERATORS = ['>=', '>', '=', '<=', '<'] as const
 
-export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpenConceptPicker }: ConceptCriteriaFormProps) {
+export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpenConceptPicker, cohortLevel, schemaMapping }: ConceptCriteriaFormProps) {
   const { t } = useTranslation()
   const [valueFilterOpen, setValueFilterOpen] = useState((config.valueFilters?.length ?? 0) > 0)
   const [occurrenceOpen, setOccurrenceOpen] = useState(!!config.occurrenceCount)
+  const unboundToStay = !!cohortLevel && !!schemaMapping && !!config.eventTableLabel
+    && !conceptCriterionBoundToStay(cohortLevel, schemaMapping, config.eventTableLabel)
 
   const removeConcept = (conceptId: number) => {
     const conceptIds = config.conceptIds.filter((id) => id !== conceptId)
@@ -80,6 +85,12 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
           </Select>
         )}
       </FormField>
+      {unboundToStay && (
+        <p className="flex items-start gap-1.5 text-[10px] text-amber-600 dark:text-amber-500">
+          <AlertTriangle size={12} className="mt-px shrink-0" />
+          {t('cohorts.concept_not_bound_to_stay')}
+        </p>
+      )}
 
       {/* Selected concepts + picker button */}
       <div className="space-y-1">

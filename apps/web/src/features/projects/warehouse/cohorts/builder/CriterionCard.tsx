@@ -61,6 +61,7 @@ import type {
   ConceptCriteriaConfig,
   TextCriteriaConfig,
   SchemaMapping,
+  CohortLevel,
 } from '@/types'
 
 interface CriterionCardProps {
@@ -72,6 +73,7 @@ interface CriterionCardProps {
   visitDateRange?: { minDate: string; maxDate: string }
   dataSourceId?: string
   schemaMapping?: SchemaMapping
+  cohortLevel?: CohortLevel
   /** Bumped by the panel's expand/collapse-all. Each change applies `collapseAll`
    *  to this card, while leaving it free to be toggled individually after. */
   collapseSignal?: { seq: number; collapsed: boolean }
@@ -296,6 +298,7 @@ function CriteriaConfigForm({
   visitDateRange,
   dataSourceId,
   schemaMapping,
+  cohortLevel,
   onOpenConceptPicker,
 }: {
   type: CriteriaType
@@ -306,6 +309,7 @@ function CriteriaConfigForm({
   visitDateRange?: { minDate: string; maxDate: string }
   dataSourceId?: string
   schemaMapping?: SchemaMapping
+  cohortLevel?: CohortLevel
   onOpenConceptPicker?: () => void
 }) {
   // `type` and `config` are a matched pair (config is built via getDefaultConfig(type)),
@@ -324,7 +328,7 @@ function CriteriaConfigForm({
     case 'care_site':
       return <CareSiteCriteriaForm config={config as CareSiteCriteriaConfig} onChange={onChange} dataSourceId={dataSourceId} schemaMapping={schemaMapping} />
     case 'concept':
-      return <ConceptCriteriaForm config={config as ConceptCriteriaConfig} onChange={onChange} eventTableLabels={eventTableLabels} onOpenConceptPicker={onOpenConceptPicker} />
+      return <ConceptCriteriaForm config={config as ConceptCriteriaConfig} onChange={onChange} eventTableLabels={eventTableLabels} onOpenConceptPicker={onOpenConceptPicker} cohortLevel={cohortLevel} schemaMapping={schemaMapping} />
     case 'text':
       return <TextCriteriaForm config={config as TextCriteriaConfig} onChange={onChange} schemaMapping={schemaMapping} />
     default:
@@ -341,6 +345,7 @@ export function CriterionCard({
   visitDateRange,
   dataSourceId,
   schemaMapping,
+  cohortLevel,
   collapseSignal,
 }: CriterionCardProps) {
   const { t, i18n } = useTranslation()
@@ -505,6 +510,7 @@ export function CriterionCard({
             visitDateRange={visitDateRange}
             dataSourceId={dataSourceId}
             schemaMapping={schemaMapping}
+            cohortLevel={cohortLevel}
             onOpenConceptPicker={() => setConceptPickerOpen(true)}
           />
         )}

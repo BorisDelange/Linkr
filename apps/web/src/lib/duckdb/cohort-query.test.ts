@@ -3,7 +3,9 @@ import {
   buildCohortCountSql,
   buildCohortMembershipSql,
   buildCohortResultsSql,
+  conceptCriterionBoundToStay,
   getNodeLabel,
+  withinStaySql,
 } from './cohort-query'
 import type { Cohort, CohortLevel, SchemaMapping } from '@/types'
 
@@ -485,5 +487,56 @@ describe('getNodeLabel — sex', () => {
 
   it('keeps the exclusion prefix', () => {
     expect(getNodeLabel(node(['8532'], true), omop)).toBe('NOT Sex: Female')
+  })
+})
+
+// A stay-level cohort must tie each event to the stay being selected, not only
+// to its patient: "stays with a lactate > 2" kept every stay of anyone who ever
+// had one. The exact day/time semantics are checked against DuckDB by hand
+// (timestamp vs DATE bounds, open end); here we pin where the window goes.
+describe('concept criteria bound to the stay', () => {
+  const stayMapping = {
+    ...mapping,
+    visitDetailTable: {
+      table: 'icu', idColumn: 'stay_id', visitIdColumn: 'visit_id', patientIdColumn: 'person_id',
+      startDateColumn: 'intime', endDateColumn: 'outtime',
+    },
+    eventTables: {
+      Lab: { table: 'lab', conceptIdColumn: 'itemid', patientIdColumn: 'person_id', dateColumn: 'charttime' },
+      Undated: { table: 'undated', conceptIdColumn: 'itemid', patientIdColumn: 'person_id' },
+    },
+  } as unknown as SchemaMapping
+
+  function cohortOn(level: CohortLevel, eventTableLabel: string, extra: object = {}): Cohort {
+    const c = makeCohort(level)
+    c.criteriaTree.children = [{
+      kind: 'criterion', id: 'x', type: 'concept', enabled: true, operator: 'AND', exclude: false,
+      config: { eventTableLabel, conceptIds: [50813], conceptNames: {}, ...extra },
+    }] as never
+    return c
+  }
+
+  it('compares the event date with the visit bounds at visit level', () => {
+    const sql = buildCohortCountSql(cohortOn('visit', 'Lab'), stayMapping)!
+    expect(sql).toContain(withinStaySql('e."charttime"', '"visit"."start"', '"visit"."end"'))
+  })
+
+  it('uses the unit stay bounds at visit_detail level, occurrence counts included', () => {
+    const sql = buildCohortCountSql(
+      cohortOn('visit_detail', 'Lab', { occurrenceCount: { operator: '>=', count: 2 } }), stayMapping)!
+    expect(sql).toContain(withinStaySql('e."charttime"', '"icu"."intime"', '"icu"."outtime"'))
+    expect(sql).toContain('HAVING COUNT(*) >= 2')
+  })
+
+  it('adds no window at patient level, nor when the event table has no date', () => {
+    expect(buildCohortCountSql(cohortOn('patient', 'Lab'), stayMapping)).not.toContain('CAST(e."charttime"')
+    expect(buildCohortCountSql(cohortOn('visit', 'Undated'), stayMapping)).not.toContain('AS TIMESTAMP')
+    expect(conceptCriterionBoundToStay('visit', stayMapping, 'Undated')).toBe(false)
+    expect(conceptCriterionBoundToStay('visit', stayMapping, 'Lab')).toBe(true)
+    expect(conceptCriterionBoundToStay('patient', stayMapping, 'Undated')).toBe(true)
+  })
+
+  it('leaves an open end when the stay has no end column', () => {
+    expect(withinStaySql('e.d', 's', null)).not.toContain('<=')
   })
 })
