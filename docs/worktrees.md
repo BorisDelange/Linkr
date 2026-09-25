@@ -25,6 +25,10 @@ and two generated files —
   projects and databases while its writes stay local. On APFS this is a
   `cp -c` clone: instant, and costing no disk until the two diverge.
 
+`npm run dev:all` also starts the MCP server, on a port offset like the API's
+(API 8001 → MCP 3941; `MCP_PORT` in `.env.local` overrides it) and pointed at
+this worktree's API. It is optional: if it stops, web and api keep running.
+
 Ports are allocated **once, at creation**, and then belong to the worktree. A
 stable port keeps the app's browser origin stable, and with it the IndexedDB
 workspace — reallocating on every launch would silently empty it.

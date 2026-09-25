@@ -82,6 +82,9 @@ npm run dev:mcp          # from the repo root; = cd packages/linkr-mcp && npm ru
                          # → http://127.0.0.1:3940/mcp
 ```
 
+`npm run dev:all` starts it too, beside web and api, pointed at the local API
+(`LINKR_API_URL` from the environment wins over `.env`) — see `scripts/dev-all.mjs`.
+
 Each client authenticates with its **own Linkr API key** (Profile → API keys in Linkr,
 `lnk_…`), sent as `Authorization: Bearer <key>` or `X-API-Key`; the tools then act as
 that user. The key is checked against Linkr and the result cached a minute, so a

@@ -33,7 +33,7 @@ uvicorn app.main:app --reload --port 8000
 alembic upgrade head
 
 # Monorepo root
-npm run dev:web / dev:api / dev:all / build
+npm run dev:web / dev:api / dev:mcp / dev:all / build   # dev:all = web + api + MCP server
 npm run data:fetch # bake the default data into public/data/seed/ (needs network)
 
 # Docker
