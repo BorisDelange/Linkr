@@ -5599,6 +5599,7 @@
     "revoke_description": "« {{name}} » stops working immediately. This cannot be undone."
   },
   "schema_mapping": {
+    "defined_in_sql_unchecked": "Defined in SQL. Its columns are not checked yet: open SQL and run the contract check on a database.",
     "locked_field": "An expression or a column of a joined table: the form keeps it as it is. Change it in SQL, or remove it to map a column instead.",
     "remove_title": "Delete this block?",
     "remove_description": "« {{name}} » and its mapping (form or SQL) will be removed from the schema. Saving makes it final.",

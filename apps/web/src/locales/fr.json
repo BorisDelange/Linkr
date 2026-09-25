@@ -5599,6 +5599,7 @@
     "revoke_description": "« {{name}} » cesse de fonctionner immédiatement. Cette action est irréversible."
   },
   "schema_mapping": {
+    "defined_in_sql_unchecked": "Définie en SQL. Ses colonnes ne sont pas encore vérifiées : ouvrez le SQL et lancez le contrôle du contrat sur une base.",
     "locked_field": "Une expression ou une colonne d'une table jointe : le formulaire la garde telle quelle. Modifiez-la en SQL, ou retirez-la pour mapper une colonne à la place.",
     "remove_title": "Supprimer ce bloc ?",
     "remove_description": "« {{name}} » et son mapping (formulaire ou SQL) seront retirés du schéma. L'enregistrement le rend définitif.",

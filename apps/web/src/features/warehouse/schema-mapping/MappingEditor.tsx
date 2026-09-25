@@ -74,7 +74,18 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
       index ? resolveTableRef(index.byQualified, index.byBare, ref)?.columns.map((c) => c.name) : undefined
   }, [mapping.ddl])
   const colsOf = columnsOf ?? ddlColumns
-  const tableNames = useMemo(() => mapping.knownTables ?? [], [mapping.knownTables])
+  // The source's tables with their schema, from the DDL and the tables the
+  // preset lists — what the table and schema fields suggest.
+  const sourceTables = useMemo(() => {
+    const out = new Map<string, RelationTable>()
+    const add = (schema: string | undefined, table: string) => out.set(`${schema ?? ''}.${table}`.toLowerCase(), { schema, table, alias: '' })
+    if (mapping.ddl) for (const t of parseDdl(mapping.ddl)) add(t.schema, t.bareName)
+    for (const name of mapping.knownTables ?? []) {
+      const dot = name.lastIndexOf('.')
+      add(dot > 0 ? name.slice(0, dot) : undefined, dot > 0 ? name.slice(dot + 1) : name)
+    }
+    return [...out.values()]
+  }, [mapping.ddl, mapping.knownTables])
   const relationNames = useMemo(() => new Map(classRelations(mapping).map((r) => [r.specKey, r.name])), [mapping])
 
   const setSpec = (specKey: string, spec: RelationSpec | undefined) => onChange?.(withSpec(mapping, specKey, spec))
@@ -90,7 +101,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
       readOnly={readOnly}
       onChange={(s) => setSpec(specKey, s)}
       columnsOf={colsOf}
-      tableNames={tableNames}
+      sourceTables={sourceTables}
       onOpenSql={() => setSqlFor(specKey)}
       title={title}
       relationName={relationNames.get(specKey)}
@@ -333,7 +344,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
 
         <TabsContent value="all" className="mt-4 space-y-6">
           {SECTIONS.map((sec) => (
-            <section key={sec.id} className="space-y-2">
+            <section key={sec.id} className="space-y-3">
               <div className="flex min-h-7 items-center gap-1.5">
                 {dot(sec.tone)}
                 <SectionLabel>{sec.label}</SectionLabel>

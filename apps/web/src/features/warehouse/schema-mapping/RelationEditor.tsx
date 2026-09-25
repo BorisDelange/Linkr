@@ -1,8 +1,9 @@
-import { useId, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Code, Plus, X, FunctionSquare, Columns3, Quote } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SuggestInput } from '@/components/ui/suggest-input'
 import { Badge } from '@/components/ui/badge'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -47,7 +48,8 @@ export interface RelationEditorProps {
   onChange?: (spec: RelationSpec) => void
   /** Columns of a source table (from the DDL, or the bound database). */
   columnsOf: (table: RelationTable) => string[] | undefined
-  tableNames: string[]
+  /** The source's tables, with their schema: what the table fields suggest. */
+  sourceTables: RelationTable[]
   onOpenSql: () => void
   /** Rendered in the header, after the title: label input, badges… */
   headerExtra?: ReactNode
@@ -71,7 +73,7 @@ export function RelationEditor({
   readOnly,
   onChange,
   columnsOf,
-  tableNames,
+  sourceTables,
   onOpenSql,
   headerExtra,
   children,
@@ -101,11 +103,7 @@ export function RelationEditor({
 
   const from = spec.from ?? { table: '', alias: FORM_ALIAS }
   const alias = from.alias || FORM_ALIAS
-  // One datalist per block, referenced by every field: a copy per field put
-  // thousands of <option>s in the DOM once all blocks show.
-  const columns = from.table ? (columnsOf(from) ?? []) : []
-  const columnListId = useId()
-  const tableListId = useId()
+  const columns = useMemo(() => (spec.from?.table ? (columnsOf(spec.from) ?? []) : []), [columnsOf, spec.from])
   const contract = CLASS_CONTRACTS[cls]
   const extras = cls === 'concept' ? Object.keys(spec.fields ?? {}).filter((k) => k.startsWith('extra_')) : []
 
@@ -126,7 +124,7 @@ export function RelationEditor({
           hint={DERIVED_HINTS[col.name] ? t(DERIVED_HINTS[col.name]) : undefined}
           value={spec.fields?.[col.name]}
           alias={alias}
-          columnList={columns.length ? columnListId : undefined}
+          columns={columns}
           readOnly={rowReadOnly}
           onChange={(v) => setField(col.name, v)}
         />
@@ -137,7 +135,7 @@ export function RelationEditor({
           name={name}
           value={spec.fields?.[name]}
           alias={alias}
-          columnList={columns.length ? columnListId : undefined}
+          columns={columns}
           readOnly={rowReadOnly}
           onChange={(v) => setField(name, v)}
           onRemove={rowReadOnly ? undefined : () => setField(name, undefined)}
@@ -166,29 +164,20 @@ export function RelationEditor({
       </div>
 
       <div className="space-y-3 px-3 py-2">
-        {editable && (
-          <>
-            <datalist id={columnListId}>
-              {columns.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-            <datalist id={tableListId}>
-              {tableNames.map((n) => (
-                <option key={n} value={n} />
-              ))}
-            </datalist>
-          </>
-        )}
-
         {custom && (
           <>
-            <p className="text-xs text-muted-foreground">{t('schema_mapping.defined_in_sql')}</p>
-            <div className="flex flex-wrap gap-1">
-              {(spec.sqlColumns ?? []).map((c) => (
-                <Badge key={c} variant="secondary" className="font-mono">{c}</Badge>
-              ))}
-            </div>
+            {spec.sqlColumns?.length ? (
+              <>
+                <p className="text-xs text-muted-foreground">{t('schema_mapping.defined_in_sql')}</p>
+                <div className="flex flex-wrap gap-1">
+                  {spec.sqlColumns.map((c) => (
+                    <Badge key={c} variant="secondary" className="font-mono">{c}</Badge>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">{t('schema_mapping.defined_in_sql_unchecked')}</p>
+            )}
           </>
         )}
 
@@ -197,7 +186,7 @@ export function RelationEditor({
             <TableRow
               label={t('schema_mapping.table')}
               table={from}
-              tableList={tableNames.length ? tableListId : undefined}
+              sourceTables={sourceTables}
               readOnly={!editable}
               onChange={(next) => change({ ...spec, from: { ...next, alias } })}
             />
@@ -280,17 +269,24 @@ function AdvancedSummary({ spec }: { spec: RelationSpec }) {
 function TableRow({
   label,
   table,
-  tableList,
+  sourceTables,
   readOnly,
   onChange,
 }: {
   label: string
   table: RelationTable
-  tableList?: string
+  sourceTables: RelationTable[]
   readOnly?: boolean
   onChange: (t: RelationTable) => void
 }) {
   const { t } = useTranslation()
+  const schemas = useMemo(() => [...new Set(sourceTables.flatMap((x) => (x.schema ? [x.schema] : [])))].sort(), [sourceTables])
+  // The chosen schema narrows the tables; without one, every table is offered.
+  const tables = useMemo(() => {
+    const schema = table.schema?.toLowerCase()
+    const inSchema = schema ? sourceTables.filter((x) => x.schema?.toLowerCase() === schema) : sourceTables
+    return [...new Set(inSchema.map((x) => x.table))].sort()
+  }, [sourceTables, table.schema])
   if (readOnly) {
     return (
       <div className="grid grid-cols-[100px_1fr] items-center gap-2">
@@ -307,12 +303,17 @@ function TableRow({
     if (!next.schema) delete next.schema
     onChange(next)
   }
+  const setTable = (name: string) => {
+    // A table only one schema has: fill the schema in too.
+    const owners = table.schema ? [] : sourceTables.filter((x) => x.table.toLowerCase() === name.toLowerCase() && x.schema)
+    set(owners.length === 1 ? { table: name, schema: owners[0].schema } : { table: name })
+  }
   return (
     <div className="grid grid-cols-[100px_1fr] items-center gap-2">
       <SectionLabel>{label}</SectionLabel>
       <div className="grid grid-cols-[1fr_2fr] gap-1">
-        <DraftInput value={table.schema ?? ''} onCommit={(v) => set({ schema: v })} placeholder={t('schema_mapping.schema')} className="h-7 font-mono text-xs" />
-        <DraftInput value={table.table ?? ''} onCommit={(v) => set({ table: v })} list={tableList} placeholder={t('schema_mapping.table')} className="h-7 font-mono text-xs" />
+        <SuggestInput value={table.schema ?? ''} onCommit={(v) => set({ schema: v })} suggestions={schemas} placeholder={t('schema_mapping.schema')} />
+        <SuggestInput value={table.table ?? ''} onCommit={setTable} suggestions={tables} placeholder={t('schema_mapping.table')} />
       </div>
     </div>
   )
@@ -328,7 +329,7 @@ function FieldRow({
   hint,
   value,
   alias,
-  columnList,
+  columns,
   readOnly,
   onChange,
   onRemove,
@@ -339,7 +340,7 @@ function FieldRow({
   value: FieldSpec | undefined
   /** The form's table alias: a column is stored as `alias.column`, shown bare. */
   alias: string
-  columnList?: string
+  columns: string[]
   readOnly?: boolean
   onChange: (v: FieldSpec | undefined) => void
   onRemove?: () => void
@@ -433,13 +434,11 @@ function FieldRow({
           <SelectItem value="value">{t('schema_mapping.mode_value')}</SelectItem>
         </SelectContent>
       </Select>
-      <DraftInput
-        value={text}
-        onCommit={(s) => emit(mode, s)}
-        list={mode === 'column' ? columnList : undefined}
-        placeholder={mode === 'column' ? t('schema_mapping.column_placeholder') : ''}
-        className="h-7 font-mono text-xs"
-      />
+      {mode === 'column' ? (
+        <SuggestInput value={text} onCommit={(s) => emit(mode, s)} suggestions={columns} placeholder={t('schema_mapping.column_placeholder')} />
+      ) : (
+        <DraftInput value={text} onCommit={(s) => emit(mode, s)} className="h-7 font-mono text-xs" />
+      )}
       {onRemove ? (
         <Button variant="ghost" size="icon-sm" onClick={onRemove} aria-label={t('common.remove')}>
           <X size={10} />

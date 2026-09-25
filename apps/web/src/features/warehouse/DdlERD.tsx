@@ -81,7 +81,8 @@ const ROLE_BADGES: Record<string, string> = {
 }
 
 function DdlTableNode({ id, data }: NodeProps<Node<DdlNodeData>>) {
-  const { selected } = useErdHighlight()
+  const { selected, related } = useErdHighlight()
+  const faded = !!selected && selected !== id && !related.has(id)
   // Build FK lookup: column name → "refTable.refColumn"
   const fkMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -95,7 +96,10 @@ function DdlTableNode({ id, data }: NodeProps<Node<DdlNodeData>>) {
 
   return (
     <TooltipProvider>
-      <div className={`rounded-lg border-2 shadow-lg bg-card ${selected === id ? 'border-primary' : 'border-border'}`} style={{ width: 260 }}>
+      <div
+        className={`rounded-lg border-2 shadow-lg bg-card transition-opacity ${selected === id ? 'border-primary' : 'border-border'} ${faded ? 'opacity-30' : ''}`}
+        style={{ width: 260 }}
+      >
         <div className="flex items-center gap-2 rounded-t-md px-3 py-2 bg-muted/60">
           <Table2 size={13} className="text-muted-foreground shrink-0" />
           {/* The schema prefixes the name rather than replacing it: on a DDL with
@@ -383,7 +387,13 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
   return { nodes: sortedNodes, edges }
 }
 
-/** A connection point that lights up its links on hover. */
+/**
+ * A connection point that lights up its links on hover. React Flow turns
+ * pointer events off on handles of a diagram nobody can connect in, so they are
+ * turned back on; the hit area is widened by a pseudo-element, and hovering
+ * rings the point rather than resizing it, which would move it from under the
+ * cursor.
+ */
 function HoverHandle({ node, id, type }: { node: string; id: string; type: 'source' | 'target' }) {
   const hover = useHandleHover(node, id)
   return (
@@ -394,8 +404,8 @@ function HoverHandle({ node, id, type }: { node: string; id: string; type: 'sour
       {...hover}
       className={
         type === 'target'
-          ? '!w-2 !h-2 !bg-yellow-500 !border-[1px] !border-background !left-[-9px] hover:!shadow-[0_0_0_3px_var(--color-primary)]'
-          : '!w-2 !h-2 !bg-blue-500 !border-[1px] !border-background !right-[-9px] hover:!shadow-[0_0_0_3px_var(--color-primary)]'
+          ? "!w-2 !h-2 !bg-yellow-500 !border-[1px] !border-background !left-[-9px] !pointer-events-auto after:absolute after:-inset-1.5 after:content-[''] hover:!shadow-[0_0_0_3px_var(--color-primary)]"
+          : "!w-2 !h-2 !bg-blue-500 !border-[1px] !border-background !right-[-9px] !pointer-events-auto after:absolute after:-inset-1.5 after:content-[''] hover:!shadow-[0_0_0_3px_var(--color-primary)]"
       }
     />
   )

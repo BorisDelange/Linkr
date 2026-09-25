@@ -10,11 +10,13 @@ export interface HandleRef {
 interface ErdHighlight {
   /** The table clicked, whose links are shown. */
   selected: string | null
+  /** The tables linked to the selected one: they stay lit while the rest fade. */
+  related: ReadonlySet<string>
   hovered: HandleRef | null
   setHovered: (h: HandleRef | null) => void
 }
 
-const ErdHighlightContext = createContext<ErdHighlight>({ selected: null, hovered: null, setHovered: () => {} })
+const ErdHighlightContext = createContext<ErdHighlight>({ selected: null, related: new Set(), hovered: null, setHovered: () => {} })
 
 export const ErdHighlightProvider = ErdHighlightContext.Provider
 
@@ -41,9 +43,11 @@ const SELECTED = { stroke: 'var(--color-primary)', strokeWidth: 1.5, opacity: 0.
 
 /**
  * Selection and hover state for a diagram, and the edges to draw from it.
- * `showAll` draws every edge (the mapping diagram, a handful of links); without
- * it only the clicked table's and the hovered handle's links show — a full DDL
- * has too many to draw at once.
+ * `showAll` draws every edge, under the tables (the mapping diagram: a handful
+ * of links, laid out not to cross them). Without it only the clicked table's
+ * and the hovered point's links show, drawn above the tables — in a DDL grid a
+ * link runs under other tables and read as broken — while the tables they do
+ * not touch fade.
  */
 export function useErdHighlightState(edges: Edge[], showAll: boolean) {
   const [selected, setSelected] = useState<string | null>(null)
@@ -55,13 +59,16 @@ export function useErdHighlightState(edges: Edge[], showAll: boolean) {
         const hot = !!hovered && touchesHandle(e, hovered)
         const picked = !!selected && touchesNode(e, selected)
         if (!showAll && !hot && !picked) return []
-        // No z-index lift: a link drawn over the tables hides their columns.
-        return [{ ...e, style: hot ? ON : picked ? SELECTED : BASE, animated: hot }]
+        return [{ ...e, style: hot ? ON : picked ? SELECTED : BASE, animated: hot, ...(showAll ? {} : { zIndex: 3 }) }]
       }),
     [edges, hovered, selected, showAll],
   )
 
-  const context = useMemo<ErdHighlight>(() => ({ selected, hovered, setHovered }), [selected, hovered])
+  const related = useMemo(
+    () => new Set(selected ? edges.filter((e) => touchesNode(e, selected)).flatMap((e) => [e.source, e.target]) : []),
+    [edges, selected],
+  )
+  const context = useMemo<ErdHighlight>(() => ({ selected, related, hovered, setHovered }), [selected, related, hovered])
   const toggle = (node: string) => setSelected((cur) => (cur === node ? null : node))
   return { shown, context, toggle, clear: () => setSelected(null) }
 }
