@@ -19,6 +19,7 @@ import type { RelationSpec, SchemaMapping } from '@/types/schema-mapping'
 import { fieldRef } from '@/lib/schema-classes/spec'
 import type { ClassName } from '@/lib/schema-classes/contracts'
 import { CLASS_TONES } from './schema-mapping/class-tones'
+import { ErdHighlightProvider, useErdHighlight, useErdHighlightState, useHandleHover } from './erd-highlight'
 
 // ---------------------------------------------------------------------------
 // Custom node: ERD table card with per-column handles + tooltips
@@ -57,14 +58,15 @@ const ROLE_BADGES: Record<string, string> = {
   date: 'bg-violet-200 text-violet-800 dark:bg-violet-800 dark:text-violet-200',
 }
 
-function ERDTableNode({ data }: NodeProps<Node<ERDNodeData>>) {
+function ERDTableNode({ id, data }: NodeProps<Node<ERDNodeData>>) {
+  const { selected } = useErdHighlight()
   const colors = CLASS_TONES[data.tableType].node
   const Icon = ICONS[data.tableType] ?? Table2
 
   return (
     <TooltipProvider>
       <div
-        className={`rounded-lg border-2 shadow-lg ${colors.bg} ${colors.border}`}
+        className={`rounded-lg border-2 shadow-lg ${colors.bg} ${selected === id ? 'border-primary' : colors.border}`}
         style={{ width: 220 }}
       >
         {/* Header */}
@@ -86,22 +88,7 @@ function ERDTableNode({ data }: NodeProps<Node<ERDNodeData>>) {
                   <span className="min-w-[28px]" />
                 )}
                 <code className="text-[11px] text-foreground/80 font-mono truncate">{col.name}</code>
-                {col.handleId && col.handleType === 'source' && (
-                  <Handle
-                    type="source"
-                    position={Position.Right}
-                    id={col.handleId}
-                    className="!w-2 !h-2 !bg-muted-foreground/40 !border-[1.5px] !border-background !right-[-13px]"
-                  />
-                )}
-                {col.handleId && col.handleType === 'target' && (
-                  <Handle
-                    type="target"
-                    position={Position.Left}
-                    id={col.handleId}
-                    className="!w-2 !h-2 !bg-muted-foreground/40 !border-[1.5px] !border-background !left-[-13px]"
-                  />
-                )}
+                {col.handleId && col.handleType && <HoverHandle node={id} id={col.handleId} type={col.handleType} />}
               </div>
             )
 
@@ -126,13 +113,26 @@ function ERDTableNode({ data }: NodeProps<Node<ERDNodeData>>) {
   )
 }
 
+/** A connection point that lights up its links on hover. */
+function HoverHandle({ node, id, type }: { node: string; id: string; type: 'source' | 'target' }) {
+  const hover = useHandleHover(node, id)
+  return (
+    <Handle
+      type={type}
+      position={type === 'target' ? Position.Left : Position.Right}
+      id={id}
+      {...hover}
+      className={`!w-2 !h-2 !bg-muted-foreground/40 !border-[1.5px] !border-background hover:!scale-150 hover:!bg-primary ${type === 'target' ? '!left-[-13px]' : '!right-[-13px]'}`}
+    />
+  )
+}
+
 const nodeTypes = { erdTable: ERDTableNode }
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
 const PK_FIELD: Record<string, string> = { patient: 'patient_id', visit: 'visit_id', concept: 'concept_id' }
-const EDGE_STYLE = { stroke: 'var(--color-muted-foreground)', strokeWidth: 1.5, opacity: 0.35 }
 
 /** A relation's mapped fields as ERD rows: the source column a reference reads,
  *  or the contract column marked ƒx for an expression. */
@@ -227,16 +227,16 @@ function buildERDGraph(mapping: SchemaMapping): { nodes: Node<ERDNodeData>[]; ed
       },
     })
     if (dict) {
-      edges.push({ id: `e-${id}-concept`, source: id, sourceHandle: 'fk-concept', target: `concept-${dict.key}`, targetHandle: 'pk', type: 'smoothstep', style: EDGE_STYLE })
+      edges.push({ id: `e-${id}-concept`, source: id, sourceHandle: 'fk-concept', target: `concept-${dict.key}`, targetHandle: 'pk', type: 'smoothstep' })
     }
     if (mapping.patient && ev.fields?.patient_id && !ev.customSql?.trim()) {
-      edges.push({ id: `e-${id}-patient`, source: id, sourceHandle: 'fk-patient', target: 'patient', targetHandle: 'pk', type: 'smoothstep', style: EDGE_STYLE })
+      edges.push({ id: `e-${id}-patient`, source: id, sourceHandle: 'fk-patient', target: 'patient', targetHandle: 'pk', type: 'smoothstep' })
     }
   })
 
   // Visit → Patient
   if (mapping.visit?.fields?.patient_id && mapping.patient && !mapping.visit.customSql?.trim()) {
-    edges.push({ id: 'e-visit-patient', source: 'visit', sourceHandle: 'fk-patient', target: 'patient', targetHandle: 'pk', type: 'smoothstep', style: EDGE_STYLE })
+    edges.push({ id: 'e-visit-patient', source: 'visit', sourceHandle: 'fk-patient', target: 'patient', targetHandle: 'pk', type: 'smoothstep' })
   }
 
   return { nodes, edges }
@@ -250,17 +250,22 @@ function ERDCanvas({ mapping }: { mapping: SchemaMapping }) {
   const { fitView } = useReactFlow()
 
   const { nodes, edges } = useMemo(() => buildERDGraph(mapping), [mapping])
+  // A handful of links: all drawn, the clicked table's and the hovered point's lit.
+  const highlight = useErdHighlightState(edges, true)
 
   const onInit = useCallback(() => {
     setTimeout(() => fitView({ padding: 0.2, maxZoom: 1 }), 50)
   }, [fitView])
 
   return (
+    <ErdHighlightProvider value={highlight.context}>
     <ReactFlow
       nodes={nodes}
-      edges={edges}
+      edges={highlight.shown}
       nodeTypes={nodeTypes}
       onInit={onInit}
+      onNodeClick={(_, node) => highlight.toggle(node.id)}
+      onPaneClick={highlight.clear}
       fitView
       fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
       panOnScroll
@@ -278,6 +283,7 @@ function ERDCanvas({ mapping }: { mapping: SchemaMapping }) {
         className="!bg-card !border-border !shadow-sm [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-muted-foreground [&>button:hover]:!bg-muted"
       />
     </ReactFlow>
+    </ErdHighlightProvider>
   )
 }
 

@@ -22,9 +22,10 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import type { ErdGroup } from '@/types/schema-mapping'
 import {
-  parseDdl, matchesTableName, lookupByTableName,
+  parseDdl, matchesTableName, lookupByTableName, indexTables, resolveTableRef,
   type ParsedColumn, type ParsedTable,
 } from '@/lib/ddl-parse'
+import { ErdHighlightProvider, useErdHighlight, useErdHighlightState, useHandleHover } from './erd-highlight'
 import { DdlERDGroupPanel } from './DdlERDGroupPanel'
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,8 @@ interface DdlNodeData {
   schema?: string
   columns: ParsedColumn[]
   fks: ParsedTable['fks']
+  /** Columns another table's foreign key points at: each gets an incoming handle. */
+  referenced: string[]
 }
 
 interface DdlGroupNodeData {
@@ -77,7 +80,8 @@ const ROLE_BADGES: Record<string, string> = {
   fk: 'bg-blue-200 text-blue-800 dark:bg-blue-800 dark:text-blue-200',
 }
 
-function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
+function DdlTableNode({ id, data }: NodeProps<Node<DdlNodeData>>) {
+  const { selected } = useErdHighlight()
   // Build FK lookup: column name → "refTable.refColumn"
   const fkMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -91,7 +95,7 @@ function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
 
   return (
     <TooltipProvider>
-      <div className="rounded-lg border-2 shadow-lg bg-card border-border" style={{ width: 260 }}>
+      <div className={`rounded-lg border-2 shadow-lg bg-card ${selected === id ? 'border-primary' : 'border-border'}`} style={{ width: 260 }}>
         <div className="flex items-center gap-2 rounded-t-md px-3 py-2 bg-muted/60">
           <Table2 size={13} className="text-muted-foreground shrink-0" />
           {/* The schema prefixes the name rather than replacing it: on a DDL with
@@ -107,6 +111,7 @@ function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
         <div className="px-2 py-1.5 space-y-px">
           {data.columns.map((col) => {
             const isPk = col.isPk
+            const isTarget = isPk || data.referenced.includes(col.name)
             const fkTarget = fkMap.get(col.name)
             const isFk = !!fkTarget
 
@@ -121,22 +126,8 @@ function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
                 )}
                 <code className="text-[10px] text-foreground/80 font-mono truncate flex-1">{col.name}</code>
                 <span className="text-[9px] text-muted-foreground/60 font-mono shrink-0">{col.type.toLowerCase()}</span>
-                {isPk && (
-                  <Handle
-                    type="target"
-                    position={Position.Left}
-                    id={`pk-${col.name}`}
-                    className="!w-2 !h-2 !bg-yellow-500 !border-[1px] !border-background !left-[-9px]"
-                  />
-                )}
-                {isFk && (
-                  <Handle
-                    type="source"
-                    position={Position.Right}
-                    id={`fk-${col.name}`}
-                    className="!w-2 !h-2 !bg-blue-500 !border-[1px] !border-background !right-[-9px]"
-                  />
-                )}
+                {isTarget && <HoverHandle node={id} id={`pk-${col.name}`} type="target" />}
+                {isFk && <HoverHandle node={id} id={`fk-${col.name}`} type="source" />}
               </div>
             )
 
@@ -210,6 +201,10 @@ interface BuildGraphOpts {
 function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }: BuildGraphOpts): { nodes: Node[]; edges: Edge[] } {
   const tables = hiddenTables ? allTables.filter((t) => !hiddenTables.has(t.name.toLowerCase())) : allTables
   const nodes: Node[] = []
+  const { edges, referenced } = buildFkEdges(tables)
+  const nodeData = (t: ParsedTable): DdlNodeData => ({
+    label: t.bareName, schema: t.schema, columns: t.columns, fks: t.fks, referenced: [...(referenced.get(t.name) ?? [])],
+  })
 
   const hasLayout = erdLayout && Object.keys(erdLayout).length > 0
   const groups = erdGroups ?? []
@@ -225,7 +220,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
         id: t.name,
         type: 'ddlTable',
         position: pos ?? { x: 0, y: 0 },
-        data: { label: t.bareName, schema: t.schema, columns: t.columns, fks: t.fks } as DdlNodeData,
+        data: nodeData(t),
       })
     }
 
@@ -303,7 +298,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
           id: t.name,
           type: 'ddlTable',
           position: { x: gx, y: gy },
-          data: { label: t.bareName, schema: t.schema, columns: t.columns, fks: t.fks } as DdlNodeData,
+          data: nodeData(t),
           parentId: `group-${group.id}`,
           expandParent: true,
         })
@@ -361,7 +356,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
           id: t.name,
           type: 'ddlTable',
           position: { x: ux, y: uy },
-          data: { label: t.bareName, schema: t.schema, columns: t.columns, fks: t.fks } as DdlNodeData,
+          data: nodeData(t),
         })
         uRowH = Math.max(uRowH, h)
         uColIdx++
@@ -380,7 +375,59 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
   // Sort parents before children (ReactFlow requirement)
   const sortedNodes = sortParentsFirst(nodes)
 
-  return { nodes: sortedNodes, edges: [] }
+  return { nodes: sortedNodes, edges }
+}
+
+/** A connection point that lights up its links on hover. */
+function HoverHandle({ node, id, type }: { node: string; id: string; type: 'source' | 'target' }) {
+  const hover = useHandleHover(node, id)
+  return (
+    <Handle
+      type={type}
+      position={type === 'target' ? Position.Left : Position.Right}
+      id={id}
+      {...hover}
+      className={
+        type === 'target'
+          ? '!w-2 !h-2 !bg-yellow-500 !border-[1px] !border-background !left-[-9px] hover:!scale-150'
+          : '!w-2 !h-2 !bg-blue-500 !border-[1px] !border-background !right-[-9px] hover:!scale-150'
+      }
+    />
+  )
+}
+
+/**
+ * One edge per foreign-key column, from its table to the column it references.
+ * A reference that names a table the diagram does not show (hidden, or absent
+ * from the DDL) draws nothing.
+ */
+function buildFkEdges(tables: ParsedTable[]): { edges: Edge[]; referenced: Map<string, Set<string>> } {
+  const { byQualified, byBare } = indexTables(tables)
+  const edges: Edge[] = []
+  const referenced = new Map<string, Set<string>>()
+  for (const t of tables) {
+    for (const fk of t.fks) {
+      const dot = fk.refTable.lastIndexOf('.')
+      const ref = dot > 0 ? { schema: fk.refTable.slice(0, dot), table: fk.refTable.slice(dot + 1) } : { table: fk.refTable }
+      const target = resolveTableRef(byQualified, byBare, ref, t.schema)
+      if (!target) continue
+      fk.columns.forEach((col, i) => {
+        const refCol = fk.refColumns[i] ?? target.pkColumns[i]
+        if (!refCol) return
+        if (!referenced.has(target.name)) referenced.set(target.name, new Set())
+        referenced.get(target.name)!.add(refCol)
+        edges.push({
+          id: `${t.name}.${col}->${target.name}.${refCol}`,
+          source: t.name,
+          sourceHandle: `fk-${col}`,
+          target: target.name,
+          targetHandle: `pk-${refCol}`,
+          type: 'smoothstep',
+        })
+      })
+    }
+  }
+  return { edges, referenced }
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +453,7 @@ function DdlCanvas({ tables, erdGroups, erdLayout, isEditing, hiddenTables, onLa
   )
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
+  const highlight = useErdHighlightState(edges, false)
 
   // Re-sync when graph data changes
   useEffect(() => {
@@ -439,11 +487,14 @@ function DdlCanvas({ tables, erdGroups, erdLayout, isEditing, hiddenTables, onLa
   )
 
   return (
+    <ErdHighlightProvider value={highlight.context}>
     <ReactFlow
       nodes={nodes}
-      edges={edges}
+      edges={highlight.shown}
       nodeTypes={nodeTypes}
       onInit={onInit}
+      onNodeClick={(_, node) => node.type === 'ddlTable' && highlight.toggle(node.id)}
+      onPaneClick={highlight.clear}
       onNodesChange={isEditing ? onNodesChange : undefined}
       onNodeDragStop={isEditing ? onNodeDragStop : undefined}
       fitView
@@ -463,6 +514,7 @@ function DdlCanvas({ tables, erdGroups, erdLayout, isEditing, hiddenTables, onLa
         className="!bg-card !border-border !shadow-sm [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-muted-foreground [&>button:hover]:!bg-muted"
       />
     </ReactFlow>
+    </ErdHighlightProvider>
   )
 }
 
