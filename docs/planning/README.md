@@ -136,6 +136,30 @@ there. `presetId` still names the HTTP routes and the export format; retiring it
 | 🔜 | Step 5: retire `presetId` — **started**: the URLs no longer carry it and the root export file drops it. Left: `mapping.presetId`, the route bodies, the Pydantic schemas (where `preset_id` is still *required* while `id`/`entity_id` are optional) and the server export path | M |
 | ✅ | Retired the built-in `SCHEMA_PRESETS` table and `lib/schema-ddl/`: every schema is an installed entity now, so a seeded or cloned database carries its own mapping and a bare preset id is refused rather than silently unmapped | M |
 
+## Schema mapping v2 — class contracts, visual or SQL — [schema-classes-plan.md](schema-classes-plan.md)
+
+The mapping names one table per class and one column per field, plus ad-hoc lookup
+triples (`careSiteNameTable/IdColumn/NameColumn`). A drug administration in an EAV
+warehouse spans several rows pivoted on attribute codes and cannot be expressed.
+**Each class (patient, visit, visit_detail, note, concept, event, drug) gets an output
+contract**; the mapping yields one SQL relation per class — generated from a visual
+form (`from` + named `joins` + `where` + `alias.column` / expression fields) or
+written in SQL with the Cohort *Modified* / overwrite pattern — and **every consumer
+queries `linkr_<class>`, never the mapping** (SQL built once, centrally; ~80 files stop
+re-deriving it). Class SQL reads its own database only (no roles). Sites differ →
+**per-database override** (parameters first, whole relations if needed) in a new
+*Mapping* tab. Then: **generate OMOP ETL scripts** by composing source relations with
+the inverted target preset mapping.
+
+| St | Item | Effort |
+|----|------|--------|
+| ✅ | Arbitrated 2026-09-25: phases A→D, `linkr_*` names, no roles in class SQL, per-database override | — |
+| 🤔 | Details: the 7 contracts, CTE injection, parameters as literals only, database without preset | S (review) |
+| 🔜 | A. Generator from v1 + port the consumers to the contract, parity-checked on the demo DBs | L |
+| 🔜 | B. Format v2 (+ linkr-format, Python twin, goldens) + visual editor + Code modal + contract check + parameters + database *Mapping* tab | L |
+| 🔜 | C. Drug class + EAV administrations (attribute codes as parameters) and the OMOP twin as acceptance tests | M |
+| 🔜 | D. Generate OMOP scripts into an ETL pipeline from a source schema | L |
+
 ## eCRF / survey plugin — [survey-plugin-plan.md](survey-plugin-plan.md)
 
 Import layer built and tested (166 tests): one XLSForm-based model, three parsers
