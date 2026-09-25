@@ -119,12 +119,10 @@ pages:
     # docker-compose.hub.yml pins the images users actually pull. It is a
     # separate file from VERSION, so it is the one that gets forgotten — and a
     # release that ships it stale points every new install at the PREVIOUS
-    # version, silently. Both lines must name the tag being published.
+    # version, silently. All three lines must name the tag being published.
     - |
       HUB=docker/docker-compose.hub.yml
-      # TODO(release): add mcp here once docker-compose.hub.yml gains the mcp
-      # service — on the first release that publishes its image, not before.
-      for role in api web; do
+      for role in api web mcp; do
         grep -q "interhop/linkr:$role-$VER\$" "$HUB" || {
           echo "$HUB does not pin $role-$VER:"; grep -n 'image:' "$HUB"; exit 1; }
       done

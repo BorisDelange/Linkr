@@ -14,9 +14,10 @@
 # under a running instance without anyone asking for it, and two people
 # following the same instructions would not get the same thing.
 #
-# To upgrade, change BOTH lines to the new version — they stamp the same
-# export-format version, and a mixed pair writes exports that disagree about
-# their own format. Available versions:
+# To upgrade, change ALL THREE image lines to the new version — web and api
+# stamp the same export-format version, and a mixed pair writes exports that
+# disagree about their own format; mcp reuses the app's query builders.
+# Available versions:
 # https://hub.docker.com/r/interhop/linkr/tags
 services:
   web:
@@ -55,6 +56,19 @@ services:
       # deletes a named volume — a bind-mounted folder is never touched, which
       # is the other reason to prefer one for anything you care about.
       - linkr-data:/root/.linkr
+
+  # MCP server: lets agents (LibreChat, OpenCode…) act on this instance, each
+  # user with their own Linkr API key (User settings → API keys). Point the
+  # client at http://<host>:3940/mcp. A request without a valid key is refused.
+  # Remove this service if you do not use agents.
+  mcp:
+    image: interhop/linkr:mcp-2.4.2
+    ports:
+      - "3940:3940"
+    environment:
+      - LINKR_API_URL=http://api:8000
+    depends_on:
+      - api
 
 volumes:
   linkr-data:
