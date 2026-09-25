@@ -18,6 +18,7 @@ import {
   Plug,
   Table,
   Table2,
+  SquareTerminal,
   Users,
   UsersRound,
 } from 'lucide-react'
@@ -78,19 +79,20 @@ import { CohortList } from '@/features/projects/warehouse/cohorts/CohortListPage
 import { CohortBuilder } from '@/features/projects/warehouse/cohorts/CohortBuilderPage'
 import { useDatabaseActions } from './use-database-actions'
 import { DerivedFromCard } from './DerivedFromCard'
+import { DatabaseSqlTab } from './DatabaseSqlTab'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 
-const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'cohorts', 'readme', 'license', 'versioning'] as const
+const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'sql', 'cohorts', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
 
 /** What a project may open. `resolveTab` falls back to the default for anything
  *  outside this list, so a bookmarked `?tab=readme` lands on the overview rather
  *  than on an empty body. */
-const PROJECT_TAB_IDS = ['overview', 'statistics', 'schema'] as const
+const PROJECT_TAB_IDS = ['overview', 'statistics', 'schema', 'sql'] as const
 
 /** Stand-in for a source with no data model: every clinical table is unknown, so
  *  only the table row counts can be computed. */
@@ -236,6 +238,10 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               <Table2 size={14} />
               {t('databases.detail_schema')}
             </TabsTrigger>
+            <TabsTrigger value="sql">
+              <SquareTerminal size={14} />
+              {t('databases.detail_sql')}
+            </TabsTrigger>
             {!readOnly && (
               <TabsTrigger value="cohorts">
                 <UsersRound size={14} />
@@ -316,6 +322,17 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
             </div>
           )}
         </TabsContent>
+        <TabsContent value="sql" className="m-0 min-h-0 flex-1 p-0">
+          {source.status === 'connected' || source.status === 'configuring' ? (
+            <DatabaseSqlTab dataSourceId={source.id} />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center">
+              <DatabaseIcon size={28} className="text-muted-foreground/40" />
+              <p className="mt-3 text-sm text-muted-foreground">{t('databases.schema_needs_connection')}</p>
+            </div>
+          )}
+        </TabsContent>
+
         {!readOnly && (
           <TabsContent value="cohorts" className="m-0 min-h-0 flex-1 p-0">
             <DatabaseCohortHost dataSourceId={source.id} siblingDatabaseIds={siblingIds}>
