@@ -41,7 +41,7 @@ from app.schemas.dataset_fs import (
 )
 from app.core.permissions import check_workspace_permission
 from app.models.data_source import DataSource
-from app.services import blob_store, data_source_service, dataset_service, notification_service, project_fs
+from app.services import blob_store, data_source_service, database_credential_service, dataset_service, notification_service, project_fs
 from app.services.data import dataset_fs, dataset_parser, dataset_rows, file_reader
 
 router = APIRouter(prefix="/dataset-files", tags=["dataset-files"])
@@ -372,8 +372,9 @@ async def create_dataset_from_query(
     if existed and not body.replace:
         raise HTTPException(status.HTTP_409_CONFLICT, "A dataset already exists at this path")
 
+    login = await database_credential_service.resolve_login(db, source, user.id)
     try:
-        table = await data_source_service.query(db, source, body.sql, arrow=True)
+        table = await data_source_service.query(db, source, login, body.sql, arrow=True)
     except Exception as e:  # noqa: BLE001 — surface SQL errors to the caller
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 

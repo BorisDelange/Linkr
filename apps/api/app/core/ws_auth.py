@@ -10,6 +10,7 @@ an active user.
 from jose import JWTError
 from starlette.websockets import WebSocket
 
+from app.core import audit
 from app.core.database import async_session
 from app.core.security import decode_token
 from app.models.user import User
@@ -32,6 +33,8 @@ async def authenticate_ws(websocket: WebSocket) -> User | None:
             user = await api_token_service.authenticate(db, token)
         if user is None:
             await websocket.close(code=WS_AUTH_FAILED)
+        else:
+            audit.set_actor(user.id, user.username, "api_key")
         return user
     try:
         payload = decode_token(token)
@@ -47,4 +50,5 @@ async def authenticate_ws(websocket: WebSocket) -> User | None:
     if not user or not user.is_active:
         await websocket.close(code=WS_AUTH_FAILED)
         return None
+    audit.set_actor(user.id, user.username, "web")
     return user

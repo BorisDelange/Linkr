@@ -179,6 +179,13 @@ export class LinkrApi {
         if (payload.detail !== undefined) {
           detail = typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload.detail)
         }
+        const code = (payload.detail as { code?: string } | undefined)?.code
+        if (res.status === 428 && code === 'database_credential_required') {
+          // An agent never receives or sets a password: the person does, in Linkr.
+          detail = 'The user has no account of their own for this database yet. Ask them to open it in '
+            + 'Linkr (or Profile → Database accounts) and enter their login there, then try again. '
+            + 'Never ask them for the password in this conversation.'
+        }
       } catch { /* not JSON */ }
       throw new ApiError(res.status, detail)
     }

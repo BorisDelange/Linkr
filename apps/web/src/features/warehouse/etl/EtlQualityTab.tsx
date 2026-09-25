@@ -19,9 +19,9 @@ import { SearchInput } from '@/components/ui/search-input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
-  ConceptDataTable,
-  type ConceptColumn,
-} from '@/components/ui/concept-data-table'
+  DataTable,
+  type DataTableColumn,
+} from '@/components/ui/data-table'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
@@ -646,7 +646,7 @@ function ConceptQualityView({
     return () => onActions(null)
   }, [onActions, counts, diffFilter, shown.length, exportCsv, load, computedAt, t, i18n.language])
 
-  const columns = useMemo((): ConceptColumn<QualityConceptRow>[] => [
+  const columns = useMemo((): DataTableColumn<QualityConceptRow>[] => [
     {
       id: 'diff',
       header: tRef.current('etl.comparison_status'),
@@ -719,7 +719,7 @@ function ConceptQualityView({
   return (
     <div className="flex h-full min-w-0 flex-col">
       <div className="min-h-0 min-w-0 flex-1">
-        <ConceptDataTable
+        <DataTable
           cellTooltips="all"
           data={shown}
           columns={columns}

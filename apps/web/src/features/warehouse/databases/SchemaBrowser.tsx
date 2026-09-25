@@ -539,7 +539,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
   const buildSelectSql = useCallback(() => {
     if (!selectedTable || columns.length === 0) return null
     const cols = columns.map((c) => `  ${c.column_name}`).join(',\n')
-    return `SELECT\n${cols}\nFROM ${tableQualifier ?? ''}${selectedTable}\nLIMIT 100;`
+    return `SELECT\n${cols}\nFROM ${tableQualifier ?? ''}${selectedTable}`
   }, [selectedTable, columns, tableQualifier])
 
   return (
@@ -593,6 +593,8 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
               </TooltipTrigger>
               <TooltipContent>{t('etl.profiling_refresh')}</TooltipContent>
             </Tooltip>
+
+            {selectedTable && columns.length > 0 && <CopySelectButton getSql={buildSelectSql} />}
 
             <div className="mx-0.5 h-4 w-px bg-border" />
 
@@ -718,12 +720,6 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
             {/* Column overview table */}
             <Allotment.Pane minSize={300}>
               <div className="flex h-full flex-col">
-                {selectedTable && columns.length > 0 && (
-                  <div className="flex items-center justify-between border-b px-3 py-1.5">
-                    <span className="text-xs font-medium">{selectedTable}</span>
-                    <CopySelectButton getSql={buildSelectSql} />
-                  </div>
-                )}
                 <ScrollArea className="h-full flex-1">
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 z-10 bg-muted shadow-[0_1px_0_0_var(--color-border)]">

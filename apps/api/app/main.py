@@ -9,10 +9,12 @@ from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
+from app.core import audit
 from app.core.database import async_session
 from app.core.logging import setup_logging
 from app.core.migrations import run_migrations
 from app.core.permissions import seed_default_roles
+from app.api.v1.routes.audit_log import router as audit_log_router
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.cohorts import router as cohorts_router
 from app.api.v1.routes.notifications import router as notifications_router
@@ -63,9 +65,8 @@ _INSECURE_SECRET = "dev-secret-change-in-production"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging(debug=settings.debug)
-    # The secret_key signs every JWT AND derives the Fernet key that encrypts
-    # external-DB passwords at rest. Booting with the shipped default in a real
-    # deployment would let anyone forge admin tokens and decrypt stored secrets.
+    # The secret_key signs every JWT. Booting with the shipped default in a real
+    # deployment would let anyone forge admin tokens.
     if settings.secret_key == _INSECURE_SECRET and not settings.debug:
         raise RuntimeError(
             "LINKR_SECRET_KEY is still the insecure default. Set a strong secret "
@@ -109,12 +110,14 @@ async def lifespan(app: FastAPI):
     from app.services import storage_gc
 
     gc_task = asyncio.create_task(storage_gc.run_periodic())
+    audit_task = asyncio.create_task(audit.run_periodic())
     yield
     from app.services.execution.kernel import manager as kernel_manager
     from app.services.execution.kernel import warm_pool
     from app.services.execution.pty_kernel import manager as pty_manager
 
     gc_task.cancel()
+    audit_task.cancel()
     await kernel_manager.shutdown_all()
     await warm_pool.shutdown_all()
     pty_manager.shutdown_all()
@@ -169,12 +172,15 @@ app.add_middleware(
     #                        "behind" and blocked the next push with "pull first".
     expose_headers=["x-file-name", "x-git-cloned-oid"],
 )
+# Outermost, so a request refused by any layer below is still logged.
+app.add_middleware(audit.AuditMiddleware)
 
 # Routes
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(setup_router, prefix="/api/v1")
 app.include_router(database_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(audit_log_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
 app.include_router(projects_router, prefix="/api/v1")
 app.include_router(fs_browser_router, prefix="/api/v1")

@@ -31,13 +31,13 @@ def test_refresh_materializes_and_page_reads_back(duckdb_source, monkeypatch, tm
     src_id = "src-abc"
     select = "SELECT concept_id, concept_name, record_count FROM ext.concept"
 
-    assert not concept_cache_fs.exists(src_id)
-    concept_cache_fs.refresh(config, None, files, [], select, src_id)
-    assert concept_cache_fs.exists(src_id)
+    assert not concept_cache_fs.exists(src_id, "")
+    concept_cache_fs.refresh(config, None, files, [], select, src_id, "")
+    assert concept_cache_fs.exists(src_id, "")
 
     # Page query runs against the cached Parquet (view `concepts`), never the source.
     rows = concept_cache_fs.query_page(
-        src_id, "SELECT * FROM concepts ORDER BY record_count DESC LIMIT 2"
+        src_id, "", "SELECT * FROM concepts ORDER BY record_count DESC LIMIT 2"
     )
     assert [r["concept_id"] for r in rows] == [2, 1]
     assert rows[0]["concept_name"] == "Glucose"
@@ -52,18 +52,44 @@ def test_invalidate_removes_cache(duckdb_source, monkeypatch, tmp_path):
 
     config, files = duckdb_source
     src_id = "src-xyz"
-    concept_cache_fs.refresh(
-        config, None, files, [], "SELECT concept_id, concept_name FROM ext.concept", src_id
-    )
-    assert concept_cache_fs.exists(src_id)
+    select = "SELECT concept_id, concept_name FROM ext.concept"
+    concept_cache_fs.refresh(config, None, files, [], select, src_id, "")
+    assert concept_cache_fs.exists(src_id, "")
     concept_cache_fs.invalidate(src_id)
-    assert not concept_cache_fs.exists(src_id)
+    assert not concept_cache_fs.exists(src_id, "")
     with pytest.raises(FileNotFoundError):
-        concept_cache_fs.query_page(src_id, "SELECT * FROM concepts")
+        concept_cache_fs.query_page(src_id, "", "SELECT * FROM concepts")
+
+    settings.__dict__.pop("data_path", None)
+
+
+def test_one_cache_per_principal(duckdb_source, monkeypatch, tmp_path):
+    """Two users' views of an external database never share a cache; dropping
+    one user's leaves the other's, dropping the source's drops all."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "data_dir", str(tmp_path / "data3"), raising=False)
+    settings.__dict__.pop("data_path", None)
+
+    config, files = duckdb_source
+    select = "SELECT concept_id FROM ext.concept"
+    concept_cache_fs.refresh(config, None, files, [], select, "src", "user:1")
+    assert concept_cache_fs.exists("src", "user:1")
+    assert not concept_cache_fs.exists("src", "user:2")
+    assert not concept_cache_fs.exists("src", "")
+
+    concept_cache_fs.refresh(config, None, files, [], select, "src", "user:2")
+    concept_cache_fs.invalidate("src", "user:1")
+    assert not concept_cache_fs.exists("src", "user:1")
+    assert concept_cache_fs.exists("src", "user:2")
+
+    concept_cache_fs.invalidate("src")
+    assert not concept_cache_fs.exists("src", "user:2")
 
     settings.__dict__.pop("data_path", None)
 
 
 def test_cache_path_rejects_bad_id():
     with pytest.raises(ValueError):
-        concept_cache_fs.cache_path("../etc/passwd")
+        concept_cache_fs.cache_path("../etc/passwd", "")
+    with pytest.raises(ValueError):
+        concept_cache_fs.cache_path("src", "../x")

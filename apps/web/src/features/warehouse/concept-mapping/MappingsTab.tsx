@@ -29,7 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { clampPage, pageCountOf } from '@/components/ui/concept-data-table'
+import { clampPage, pageCountOf } from '@/components/ui/data-table'
 import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator, columnLabel } from '@/components/ui/table-primitives'
 import {
   DropdownMenu,
@@ -3140,7 +3140,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       </div>
 
       {/* Footer: count + columns on the left, paging on the right — the layout
-          ConceptDataTable uses, so the two read the same. */}
+          DataTable uses, so the two read the same. */}
       <div className="flex shrink-0 items-center justify-between border-t px-4 py-1.5">
         <div className="flex items-center gap-1">
           <span className="text-[10px] text-muted-foreground">

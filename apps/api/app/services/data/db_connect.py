@@ -160,6 +160,11 @@ def _dsn(config: dict, password: str | None) -> str:
         parts.append(f"user={_dsn_value(username)}")
     if password:
         parts.append(f"password={_dsn_value(password)}")
+    if not is_mysql:
+        if sslmode := config.get("sslmode"):
+            parts.append(f"sslmode={_dsn_value(sslmode)}")
+        if app_name := config.get("application_name"):
+            parts.append(f"application_name={_dsn_value(app_name)}")
     return " ".join(parts)
 
 

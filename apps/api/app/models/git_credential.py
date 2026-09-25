@@ -5,7 +5,7 @@ from app.models.base import Base, TimestampMixin
 
 
 class GitCredential(Base, TimestampMixin):
-    """A user's git access token for one remote host, encrypted at rest (Fernet).
+    """A user's git access token for one remote host, encrypted at rest (core/crypto.py).
 
     Tokens are per (user, host), NOT per entity: a personal access token is
     host-scoped in practice (one gitlab.com PAT works for every repo there), and

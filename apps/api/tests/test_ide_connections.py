@@ -42,7 +42,7 @@ async def test_connection_secret_stripped_and_encrypted(client, db):
     # Stored encrypted (not plaintext) and decryptable server-side.
     row = await db.get(IdeConnection, "c1")
     assert row.connection_secret and row.connection_secret != "s3cret"
-    assert crypto.decrypt(row.connection_secret) == "s3cret"
+    assert crypto.decrypt(row.connection_secret, "ide:c1") == "s3cret"
     assert "password" not in row.connection_config
 
     # GET never leaks the password either.
@@ -62,7 +62,7 @@ async def test_update_without_password_keeps_secret(client, db):
         "connectionConfig": {"engine": "postgresql", "host": "newhost"},
     })
     row = await db.get(IdeConnection, "c1")
-    assert crypto.decrypt(row.connection_secret) == "s3cret"
+    assert crypto.decrypt(row.connection_secret, "ide:c1") == "s3cret"
     assert row.connection_config["host"] == "newhost"
 
 

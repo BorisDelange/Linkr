@@ -10,6 +10,7 @@ from app.models.cohort import Cohort
 from app.models.user import User
 from app.schemas.cohort import CohortCreate, CohortMaterializeRequest, CohortResponse, CohortUpdate
 from app.services import (
+    database_credential_service,
     cohort_access,
     cohort_service,
     data_source_service,
@@ -162,9 +163,10 @@ async def materialize_cohort(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Database not found")
     if source.workspace_id is not None:
         await check_workspace_permission(db, source.workspace_id, user, "databases:read")
+    login = await database_credential_service.resolve_login(db, source, user.id)
 
     try:
-        table = await data_source_service.query(db, source, body.membership_sql, arrow=True)
+        table = await data_source_service.query(db, source, login, body.membership_sql, arrow=True)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client

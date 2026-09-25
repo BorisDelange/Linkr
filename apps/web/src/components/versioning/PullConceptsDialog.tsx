@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { AlertTriangle, CheckSquare, Square } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { cn } from '@/lib/utils'
 import type { SourceConceptChange, SourceConceptsDiff } from '@/lib/api/git'
 
@@ -63,7 +63,7 @@ export function PullConceptsDialog({ diff, changes, declined, onClose, onApply }
     })
   }
 
-  const columns = useMemo<ConceptColumn<SourceConceptChange>[]>(() => [
+  const columns = useMemo<DataTableColumn<SourceConceptChange>[]>(() => [
     {
       id: '_select',
       header: '',
@@ -168,7 +168,7 @@ export function PullConceptsDialog({ diff, changes, declined, onClose, onApply }
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          <ConceptDataTable
+          <DataTable
             pageSize={100}
             data={changes}
             columns={columns}

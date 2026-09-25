@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.websockets import WebSocketDisconnect
 
+from app.core import audit
 from app.config import settings
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
@@ -32,6 +33,7 @@ from app.schemas.execution_session import (
     ExecutionSessionResponse,
 )
 from app.services import (
+    database_credential_service,
     data_source_service,
     dataset_service,
     execution_session_service,
@@ -186,6 +188,7 @@ async def execute_code(
     # Gate on the execute permission matching this run's purpose (ide:execute for
     # the IDE; dashboards/datasets/patient-data:execute for a widget/analysis render).
     await _require_execute(db, body.project_uid, user, body.purpose)
+    audit.bind(action="run_code", project_uid=body.project_uid, detail=body.code)
 
     code = body.code
     if body.dataset_file_id and body.language in ("python", "r"):
@@ -199,9 +202,10 @@ async def execute_code(
     resolver = None
     if body.connection_id:
         source = await _require_connection_access(db, body.connection_id, user)
+        login = await database_credential_service.resolve_login(db, source, user.id)
 
         async def resolver(sql: str):
-            return await data_source_service.query(db, source, sql)
+            return await data_source_service.query(db, source, login, sql)
 
     if body.language not in ("python", "r"):
         raise HTTPException(
@@ -478,7 +482,8 @@ async def _make_ws_resolver(connection_id: str | None, user: User):
 
     async def resolver(sql: str):
         async with async_session() as db:
-            return await data_source_service.query(db, source, sql)
+            login = await database_credential_service.resolve_login(db, source, user.id)
+            return await data_source_service.query(db, source, login, sql)
 
     return resolver
 

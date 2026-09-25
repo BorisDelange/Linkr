@@ -9,8 +9,10 @@ import { UsersTab } from './UsersTab'
 import { RolesTab } from './RolesTab'
 import { OrganizationsTab } from './OrganizationsTab'
 import { SettingsBackupSyncTab } from './SettingsBackupSyncTab'
+import { AccessLogTab } from './AccessLogTab'
+import { isServerMode } from '@/lib/api-client'
 
-const TABS = ['general', 'organizations', 'users', 'roles', 'catalog', 'backup-sync']
+const TABS = ['general', 'organizations', 'users', 'roles', 'catalog', 'backup-sync', 'access-log']
 
 export function SettingsPage() {
   const { t } = useTranslation()
@@ -22,6 +24,7 @@ export function SettingsPage() {
   const canManageUsers = useHasGlobalPermission('users:read')
   const canManageRoles = useHasGlobalPermission('roles:read')
   const canManageOrgs = useHasGlobalPermission('organizations:write')
+  const canReadAccessLog = useHasGlobalPermission('audit-log:read')
   // Settings versioning pushes/imports users + roles + organizations wholesale
   // (creating accounts) — admin-tier, so require all three management rights.
   const canVersionSettings = canManageUsers && canManageRoles && canManageOrgs
@@ -52,6 +55,7 @@ export function SettingsPage() {
             <TabsTrigger value="roles">{t('settings.tab_roles')}</TabsTrigger>
             <TabsTrigger value="catalog">{t('nav.catalog')}</TabsTrigger>
             <TabsTrigger value="backup-sync">{t('settings.tab_backup_sync')}</TabsTrigger>
+            {isServerMode() && <TabsTrigger value="access-log">{t('settings.tab_access_log')}</TabsTrigger>}
           </TabsList>
           <TabsContent value="general">
             <GeneralTab />
@@ -71,6 +75,11 @@ export function SettingsPage() {
           <TabsContent value="backup-sync">
             {canVersionSettings ? <SettingsBackupSyncTab /> : <NoAccessNotice />}
           </TabsContent>
+          {isServerMode() && (
+            <TabsContent value="access-log">
+              {canReadAccessLog ? <AccessLogTab /> : <NoAccessNotice />}
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </div>

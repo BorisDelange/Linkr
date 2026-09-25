@@ -42,7 +42,7 @@ Go file by file through the diff. For **each** finding, record: file:line, sever
 - File size: flag files pushed past ~800 lines; suggest extraction.
 
 **UI reuse** (read `docs/ui-patterns.md` before reviewing any UI diff — it is the reference for the four checks below):
-- **Rebuilt instead of reused**: a new `useReactTable` (should be `ConceptDataTable`), raw `Dialog` parts (should be `DialogShell`), a hand-written sort arrow / resize grip / dashed filter class (should be `table-primitives`), an inline uppercase heading (should be `SectionLabel`, except on a form `<label>`). 🟠 by default.
+- **Rebuilt instead of reused**: a new `useReactTable` (should be `DataTable`), raw `Dialog` parts (should be `DialogShell`), a hand-written sort arrow / resize grip / dashed filter class (should be `table-primitives`), an inline uppercase heading (should be `SectionLabel`, except on a form `<label>`). 🟠 by default.
 - **Hardcoded around a shared component**: an override repeated at several call sites means the primitive's default is wrong — flag the default, not the call sites. A local copy of a shared helper is the same finding.
 - **Type scale**: only `text-2xl` / `text-sm` / `text-xs` / `text-[10px]` in new code. `text-[11px]` is deprecated; a typed-out size on `<Label>`, `<Badge>` or `<DialogTitle>` is a departure from the primitive and needs a reason.
 - **A bespoke component may still be right** — the test is whether the diff says *why*. Silent divergence is the finding; a documented exception is not.

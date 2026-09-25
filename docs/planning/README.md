@@ -399,9 +399,11 @@ password reachable by an agent through `client_recipe`. No new dependency.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Crypto (own key, AES-GCM) + model + resolver (428) + pool/caches per user + routes | M–L |
-| 🔜 | Access log (middleware + contextvars, JSONL → Parquet, hash chain, admin + "my activity" views) | M |
-| 🔜 | Front: credential dialog, *Database accounts* tab, *Access log* page | M |
+| ✅ | Crypto (own key, AES-GCM) + model + resolver (428) + pool/caches per user + routes — branch `feature/per-user-db-credentials` | M–L |
+| ✅ | Access log (middleware + contextvars, JSONL → Parquet, hash chain, admin view) | M |
+| ✅ | Front: credential dialog, *Database accounts* tab, *Access log* page | M |
+| 🤔 | Agent path: `run_code` shares the user's IDE kernel, so refusing `client_recipe` to API keys is not enough (plan §7) | S–M |
+| 🔜 | User docs (linkr-website) | S |
 | 🔜 | Per-workspace browse roots for file-based databases | M |
 
 ## Other backlog items

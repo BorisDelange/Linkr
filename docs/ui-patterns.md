@@ -105,19 +105,19 @@ never re-type `text-teal-500` at a call site, or the three surfaces drift apart.
 
 ### The canonical component
 
-**`components/ui/concept-data-table.tsx` → `ConceptDataTable<T>`.** Use it for
+**`components/ui/data-table.tsx` → `DataTable<T>`.** Use it for
 every tabular list. It is declarative — you pass columns, not JSX:
 
 ```tsx
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 
-const columns: ConceptColumn<Row>[] = [
+const columns: DataTableColumn<Row>[] = [
   { id: 'name',   header: t('common.name'),  accessor: (r) => r.name, filter: 'text' },
   { id: 'domain', header: t('concepts.domain'), accessor: (r) => r.domain, filter: 'select' },
   { id: 'count',  header: t('common.count'), accessor: (r) => r.count, filter: 'number' },
 ]
 
-<ConceptDataTable
+<DataTable
   data={rows}
   columns={columns}
   rowKey={(r) => r.id}
@@ -132,7 +132,7 @@ It already gives you: **per-column sort** (tri-state desc → asc → off),
 header (text / number / multi-select), **column visibility** menu, **client
 pagination**, and **truncation tooltips**. Pass `reorderable` to let users drag
 columns into a different order — off by default, since the drag grip is noise on
-a three-column table. `ConceptColumn` also supports `cell` (custom renderer),
+a three-column table. `DataTableColumn` also supports `cell` (custom renderer),
 `sortable`, `hidden`, `center`, `size`/`minSize`, `selectOptionLabel` and
 `tooltip`.
 
@@ -145,7 +145,7 @@ Multi-selection is opt-in too — pass `selectedRowKeys` + `onSelectedRowKeysCha
 for file-explorer behaviour (plain click replaces, Ctrl/Cmd toggles, Shift
 extends from the anchor). Ranges follow the *filtered, sorted* order, so a
 Shift-click selects what the user sees. The maths is `nextSelection()`, unit
-tested in `concept-data-table.test.ts`.
+tested in `data-table.test.ts`.
 
 **Checkbox selection is a different thing** — a dedicated column where every
 click is a plain toggle and the header selects all. Don't reach for
@@ -177,15 +177,38 @@ ids, source codes — and `readOnly` to drop the copy button in dense
 pick-a-row tables, where a hoverable panel would sit over the next rows. No mode
 mounts a tooltip per cell; they are built on first hover.
 
-### When a bespoke table is still legitimate
+### Server mode: one page at a time
 
-**Server-side pagination is the real dividing line.** `ConceptDataTable` owns
-its sort, filters and paging, and computes them over the whole `data` array. A
-table whose parent drives those through callbacks and answers each one with SQL
-is a different design, not a missing feature — migrating it would mean loading
-the entire vocabulary into memory. Four tables are genuinely in that case:
-`SourceConceptTable`, `ConceptTable`, `CohortConceptPickerDialog` and
-`GlobalSummaryView`'s dedup/flat pair.
+A set too big for the browser — a log, a vocabulary — still uses `DataTable`.
+Pass `server` and hand it **one page**:
+
+```tsx
+<DataTable
+  data={page.rows}                  // the current page only
+  columns={columns}                 // ids = the server's column names
+  rowKey={(r) => r.id}
+  pageSize={100}                    // required in server mode
+  server={{
+    total: page.total,              // rows matching the filters, all pages
+    filterOptions: page.options,    // values of 'select' filters, over the whole set
+    loading,
+    onQueryChange: fetchPage,       // ({ page, pageSize, sorting, filters }) => void
+  }}
+/>
+```
+
+The table keeps its own sort / filter / page state exactly as in local mode and
+calls `onQueryChange` on mount and on every change (a new sort or filter goes back
+to page 1); the caller fetches and passes the answer back as `data`. Guard the
+fetch against out-of-order answers (keep a ticket, drop stale replies) —
+`AccessLogTab` + `/audit-log` (`core/audit.py`, column whitelist, bound values)
+are the reference. An export must go to the server with the same query, never
+from `data`, which is one page.
+
+Four older tables still hand-roll server paging — `SourceConceptTable`,
+`ConceptTable`, `CohortConceptPickerDialog` and `GlobalSummaryView`'s dedup/flat
+pair. They predate server mode; migrating one means checking its extras (columns
+joined after the fetch, checkbox pickers, multi-selection) against it.
 
 **Do not trust the `manual*` flags to tell you which.** `manualSorting` /
 `manualFiltering` / `manualPagination` have been copy-pasted into tables that are
@@ -222,7 +245,7 @@ below. Reach for those before writing a header, a sort arrow or a resize grip.
 
 ### Table styling — exact classes
 
-Copy these; they are what `ConceptDataTable` renders.
+Copy these; they are what `DataTable` renders.
 
 | Part | Class |
 |---|---|
@@ -242,7 +265,7 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 | Component | Use for |
 |---|---|
 | `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter selects all matches. |
-| `ColumnVisibilityMenu` | Column toggling with search + select all/none. `ConceptDataTable` uses it, so you only reach for it directly in a bespoke table. |
+| `ColumnVisibilityMenu` | Column toggling with search + select all/none. `DataTable` uses it, so you only reach for it directly in a bespoke table. |
 | `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. |
 | `OverflowBadgeList` | A badge row too narrow for its items. Keeps whole badges, folds the rest into `+N` with the full list as bullets on hover. Never clip a badge row with `overflow-hidden`. |
 | `DebouncedInput` | Any search box over a large set (300 ms). One shared copy at `ui/debounced-input` — do not re-declare it locally. |
@@ -645,7 +668,7 @@ for the button, `concept_mapping.create_project_title` for the dialog).
 When a shared component *almost* fits, add the missing capability to it. Do not
 fork it, and do not drop the feature from the screen you are building.
 `onVisibleRowsChange`, `headerCell`, `viewKey`, `filterCell`, `rowClassName`,
-`resizable` and `cellTooltips` exist on `ConceptDataTable` for exactly that
+`resizable` and `cellTooltips` exist on `DataTable` for exactly that
 reason: each one is a capability a caller needed and would otherwise have lost.
 
 The judgement call: if the capability is **general** (any table might want it),

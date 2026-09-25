@@ -29,6 +29,7 @@ import {
   Code,
   User,
   FileText,
+  ScrollText,
   type LucideIcon,
 } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
@@ -71,6 +72,7 @@ const GLOBAL_RESOURCES = new Set([
   'roles',
   'organizations',
   'app-database',
+  'audit-log',
   'all-workspaces',
   'all-projects',
 ])
@@ -117,6 +119,7 @@ const RESOURCE_META: Record<string, { icon: LucideIcon; color: string }> = {
   roles: { icon: ShieldHalf, color: 'text-slate-500' },
   organizations: { icon: Building, color: 'text-amber-500' },
   'app-database': { icon: Database, color: 'text-slate-500' },
+  'audit-log': { icon: ScrollText, color: 'text-slate-500' },
   'all-workspaces': { icon: Building2, color: 'text-amber-500' },
   'all-projects': { icon: Layers, color: 'text-blue-700' },
 }

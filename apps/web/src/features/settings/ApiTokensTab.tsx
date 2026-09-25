@@ -4,7 +4,7 @@ import { Ban, Plus, TriangleAlert } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { CopyIconButton } from '@/components/ui/copy-icon-button'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { FormField } from '@/components/ui/form-field'
@@ -111,7 +111,7 @@ export function ApiTokensTab() {
 
   const statusLabel = useCallback((s: ApiTokenStatus) => t(`api_tokens.status_${s}`), [t])
 
-  const columns = useMemo<ConceptColumn<ApiToken>[]>(() => [
+  const columns = useMemo<DataTableColumn<ApiToken>[]>(() => [
     { id: 'name', header: t('common.name'), accessor: (r) => r.name, filter: 'text', size: 180 },
     {
       id: 'prefix',
@@ -198,7 +198,7 @@ export function ApiTokensTab() {
         <CardContent className="space-y-2">
           {loadError && <p className="text-xs text-destructive">{loadError}</p>}
           <div className="h-[360px] overflow-hidden rounded-lg border">
-            <ConceptDataTable
+            <DataTable
               data={tokens}
               columns={columns}
               rowKey={(r) => r.id}

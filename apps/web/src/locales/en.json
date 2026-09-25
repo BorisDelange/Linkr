@@ -54,7 +54,9 @@
     "requires_backend": "Member management requires the Python backend (server mode).",
     "load_error": "Could not load members.",
     "save_error": "Could not save the member. Check the username and your permissions.",
-    "remove_error": "Could not remove the member."
+    "remove_error": "Could not remove the member.",
+    "remove_confirm": "«{{name}}» will lose access to this workspace and all its projects.",
+    "remove_override_confirm": "The override is removed: «{{name}}» goes back to their inherited workspace role."
   },
   "workspaces": {
     "title": "Workspaces",
@@ -846,7 +848,14 @@
     "allow_writes_hint": "Lets a cohort be derived into a new SQL schema here. The user needs the CREATE right on the database; Linkr never changes the existing tables.",
     "location_move_hint": "On save, the file moves to this location; nothing is left at the old one.",
     "delete_created_file": "Also delete its file, which Linkr created: {{path}}",
-    "delete_created_schema": "Also drop the SQL schema {{schema}}, which Linkr created from a cohort, with its tables"
+    "delete_created_schema": "Also drop the SQL schema {{schema}}, which Linkr created from a cohort, with its tables",
+    "detail_sql": "SQL",
+    "sql_run": "Run",
+    "sql_rows_one": "{{count}} row · {{ms}} ms",
+    "sql_rows_other": "{{count}} rows · {{ms}} ms",
+    "sql_failed": "Failed · {{ms}} ms",
+    "sql_empty": "Write a query and run it.",
+    "sql_no_rows": "The query returned no rows."
   },
   "reports": {
     "title": "Reports",
@@ -2856,7 +2865,9 @@
     "db_col_nullable": "Nullable",
     "db_yes": "Yes",
     "db_no": "No",
-    "db_no_tables": "No tables."
+    "db_no_tables": "No tables.",
+    "tab_access_log": "Access log",
+    "resource_audit-log": "Access log"
   },
   "schemas": {
     "title": "Schemas",
@@ -3078,7 +3089,8 @@
     "project_updates_description": "Get notified when projects you follow are updated.",
     "dismiss_seed_updates": "Hide data update notifications",
     "dismiss_seed_updates_description": "Don't show the notification dialog when bundled demo data has been updated in a new version.",
-    "api_keys_tab": "API keys"
+    "api_keys_tab": "API keys",
+    "database_logins_tab": "Database accounts"
   },
   "editor": {
     "font_size": "Font size",
@@ -5574,5 +5586,49 @@
     "revoke": "Revoke",
     "revoke_title": "Revoke this API key?",
     "revoke_description": "« {{name}} » stops working immediately. This cannot be undone."
+  },
+  "database_logins": {
+    "dialog_title": "Your account for «{{name}}»",
+    "dialog_description": "Each user reaches this database with their own account, so the database decides what you can see. Linkr checks it connects before keeping it, and never shows it again.",
+    "username": "Username",
+    "password": "Password",
+    "test_and_save": "Test and save",
+    "remember": "Remember on this server",
+    "remember_hint": "Kept encrypted on the server. Off: kept in memory until you log out or the server restarts.",
+    "remember_forbidden": "This database accepts no stored passwords: it is kept in memory until you log out or the server restarts.",
+    "title": "Database accounts",
+    "description": "Your own accounts on external databases. Nobody else uses them, and passwords are never shown again.",
+    "database": "Database",
+    "kept": "Kept",
+    "kept_remembered": "On the server",
+    "kept_session": "This session",
+    "last_used": "Last used",
+    "change": "Change",
+    "forget": "Forget",
+    "forget_title": "Forget this account?",
+    "forget_description": "Linkr will ask for your account again the next time you open «{{name}}».",
+    "empty": "No database account yet. Linkr asks for one the first time you open an external database.",
+    "form_hint": "Your own account on this database. Every user enters theirs: Linkr never shares one.",
+    "require_session_only": "Never store passwords for this database",
+    "require_session_only_hint": "For logins that are a directory (LDAP/AD) password: each user's password stays in memory for their session only.",
+    "retarget_warning": "Changing the host, port or database asks every user for their account again."
+  },
+  "access_log": {
+    "title": "Access log",
+    "description": "Who read which database, ran which code, when and from where — never the data itself. Entries hold SQL and code, which can name patients.",
+    "when": "When",
+    "who": "Who",
+    "via": "Via",
+    "action": "Action",
+    "database": "Database",
+    "detail": "SQL / code",
+    "status": "Status",
+    "rows": "Rows",
+    "ip": "IP address",
+    "verify": "Check integrity",
+    "verify_ok": "Intact: {{count}} entries checked, none altered or removed.",
+    "verify_broken": "Altered: the chain breaks at entry #{{seq}} — an entry was edited or removed.",
+    "download": "Download CSV",
+    "empty": "No entries yet."
   }
 }

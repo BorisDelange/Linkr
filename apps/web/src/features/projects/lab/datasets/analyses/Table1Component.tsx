@@ -6,7 +6,7 @@
  * result through `PublicationTable`.
  *
  * Two things this deliberately does NOT do:
- *  - use `ConceptDataTable`: its filters, visibility menu and paging are chrome
+ *  - use `DataTable`: its filters, visibility menu and paging are chrome
  *    that must not appear in a manuscript (plan §3);
  *  - name variables by their column id: a table meant to be read and exported
  *    shows labels (`displayColumnName`).

@@ -444,6 +444,62 @@ the `linkr` MCP server from LibreChat or Claude Code. Model `ApiToken`
   once a minute.
 - Not built: keys scoped to one project, read-only keys.
 
+## Database logins and secrets at rest (as-built)
+
+No shared account to an external database: each user reaches it with their own login.
+Plan and rationale: `docs/planning/per-user-db-credentials-plan.md`.
+
+- **`DatabaseCredential`** (`models/database_credential.py`), one per (user, database).
+  `services/database_credential_service.py` is the only way to open an external
+  database: `resolve_login(db, source, user_id)` returns the acting user's `Login`, or
+  raises `CredentialRequired` → **HTTP 428** `{code: "database_credential_required"}`.
+  Routes resolve it *before* any `except Exception`, which would turn it into a 422.
+  The front's `apiFetch` catches the 428, opens `DatabaseLoginPromptHost`'s dialog and
+  retries; the MCP turns it into "ask the user to enter it in Linkr".
+- **The database form's username + password** become the author's own login
+  (`_split_login`); `connection_config` never stores either.
+- **Session-only logins** live in process memory, forgotten on logout / idle / restart;
+  `DataSource.require_session_only` forbids stored ones.
+- **Changing engine/host/port/database/sslmode drops every login** to the database
+  (`forget_all`), so nobody can re-point it at their own server to collect passwords.
+- **Per user, never shared**: warm connections (`connection_pool` key
+  `<source id>:user:<n>`), the concept list Parquet (`<id>~user-<n>.parquet`), concept
+  stats (`principal` column) and database stats (`cache_key` `<id>:user:<n>`). File
+  databases keep one shared copy (principal `""`). Stats caches of an external
+  database are writable with `databases:read` — they are the reader's own.
+- **Jobs** resolve their launcher's login when they run (derive, ETL); a derived schema
+  registered as a database gets the launcher's login as their own.
+- **`core/crypto.py`**: AES-256-GCM with associated data — every secret is sealed to a
+  context (`db:<user>:<source>:<target…>`, `git:<user>:<host>`, `ide:<connection>`) and
+  opens under no other. Own key: `LINKR_ENCRYPTION_KEY`, else generated once into
+  `data_dir/secret.key` (0600); never derived from the JWT secret, never in the Linkr
+  database. `LINKR_ENCRYPTION_OLD_KEYS` keeps rotated keys readable (`needs_reseal`).
+- Postgres connections carry `application_name=linkr`.
+- **Not built**: `client_recipe` still hands the user's own password to their kernel,
+  which an agent's `run_code` shares (see the plan, §7); per-user IDE connections.
+
+## Access log (as-built)
+
+`core/audit.py`. Not a table: JSON lines in `data_dir/audit/YYYY-MM-DD.jsonl` (+ stdout,
+logger `linkr.audit`), compacted every 6 h into `YYYY-MM.parquet` (zstd) and read with
+DuckDB; months past `LINKR_AUDIT_RETENTION_DAYS` (365) are deleted.
+
+- **Written by `AuditMiddleware`** (pure ASGI, outermost, HTTP + WebSocket) through a
+  context var; the auth dependencies name the actor (`set_actor`, `via` = web /
+  api_key / kernel); the data choke points `bind` what they touched (`query`,
+  `introspect`, `concept_cache_refresh`, `etl_run`, `run_code`, `derive`,
+  `credential_set/forget`, and one line per `client_recipe` password handed out).
+  A line is kept when an action was bound, the request was refused (401/403/428) or it
+  changed something — not for plain reads. Jobs get `job_scope` with the launcher.
+- **Never result data**; `detail` is SQL/code truncated to 2 KB.
+- **Hash chain** (`seq`, `hash = sha256(prev + line)`), checked by `verify`. Assumes a
+  single API worker.
+- Routes: `GET /audit-log` (paged / sorted / filtered server-side: `limit`, `offset`,
+  `sort`, `desc`, `filters` = JSON column → text or list; column names whitelisted
+  by `VIEW_COLUMNS`, values bound), `/audit-log/export` (CSV of every matching
+  line, written by DuckDB), `/audit-log/verify` (global `audit-log:read`),
+  `GET /auth/my-activity`. UI: Settings → Access log, on `DataTable`'s server mode.
+
 ## Permissions Model (as-built)
 
 - **Three tiers** — Global / Workspace / Project — over a resources × actions catalogue (`apps/api/app/core/permissions.py`): most resources carry `read/write/delete`. `execute` is split by risk: `ide:execute` = run **arbitrary** code (the RCE-sensitive one), while `patient-data`/`datasets`/`dashboards` carry a **view-time** `execute` (running a widget/analysis, not free-form code). Global resources: `workspaces` (= create), `users`, `roles`, `organizations`, `app-database`, plus cross-cutting `all-workspaces` / `all-projects`; `reports` is reserved (stub page) so roles can pre-grant.

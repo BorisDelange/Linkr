@@ -11,7 +11,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { generateChecks, runAllChecks } from '@/lib/duckdb/data-quality'
 import type { DqCheck, DqCheckResult, DqReport } from '@/lib/duckdb/data-quality'
 import type { SchemaMapping } from '@/types/schema-mapping'
@@ -119,7 +119,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
     return out
   }, [report])
 
-  const columns = useMemo<ConceptColumn<Row>[]>(() => [
+  const columns = useMemo<DataTableColumn<Row>[]>(() => [
     {
       id: 'status',
       header: t('data_quality.col_status'),
@@ -327,7 +327,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
           ) : (
             <Allotment proportionalLayout={false}>
               <Allotment.Pane minSize={400}>
-                <ConceptDataTable
+                <DataTable
                   pageSize={100}
                   data={rows}
                   columns={columns}

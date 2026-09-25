@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import { AlignConceptButton } from './components/AlignConceptButton'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card } from '@/components/ui/card'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
@@ -81,8 +81,8 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
     dragging.current = false
   }, [])
 
-  const resolvedColumns = useMemo<ConceptColumn<ResolvedConcept>[]>(() => {
-    const cols: ConceptColumn<ResolvedConcept>[] = [
+  const resolvedColumns = useMemo<DataTableColumn<ResolvedConcept>[]>(() => {
+    const cols: DataTableColumn<ResolvedConcept>[] = [
       { id: 'conceptName', header: t('concept_mapping.cs_detail_concept_name'), accessor: (c) => c.conceptName, filter: 'text', size: 220, minSize: 120 },
       { id: 'conceptId', header: t('concept_mapping.col_concept_id'), accessor: (c) => c.conceptId, filter: 'number', size: 80, minSize: 50, cell: (c) => <span className="font-mono text-xs text-muted-foreground">{c.conceptId}</span> },
       { id: 'vocabularyId', header: t('concept_mapping.cs_detail_vocabulary'), accessor: (c) => c.vocabularyId, filter: 'select', size: 90, minSize: 50 },
@@ -113,7 +113,7 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
   }, [t, alignContext])
 
   const flagCell = (on: boolean) => on ? <Check size={13} className="mx-auto text-green-600" /> : null
-  const expressionColumns = useMemo<ConceptColumn<ConceptSetItem>[]>(() => [
+  const expressionColumns = useMemo<DataTableColumn<ConceptSetItem>[]>(() => [
     { id: 'conceptName', header: t('concept_mapping.cs_detail_concept_name'), accessor: (i) => i.concept.conceptName, filter: 'text', size: 220, minSize: 120 },
     { id: 'conceptId', header: t('concept_mapping.col_concept_id'), accessor: (i) => i.concept.conceptId, filter: 'number', size: 80, minSize: 50, cell: (i) => <span className="font-mono text-xs text-muted-foreground">{i.concept.conceptId}</span> },
     { id: 'vocabularyId', header: t('concept_mapping.cs_detail_vocabulary'), accessor: (i) => i.concept.vocabularyId, filter: 'select', size: 90, minSize: 50 },
@@ -288,7 +288,7 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
                 <p className="text-sm text-muted-foreground">{t('concept_mapping.cs_detail_resolved_empty')}</p>
               </div>
             ) : (
-              <ConceptDataTable
+              <DataTable
                 cellTooltips="all"
                 pageSize={100}
                 data={resolvedConcepts}
@@ -299,7 +299,7 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
           </TabsContent>
 
           <TabsContent value="expression" className="flex-1 overflow-hidden m-0">
-            <ConceptDataTable
+            <DataTable
               data={conceptSet.expression.items}
               rowKey={(item) => item.concept.conceptId}
               columns={expressionColumns}

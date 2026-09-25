@@ -1,6 +1,6 @@
 # Per-user database credentials — plan
 
-**Status: arbitrated (2026-09-25). Nothing built.**
+**Status: steps 1–10 and 13a built (2026-09-25, branch `feature/per-user-db-credentials`); 11–12 open. As-built: `docs/architecture.md` § Database logins, § Access log.**
 
 Today one password per database, shared by everyone who can read it. The target: each
 user connects to an external database (Postgres, MySQL…) **with their own account,
@@ -209,7 +209,7 @@ DuckDB (already there) reads it.
 
 - DuckDB queries `audit/*.parquet` + today's JSONL directly (`read_parquet`,
   `read_json`), filtered and paginated in SQL — no import, no index to maintain.
-- *Administration → Access log* (`audit:read`): filterable table (`ConceptDataTable`),
+- *Administration → Access log* (`audit:read`): filterable table (`DataTable`),
   CSV export. *Profile → My activity*: each user's own entries.
 
 ## 7. Code, the IDE and agents — where a password can escape
@@ -285,18 +285,19 @@ permissions, as today.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | 1. `core/crypto.py`: own key (env or `data_dir/secret.key`), AES-GCM with associated data, key id; re-encrypt Git/IDE secrets | S |
-| 🔜 | 2. `DatabaseCredential` model + migration; drop `connection_secret` and config usernames | S |
-| 🔜 | 3. `resolve_login` + `CredentialRequired` (428); thread the acting user through every §1 caller; delete `connection_password` | M |
-| 🔜 | 4. Pool key per principal + invalidation; target change drops credentials (§2e); `application_name` | S |
-| 🔜 | 5. Caches keyed per principal (stats, concept stats, concept Parquet, introspection) | M |
-| 🔜 | 6. Session-only credentials (in-memory store tied to the login session) + `require_session_only` | S |
-| 🔜 | 7. Audit: middleware + contextvars, enrichment at the choke points, jobs; JSONL → Parquet compaction, retention, hash chain | M |
-| 🔜 | 8. Routes: my credential (put / test / delete), list mine; access log (admin, mine) | S |
-| 🔜 | 9. Front: credential dialog on 428, database settings, *Database accounts* tab, *Access log* + *My activity* | M |
-| 🔜 | 10. Jobs resolve the launcher's login at run time (derive, ETL, concept refresh) | S |
+| ✅ | 1. `core/crypto.py`: own key (env or `data_dir/secret.key`), AES-GCM with associated data, key id; re-encrypt Git/IDE secrets | S |
+| ✅ | 2. `DatabaseCredential` model + migration; drop `connection_secret` and config usernames | S |
+| ✅ | 3. `resolve_login` + `CredentialRequired` (428); thread the acting user through every §1 caller; delete `connection_password` | M |
+| ✅ | 4. Pool key per principal + invalidation; target change drops credentials (§2e); `application_name` | S |
+| ✅ | 5. Caches keyed per principal (stats, concept stats, concept Parquet, introspection) | M |
+| ✅ | 6. Session-only credentials (in-memory store tied to the login session) + `require_session_only` | S |
+| ✅ | 7. Audit: middleware + contextvars, enrichment at the choke points, jobs; JSONL → Parquet compaction, retention, hash chain | M |
+| ✅ | 8. Routes: my credential (put / test / delete), list mine; access log (admin, mine) | S |
+| ✅ | 9. Front: credential dialog on 428, database settings, *Database accounts* tab, *Access log* (*My activity* has its route, no page yet) | M |
+| ✅ | 10. Jobs resolve the launcher's login at run time (derive, ETL, concept refresh) | S |
 | 🔜 | 11. `client_recipe` refused for API-key sessions; IDE connections split settings / login | S |
 | 🔜 | 12. Per-workspace browse roots; `serverPath` registration behind `databases:manage` | M |
-| 🔜 | 13. MCP relays the 428; tests; `docs/architecture.md`; user docs (databases page, new settings tabs, threat model §11) | S |
+| ✅ | 13a. MCP relays the 428; tests; `docs/architecture.md` | S |
+| 🔜 | 13b. User docs on linkr-website (databases page, new settings tabs, threat model §11) | S |
 | 💤 | Server-side query proxy for kernels (no password in the kernel) | M |
 | 💤 | Per-user OS identity for file access (spawner) | L |

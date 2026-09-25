@@ -16,6 +16,7 @@ import asyncio
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.config import settings
 from app.core.database import async_session
 from app.models.job import Job
@@ -63,24 +64,27 @@ async def create(
 def launch(job_id: str, body) -> None:
     """Schedule a job body (an async callable receiving a JobHandle). Runs behind
     the semaphore; records status/log/progress transitions in its own DB session."""
-    _tasks[job_id] = asyncio.create_task(_run(job_id, body))
+    _tasks[job_id] = asyncio.create_task(_run(job_id, body, audit.actor()))
 
 
 async def run_now(job_id: str, body) -> None:
     """Run a job body and AWAIT it (still tracked + visible + cancellable via the
     same task registry). Used for auto-build on first run, where the triggering
     request must block until the env is ready."""
-    task = asyncio.create_task(_run(job_id, body))
+    task = asyncio.create_task(_run(job_id, body, audit.actor()))
     _tasks[job_id] = task
     await task
 
 
-async def _run(job_id: str, body) -> None:
+async def _run(job_id: str, body, launched_by: dict) -> None:
+    """`launched_by` is the launching request's actor: the job's own access-log
+    line (core/audit) names them, whatever data the body touches."""
     handle = JobHandle(job_id)
     try:
         async with _sem():
             await _set(job_id, status="running")
-            await body(handle)
+            with audit.job_scope(job_id, "job", launched_by):
+                await body(handle)
             await _set(job_id, status="done", progress=100)
     except asyncio.CancelledError:
         await _set(job_id, status="cancelled")

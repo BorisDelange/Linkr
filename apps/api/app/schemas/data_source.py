@@ -18,7 +18,10 @@ class DataSourceCreate(CamelModel):
     name: dict | str
     description: dict | str | None = None
     source_type: str = "database"
-    connection_config: dict = {}  # password/token stripped before persistence
+    # Where the database is. A username + password here become the creator's own
+    # login (database_credential_service); the stored config never keeps them.
+    connection_config: dict = {}
+    require_session_only: bool = False
     schema_mapping: dict | None = None
     schema_source: dict | None = None
     derived_from: dict | None = None
@@ -50,6 +53,7 @@ class DataSourceUpdate(CamelModel):
     name: dict | str | None = None
     description: dict | str | None = None
     connection_config: dict | None = None
+    require_session_only: bool | None = None
     schema_mapping: dict | None = None
     schema_source: dict | None = None
     derived_from: dict | None = None
@@ -84,6 +88,7 @@ class DataSourceResponse(CamelModel):
     description: dict | str | None = None
     source_type: str
     connection_config: dict
+    require_session_only: bool = False
     schema_mapping: dict | None = None
     schema_source: dict | None = None
     derived_from: dict | None = None
@@ -256,9 +261,7 @@ class ClientDatabase(CamelModel):
     contract.
 
     `attach` carries the credentials for that ATTACH, password included — the one
-    place Linkr hands a secret to user code. It is only ever sent to a caller who
-    already holds `databases:read` on the source, i.e. someone who can read the
-    same data through the UI; see the endpoint for why that trade is made.
+    place Linkr hands a secret to user code, and it is the caller's own login.
 
     `alias` is what a script addresses a database BY. It is the same slug the SQL
     editor uses (``ds_<alias>``), it is stable across renames, and it is readable —
@@ -283,6 +286,8 @@ class ClientDatabase(CamelModel):
     # Whether the client can actually open it: a source whose file was never
     # uploaded is listed (so `linkr_databases()` shows it) but cannot be connected.
     connectable: bool = False
+    # kind="external": the caller has no login to it yet — they enter one in Linkr.
+    needs_login: bool = False
     # kind="managed"/"file": the DuckDB/SQLite file to open or ATTACH.
     path: str | None = None
     # kind="parquet-folder": table name → blob path(s), registered as views.
@@ -403,3 +408,31 @@ class DeriveRequest(CamelModel):
 class DerivePlanRequest(CamelModel):
     level: str
 
+
+
+class DatabaseLoginSave(CamelModel):
+    """The acting user's own login to an external database. Tested before it is
+    kept; `remember=False` keeps it in server memory for the session only."""
+
+    username: str
+    password: str
+    remember: bool = True
+
+
+class DatabaseLoginStatus(CamelModel):
+    """What the acting user has for one database — never the password."""
+
+    has_login: bool
+    username: str | None = None
+    remembered: bool = False
+    last_used_at: datetime | None = None
+    session_only: bool = False
+
+
+class DatabaseLoginEntry(CamelModel):
+    data_source_id: str
+    name: dict | str
+    workspace_id: str | None = None
+    username: str
+    remembered: bool
+    last_used_at: datetime | None = None

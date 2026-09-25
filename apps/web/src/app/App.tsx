@@ -23,6 +23,7 @@ import { EnvironmentsDialogHost } from '@/features/projects/files/EnvironmentsDi
 import { WorkspaceGuard } from '@/app/WorkspaceGuard'
 import { ProjectGuard } from '@/app/ProjectGuard'
 import { VersionCheckDialog } from '@/components/layout/VersionCheckDialog'
+import { DatabaseLoginPromptHost } from '@/features/database-logins/DatabaseLoginPromptHost'
 // Pages are lazy-loaded so each route's heavy libs (vis-network, leaflet, xterm,
 // xyflow, xlsx, recharts, katex…) ship in a per-route chunk and
 // are fetched only when that page is opened — not in the initial bundle.
@@ -209,6 +210,7 @@ export function App() {
   return (
     <SidebarProvider className="!min-h-0 h-screen">
       <VersionCheckDialog />
+      {isServerMode() && <DatabaseLoginPromptHost />}
       <AppSidebar />
       <SidebarInset className="flex flex-col overflow-hidden">
         <Header />

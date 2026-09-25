@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { localized } from '@/lib/localized'
 import type { AppNotification, MappingNotificationItem } from '@/lib/api/notifications'
@@ -28,7 +28,7 @@ export function NotificationDetailDialog({ notification, onOpenChange, href, onO
     [detail],
   )
 
-  const columns: ConceptColumn<Row>[] = useMemo(() => [
+  const columns: DataTableColumn<Row>[] = useMemo(() => [
     {
       id: 'source', header: t('notifications.detail.source'), filter: 'text', size: 200,
       accessor: (r) => r.sourceName || r.sourceCode,
@@ -82,7 +82,7 @@ export function NotificationDetailDialog({ notification, onOpenChange, href, onO
         </Button>
       ) : undefined}
     >
-      <ConceptDataTable
+      <DataTable
         data={rows}
         columns={columns}
         rowKey={(r) => r.key}

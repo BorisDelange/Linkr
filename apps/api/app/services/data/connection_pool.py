@@ -1,4 +1,6 @@
-"""A tiny pool of long-lived DuckDB connections, keyed by data source.
+"""A tiny pool of long-lived DuckDB connections, keyed by data source — and, for
+an external database, by the user whose login opened it (`<id>:user:<n>`), so
+two users never share a connection or each other's grants.
 
 Why this exists: every external-DB query used to open a fresh DuckDB connection,
 ``INSTALL``/``LOAD`` the postgres/mysql extension (~150 ms) and re-``ATTACH`` the
@@ -6,7 +8,7 @@ remote database (a full network handshake) before running a single statement.
 A page like Warehouse → Concepts fires many small queries (filter options, the
 paged table + count, per-row stats), so that fixed cost dominated wall-clock.
 
-Here we keep one live DuckDB connection per source (extension already loaded,
+Here we keep one live DuckDB connection per key (extension already loaded,
 remote database already ATTACHed) and reuse it across requests. Only the first
 query on a source pays the setup cost; the rest reuse the warm connection.
 
@@ -116,14 +118,16 @@ def run_pooled(
 
 
 def invalidate(key: str) -> None:
-    """Drop a source's warm connection (call on source update/delete). Waits for
-    any in-flight query on it to finish before closing."""
+    """Drop a warm connection (call on source update/delete). A bare source id
+    also drops every per-user `<source id>:<principal>` connection to it; a full
+    `<source id>:<principal>` key only that one. Waits for any in-flight query
+    to finish before closing."""
     with _registry_lock:
-        entry = _registry.pop(key, None)
-    if entry is None:
-        return
-    with entry.lock:
-        _close_quietly(entry.con)
+        keys = [k for k in _registry if k == key or (":" not in key and k.startswith(f"{key}:"))]
+        entries = [_registry.pop(k) for k in keys]
+    for entry in entries:
+        with entry.lock:
+            _close_quietly(entry.con)
 
 
 def clear() -> None:

@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import {
   formatClipboardList,
   CLIPBOARD_COPY_FORMATS,
@@ -54,8 +54,8 @@ export function ClipboardListModal({ open, onOpenChange, items, onRemove, onClea
     }
   }
 
-  const columns = useMemo<ConceptColumn<SourceConceptRow>[]>(() => {
-    const cols: ConceptColumn<SourceConceptRow>[] = [
+  const columns = useMemo<DataTableColumn<SourceConceptRow>[]>(() => {
+    const cols: DataTableColumn<SourceConceptRow>[] = [
       {
         id: 'terminology_name',
         header: t('concept_mapping.col_terminology'),
@@ -133,7 +133,7 @@ export function ClipboardListModal({ open, onOpenChange, items, onRemove, onClea
           </div>
         ) : (
           <div className="max-h-[55vh] overflow-auto rounded border">
-            <ConceptDataTable
+            <DataTable
               cellTooltips="all"
               pageSize={100}
               data={items}

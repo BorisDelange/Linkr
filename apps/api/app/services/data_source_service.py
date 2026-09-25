@@ -8,7 +8,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import crypto
+from app.core import audit
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.user import User
@@ -23,9 +23,12 @@ from app.services import (
     author_provenance,
     blob_store,
     concept_stats_cache_service,
+    database_credential_service,
     fs_browser,
     git_secret,
+    stats_cache_service,
 )
+from app.services.database_credential_service import Login, pool_key, with_login
 from app.services.data import (
     concept_cache_fs,
     connection_pool,
@@ -135,7 +138,7 @@ def _parquet_table_entries(groups: dict[str, list[str]]) -> list[ParquetTablePat
 
 
 # Connection-config keys holding a secret credential. Pulled out of the JSON
-# config (which the API returns) and stored encrypted in `connection_secret`.
+# config (which the API returns) before it is stored.
 _SECRET_KEYS = ("password", "token")
 
 
@@ -144,6 +147,18 @@ def strip_secrets(config: dict | None) -> dict:
     if not config:
         return {}
     return {k: v for k, v in config.items() if k not in _SECRET_KEYS}
+
+
+def _split_login(config: dict | None) -> tuple[dict, tuple[str, str] | None]:
+    """A database's config never keeps a login: each user has their own. A
+    username + password typed in the create/edit form become the author's own
+    login; the stored config keeps only where the database is."""
+    config = dict(config or {})
+    username = config.get("username")
+    password = _extract_secret(config)
+    stored = {k: v for k, v in config.items() if k not in database_credential_service.LOGIN_KEYS}
+    login = (str(username), password) if username and password else None
+    return stored, login
 
 
 def server_path(source_or_config) -> str | None:
@@ -180,11 +195,6 @@ def _extract_secret(config: dict | None) -> str | None:
     return None
 
 
-def connection_password(source: DataSource) -> str | None:
-    """Decrypt the stored external-DB password for opening a connection."""
-    return crypto.decrypt(source.connection_secret) if source.connection_secret else None
-
-
 # --- Data sources ----------------------------------------------------------
 
 async def list_all(db: AsyncSession) -> list[DataSource]:
@@ -212,20 +222,17 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     enforce_server_path(config)
     if config is not None:
         config = _keep_managed_path(config, None)
-    secret = _extract_secret(config)
-    payload["connection_config"] = strip_secrets(config)
+    payload["connection_config"], login = _split_login(config)
     # The git access token never lands in the entity's JSON column (it would be
     # served straight back by the API); git_credential_service holds it per host.
     git_secret.apply_to_entity(None, payload)
-    source = DataSource(
-        **payload,
-        owner_id=owner.id,
-        connection_secret=crypto.encrypt(secret) if secret else None,
-    )
+    source = DataSource(**payload, owner_id=owner.id)
     await author_provenance.stamp_creator(db, source, payload, owner)
     db.add(source)
     await db.commit()
     await db.refresh(source)
+    if login and database_credential_service.is_external(source):
+        await database_credential_service.save(db, source, owner.id, *login, remember=True)
     return source
 
 
@@ -234,11 +241,17 @@ async def update(
     source: DataSource,
     data: DataSourceUpdate,
     *,
+    editor_id: int | None = None,
     managed_path_set: str | None = None,
 ) -> DataSource:
     """`managed_path_set` is create-from-ddl's alone: the validated location of the
-    file it just created. Every other caller keeps the stored one."""
+    file it just created. Every other caller keeps the stored one.
+
+    A login typed in the edit form becomes the editor's own (`editor_id`).
+    Changing where the database points drops every user's login to it."""
     changes = data.model_dump(exclude_unset=True)
+    login = None
+    before = dict(source.connection_config or {})
     if "connection_config" in changes:
         enforce_server_path(changes["connection_config"])
         changes["connection_config"] = _keep_managed_path(
@@ -246,12 +259,11 @@ async def update(
         )
         if managed_path_set:
             changes["connection_config"]["managedPath"] = managed_path_set
-        # A password present in the update re-encrypts; its absence leaves the
-        # stored secret untouched (editing other fields won't wipe credentials).
-        secret = _extract_secret(changes["connection_config"])
-        if secret is not None:
-            source.connection_secret = crypto.encrypt(secret)
-        changes["connection_config"] = strip_secrets(changes["connection_config"])
+        changes["connection_config"], login = _split_login(changes["connection_config"])
+    retargeted = "connection_config" in changes and database_credential_service.target_changed(
+        before, changes["connection_config"]
+    )
+    now_session_only = changes.get("require_session_only") and not source.require_session_only
     git_secret.apply_to_entity(source, changes)
     for key, value in changes.items():
         setattr(source, key, value)
@@ -264,13 +276,21 @@ async def update(
     await author_provenance.relink_creator_on_update(db, source, changes)
     await db.commit()
     await db.refresh(source)
+    if retargeted or now_session_only:
+        await database_credential_service.forget_all(db, source.id)
+    if retargeted:
+        await stats_cache_service.delete_with_prefix(db, "database", source.id)
     # A changed host/credential/file must not keep being served through a warm
     # connection opened against the old config.
     connection_pool.invalidate(source.id)
-    # The shared concept caches reflect the old data; drop them so the next
-    # visitor recomputes against the new config.
+    # The concept caches reflect the old data; drop them so the next visitor
+    # recomputes against the new config.
     concept_cache_fs.invalidate(source.id)
     await concept_stats_cache_service.delete_for_source(db, source.id)
+    if login and editor_id is not None and database_credential_service.is_external(source):
+        await database_credential_service.save(
+            db, source, editor_id, *login, remember=not source.require_session_only
+        )
     return source
 
 
@@ -292,7 +312,7 @@ def created_data(source: DataSource) -> str | None:
     return None
 
 
-async def _drop_created_data(source: DataSource, kind: str) -> None:
+async def _drop_created_data(source: DataSource, kind: str, login: Login | None) -> None:
     config = source.connection_config or {}
     if kind == "file":
         path = managed_path(source)
@@ -301,18 +321,24 @@ async def _drop_created_data(source: DataSource, kind: str) -> None:
         return
     from app.services.data import cohort_derive
 
-    target = cohort_derive.TargetSpec("external", config=config, password=connection_password(source), schema=config["schema"])
+    target = cohort_derive.TargetSpec(
+        "external", config=with_login(config, login), password=login.password if login else None,
+        schema=config["schema"],
+    )
     await asyncio.to_thread(cohort_derive.drop_schema, target)
 
 
-async def delete(db: AsyncSession, source: DataSource, delete_data: bool = False) -> None:
+async def delete(
+    db: AsyncSession, source: DataSource, delete_data: bool = False, login: Login | None = None,
+) -> None:
     """Remove a database. `delete_data` also removes what Linkr created for it
-    (see `created_data`) — never data a connection merely points at."""
+    (see `created_data`) — never data a connection merely points at; dropping a
+    schema is done with `login`, the deleting user's own."""
     created = created_data(source) if delete_data else None
     if created:
         connection_pool.invalidate(source.id)
         # Before the row: dropping a schema needs the connection's credentials.
-        await _drop_created_data(source, created)
+        await _drop_created_data(source, created, login)
     files = (
         await db.execute(
             select(DataSourceFile).where(DataSourceFile.data_source_id == source.id)
@@ -324,9 +350,11 @@ async def delete(db: AsyncSession, source: DataSource, delete_data: bool = False
     owns_default_file = is_managed(source) and not (source.connection_config or {}).get("managedPath")
     source_id = source.id
     await _forget_derivations_into(db, source_id)
+    await database_credential_service.forget_all(db, source_id)
     await db.delete(source)  # cascades to data_source_files via FK
     await db.commit()
     connection_pool.invalidate(source_id)
+    concept_cache_fs.invalidate(source_id)
     # A managed file is owned by this source alone — nothing else references it.
     if owns_default_file:
         managed_db.delete(source_id)
@@ -598,8 +626,9 @@ def is_external_engine(engine: str | None) -> bool:
     return engine in _EXTERNAL_ENGINES
 
 
-async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConnectionInfo:
-    """How to reach `source` from outside Linkr — never its password.
+async def connection_info(db: AsyncSession, source: DataSource, user_id: int) -> DatabaseConnectionInfo:
+    """How to reach `source` from outside Linkr — never a password. For an
+    external database the username is `user_id`'s own login, if they have one.
 
     Shared by GET /data-sources/{id}/connection-info and the per-project database
     listing the client libraries read, so a script and the UI are told the same
@@ -616,7 +645,7 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
             port=config.get("port"),
             database=config.get("database"),
             schema_name=config.get("schema"),
-            username=config.get("username"),
+            username=(await database_credential_service.status_for(db, source, user_id))["username"],
         )
 
     if is_managed(source):
@@ -690,9 +719,10 @@ async def connection_info(db: AsyncSession, source: DataSource) -> DatabaseConne
 
 
 async def role_attachments(
-    db: AsyncSession, sources: dict[str, DataSource]
+    db: AsyncSession, sources: dict[str, DataSource], user_id: int
 ) -> dict[str, dict]:
-    """Describe how to ATTACH each role database for an ETL run.
+    """Describe how to ATTACH each role database for an ETL run, an external one
+    with `user_id`'s own login (CredentialRequired if they have none).
 
     Shape mirrors `db_connect.run_etl_sql`'s `roles` argument. A role whose
     source cannot be attached (no file uploaded yet) is skipped, so the script
@@ -705,10 +735,11 @@ async def role_attachments(
         config = dict(source.connection_config or {})
         engine = config.get("engine")
         if engine in _EXTERNAL_ENGINES:
+            login = await database_credential_service.resolve_login(db, source, user_id)
             out[role] = {
                 "kind": "external",
-                "config": config,
-                "password": connection_password(source),
+                "config": with_login(config, login),
+                "password": login.password if login else None,
             }
             continue
         if is_managed(source):
@@ -740,6 +771,7 @@ async def run_etl(
     target: DataSource,
     sql: str,
     roles: dict[str, DataSource],
+    user_id: int,
     mapping_data: dict[str, str] | None = None,
     on_statement: Callable[[int, int, str], None] | None = None,
 ) -> list[dict]:
@@ -767,8 +799,9 @@ async def run_etl(
     # next browse simply re-establishes a warm connection.
     for source in (target, *roles.values()):
         connection_pool.invalidate(source.id)
+    _audit(target, "etl_run", sql)
 
-    attachments = await role_attachments(db, {k: v for k, v in roles.items() if k != "target"})
+    attachments = await role_attachments(db, {k: v for k, v in roles.items() if k != "target"}, user_id)
 
     # `asyncio.to_thread` cannot be cancelled: if the client goes away mid-run (a
     # browser reload), the await returns but the worker thread keeps going, holding
@@ -800,20 +833,27 @@ async def run_etl(
         raise
 
 
-async def client_recipe(db: AsyncSession, source: DataSource) -> dict:
+async def client_recipe(db: AsyncSession, source: DataSource, login: Login | None) -> dict:
     """How the R/Python client libraries open this database themselves.
 
     Unlike `query`, which runs the SQL here and returns rows, this hands the script
     what it needs to hold its own DuckDB connection — so it gets a real DBI/DBAPI
     handle and everything built on one (dbplyr, joins against local Parquet). For an
-    external engine that includes the decrypted password, since the ATTACH happens
-    in the script's process. The caller MUST have checked `databases:read` first.
+    external engine that includes the caller's own password (`login`), since the
+    ATTACH happens in the script's process; without a login the database is listed
+    as not connectable. The caller MUST have checked `databases:read` first.
     """
     config = dict(source.connection_config or {})
     engine = config.get("engine")
 
     if engine in _EXTERNAL_ENGINES:
-        recipe = db_connect.attach_recipe(config, connection_password(source))
+        if login is None:
+            return {"engine": engine, "kind": "external", "connectable": False, "needs_login": True}
+        # A password handed to user code: one line per database it went out for.
+        audit.write({**audit.actor(), "method": "GET", "route": "client-recipe",
+                     "action": "client_recipe", "data_source_id": source.id,
+                     "workspace_id": source.workspace_id, "status": 200})
+        recipe = db_connect.attach_recipe(with_login(config, login), login.password)
         return {
             "engine": engine,
             "kind": "external",
@@ -863,16 +903,36 @@ async def client_recipe(db: AsyncSession, source: DataSource) -> dict:
 
 # --- Live connection test (external databases) -----------------------------
 
-async def query(db: AsyncSession, source: DataSource, sql: str, arrow: bool = False):
-    """Run read-only SQL server-side: ATTACH a network DB (decrypting its stored
-    password) or a local DuckDB/SQLite file from the blob store. JSON-ready rows,
-    capped; or, with `arrow`, the whole result as an Arrow table."""
+def _audit(source: DataSource, action: str, detail: str | None = None) -> None:
+    audit.bind(action=action, data_source_id=source.id, workspace_id=source.workspace_id, detail=detail)
+
+
+async def query(
+    db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool = False,
+):
+    """Run read-only SQL server-side: ATTACH a network DB with the caller's own
+    `login` (see database_credential_service.resolve_login) or a local
+    DuckDB/SQLite file from the blob store. JSON-ready rows, capped; or, with
+    `arrow`, the whole result as an Arrow table. Logged (core/audit)."""
+    _audit(source, "query", sql)
+    try:
+        result = await _query(db, source, login, sql, arrow)
+    except Exception as exc:
+        audit.bind(error=str(exc))
+        raise
+    audit.bind(row_count=result.num_rows if arrow else len(result))
+    return result
+
+
+async def _query(db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool):
     config = dict(source.connection_config or {})
     engine = config.get("engine")
     if engine in _EXTERNAL_ENGINES:
-        password = connection_password(source)
+        if login is None:
+            raise database_credential_service.CredentialRequired(source)
         return await asyncio.to_thread(
-            db_connect.query_external, config, password, sql, source.id, arrow
+            db_connect.query_external, with_login(config, login), login.password, sql,
+            pool_key(source, login), arrow,
         )
     if is_managed(source):
         # Server-owned file: nothing in the blob store, read it where it lives.
@@ -902,13 +962,19 @@ async def query(db: AsyncSession, source: DataSource, sql: str, arrow: bool = Fa
 
 
 async def refresh_concept_cache(
-    db: AsyncSession, source: DataSource, select_sql: str
+    db: AsyncSession, source: DataSource, login: Login | None, select_sql: str
 ) -> float:
-    """Materialize the concept list (`select_sql`) to the source's Parquet cache
-    and return the new mtime. Gathers the same connection inputs as `query`."""
+    """Materialize the concept list (`select_sql`) to the Parquet cache of the
+    source as `login` sees it, and return the new mtime. Gathers the same
+    connection inputs as `query`."""
+    _audit(source, "concept_cache_refresh", select_sql)
     config = dict(source.connection_config or {})
     engine = config.get("engine")
-    password = connection_password(source) if engine in _EXTERNAL_ENGINES else None
+    password = None
+    if engine in _EXTERNAL_ENGINES:
+        if login is None:
+            raise database_credential_service.CredentialRequired(source)
+        config, password = with_login(config, login), login.password
     files = None
     known = None
     if is_managed(source):
@@ -924,23 +990,29 @@ async def refresh_concept_cache(
             raise ValueError("no database file uploaded for this source")
         known = _known_tables(source)
     return await asyncio.to_thread(
-        concept_cache_fs.refresh, config, password, files, known, select_sql, source.id
+        concept_cache_fs.refresh, config, password, files, known, select_sql, source.id,
+        login.principal if login else "",
     )
 
 
-async def query_concept_cache(source_id: str, sql: str) -> list[dict]:
-    """Run a page query against the source's cached concept Parquet."""
-    return await asyncio.to_thread(concept_cache_fs.query_page, source_id, sql)
+async def query_concept_cache(source_id: str, principal: str, sql: str) -> list[dict]:
+    """Run a page query against the principal's cached concept Parquet."""
+    return await asyncio.to_thread(concept_cache_fs.query_page, source_id, principal, sql)
 
 
-async def introspect(db: AsyncSession, source: DataSource) -> list[dict]:
+async def introspect(db: AsyncSession, source: DataSource, login: Login | None) -> list[dict]:
     """Introspect a stored source's schema (tables + columns) server-side — for
-    network DBs via their password, for file DBs via the uploaded blob."""
+    network DBs as `login` sees them (grants hide tables), for file DBs via the
+    uploaded blob."""
+    _audit(source, "introspect")
     config = dict(source.connection_config or {})
     engine = config.get("engine")
     if engine in _EXTERNAL_ENGINES:
-        password = connection_password(source)
-        return await asyncio.to_thread(db_connect.introspect_external, config, password)
+        if login is None:
+            raise database_credential_service.CredentialRequired(source)
+        return await asyncio.to_thread(
+            db_connect.introspect_external, with_login(config, login), login.password
+        )
     if is_managed(source):
         # Server-owned file: nothing in the blob store, introspect it in place.
         path = managed_path(source)
@@ -959,9 +1031,9 @@ async def introspect(db: AsyncSession, source: DataSource) -> list[dict]:
 
 
 async def test_connection_stored(
-    source: DataSource,
+    source: DataSource, login: Login | None,
 ) -> tuple[bool, str | None, list[dict]]:
-    """Re-test a stored source using its decrypted password (no client secret)."""
+    """Re-test a stored source with the caller's own login (no client secret)."""
     # A managed file has no credentials to re-send: the test is whether the file
     # is there and can be opened. Without this it fell through to the external
     # path and answered "unsupported engine", so a managed database that failed
@@ -979,8 +1051,10 @@ async def test_connection_stored(
         except Exception as e:  # noqa: BLE001 — the driver's message is the diagnosis
             return False, str(e), []
 
-    config = dict(source.connection_config or {})
-    config["password"] = connection_password(source)
+    if login is None:
+        raise database_credential_service.CredentialRequired(source)
+    config = with_login(dict(source.connection_config or {}), login)
+    config["password"] = login.password
     return await test_connection(config)
 
 

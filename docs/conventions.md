@@ -57,7 +57,7 @@ const handleSave = useCallback(() => saveAnalysis(analysis.id), [analysis.id])
 | **A surprising invariant** a future edit would silently break | `// Collected, not swallowed: a failed row must not read as a successful pull.` (`lib/etl-pull.ts`) |
 | **Domain or spec fact** not derivable from the code — OMOP/CDM rules, locale conventions, an external API's behaviour | `// A FK written inside CREATE TABLE hosp.admissions that says REFERENCES patients means hosp.patients — SQL resolves an unqualified reference in the current schema first.` (`lib/ddl-parse.ts`) |
 | **Opaque by nature** — a regex, dynamically-built SQL, encoding maths. A one-line summary of what it *produces* is a legitimate reading aid, even though it describes the what | `// Matches a CSI SGR sequence: ESC [ <params> m` (`lib/ansi.ts`) |
-| **Contract on exported API** — defaults, units, what a caller must not pass. JSDoc on a shared component's props shows at every call site, so it reaches readers who never open the file | the prop docs in `components/ui/concept-data-table.tsx` |
+| **Contract on exported API** — defaults, units, what a caller must not pass. JSDoc on a shared component's props shows at every call site, so it reaches readers who never open the file | the prop docs in `components/ui/data-table.tsx` |
 | **Section banner** in a long file — navigation, not description. Earns its place over a region of a hundred-plus lines, not over six | a `// ----` rule with a title, as in `lib/format-helpers.ts` |
 
 **Deferred work gets a tag**, so it is greppable: `// TODO(scope): what and why`.

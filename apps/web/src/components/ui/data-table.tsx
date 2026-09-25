@@ -92,9 +92,9 @@ export function nextSelection(
 type Sorting = { columnId: string; desc: boolean } | null
 
 /** Kind of inline column filter to render under a column header. */
-export type ConceptColumnFilter = 'text' | 'number' | 'select' | 'none'
+export type DataTableColumnFilter = 'text' | 'number' | 'select' | 'none'
 
-export interface ConceptColumn<T> {
+export interface DataTableColumn<T> {
   id: string
   header: string
   /**
@@ -117,7 +117,7 @@ export interface ConceptColumn<T> {
   display?: (row: T) => string
   /** Optional custom cell renderer (defaults to a truncated text of the accessor value). */
   cell?: (row: T) => ReactNode
-  filter?: ConceptColumnFilter
+  filter?: DataTableColumnFilter
   /**
    * Custom filter control, for a predicate the built-in filters cannot express —
    * a column whose cell shows several values and whose filter matches a row when
@@ -176,9 +176,34 @@ export interface ConceptColumn<T> {
   tooltip?: boolean | string
 }
 
-interface ConceptDataTableProps<T> {
+/** What a server-mode table asks its caller to fetch. */
+export interface DataTableQuery {
+  page: number
+  pageSize: number
+  sorting: { columnId: string; desc: boolean } | null
+  /** Column id → text (contains) or values (any of). Only active filters. */
+  filters: Record<string, string | string[]>
+}
+
+/**
+ * Server mode: the caller holds one page, not the whole set. The table keeps
+ * its own sort / filter / page state exactly as in local mode and reports every
+ * change through `onQueryChange` (once on mount too); the caller answers with
+ * the matching page as `data`. Column ids are what the server sorts and
+ * filters on, so name them after its columns.
+ */
+export interface DataTableServer {
+  /** Rows matching the current filters, across all pages. */
+  total: number
+  onQueryChange: (query: DataTableQuery) => void
+  /** Values a 'select' filter offers — over the whole set, which one page cannot tell. */
+  filterOptions?: Record<string, string[]>
+  loading?: boolean
+}
+
+interface DataTableProps<T> {
   data: T[]
-  columns: ConceptColumn<T>[]
+  columns: DataTableColumn<T>[]
   /** Stable row key. */
   rowKey: (row: T) => string | number
   /** Empty-state message. */
@@ -260,6 +285,8 @@ interface ConceptDataTableProps<T> {
   density?: 'default' | 'compact'
   /** Alternate row shading, for a wide table read across rather than down. */
   striped?: boolean
+  /** Page, sort and filter on the server — see DataTableServer. Needs `pageSize`. */
+  server?: DataTableServer
 }
 
 interface ViewState {
@@ -282,7 +309,7 @@ const viewCache = new Map<string, ViewState>()
  * exist — hiding a column the user never hid. Mismatched state is dropped
  * rather than merged: starting fresh is the honest default.
  */
-function columnSignature<T>(cols: ConceptColumn<T>[]): string {
+function columnSignature<T>(cols: DataTableColumn<T>[]): string {
   return cols.map((c) => c.id).join(' ')
 }
 
@@ -340,8 +367,9 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated', stickyHeader, density = 'default', striped }: ConceptDataTableProps<T>) {
+export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated', stickyHeader, density = 'default', striped, server }: DataTableProps<T>) {
   const dense = density === 'compact'
+  const serverMode = !!server
   const cellPad = dense ? 'px-2 py-0.5' : 'px-2 py-1'
   const cellText = dense ? 'text-[10px]' : 'text-xs'
   // TableHead's h-10 is sized for a text-xs title; at compact density the label is
@@ -404,7 +432,9 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
   const colById = useMemo(() => new Map(cols.map((c) => [c.id, c])), [cols])
 
   /** Distinct values per select-filter column. */
+  const serverOptions = server?.filterOptions
   const selectOptions = useMemo(() => {
+    if (serverMode) return serverOptions ?? {}
     const out: Record<string, string[]> = {}
     for (const c of cols) {
       if (c.filter !== 'select') continue
@@ -412,9 +442,10 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
       out[c.id] = [...new Set(data.map(shownOf).filter(Boolean))].sort()
     }
     return out
-  }, [cols, data])
+  }, [cols, data, serverMode, serverOptions])
 
   const filtered = useMemo(() => {
+    if (serverMode) return data
     let rows = data
     for (const c of cols) {
       const f = filters[c.id]
@@ -444,12 +475,34 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
       }
     }
     return rows
-  }, [data, cols, filters, sorting, colById])
+  }, [data, cols, filters, sorting, colById, serverMode])
 
-  const pageCount = pageCountOf(filtered.length, pageSize)
+  // Server mode: a new sort or filter starts over from page 1, since the page the
+  // user was on belongs to another result set. Kept as "page for this query"
+  // rather than reset in an effect, so the first fetch of a new query is page 0.
+  const queryKey = JSON.stringify([sorting, toStoredFilters(filters)])
+  const [serverPage, setServerPage] = useState({ key: queryKey, page: 0 })
+  const pageCount = pageCountOf(server ? server.total : filtered.length, pageSize)
   // Clamped, not reset to 0: narrowing a filter should not throw away the user's
   // position when the page they are on still exists.
-  const safePage = clampPage(page, pageCount)
+  const safePage = server
+    ? (serverPage.key === queryKey ? serverPage.page : 0)
+    : clampPage(page, pageCount)
+  const goToPage = (next: number) => (server ? setServerPage({ key: queryKey, page: next }) : setPage(next))
+
+  const onQueryChange = useRef(server?.onQueryChange)
+  onQueryChange.current = server?.onQueryChange
+  useEffect(() => {
+    if (!serverMode || !pageSize) return
+    const active: DataTableQuery['filters'] = {}
+    for (const [id, f] of Object.entries(filters)) {
+      if (f instanceof Set) { if (f.size) active[id] = [...f] }
+      else if (f) active[id] = f
+    }
+    onQueryChange.current?.({ page: safePage, pageSize, sorting, filters: active })
+    // queryKey stands for sorting + filters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverMode, queryKey, safePage, pageSize])
   // In an effect, not during render: callers store this in their own state.
   const notifyVisible = useRef(onVisibleRowsChange)
   notifyVisible.current = onVisibleRowsChange
@@ -473,8 +526,8 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
   }
 
   const paged = useMemo(
-    () => (pageSize ? filtered.slice(safePage * pageSize, (safePage + 1) * pageSize) : filtered),
-    [filtered, pageSize, safePage],
+    () => (pageSize && !serverMode ? filtered.slice(safePage * pageSize, (safePage + 1) * pageSize) : filtered),
+    [filtered, pageSize, safePage, serverMode],
   )
 
   // A 'select' filter with fewer than two options renders nothing, so this
@@ -673,7 +726,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-16 text-center text-xs text-muted-foreground">
-                  {emptyMessage ?? t('common.no_results')}
+                  {server?.loading ? t('common.loading') : (emptyMessage ?? t('common.no_results'))}
                 </TableCell>
               </TableRow>
             ) : (
@@ -749,7 +802,9 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
         <div className="flex items-center gap-1">
           <span className="text-[10px] text-muted-foreground">
-            {filtered.length} / {data.length} {t('common.results').toLowerCase()}
+            {server
+              ? `${server.total.toLocaleString()} ${t('common.results').toLowerCase()}`
+              : `${filtered.length} / ${data.length} ${t('common.results').toLowerCase()}`}
           </span>
           <ColumnVisibilityMenu
             // An unlabelled column is a control (actions, row checkbox), not data:
@@ -774,7 +829,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => setPage(safePage - 1)}
+              onClick={() => goToPage(safePage - 1)}
               disabled={safePage === 0}
               aria-label={t('common.previous')}
             >
@@ -786,7 +841,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => setPage(safePage + 1)}
+              onClick={() => goToPage(safePage + 1)}
               disabled={safePage >= pageCount - 1}
               aria-label={t('common.next')}
             >

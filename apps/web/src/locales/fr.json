@@ -54,7 +54,9 @@
     "requires_backend": "La gestion des membres nécessite le backend Python (mode serveur).",
     "load_error": "Impossible de charger les membres.",
     "save_error": "Impossible d'enregistrer le membre. Vérifiez le nom d'utilisateur et vos droits.",
-    "remove_error": "Impossible de retirer le membre."
+    "remove_error": "Impossible de retirer le membre.",
+    "remove_confirm": "« {{name}} » perdra l'accès à ce workspace et à tous ses projets.",
+    "remove_override_confirm": "La surcharge est supprimée : « {{name}} » retrouve son rôle hérité du workspace."
   },
   "workspaces": {
     "title": "Espaces de travail",
@@ -846,7 +848,14 @@
     "allow_writes_hint": "Permet de dériver une cohorte vers un nouveau schéma SQL de cette base. L’utilisateur doit avoir le droit CREATE sur la base ; Linkr ne modifie jamais les tables existantes.",
     "location_move_hint": "À l’enregistrement, le fichier est déplacé à cet emplacement ; rien ne reste à l’ancien.",
     "delete_created_file": "Supprimer aussi son fichier, créé par Linkr : {{path}}",
-    "delete_created_schema": "Supprimer aussi le schéma SQL {{schema}}, créé par Linkr depuis une cohorte, avec ses tables"
+    "delete_created_schema": "Supprimer aussi le schéma SQL {{schema}}, créé par Linkr depuis une cohorte, avec ses tables",
+    "detail_sql": "SQL",
+    "sql_run": "Exécuter",
+    "sql_rows_one": "{{count}} ligne · {{ms}} ms",
+    "sql_rows_other": "{{count}} lignes · {{ms}} ms",
+    "sql_failed": "Échec · {{ms}} ms",
+    "sql_empty": "Écrivez une requête puis exécutez-la.",
+    "sql_no_rows": "La requête n'a renvoyé aucune ligne."
   },
   "reports": {
     "title": "Rapports",
@@ -2856,7 +2865,9 @@
     "db_col_nullable": "Nullable",
     "db_yes": "Oui",
     "db_no": "Non",
-    "db_no_tables": "Aucune table."
+    "db_no_tables": "Aucune table.",
+    "tab_access_log": "Journal d'accès",
+    "resource_audit-log": "Journal d'accès"
   },
   "schemas": {
     "title": "Schémas",
@@ -3078,7 +3089,8 @@
     "project_updates_description": "Soyez notifié lorsque les projets que vous suivez sont mis à jour.",
     "dismiss_seed_updates": "Masquer les notifications de mise à jour des données",
     "dismiss_seed_updates_description": "Ne pas afficher la notification lorsque les données intégrées ont été mises à jour dans une nouvelle version.",
-    "api_keys_tab": "Clés API"
+    "api_keys_tab": "Clés API",
+    "database_logins_tab": "Comptes de bases"
   },
   "editor": {
     "font_size": "Taille de police",
@@ -5574,5 +5586,49 @@
     "revoke": "Révoquer",
     "revoke_title": "Révoquer cette clé API ?",
     "revoke_description": "« {{name}} » cesse de fonctionner immédiatement. Cette action est irréversible."
+  },
+  "database_logins": {
+    "dialog_title": "Votre compte pour « {{name}} »",
+    "dialog_description": "Chaque utilisateur accède à cette base avec son propre compte : c'est la base qui décide de ce que vous voyez. Linkr vérifie la connexion avant de le garder, et ne l'affiche plus jamais.",
+    "username": "Nom d'utilisateur",
+    "password": "Mot de passe",
+    "test_and_save": "Tester et enregistrer",
+    "remember": "Mémoriser sur ce serveur",
+    "remember_hint": "Conservé chiffré sur le serveur. Désactivé : gardé en mémoire jusqu'à votre déconnexion ou au redémarrage du serveur.",
+    "remember_forbidden": "Cette base n'accepte aucun mot de passe enregistré : il est gardé en mémoire jusqu'à votre déconnexion ou au redémarrage du serveur.",
+    "title": "Comptes de bases de données",
+    "description": "Vos propres comptes sur les bases externes. Personne d'autre ne les utilise, et les mots de passe ne sont plus jamais affichés.",
+    "database": "Base de données",
+    "kept": "Conservé",
+    "kept_remembered": "Sur le serveur",
+    "kept_session": "Cette session",
+    "last_used": "Dernière utilisation",
+    "change": "Modifier",
+    "forget": "Oublier",
+    "forget_title": "Oublier ce compte ?",
+    "forget_description": "Linkr vous redemandera votre compte la prochaine fois que vous ouvrirez « {{name}} ».",
+    "empty": "Aucun compte pour l'instant. Linkr vous en demande un la première fois que vous ouvrez une base externe.",
+    "form_hint": "Votre propre compte sur cette base. Chaque utilisateur saisit le sien : Linkr n'en partage jamais.",
+    "require_session_only": "Ne jamais enregistrer de mot de passe pour cette base",
+    "require_session_only_hint": "Pour les comptes qui sont un mot de passe d'annuaire (LDAP/AD) : le mot de passe de chacun reste en mémoire le temps de sa session.",
+    "retarget_warning": "Changer l'hôte, le port ou la base redemande son compte à chaque utilisateur."
+  },
+  "access_log": {
+    "title": "Journal d'accès",
+    "description": "Qui a lu quelle base, exécuté quel code, quand et d'où — jamais les données elles-mêmes. Les entrées contiennent du SQL et du code, qui peuvent nommer des patients.",
+    "when": "Quand",
+    "who": "Qui",
+    "via": "Via",
+    "action": "Action",
+    "database": "Base",
+    "detail": "SQL / code",
+    "status": "Statut",
+    "rows": "Lignes",
+    "ip": "Adresse IP",
+    "verify": "Vérifier l'intégrité",
+    "verify_ok": "Intact : {{count}} entrées vérifiées, aucune modifiée ni supprimée.",
+    "verify_broken": "Altéré : la chaîne est rompue à l'entrée n°{{seq}} — une entrée a été modifiée ou supprimée.",
+    "download": "Télécharger en CSV",
+    "empty": "Aucune entrée pour l'instant."
   }
 }

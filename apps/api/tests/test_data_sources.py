@@ -2,13 +2,14 @@ import asyncio
 import os
 
 import pytest
+from sqlalchemy import select
 
 from app.core.security import hash_password
+from app.models.database_credential import DatabaseCredential
 from app.models.user import User
 from app.services import blob_store
-from app.services import data_source_service
+from app.services import data_source_service, database_credential_service
 from app.services.data_source_service import (
-    connection_password,
     strip_secrets,
     test_connection as run_test_connection,
 )
@@ -153,34 +154,54 @@ async def test_clone_update_relinks_author_from_snapshot(client, db):
     assert updated["createdById"] is None
 
 
-async def test_password_encrypted_at_rest_and_recoverable(client, db):
+async def test_create_login_becomes_the_creators_own(client, db):
+    """No shared account: the username + password typed at creation are the
+    creator's login, sealed at rest; the database's config keeps neither."""
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)
     ds = (await client.post(f"{API}/data-sources", headers=headers, json={
         "workspaceId": ws, "alias": "pg", "name": "PG", "sourceType": "database",
-        "connectionConfig": {"engine": "postgresql", "host": "h", "password": "s3cr3t"},
+        "connectionConfig": {"engine": "postgresql", "host": "h", "username": "me", "password": "s3cr3t"},
     })).json()
+    assert "username" not in ds["connectionConfig"]
 
     row = await data_source_service.get(db, ds["id"])
-    # Stored ciphertext is neither empty nor the plaintext.
-    assert row.connection_secret and "s3cr3t" not in row.connection_secret
-    # And it decrypts back for opening a connection server-side.
-    assert connection_password(row) == "s3cr3t"
+    cred = (await db.execute(select(DatabaseCredential))).scalar_one()
+    assert cred.username == "me" and "s3cr3t" not in cred.secret
+    login = await database_credential_service.resolve_login(db, row, cred.user_id)
+    assert login.password == "s3cr3t" and login.username == "me"
 
 
-async def test_update_without_password_keeps_secret(client, db):
+async def test_update_without_password_keeps_the_login(client, db):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)
     ds = (await client.post(f"{API}/data-sources", headers=headers, json={
         "workspaceId": ws, "alias": "pg", "name": "PG", "sourceType": "database",
-        "connectionConfig": {"engine": "postgresql", "host": "h", "password": "keep"},
+        "connectionConfig": {"engine": "postgresql", "host": "h", "username": "me", "password": "keep"},
     })).json()
-    # Editing another field (no password in the config) must not wipe the secret.
     await client.patch(f"{API}/data-sources/{ds['id']}", headers=headers, json={
-        "connectionConfig": {"engine": "postgresql", "host": "h2"},
+        "connectionConfig": {"engine": "postgresql", "host": "h", "schema": "omop"},
     })
     row = await data_source_service.get(db, ds["id"])
-    assert connection_password(row) == "keep"
+    cred = (await db.execute(select(DatabaseCredential))).scalar_one()
+    assert (await database_credential_service.resolve_login(db, row, cred.user_id)).password == "keep"
+
+
+async def test_retargeting_drops_every_login(client, db):
+    """Pointing a database at another host must not send anyone's password there."""
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    ds = (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "pg", "name": "PG", "sourceType": "database",
+        "connectionConfig": {"engine": "postgresql", "host": "h", "username": "me", "password": "p"},
+    })).json()
+    await client.patch(f"{API}/data-sources/{ds['id']}", headers=headers, json={
+        "connectionConfig": {"engine": "postgresql", "host": "evil.example"},
+    })
+    assert (await db.execute(select(DatabaseCredential))).first() is None
+    r = await client.post(f"{API}/data-sources/{ds['id']}/query", headers=headers, json={"sql": "SELECT 1"})
+    assert r.status_code == 428
+    assert r.json()["detail"]["code"] == "database_credential_required"
 
 
 async def test_retest_uses_stored_credentials(client):

@@ -5,18 +5,18 @@ from app.models.concept_stats_cache import ConceptStatsCache
 
 
 async def get(
-    db: AsyncSession, data_source_id: str, concept_id: int
+    db: AsyncSession, data_source_id: str, concept_id: int, principal: str
 ) -> ConceptStatsCache | None:
-    return await db.get(ConceptStatsCache, (data_source_id, concept_id))
+    return await db.get(ConceptStatsCache, (data_source_id, concept_id, principal))
 
 
 async def save(
-    db: AsyncSession, data_source_id: str, concept_id: int, stats: dict
+    db: AsyncSession, data_source_id: str, concept_id: int, principal: str, stats: dict
 ) -> ConceptStatsCache:
-    row = await db.get(ConceptStatsCache, (data_source_id, concept_id))
+    row = await get(db, data_source_id, concept_id, principal)
     if row is None:
         row = ConceptStatsCache(
-            data_source_id=data_source_id, concept_id=concept_id, stats=stats
+            data_source_id=data_source_id, concept_id=concept_id, principal=principal, stats=stats
         )
         db.add(row)
     else:
@@ -26,11 +26,13 @@ async def save(
     return row
 
 
-async def delete_for_source(db: AsyncSession, data_source_id: str) -> None:
-    """Drop every cached stat for a source (called when the source changes)."""
-    await db.execute(
-        sa_delete(ConceptStatsCache).where(
-            ConceptStatsCache.data_source_id == data_source_id
-        )
-    )
+async def delete_for_source(
+    db: AsyncSession, data_source_id: str, principal: str | None = None
+) -> None:
+    """Drop the cached stats of a source (when it changes) — every principal's,
+    or only `principal`'s (when that user's login changes)."""
+    stmt = sa_delete(ConceptStatsCache).where(ConceptStatsCache.data_source_id == data_source_id)
+    if principal is not None:
+        stmt = stmt.where(ConceptStatsCache.principal == principal)
+    await db.execute(stmt)
     await db.commit()

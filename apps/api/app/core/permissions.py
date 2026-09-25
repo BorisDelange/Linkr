@@ -94,6 +94,9 @@ GLOBAL_CATALOGUE: dict[str, list[str]] = {
     # satisfies any workspace-tier check on any project. See global_grant_role.
     "all-workspaces": RWD,
     "all-projects": RWD,
+    # The access log (core/audit.py): who read which database, ran which code.
+    # Its entries hold SQL and code, which can name patients.
+    "audit-log": ["read"],
 }
 GLOBAL_PERMISSIONS = [f"{r}:{a}" for r, acts in GLOBAL_CATALOGUE.items() for a in acts]
 

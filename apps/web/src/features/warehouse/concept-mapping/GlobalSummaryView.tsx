@@ -36,7 +36,7 @@ import { useUrlTab } from '@/hooks/use-url-tab'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
 import { MultiSelectFilter as SharedMultiSelectFilter } from '@/components/ui/multi-select-filter'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { DebouncedInput } from '@/components/ui/debounced-input'
 import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator } from '@/components/ui/table-primitives'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
@@ -1447,7 +1447,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
   // The projects count only means something when a group aggregates several
   // projects, i.e. in badge mode; in project mode a group IS one project.
-  const groupColumns = useMemo<ConceptColumn<GroupSummaryRow>[]>(() => [
+  const groupColumns = useMemo<DataTableColumn<GroupSummaryRow>[]>(() => [
     {
       id: 'name',
       header: groupModeLabel,
@@ -1652,7 +1652,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
               {/* Per-group table */}
               <Card className="overflow-hidden">
-                <ConceptDataTable
+                <DataTable
                   data={groupRows}
                   columns={groupColumns}
                   rowKey={(r) => r.key}

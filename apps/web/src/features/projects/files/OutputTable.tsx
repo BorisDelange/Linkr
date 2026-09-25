@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
-import { ResizeGrip } from '@/components/ui/table-primitives'
+import { ResizeGrip, SortIndicator, nextSorting, type TableSorting } from '@/components/ui/table-primitives'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
 import {
   ColumnFilterInput,
@@ -19,6 +19,7 @@ import {
 } from '@/features/projects/lab/datasets/ColumnFilterInput'
 import { cn } from '@/lib/utils'
 import { DATE_DATETIME_RE, parseBoolean, columnTint } from '@/lib/dataset-utils'
+import { sortOutputRows } from '@/lib/output-table-sort'
 
 interface OutputTableProps {
   headers: string[]
@@ -76,6 +77,7 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
   const [hiddenColumns, setHiddenColumns] = useState<Set<number>>(new Set())
   const [columnWidths, setColumnWidths] = useState<Record<number, number>>({})
   const [resizing, setResizing] = useState<number | null>(null)
+  const [sorting, setSorting] = useState<TableSorting>(null)
 
   // Infer column types from data
   const columnTypes = useMemo<InferredType[]>(
@@ -107,12 +109,18 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
     )
   }, [rows, columnFilters, columnTypes])
 
-  const totalCount = filteredRows.length
+  const sortedRows = useMemo(() => {
+    if (!sorting) return filteredRows
+    const idx = Number(sorting.columnId)
+    return sortOutputRows(filteredRows, idx, columnTypes[idx], sorting.desc)
+  }, [filteredRows, sorting, columnTypes])
+
+  const totalCount = sortedRows.length
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
 
   const pageRows = useMemo(
-    () => filteredRows.slice(page * pageSize, (page + 1) * pageSize),
-    [filteredRows, page, pageSize],
+    () => sortedRows.slice(page * pageSize, (page + 1) * pageSize),
+    [sortedRows, page, pageSize],
   )
 
   const handleFilterChange = useCallback(
@@ -207,11 +215,13 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
                 <th
                   key={idx}
                   style={compact ? undefined : { width: getColWidth(idx) }}
-                  className={cn('relative border-b border-r text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis', compact ? 'px-2 py-0.5' : 'px-3 py-1.5', columnTint(idx))}
+                  className={cn('relative border-b border-r text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis', compact ? 'px-2 py-0.5' : 'cursor-pointer select-none px-3 py-1.5', columnTint(idx))}
+                  onClick={compact ? undefined : () => { setSorting((s) => nextSorting(s, String(idx))); setPage(0) }}
                 >
                   <div className="flex items-center gap-1.5">
                     <TypeBadge type={columnTypes[idx]} size="sm" />
                     <span className="truncate">{headers[idx]}</span>
+                    {!compact && <SortIndicator columnId={String(idx)} sorting={sorting} />}
                   </div>
                   {!compact && (
                     <ResizeGrip
