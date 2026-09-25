@@ -5644,7 +5644,7 @@
     "check_types": "Wrong type:",
     "check_unknown": "Ignored (not in the contract):",
     "check_global_window": "A window over the whole relation (OVER without PARTITION BY) stops per-patient filters from being pushed down: every patient page scans the whole table. Use a source key as the id, or partition the window by patient.",
-    "check_record": "Record these columns",
+    "check_recorded": "The columns this SQL fills are recorded with it: the rest of the app reads them as available.",
     "kind_id": "an id",
     "kind_datetime": "a timestamp",
     "kind_date": "a date",

@@ -5644,7 +5644,7 @@
     "check_types": "Type incorrect :",
     "check_unknown": "Ignorées (hors contrat) :",
     "check_global_window": "Une fenêtre sur toute la relation (OVER sans PARTITION BY) empêche de filtrer par patient en amont : chaque page patient parcourt toute la table. Utilisez une clé de la source comme identifiant, ou partitionnez la fenêtre par patient.",
-    "check_record": "Enregistrer ces colonnes",
+    "check_recorded": "Les colonnes que ce SQL remplit sont enregistrées avec lui : le reste de l'application les considère comme disponibles.",
     "kind_id": "un identifiant",
     "kind_datetime": "un horodatage",
     "kind_date": "une date",

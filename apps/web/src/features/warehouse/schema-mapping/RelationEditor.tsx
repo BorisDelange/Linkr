@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Code, Plus, X, FunctionSquare, Columns3, Quote } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+import { DraftInput, DraftTextarea } from './draft-input'
 import { Badge } from '@/components/ui/badge'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -97,6 +97,12 @@ export function RelationEditor({
 
   const aliases = [spec.from, ...(spec.joins ?? [])].filter((x): x is RelationTable => !!x?.alias)
   const suggestions = aliases.flatMap((a) => (a.table ? (columnsOf(a) ?? []) : []).map((c) => `${a.alias}.${c}`))
+  // One datalist per block, referenced by every field: a copy per field put
+  // thousands of <option>s in the DOM once all blocks show.
+  const columnListId = useId()
+  const tableListId = useId()
+  const columnList = suggestions.length ? columnListId : undefined
+  const tableList = tableNames.length ? tableListId : undefined
   const contract = CLASS_CONTRACTS[cls]
   const extras = cls === 'concept' ? Object.keys(spec.fields ?? {}).filter((k) => k.startsWith('extra_')) : []
 
@@ -123,6 +129,20 @@ export function RelationEditor({
       </div>
 
       <div className="space-y-3 px-3 py-2">
+        {!readOnly && (
+          <>
+            <datalist id={columnListId}>
+              {suggestions.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+            <datalist id={tableListId}>
+              {tableNames.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+          </>
+        )}
         {custom && (
           <p className="text-xs text-muted-foreground">
             {sqlOnly ? t('schema_mapping.defined_in_sql') : t('schema_mapping.sql_overrides_form')}
@@ -134,7 +154,7 @@ export function RelationEditor({
             <TableRow
               label={t('schema_mapping.from')}
               table={spec.from ?? { table: '', alias: '' }}
-              tableNames={tableNames}
+              tableList={tableList}
               readOnly={readOnly}
               onChange={(from) => change({ ...spec, from })}
             />
@@ -159,8 +179,8 @@ export function RelationEditor({
                   <JoinRow
                     key={i}
                     join={join}
-                    tableNames={tableNames}
-                    suggestions={suggestions}
+                    tableList={tableList}
+                    columnList={columnList}
                     readOnly={readOnly}
                     onChange={(j) => change({ ...spec, joins: (spec.joins ?? []).map((x, k) => (k === i ? j : x)) })}
                     onRemove={() => change({ ...spec, joins: (spec.joins ?? []).filter((_, k) => k !== i) })}
@@ -175,9 +195,9 @@ export function RelationEditor({
                 {readOnly ? (
                   <code className="block whitespace-pre-wrap text-xs">{spec.where}</code>
                 ) : (
-                  <Textarea
+                  <DraftTextarea
                     value={spec.where ?? ''}
-                    onChange={(e) => change({ ...spec, where: e.target.value || undefined })}
+                    onCommit={(v) => change({ ...spec, where: v || undefined })}
                     placeholder={t('schema_mapping.where_placeholder', { example: '{{attr_route}}' })}
                     className="min-h-8 font-mono text-xs"
                     rows={1}
@@ -196,7 +216,7 @@ export function RelationEditor({
                     required={col.required}
                     hint={DERIVED_HINTS[col.name] ? t(DERIVED_HINTS[col.name]) : undefined}
                     value={spec.fields?.[col.name]}
-                    suggestions={suggestions}
+                    columnList={columnList}
                     readOnly={readOnly}
                     onChange={(v) => setField(col.name, v)}
                   />
@@ -206,7 +226,7 @@ export function RelationEditor({
                     key={name}
                     name={name}
                     value={spec.fields?.[name]}
-                    suggestions={suggestions}
+                    columnList={columnList}
                     readOnly={readOnly}
                     onChange={(v) => setField(name, v)}
                     onRemove={readOnly ? undefined : () => setField(name, undefined)}
@@ -259,49 +279,31 @@ export function RelationEditor({
 function SuggestInput({
   value,
   onChange,
-  suggestions,
+  list,
   placeholder,
   className,
 }: {
   value: string
   onChange: (v: string) => void
-  suggestions?: string[]
+  /** Id of the block's datalist. A datalist, not a combobox: a mapping may name
+   *  a column the DDL never listed, and the browser filters as the user types. */
+  list?: string
   placeholder?: string
   className?: string
 }) {
-  // A datalist, not a combobox: a mapping may name a column the DDL never
-  // listed, and the browser filters the completions as the user types.
-  const listId = useId()
-  return (
-    <>
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className={cn('h-7 font-mono text-xs', className)}
-        list={suggestions?.length ? listId : undefined}
-      />
-      {suggestions?.length ? (
-        <datalist id={listId}>
-          {suggestions.map((s) => (
-            <option key={s} value={s} />
-          ))}
-        </datalist>
-      ) : null}
-    </>
-  )
+  return <DraftInput value={value} onCommit={onChange} placeholder={placeholder} className={cn('h-7 font-mono text-xs', className)} list={list} />
 }
 
 function TableRow({
   label,
   table,
-  tableNames,
+  tableList,
   readOnly,
   onChange,
 }: {
   label: string
   table: RelationTable
-  tableNames: string[]
+  tableList?: string
   readOnly?: boolean
   onChange: (t: RelationTable) => void
 }) {
@@ -326,9 +328,9 @@ function TableRow({
     <div className="grid grid-cols-[100px_1fr] items-center gap-2">
       <SectionLabel>{label}</SectionLabel>
       <div className="grid grid-cols-[1fr_2fr_70px] gap-1">
-        <Input value={table.schema ?? ''} onChange={(e) => set({ schema: e.target.value })} placeholder={t('schema_mapping.schema')} className="h-7 font-mono text-xs" />
-        <SuggestInput value={table.table} onChange={(v) => set({ table: v })} suggestions={tableNames} placeholder={t('schema_mapping.table')} />
-        <Input value={table.alias} onChange={(e) => set({ alias: e.target.value })} placeholder={t('schema_mapping.alias')} className="h-7 font-mono text-xs" />
+        <DraftInput value={table.schema ?? ''} onCommit={(v) => set({ schema: v })} placeholder={t('schema_mapping.schema')} className="h-7 font-mono text-xs" />
+        <SuggestInput value={table.table ?? ''} onChange={(v) => set({ table: v })} list={tableList} placeholder={t('schema_mapping.table')} />
+        <DraftInput value={table.alias ?? ''} onCommit={(v) => set({ alias: v })} placeholder={t('schema_mapping.alias')} className="h-7 font-mono text-xs" />
       </div>
     </div>
   )
@@ -336,15 +338,15 @@ function TableRow({
 
 function JoinRow({
   join,
-  tableNames,
-  suggestions,
+  tableList,
+  columnList,
   readOnly,
   onChange,
   onRemove,
 }: {
   join: RelationJoin
-  tableNames: string[]
-  suggestions: string[]
+  tableList?: string
+  columnList?: string
   readOnly?: boolean
   onChange: (j: RelationJoin) => void
   onRemove: () => void
@@ -374,9 +376,9 @@ function JoinRow({
           </SelectContent>
         </Select>
         <div className="grid flex-1 grid-cols-[1fr_2fr_70px] gap-1">
-          <Input value={join.schema ?? ''} onChange={(e) => onChange({ ...join, schema: e.target.value || undefined })} placeholder={t('schema_mapping.schema')} className="h-7 font-mono text-xs" />
-          <SuggestInput value={join.table} onChange={(v) => onChange({ ...join, table: v })} suggestions={tableNames} placeholder={t('schema_mapping.table')} />
-          <Input value={join.alias} onChange={(e) => onChange({ ...join, alias: e.target.value })} placeholder={t('schema_mapping.alias')} className="h-7 font-mono text-xs" />
+          <DraftInput value={join.schema ?? ''} onCommit={(v) => onChange({ ...join, schema: v || undefined })} placeholder={t('schema_mapping.schema')} className="h-7 font-mono text-xs" />
+          <SuggestInput value={join.table ?? ''} onChange={(v) => onChange({ ...join, table: v })} list={tableList} placeholder={t('schema_mapping.table')} />
+          <DraftInput value={join.alias ?? ''} onCommit={(v) => onChange({ ...join, alias: v })} placeholder={t('schema_mapping.alias')} className="h-7 font-mono text-xs" />
         </div>
         <Button variant="ghost" size="icon-sm" onClick={onRemove} aria-label={t('common.remove')}>
           <X size={12} />
@@ -385,9 +387,9 @@ function JoinRow({
       {on.map(([l, r], i) => (
         <div key={i} className="flex items-center gap-1 pl-[100px]">
           <span className="text-[10px] text-muted-foreground">{i === 0 ? 'ON' : 'AND'}</span>
-          <SuggestInput value={l} onChange={(v) => setOn(i, 0, v)} suggestions={suggestions} placeholder="a.column" />
+          <SuggestInput value={l} onChange={(v) => setOn(i, 0, v)} list={columnList} placeholder="a.column" />
           <span className="text-xs text-muted-foreground">=</span>
-          <SuggestInput value={r} onChange={(v) => setOn(i, 1, v)} suggestions={suggestions} placeholder="b.column" />
+          <SuggestInput value={r} onChange={(v) => setOn(i, 1, v)} list={columnList} placeholder="b.column" />
           {on.length > 1 ? (
             <Button variant="ghost" size="icon-sm" onClick={() => onChange({ ...join, on: on.filter((_, k) => k !== i) })} aria-label={t('common.remove')}>
               <X size={10} />
@@ -418,7 +420,7 @@ function FieldRow({
   required,
   hint,
   value,
-  suggestions,
+  columnList,
   readOnly,
   onChange,
   onRemove,
@@ -427,7 +429,7 @@ function FieldRow({
   required?: boolean
   hint?: string
   value: FieldSpec | undefined
-  suggestions: string[]
+  columnList?: string
   readOnly?: boolean
   onChange: (v: FieldSpec | undefined) => void
   onRemove?: () => void
@@ -491,7 +493,7 @@ function FieldRow({
       <SuggestInput
         value={text}
         onChange={(s) => emit(mode, s)}
-        suggestions={mode === 'column' ? suggestions : undefined}
+        list={mode === 'column' ? columnList : undefined}
         placeholder={mode === 'column' ? 'alias.column' : mode === 'expr' ? t('schema_mapping.expr_placeholder') : ''}
       />
       {onRemove ? (

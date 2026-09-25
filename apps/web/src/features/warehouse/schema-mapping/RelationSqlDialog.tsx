@@ -58,18 +58,31 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
   const custom = !!spec.customSql?.trim()
 
   /** What the relation's own SQL returns, before the contract projection pads it. */
-  const bodySql = custom ? substituteParams(spec.customSql!.trim().replace(/;\s*$/, ''), mapping.params) : generatedRelationSql(mapping, specKey)
+  const bodyOf = (s: RelationSpec) =>
+    s.customSql?.trim() ? substituteParams(s.customSql.trim().replace(/;\s*$/, ''), mapping.params) : generatedRelationSql(mapping, specKey)
 
-  const run = async (what: 'check' | 'preview') => {
+  /**
+   * `current` is the spec as just saved: a check run right after a save must
+   * not write back the spec from before it.
+   */
+  const run = async (what: 'check' | 'preview', current: RelationSpec = spec) => {
     if (!sourceId || !relation) return
     setBusy(true)
     setError(null)
     try {
       await ensureMounted(sourceId)
       if (what === 'check') {
+        const bodySql = bodyOf(current)
         if (!bodySql) throw new Error(t('schema_mapping.nothing_to_check'))
         const described = await queryDataSource(sourceId, `DESCRIBE ${bodySql}`)
-        setReport(checkContract(cls, described as { column_name: string; column_type: string }[], bodySql))
+        const next = checkContract(cls, described as { column_name: string; column_type: string }[], bodySql)
+        setReport(next)
+        // Hand-written SQL: what it returns is what the rest of the app reads
+        // as filled (age criterion, timeline values…). Recorded here rather
+        // than by a button nobody knew to press.
+        if (current.customSql?.trim() && !readOnly && JSON.stringify(current.sqlColumns ?? []) !== JSON.stringify(next.filled)) {
+          onChange?.({ ...current, sqlColumns: next.filled })
+        }
       } else {
         // The draft's relation, injected here: the database's own mapping would
         // otherwise answer for `linkr_…`.
@@ -134,7 +147,11 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
             generatedSql={generated}
             customSql={spec.customSql}
             readOnly={readOnly}
-            onCustomSqlChange={(sql) => onChange?.({ ...spec, customSql: sql, sqlColumns: sql ? spec.sqlColumns : undefined })}
+            onCustomSqlChange={(sql) => {
+              const next = { ...spec, customSql: sql, sqlColumns: sql ? spec.sqlColumns : undefined }
+              onChange?.(next)
+              if (sql && sourceId) void run('check', next)
+            }}
           />
         </TabsContent>
 
@@ -146,11 +163,7 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
           )}
           {error && tab === 'check' && <p className="whitespace-pre-wrap text-xs text-destructive">{error}</p>}
           {report && (
-            <ContractReportView
-              report={report}
-              canRecord={custom && !readOnly}
-              onRecord={() => onChange?.({ ...spec, sqlColumns: report.filled })}
-            />
+            <ContractReportView report={report} recorded={custom && !readOnly} />
           )}
         </TabsContent>
 
@@ -176,7 +189,7 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
   )
 }
 
-function ContractReportView({ report, canRecord, onRecord }: { report: ContractReport; canRecord: boolean; onRecord: () => void }) {
+function ContractReportView({ report, recorded }: { report: ContractReport; recorded: boolean }) {
   const { t } = useTranslation()
   const ok = report.missingRequired.length === 0 && report.typeMismatches.length === 0
   return (
@@ -201,11 +214,7 @@ function ContractReportView({ report, canRecord, onRecord }: { report: ContractR
           {t('schema_mapping.check_global_window')}
         </p>
       )}
-      {canRecord && (
-        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onRecord}>
-          {t('schema_mapping.check_record')}
-        </Button>
-      )}
+      {recorded && <p className="text-muted-foreground">{t('schema_mapping.check_recorded')}</p>}
     </div>
   )
 }
