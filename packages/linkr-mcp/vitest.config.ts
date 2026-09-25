@@ -4,7 +4,6 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   resolve: {
     alias: {
-      '@linkr/format/node/fs-tree': path.resolve(__dirname, '../linkr-format/src/node/fs-tree.ts'),
       '@linkr/format': path.resolve(__dirname, '../linkr-format/src/index.ts'),
       '@': path.resolve(__dirname, '../../apps/web/src'),
     },

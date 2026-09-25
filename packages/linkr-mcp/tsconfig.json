@@ -17,7 +17,6 @@
     "baseUrl": ".",
     "paths": {
       "@linkr/format": ["../linkr-format/src/index.ts"],
-      "@linkr/format/node/fs-tree": ["../linkr-format/src/node/fs-tree.ts"],
       "@/*": ["../../apps/web/src/*"],
       "@default-plugins/*": ["../default-plugins/*"]
     }

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "linkr-mcp": "./src/live/server.ts"
+    "linkr-mcp": "./bin/linkr-mcp.mjs"
   },
   "scripts": {
     "start": "tsx --tsconfig tsconfig.json src/live/server.ts",
