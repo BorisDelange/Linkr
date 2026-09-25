@@ -5654,6 +5654,22 @@
     "param_name": "parameter_name",
     "param_label": "Label",
     "add_param": "Add parameter",
-    "param_default": "Preset default: {{value}}"
+    "param_default": "Preset default: {{value}}",
+    "db_tab": "Mapping",
+    "db_no_mapping": "This database has no schema mapping.",
+    "db_from_preset": "From the schema {{name}} (version {{version}})",
+    "db_overridden_count_one": "{{count}} relation overridden for this database",
+    "db_overridden_count_other": "{{count}} relations overridden for this database",
+    "overridden": "Overridden",
+    "stale_override": "The preset changed this relation since it was overridden here: check that the override still fits.",
+    "revert": "Revert to preset",
+    "promote": "Promote to preset",
+    "update_from_preset": "Update from preset",
+    "update_title": "Update the mapping from the preset",
+    "update_description": "Replaces this database's copy of the preset's mapping (version {{from}} → {{to}}). Its overrides are kept.",
+    "update_confirm": "Update",
+    "update_no_overrides": "This database overrides nothing: it will read exactly what the preset now says.",
+    "update_overrides_kept": "The overridden relations are unchanged in the preset: the overrides still apply as they are.",
+    "update_stale": "The preset changed these overridden relations; they will be flagged so you can check them:"
   }
 }

@@ -161,8 +161,9 @@ export interface SchemaMapping {
 export interface SchemaOverrides {
   params?: Record<string, string>
   relations?: Record<string, RelationSpec>
-  /** Base relation (as JSON) each override was made against, to flag an override
-   *  whose base the preset changed since. Same keys as `relations`. */
+  /** Fingerprint of the base relation each override was made against
+   *  (`relationFingerprint`), to flag an override whose base the preset changed
+   *  since. Same keys as `relations`. */
   baseAtOverride?: Record<string, string>
 }
 

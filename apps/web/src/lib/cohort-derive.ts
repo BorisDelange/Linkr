@@ -48,6 +48,9 @@ export function derivedDatabaseRow(parent: DataSource, name: LocalizedString, ex
     description: {},
     sourceType: 'database',
     connectionConfig: { engine: 'duckdb', managed: true } as unknown as ConnectionConfig,
+    // The EFFECTIVE mapping (the parent's base with its overrides applied), as
+    // the derived database's own base: a subset reads its tables the way the
+    // parent did, and has no overrides of its own yet.
     schemaMapping: sanitizeSchemaMapping(parent.schemaMapping),
     ...(parent.schemaSource ? { schemaSource: parent.schemaSource } : {}),
     status: 'configuring',

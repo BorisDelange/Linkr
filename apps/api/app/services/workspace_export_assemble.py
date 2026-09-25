@@ -942,6 +942,8 @@ _DATA_FILE_GITIGNORE = b"**/*.csv\n**/*.parquet\n**/*.pq\n**/*.xlsx\n**/*.xls\n"
 
 # Mirrors SCHEMA_PRESET_DDL_FILE in entity-io.ts.
 SCHEMA_PRESET_DDL_FILE = "schema.ddl"
+# Mirrors SCHEMA_OVERRIDES_FILE in entity-io.ts (CONTENT_FILE.schemaOverrides).
+SCHEMA_OVERRIDES_FILE = "mapping-overrides.json"
 
 
 async def build_etl_pipeline_tree(db: AsyncSession, pipeline) -> dict[str, bytes]:
@@ -1121,6 +1123,28 @@ def _canonical_schema_mapping_v2(mapping: dict) -> dict:
     return out
 
 
+def _canonical_schema_overrides(overrides: dict) -> dict:
+    """A database's mapping-overrides.json in deterministic order. Twin of
+    canonicalSchemaOverrides (packages/linkr-format/src/schema-mapping.ts)."""
+    def by_name(obj, f=lambda _k, v: v):
+        return {k: f(k, obj[k]) for k in sorted(obj)} if isinstance(obj, dict) else obj
+
+    def relation(spec_key, rel):
+        return _canonical_relation(rel, _RELATION_COLUMN_ORDER.get(spec_key.split(".")[0], []))
+
+    out: dict = {}
+    if "params" in overrides:
+        out["params"] = by_name(overrides["params"])
+    if "relations" in overrides:
+        out["relations"] = by_name(overrides["relations"], relation)
+    if "baseAtOverride" in overrides:
+        out["baseAtOverride"] = by_name(overrides["baseAtOverride"])
+    for k in sorted(overrides):
+        if k not in out:
+            out[k] = overrides[k]
+    return out
+
+
 def _canonical_schema_mapping(mapping: dict) -> dict:
     """Mapping with its top-level keys, event tables, and their keys ordered.
 
@@ -1220,6 +1244,7 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
     stripped.pop("stats", None)
     connection_config = stripped.pop("connectionConfig", None)
     schema_mapping = stripped.pop("schemaMapping", None)
+    schema_overrides = stripped.pop("schemaOverrides", None)
     meta = {
         **strip_entity_docs(stripped),
         "connectionConfig": (
@@ -1248,6 +1273,12 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
         tree[SCHEMA_PRESET_MAPPING_FILE] = _json(_canonical_schema_mapping(mapping))
         if isinstance(ddl, str) and ddl:
             tree[SCHEMA_PRESET_DDL_FILE] = ddl.encode()
+    # Its overrides on top of the preset, beside the mapping — only when there are
+    # some. Twin of the SCHEMA_OVERRIDES_FILE branch of buildDataSourceFolder.
+    if isinstance(schema_overrides, dict) and (
+        schema_overrides.get("relations") or schema_overrides.get("params")
+    ):
+        tree[SCHEMA_OVERRIDES_FILE] = _json(_canonical_schema_overrides(schema_overrides))
     # `organization` is stripped as an instance field, and every other entity puts
     # its provenance snapshot back. A database did not, so each re-export silently
     # dropped the publishing organization from the repo — the same bug schema

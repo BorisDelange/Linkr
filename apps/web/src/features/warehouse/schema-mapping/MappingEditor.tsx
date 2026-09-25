@@ -37,6 +37,8 @@ export interface MappingEditorProps {
   relationExtra?: (specKey: string) => ReactNode
   /** Parameters are edited here unless the caller owns them (database overrides). */
   paramsSlot?: ReactNode
+  /** Whether a relation may be removed; an override cannot drop a preset's one. */
+  canRemove?: (specKey: string) => boolean
 }
 
 const SINGLETONS: Record<'patient' | 'visit' | 'visitDetail' | 'note', ClassName> = {
@@ -51,7 +53,7 @@ const SINGLETONS: Record<'patient' | 'visit' | 'visitDetail' | 'note', ClassName
  * grouped by clinical subject, plus the parameters relations read. Used by the
  * schema preset page and, in override mode, by a database's Mapping tab.
  */
-export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewSources = [], relationExtra, paramsSlot }: MappingEditorProps) {
+export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewSources = [], relationExtra, paramsSlot, canRemove }: MappingEditorProps) {
   const { t, i18n } = useTranslation()
   const [tab, setTab] = useState<TabId>('patient')
   const [sqlFor, setSqlFor] = useState<string | null>(null)
@@ -66,6 +68,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
   const relationNames = useMemo(() => new Map(classRelations(mapping).map((r) => [r.specKey, r.name])), [mapping])
 
   const setSpec = (specKey: string, spec: RelationSpec | undefined) => onChange?.(withSpec(mapping, specKey, spec))
+  const removable = (specKey: string) => !readOnly && (canRemove?.(specKey) ?? true)
 
   const editorFor = (specKey: string, cls: ClassName, spec: RelationSpec, title: ReactNode, extra?: ReactNode, children?: ReactNode) => (
     <RelationEditor
@@ -112,7 +115,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
       SINGLETONS[key],
       spec,
       title,
-      !readOnly && key !== 'patient' ? (
+      removable(key) && key !== 'patient' ? (
         <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setSpec(key, undefined)} aria-label={t('common.remove')}>
           <X size={12} />
         </Button>
@@ -131,7 +134,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
 
   const eventHeader = (list: 'events' | 'drugs', spec: EventSpec) => (
     <div className="ml-auto flex items-center gap-1">
-      {!readOnly && (
+      {removable(`${list}.${spec.label}`) && (
         <CommitInput
           value={spec.label}
           onCommit={(label) => {
@@ -142,7 +145,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
           label={t('schema_mapping.label')}
         />
       )}
-      {!readOnly && (
+      {removable(`${list}.${spec.label}`) && (
         <Button variant="ghost" size="icon-sm" onClick={() => setSpec(`${list}.${spec.label}`, undefined)} aria-label={t('common.remove')}>
           <X size={12} />
         </Button>
@@ -297,7 +300,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
                 {spec.key}
                 {i === 0 && <span className="ml-1 text-[10px] text-muted-foreground">({t('schema_mapping.default_dictionary')})</span>}
               </span>,
-              !readOnly ? (
+              removable(`concepts.${spec.key}`) ? (
                 <div className="ml-auto flex items-center gap-1">
                   <CommitInput
                     value={spec.key}

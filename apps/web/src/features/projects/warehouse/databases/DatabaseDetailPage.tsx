@@ -18,6 +18,7 @@ import {
   Plug,
   Table,
   Table2,
+  Network,
   Users,
   UsersRound,
 } from 'lucide-react'
@@ -42,6 +43,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { DatabaseMappingTab } from './DatabaseMappingTab'
 import { EntitySecondaryTabsTrigger } from '@/components/ui/entity-secondary-tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
@@ -84,13 +86,13 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 
-const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'cohorts', 'readme', 'license', 'versioning'] as const
+const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'mapping', 'cohorts', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
 
 /** What a project may open. `resolveTab` falls back to the default for anything
  *  outside this list, so a bookmarked `?tab=readme` lands on the overview rather
  *  than on an empty body. */
-const PROJECT_TAB_IDS = ['overview', 'statistics', 'schema'] as const
+const PROJECT_TAB_IDS = ['overview', 'statistics', 'schema', 'mapping'] as const
 
 /** Stand-in for a source with no data model: every clinical table is unknown, so
  *  only the table row counts can be computed. */
@@ -236,6 +238,10 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               <Table2 size={14} />
               {t('databases.detail_schema')}
             </TabsTrigger>
+            <TabsTrigger value="mapping">
+              <Network size={14} />
+              {t('schema_mapping.db_tab')}
+            </TabsTrigger>
             {!readOnly && (
               <TabsTrigger value="cohorts">
                 <UsersRound size={14} />
@@ -316,6 +322,12 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
             </div>
           )}
         </TabsContent>
+        {/* Read-only in a project, like the rest of the page: the override is
+            the database's, edited where the database is managed. */}
+        <TabsContent value="mapping" className="m-0 min-h-0 flex-1 overflow-auto p-0">
+          <DatabaseMappingTab source={source} readOnly={readOnly} />
+        </TabsContent>
+
         {!readOnly && (
           <TabsContent value="cohorts" className="m-0 min-h-0 flex-1 p-0">
             <DatabaseCohortHost dataSourceId={source.id} siblingDatabaseIds={siblingIds}>

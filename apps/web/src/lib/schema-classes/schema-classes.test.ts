@@ -4,6 +4,7 @@ import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { injectClassRelations, referencedRelations, withClassRelations } from './inject'
 import { classRelation, classRelations, conceptJoinOn, dictionaryOf, drugRelation, eventRelation, generatedRelationSql, has, readableRelationSql, substituteParams } from './relations'
 import { checkContract, hasGlobalWindow } from './contract-check'
+import { diffOverrides, effectiveMapping, isEmptyOverrides, relationFingerprint, revertOverride, staleOverrides } from './overrides'
 import { conceptIdentity } from './spec'
 import { isMappingV1, mappingV1ToV2, type SchemaMappingV1 } from './v1'
 
@@ -315,5 +316,46 @@ describe('checkContract', () => {
     expect(hasGlobalWindow('SELECT ROW_NUMBER() OVER (ORDER BY id) AS drug_id FROM t')).toBe(true)
     expect(hasGlobalWindow('SELECT ROW_NUMBER() OVER (PARTITION BY pid ORDER BY id) FROM t')).toBe(false)
     expect(hasGlobalWindow("SELECT 'OVER (ORDER BY x)' FROM t")).toBe(false)
+  })
+})
+
+describe('per-database overrides', () => {
+  const base = v2
+  const site: SchemaMapping = {
+    ...base,
+    visit: { ...base.visit!, where: "s.kind = 'X'" },
+    events: [{ label: 'Local', from: { table: 'local', alias: 'e' }, fields: { patient_id: 'e.pid' } }],
+  }
+
+  it('records the relations a database changed, with the base they were made against', () => {
+    const o = diffOverrides(base, site, { params: { attr_rate: 'R2' } })
+    expect(Object.keys(o.relations!)).toEqual(['visit', 'events.Local'])
+    expect(o.baseAtOverride!.visit).toBe(relationFingerprint('visit', base.visit))
+    expect(o.baseAtOverride!.visit).toMatch(/^[0-9a-f]{8}$/)
+    expect(o.baseAtOverride!['events.Local']).toBe('none')
+    // Key order does not change the fingerprint.
+    const reordered = { fields: base.visit!.fields, where: base.visit!.where, from: base.visit!.from }
+    expect(relationFingerprint('visit', reordered)).toBe(relationFingerprint('visit', base.visit))
+    expect(o.params).toEqual({ attr_rate: 'R2' })
+  })
+
+  it('applies relations and parameter values on top of the base', () => {
+    const o = diffOverrides(base, site, { params: { attr_rate: 'R2', unknown: 'x' } })
+    const eff = effectiveMapping(base, o)
+    expect(eff.visit?.where).toBe("s.kind = 'X'")
+    expect(eff.events?.map((e) => e.label)).toEqual(['Local'])
+    expect(eff.params).toEqual({ attr_rate: { default: 'R2' } })
+    expect(drugRelation(eff, 'Administrations')!.sql).toContain(`r.attr = 'R2'`)
+    expect(effectiveMapping(base, undefined)).toBe(base)
+  })
+
+  it('flags an override whose base the preset changed, and reverts one relation', () => {
+    const o = diffOverrides(base, site)
+    const updated: SchemaMapping = { ...base, visit: { ...base.visit!, fields: { ...base.visit!.fields, end_datetime: 's.end' } } }
+    expect(staleOverrides(updated, o)).toEqual(['visit'])
+    expect(staleOverrides(base, o)).toEqual([])
+    const reverted = revertOverride(o, 'visit')
+    expect(Object.keys(reverted.relations!)).toEqual(['events.Local'])
+    expect(isEmptyOverrides(revertOverride(reverted, 'events.Local'))).toBe(true)
   })
 })

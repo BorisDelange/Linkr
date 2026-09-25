@@ -5654,6 +5654,22 @@
     "param_name": "nom_du_parametre",
     "param_label": "Libellé",
     "add_param": "Ajouter un paramètre",
-    "param_default": "Valeur du preset : {{value}}"
+    "param_default": "Valeur du preset : {{value}}",
+    "db_tab": "Mapping",
+    "db_no_mapping": "Cette base n'a pas de mapping de schéma.",
+    "db_from_preset": "Issu du schéma {{name}} (version {{version}})",
+    "db_overridden_count_one": "{{count}} relation surchargée pour cette base",
+    "db_overridden_count_other": "{{count}} relations surchargées pour cette base",
+    "overridden": "Surchargée",
+    "stale_override": "Le preset a modifié cette relation depuis qu'elle a été surchargée ici : vérifiez que la surcharge convient toujours.",
+    "revert": "Revenir au preset",
+    "promote": "Remonter dans le preset",
+    "update_from_preset": "Mettre à jour depuis le preset",
+    "update_title": "Mettre à jour le mapping depuis le preset",
+    "update_description": "Remplace la copie du mapping du preset dans cette base (version {{from}} → {{to}}). Ses surcharges sont conservées.",
+    "update_confirm": "Mettre à jour",
+    "update_no_overrides": "Cette base ne surcharge rien : elle lira exactement ce que dit désormais le preset.",
+    "update_overrides_kept": "Les relations surchargées n'ont pas changé dans le preset : les surcharges s'appliquent telles quelles.",
+    "update_stale": "Le preset a modifié ces relations surchargées ; elles seront signalées pour que vous les vérifiiez :"
   }
 }

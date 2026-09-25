@@ -210,3 +210,30 @@ export function canonicalSchemaMappingV2(mapping: Record<string, unknown>): Reco
   }
   return out
 }
+
+/** Relation list or singleton key of a spec key: `events.Labs` → `events`. */
+function relationGroup(specKey: string): string {
+  return specKey.split('.')[0]
+}
+
+/** One relation in canonical order, as it sits in a v2 mapping under `specKey`
+ *  (`visit`, `events.<label>`…). */
+export function canonicalRelationSpec(specKey: string, rel: unknown): unknown {
+  return canonicalRelation(rel, RELATION_COLUMN_ORDER[relationGroup(specKey)] ?? [])
+}
+
+/**
+ * A database's `mapping-overrides.json` in deterministic order: parameter values
+ * and relations sorted by name, each relation canonical, then the base
+ * fingerprints. Twin of `_canonical_schema_overrides` (Python).
+ */
+export function canonicalSchemaOverrides(overrides: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  const sorted = (o: unknown, f: (k: string, v: unknown) => unknown = (_k, v) => v) =>
+    isObj(o) ? Object.fromEntries(Object.keys(o).sort().map((k) => [k, f(k, o[k])])) : o
+  if (overrides.params !== undefined) out.params = sorted(overrides.params)
+  if (overrides.relations !== undefined) out.relations = sorted(overrides.relations, canonicalRelationSpec)
+  if (overrides.baseAtOverride !== undefined) out.baseAtOverride = sorted(overrides.baseAtOverride)
+  for (const k of Object.keys(overrides).sort()) if (!(k in out)) out[k] = overrides[k]
+  return out
+}

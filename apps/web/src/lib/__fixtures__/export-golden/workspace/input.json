@@ -235,7 +235,30 @@
     "username": "reader",
     "password": "SECRET"
    },
-   "schemaMapping": null,
+   "schemaMapping": {
+    "formatVersion": 2,
+    "presetId": "mimic-iv",
+    "presetLabel": {
+     "en": "MIMIC-IV"
+    },
+    "patient": {
+     "from": {
+      "table": "patients",
+      "alias": "p"
+     },
+     "fields": {
+      "patient_id": "p.subject_id"
+     }
+    },
+    "params": {
+     "alpha": {
+      "default": "a"
+     },
+     "zeta": {
+      "default": "z"
+     }
+    }
+   },
    "status": "connected",
    "stats": null,
    "errorMessage": null,
@@ -246,7 +269,30 @@
    "createdByDetails": null,
    "createdAt": "2026-01-01T00:00:00.000Z",
    "updatedAt": "2026-02-01T00:00:00.000Z",
-   "lineageId": "db-lin-1"
+   "lineageId": "db-lin-1",
+   "schemaOverrides": {
+    "baseAtOverride": {
+     "events.Site labs": "none"
+    },
+    "relations": {
+     "events.Site labs": {
+      "fields": {
+       "start_datetime": "e.d",
+       "patient_id": "e.pid",
+       "concept_id": "e.c"
+      },
+      "from": {
+       "table": "site_labs",
+       "alias": "e"
+      },
+      "label": "Site labs"
+     }
+    },
+    "params": {
+     "zeta": "Z",
+     "alpha": "A"
+    }
+   }
   },
   {
    "id": "ds2",

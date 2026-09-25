@@ -6,7 +6,7 @@
  * entity), so validating them is what keeps those repos importable.
  */
 import { checkLocalized, checkString, isObject } from '../check.js'
-import { canonicalSchemaMapping } from '../schema-mapping.js'
+import { canonicalSchemaMapping, canonicalSchemaOverrides } from '../schema-mapping.js'
 import { IssueBag, type Issue } from '../issue.js'
 import {
   CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, isEntityType,
@@ -286,6 +286,28 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
       bag.warn(mappingPath, at(''), 'legacy-format',
         'The mapping is not in canonical order; the next export will rewrite it.',
         'reorder it as `canonicalSchemaMapping` does, or re-export from Linkr')
+    }
+  }
+
+  // The database's overrides on top of its preset: an object, in canonical order,
+  // whose relations follow the same rules as a v2 mapping's.
+  const overridesFile = readJson(tree, CONTENT_FILE.schemaOverrides)
+  if (overridesFile.ok) {
+    const o = overridesFile.value
+    if (!isObject(o)) {
+      bag.error(CONTENT_FILE.schemaOverrides, '', 'wrong-type', `${CONTENT_FILE.schemaOverrides} must be an object.`)
+    } else {
+      if (o.params != null && (!isObject(o.params) || Object.values(o.params).some((v) => typeof v !== 'string'))) {
+        bag.error(CONTENT_FILE.schemaOverrides, '/params', 'wrong-type', '`params` maps parameter names to string values.')
+      }
+      if (o.relations != null && !isObject(o.relations)) {
+        bag.error(CONTENT_FILE.schemaOverrides, '/relations', 'wrong-type', '`relations` maps relation keys to relations.')
+      }
+      if (JSON.stringify(o) !== JSON.stringify(canonicalSchemaOverrides(o))) {
+        bag.warn(CONTENT_FILE.schemaOverrides, '', 'legacy-format',
+          'The overrides are not in canonical order; the next export will rewrite them.',
+          'reorder them as `canonicalSchemaOverrides` does, or re-export from Linkr')
+      }
     }
   }
 

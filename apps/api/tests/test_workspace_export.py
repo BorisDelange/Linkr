@@ -23,6 +23,7 @@ from app.services.export_layout import (
     TYPE_SCHEMA_PRESET,
     TYPE_USER_PLUGIN,
     CONTENT_SCHEMA_MAPPING,
+    CONTENT_SCHEMA_OVERRIDES,
     ENTITY_MANIFEST,
     SCRIPTS_DIR,
     SIDECAR_TREE,
@@ -49,6 +50,7 @@ from app.services.workspace_export import (
 )
 from app.services.workspace_export_assemble import (
     _canonical_schema_mapping,
+    _canonical_schema_overrides,
     _portable_collection,
     _portable_pipeline,
     _portable_rule_set,
@@ -338,6 +340,7 @@ def _build_tree() -> dict[str, bytes]:
         stripped.pop("stats", None)
         connection_config = stripped.pop("connectionConfig", None)
         schema_mapping = stripped.pop("schemaMapping", None)
+        schema_overrides = stripped.pop("schemaOverrides", None)
         meta = {
             **strip_entity_docs(stripped),
             "connectionConfig": (
@@ -373,6 +376,8 @@ def _build_tree() -> dict[str, bytes]:
             tree[CONTENT_SCHEMA_MAPPING] = _json_bytes(_canonical_schema_mapping(mapping))
             if isinstance(ddl, str) and ddl:
                 tree[CONTENT_SCHEMA_DDL] = ddl.encode()
+        if schema_overrides and (schema_overrides.get("relations") or schema_overrides.get("params")):
+            tree[CONTENT_SCHEMA_OVERRIDES] = _json_bytes(_canonical_schema_overrides(schema_overrides))
         tree.update(entity_doc_files("", ds))
         # The database's own cohorts, as _data_source_sub_tree writes them.
         cohorts = data.get("databaseCohorts", {}).get(ds["id"], [])

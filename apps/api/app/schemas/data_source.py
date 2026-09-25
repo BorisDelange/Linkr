@@ -21,6 +21,7 @@ class DataSourceCreate(CamelModel):
     connection_config: dict = {}  # password/token stripped before persistence
     schema_mapping: dict | None = None
     schema_source: dict | None = None
+    schema_overrides: dict | None = None
     derived_from: dict | None = None
     status: str = "configuring"
     stats: dict | None = None
@@ -52,6 +53,7 @@ class DataSourceUpdate(CamelModel):
     connection_config: dict | None = None
     schema_mapping: dict | None = None
     schema_source: dict | None = None
+    schema_overrides: dict | None = None
     derived_from: dict | None = None
     status: str | None = None
     stats: dict | None = None
@@ -86,6 +88,7 @@ class DataSourceResponse(CamelModel):
     connection_config: dict
     schema_mapping: dict | None = None
     schema_source: dict | None = None
+    schema_overrides: dict | None = None
     derived_from: dict | None = None
     status: str
     stats: dict | None = None
