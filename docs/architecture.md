@@ -348,11 +348,12 @@ Types in `types/index.ts`: `OrganizationInfo`, `CatalogVisibility`, `PluginOrigi
 
 ---
 
-## Schema classes: queries read a contract, not the mapping (as-built, phase A)
+## Schema classes: queries read a contract, not the mapping (as-built)
 
 A database's schema mapping is turned, in ONE place, into one SQL relation per
 clinical class: `linkr_patient`, `linkr_visit`, `linkr_visit_detail`,
-`linkr_note`, `linkr_concept_<key>`, `linkr_event_<label slug>`. Each relation
+`linkr_note`, `linkr_concept_<key>`, `linkr_event_<label slug>`,
+`linkr_drug_<label slug>`. Each relation
 exposes a fixed column contract (`patient_id`, `start_datetime`, `unit_name`,
 `concept_id`, `value_number`…); every query builder writes against those
 columns and never reads `patientTable` / `eventTables` itself. Plan and
@@ -385,6 +386,60 @@ decisions: `docs/planning/schema-classes-plan.md`.
 - **Concept identity untouched**: a dictionary with no id column still gets
   `hash(code) % 2147483647` in the concept-mapping builders, and a missing
   vocabulary still falls back to the table name — mapping projects store both.
+
+### The mapping format (v2)
+
+`SchemaMapping` (`formatVersion: 2`, `types/schema-mapping.ts`) holds the
+relations themselves: singletons `patient`, `visit`, `visitDetail`, `note`, and
+lists `concepts[]` (by `key`), `events[]` and `drugs[]` (by `label`, one
+namespace for both). Each is a `RelationSpec`: either visual — `from`, `joins`,
+`where`, `fields` (`'alias.column'`, `{ expr }` or `{ value }`) — or hand-written
+`customSql` (+ `sqlColumns`, what the contract check recorded), the Cohort
+"Modified" pattern. Mapping-level `params` are substituted as escaped string
+literals wherever `{{name}}` appears outside a literal; an unknown one reads NULL.
+
+- **v1 is converted, then forgotten**: `mappingV1ToV2` (`schema-classes/v1.ts`)
+  runs only at the trust boundary — `sanitizeSchemaMapping`, entity import (after
+  the DDL is merged back), the MCP's `api.ts`. Stores write converted rows back
+  once. `packages/linkr-format` still reads v1 with a `legacy-format` warning and
+  orders v2 canonically (`RELATION_COLUMN_ORDER` mirrors `CLASS_CONTRACTS`; a
+  test keeps them equal, and the Python twin in `workspace_export_assemble.py`).
+- **Custom SQL is projected onto the contract** through a padded `_c` wrapper:
+  a column it does not return reads NULL, one beyond the contract is dropped, a
+  non-single statement becomes an `error()` relation.
+- **Drug relations carry the event columns** (`value_number` ← amount_value ??
+  quantity, `unit` ← amount_unit, `value_string` ← dose_source_value, unless
+  mapped), so `eventRelations()` returns them too and drugs work wherever events
+  do. The patient widgets tell a drug by its class (`is_drug`), keeping the name
+  heuristic only for drugs mapped as plain events.
+
+### Per-database override
+
+A database stores its preset's mapping as its base plus `schemaOverrides`
+(`params` values, whole `relations`, and `baseAtOverride` fingerprints). The
+data-source store publishes `schemaMapping` = `effectiveMapping(base,
+overrides)` and keeps the base in memory as `schemaBaseMapping`; storage holds
+the base (`published()` / `persisted()`). A preset update is an explicit action
+that keeps the overrides and flags those whose base relation changed
+(`staleOverrides`, FNV fingerprints over the canonical relation). Exported as
+`mapping-overrides.json`; the server stores it in `data_sources.schema_overrides`
+and cohort derivation reads the effective mapping too.
+
+### OMOP ETL generation
+
+`generateOmopEtl` (`schema-classes/omop-etl.ts`) inverts the target preset's
+visual mapping (a plain column reference names the OMOP column a contract column
+fills) and composes it with the source database's relations: one script per
+class, the source relation inlined as a CTE, written through the Scripts tab's
+"Generate from the schemas" dialog. OMOP rules live there only: `*_date` from
+`*_datetime`, an unknown end date = the start, `*_type_concept_id` constant,
+NOT NULL concept ids to 0, gender through the target's `genderValues`, deaths in
+their own table, companion `INSERT OR IGNORE` for tables a target relation joins
+(care sites). Concepts resolve through the pipeline's generated vocabulary —
+`(vocabulary_id, concept_code)` as `sourceConceptKeyExprs` keys them, then
+'Maps to' (or STCM) — or are kept as is. Each script's header ends with the hash
+of its body (`generatedScriptState`): regenerating overwrites an untouched
+script and asks before an edited one.
 
 ## OMOP CDM Patterns
 
