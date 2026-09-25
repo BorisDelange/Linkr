@@ -13,11 +13,11 @@
  *
  *   LINKR_MCP_PORT  default 3940
  *   LINKR_MCP_HOST  default 127.0.0.1 — keep it on loopback unless a proxy with TLS fronts it
+ *   LINKR_MCP_LOG_ARGS=1  also log each tool call's arguments (may hold patient data)
  */
-import { createServer } from 'node:http'
-import { Readable } from 'node:stream'
-import { timingSafeEqual } from 'node:crypto'
+import { createServer, type IncomingMessage } from 'node:http'
 import { createMcpHandler } from '@modelcontextprotocol/server'
+import { createIdentify, keyTag, presentedKey, toolCallLogLines } from './auth.js'
 import './env.js'
 
 const { buildServer } = await import('./build.js')
@@ -28,58 +28,32 @@ if (!apiUrl) {
   console.error('LINKR_API_URL is not set — see packages/linkr-mcp/.env.example.')
   process.exit(1)
 }
-const key = process.env.LINKR_MCP_KEY
-if (key && key.length < 24) {
-  console.error('LINKR_MCP_KEY is shorter than 24 characters — see packages/linkr-mcp/.env.example.')
+let identify: ReturnType<typeof createIdentify>
+try {
+  identify = createIdentify({ apiUrl, sharedKey: process.env.LINKR_MCP_KEY })
+} catch (e) {
+  console.error((e as Error).message)
   process.exit(1)
 }
 const port = Number(process.env.LINKR_MCP_PORT ?? 3940)
 const host = process.env.LINKR_MCP_HOST ?? '127.0.0.1'
 
 const handler = createMcpHandler(() => buildServer())
+const logArgs = process.env.LINKR_MCP_LOG_ARGS === '1'
+const MAX_BODY_BYTES = 4 * 1024 * 1024
 
-const verified = new Map<string, number>()
-const VERIFY_TTL_MS = 60_000
+class BodyTooLarge extends Error {}
 
-/** Whether Linkr accepts this personal key — revoked or expired keys stop working
- *  within a minute. */
-async function linkrAccepts(token: string): Promise<boolean> {
-  if ((verified.get(token) ?? 0) > Date.now()) return true
-  const res = await fetch(`${apiUrl}/api/v1/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
-  if (!res.ok) {
-    verified.delete(token)
-    return false
+async function readBody(req: IncomingMessage): Promise<string> {
+  if (Number(req.headers['content-length'] ?? 0) > MAX_BODY_BYTES) throw new BodyTooLarge()
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    size += chunk.length
+    if (size > MAX_BODY_BYTES) throw new BodyTooLarge()
+    chunks.push(chunk)
   }
-  verified.set(token, Date.now() + VERIFY_TTL_MS)
-  return true
-}
-
-function isSharedKey(given: string): boolean {
-  if (!key) return false
-  const a = Buffer.from(given)
-  const b = Buffer.from(key)
-  return a.length === b.length && timingSafeEqual(a, b)
-}
-
-/** How to serve this request: as the owner of a personal key, with the .env
- *  credentials (shared key), or not at all. */
-async function identify(headers: Headers): Promise<'env' | { token: string } | null> {
-  const given = headers.get('x-api-key') ?? headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? ''
-  if (given.startsWith('lnk_')) return (await linkrAccepts(given)) ? { token: given } : null
-  return isSharedKey(given) ? 'env' : null
-}
-
-/** One stderr line per tool call, so a session can be followed from the terminal. */
-function logToolCalls(body: string) {
-  try {
-    const parsed = JSON.parse(body) as unknown
-    for (const msg of Array.isArray(parsed) ? parsed : [parsed]) {
-      const m = msg as { method?: string; params?: { name?: string; arguments?: unknown } }
-      if (m.method !== 'tools/call') continue
-      const args = JSON.stringify(m.params?.arguments ?? {})
-      console.error(`${new Date().toLocaleTimeString()} ${m.params?.name} ${args.length > 200 ? `${args.slice(0, 200)}…` : args}`)
-    }
-  } catch { /* not JSON: the handler reports it */ }
+  return Buffer.concat(chunks).toString('utf8')
 }
 
 createServer(async (req, res) => {
@@ -100,8 +74,19 @@ createServer(async (req, res) => {
       return
     }
     const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
-    const body = hasBody ? await new Response(Readable.toWeb(req) as ReadableStream).text() : undefined
-    if (body) logToolCalls(body)
+    let body: string | undefined
+    try {
+      body = hasBody ? await readBody(req) : undefined
+    } catch (e) {
+      if (!(e instanceof BodyTooLarge)) throw e
+      res.writeHead(413, { 'Content-Type': 'application/json', Connection: 'close' })
+        .end('{"error":"request body too large"}')
+      req.destroy()
+      return
+    }
+    if (body) {
+      for (const line of toolCallLogLines(body, keyTag(presentedKey(headers)), logArgs)) console.error(line)
+    }
     const request = new Request(url, { method: req.method, headers, body })
     const serve = async () => {
       const response = await handler.fetch(request)
