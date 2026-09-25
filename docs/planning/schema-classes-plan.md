@@ -496,8 +496,10 @@ do. **Arbitrated: three phases, plus a fourth for ETL generation.**
 | ✅ | Arbitrated 2026-09-25: three phases; `linkr_*` names; class SQL reads its own database only (no roles); per-database override | — |
 | ✅ | Arbitrated 2026-09-25: preset required, single `from` for singleton classes, `drug_kind`, OMOP-only ETL generation, the 7 contracts, v1 converted then forgotten | — |
 | ✅ | CTE injection, parameters as escaped literals only (2026-09-25) | — |
-| 🔜 | 1. `lib/schema-classes/`: contracts (declarative: column, required, type family) + `generateClassSql(mappingV1)` + `withClassRelations()` (reference detection via `sql-tokenizer`, `NOT MATERIALIZED`) — Vitest | M |
-| 🔜 | 2. Port consumers to `linkr_*`, parity-checked on the two demo DBs: patient data + overview → concepts → cohort builder + report → DQ + stats + catalog → concept-mapping extraction → MCP. The server's `cohort_derive.py` last | L |
+| ✅ | 1. `lib/schema-classes/`: contracts + v1 relation generator (every mapped column padded, so a stale column reads NULL) + idempotent `withClassRelations()` injected in `queryDataSource` — Vitest. Branch `feature/schema-classes` | M |
+| ✅ | 2. Consumers ported to `linkr_*`: patient data + overview, cohort builder + report, Concepts page, DQ, stats, catalog + DCAT, concept-mapping (source view, extraction, profiles, target search), care-site picker. Direct-to-server SQL injects itself (materialize, derive, concept cache, MCP). Parity vs the previous builders on MIMIC-IV demo (589/590 identical) and the full MIMIC-IV OMOP (identical except fixes, below) | L |
+| 🔜 | 2b. **[TO TEST]** In the app, both modes: Patient Data (list, filters, a cohort, a stay selected), cohort builder (every criterion, attrition, freeze, derive), Concepts page (search, detail, stats, server cache refresh), DQ, stats, catalog, a concept-mapping extraction | M |
+| 💤 | 2c. `cohort_derive.py` still classifies raw tables by the v1 id column names (`id_columns`) — no class SQL involved; revisit with the v2 format (plan §8) | S |
 | 🔜 | 3. Mapping v2 types + `mappingV1ToV2` (tested on the 9 published presets) + sanitize/trust boundary + linkr-format (schema, canonical order, validator) + Python twin + goldens | M/L |
 | 🔜 | 4. Visual editor v2: `from` / `joins` / `where` / field combobox (`alias.column`, ƒx expression, constant) from DDL columns; replaces the per-block `Editable*Table` and fixes the care-site gap | L |
 | 🔜 | 5. Code modal per relation: extract a generic `GeneratedSqlEditor` from `SqlPreviewPanel` (extend, don't fork — ui-patterns §6); `customSql` + `CustomSqlDot` + Reset + overwrite dialog only when the generated SQL changes | M |
@@ -510,6 +512,35 @@ do. **Arbitrated: three phases, plus a fourth for ETL generation.**
 | 💤 | 12. Opt-in materialisation (server Parquet cache attached as a catalog; client in-session table) | M/L |
 | 💤 | 13. Domain routing in ETL generation; source profile (value frequencies) in the field picker | M |
 | 🔜 | 14. User docs in `linkr-website` (schema presets, database Mapping tab, ETL generation) + `docs/architecture.md` | S/M |
+
+## Phase A — what the parity run found (2026-09-25)
+
+The harness ran every builder, old and new, on the MIMIC-IV demo and on a full
+MIMIC-IV OMOP database (364k patients, 197M measurements) and compared rows.
+Everything matched except these, all bugs of the previous builders:
+
+- **Patient list filtered by a live cohort** never ran: the cohort's WHERE was
+  inserted without the `WHERE` keyword (syntax error at every level).
+- **Timeline and overview with a stay selected** failed on OMOP: the visit
+  filter assumed `visit_occurrence_id` on every event table, and `specimen`
+  has none, so the whole UNION failed.
+- **"Died during this stay"** ignored the stay when death lives in a separate
+  table (OMOP `death`): 177,708 stays matched instead of 11,355.
+- **Ages were empty on MIMIC-IV OMOP** in the stats age pyramid, the age
+  statistics, the catalog age brackets, the DQ age checks and the DCAT
+  auto-fill: with a birth-date column mapped they used it alone, and
+  `birth_datetime` is empty for all 364k patients.
+- **Concepts page fuzzy search** failed on a dictionary without a code column
+  (MIMIC `d_items`); so did the standard-concept search.
+- **DQ universal checks** quoted `icu.d_items` as one identifier (a table whose
+  name contains a dot).
+- **DCAT coding systems** were only detected from the deprecated
+  `vocabularyColumn`, so OMOP presets detected none.
+
+Found, not fixed (unrelated to the contract): the catalog's global query joins
+events to stays on the patient alone, so on a large database its record count
+multiplies and overflows `INTEGER` (3.86 billion on MIMIC-IV OMOP) — both before
+and after.
 
 ## Decisions (2026-09-25)
 

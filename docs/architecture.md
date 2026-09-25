@@ -348,6 +348,44 @@ Types in `types/index.ts`: `OrganizationInfo`, `CatalogVisibility`, `PluginOrigi
 
 ---
 
+## Schema classes: queries read a contract, not the mapping (as-built, phase A)
+
+A database's schema mapping is turned, in ONE place, into one SQL relation per
+clinical class: `linkr_patient`, `linkr_visit`, `linkr_visit_detail`,
+`linkr_note`, `linkr_concept_<key>`, `linkr_event_<label slug>`. Each relation
+exposes a fixed column contract (`patient_id`, `start_datetime`, `unit_name`,
+`concept_id`, `value_number`…); every query builder writes against those
+columns and never reads `patientTable` / `eventTables` itself. Plan and
+decisions: `docs/planning/schema-classes-plan.md`.
+
+- **Where**: `lib/schema-classes/` — `contracts.ts` (the columns, required or
+  not), `relations.ts` (generation from the mapping, `has(rel, column)` for what
+  a mapping fills), `inject.ts` (`withClassRelations` / `injectClassRelations`).
+- **Injection at execution, never in builders**: builders return
+  `… FROM linkr_visit …`; `queryDataSource` prepends the referenced relations as
+  `WITH linkr_x AS NOT MATERIALIZED (…)`, resolving the mapping through
+  `setMappingResolver` (registered by the data-source store, like the mount
+  guard). So any user SQL (cohort custom SQL, widget SQL) can use them too.
+  `NOT MATERIALIZED` is required: DuckDB materialises a CTE referenced twice,
+  which stops a per-patient filter from reaching the table.
+- **SQL that bypasses `queryDataSource` must inject itself**: server-side cohort
+  materialization, cohort derivation, the concept cache refresh (`COPY (…) TO`),
+  and the MCP's `api.ts` routes. Injection is idempotent.
+- **Tolerant by construction**: every mapped column is padded with an empty
+  `UNION ALL BY NAME SELECT NULL AS "<col>" … WHERE false` branch, so a column
+  the table lacks (a stale preset) reads as NULL instead of failing the whole
+  relation. Free under a filter or GROUP BY; only a bare whole-table `COUNT(*)`
+  loses DuckDB's metadata shortcut.
+- **Semantics centralised here**: birth year (date first, else year, else
+  MIMIC-IV anchor pair), death (patient column, else `MIN` over the death
+  table), normalised `gender` beside the raw `gender_source_value` (saved cohorts
+  still store raw codes), ward name (`unit_name` = source value, else lookup
+  name, else raw code) and `unit_category` (lookup name, else raw code — what the
+  care-site criterion and the catalog services compare with).
+- **Concept identity untouched**: a dictionary with no id column still gets
+  `hash(code) % 2147483647` in the concept-mapping builders, and a missing
+  vocabulary still falls back to the table name — mapping projects store both.
+
 ## OMOP CDM Patterns
 
 Clinical tables: `measurement`, `condition_occurrence`, `drug_exposure`, `procedure_occurrence`, `observation`.
