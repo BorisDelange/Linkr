@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     # deployment (including Docker, where API and kernels share a container); set
     # it only when kernels run somewhere the API is not on localhost.
     kernel_api_url: str = "http://127.0.0.1:8000"
+    # Key sealing secrets at rest (DB passwords, git tokens) — see core/crypto.py.
+    # Unset: generated once into data_dir/secret.key. Old keys stay readable.
+    encryption_key: str | None = None
+    encryption_old_keys: str = ""
     auth_provider: str = "local"  # local, ldap, oidc, saml (only local implemented)
 
     # CORS — comma-separated string in env; exposed as a list via cors_origin_list.

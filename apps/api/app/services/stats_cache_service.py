@@ -38,3 +38,14 @@ async def delete(db: AsyncSession, scope: str, cache_key: str) -> None:
         )
     )
     await db.commit()
+
+
+async def delete_with_prefix(db: AsyncSession, scope: str, key_prefix: str) -> None:
+    """Drop `key_prefix` and every `key_prefix:<principal>` entry of `scope`."""
+    await db.execute(
+        sa_delete(StatsCache).where(
+            StatsCache.scope == scope,
+            (StatsCache.cache_key == key_prefix) | StatsCache.cache_key.startswith(f"{key_prefix}:"),
+        )
+    )
+    await db.commit()

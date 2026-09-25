@@ -3,7 +3,7 @@
 A token is stored once per user per remote host and reused for every repo on
 that host. Git ops resolve the host from the remote URL, then look up the token
 for the ACTING user — so a user never pushes with another user's credential.
-Tokens are encrypted at rest with Fernet (see crypto) and never returned by the
+Tokens are encrypted at rest (core/crypto.py) and never returned by the
 API.
 """
 
@@ -19,6 +19,11 @@ from app.models.user import User
 # scp-style ssh remote: [user@]host:path (no scheme). The host is between an
 # optional "user@" and the first ":". Rejects a leading "/" (that's a path, not scp).
 _SCP_RE = re.compile(r'^(?:[^@/]+@)?(?P<host>[^:/]+):(?!/)')
+
+
+def secret_context(user_id: int, host: str) -> str:
+    """What a git token is sealed to: it only opens for this user and host."""
+    return f"git:{user_id}:{host}"
 
 
 def host_of(url: str) -> str | None:
@@ -72,7 +77,7 @@ async def set_token(db: AsyncSession, user: User, host: str, token: str | None) 
             await db.delete(existing)
             await db.commit()
         return
-    ciphertext = crypto.encrypt(token)
+    ciphertext = crypto.encrypt(token, secret_context(user.id, host))
     if existing is None:
         db.add(GitCredential(user_id=user.id, host=host, secret=ciphertext))
     else:
@@ -88,8 +93,9 @@ async def set_token_for_url(db: AsyncSession, user: User, url: str, token: str |
 
 
 async def token_for_host(db: AsyncSession, user: User, host: str) -> str | None:
-    cred = await _get(db, user.id, (host or "").strip().lower())
-    return crypto.decrypt(cred.secret) if cred else None
+    host = (host or "").strip().lower()
+    cred = await _get(db, user.id, host)
+    return crypto.decrypt(cred.secret, secret_context(user.id, host)) if cred else None
 
 
 async def token_for_url(db: AsyncSession, user: User, url: str | None) -> str | None:

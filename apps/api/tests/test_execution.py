@@ -404,11 +404,12 @@ async def test_sql_query_bridge_runs_via_host(client, monkeypatch):
 
     class _FakeSource:
         workspace_id = None  # workspace-less → access check skipped
+        connection_config = {"engine": "duckdb"}
 
     async def fake_get(db, source_id):
         return _FakeSource()
 
-    async def fake_query(db, source, sql):
+    async def fake_query(db, source, login, sql):
         assert "person" in sql
         return [{"id": 1, "name": "alice"}, {"id": 2, "name": "bob"}]
 
@@ -436,11 +437,12 @@ async def test_sql_query_bridge_runs_via_host_r(client, monkeypatch):
 
     class _FakeSource:
         workspace_id = None
+        connection_config = {"engine": "duckdb"}
 
     async def fake_get(db, source_id):
         return _FakeSource()
 
-    async def fake_query(db, source, sql):
+    async def fake_query(db, source, login, sql):
         assert "person" in sql
         return [{"id": 1, "name": "alice"}, {"id": 2, "name": "bob"}]
 
@@ -467,11 +469,12 @@ async def test_sql_query_r_null_becomes_na(client, monkeypatch):
 
     class _FakeSource:
         workspace_id = None
+        connection_config = {"engine": "duckdb"}
 
     async def fake_get(db, source_id):
         return _FakeSource()
 
-    async def fake_query(db, source, sql):
+    async def fake_query(db, source, login, sql):
         return [{"a": 1}, {"a": None}]
 
     monkeypatch.setattr(data_source_service, "get", fake_get)

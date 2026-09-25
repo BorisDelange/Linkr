@@ -63,9 +63,8 @@ _INSECURE_SECRET = "dev-secret-change-in-production"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging(debug=settings.debug)
-    # The secret_key signs every JWT AND derives the Fernet key that encrypts
-    # external-DB passwords at rest. Booting with the shipped default in a real
-    # deployment would let anyone forge admin tokens and decrypt stored secrets.
+    # The secret_key signs every JWT. Booting with the shipped default in a real
+    # deployment would let anyone forge admin tokens.
     if settings.secret_key == _INSECURE_SECRET and not settings.debug:
         raise RuntimeError(
             "LINKR_SECRET_KEY is still the insecure default. Set a strong secret "

@@ -7,7 +7,7 @@ from app.models.base import JSONB_or_JSON, Base
 class IdeConnection(Base):
     """A project's IDE database connection. `connection_config` holds host/port/
     database/username but NEVER the password/token — that is stripped and stored
-    encrypted in `connection_secret` (Fernet), mirroring DataSource."""
+    encrypted in `connection_secret` (core/crypto.py)."""
 
     __tablename__ = "ide_connections"
 
@@ -20,7 +20,7 @@ class IdeConnection(Base):
     source: Mapped[str] = mapped_column(String(20))  # IdeConnectionSource
     data_source_id: Mapped[str | None] = mapped_column(String(36))
     connection_config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
-    # Encrypted password/token (Fernet). Never returned by the API. NULL if none.
+    # Encrypted password/token (core/crypto.py). Never returned by the API. NULL if none.
     connection_secret: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str | None] = mapped_column(String(20))
     error_message: Mapped[str | None] = mapped_column(Text)

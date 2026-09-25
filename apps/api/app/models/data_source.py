@@ -9,8 +9,8 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
 
     Metadata only. For imported file databases the bytes live in the blob store,
     referenced from `DataSourceFile.content_hash`. For external databases
-    (Postgres, …) `connection_config` holds host/port/database/username — but
-    never the password: it is stripped before write and supplied per-request.
+    (Postgres, …) `connection_config` holds host/port/database/schema only — no
+    username, no password: each user connects with their own DatabaseCredential.
     """
 
     __tablename__ = "data_sources"
@@ -28,9 +28,12 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     description: Mapped[dict | None] = mapped_column(LocalizedText)
     source_type: Mapped[str] = mapped_column(String(20))  # 'database' | 'fhir'
     connection_config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
-    # Encrypted external-DB password (Fernet). Never returned by the API; only
-    # decrypted server-side to open a connection. NULL for file/no-auth sources.
-    connection_secret: Mapped[str | None] = mapped_column(Text)
+    # External databases only: users' passwords live in memory for their session
+    # alone, never in database_credentials (for logins that are a hospital
+    # directory password). See database_credential_service.
+    require_session_only: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
     schema_mapping: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Which published schema the copied mapping came from: {lineageId, label, version}.
     # A database COPIES its mapping rather than referencing a preset, so without this

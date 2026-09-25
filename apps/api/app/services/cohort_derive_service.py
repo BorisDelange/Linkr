@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource
 from app.schemas.data_source import DeriveRequest
-from app.services import data_source_service
+from app.services import data_source_service, database_credential_service
+from app.services.database_credential_service import Login
 from app.services.data import cohort_derive, connection_pool, managed_db
 
 _SCHEMA_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
@@ -25,20 +26,22 @@ class DeriveError(ValueError):
     """A derivation refused for a reason the user can act on (surfaced as 400)."""
 
 
-async def _source_spec(db: AsyncSession, source: DataSource) -> cohort_derive.SourceSpec:
-    specs = await data_source_service.role_attachments(db, {"source": source})
+async def _source_spec(db: AsyncSession, source: DataSource, user_id: int) -> cohort_derive.SourceSpec:
+    specs = await data_source_service.role_attachments(db, {"source": source}, user_id)
     if "source" not in specs:
         raise DeriveError("the database has no data to derive from")
     return cohort_derive.SourceSpec(specs["source"])
 
 
-async def plan(db: AsyncSession, source: DataSource, level: str) -> list[dict]:
-    spec = await _source_spec(db, source)
+async def plan(db: AsyncSession, source: DataSource, level: str, user_id: int) -> list[dict]:
+    spec = await _source_spec(db, source, user_id)
     connection_pool.invalidate(source.id)
     return await asyncio.to_thread(cohort_derive.plan, spec, source.schema_mapping or {}, level)
 
 
-def _writable_target(target: DataSource, schema_name: str, replace: bool) -> cohort_derive.TargetSpec:
+def _writable_target(
+    target: DataSource, schema_name: str, replace: bool, login: Login | None,
+) -> cohort_derive.TargetSpec:
     config = dict(target.connection_config or {})
     if data_source_service.is_managed(target):
         path = data_source_service.managed_path(target)
@@ -48,17 +51,30 @@ def _writable_target(target: DataSource, schema_name: str, replace: bool) -> coh
     if config.get("engine") == "postgresql":
         if not config.get("allowWrites"):
             raise DeriveError("this database does not allow Linkr to write into it")
+        if login is None:
+            raise database_credential_service.CredentialRequired(target)
         return cohort_derive.TargetSpec(
             "external",
-            config=config,
-            password=data_source_service.connection_password(target),
+            config=database_credential_service.with_login(config, login),
+            password=login.password,
             schema=schema_name,
             replace_schema=replace,
         )
     raise DeriveError("a new schema can only be created in a database Linkr owns, or in Postgres")
 
 
-def _target_spec(target: DataSource, body: DeriveRequest) -> tuple[cohort_derive.TargetSpec, dict | None, str | None]:
+async def _target_login(db: AsyncSession, target: DataSource, body: DeriveRequest, user_id: int) -> Login | None:
+    """The launcher's login to the target — asked for only once the target is
+    known to be one Linkr may write a schema into."""
+    config = target.connection_config or {}
+    if body.target.kind != "schema" or config.get("engine") != "postgresql" or not config.get("allowWrites"):
+        return None
+    return await database_credential_service.resolve_login(db, target, user_id)
+
+
+def _target_spec(
+    target: DataSource, body: DeriveRequest, login: Login | None,
+) -> tuple[cohort_derive.TargetSpec, dict | None, str | None]:
     """Where the copy lands, and for a new database the config and newly claimed
     location it is written under. Raises DeriveError before anything runs."""
     t = body.target
@@ -74,7 +90,7 @@ def _target_spec(target: DataSource, body: DeriveRequest) -> tuple[cohort_derive
     if t.kind == "schema":
         if not t.schema_name or not _SCHEMA_NAME.match(t.schema_name):
             raise DeriveError("the schema name must be lowercase letters, digits and underscores")
-        return _writable_target(target, t.schema_name, t.replace), None, None
+        return _writable_target(target, t.schema_name, t.replace, login), None, None
     raise DeriveError(f"unknown target kind {t.kind!r}")
 
 
@@ -93,11 +109,14 @@ def job_label(source: DataSource, target: DataSource, body: DeriveRequest, cohor
     return f"{what} → {where}"[:255]
 
 
-async def validate(db: AsyncSession, source: DataSource, target: DataSource, body: DeriveRequest) -> None:
+async def validate(
+    db: AsyncSession, source: DataSource, target: DataSource, body: DeriveRequest, user_id: int,
+) -> None:
     """Every refusal a derivation can meet before it copies anything — so the
-    request that starts the job answers 400 rather than queueing a job that fails."""
-    await _source_spec(db, source)
-    _target_spec(target, body)
+    request that starts the job answers 400 (or 428, a missing login) rather than
+    queueing a job that fails."""
+    await _source_spec(db, source, user_id)
+    _target_spec(target, body, await _target_login(db, target, body, user_id))
 
 
 async def _in_thread(fn, control: cohort_derive.DeriveControl):
@@ -119,21 +138,28 @@ async def derive(
     target: DataSource,
     body: DeriveRequest,
     cohort: Cohort | None,
+    user_id: int,
     progress: Callable[[int, str], Awaitable[None]] | None = None,
 ) -> dict:
-    """Copy `source`, filtered on the cohort, into `target`, and record it.
+    """Copy `source`, filtered on the cohort, into `target`, and record it —
+    reading and writing with `user_id`'s own logins, resolved now (the job runs
+    as its launcher, never with a secret copied into it).
 
     `progress(percent, line)` is told of each table as it starts. A new database
     that never held a build is removed again when this fails or is cancelled: it
     was created for this derivation and would only be an empty card."""
     mapping = source.schema_mapping or {}
-    spec = await _source_spec(db, source)
+    spec = await _source_spec(db, source, user_id)
     t = body.target
-    target_spec, config, new_location = _target_spec(target, body)
+    target_login = await _target_login(db, target, body, user_id)
+    target_spec, config, new_location = _target_spec(target, body, target_login)
     first_build = t.kind == "new-database" and target.derived_from is None
     target_id = target.id  # read now: a rollback expires the instance
     try:
-        return await _derive(db, source, target, body, cohort, mapping, spec, target_spec, config, new_location, progress)
+        return await _derive(
+            db, source, target, body, cohort, mapping, spec, target_spec, config, new_location, progress,
+            user_id, target_login,
+        )
     except BaseException:
         if first_build:
             await db.rollback()
@@ -145,7 +171,10 @@ async def derive(
         raise
 
 
-async def _derive(db, source, target, body, cohort, mapping, spec, target_spec, config, new_location, progress) -> dict:
+async def _derive(
+    db, source, target, body, cohort, mapping, spec, target_spec, config, new_location, progress,
+    user_id: int, target_login: Login | None,
+) -> dict:
     t = body.target
     loop = asyncio.get_running_loop()
     control = cohort_derive.DeriveControl()
@@ -180,6 +209,7 @@ async def _derive(db, source, target, body, cohort, mapping, spec, target_spec, 
         None,
     )
     registered_before = await db.get(DataSource, previous["registeredId"]) if previous and t.kind == "schema" else None
+    registered_new: DataSource | None = None
     if t.kind == "new-database":
         config["managed"] = True
         config.pop("inMemory", None)
@@ -196,15 +226,15 @@ async def _derive(db, source, target, body, cohort, mapping, spec, target_spec, 
         connection_pool.invalidate(registered_before.id)
         produced_id = registered_before.id
     elif t.register_name and target_spec.kind == "external":
-        # The subset as a database of its own: same server and credentials, the
-        # new schema as its scope. The password never passes through the client.
+        # The subset as a database of its own: same server, the new schema as its
+        # scope. The launcher's login comes along as their own login to it; every
+        # other user enters theirs. The password never passes through the client.
         registered = DataSource(
             workspace_id=target.workspace_id,
             alias=t.register_alias or t.schema_name,
             name=t.register_name if isinstance(t.register_name, dict) else {"en": t.register_name},
             source_type="database",
             connection_config={**{k: v for k, v in (target.connection_config or {}).items() if k != "allowWrites"}, "schema": t.schema_name},
-            connection_secret=target.connection_secret,
             schema_mapping=copy.deepcopy(mapping),
             schema_source=source.schema_source,
             # The schema this derivation created: the one deleting the database
@@ -221,6 +251,7 @@ async def _derive(db, source, target, body, cohort, mapping, spec, target_spec, 
         db.add(registered)
         await db.flush()
         produced_id = registered.id
+        registered_new = registered
 
     if cohort is not None:
         record = {
@@ -238,6 +269,11 @@ async def _derive(db, source, target, body, cohort, mapping, spec, target_spec, 
         cohort.derivations = [*kept, record]
 
     await db.commit()
+    if registered_new is not None and target_login is not None:
+        remembered = (await database_credential_service.status_for(db, target, user_id))["remembered"]
+        await database_credential_service.save(
+            db, registered_new, user_id, target_login.username, target_login.password, remember=remembered,
+        )
     if new_location:
         # Re-read after the commit: nothing else may have set the location.
         await db.refresh(target)

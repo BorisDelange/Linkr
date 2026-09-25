@@ -16,7 +16,7 @@ from app.core.permissions import has_permission
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.data_source import ClientDatabase
-from app.services import data_source_service
+from app.services import data_source_service, database_credential_service
 
 router = APIRouter(prefix="/projects/{project_uid}/client", tags=["client-lib"])
 
@@ -36,13 +36,10 @@ async def list_databases(
     the script's own process and that is the only way to hand back a real DBI /
     DBAPI handle rather than a query proxy.
 
-    That is a deliberate trade, and it is narrow: the secret goes only to someone
-    who can already read the same data through the app, running code they wrote,
-    on a machine that already holds the key. It does NOT widen reach — a source
-    the user cannot read is not listed and has no recipe. What it does concede is
-    that such a user can recover the stored password for a database they are
-    entitled to query. Encryption at rest still protects the secret everywhere
-    else: on disk, in backups, and in every other API response.
+    The password is the caller's OWN login (database_credential_service), so
+    the only secret handed out is one its user typed. A database they have no
+    login for is listed with `needsLogin` and no recipe; one they cannot read is
+    not listed at all.
     """
     project = await db.get(Project, project_uid)
     if project is None:
@@ -55,12 +52,16 @@ async def list_databases(
         )
 
     sources = await data_source_service.list_for_workspace(db, project.workspace_id)
-    return [
-        ClientDatabase(
+    out: list[ClientDatabase] = []
+    for source in sources:
+        try:
+            login = await database_credential_service.resolve_login(db, source, user.id)
+        except database_credential_service.CredentialRequired:
+            login = None
+        out.append(ClientDatabase(
             id=source.id,
             alias=source.alias,
             name=source.name,
-            **await data_source_service.client_recipe(db, source),
-        )
-        for source in sources
-    ]
+            **await data_source_service.client_recipe(db, source, login),
+        ))
+    return out

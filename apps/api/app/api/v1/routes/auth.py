@@ -24,8 +24,9 @@ from app.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
+from app.schemas.data_source import DatabaseLoginEntry
 from app.schemas.user import ProfileUpdate
-from app.services import api_token_service
+from app.services import api_token_service, database_credential_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -88,7 +89,9 @@ async def refresh(request: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/logout")
 async def logout(user: User = Depends(get_current_user)):
-    """Logout (stateless — client discards tokens)."""
+    """Logout: the client discards its tokens; the server forgets the user's
+    session-only database logins."""
+    database_credential_service.forget_session_logins(user.id)
     return {"ok": True}
 
 
@@ -173,3 +176,12 @@ async def revoke_api_token(
     if token is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API token not found")
     return token
+
+
+@router.get("/database-logins", response_model=list[DatabaseLoginEntry])
+async def list_database_logins(
+    user: User = Depends(get_session_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The acting user's own logins to external databases — never a password."""
+    return [DatabaseLoginEntry(**entry) for entry in await database_credential_service.list_for_user(db, user.id)]

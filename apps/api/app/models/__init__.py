@@ -14,6 +14,7 @@ from app.models.concept_stats_cache import ConceptStatsCache
 from app.models.data_catalog import DataCatalog
 from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMapping
 from app.models.source_concept_id import SourceConceptIdEntry, SourceConceptIdRange
+from app.models.database_credential import DatabaseCredential
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetAnalysis, DatasetFile
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
@@ -99,4 +100,5 @@ __all__ = [
     "SqlScriptFile",
     "WikiPage",
     "Role",
+    "DatabaseCredential",
 ]

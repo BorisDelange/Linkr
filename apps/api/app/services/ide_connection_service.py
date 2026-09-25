@@ -8,6 +8,10 @@ from app.schemas.ide_connection import IdeConnectionCreate, IdeConnectionUpdate
 from app.services.data_source_service import _extract_secret, strip_secrets
 
 
+def secret_context(connection_id: str) -> str:
+    return f"ide:{connection_id}"
+
+
 async def list_for_project(db: AsyncSession, project_uid: str) -> list[IdeConnection]:
     result = await db.execute(
         select(IdeConnection).where(IdeConnection.project_uid == project_uid)
@@ -24,10 +28,9 @@ async def create(db: AsyncSession, data: IdeConnectionCreate) -> IdeConnection:
     config = payload.get("connection_config")
     secret = _extract_secret(config)
     payload["connection_config"] = strip_secrets(config)
-    connection = IdeConnection(
-        **payload,
-        connection_secret=crypto.encrypt(secret) if secret else None,
-    )
+    connection = IdeConnection(**payload)
+    if secret:
+        connection.connection_secret = crypto.encrypt(secret, secret_context(connection.id))
     db.add(connection)
     await db.commit()
     await db.refresh(connection)
@@ -43,7 +46,7 @@ async def update(
         # the stored secret untouched (editing other fields keeps credentials).
         secret = _extract_secret(changes["connection_config"])
         if secret is not None:
-            connection.connection_secret = crypto.encrypt(secret)
+            connection.connection_secret = crypto.encrypt(secret, secret_context(connection.id))
         changes["connection_config"] = strip_secrets(changes["connection_config"])
     for key, value in changes.items():
         setattr(connection, key, value)
