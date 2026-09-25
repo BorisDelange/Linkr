@@ -112,6 +112,9 @@ class Settings(BaseSettings):
     # source is kept alive between queries before it is closed for inactivity.
     pool_ttl_seconds: int = 300
 
+    # Access log (core/audit.py): how long its entries are kept.
+    audit_retention_days: int = 365
+
     model_config = {"env_prefix": "LINKR_", "env_file": str(_ENV_FILE)}
 
     @property

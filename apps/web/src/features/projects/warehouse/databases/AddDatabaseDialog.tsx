@@ -256,6 +256,7 @@ export function AddDatabaseDialog({
         setInitialFileLocation(located)
         if (config.username) setDbUsername(config.username)
         if (config.password) setDbPassword(config.password)
+        setRequireSessionOnly(!!editingSource.requireSessionOnly)
       } else if (editingSource.sourceType === 'fhir') {
         const config = editingSource.connectionConfig as FhirConnectionConfig
         setFhirBaseUrl(config.baseUrl)
@@ -305,6 +306,7 @@ export function AddDatabaseDialog({
   const [fileLocationValid, setFileLocationValid] = useState(true)
   const [dbUsername, setDbUsername] = useState('')
   const [dbPassword, setDbPassword] = useState('')
+  const [requireSessionOnly, setRequireSessionOnly] = useState(false)
 
   // FHIR fields
   const [fhirBaseUrl, setFhirBaseUrl] = useState('')
@@ -333,6 +335,7 @@ export function AddDatabaseDialog({
     setDbDatabase('')
     setDbSchema('')
     setDbAllowWrites(false)
+    setRequireSessionOnly(false)
     setFileLocation(DEFAULT_DATABASE_LOCATION)
     setInitialFileLocation(DEFAULT_DATABASE_LOCATION)
     setDbUsername('')
@@ -502,6 +505,7 @@ export function AddDatabaseDialog({
               ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
             }
             changes.connectionConfig = connectionConfig
+            if (isServerMode()) changes.requireSessionOnly = requireSessionOnly
           } else if (bothDatabases) {
             // Re-pointing at a different server path is a config change, not a
             // re-import: no bytes move, so it never goes through the
@@ -557,6 +561,7 @@ export function AddDatabaseDialog({
         const schemaSource = resolveSchemaSource()
 
         const newId = await addDataSource({
+          ...(requireSessionOnly && !isFileEngine(dbEngine) ? { requireSessionOnly: true } : {}),
           name: setLocalized({}, language, name.trim()),
           description: setLocalized({}, language, description.trim()),
           sourceType: 'database',
@@ -1057,6 +1062,21 @@ export function AddDatabaseDialog({
                       <Label>{t('databases.field_password')}</Label>
                       <PasswordInput value={dbPassword} onChange={(e) => setDbPassword(e.target.value)} />
                     </div>
+                    {isServerMode() && (
+                      <p className="col-span-full text-xs text-muted-foreground">
+                        {t('database_logins.form_hint')}
+                        {isEditMode && <> {t('database_logins.retarget_warning')}</>}
+                      </p>
+                    )}
+                    {isServerMode() && (
+                      <div className="col-span-full flex items-start gap-2">
+                        <Checkbox id="db-require-session-only" checked={requireSessionOnly} onCheckedChange={(v) => setRequireSessionOnly(v === true)} />
+                        <div className="space-y-0.5">
+                          <Label htmlFor="db-require-session-only">{t('database_logins.require_session_only')}</Label>
+                          <p className="text-xs text-muted-foreground">{t('database_logins.require_session_only_hint')}</p>
+                        </div>
+                      </div>
+                    )}
                     {/* Every connection is read-only unless its owner says
                         otherwise: this is what lets a cohort be derived into a
                         new SQL schema of this database. */}

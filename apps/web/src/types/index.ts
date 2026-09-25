@@ -300,6 +300,8 @@ export interface DatabaseConnectionConfig {
   port?: number
   database?: string
   schema?: string
+  /** Sent, never stored: in server mode a username + password typed in the
+   *  database form become the author's own login (no shared account). */
   username?: string
   password?: string
 }
@@ -420,6 +422,9 @@ export interface DataSource extends Seedable, Authored, Lineaged {
   description: LocalizedString
   sourceType: DataSourceType
   connectionConfig: ConnectionConfig
+  /** Server mode, external database: every user's password stays in server
+   *  memory for their session only, never stored. Instance-local, not exported. */
+  requireSessionOnly?: boolean
   schemaMapping?: import('./schema-mapping').SchemaMapping
   /**
    * Which published schema `schemaMapping` was taken from.

@@ -109,6 +109,8 @@ interface DataSourceState {
     fileHandles?: { fileName: string; handle: FileSystemFileHandle; fileSize: number }[]
     /** Mark as vocabulary reference (hidden from database pages). */
     isVocabularyReference?: boolean
+    /** Server mode, external database: users' passwords are never stored. */
+    requireSessionOnly?: boolean
     /** Override auto-generated alias (slug). */
     alias?: string
     badges?: ProjectBadge[]
@@ -507,6 +509,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       ...(source.schemaSource ? { schemaSource: source.schemaSource } : {}),
       status: 'configuring' as DataSourceStatus,
       ...(source.isVocabularyReference ? { isVocabularyReference: true } : {}),
+      ...(source.requireSessionOnly ? { requireSessionOnly: true } : {}),
       // The add dialog has offered these since databases gained badges and a
       // version; they were being passed and dropped on the floor here.
       ...(source.badges?.length ? { badges: source.badges } : {}),

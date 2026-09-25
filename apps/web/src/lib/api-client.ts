@@ -3,6 +3,8 @@
  * Wraps fetch with JWT auth headers and automatic token refresh.
  */
 
+import { credentialRequiredDetail, requestDatabaseLogin } from '@/stores/database-login-prompt'
+
 let refreshPromise: Promise<boolean> | null = null
 
 export function isServerMode(): boolean {
@@ -97,6 +99,21 @@ export async function apiFetch(
     if (refreshed) {
       const retryHeaders = new Headers(options.headers)
       retryHeaders.set('Authorization', `Bearer ${getStoredToken()}`)
+      if (!retryHeaders.has('Content-Type') && options.body && typeof options.body === 'string') {
+        retryHeaders.set('Content-Type', 'application/json')
+      }
+      res = await fetch(url, { ...options, headers: retryHeaders })
+    }
+  }
+
+  // 428 "enter your own login": wait for the user to give one, then retry once.
+  // Never for the login route itself, which would prompt about its own refusal.
+  if (res.status === 428 && !path.includes('/my-login')) {
+    const detail = credentialRequiredDetail(await res.clone().json().catch(() => null))
+    if (detail && await requestDatabaseLogin(detail.dataSourceId, detail.sessionOnly)) {
+      const retryHeaders = new Headers(options.headers)
+      const current = getStoredToken()
+      if (current) retryHeaders.set('Authorization', `Bearer ${current}`)
       if (!retryHeaders.has('Content-Type') && options.body && typeof options.body === 'string') {
         retryHeaders.set('Content-Type', 'application/json')
       }

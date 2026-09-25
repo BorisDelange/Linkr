@@ -3,6 +3,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.user import User
@@ -22,7 +23,10 @@ async def get_current_user_optional(
     if credentials is None:
         return None
     if api_token_service.is_api_token(credentials.credentials):
-        return await api_token_service.authenticate(db, credentials.credentials)
+        user = await api_token_service.authenticate(db, credentials.credentials)
+        if user is not None:
+            audit.set_actor(user.id, user.username, "api_key")
+        return user
     try:
         payload = decode_token(credentials.credentials)
         if payload.get("type") != "access":
@@ -33,6 +37,7 @@ async def get_current_user_optional(
     user = await db.get(User, user_id)
     if not user or not user.is_active:
         return None
+    audit.set_actor(user.id, user.username, "web")
     return user
 
 
@@ -54,6 +59,7 @@ async def _api_token_user(token: str, db: AsyncSession) -> User:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid, revoked or expired API token",
         )
+    audit.set_actor(user.id, user.username, "api_key")
     return user
 
 
@@ -86,6 +92,7 @@ async def get_session_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
+    audit.set_actor(user.id, user.username, "web")
     return user
 
 
@@ -135,6 +142,7 @@ async def get_kernel_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
+    audit.set_actor(user.id, user.username, "kernel" if token_type == "kernel" else "web")
     return user
 
 

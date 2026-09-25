@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core import crypto
+from app.core import audit, crypto
 from app.models.data_source import DataSource
 from app.models.database_credential import DatabaseCredential
 
@@ -52,6 +52,7 @@ class CredentialRequired(HTTPException):
     the model to ask the user."""
 
     def __init__(self, source: DataSource):
+        audit.bind(data_source_id=source.id, workspace_id=source.workspace_id, error="no login for this database")
         super().__init__(
             status.HTTP_428_PRECONDITION_REQUIRED,
             {

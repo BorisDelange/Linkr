@@ -8,6 +8,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.user import User
@@ -798,6 +799,7 @@ async def run_etl(
     # next browse simply re-establishes a warm connection.
     for source in (target, *roles.values()):
         connection_pool.invalidate(source.id)
+    _audit(target, "etl_run", sql)
 
     attachments = await role_attachments(db, {k: v for k, v in roles.items() if k != "target"}, user_id)
 
@@ -847,6 +849,10 @@ async def client_recipe(db: AsyncSession, source: DataSource, login: Login | Non
     if engine in _EXTERNAL_ENGINES:
         if login is None:
             return {"engine": engine, "kind": "external", "connectable": False, "needs_login": True}
+        # A password handed to user code: one line per database it went out for.
+        audit.write({**audit.actor(), "method": "GET", "route": "client-recipe",
+                     "action": "client_recipe", "data_source_id": source.id,
+                     "workspace_id": source.workspace_id, "status": 200})
         recipe = db_connect.attach_recipe(with_login(config, login), login.password)
         return {
             "engine": engine,
@@ -897,13 +903,28 @@ async def client_recipe(db: AsyncSession, source: DataSource, login: Login | Non
 
 # --- Live connection test (external databases) -----------------------------
 
+def _audit(source: DataSource, action: str, detail: str | None = None) -> None:
+    audit.bind(action=action, data_source_id=source.id, workspace_id=source.workspace_id, detail=detail)
+
+
 async def query(
     db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool = False,
 ):
     """Run read-only SQL server-side: ATTACH a network DB with the caller's own
     `login` (see database_credential_service.resolve_login) or a local
     DuckDB/SQLite file from the blob store. JSON-ready rows, capped; or, with
-    `arrow`, the whole result as an Arrow table."""
+    `arrow`, the whole result as an Arrow table. Logged (core/audit)."""
+    _audit(source, "query", sql)
+    try:
+        result = await _query(db, source, login, sql, arrow)
+    except Exception as exc:
+        audit.bind(error=str(exc))
+        raise
+    audit.bind(row_count=result.num_rows if arrow else len(result))
+    return result
+
+
+async def _query(db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool):
     config = dict(source.connection_config or {})
     engine = config.get("engine")
     if engine in _EXTERNAL_ENGINES:
@@ -946,6 +967,7 @@ async def refresh_concept_cache(
     """Materialize the concept list (`select_sql`) to the Parquet cache of the
     source as `login` sees it, and return the new mtime. Gathers the same
     connection inputs as `query`."""
+    _audit(source, "concept_cache_refresh", select_sql)
     config = dict(source.connection_config or {})
     engine = config.get("engine")
     password = None
@@ -982,6 +1004,7 @@ async def introspect(db: AsyncSession, source: DataSource, login: Login | None) 
     """Introspect a stored source's schema (tables + columns) server-side — for
     network DBs as `login` sees them (grants hide tables), for file DBs via the
     uploaded blob."""
+    _audit(source, "introspect")
     config = dict(source.connection_config or {})
     engine = config.get("engine")
     if engine in _EXTERNAL_ENGINES:

@@ -14,6 +14,7 @@ import asyncio
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.config import settings
 from app.core.database import async_session
 from app.models.job import Job
@@ -33,6 +34,7 @@ async def start(
     job = await jobs.create(db, project_uid, user_id, kind="run", label=label)
 
     async def body(handle: jobs.JobHandle) -> None:
+        audit.bind(action="run_code", project_uid=project_uid, detail=code)
         k = await kernel.manager.spawn_batch(language, project_uid, env)
         # Buffer streamed chunks and flush them to the log tail periodically, so a
         # chatty run doesn't hammer the DB with one write per line.

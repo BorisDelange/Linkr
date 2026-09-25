@@ -21,6 +21,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EditorSettingsForm } from './EditorSettingsForm'
 import { ApiTokensTab } from './ApiTokensTab'
+import { DatabaseLoginsTab } from '@/features/database-logins/DatabaseLoginsTab'
 import { ChangePasswordDialog } from './ChangePasswordDialog'
 import { Info, Lock } from 'lucide-react'
 
@@ -102,8 +103,8 @@ export function ProfilePage() {
 
   return (
     <div className="h-full overflow-auto">
-      {/* The API keys table needs more width than the forms of the other tabs. */}
-      <div className={cn('mx-auto px-6 py-10', currentTab === 'api-keys' ? 'max-w-5xl' : 'max-w-3xl')}>
+      {/* The tables need more width than the forms of the other tabs. */}
+      <div className={cn('mx-auto px-6 py-10', currentTab === 'api-keys' || currentTab === 'database-logins' ? 'max-w-5xl' : 'max-w-3xl')}>
         <h1 className="text-2xl font-bold text-foreground text-center">
           {t('profile.title')}
         </h1>
@@ -126,6 +127,11 @@ export function ProfilePage() {
             {isServerMode() && (
               <TabsTrigger value="api-keys">
                 {t('profile.api_keys_tab')}
+              </TabsTrigger>
+            )}
+            {isServerMode() && (
+              <TabsTrigger value="database-logins">
+                {t('profile.database_logins_tab')}
               </TabsTrigger>
             )}
           </TabsList>
@@ -295,6 +301,11 @@ export function ProfilePage() {
           {isServerMode() && (
             <TabsContent value="api-keys" className="mt-6">
               <ApiTokensTab />
+            </TabsContent>
+          )}
+          {isServerMode() && (
+            <TabsContent value="database-logins" className="mt-6">
+              <DatabaseLoginsTab />
             </TabsContent>
           )}
         </Tabs>

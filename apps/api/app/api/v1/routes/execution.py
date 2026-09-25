@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.websockets import WebSocketDisconnect
 
+from app.core import audit
 from app.config import settings
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
@@ -187,6 +188,7 @@ async def execute_code(
     # Gate on the execute permission matching this run's purpose (ide:execute for
     # the IDE; dashboards/datasets/patient-data:execute for a widget/analysis render).
     await _require_execute(db, body.project_uid, user, body.purpose)
+    audit.bind(action="run_code", project_uid=body.project_uid, detail=body.code)
 
     code = body.code
     if body.dataset_file_id and body.language in ("python", "r"):

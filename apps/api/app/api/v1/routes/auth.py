@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +24,7 @@ from app.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
+from app.schemas.audit import AuditPage
 from app.schemas.data_source import DatabaseLoginEntry
 from app.schemas.user import ProfileUpdate
 from app.services import api_token_service, database_credential_service
@@ -185,3 +186,15 @@ async def list_database_logins(
 ):
     """The acting user's own logins to external databases — never a password."""
     return [DatabaseLoginEntry(**entry) for entry in await database_credential_service.list_for_user(db, user.id)]
+
+
+@router.get("/my-activity", response_model=AuditPage)
+async def my_activity(
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(get_session_user),
+):
+    """The acting user's own access-log entries."""
+    from app.api.v1.routes.audit_log import read_page
+
+    return await read_page(limit, offset, user_id=user.id)

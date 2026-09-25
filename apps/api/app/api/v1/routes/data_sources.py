@@ -6,6 +6,7 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.websockets import WebSocketDisconnect
 
+from app.core import audit
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user, get_session_user
 from app.core.permissions import check_workspace_permission
@@ -362,6 +363,7 @@ async def derive(
             await handle.progress(pct)
             await handle.log(line)
 
+        audit.bind(action="derive", data_source_id=ids[0], workspace_id=workspace_id, detail=label)
         try:
             async with jobs.async_session() as job_db:
                 src, dst = await job_db.get(DataSource, ids[0]), await job_db.get(DataSource, ids[1])
@@ -886,6 +888,8 @@ async def save_my_login(
     """Test the login against the database, and keep it only if it connects.
     Session JWT only: an agent's API key never sets a password."""
     source = await _load_source(db, source_id, user, "databases:read")
+    audit.bind(action="credential_set", data_source_id=source.id, workspace_id=source.workspace_id,
+               detail=f"username={body.username} remember={body.remember}")
     if not database_credential_service.is_external(source):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database takes no login")
     config = {**(source.connection_config or {}), "username": body.username, "password": body.password}
@@ -905,6 +909,7 @@ async def forget_my_login(
     db: AsyncSession = Depends(get_db),
 ):
     source = await _load_source(db, source_id, user, "databases:read")
+    audit.bind(action="credential_forget", data_source_id=source.id, workspace_id=source.workspace_id)
     await database_credential_service.forget(db, source, user.id)
 
 
