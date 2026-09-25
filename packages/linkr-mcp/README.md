@@ -78,7 +78,8 @@ Setup: [`FORKING.md`](../../FORKING.md).
 ## Run it for LibreChat (HTTP)
 
 ```bash
-cd packages/linkr-mcp && npm run start:http   # http://127.0.0.1:3940/mcp
+npm run dev:mcp          # from the repo root; = cd packages/linkr-mcp && npm run start:http
+                         # → http://127.0.0.1:3940/mcp
 ```
 
 Each client authenticates with its **own Linkr API key** (Profile → API keys in Linkr,

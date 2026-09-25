@@ -15,6 +15,7 @@
     "build:client": "cd apps/web && npm run build:client",
     "dev:api": "node scripts/dev-api.mjs",
     "dev:all": "node scripts/dev-all.mjs",
+    "dev:mcp": "npm run start:http --workspace @linkr/mcp",
     "worktree:new": "node scripts/new-worktree.mjs",
     "worktree:remove": "node scripts/remove-worktree.mjs",
     "worktree:status": "node scripts/worktree-status.mjs",
