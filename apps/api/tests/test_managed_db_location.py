@@ -61,6 +61,14 @@ def test_refuses_an_existing_file(tmp_path, monkeypatch):
     assert fs_browser.check_new_database_file(str(tmp_path / "theirs.duckdb"))["reason"] == "exists"
 
 
+def test_refuses_a_leftover_wal(tmp_path, monkeypatch):
+    """DuckDB would replay a stranger's WAL into the new database."""
+    _set_roots(monkeypatch, str(tmp_path))
+    (tmp_path / "study.duckdb.wal").write_text("x")
+    r = fs_browser.check_new_database_file(str(tmp_path / "study.duckdb"))
+    assert r["reason"] == "exists" and r["path"].endswith("study.duckdb.wal")
+
+
 @pytest.mark.parametrize("name", ["notes.txt", "db", ".duckdb"])
 def test_refuses_anything_but_a_named_duckdb_file(tmp_path, monkeypatch, name):
     _set_roots(monkeypatch, str(tmp_path))
@@ -245,6 +253,9 @@ async def test_moves_the_file_and_points_the_database_at_it(client, tmp_path, mo
     (tmp_path / "b" / "taken.duckdb").write_text("x")
     r = await client.post(f"{API}/data-sources/{src['id']}/move-file", headers=headers, json={"path": str(tmp_path / "b" / "taken.duckdb")})
     assert r.status_code == 400
+    (tmp_path / "b" / "stale.duckdb.wal").write_text("x")
+    r = await client.post(f"{API}/data-sources/{src['id']}/move-file", headers=headers, json={"path": str(tmp_path / "b" / "stale.duckdb")})
+    assert r.status_code == 400 and not (tmp_path / "b" / "stale.duckdb").exists()
     plain = await _source(client, headers, {"engine": "duckdb"})
     r = await client.post(f"{API}/data-sources/{plain['id']}/move-file", headers=headers, json={"path": str(tmp_path / "b" / "x.duckdb")})
     assert r.status_code == 400

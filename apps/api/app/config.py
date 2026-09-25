@@ -105,7 +105,9 @@ class Settings(BaseSettings):
     # roots the browser may traverse when picking an ide_path/datasets_path. Empty
     # = the whole filesystem (confinement is the deployment's job — mount only what
     # the server should reach, like RStudio Server). Set e.g.
-    # LINKR_FS_BROWSE_ROOTS="/home,/data" to restrict.
+    # LINKR_FS_BROWSE_ROOTS="/home,/data" to restrict. A multi-user deployment
+    # should: with empty roots, any `databases:write` holder can also CREATE a
+    # .duckdb anywhere the server process can write (Create from schema, Location).
     fs_browse_roots: str = ""
 
     # Server-side query engine: how long a warm DuckDB connection to a data
