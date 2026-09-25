@@ -135,18 +135,18 @@ pages:
 docker:api:
   extends: .kaniko
   script:
-    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile docker/Dockerfile.api
+    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile docker/Dockerfile.api --custom-platform=linux/amd64
       --destination interhop/linkr:api-$VER --destination interhop/linkr:api-latest
 
 docker:web:
   extends: .kaniko
   script:
-    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile docker/Dockerfile.web
+    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile docker/Dockerfile.web --custom-platform=linux/amd64
       --build-arg VITE_API_URL=/
       --destination interhop/linkr:web-$VER --destination interhop/linkr:web-latest
 
 docker:mcp:
   extends: .kaniko
   script:
-    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile docker/Dockerfile.mcp
+    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile docker/Dockerfile.mcp --custom-platform=linux/amd64
       --destination interhop/linkr:mcp-$VER --destination interhop/linkr:mcp-latest
