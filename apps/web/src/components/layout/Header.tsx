@@ -23,6 +23,7 @@ import { clearAllData } from '@/lib/version-check'
 import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, User, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet, Pencil, Download, GitBranch, Database as DatabaseIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { HeaderEntityBadge } from '@/components/layout/header-entity-badge'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { useMappingProjectActions } from '@/features/warehouse/concept-mapping/use-mapping-project-actions'
 import { useDashboardActions } from '@/features/projects/lab/use-dashboard-actions'
@@ -344,15 +345,7 @@ export function Header() {
       open={pluginMenuOpen}
       onOpenChange={setPluginMenuOpen}
       trigger={
-        <Badge
-          variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
-          aria-label={t('common.actions')}
-        >
-          <Puzzle size={10} className="text-muted-foreground" />
-          {localized(pluginItem.name, language)}
-          <MoreHorizontal size={12} className="text-muted-foreground" />
-        </Badge>
+        <HeaderEntityBadge icon={Puzzle} label={localized(pluginItem.name, language)} />
       }
     />
   ) : cmProject ? (
@@ -366,15 +359,7 @@ export function Header() {
       open={cmMenuOpen}
       onOpenChange={setCmMenuOpen}
       trigger={
-        <Badge
-          variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
-          aria-label={t('common.actions')}
-        >
-          <ArrowRightLeft size={10} className="text-muted-foreground" />
-          {localized(cmProject.name, language)}
-          <MoreHorizontal size={12} className="text-muted-foreground" />
-        </Badge>
+        <HeaderEntityBadge icon={ArrowRightLeft} label={localized(cmProject.name, language)} />
       }
     />
   ) : dashboardEntity ? (
@@ -386,15 +371,7 @@ export function Header() {
       open={dashMenuOpen}
       onOpenChange={setDashMenuOpen}
       trigger={
-        <Badge
-          variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
-          aria-label={t('common.actions')}
-        >
-          <LayoutDashboard size={10} className="text-muted-foreground" />
-          {localized(dashboardEntity.name, language)}
-          <MoreHorizontal size={12} className="text-muted-foreground" />
-        </Badge>
+        <HeaderEntityBadge icon={LayoutDashboard} label={localized(dashboardEntity.name, language)} />
       }
     />
   ) : cohortEntity ? (
@@ -406,15 +383,7 @@ export function Header() {
       open={cohortMenuOpen}
       onOpenChange={setCohortMenuOpen}
       trigger={
-        <Badge
-          variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
-          aria-label={t('common.actions')}
-        >
-          <UsersRound size={10} className="text-muted-foreground" />
-          {localized(cohortEntity.name, language)}
-          <MoreHorizontal size={12} className="text-muted-foreground" />
-        </Badge>
+        <HeaderEntityBadge icon={UsersRound} label={localized(cohortEntity.name, language)} />
       }
     />
   ) : patientBoardEntity ? (
@@ -426,15 +395,7 @@ export function Header() {
       open={patientBoardMenuOpen}
       onOpenChange={setPatientBoardMenuOpen}
       trigger={
-        <Badge
-          variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
-          aria-label={t('common.actions')}
-        >
-          <User size={10} className="text-muted-foreground" />
-          {localized(patientBoardEntity.name, language)}
-          <MoreHorizontal size={12} className="text-muted-foreground" />
-        </Badge>
+        <HeaderEntityBadge icon={User} label={localized(patientBoardEntity.name, language)} />
       }
     />
   ) : etlEntity ? (
@@ -453,15 +414,7 @@ export function Header() {
       open={etlMenuOpen}
       onOpenChange={setEtlMenuOpen}
       trigger={
-        <Badge
-          variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
-          aria-label={t('common.actions')}
-        >
-          <Workflow size={10} className="text-muted-foreground" />
-          {localized(etlEntity.name, language)}
-          <MoreHorizontal size={12} className="text-muted-foreground" />
-        </Badge>
+        <HeaderEntityBadge icon={Workflow} label={localized(etlEntity.name, language)} />
       }
     />
   ) : sqlEntity ? (
@@ -477,15 +430,7 @@ export function Header() {
       open={sqlMenuOpen}
       onOpenChange={setSqlMenuOpen}
       trigger={
-        <Badge
-          variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
-          aria-label={t('common.actions')}
-        >
-          <SquareTerminal size={10} className="text-muted-foreground" />
-          {localized(sqlEntity.name, language)}
-          <MoreHorizontal size={12} className="text-muted-foreground" />
-        </Badge>
+        <HeaderEntityBadge icon={SquareTerminal} label={localized(sqlEntity.name, language)} />
       }
     />
   ) : catalogEntity ? (
@@ -501,15 +446,7 @@ export function Header() {
       open={catalogMenuOpen}
       onOpenChange={setCatalogMenuOpen}
       trigger={
-        <Badge
-          variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
-          aria-label={t('common.actions')}
-        >
-          <BookOpen size={10} className="text-muted-foreground" />
-          {localized(catalogEntity.name, language)}
-          <MoreHorizontal size={12} className="text-muted-foreground" />
-        </Badge>
+        <HeaderEntityBadge icon={BookOpen} label={localized(catalogEntity.name, language)} />
       }
     />
   ) : dqEntity ? (
@@ -525,15 +462,7 @@ export function Header() {
       open={dqMenuOpen}
       onOpenChange={setDqMenuOpen}
       trigger={
-        <Badge
-          variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
-          aria-label={t('common.actions')}
-        >
-          <ShieldCheck size={10} className="text-muted-foreground" />
-          {localized(dqEntity.name, language)}
-          <MoreHorizontal size={12} className="text-muted-foreground" />
-        </Badge>
+        <HeaderEntityBadge icon={ShieldCheck} label={localized(dqEntity.name, language)} />
       }
     />
   ) : schemaItem ? (
@@ -552,15 +481,7 @@ export function Header() {
       open={schemaMenuOpen}
       onOpenChange={setSchemaMenuOpen}
       trigger={
-        <Badge
-          variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
-          aria-label={t('common.actions')}
-        >
-          <FileSpreadsheet size={10} className="text-muted-foreground" />
-          {localized(schemaItem.name, language)}
-          <MoreHorizontal size={12} className="text-muted-foreground" />
-        </Badge>
+        <HeaderEntityBadge icon={FileSpreadsheet} label={localized(schemaItem.name, language)} />
       }
     />
   ) : dbEntity ? (
@@ -589,15 +510,7 @@ export function Header() {
       open={dbMenuOpen}
       onOpenChange={setDbMenuOpen}
       trigger={
-        <Badge
-          variant="outline"
-          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-foreground/10"
-          aria-label={t('common.actions')}
-        >
-          <DatabaseIcon size={10} className="text-muted-foreground" />
-          {localized(dbEntity.name, language)}
-          <MoreHorizontal size={12} className="text-muted-foreground" />
-        </Badge>
+        <HeaderEntityBadge icon={DatabaseIcon} label={localized(dbEntity.name, language)} />
       }
     />
   ) : null
@@ -630,7 +543,7 @@ export function Header() {
                 >
                   <Badge
                     variant="outline"
-                    className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-amber-600 border-amber-200 bg-amber-50 transition-colors hover:bg-amber-100 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950 dark:hover:bg-amber-900"
+                    className="cursor-pointer translate-y-px gap-1 py-0 text-xs text-amber-600 border-amber-200 bg-amber-50 transition-colors hover:bg-amber-100 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950 dark:hover:bg-amber-900"
                   >
                     <Building2 size={10} />
                     {activeWorkspaceName}
@@ -693,7 +606,7 @@ export function Header() {
                 >
                   <Badge
                     variant="outline"
-                    className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-blue-700 border-blue-200 bg-blue-50 transition-colors hover:bg-blue-100 dark:text-blue-400 dark:border-blue-800 dark:bg-blue-950 dark:hover:bg-blue-900"
+                    className="cursor-pointer translate-y-px gap-1 py-0 text-xs text-blue-700 border-blue-200 bg-blue-50 transition-colors hover:bg-blue-100 dark:text-blue-400 dark:border-blue-800 dark:bg-blue-950 dark:hover:bg-blue-900"
                   >
                     <FolderOpen size={10} />
                     {activeProjectName}
