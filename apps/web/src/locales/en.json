@@ -5598,6 +5598,14 @@
     "revoke_description": "« {{name}} » stops working immediately. This cannot be undone."
   },
   "schema_mapping": {
+    "contract_title": "Contract",
+    "contract_help": "The columns to return, named exactly (AS …). Bold = required.",
+    "contract_type_id": "id",
+    "contract_type_datetime": "timestamp",
+    "contract_type_date": "date",
+    "contract_type_number": "number",
+    "contract_type_text": "text",
+    "contract_type_boolean": "boolean",
     "tab_all": "All",
     "tab_drugs": "Drugs",
     "tab_params": "Parameters",

@@ -5598,6 +5598,14 @@
     "revoke_description": "« {{name}} » cesse de fonctionner immédiatement. Cette action est irréversible."
   },
   "schema_mapping": {
+    "contract_title": "Contrat",
+    "contract_help": "Les colonnes à renvoyer, nommées exactement ainsi (AS …). En gras : obligatoires.",
+    "contract_type_id": "identifiant",
+    "contract_type_datetime": "date et heure",
+    "contract_type_date": "date",
+    "contract_type_number": "nombre",
+    "contract_type_text": "texte",
+    "contract_type_boolean": "booléen",
     "tab_all": "Tout",
     "tab_drugs": "Médicaments",
     "tab_params": "Paramètres",

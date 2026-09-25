@@ -10,7 +10,10 @@ import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-da
 import { GeneratedSqlEditor } from '@/components/editor/GeneratedSqlEditor'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import type { ClassName } from '@/lib/schema-classes/contracts'
+import { CLASS_CONTRACTS, type ClassName } from '@/lib/schema-classes/contracts'
+import { SectionLabel } from '@/components/ui/section-label'
+import { RequiredMark } from '@/components/ui/required-mark'
+import { cn } from '@/lib/utils'
 import { classRelations, generatedRelationSql, readableRelationSql, substituteParams } from '@/lib/schema-classes/relations'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import { checkContract, type ContractReport } from '@/lib/schema-classes/contract-check'
@@ -142,17 +145,20 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
           <TabsTrigger value="preview">{t('schema_mapping.tab_preview')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="sql" className="min-h-0 flex-1 rounded-md border">
-          <GeneratedSqlEditor
-            generatedSql={generated}
-            customSql={spec.customSql}
-            readOnly={readOnly}
-            onCustomSqlChange={(sql) => {
-              const next = { ...spec, customSql: sql, sqlColumns: sql ? spec.sqlColumns : undefined }
-              onChange?.(next)
-              if (sql && sourceId) void run('check', next)
-            }}
-          />
+        <TabsContent value="sql" className="flex min-h-0 flex-1 overflow-hidden rounded-md border">
+          <div className="min-w-0 flex-1">
+            <GeneratedSqlEditor
+              generatedSql={generated}
+              customSql={spec.customSql}
+              readOnly={readOnly}
+              onCustomSqlChange={(sql) => {
+                const next = { ...spec, customSql: sql, sqlColumns: sql ? spec.sqlColumns : undefined }
+                onChange?.(next)
+                if (sql && sourceId) void run('check', next)
+              }}
+            />
+          </div>
+          <ContractPanel cls={cls} report={report} />
         </TabsContent>
 
         <TabsContent value="check" className="min-h-0 flex-1 space-y-3 overflow-auto">
@@ -186,6 +192,56 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
         </TabsContent>
       </Tabs>
     </DialogShell>
+  )
+}
+
+/**
+ * The columns the relation must return, beside the editor: what to name each
+ * `AS …` and what type it should have. After a check, each says whether the SQL
+ * fills it.
+ */
+function ContractPanel({ cls, report }: { cls: ClassName; report: ContractReport | null }) {
+  const { t } = useTranslation()
+  const mismatch = new Map(report?.typeMismatches.map((m) => [m.column, m.type]) ?? [])
+  return (
+    <aside className="flex w-64 shrink-0 flex-col border-l">
+      <div className="border-b px-3 py-1.5">
+        <SectionLabel>{t('schema_mapping.contract_title')}</SectionLabel>
+        <p className="mt-0.5 text-[10px] text-muted-foreground">{t('schema_mapping.contract_help')}</p>
+      </div>
+      <ul className="min-h-0 flex-1 space-y-0.5 overflow-auto px-3 py-2">
+        {CLASS_CONTRACTS[cls].map((col) => {
+          const status = !report
+            ? null
+            : mismatch.has(col.name)
+              ? 'mismatch'
+              : report.filled.includes(col.name)
+                ? 'filled'
+                : report.missingRequired.includes(col.name)
+                  ? 'missing'
+                  : null
+          return (
+            <li key={col.name} className="flex items-center gap-1.5 text-xs">
+              {status === 'filled' ? (
+                <CheckCircle2 size={11} className="shrink-0 text-green-600" />
+              ) : status === 'missing' ? (
+                <XCircle size={11} className="shrink-0 text-destructive" />
+              ) : status === 'mismatch' ? (
+                <AlertTriangle size={11} className="shrink-0 text-amber-600" />
+              ) : (
+                <span className="size-[11px] shrink-0" />
+              )}
+              <code className={cn('truncate', col.required && 'font-semibold')}>{col.name}</code>
+              {col.required && <RequiredMark />}
+              <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                {mismatch.has(col.name) ? `${mismatch.get(col.name)} ≠ ` : ''}
+                {t(`schema_mapping.contract_type_${col.kind}`)}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </aside>
   )
 }
 
