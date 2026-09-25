@@ -6,6 +6,7 @@
 import { ensureUniqueAlias, generateAlias } from '@/lib/alias'
 import type { DeriveRequest } from '@/lib/api/data-sources'
 import { buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 import { localized } from '@/lib/localized'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import type {
@@ -80,8 +81,10 @@ export function derivationRequest(input: {
   target: DerivedFrom['target']
 }): Omit<DeriveRequest, 'target'> {
   const { cohort, source } = input
-  const membershipSql = source.schemaMapping ? buildCohortMembershipSql(cohort as Cohort, source.schemaMapping) : null
-  if (!membershipSql) throw new Error('this cohort has no membership query')
+  const built = source.schemaMapping ? buildCohortMembershipSql(cohort as Cohort, source.schemaMapping) : null
+  if (!built) throw new Error('this cohort has no membership query')
+  // The server runs it on the source as sent, outside queryDataSource.
+  const membershipSql = withClassRelations(built, source.schemaMapping)
   const derivedFrom: DerivedFrom = {
     database: {
       ...(source.lineageId ? { lineageId: source.lineageId } : {}),

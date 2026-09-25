@@ -16,6 +16,8 @@ import type {
 } from '@/types'
 import type { DerivePlanTable, DeriveRequest } from '@/lib/api/data-sources'
 import type { Job } from '@/lib/api/environments'
+import { injectClassRelations } from '@/lib/schema-classes/inject'
+import { RELATION_PREFIX } from '@/lib/schema-classes/contracts'
 import type { ExecutionOutput, RunLanguage } from './ide.js'
 
 export interface Project {
@@ -195,8 +197,18 @@ export class LinkrApi {
     this.request<IntrospectedTable[]>('GET', `/data-sources/${encodeURIComponent(id)}/schema`)
   query = async (id: string, sql: string) =>
     (await this.request<{ rows: Record<string, unknown>[] }>(
-      'POST', `/data-sources/${encodeURIComponent(id)}/query`, { sql },
+      'POST', `/data-sources/${encodeURIComponent(id)}/query`, { sql: await this.withRelations(id, sql) },
     )).rows
+
+  /**
+   * Resolve the `linkr_*` class relations a query names against the database's
+   * mapping. The web app does this in `queryDataSource`; the server runs SQL as
+   * sent, so every route carrying builder SQL must do it before sending.
+   */
+  private withRelations = async (dataSourceId: string, sql: string): Promise<string> => {
+    if (!sql.toLowerCase().includes(RELATION_PREFIX)) return sql
+    return injectClassRelations(sql, (await this.getDataSource(dataSourceId)).schemaMapping)
+  }
 
   listCohorts = (projectUid: string) =>
     this.request<Cohort[]>('GET', `/cohorts?projectUid=${encodeURIComponent(projectUid)}`)
@@ -316,8 +328,11 @@ export class LinkrApi {
 
   // Cohorts: freeze, ATLAS import
   /** The server runs the membership query whole and stores it as the cohort's materialization. */
-  materializeCohort = (id: string, body: { membershipSql: string; dataSourceId: string }) =>
-    this.request<Cohort>('POST', `/cohorts/${encodeURIComponent(id)}/materialize`, body)
+  materializeCohort = async (id: string, body: { membershipSql: string; dataSourceId: string }) =>
+    this.request<Cohort>('POST', `/cohorts/${encodeURIComponent(id)}/materialize`, {
+      ...body,
+      membershipSql: await this.withRelations(body.dataSourceId, body.membershipSql),
+    })
   clearCohortMaterialization = (id: string) =>
     this.request<Cohort>('DELETE', `/cohorts/${encodeURIComponent(id)}/materialization`)
 
@@ -329,8 +344,11 @@ export class LinkrApi {
   derivePlan = (id: string, level: string) =>
     this.request<DerivePlanTable[]>('POST', `/data-sources/${encodeURIComponent(id)}/derive-plan`, { level })
   /** Starts the copy as a job of the database's workspace; returns it queued. */
-  derive = (id: string, body: DeriveRequest) =>
-    this.request<Job>('POST', `/data-sources/${encodeURIComponent(id)}/derive`, body)
+  derive = async (id: string, body: DeriveRequest) =>
+    this.request<Job>('POST', `/data-sources/${encodeURIComponent(id)}/derive`, {
+      ...body,
+      membershipSql: await this.withRelations(id, body.membershipSql),
+    })
   getJob = (id: string) => this.request<Job>('GET', `/jobs/${encodeURIComponent(id)}`)
   cancelJob = (id: string) => this.request<void>('POST', `/jobs/${encodeURIComponent(id)}/cancel`)
 }

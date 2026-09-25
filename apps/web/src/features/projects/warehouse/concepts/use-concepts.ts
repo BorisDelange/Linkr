@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { queryDataSource, discoverTables } from '@/lib/duckdb/engine'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 import { isServerMode } from '@/lib/api-client'
 import {
   getConceptCacheStatus,
@@ -639,7 +640,8 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
         setRefreshError('no_concept_table')
         return
       }
-      const status = await refreshConceptCache(dataSourceId, selectSql)
+      // The server COPYs it to Parquet as sent, outside queryDataSource.
+      const status = await refreshConceptCache(dataSourceId, withClassRelations(selectSql, schemaMapping))
       if (refreshToken.current !== token) return
       setLastRefreshed(status.refreshedAt ? new Date(status.refreshedAt * 1000).toISOString() : new Date().toISOString())
       setCacheReady(true)

@@ -23,6 +23,19 @@ export function referencedRelations(sql: string): Set<string> {
   return names
 }
 
+// Matches a relation already defined as a CTE: `linkr_visit AS [NOT MATERIALIZED] (`.
+const RELATION_DEFINITION = new RegExp(`(?<![\\w.])(${RELATION_PREFIX}[a-z0-9_]+)\\s+AS\\s+(?:NOT\\s+MATERIALIZED\\s+)?\\(`, 'gi')
+
+/** Relation names the statement defines itself — already injected, or the user's own CTE. */
+function definedRelations(sql: string): Set<string> {
+  const regions = protectedRegions(sql)
+  const names = new Set<string>()
+  for (const m of sql.matchAll(RELATION_DEFINITION)) {
+    if (!isProtected(regions, m.index)) names.add(m[1].toLowerCase())
+  }
+  return names
+}
+
 /** Index of the first character that is neither whitespace nor inside a comment. */
 function firstTokenIndex(sql: string): number {
   const regions = protectedRegions(sql)
@@ -44,11 +57,13 @@ function firstTokenIndex(sql: string): number {
  * (measured, plan §6).
  *
  * Only a query statement (SELECT / WITH / VALUES / parenthesised) is rewritten;
- * anything else is returned untouched and fails on the unknown name.
+ * anything else is returned untouched and fails on the unknown name. Idempotent:
+ * a relation the statement already defines is not added twice.
  */
 export function withClassRelations(sql: string, mapping: SchemaMapping | undefined | null): string {
   if (!mapping || !sql.toLowerCase().includes(RELATION_PREFIX)) return sql
   const wanted = referencedRelations(sql)
+  for (const name of definedRelations(sql)) wanted.delete(name)
   if (wanted.size === 0) return sql
   const ctes = classRelations(mapping)
     .filter((r) => wanted.has(r.name))

@@ -142,6 +142,11 @@ describe('withClassRelations', () => {
     expect(withClassRelations('SELECT * FROM linkr_drug_x', omop)).toBe('SELECT * FROM linkr_drug_x')
   })
 
+  it('is idempotent: an already-injected statement comes back unchanged', () => {
+    const once = withClassRelations('SELECT * FROM linkr_visit v JOIN linkr_patient p USING (patient_id)', omop)
+    expect(withClassRelations(once, omop)).toBe(once)
+  })
+
   it('rewrites each statement of a script', () => {
     const out = injectClassRelations('SET threads = 1; SELECT * FROM linkr_note', { ...omop, noteTable: { table: 'note', idColumn: 'note_id', patientIdColumn: 'person_id', dateColumn: 'note_datetime', textColumn: 'note_text' } })
     expect(out.split(';\n')[0]).toBe('SET threads = 1')
