@@ -664,6 +664,7 @@ function checkMappingV2(
   for (const key of RELATION_KEYS) {
     if (mapping[key] != null) checkRelation(mapping[key], `/mapping/${key}`)
   }
+  const eventLabels = new Set<string>()
   for (const key of RELATION_LISTS) {
     const list = mapping[key]
     if (list == null) continue
@@ -671,7 +672,8 @@ function checkMappingV2(
       bag.error(path, at(`/mapping/${key}`), 'wrong-type', `\`${key}\` must be an array.`)
       continue
     }
-    const seen = new Set<string>()
+    // Event and drug labels share one namespace: consumers find either by label.
+    const seen = key === 'concepts' ? new Set<string>() : eventLabels
     list.forEach((rel, i) => {
       const pointer = `/mapping/${key}/${i}`
       checkRelation(rel, pointer)
@@ -679,7 +681,10 @@ function checkMappingV2(
       const idField = key === 'concepts' ? 'key' : 'label'
       if (checkString(bag, path, at(`${pointer}/${idField}`), rel[idField], { required: true, label: idField })) {
         const id = rel[idField] as string
-        if (seen.has(id)) bag.error(path, at(`${pointer}/${idField}`), 'duplicate-key', `Two ${key} share the ${idField} "${id}".`)
+        if (seen.has(id)) {
+          bag.error(path, at(`${pointer}/${idField}`), 'duplicate-key',
+            key === 'concepts' ? `Two concepts share the key "${id}".` : `Two event or drug relations share the label "${id}".`)
+        }
         seen.add(id)
       }
       if (key === 'drugs' && rel.drugKind !== 'administration' && rel.drugKind !== 'prescription') {

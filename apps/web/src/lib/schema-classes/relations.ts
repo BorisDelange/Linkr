@@ -52,8 +52,10 @@ export function classRelation(mapping: SchemaMapping, cls: 'patient' | 'visit' |
   return classRelations(mapping).find((r) => r.cls === cls)
 }
 
+/** Event and drug relations: a drug relation carries the event columns, so
+ *  everything reading events (concept counts, criteria, charts) reads drugs too. */
 export function eventRelations(mapping: SchemaMapping): ClassRelation[] {
-  return classRelations(mapping).filter((r) => r.cls === 'event')
+  return classRelations(mapping).filter((r) => r.cls === 'event' || r.cls === 'drug')
 }
 
 export function drugRelations(mapping: SchemaMapping): ClassRelation[] {
@@ -64,7 +66,8 @@ export function conceptRelations(mapping: SchemaMapping): ClassRelation[] {
   return classRelations(mapping).filter((r) => r.cls === 'concept')
 }
 
-/** The relation of the event table the mapping labels `label`. */
+/** The event or drug relation the mapping labels `label` (labels are unique
+ *  across both lists). */
 export function eventRelation(mapping: SchemaMapping, label: string): ClassRelation | undefined {
   return eventRelations(mapping).find((r) => r.key === label)
 }
@@ -310,7 +313,13 @@ function compileCustom(cls: ClassName, spec: RelationSpec, params: SchemaMapping
   const extraKeys = cls === 'concept' ? [...new Set(declared.filter((k) => EXTRA_KEY.test(k)))] : []
   const columns = [...contract, ...extraKeys]
   const mapped = new Set(declared.filter((k) => columns.includes(k)))
-  for (const k of Object.keys(fixed)) if (fixed[k]) mapped.add(k)
+  // A fixed value carries data when it is a literal, or when one of the columns
+  // it falls back on does.
+  for (const [k, expr] of Object.entries(fixed)) {
+    if (!expr) continue
+    const refs = [...expr.matchAll(/_c\."(\w+)"/g)].map((m) => m[1])
+    if (!refs.length || refs.some((r) => mapped.has(r))) mapped.add(k)
+  }
 
   let body = substituteParams((spec.customSql ?? '').trim().replace(/;\s*$/, ''), params)
   if (splitSqlStatements(body).length !== 1 || !/^\s*(\(|select\b|with\b|from\b|values\b)/i.test(blankSqlLiterals(body))) {
@@ -369,6 +378,29 @@ const deriveEvent =
     }
   }
 
+const drugKindLiteral = (spec: DrugSpec) => `'${spec.drugKind === 'prescription' ? 'prescription' : 'administration'}'`
+
+/** The event columns of a drug relation, from its dose columns: what a
+ *  consumer reading any event relation (a value criterion, a chart) sees. */
+const deriveDrug =
+  (spec: DrugSpec): Derive =>
+  (exprs, b) => {
+    deriveEvent(spec)(exprs, b)
+    exprs.drug_kind ??= drugKindLiteral(spec)
+    const amounts = [exprs.amount_value, exprs.quantity].filter((x): x is string => !!x)
+    if (!exprs.value_number && amounts.length) exprs.value_number = amounts.length > 1 ? `COALESCE(${amounts.join(', ')})` : amounts[0]
+    if (!exprs.unit && exprs.amount_unit) exprs.unit = exprs.amount_unit
+    if (!exprs.value_string && exprs.dose_source_value) exprs.value_string = exprs.dose_source_value
+  }
+
+/** The same fallbacks for hand-written SQL, over its padded `_c` projection. */
+const drugFixed = (spec: DrugSpec): Exprs => ({
+  drug_kind: drugKindLiteral(spec),
+  value_number: 'COALESCE(_c."amount_value", _c."quantity")',
+  unit: '_c."amount_unit"',
+  value_string: '_c."dose_source_value"',
+})
+
 function buildRelations(mapping: SchemaMapping): ClassRelation[] {
   const rels: ClassRelation[] = []
   const taken = new Set<string>()
@@ -406,9 +438,8 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
   }
 
   const defaultDict = mapping.concepts?.[0]?.key
-  const addEvent = (cls: 'event' | 'drug', spec: EventSpec, fixed?: Exprs) => {
-    const derive = deriveEvent(spec)
-    const compiled = compile(cls, spec, params, fixed ? (exprs, b) => { derive(exprs, b); for (const [k, v] of Object.entries(fixed)) exprs[k] ??= v } : derive, fixed)
+  const addEvent = (cls: 'event' | 'drug', spec: EventSpec, derive: Derive, fixed?: Exprs) => {
+    const compiled = compile(cls, spec, params, derive, fixed)
     if (!compiled) return
     const name = uniqueName(`${RELATION_PREFIX}${cls}_${slug(spec.label)}`, taken)
     const dictKey = spec.conceptDictionaryKey === 'none' ? null : (spec.conceptDictionaryKey ?? defaultDict)
@@ -423,8 +454,8 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
       dictionary, compositeConceptKey: composite, tables: specTables(spec),
     })
   }
-  for (const spec of mapping.events ?? []) addEvent('event', spec)
-  for (const spec of mapping.drugs ?? []) addEvent('drug', spec, { drug_kind: `'${spec.drugKind === 'prescription' ? 'prescription' : 'administration'}'` })
+  for (const spec of mapping.events ?? []) addEvent('event', spec, deriveEvent(spec))
+  for (const spec of mapping.drugs ?? []) addEvent('drug', spec, deriveDrug(spec), drugFixed(spec))
   return rels
 }
 
@@ -443,10 +474,7 @@ function compileParts(mapping: SchemaMapping, specKey: string): { cls: ClassName
   if (list === 'events' || list === 'drugs') {
     const spec = (list === 'events' ? mapping.events : mapping.drugs)?.find((e) => e.label === key)
     if (!spec) return null
-    const derive = deriveEvent(spec)
-    if (list === 'events') return { cls: 'event', spec, derive }
-    const kind = (spec as DrugSpec).drugKind === 'prescription' ? 'prescription' : 'administration'
-    return { cls: 'drug', spec, derive: (exprs, b) => { derive(exprs, b); exprs.drug_kind ??= `'${kind}'` } }
+    return list === 'events' ? { cls: 'event', spec, derive: deriveEvent(spec) } : { cls: 'drug', spec, derive: deriveDrug(spec as DrugSpec) }
   }
   return null
 }

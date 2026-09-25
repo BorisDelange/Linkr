@@ -126,7 +126,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
 
   const concepts = mapping.concepts ?? []
   const listLabel = (list: 'events' | 'drugs', i: number) => {
-    const taken = new Set((mapping[list] ?? []).map((e) => e.label))
+    const taken = new Set([...(mapping.events ?? []), ...(mapping.drugs ?? [])].map((e) => e.label))
     let label = t(list === 'events' ? 'schema_mapping.new_event' : 'schema_mapping.new_drug', { n: i })
     for (let n = i; taken.has(label); n++) label = t(list === 'events' ? 'schema_mapping.new_event' : 'schema_mapping.new_drug', { n: n + 1 })
     return label
@@ -138,7 +138,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
         <CommitInput
           value={spec.label}
           onCommit={(label) => {
-            if ((mapping[list] ?? []).some((x) => x !== spec && x.label === label)) return
+            if ([...(mapping.events ?? []), ...(mapping.drugs ?? [])].some((x) => x !== spec && x.label === label)) return
             onChange?.({ ...mapping, [list]: (mapping[list] ?? []).map((x) => (x === spec ? { ...spec, label } : x)) })
           }}
           className="h-6 w-40 text-xs"

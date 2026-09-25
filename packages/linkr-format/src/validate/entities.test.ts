@@ -126,11 +126,13 @@ describe('schema preset', () => {
         formatVersion: 2,
         visit: { fields: { visit_id: 'no dot' }, joins: [{ type: 'outer', table: 't', alias: 't', on: [['a', 'b.c']] }] },
         events: [{ label: 'A', customSql: 'SELECT 1' }, { label: 'A', customSql: 'SELECT 2' }],
-        drugs: [{ label: 'D', customSql: 'SELECT 1', drugKind: 'dose' }],
+        drugs: [{ label: 'D', customSql: 'SELECT 1', drugKind: 'dose' }, { label: 'A', customSql: 'SELECT 1', drugKind: 'prescription' }],
       },
     }), 'schema-preset').filter((i) => i.severity === 'error')
+    // A drug label may not repeat an event label: both are looked up by label.
     expect(issues.map((i) => i.pointer)).toEqual([
       '/visit/from', '/visit/joins/0/type', '/visit/joins/0/on', '/visit/fields/visit_id', '/events/1/label', '/drugs/0/drugKind',
+      '/drugs/1/label',
     ])
   })
 

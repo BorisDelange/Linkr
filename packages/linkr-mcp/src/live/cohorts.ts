@@ -211,11 +211,11 @@ function checkConfig(
       stringList('values')
       break
     case 'concept': {
-      const tables = (mapping.events ?? []).map((e) => e.label)
+      const tables = [...(mapping.events ?? []), ...(mapping.drugs ?? [])].map((e) => e.label)
       const label = c.eventTableLabel
       const exact = tables.find((t) => t === label)
         ?? tables.find((t) => typeof label === 'string' && t.toLowerCase() === label.toLowerCase())
-      if (!exact) errors.push(`${at}.eventTableLabel: ${JSON.stringify(label)} is not an event table (${tables.join(', ')}).`)
+      if (!exact) errors.push(`${at}.eventTableLabel: ${JSON.stringify(label)} is not an event or drug table (${tables.join(', ')}).`)
       else c.eventTableLabel = exact
       const ids = c.conceptIds
       if (!Array.isArray(ids) || ids.length === 0 || ids.some((v) => !Number.isInteger(Number(v)))) {
@@ -345,7 +345,7 @@ export function describeMapping(m: SchemaMapping): string {
   }
   const gv = m.patient?.genderValues
   if (gv) out.push(`Sex values: male=${gv.male}, female=${gv.female}${gv.unknown ? `, unknown=${gv.unknown}` : ''}`)
-  if (m.events?.length) out.push('Use an event label above, quoted, as eventTableLabel in a concept criterion.')
+  if (m.events?.length || m.drugs?.length) out.push('Use an event or drug label above, quoted, as eventTableLabel in a concept criterion.')
   return out.join('\n')
 }
 

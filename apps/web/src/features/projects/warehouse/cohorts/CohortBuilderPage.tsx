@@ -124,7 +124,7 @@ export function CohortBuilder() {
   const executionError = cohortId ? executionErrors.get(cohortId) ?? null : null
 
   const eventTableLabels = useMemo(
-    () => (mapping?.events ?? []).map((e) => e.label),
+    () => [...(mapping?.events ?? []), ...(mapping?.drugs ?? [])].map((e) => e.label),
     [mapping],
   )
 

@@ -18,6 +18,10 @@ export interface OverviewEvent {
   conceptId: string | null
   /** Administration route, when mapped — decides whether a rate is meaningful. */
   route: string | null
+  /** The rate the source recorded (drug relations), preferred over an average
+   *  derived from the dose and the duration. */
+  rate?: number | null
+  rateUnit?: string | null
 }
 
 /** A hit-testable box on the canvas, so the pointer can name what it is over. */

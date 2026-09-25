@@ -317,6 +317,9 @@ export function buildTimelineQuery(
   e.value_string,
   ${unitExpr} AS unit,
   ${routeExpr} AS route,
+  ${has(event, 'rate_value') ? 'e.rate_value' : 'NULL'} AS rate_value,
+  ${has(event, 'rate_unit') ? 'CAST(e.rate_unit AS VARCHAR)' : 'NULL'} AS rate_unit,
+  ${event.cls === 'drug' ? 'TRUE' : 'FALSE'} AS is_drug,
   e.start_datetime AS event_date,
   e.end_datetime AS end_date
 FROM ${event.name} e${join}${unitJoin}${routeJoin}

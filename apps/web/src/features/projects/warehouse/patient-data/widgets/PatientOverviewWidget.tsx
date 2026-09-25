@@ -356,6 +356,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           unitCount: Number(r.unit_count ?? 0),
           eventCount: Number(r.event_count ?? 0),
           durational: r.durational === true || r.durational === 'true',
+          drug: r.is_drug === true || r.is_drug === 'true',
         }))
 
         let lo = Infinity
@@ -569,6 +570,8 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
               text: r.value_string == null ? null : String(r.value_string),
               conceptId: r.concept_id == null ? null : String(r.concept_id),
               route: r.route == null ? null : String(r.route),
+              rate: r.rate_value == null ? null : Number(r.rate_value),
+              rateUnit: r.rate_unit == null ? null : String(r.rate_unit),
             })),
           )
           repaint()
@@ -1629,10 +1632,13 @@ function describeHit(
         // over the recorded window, which is why the route sits below it.
         // A value already expressed per hour must not be divided by the duration
         // a second time — that prints a confidently wrong "mL/h".
+        // A rate the source recorded beats one derived from the window.
         const dose =
-          total && rate != null && !unitIsRate(unit)
-            ? `${total} · ${fmtValue(rate)} ${unit}/h`
-            : total
+          total && e.rate != null
+            ? `${total} · ${fmtValue(e.rate)}${e.rateUnit ? ` ${e.rateUnit}` : ''}`
+            : total && rate != null && !unitIsRate(unit)
+              ? `${total} · ${fmtValue(rate)} ${unit}/h`
+              : total
         const value = hit.row.mixed ? undefined : (dose ?? e.text ?? undefined)
         const when =
           e.end != null
@@ -1735,7 +1741,7 @@ function rowLabel(row: OverviewRow, t: (k: string, o?: Record<string, unknown>) 
     if (row.label === '__unmapped') return t('patient_data.overview_other')
     return row.label
   }
-  if (row.kind === 'concept' && looksLikeDrugName(row.label)) return shortenDrugName(row.label)
+  if (row.kind === 'concept' && (row.drug || looksLikeDrugName(row.label))) return shortenDrugName(row.label)
   return row.label.replace(/_/g, ' ')
 }
 

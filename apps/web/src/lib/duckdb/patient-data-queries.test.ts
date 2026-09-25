@@ -195,7 +195,7 @@ describe('timeline query', () => {
     // The bug: this branch made the whole UNION fail, so a patient with 310 rows
     // of heart rate showed "no data".
     expect(sql()).not.toContain('"prescriptions"')
-    expect(sql()).not.toContain('drug')
+    expect(sql()).not.toContain('e."drug"')
   })
 
   it('still returns a query when only the id-keyed tables survive', () => {

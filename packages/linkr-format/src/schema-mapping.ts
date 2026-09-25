@@ -174,9 +174,10 @@ export const RELATION_COLUMN_ORDER: Record<string, readonly string[]> = {
   ],
   drugs: [
     'patient_id', 'concept_id', 'start_datetime', 'drug_kind', 'drug_id', 'visit_id', 'visit_detail_id',
-    'concept_terminology', 'concept_code', 'source_concept_id', 'concept_name', 'end_datetime', 'quantity',
-    'amount_value', 'amount_unit', 'rate_value', 'rate_unit', 'concentration_value', 'concentration_unit',
-    'duration_value', 'duration_unit', 'is_continuous', 'route', 'route_concept_id', 'dose_source_value',
+    'concept_terminology', 'concept_code', 'source_concept_id', 'concept_name', 'end_datetime', 'value_number',
+    'value_string', 'unit', 'unit_concept_id', 'quantity', 'amount_value', 'amount_unit', 'rate_value', 'rate_unit',
+    'concentration_value', 'concentration_unit', 'duration_value', 'duration_unit', 'is_continuous', 'route',
+    'route_concept_id', 'dose_source_value',
   ],
 }
 

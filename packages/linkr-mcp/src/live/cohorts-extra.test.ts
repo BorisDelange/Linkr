@@ -54,7 +54,7 @@ describe('convertAtlas', () => {
     expect(normalizeCriteria(tree, omop).errors).toEqual([])
     const mimic = mappingV1ToV2({ ...omop, genderValues: { male: 'M', female: 'F' }, eventTables: { labevents: {} } } as never)
     const errors = normalizeCriteria(tree, mimic).errors.join('\n')
-    expect(errors).toContain('"measurement" is not an event table')
+    expect(errors).toContain('"measurement" is not an event or drug table')
     expect(errors).toContain('8507 not in genderValues')
   })
 })

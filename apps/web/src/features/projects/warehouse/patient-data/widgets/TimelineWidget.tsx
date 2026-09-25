@@ -55,6 +55,10 @@ interface TimelineRow {
   unit?: string | null
   /** Administration route, when mapped — what tells a drip from a bolus. */
   route?: string | null
+  rate_value?: unknown
+  rate_unit?: string | null
+  /** Read from a drug relation. */
+  is_drug?: boolean | string
   event_date: unknown // DuckDB-WASM returns Date, BigInt, or string
   /** Set for an event that lasts, which draws as a block rather than a point. */
   end_date?: unknown
@@ -365,6 +369,7 @@ export function TimelineWidget({
         unitsByConcept.set(row.concept_id, seen)
       }
       const value = row.value == null ? null : Number(row.value)
+      if (row.is_drug === true || row.is_drug === 'true') s.drug = true
       s.events.push({
         start: dateKey(row.event_date),
         end: row.end_date == null ? null : dateKey(row.end_date),
@@ -372,6 +377,8 @@ export function TimelineWidget({
         text: row.value_string ?? null,
         conceptId: String(row.concept_id),
         route: row.route ?? null,
+        rate: row.rate_value == null ? null : Number(row.rate_value),
+        rateUnit: row.rate_unit ?? null,
       })
     }
     for (const [id, seen] of unitsByConcept) {

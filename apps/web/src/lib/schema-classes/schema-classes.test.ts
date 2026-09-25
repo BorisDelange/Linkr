@@ -250,6 +250,29 @@ describe('classRelations (v2 mapping)', () => {
     expect([...drug.mapped].sort()).toEqual(['concept_id', 'drug_kind', 'patient_id', 'rate_value', 'start_datetime'])
   })
 
+  it('gives a drug relation the event columns, from its dose columns', () => {
+    const drug = drugRelation(v2, 'Administrations')!
+    expect(drug.sql).toContain(`COALESCE(_c."value_number", COALESCE(_c."amount_value", _c."quantity")) AS value_number`)
+    expect(drug.sql).toContain(`COALESCE(_c."unit", _c."amount_unit") AS unit`)
+    expect(drug.mapped.has('value_number')).toBe(false)
+
+    const visual: SchemaMapping = {
+      ...v2,
+      drugs: [{
+        label: 'Rx', drugKind: 'prescription',
+        from: { table: 'rx', alias: 'r' },
+        fields: { patient_id: 'r.pid', concept_id: 'r.code', start_datetime: 'r.at', amount_value: 'r.dose', quantity: 'r.qty', amount_unit: 'r.u' },
+      }],
+    }
+    const rx = drugRelation(visual, 'Rx')!
+    expect(rx.sql).toContain('COALESCE(r."dose", r."qty") AS value_number')
+    expect(rx.sql).toContain('r."u" AS unit')
+    expect(rx.sql).toContain(`'prescription' AS drug_kind`)
+    expect(rx.mapped.has('value_number') && rx.mapped.has('unit')).toBe(true)
+    // Found wherever events are.
+    expect(eventRelation(visual, 'Rx')).toBe(rx)
+  })
+
   it('refuses custom SQL that is not a single SELECT, loudly', () => {
     const rel = classRelation({ ...v2, visit: { customSql: 'DELETE FROM stays' } }, 'visit')!
     expect(rel.problems).toEqual(['custom SQL must be a single SELECT statement'])

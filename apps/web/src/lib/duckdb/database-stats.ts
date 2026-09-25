@@ -323,7 +323,7 @@ async function computeDescriptiveStats(
 /** The tables named by the schema mapping, in priority order — these are the
  *  ones the user most likely cares about, so they get counted first. */
 function mappedTableNames(mapping: SchemaMapping): string[] {
-  const names = [mapping.patient, mapping.visit, mapping.visitDetail, ...(mapping.events ?? [])]
+  const names = [mapping.patient, mapping.visit, mapping.visitDetail, ...(mapping.events ?? []), ...(mapping.drugs ?? [])]
     .map((spec) => specTables(spec)[0]?.table)
     .filter((t): t is string => !!t)
   return [...new Set(names)]

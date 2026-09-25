@@ -68,7 +68,7 @@ describe('normalizeCriteria', () => {
     expect(errors).toHaveLength(6)
     expect(errors.join('\n')).toMatch(/unknown criterion type "weight"/)
     expect(errors.join('\n')).toMatch(/female not in genderValues/)
-    expect(errors.join('\n')).toMatch(/not an event table \(Lab events\)/)
+    expect(errors.join('\n')).toMatch(/not an event or drug table \(Lab events\)/)
     expect(errors.join('\n')).toMatch(/no visit-detail/)
   })
 

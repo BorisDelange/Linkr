@@ -98,6 +98,12 @@ export const CLASS_CONTRACTS: Record<ClassName, readonly ContractColumn[]> = {
     col('source_concept_id', 'id'),
     col('concept_name', 'text'),
     col('end_datetime', 'datetime'),
+    // The event columns, derived from the dose ones unless mapped: a drug
+    // relation then works wherever an event relation does.
+    col('value_number', 'number'),
+    col('value_string', 'text'),
+    col('unit', 'text'),
+    col('unit_concept_id', 'id'),
     col('quantity', 'number'),
     col('amount_value', 'number'),
     col('amount_unit', 'text'),

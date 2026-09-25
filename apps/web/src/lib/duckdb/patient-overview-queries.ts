@@ -115,7 +115,8 @@ function buildInventoryPart(
   COUNT(*) AS event_count,
   MIN(e.start_datetime) AS first_event,
   MAX(COALESCE(${durational ? 'e.end_datetime' : 'NULL'}, e.start_datetime)) AS last_event,
-  ${durational ? 'TRUE' : 'FALSE'} AS durational
+  ${durational ? 'TRUE' : 'FALSE'} AS durational,
+  ${event.cls === 'drug' ? 'TRUE' : 'FALSE'} AS is_drug
 FROM ${event.name} e${join}
 WHERE e.patient_id = '${escSql(patientId)}'
   AND e.start_datetime IS NOT NULL${visitFilter}
@@ -226,7 +227,9 @@ export function buildOverviewEventsQuery(
   e.end_datetime AS event_end,
   e.value_number,
   CAST(e.value_string AS VARCHAR) AS value_string,
-  CAST(${routeExpr} AS VARCHAR) AS route
+  CAST(${routeExpr} AS VARCHAR) AS route,
+  ${has(event, 'rate_value') ? 'e.rate_value' : 'NULL'} AS rate_value,
+  ${has(event, 'rate_unit') ? 'CAST(e.rate_unit AS VARCHAR)' : 'NULL'} AS rate_unit
 FROM ${event.name} e${routeJoin}
 WHERE e.patient_id = '${escSql(patientId)}'
   AND ${overlap}${visitFilter}${conceptFilter}
