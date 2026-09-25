@@ -95,7 +95,7 @@ export function RelationEditor({
   }
 
   const aliases = [spec.from, ...(spec.joins ?? [])].filter((x): x is RelationTable => !!x?.alias)
-  const suggestions = aliases.flatMap((a) => (columnsOf(a) ?? []).map((c) => `${a.alias}.${c}`))
+  const suggestions = aliases.flatMap((a) => (a.table ? (columnsOf(a) ?? []) : []).map((c) => `${a.alias}.${c}`))
   const contract = CLASS_CONTRACTS[cls]
   const extras = cls === 'concept' ? Object.keys(spec.fields ?? {}).filter((k) => k.startsWith('extra_')) : []
 
@@ -475,7 +475,7 @@ function FieldRow({
   }
 
   return (
-    <div className="grid grid-cols-[160px_80px_1fr_auto] items-center gap-1">
+    <div className="grid grid-cols-[150px_112px_1fr_auto] items-center gap-1">
       {label}
       <Select value={mode} onValueChange={(m) => emit(m as FieldMode, text)}>
         <SelectTrigger className="h-7 text-xs">

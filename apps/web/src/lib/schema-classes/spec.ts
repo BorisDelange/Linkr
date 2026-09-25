@@ -32,7 +32,7 @@ export function specAt(mapping: SchemaMapping, specKey: string): RelationSpec | 
  *  a relation defined in SQL, whose tables are not known without parsing it. */
 export function specTables(spec: RelationSpec | undefined): RelationTable[] {
   if (!spec || spec.customSql?.trim()) return []
-  return [spec.from, ...(spec.joins ?? [])].filter((t): t is RelationTable => !!t)
+  return [spec.from, ...(spec.joins ?? [])].filter((t): t is RelationTable => !!t?.table)
 }
 
 /**

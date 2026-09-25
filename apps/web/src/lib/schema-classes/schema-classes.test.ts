@@ -208,6 +208,16 @@ describe('mappingV1ToV2', () => {
     expect(bad.visit?.fields).toEqual({ patient_id: { expr: 'v.pid' } })
     expect(bad.visit?.joins?.[0].on).toEqual([])
   })
+
+  it('drops a from or join left without a table, as a relation saved before its table was typed', () => {
+    const saved = sanitizeSchemaMapping({
+      formatVersion: 2, presetId: 'x', presetLabel: { en: 'X' },
+      events: [{ label: 'New', from: { table: '', alias: 'e' }, joins: [{ type: 'left', table: '', alias: 'j', on: [] }], fields: {} }],
+    } as SchemaMapping)
+    expect(saved.events?.[0].from).toBeUndefined()
+    expect(saved.events?.[0].joins).toEqual([])
+    expect(classRelations(saved)).toEqual([])
+  })
 })
 
 const v2: SchemaMapping = {

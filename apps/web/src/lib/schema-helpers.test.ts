@@ -16,8 +16,8 @@ describe('sanitizeSchemaMapping', () => {
       ...BASE,
       patient: { from: { table: evil, alias: 'p' }, fields: { patient_id: 'p.person_id' } },
     } as SchemaMapping)!
-    expect(safe.patient?.from?.table).toBeUndefined()
-    expect(safe.patient?.from?.alias).toBe('p')
+    // The whole from goes: an alias without its table names nothing.
+    expect(safe.patient?.from).toBeUndefined()
     expect(safe.patient?.fields).toEqual({ patient_id: 'p.person_id' })
   })
 

@@ -60,6 +60,7 @@ export function resolveTableRef(
   ref: { schema?: string; table: string },
   currentSchema?: string,
 ): ParsedTable | undefined {
+  if (!ref.table) return undefined
   const table = ref.table.toLowerCase()
   if (ref.schema) return byQualified.get(`${ref.schema.toLowerCase()}.${table}`)
   if (currentSchema) {

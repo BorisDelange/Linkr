@@ -1,4 +1,4 @@
-import type { SchemaMapping } from '@/types/schema-mapping'
+import type { RelationSpec, SchemaMapping } from '@/types/schema-mapping'
 import { isSafeIdentifier } from '@/lib/format-helpers'
 import { isMappingV1, mappingV1ToV2 } from '@/lib/schema-classes/v1'
 
@@ -126,7 +126,30 @@ function sanitizeNode<T>(node: T): T {
 export function sanitizeSchemaMapping<T extends SchemaMapping | undefined | null>(mapping: T): T {
   if (!mapping || typeof mapping !== 'object') return mapping
   const v2 = isMappingV1(mapping) ? mappingV1ToV2(sanitizeNode(mapping)) : mapping
-  return sanitizeNode(v2) as T
+  return dropTablelessRefs(sanitizeNode(v2)) as T
+}
+
+/**
+ * A `from` or join whose table was empty or unsafe has just lost its `table`;
+ * what is left (an alias) names nothing, and every consumer expects a table
+ * there. A relation added in the editor and saved before its table was typed
+ * is the usual case.
+ */
+function dropTablelessRefs(mapping: SchemaMapping): SchemaMapping {
+  const clean = <S extends RelationSpec>(spec: S): S => {
+    const out = { ...spec }
+    if (out.from && !out.from.table) delete out.from
+    if (out.joins) out.joins = out.joins.filter((j) => !!j.table)
+    return out
+  }
+  const out = { ...mapping }
+  for (const key of ['patient', 'visit', 'visitDetail', 'note'] as const) {
+    if (out[key]) (out as Record<string, unknown>)[key] = clean(out[key]!)
+  }
+  if (out.concepts) out.concepts = out.concepts.map(clean)
+  if (out.events) out.events = out.events.map(clean)
+  if (out.drugs) out.drugs = out.drugs.map(clean)
+  return out
 }
 
 /**
@@ -161,6 +184,7 @@ export function qualify(ref: { schema?: string; table: string }): string {
  * while a mapping keeps whatever the preset author typed.
  */
 export function tableListHas(tables: readonly string[], ref: { schema?: string; table: string }): boolean {
+  if (!ref.table) return false
   const wanted = new Set<string>([ref.table.toLowerCase()])
   if (ref.schema) wanted.add(`${ref.schema.toLowerCase()}.${ref.table.toLowerCase()}`)
   return tables.some((t) => wanted.has(t.toLowerCase()))

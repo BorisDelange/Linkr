@@ -202,9 +202,9 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
   )
 
   const list = (key: 'events' | 'drugs') => (
-    <div className="space-y-3">
+    <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
       {!readOnly && (
-        <div className="flex justify-end">
+        <div className="col-span-full flex justify-end">
           <Button
             variant="outline"
             size="sm"
@@ -221,7 +221,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
           </Button>
         </div>
       )}
-      {(mapping[key] ?? []).length === 0 && <p className="text-xs text-muted-foreground">{t('schema_mapping.none_yet')}</p>}
+      {(mapping[key] ?? []).length === 0 && <p className="col-span-full text-xs text-muted-foreground">{t('schema_mapping.none_yet')}</p>}
       {(mapping[key] ?? []).map((spec) =>
         editorFor(`${key}.${spec.label}`, key === 'events' ? 'event' : 'drug', spec, spec.label, eventHeader(key, spec), eventOptions(key, spec)),
       )}
@@ -252,7 +252,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
           <div className="flex-1" />
         </div>
 
-        <TabsContent value="patient" className="mt-4">
+        <TabsContent value="patient" className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
           {singleton('patient', t('schema_mapping.class_patient'), (spec) => (
             <GenderValues
               spec={spec as PatientSpec}
@@ -262,18 +262,18 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
           ))}
         </TabsContent>
 
-        <TabsContent value="stays" className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <TabsContent value="stays" className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
           {singleton('visit', t('schema_mapping.class_visit'))}
           {singleton('visitDetail', t('schema_mapping.class_visit_detail'))}
         </TabsContent>
 
-        <TabsContent value="notes" className="mt-4">
+        <TabsContent value="notes" className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
           {singleton('note', t('schema_mapping.class_note'))}
         </TabsContent>
 
-        <TabsContent value="concepts" className="mt-4 space-y-3">
+        <TabsContent value="concepts" className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
           {!readOnly && (
-            <div className="flex justify-end">
+            <div className="col-span-full flex justify-end">
               <Button
                 variant="outline"
                 size="sm"
@@ -290,7 +290,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
               </Button>
             </div>
           )}
-          {concepts.length === 0 && <p className="text-xs text-muted-foreground">{t('schema_mapping.none_yet')}</p>}
+          {concepts.length === 0 && <p className="col-span-full text-xs text-muted-foreground">{t('schema_mapping.none_yet')}</p>}
           {concepts.map((spec, i) =>
             editorFor(
               `concepts.${spec.key}`,
