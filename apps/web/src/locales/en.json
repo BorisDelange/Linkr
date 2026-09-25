@@ -851,7 +851,6 @@
     "delete_created_schema": "Also drop the SQL schema {{schema}}, which Linkr created from a cohort, with its tables",
     "detail_sql": "SQL",
     "sql_run": "Run",
-    "sql_hint": "⌘/Ctrl+Enter runs the selection, or the whole query. Nothing is saved.",
     "sql_rows_one": "{{count}} row · {{ms}} ms",
     "sql_rows_other": "{{count}} rows · {{ms}} ms",
     "sql_failed": "Failed · {{ms}} ms",

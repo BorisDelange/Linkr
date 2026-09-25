@@ -851,7 +851,6 @@
     "delete_created_schema": "Supprimer aussi le schéma SQL {{schema}}, créé par Linkr depuis une cohorte, avec ses tables",
     "detail_sql": "SQL",
     "sql_run": "Exécuter",
-    "sql_hint": "⌘/Ctrl+Entrée exécute la sélection, ou toute la requête. Rien n'est enregistré.",
     "sql_rows_one": "{{count}} ligne · {{ms}} ms",
     "sql_rows_other": "{{count}} lignes · {{ms}} ms",
     "sql_failed": "Échec · {{ms}} ms",
