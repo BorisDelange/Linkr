@@ -13,8 +13,8 @@ compatibility: >-
   Needs the Linkr MCP server (packages/linkr-mcp) connected with the user's
   Linkr API key. Works with any model and any MCP client that loads Agent Skills.
 metadata:
-  version: "2.1.0"
-  citation: Linkr concept-mapping skill v2.1.0
+  version: "2.0.0"
+  citation: Linkr concept-mapping skill v2.0.0
 ---
 
 # Concept mapping with Linkr

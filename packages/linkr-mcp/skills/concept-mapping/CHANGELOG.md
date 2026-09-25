@@ -8,32 +8,6 @@ Semantic versioning: `MAJOR.MINOR.PATCH`.
 The `metadata.version` field in `SKILL.md` frontmatter must match the top entry here.
 Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**.
 
-## 2.1.0 — 2026-09-24
-
-### Added
-- `find_sources_for_targets` (the reverse suggestion lookup) drives the
-  dictionary-first loop in `data-dictionary.md`: the sources scores already
-  link to a set's concepts come first, text search second.
-- `remove_ai_suggestions` withdraws a model's suggestions, all or for some
-  concepts; the skill says to use it for a wrong batch.
-- Database projects not yet extracted are readable (no counts, no metadata);
-  the skill says to mention it and suggest the extraction when metadata would
-  decide.
-
-## 2.0.1 — 2026-09-24
-
-### Fixed
-- First end-to-end run by another model (Sonnet, MIMIC-IV Demo) stumbled on
-  three gaps: it passed the listed `vocabulary/code` token as `concept_code`
-  (the tools now accept it; SKILL.md names the parameters), it had no rule for
-  codes whose meaning is unrecoverable (single letters, anonymised
-  placeholders, tube flags: now "stop, report as not interpretable"), and it
-  mapped a coded value ("Assist/Control") to its question concept as an
-  exactMatch — `omop-reference.md` now explains variables vs values (broadMatch
-  to the question, the answer concept named in the comment).
-- Scope: `get_mapping_project` gives unmapped counts per category; the skill
-  asks to say when a scope holds fewer concepts than requested.
-
 ## 2.0.0 — 2026-09-24
 
 ### Changed (breaking)
@@ -48,7 +22,7 @@ Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**
   equivalences are refused — and never overwrite an existing row.
 - **Model-independent.** Written in the open Agent Skills format
   (`metadata.version`, no client-specific tools), so any model in any client
-  that loads skills (LibreChat, Claude Code…) follows the same procedure. It
+  that loads skills (LibreChat, OpenCode…) follows the same procedure. It
   moved from `.claude/skills/` to `packages/linkr-mcp/skills/`, next to the
   tools it drives.
 - **AI suggestions are written to the project's scores file by the server**
@@ -60,6 +34,24 @@ Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**
 - References renamed: `mapping-ai.md` → `clinical.md`, `mapping-drug.md` →
   `drugs.md`, `omop-duckdb-reference.md` → `omop-reference.md`,
   `running-scripts.md` → `precompute.md`.
+
+### Added
+- `find_sources_for_targets` (the reverse suggestion lookup) drives the
+  dictionary-first loop in `data-dictionary.md`: the sources scores already
+  link to a set's concepts come first, text search second.
+- `remove_ai_suggestions` withdraws a model's suggestions, all or for some
+  concepts; the skill says to use it for a wrong batch.
+- Database projects not yet extracted are readable (no counts, no metadata);
+  the skill says to mention it and suggest the extraction when metadata would
+  decide.
+- Rules from a first end-to-end run by another model: codes whose meaning is
+  unrecoverable (single letters, anonymised placeholders, tube flags) are
+  reported as not interpretable, not mapped; `omop-reference.md` explains
+  variables vs values (a coded value maps broadMatch to its question, the
+  answer concept named in the comment); the skill says when a scope holds
+  fewer concepts than requested (`get_mapping_project` gives unmapped counts
+  per category); SKILL.md names the tools' parameters (a listed
+  `vocabulary/code` token is accepted as `concept_code`).
 
 ### Removed
 - `review-template/` and `state.json` (the app's Progress tab replaces them),
