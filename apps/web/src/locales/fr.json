@@ -54,7 +54,9 @@
     "requires_backend": "La gestion des membres nécessite le backend Python (mode serveur).",
     "load_error": "Impossible de charger les membres.",
     "save_error": "Impossible d'enregistrer le membre. Vérifiez le nom d'utilisateur et vos droits.",
-    "remove_error": "Impossible de retirer le membre."
+    "remove_error": "Impossible de retirer le membre.",
+    "remove_confirm": "« {{name}} » perdra l'accès à ce workspace et à tous ses projets.",
+    "remove_override_confirm": "La surcharge est supprimée : « {{name}} » retrouve son rôle hérité du workspace."
   },
   "workspaces": {
     "title": "Espaces de travail",

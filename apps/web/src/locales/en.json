@@ -54,7 +54,9 @@
     "requires_backend": "Member management requires the Python backend (server mode).",
     "load_error": "Could not load members.",
     "save_error": "Could not save the member. Check the username and your permissions.",
-    "remove_error": "Could not remove the member."
+    "remove_error": "Could not remove the member.",
+    "remove_confirm": "«{{name}}» will lose access to this workspace and all its projects.",
+    "remove_override_confirm": "The override is removed: «{{name}}» goes back to their inherited workspace role."
   },
   "workspaces": {
     "title": "Workspaces",
