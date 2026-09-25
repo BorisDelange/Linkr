@@ -1,7 +1,9 @@
 import { queryDataSource, discoverTables, schemaName } from './engine'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DqCustomCheck } from '@/types'
-import { birthYearSql, qualify, tableListHas } from '@/lib/schema-helpers'
+import { qualify, tableListHas } from '@/lib/schema-helpers'
+import { quoteTableRef } from '@/lib/format-helpers'
+import { classRelation, eventRelation, has as mapped, type ClassRelation } from '@/lib/schema-classes/relations'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,13 +64,13 @@ export interface DqReport {
 // SQL template helpers
 // ---------------------------------------------------------------------------
 
-/** Wrap a query to produce violated_rows + total_rows. */
-function wrapCountSql(violationWhere: string, table: string): string {
+/** Wrap a query to produce violated_rows + total_rows over a relation. */
+function wrapCountSql(violationWhere: string, relation: string): string {
   return `
     SELECT
       COUNT(*) FILTER (WHERE ${violationWhere})::BIGINT AS violated_rows,
       COUNT(*)::BIGINT AS total_rows
-    FROM "${table}"
+    FROM ${relation}
   `
 }
 
@@ -114,7 +116,7 @@ function generateEmptyTableCheck(tableName: string): DqCheck {
     tableName,
     threshold: 0,
     // If 0 rows, the table is "violated"; total=1 so we get 100% violated
-    sql: `SELECT CASE WHEN cnt = 0 THEN 1 ELSE 0 END AS violated_rows, 1 AS total_rows FROM (SELECT COUNT(*)::BIGINT AS cnt FROM "${tableName}") sub`,
+    sql: `SELECT CASE WHEN cnt = 0 THEN 1 ELSE 0 END AS violated_rows, 1 AS total_rows FROM (SELECT COUNT(*)::BIGINT AS cnt FROM ${quoteTableRef(tableName)}) sub`,
   }
 }
 
@@ -130,13 +132,23 @@ function generateFieldNullRateChecks(tableName: string, columns: ColumnInfo[]): 
     tableName,
     fieldName: col.columnName,
     threshold: 100, // Informational — always passes; user sees the %
-    sql: `SELECT (COUNT(*) - COUNT("${col.columnName}"))::BIGINT AS violated_rows, COUNT(*)::BIGINT AS total_rows FROM "${tableName}"`,
+    sql: `SELECT (COUNT(*) - COUNT("${col.columnName}"))::BIGINT AS violated_rows, COUNT(*)::BIGINT AS total_rows FROM ${quoteTableRef(tableName)}`,
   }))
 }
 
 // ---------------------------------------------------------------------------
 // Schema-aware checks
 // ---------------------------------------------------------------------------
+
+/** Age in whole years at `refDate`, from the patient relation aliased `p`: the
+ *  exact birth date when present, else the birth year. */
+function ageAt(patient: ClassRelation, refDate: string): string | null {
+  if (!mapped(patient, 'birth_year')) return null
+  const byYear = `EXTRACT(YEAR FROM ${refDate}::TIMESTAMP) - p.birth_year`
+  return mapped(patient, 'birth_date')
+    ? `COALESCE(EXTRACT(YEAR FROM AGE(${refDate}::TIMESTAMP, p.birth_date::TIMESTAMP)), ${byYear})`
+    : byYear
+}
 
 function generateSchemaChecks(
   mapping: SchemaMapping,
@@ -189,9 +201,11 @@ function generateSchemaChecks(
 
   const pt = mapping.patientTable
   const vt = mapping.visitTable
+  const patient = classRelation(mapping, 'patient')
+  const visit = classRelation(mapping, 'visit')
 
   // --- Consistency: orphan visits (visit.patientId not in patient.id) ---
-  if (pt && vt && has(pt) && has(vt)) {
+  if (pt && vt && patient && visit && has(pt) && has(vt)) {
     checks.push({
       id: `schema_orphan_visits_${vt.table}`,
       name: 'orphanRecords',
@@ -204,15 +218,15 @@ function generateSchemaChecks(
       threshold: 0,
       sql: `
         SELECT COUNT(*)::BIGINT AS violated_rows,
-               (SELECT COUNT(*)::BIGINT FROM ${qualify(vt)}) AS total_rows
-        FROM ${qualify(vt)} v
-        LEFT JOIN ${qualify(pt)} p ON v."${vt.patientIdColumn}" = p."${pt.idColumn}"
-        WHERE p."${pt.idColumn}" IS NULL
+               (SELECT COUNT(*)::BIGINT FROM ${visit.name}) AS total_rows
+        FROM ${visit.name} v
+        LEFT JOIN ${patient.name} p ON v.patient_id = p.patient_id
+        WHERE p.patient_id IS NULL
       `,
     })
 
     // --- Plausibility: temporal order (visit start ≤ end) ---
-    if (vt.endDateColumn) {
+    if (mapped(visit, 'end_datetime')) {
       checks.push({
         id: `schema_temporal_order_${vt.table}`,
         name: 'temporalOrder',
@@ -224,20 +238,15 @@ function generateSchemaChecks(
         tableName: vt.table,
         threshold: 0,
         sql: wrapCountSql(
-          `"${vt.startDateColumn}" IS NOT NULL AND "${vt.endDateColumn}" IS NOT NULL AND "${vt.startDateColumn}"::TIMESTAMP > "${vt.endDateColumn}"::TIMESTAMP`,
-          vt.table,
+          'start_datetime IS NOT NULL AND end_datetime IS NOT NULL AND start_datetime::TIMESTAMP > end_datetime::TIMESTAMP',
+          visit.name,
         ),
       })
     }
 
     // --- Plausibility: plausible age (0–130) ---
-    const birthExpr = pt.birthDateColumn
-      ? `EXTRACT(YEAR FROM AGE(v."${vt.startDateColumn}"::TIMESTAMP, p."${pt.birthDateColumn}"::TIMESTAMP))`
-      : birthYearSql(pt, 'p')
-        ? `EXTRACT(YEAR FROM v."${vt.startDateColumn}"::TIMESTAMP) - ${birthYearSql(pt, 'p')}`
-        : null
-
-    if (birthExpr) {
+    const age = ageAt(patient, 'v.start_datetime')
+    if (age) {
       checks.push({
         id: `schema_plausible_age_${pt.table}`,
         name: 'plausibleAge',
@@ -250,26 +259,58 @@ function generateSchemaChecks(
         threshold: 0,
         sql: `
           SELECT COUNT(*)::BIGINT AS violated_rows,
-                 (SELECT COUNT(*)::BIGINT FROM ${qualify(vt)}) AS total_rows
-          FROM ${qualify(vt)} v
-          JOIN ${qualify(pt)} p ON v."${vt.patientIdColumn}" = p."${pt.idColumn}"
-          WHERE v."${vt.startDateColumn}" IS NOT NULL
-            AND (${birthExpr} < 0 OR ${birthExpr} > 130)
+                 (SELECT COUNT(*)::BIGINT FROM ${visit.name}) AS total_rows
+          FROM ${visit.name} v
+          JOIN ${patient.name} p ON v.patient_id = p.patient_id
+          WHERE v.start_datetime IS NOT NULL
+            AND (${age} < 0 OR ${age} > 130)
         `,
       })
     }
   }
 
+  const eventChecks = pt && patient && has(pt)
+    ? Object.entries(mapping.eventTables ?? {})
+      .filter(([, et]) => has(et))
+      .map(([label, et]) => ({ label, et, event: eventRelation(mapping, label)! }))
+    : []
+
   // --- Consistency: orphan events (event.patientId not in patient.id) ---
-  if (pt && mapping.eventTables && has(pt)) {
-    for (const [label, et] of Object.entries(mapping.eventTables)) {
-      if (!has(et)) continue
-      const patCol = et.patientIdColumn ?? pt.idColumn
+  for (const { label, et, event } of eventChecks) {
+    checks.push({
+      id: `schema_orphan_events_${et.table}`,
+      name: 'orphanRecords',
+      description: `Records in ${qualify(et)} (${label}) referencing non-existent patients`,
+      category: 'consistency',
+      severity: 'error',
+      level: 'table',
+      source: 'schema',
+      tableName: et.table,
+      threshold: 0,
+      sql: `
+        SELECT COUNT(*)::BIGINT AS violated_rows,
+               (SELECT COUNT(*)::BIGINT FROM ${event.name}) AS total_rows
+        FROM ${event.name} e
+        LEFT JOIN ${patient!.name} p ON e.patient_id = p.patient_id
+        WHERE p.patient_id IS NULL
+      `,
+    })
+  }
+
+  // --- Plausibility: events after birth ---
+  // The exact date when known, else the year: an OMOP birth_datetime is often
+  // empty while year_of_birth never is.
+  if (mapped(patient, 'birth_year')) {
+    const beforeBirth = mapped(patient, 'birth_date')
+      ? 'COALESCE(e.start_datetime::TIMESTAMP < p.birth_date::TIMESTAMP, EXTRACT(YEAR FROM e.start_datetime::TIMESTAMP) < p.birth_year)'
+      : 'EXTRACT(YEAR FROM e.start_datetime::TIMESTAMP) < p.birth_year'
+    for (const { label, et, event } of eventChecks) {
+      if (!mapped(event, 'start_datetime')) continue
       checks.push({
-        id: `schema_orphan_events_${et.table}`,
-        name: 'orphanRecords',
-        description: `Records in ${qualify(et)} (${label}) referencing non-existent patients`,
-        category: 'consistency',
+        id: `schema_event_after_birth_${et.table}`,
+        name: 'eventAfterBirth',
+        description: `Events in ${qualify(et)} (${label}) occur after patient birth`,
+        category: 'plausibility',
         severity: 'error',
         level: 'table',
         source: 'schema',
@@ -277,77 +318,40 @@ function generateSchemaChecks(
         threshold: 0,
         sql: `
           SELECT COUNT(*)::BIGINT AS violated_rows,
-                 (SELECT COUNT(*)::BIGINT FROM ${qualify(et)}) AS total_rows
-          FROM ${qualify(et)} e
-          LEFT JOIN ${qualify(pt)} p ON e."${patCol}" = p."${pt.idColumn}"
-          WHERE p."${pt.idColumn}" IS NULL
+                 (SELECT COUNT(*)::BIGINT FROM ${event.name}) AS total_rows
+          FROM ${event.name} e
+          JOIN ${patient!.name} p ON e.patient_id = p.patient_id
+          WHERE e.start_datetime IS NOT NULL
+            AND ${beforeBirth}
         `,
       })
-    }
-  }
-
-  // --- Plausibility: events after birth ---
-  if (pt && mapping.eventTables && has(pt)) {
-    if (pt.birthDateColumn || birthYearSql(pt, 'p')) {
-      for (const [label, et] of Object.entries(mapping.eventTables)) {
-        if (!has(et) || !et.dateColumn) continue
-        const patCol = et.patientIdColumn ?? pt.idColumn
-
-        const birthCheck = pt.birthDateColumn
-          ? `e."${et.dateColumn}"::TIMESTAMP < p."${pt.birthDateColumn}"::TIMESTAMP`
-          : `EXTRACT(YEAR FROM e."${et.dateColumn}"::TIMESTAMP) < ${birthYearSql(pt, 'p')}`
-
-        checks.push({
-          id: `schema_event_after_birth_${et.table}`,
-          name: 'eventAfterBirth',
-          description: `Events in ${qualify(et)} (${label}) occur after patient birth`,
-          category: 'plausibility',
-          severity: 'error',
-          level: 'table',
-          source: 'schema',
-          tableName: et.table,
-          threshold: 0,
-          sql: `
-            SELECT COUNT(*)::BIGINT AS violated_rows,
-                   (SELECT COUNT(*)::BIGINT FROM ${qualify(et)}) AS total_rows
-            FROM ${qualify(et)} e
-            JOIN ${qualify(pt)} p ON e."${patCol}" = p."${pt.idColumn}"
-            WHERE e."${et.dateColumn}" IS NOT NULL
-              AND ${birthCheck}
-          `,
-        })
-      }
     }
   }
 
   // --- Completeness: patient coverage per event table ---
-  if (pt && mapping.eventTables && has(pt)) {
-    for (const [label, et] of Object.entries(mapping.eventTables)) {
-      if (!has(et)) continue
-      const patCol = et.patientIdColumn ?? pt.idColumn
-      checks.push({
-        id: `schema_patient_coverage_${et.table}`,
-        name: 'patientCoverage',
-        description: `% of patients with ≥1 record in ${qualify(et)} (${label})`,
-        category: 'completeness',
-        severity: 'notice',
-        level: 'table',
-        source: 'schema',
-        tableName: et.table,
-        threshold: 100, // Informational — always passes, user sees the %
-        sql: `
+  for (const { label, et, event } of eventChecks) {
+    checks.push({
+      id: `schema_patient_coverage_${et.table}`,
+      name: 'patientCoverage',
+      description: `% of patients with ≥1 record in ${qualify(et)} (${label})`,
+      category: 'completeness',
+      severity: 'notice',
+      level: 'table',
+      source: 'schema',
+      tableName: et.table,
+      threshold: 100, // Informational — always passes, user sees the %
+      sql: `
+        SELECT
+          (total_patients - patients_with_records)::BIGINT AS violated_rows,
+          total_patients::BIGINT AS total_rows
+        FROM (
           SELECT
-            (total_patients - patients_with_records)::BIGINT AS violated_rows,
-            total_patients::BIGINT AS total_rows
-          FROM (
-            SELECT
-              (SELECT COUNT(*) FROM ${qualify(pt)}) AS total_patients,
-              COUNT(DISTINCT e."${patCol}") AS patients_with_records
-            FROM ${qualify(et)} e
-          ) sub
-        `,
-      })
-    }
+            (SELECT COUNT(*) FROM ${patient!.name}) AS total_patients,
+            COUNT(DISTINCT e.patient_id) AS patients_with_records
+          FROM ${event.name} e
+        ) sub
+      `,
+    })
   }
 
   // TODO(data-quality): visit ↔ event foreign-key integrity. Every OMOP clinical
