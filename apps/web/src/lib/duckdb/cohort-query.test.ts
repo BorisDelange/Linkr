@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  buildAttritionQueries,
   buildCohortCountSql,
   buildCohortMembershipSql,
   buildCohortResultsSql,
@@ -323,6 +324,71 @@ describe('buildCohortCountSql free-text criterion', () => {
     )!
     // Silently widening to every note would be worse than ignoring the search.
     expect(sql).not.toContain('EXISTS')
+  })
+
+  const heparin = { description: '', searches: [{ field: 'text', terms: ['heparin'] }] }
+  const stayWindow = withinStaySql('n."note_datetime"', '"visit"."start"', '"visit"."end"')
+
+  it('ties a note to the stay by its visit id when the mapping has one', () => {
+    const sql = buildCohortCountSql(textCohort(heparin), withNotes)!
+    expect(sql).toContain('n."visit_occurrence_id" = "visit"."visit_id"')
+    expect(sql).not.toContain(stayWindow)
+  })
+
+  it('falls back to the stay dates when notes carry no visit id', () => {
+    const noVisitId = {
+      ...withNotes,
+      noteTable: { ...withNotes.noteTable, visitIdColumn: undefined },
+    } as unknown as SchemaMapping
+    const sql = buildCohortCountSql(textCohort(heparin), noVisitId)!
+    // Without it, "stays with a note saying heparin" kept every stay of anyone
+    // who ever had one.
+    expect(sql).toContain(stayWindow)
+  })
+
+  it('applies no stay window at patient level', () => {
+    const cohort = { ...textCohort(heparin), level: 'patient' } as Cohort
+    const sql = buildCohortCountSql(cohort, withNotes)!
+    expect(sql).toContain('EXISTS (SELECT 1 FROM "note" n')
+    expect(sql).not.toContain('visit_occurrence_id')
+    expect(sql).not.toContain('note_datetime')
+  })
+})
+
+describe('buildAttritionQueries', () => {
+  function withSexCriterion(level: CohortLevel): Cohort {
+    const c = makeCohort(level)
+    return {
+      ...c,
+      criteriaTree: {
+        ...c.criteriaTree,
+        children: [
+          { kind: 'criterion', id: 's1', type: 'sex', config: { values: ['F'] }, operator: 'AND', exclude: false, enabled: true },
+        ],
+      },
+    } as unknown as Cohort
+  }
+
+  it('counts the level ids only by default', () => {
+    const queries = buildAttritionQueries(withSexCriterion('visit'), mapping)
+    expect(queries.map((q) => q.nodeId)).toEqual(['__total__', 's1'])
+    for (const q of queries) {
+      expect(q.sql).toContain('COUNT(DISTINCT "visit"."visit_id") AS cnt')
+      expect(q.sql).not.toContain('AS patients')
+    }
+  })
+
+  it('also counts distinct patients at every step when asked', () => {
+    const queries = buildAttritionQueries(withSexCriterion('visit'), mapping, { withPatients: true })
+    for (const q of queries) {
+      expect(q.sql).toContain('COUNT(DISTINCT "visit"."visit_id") AS cnt')
+      expect(q.sql).toContain('COUNT(DISTINCT "visit"."person_id") AS patients')
+    }
+  })
+
+  it('counts patients on the patient id itself at patient level', () => {
+    const [total] = buildAttritionQueries(makeCohort('patient'), mapping, { withPatients: true })
+    expect(total.sql).toContain('COUNT(DISTINCT "person"."person_id") AS patients')
   })
 })
 
