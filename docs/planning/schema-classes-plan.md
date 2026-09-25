@@ -495,8 +495,7 @@ do. **Arbitrated: three phases, plus a fourth for ETL generation.**
 |----|------|--------|
 | ✅ | Arbitrated 2026-09-25: three phases; `linkr_*` names; class SQL reads its own database only (no roles); per-database override | — |
 | ✅ | Arbitrated 2026-09-25: preset required, single `from` for singleton classes, `drug_kind`, OMOP-only ETL generation, the 7 contracts, v1 converted then forgotten | — |
-| ✅ | CTE injection (2026-09-25) | — |
-| 🤔 | Left: parameters as literals only | S (review) |
+| ✅ | CTE injection, parameters as escaped literals only (2026-09-25) | — |
 | 🔜 | 1. `lib/schema-classes/`: contracts (declarative: column, required, type family) + `generateClassSql(mappingV1)` + `withClassRelations()` (reference detection via `sql-tokenizer`, `NOT MATERIALIZED`) — Vitest | M |
 | 🔜 | 2. Port consumers to `linkr_*`, parity-checked on the two demo DBs: patient data + overview → concepts → cohort builder + report → DQ + stats + catalog → concept-mapping extraction → MCP. The server's `cohort_derive.py` last | L |
 | 🔜 | 3. Mapping v2 types + `mappingV1ToV2` (tested on the 9 published presets) + sanitize/trust boundary + linkr-format (schema, canonical order, validator) + Python twin + goldens | M/L |
@@ -531,8 +530,5 @@ do. **Arbitrated: three phases, plus a fourth for ETL generation.**
    writes v2 only.
 7. **Relations are injected as `NOT MATERIALIZED` CTEs**, not temp views: stateless
    and identical in both modes.
-
-## Open questions 🤔
-
-1. **Parameters as escaped literals only** (§7), never identifiers or SQL
-   fragments. Recommendation: yes.
+8. **Parameters are substituted as escaped string literals only**, never as
+   identifiers or SQL fragments. A structural difference is a relation override.
