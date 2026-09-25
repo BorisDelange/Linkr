@@ -1,3 +1,4 @@
+import { withClassRelations } from '@/lib/schema-classes/inject'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -70,7 +71,7 @@ describe('resolveProfileSource', () => {
   it('picks the event table that can support the richest profile', () => {
     // Both tables reference the same dictionary; only one carries values, and a
     // profile built from condition_occurrence would have no distribution at all.
-    expect(source().eventTable.table).toBe('measurement')
+    expect(source().event.key).toBe('Measurements')
   })
 
   it('yields nothing when the schema describes no such dictionary', () => {
@@ -171,9 +172,11 @@ describe('query builders', () => {
     // A source concept is named by measurement_concept_id OR
     // measurement_source_concept_id; matching one alone silently halves counts.
     const sql = buildProfileBaseQuery(OMOP, source(), 42)
-    expect(sql).toContain('"measurement_concept_id" = 42')
-    expect(sql).toContain('"measurement_source_concept_id" = 42')
-    expect(sql).toContain('COUNT(DISTINCT e."person_id")')
+    expect(sql).toContain('e.concept_id = 42 OR e.source_concept_id = 42')
+    expect(sql).toContain('COUNT(DISTINCT e.patient_id)')
+    const full = withClassRelations(sql, OMOP)
+    expect(full).toContain('e."measurement_source_concept_id" AS source_concept_id')
+    expect(full).toContain('e."person_id" AS patient_id')
   })
 
   it('never interpolates a concept id as text', () => {
@@ -204,9 +207,9 @@ describe('query builders', () => {
   })
 
   it('joins the ward through its lookup table', () => {
-    const sql = buildHospitalUnitsQuery(OMOP, source(), 42, 10)
+    const sql = withClassRelations(buildHospitalUnitsQuery(OMOP, source(), 42, 10)!, OMOP)
     expect(sql).toContain('"care_site"')
-    expect(sql).toContain('cs."care_site_name"')
+    expect(sql).toContain('un."care_site_name"')
   })
 
   it('prefers the verbatim ward over the coarser lookup', () => {
@@ -216,16 +219,16 @@ describe('query builders', () => {
       ...OMOP,
       visitDetailTable: { ...OMOP.visitDetailTable!, unitSourceValueColumn: 'visit_detail_source_value' },
     }
-    const sql = buildHospitalUnitsQuery(withSourceValue, source(withSourceValue), 42, 10)
-    expect(sql).toContain('visit_detail_source_value')
-    expect(sql).not.toContain('care_site_name')
+    const sql = withClassRelations(buildHospitalUnitsQuery(withSourceValue, source(withSourceValue), 42, 10)!, withSourceValue)
+    // Per row: the verbatim ward first, the looked-up name only where it is empty.
+    expect(sql).toMatch(/COALESCE\(NULLIF\(CAST\(vd\."visit_detail_source_value" AS VARCHAR\), ''\), NULLIF\(CAST\(un\."care_site_name"/)
   })
 
   it('counts records per patient by grouping on the patient, not the rows', () => {
     // The distribution is over patients: a plain COUNT(*) would answer "how many
     // records" again, which the base query already reports.
     const sql = buildPerPatientQuery(OMOP, source(), 42)
-    expect(sql).toContain('GROUP BY e."person_id"')
+    expect(sql).toContain('GROUP BY e.patient_id')
     expect(sql).toContain('MIN(n) AS min')
     expect(sql).toContain('MAX(n) AS max')
   })

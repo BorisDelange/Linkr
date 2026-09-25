@@ -1,3 +1,4 @@
+import { withClassRelations } from '@/lib/schema-classes/inject'
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_PROFILE_OPTIONS, resolveProfileSource, type ProfileSource } from './concept-profile'
@@ -115,7 +116,7 @@ describe('buildDictionaryPageQuery', () => {
     // would let two concepts sharing one swap between pages — one extracted
     // twice, another never.
     const sql = buildDictionaryPageQuery(source(), 100, 200)
-    expect(sql).toContain('ORDER BY d."concept_id"')
+    expect(sql).toContain('ORDER BY d.concept_id')
     expect(sql).toContain('LIMIT 100 OFFSET 200')
   })
 
@@ -127,7 +128,8 @@ describe('buildDictionaryPageQuery', () => {
       conceptTables: [{ key: 'd', table: 'd_icd', nameColumn: 'long_title', codeColumn: 'icd_code' }],
     }
     const sql = buildDictionaryPageQuery(source(codeOnly, 'd'), 10, 0)
-    expect(sql).toContain('hash(d."icd_code")')
+    expect(sql).toContain('hash(d.concept_code)')
+    expect(withClassRelations(sql, codeOnly)).toContain('d."icd_code" AS concept_code')
   })
 
   it('falls back to the table name when the dictionary names no vocabulary', () => {
@@ -279,8 +281,8 @@ describe('extraction ordering', () => {
       },
     }
     const sql = buildConceptCountsQuery(source(withSource))
-    expect(sql).toContain('COALESCE(e."measurement_concept_id", e."measurement_source_concept_id")')
-    expect(sql).toContain('COUNT(DISTINCT e."person_id")')
+    expect(sql).toContain('COALESCE(e.concept_id, e.source_concept_id)')
+    expect(sql).toContain('COUNT(DISTINCT e.patient_id)')
   })
 
   it('ranks by the chosen column, breaking ties on the id', () => {
@@ -331,6 +333,6 @@ describe('extraction ordering', () => {
   it('ends every dictionary order on the key, so paging is stable', () => {
     // Two concepts sharing a name would otherwise swap between pages.
     const sql = buildDictionaryPageQuery(source(), 10, 0, { key: 'name', direction: 'asc' })
-    expect(sql).toContain('ORDER BY d."concept_name" ASC, d."concept_id" ASC')
+    expect(sql).toContain('ORDER BY d.concept_name ASC, d.concept_id ASC')
   })
 })

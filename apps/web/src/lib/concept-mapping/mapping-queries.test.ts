@@ -20,7 +20,7 @@ const mapping: SchemaMapping = {
 describe('buildFilterOptionsQuery — vocabulary scoping', () => {
   it('returns unscoped DISTINCT when no scope is given', () => {
     const sql = buildFilterOptionsQuery(mapping, 'category')
-    expect(sql).toContain('SELECT DISTINCT category AS val FROM d_items')
+    expect(sql).toContain('SELECT DISTINCT category AS val FROM linkr_concept_d_items')
     expect(sql).not.toContain(' IN (')
   })
 
@@ -29,7 +29,7 @@ describe('buildFilterOptionsQuery — vocabulary scoping', () => {
       column: 'vocabulary_id',
       values: ['LOINC', 'SNOMED'],
     })
-    expect(sql).toContain("vocabulary_id IN ('LOINC','SNOMED')")
+    expect(sql).toContain("terminology_id IN ('LOINC','SNOMED')")
     expect(sql).toContain('category AS val')
   })
 
@@ -249,9 +249,9 @@ describe('buildStandardConceptSearchQuery', () => {
       { vocabularyIds: ['SNOMED'], conceptClassIds: ['Clinical Finding'], standardConcepts: ['S'] },
       25,
     )
-    expect(sql).toContain("vocabulary_id IN ('SNOMED')")
-    expect(sql).toContain("concept_class_id IN ('Clinical Finding')")
-    expect(sql).toContain("standard_concept IN ('S')")
+    expect(sql).toContain("d.terminology_id IN ('SNOMED')")
+    expect(sql).toContain(`d."extra_concept_class_id" IN ('Clinical Finding')`)
+    expect(sql).toContain(`d."extra_standard_concept" IN ('S')`)
   })
 
   it('restricts to a concept id list, and to nothing when the list is empty', () => {
@@ -332,7 +332,7 @@ describe('buildSourceConceptsRelation', () => {
     expect(sql).toContain('AS concept_name')
     expect(sql).toContain('AS vocabulary_id')
     // No code column (MIMIC d_items): the id stands in, as the extraction writes it.
-    expect(sql).toContain('CAST(d.itemid AS VARCHAR) AS concept_code')
+    expect(sql).toContain('CAST(d.concept_id AS VARCHAR) AS concept_code')
     expect(buildSourceConceptsRelation({ eventTables: [], conceptTables: [] } as unknown as SchemaMapping)).toBe('')
   })
 })
