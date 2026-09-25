@@ -177,15 +177,38 @@ ids, source codes — and `readOnly` to drop the copy button in dense
 pick-a-row tables, where a hoverable panel would sit over the next rows. No mode
 mounts a tooltip per cell; they are built on first hover.
 
-### When a bespoke table is still legitimate
+### Server mode: one page at a time
 
-**Server-side pagination is the real dividing line.** `DataTable` owns
-its sort, filters and paging, and computes them over the whole `data` array. A
-table whose parent drives those through callbacks and answers each one with SQL
-is a different design, not a missing feature — migrating it would mean loading
-the entire vocabulary into memory. Four tables are genuinely in that case:
-`SourceConceptTable`, `ConceptTable`, `CohortConceptPickerDialog` and
-`GlobalSummaryView`'s dedup/flat pair.
+A set too big for the browser — a log, a vocabulary — still uses `DataTable`.
+Pass `server` and hand it **one page**:
+
+```tsx
+<DataTable
+  data={page.rows}                  // the current page only
+  columns={columns}                 // ids = the server's column names
+  rowKey={(r) => r.id}
+  pageSize={100}                    // required in server mode
+  server={{
+    total: page.total,              // rows matching the filters, all pages
+    filterOptions: page.options,    // values of 'select' filters, over the whole set
+    loading,
+    onQueryChange: fetchPage,       // ({ page, pageSize, sorting, filters }) => void
+  }}
+/>
+```
+
+The table keeps its own sort / filter / page state exactly as in local mode and
+calls `onQueryChange` on mount and on every change (a new sort or filter goes back
+to page 1); the caller fetches and passes the answer back as `data`. Guard the
+fetch against out-of-order answers (keep a ticket, drop stale replies) —
+`AccessLogTab` + `/audit-log` (`core/audit.py`, column whitelist, bound values)
+are the reference. An export must go to the server with the same query, never
+from `data`, which is one page.
+
+Four older tables still hand-roll server paging — `SourceConceptTable`,
+`ConceptTable`, `CohortConceptPickerDialog` and `GlobalSummaryView`'s dedup/flat
+pair. They predate server mode; migrating one means checking its extras (columns
+joined after the fetch, checkbox pickers, multi-selection) against it.
 
 **Do not trust the `manual*` flags to tell you which.** `manualSorting` /
 `manualFiltering` / `manualPagination` have been copy-pasted into tables that are

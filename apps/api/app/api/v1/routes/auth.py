@@ -192,9 +192,12 @@ async def list_database_logins(
 async def my_activity(
     limit: int = Query(default=100, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
+    sort: str | None = None,
+    desc: bool = True,
+    filters: str | None = None,
     user: User = Depends(get_session_user),
 ):
     """The acting user's own access-log entries."""
-    from app.api.v1.routes.audit_log import read_page
+    from app.api.v1.routes.audit_log import parse_filters, read_page
 
-    return await read_page(limit, offset, user_id=user.id)
+    return await read_page(limit, offset, sort, desc, parse_filters(filters), user_id=user.id)

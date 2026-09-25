@@ -22,11 +22,16 @@ class AuditEntry(CamelModel):
     detail: str | None = None
     row_count: int | None = None
     error: str | None = None
+    via_kind: str | None = None
+    summary: str | None = None
+    what: str | None = None
 
 
 class AuditPage(CamelModel):
     entries: list[AuditEntry]
     total: int
+    # column → the values its list filter offers, over the whole log.
+    filter_options: dict[str, list[str]] = {}
 
 
 class AuditVerifyResult(CamelModel):

@@ -494,8 +494,11 @@ DuckDB; months past `LINKR_AUDIT_RETENTION_DAYS` (365) are deleted.
 - **Never result data**; `detail` is SQL/code truncated to 2 KB.
 - **Hash chain** (`seq`, `hash = sha256(prev + line)`), checked by `verify`. Assumes a
   single API worker.
-- Routes: `GET /audit-log`, `/audit-log/verify` (global `audit-log:read`),
-  `GET /auth/my-activity`. UI: Settings → Access log.
+- Routes: `GET /audit-log` (paged / sorted / filtered server-side: `limit`, `offset`,
+  `sort`, `desc`, `filters` = JSON column → text or list; column names whitelisted
+  by `VIEW_COLUMNS`, values bound), `/audit-log/export` (CSV of every matching
+  line, written by DuckDB), `/audit-log/verify` (global `audit-log:read`),
+  `GET /auth/my-activity`. UI: Settings → Access log, on `DataTable`'s server mode.
 
 ## Permissions Model (as-built)
 

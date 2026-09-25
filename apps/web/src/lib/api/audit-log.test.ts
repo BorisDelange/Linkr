@@ -1,27 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { auditEntriesToCsv, type AuditEntry } from './audit-log'
+import { auditQueryParams } from './audit-log'
 
-const entry = (patch: Partial<AuditEntry>): AuditEntry => ({
-  seq: 1, at: '2026-09-25T10:00:00.000+00:00', userId: 1, username: 'alice', via: 'web', client: null,
-  method: 'POST', route: '/api/v1/data-sources/x/query', status: 200, durationMs: 12, clientIp: '127.0.0.1',
-  action: 'query', workspaceId: null, projectUid: null, dataSourceId: 'x', detail: 'SELECT 1', rowCount: 1, error: null,
-  ...patch,
-})
-
-describe('auditEntriesToCsv', () => {
-  it('writes a header and one line per entry', () => {
-    const lines = auditEntriesToCsv([entry({}), entry({ seq: 2 })]).split('\r\n')
-    expect(lines).toHaveLength(3)
-    expect(lines[0].startsWith('seq,at,username')).toBe(true)
+describe('auditQueryParams', () => {
+  it('turns a page into limit/offset', () => {
+    const p = auditQueryParams({ page: 2, pageSize: 100, sorting: null, filters: {} })
+    expect(p.get('limit')).toBe('100')
+    expect(p.get('offset')).toBe('200')
+    expect(p.has('sort')).toBe(false)
+    expect(p.has('filters')).toBe(false)
   })
 
-  it('quotes SQL holding commas, quotes and newlines', () => {
-    const csv = auditEntriesToCsv([entry({ detail: 'SELECT a, "b"\nFROM t' })])
-    expect(csv).toContain('"SELECT a, ""b""\nFROM t"')
+  it('carries the sort and the active filters', () => {
+    const p = auditQueryParams({
+      page: 0, pageSize: 50,
+      sorting: { columnId: 'at', desc: false },
+      filters: { username: ['bob'], summary: 'person' },
+    })
+    expect(p.get('sort')).toBe('at')
+    expect(p.get('desc')).toBe('false')
+    expect(JSON.parse(p.get('filters')!)).toEqual({ username: ['bob'], summary: 'person' })
   })
 
-  it('leaves missing values empty', () => {
-    const [, line] = auditEntriesToCsv([entry({ client: null, error: null })]).split('\r\n')
-    expect(line).toContain(',,')
+  it('omits paging for an export', () => {
+    const p = auditQueryParams({ sorting: null, filters: { what: ['query'] } })
+    expect(p.has('limit')).toBe(false)
+    expect(p.get('filters')).toBe('{"what":["query"]}')
   })
 })

@@ -345,34 +345,71 @@ def _source_sql(root: Path) -> str | None:
     return " UNION ALL BY NAME ".join(parts) if parts else None
 
 
-_FILTERS = {
-    "user_id": "user_id = ?",
-    "data_source_id": "data_source_id = ?",
-    "action": "action = ?",
-    "since": "at >= ?",
-    "until": "at < ?",
+# Columns a table view may sort or filter on: the stored ones, plus two derived
+# for display — `via_kind` folds every `job:<id>` into "job", `summary` is the
+# SQL/code or, failing that, the route.
+_DERIVED = {
+    "via_kind": "CASE WHEN via LIKE 'job:%' THEN 'job' ELSE via END",
+    "summary": "COALESCE(detail, route)",
+    "what": "COALESCE(action, method)",
 }
+VIEW_COLUMNS = frozenset(COLUMNS) | frozenset(_DERIVED)
+_EXACT = {"user_id": '"user_id" = ?', "since": '"at" >= ?', "until": '"at" < ?'}
 
 
-def query(limit: int = 100, offset: int = 0, **filters) -> tuple[list[dict], int]:
-    """Entries newest first, and the total matching count."""
+def _view(source: str) -> str:
+    derived = ", ".join(f"{expr} AS {name}" for name, expr in _DERIVED.items())
+    return f"(SELECT *, {derived} FROM ({source}))"
+
+
+def _where(filters: dict | None, exact: dict) -> tuple[str, list]:
+    """`filters`: column → text (case-insensitive contains) or list (any of).
+    Column names are checked against VIEW_COLUMNS before they reach the SQL;
+    values are always bound."""
+    clauses, params = [], []
+    for key, clause in _EXACT.items():
+        if exact.get(key) is not None:
+            clauses.append(clause)
+            params.append(exact[key])
+    for column, value in (filters or {}).items():
+        if column not in VIEW_COLUMNS or value in (None, "", []):
+            continue
+        if isinstance(value, list):
+            clauses.append(f'CAST("{column}" AS VARCHAR) IN ({", ".join("?" for _ in value)})')
+            params += [str(v) for v in value]
+        else:
+            clauses.append(f'CAST("{column}" AS VARCHAR) ILIKE ?')
+            params.append(f"%{value}%")
+    return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
+
+
+def _order(sort: str | None, desc: bool) -> str:
+    if sort not in VIEW_COLUMNS:
+        return "ORDER BY seq DESC"
+    direction = "DESC" if desc else "ASC"
+    return f'ORDER BY "{sort}" {direction} NULLS LAST, seq {direction}'
+
+
+def query(
+    limit: int = 100,
+    offset: int = 0,
+    sort: str | None = None,
+    desc: bool = True,
+    filters: dict | None = None,
+    **exact,
+) -> tuple[list[dict], int]:
+    """One page of entries (newest first unless `sort` says otherwise) and the
+    total matching count."""
     source = _source_sql(_dir())
     if source is None:
         return [], 0
-    where, params = [], []
-    for key, clause in _FILTERS.items():
-        if filters.get(key) is not None:
-            where.append(clause)
-            params.append(filters[key])
-    if filters.get("text"):
-        where.append("(detail ILIKE ? OR route ILIKE ? OR username ILIKE ?)")
-        params += [f"%{filters['text']}%"] * 3
-    cond = f"WHERE {' AND '.join(where)}" if where else ""
+    cond, params = _where(filters, exact)
+    view = _view(source)
     con = duckdb.connect()
     try:
-        total = con.execute(f"SELECT count(*) FROM ({source}) {cond}", params).fetchone()[0]
+        total = con.execute(f"SELECT count(*) FROM {view} {cond}", params).fetchone()[0]
         cur = con.execute(
-            f"SELECT * FROM ({source}) {cond} ORDER BY seq DESC LIMIT ? OFFSET ?",
+            f"SELECT * FROM {view} {cond} {_order(sort, desc)} LIMIT ? OFFSET ?",
             [*params, int(limit), int(offset)],
         )
         names = [d[0] for d in cur.description]
@@ -380,6 +417,55 @@ def query(limit: int = 100, offset: int = 0, **filters) -> tuple[list[dict], int
     finally:
         con.close()
     return rows, int(total)
+
+
+def distinct_values(columns: list[str], cap: int = 500, **exact) -> dict[str, list[str]]:
+    """The values a list filter offers, over the whole log (not one page)."""
+    source = _source_sql(_dir())
+    out: dict[str, list[str]] = {}
+    if source is None:
+        return {c: [] for c in columns if c in VIEW_COLUMNS}
+    cond, params = _where(None, exact)
+    view = _view(source)
+    con = duckdb.connect()
+    try:
+        for column in columns:
+            if column not in VIEW_COLUMNS:
+                continue
+            extra = f'{"AND" if cond else "WHERE"} "{column}" IS NOT NULL'
+            rows = con.execute(
+                f'SELECT DISTINCT CAST("{column}" AS VARCHAR) AS v FROM {view} {cond} {extra} ORDER BY v LIMIT ?',
+                [*params, cap],
+            ).fetchall()
+            out[column] = [r[0] for r in rows]
+    finally:
+        con.close()
+    return out
+
+
+_EXPORT_COLUMNS = [c for c in COLUMNS if c != "hash"]
+
+
+def export_csv(path: Path, sort: str | None = None, desc: bool = True, filters: dict | None = None, **exact) -> int:
+    """Every entry matching `filters`, as CSV at `path` (DuckDB writes it, so a
+    million lines never pass through Python). Returns the row count."""
+    source = _source_sql(_dir())
+    cols = ", ".join(f'"{c}"' for c in _EXPORT_COLUMNS)
+    con = duckdb.connect()
+    try:
+        if source is None:
+            path.write_text(",".join(_EXPORT_COLUMNS) + "\n")
+            return 0
+        cond, params = _where(filters, exact)
+        view = _view(source)
+        con.execute(
+            f"COPY (SELECT {cols} FROM {view} {cond} {_order(sort, desc)}) "
+            f"TO '{path.as_posix()}' (HEADER, DELIMITER ',')",
+            params,
+        )
+        return int(con.execute(f"SELECT count(*) FROM {view} {cond}", params).fetchone()[0])
+    finally:
+        con.close()
 
 
 def verify() -> dict:

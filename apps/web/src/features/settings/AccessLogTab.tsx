@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Download, RefreshCw, ShieldCheck, ShieldAlert } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
+import { DataTable, type DataTableColumn, type DataTableQuery } from '@/components/ui/data-table'
 import { formatApiError } from '@/lib/api-client'
 import {
-  auditEntriesToCsv,
+  exportAuditLog,
   listAuditLog,
   verifyAuditLog,
   type AuditEntry,
@@ -18,38 +18,48 @@ import { formatDateTimeLocale } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import { useDataSourceStore } from '@/stores/data-source-store'
 
-const LOADED = 1000
+const PAGE_SIZE = 100
 
-/** Settings → Access log: the latest entries of the instance's access log. */
+/** Settings → Access log. Paged, sorted and filtered on the server: the log
+ *  reaches millions of lines, the browser only ever holds one page. Column ids
+ *  are the server's column names. */
 export function AccessLogTab() {
   const { t, i18n } = useTranslation()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [total, setTotal] = useState(0)
+  const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [verify, setVerify] = useState<AuditVerifyResult | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const query = useRef<DataTableQuery | null>(null)
+  const latest = useRef(0)
 
   const errorText = useCallback((err: unknown) => {
     const f = formatApiError(err)
     return f.summaryKey ? t(f.summaryKey, { count: f.summaryCount ?? 0 }) : (f.summary ?? String(err))
   }, [t])
 
-  const load = useCallback(async () => {
+  const fetchPage = useCallback(async (q: DataTableQuery) => {
+    query.current = q
+    // Only the answer to the latest query may land: a slow page must not
+    // overwrite the one the user asked for after it.
+    const ticket = ++latest.current
     setLoading(true)
     try {
-      const page = await listAuditLog(LOADED)
+      const page = await listAuditLog(q)
+      if (ticket !== latest.current) return
       setEntries(page.entries)
       setTotal(page.total)
+      setFilterOptions(page.filterOptions)
       setError(null)
     } catch (err) {
-      setError(errorText(err))
+      if (ticket === latest.current) setError(errorText(err))
     } finally {
-      setLoading(false)
+      if (ticket === latest.current) setLoading(false)
     }
   }, [errorText])
-
-  useEffect(() => { void load() }, [load])
 
   const handleVerify = async () => {
     try {
@@ -59,9 +69,17 @@ export function AccessLogTab() {
     }
   }
 
-  const handleDownload = () => {
-    const csv = auditEntriesToCsv(entries)
-    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `linkr-access-log-${new Date().toISOString().slice(0, 10)}.csv`)
+  const handleExport = async () => {
+    if (!query.current) return
+    setExporting(true)
+    try {
+      const blob = await exportAuditLog(query.current)
+      downloadBlob(blob, `linkr-access-log-${new Date().toISOString().slice(0, 10)}.csv`)
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setExporting(false)
+    }
   }
 
   const sourceName = useCallback((id: string | null) => {
@@ -80,10 +98,18 @@ export function AccessLogTab() {
       size: 150,
     },
     { id: 'username', header: t('access_log.who'), accessor: (r) => r.username ?? '', filter: 'select', size: 110 },
-    { id: 'via', header: t('access_log.via'), accessor: (r) => (r.via?.startsWith('job:') ? 'job' : (r.via ?? '')), filter: 'select', size: 90 },
-    { id: 'action', header: t('access_log.action'), accessor: (r) => r.action ?? r.method ?? '', filter: 'select', size: 120 },
-    { id: 'database', header: t('access_log.database'), accessor: (r) => sourceName(r.dataSourceId), filter: 'select', size: 150 },
-    { id: 'detail', header: t('access_log.detail'), accessor: (r) => r.detail ?? r.route ?? '', filter: 'text', size: 320 },
+    { id: 'via_kind', header: t('access_log.via'), accessor: (r) => r.viaKind ?? '', filter: 'select', size: 90 },
+    { id: 'what', header: t('access_log.action'), accessor: (r) => r.what ?? '', filter: 'select', size: 120 },
+    {
+      id: 'data_source_id',
+      header: t('access_log.database'),
+      accessor: (r) => r.dataSourceId ?? '',
+      display: (r) => sourceName(r.dataSourceId),
+      filter: 'select',
+      selectOptionLabel: sourceName,
+      size: 150,
+    },
+    { id: 'summary', header: t('access_log.detail'), accessor: (r) => r.summary ?? '', filter: 'text', size: 320 },
     {
       id: 'status',
       header: t('access_log.status'),
@@ -97,8 +123,8 @@ export function AccessLogTab() {
         </Badge>
       ),
     },
-    { id: 'rows', header: t('access_log.rows'), accessor: (r) => r.rowCount ?? -1, display: (r) => (r.rowCount === null ? '' : String(r.rowCount)), filter: 'number', size: 80, align: 'right' },
-    { id: 'ip', header: t('access_log.ip'), accessor: (r) => r.clientIp ?? '', filter: 'text', size: 110, hidden: true },
+    { id: 'row_count', header: t('access_log.rows'), accessor: (r) => r.rowCount ?? '', filter: 'number', size: 80, align: 'right' },
+    { id: 'client_ip', header: t('access_log.ip'), accessor: (r) => r.clientIp ?? '', filter: 'text', size: 110, hidden: true },
   ], [t, i18n.language, sourceName])
 
   return (
@@ -111,11 +137,11 @@ export function AccessLogTab() {
             <ShieldCheck size={14} />
             {t('access_log.verify')}
           </Button>
-          <Button size="sm" variant="outline" onClick={handleDownload} disabled={entries.length === 0}>
+          <Button size="sm" variant="outline" onClick={handleExport} disabled={exporting || total === 0}>
             <Download size={14} />
             {t('access_log.download')}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void load()} disabled={loading}>
+          <Button size="sm" variant="outline" onClick={() => { if (query.current) void fetchPage(query.current) }} disabled={loading}>
             <RefreshCw size={14} className={loading ? 'animate-spin' : undefined} />
             {t('common.refresh')}
           </Button>
@@ -131,17 +157,15 @@ export function AccessLogTab() {
               : t('access_log.verify_broken', { seq: verify.brokenAtSeq })}
           </div>
         )}
-        {total > entries.length && (
-          <p className="text-xs text-muted-foreground">{t('access_log.showing_latest', { shown: entries.length, total })}</p>
-        )}
         <div className="h-[560px] overflow-hidden rounded-lg border">
           <DataTable
             data={entries}
             columns={columns}
-            rowKey={(r) => String(r.seq)}
-            pageSize={100}
+            rowKey={(r) => r.seq}
+            pageSize={PAGE_SIZE}
             cellTooltips="all"
             emptyMessage={t('access_log.empty')}
+            server={{ total, onQueryChange: fetchPage, filterOptions, loading }}
           />
         </div>
       </CardContent>

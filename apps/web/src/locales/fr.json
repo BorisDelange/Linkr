@@ -5629,7 +5629,6 @@
     "verify_ok": "Intact : {{count}} entrées vérifiées, aucune modifiée ni supprimée.",
     "verify_broken": "Altéré : la chaîne est rompue à l'entrée n°{{seq}} — une entrée a été modifiée ou supprimée.",
     "download": "Télécharger en CSV",
-    "showing_latest": "Affichage des {{shown}} dernières entrées sur {{total}}.",
     "empty": "Aucune entrée pour l'instant."
   }
 }

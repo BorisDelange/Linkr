@@ -3,7 +3,8 @@
  * from where, and how it went. Never result data. The whole log needs the
  * global `audit-log:read`; anyone reads their own through `listMyActivity`.
  */
-import { apiRequest } from '@/lib/api-client'
+import { apiFetch, apiRequest, ApiError } from '@/lib/api-client'
+import type { DataTableQuery } from '@/components/ui/data-table'
 
 export interface AuditEntry {
   seq: number
@@ -27,11 +28,19 @@ export interface AuditEntry {
   detail: string | null
   rowCount: number | null
   error: string | null
+  /** `via` with every `job:<id>` folded into "job". */
+  viaKind: string | null
+  /** The SQL or code, else the route. */
+  summary: string | null
+  /** The action, else the HTTP method. */
+  what: string | null
 }
 
 export interface AuditPage {
   entries: AuditEntry[]
   total: number
+  /** Server column → the values its list filter offers, over the whole log. */
+  filterOptions: Record<string, string[]>
 }
 
 export interface AuditVerifyResult {
@@ -40,23 +49,31 @@ export interface AuditVerifyResult {
   brokenAtSeq: number | null
 }
 
-export const listAuditLog = (limit = 1000) => apiRequest<AuditPage>(`/audit-log?limit=${limit}`)
+/** Query-string for a DataTable server query. Column ids are the server's
+ *  column names (see core/audit.VIEW_COLUMNS). */
+export function auditQueryParams(q: Pick<DataTableQuery, 'sorting' | 'filters'> & Partial<DataTableQuery>): URLSearchParams {
+  const params = new URLSearchParams()
+  if (q.pageSize) {
+    params.set('limit', String(q.pageSize))
+    params.set('offset', String((q.page ?? 0) * q.pageSize))
+  }
+  if (q.sorting) {
+    params.set('sort', q.sorting.columnId)
+    params.set('desc', String(q.sorting.desc))
+  }
+  if (Object.keys(q.filters).length) params.set('filters', JSON.stringify(q.filters))
+  return params
+}
+
+export const listAuditLog = (q: DataTableQuery) => apiRequest<AuditPage>(`/audit-log?${auditQueryParams(q)}`)
 
 export const verifyAuditLog = () => apiRequest<AuditVerifyResult>('/audit-log/verify')
 
-export const listMyActivity = (limit = 1000) => apiRequest<AuditPage>(`/auth/my-activity?limit=${limit}`)
+export const listMyActivity = (q: DataTableQuery) => apiRequest<AuditPage>(`/auth/my-activity?${auditQueryParams(q)}`)
 
-const CSV_COLUMNS: (keyof AuditEntry)[] = [
-  'seq', 'at', 'username', 'via', 'client', 'action', 'dataSourceId', 'projectUid', 'workspaceId',
-  'method', 'route', 'status', 'rowCount', 'durationMs', 'clientIp', 'detail', 'error',
-]
-
-/** RFC 4180 CSV of the entries, for handing the log to a DPO. */
-export function auditEntriesToCsv(entries: AuditEntry[]): string {
-  const cell = (v: unknown) => {
-    if (v === null || v === undefined) return ''
-    const s = String(v)
-    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  return [CSV_COLUMNS.join(','), ...entries.map((e) => CSV_COLUMNS.map((c) => cell(e[c])).join(','))].join('\r\n')
+/** Every entry matching the filters, as CSV, not just the page on screen. */
+export async function exportAuditLog(q: Pick<DataTableQuery, 'sorting' | 'filters'>): Promise<Blob> {
+  const res = await apiFetch(`/api/v1/audit-log/export?${auditQueryParams(q)}`)
+  if (!res.ok) throw new ApiError(res.status, await res.text())
+  return res.blob()
 }

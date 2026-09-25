@@ -5629,7 +5629,6 @@
     "verify_ok": "Intact: {{count}} entries checked, none altered or removed.",
     "verify_broken": "Altered: the chain breaks at entry #{{seq}} — an entry was edited or removed.",
     "download": "Download CSV",
-    "showing_latest": "Showing the latest {{shown}} of {{total}} entries.",
     "empty": "No entries yet."
   }
 }

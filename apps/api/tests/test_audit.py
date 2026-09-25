@@ -103,9 +103,43 @@ def test_filters():
     audit.write({"user_id": 1, "action": "query", "data_source_id": "a", "detail": "SELECT person"})
     audit.write({"user_id": 2, "action": "run_code", "detail": "print(1)"})
     assert audit.query(user_id=2)[1] == 1
-    assert audit.query(data_source_id="a")[1] == 1
-    assert audit.query(action="run_code")[0][0]["user_id"] == 2
-    assert audit.query(text="person")[1] == 1
+    assert audit.query(filters={"data_source_id": "a"})[1] == 1
+    assert audit.query(filters={"action": ["run_code"]})[0][0]["user_id"] == 2
+    assert audit.query(filters={"summary": "person"})[1] == 1
+
+
+def test_sort_and_derived_columns():
+    audit.write({"user_id": 1, "username": "zoe", "via": "job:abc", "method": "JOB", "route": "job", "status": 200})
+    audit.write({"user_id": 2, "username": "amy", "via": "web", "action": "query", "detail": "SELECT 1", "status": 428})
+    rows, _ = audit.query(sort="username", desc=False)
+    assert [r["username"] for r in rows] == ["amy", "zoe"]
+    assert rows[1]["via_kind"] == "job" and rows[1]["what"] == "JOB" and rows[1]["summary"] == "job"
+    assert audit.query(filters={"via_kind": ["job"]})[1] == 1
+    assert audit.query(filters={"status": ["428"]})[1] == 1
+    assert audit.distinct_values(["username", "via_kind"]) == {"username": ["amy", "zoe"], "via_kind": ["job", "web"]}
+
+
+def test_unknown_columns_never_reach_the_sql():
+    audit.write({"user_id": 1, "action": "query"})
+    assert audit.query(sort="seq; DROP TABLE x", filters={"1=1) OR (1": "x"})[1] == 1
+    assert "nope" not in audit.distinct_values(["nope"])
+
+
+def test_paging():
+    for i in range(5):
+        audit.write({"user_id": 1, "action": "query", "detail": str(i)})
+    rows, total = audit.query(limit=2, offset=2)
+    assert total == 5 and [r["seq"] for r in rows] == [3, 2]
+    assert [r["seq"] for r in audit.query(sort="at", desc=False, limit=2)[0]] == [1, 2]
+
+
+def test_export_is_every_matching_row(tmp_path):
+    for i in range(3):
+        audit.write({"user_id": 1, "username": "a" if i else "b", "action": "query"})
+    out = tmp_path / "log.csv"
+    assert audit.export_csv(out, filters={"username": ["a"]}) == 2
+    lines = out.read_text().splitlines()
+    assert lines[0].startswith("seq,at,") and "hash" not in lines[0] and len(lines) == 3
 
 
 # --- Written by the middleware -------------------------------------------------
@@ -129,7 +163,7 @@ async def test_a_query_is_logged_with_who_what_and_outcome(client):
     source_id = await _file_database(client, headers)
     await client.post(f"{API}/data-sources/{source_id}/query", headers=headers, json={"sql": "SELECT 42"})
 
-    rows, _ = audit.query(action="query")
+    rows, _ = audit.query(filters={"action": ["query"]})
     assert len(rows) == 1
     entry = rows[0]
     assert entry["username"] == "admin" and entry["via"] == "web"
@@ -155,7 +189,7 @@ async def test_a_missing_login_is_logged_as_refused(client):
     })).json()["id"]
     r = await client.post(f"{API}/data-sources/{source_id}/query", headers=headers, json={"sql": "SELECT 1"})
     assert r.status_code == 428
-    rows, _ = audit.query(data_source_id=source_id)
+    rows, _ = audit.query(filters={"data_source_id": [source_id]})
     assert rows[0]["status"] == 428 and rows[0]["error"] == "no login for this database"
 
 
@@ -175,3 +209,23 @@ async def test_the_log_is_admin_only_but_own_activity_is_open(client, db):
     mine = (await client.get(f"{API}/auth/my-activity", headers=bob)).json()
     assert all(e["username"] == "bob" for e in mine["entries"])
     assert (await client.get(f"{API}/audit-log/verify", headers=headers)).json()["ok"] is True
+
+
+async def test_routes_page_filter_and_export(client):
+    headers = await _admin(client)
+    source_id = await _file_database(client, headers)
+    for sql in ("SELECT 1", "SELECT 2"):
+        await client.post(f"{API}/data-sources/{source_id}/query", headers=headers, json={"sql": sql})
+
+    import json as _json
+    page = (await client.get(
+        f"{API}/audit-log", headers=headers,
+        params={"limit": 1, "sort": "seq", "desc": "true", "filters": _json.dumps({"what": ["query"]})},
+    )).json()
+    assert page["total"] == 2 and len(page["entries"]) == 1
+    assert "query" in page["filterOptions"]["what"]
+    assert (await client.get(f"{API}/audit-log", headers=headers, params={"filters": "[1]"})).status_code == 400
+
+    r = await client.get(f"{API}/audit-log/export", headers=headers, params={"filters": _json.dumps({"what": ["query"]})})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
+    assert len(r.text.strip().splitlines()) == 3
