@@ -365,18 +365,18 @@ The model is implemented and its surface coverage verified (2026-07-12); as-buil
 ## Per-user database credentials — [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md)
 
 Today one password per external database, shared by everyone who can read it — the
-database's grants and audit see a single login. Target: a **personal account per
-(user, database)** by default (`DatabaseCredential`, like `GitCredential`), a shared
-service account only as an explicit, badged choice; warm connections and derived
-caches keyed per principal; jobs resolve the launcher's login at run time; no password
-reachable by an agent through `client_recipe`. File-based databases stay the storage
-admin's job: Linkr only adds per-workspace browse roots.
+database's grants and audit see a single login, and Linkr logs nothing. Arbitrated
+2026-09-25: **personal accounts only** per (user, database) (`DatabaseCredential`, like
+`GitCredential`), no shared mode; own encryption key + AES-GCM bound to context;
+credentials dropped when a database's target changes; optional session-only
+passwords; warm connections and caches per user; an **access log** in the app; no
+password reachable by an agent through `client_recipe`. No new dependency.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🤔 | Arbitrate: default mode, per-principal caches, recipe policy under API keys | S |
-| 🔜 | Model + resolver (428 `CredentialRequired`) + pool/caches per principal + routes | M–L |
-| 🔜 | Front: credential dialog, database auth mode, *Database accounts* settings tab | M |
+| 🔜 | Crypto (own key, AES-GCM) + model + resolver (428) + pool/caches per user + routes | M–L |
+| 🔜 | Access log (table, choke-point writes, JSON logger, admin + "my activity" views) | M |
+| 🔜 | Front: credential dialog, *Database accounts* tab, *Access log* page | M |
 | 🔜 | Per-workspace browse roots for file-based databases | M |
 
 ## Other backlog items
