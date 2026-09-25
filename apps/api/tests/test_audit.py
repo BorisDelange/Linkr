@@ -77,6 +77,44 @@ def test_compaction_keeps_entries_and_chain():
     assert audit.verify()["ok"] is True
 
 
+def test_compaction_waits_for_a_write_in_flight():
+    """A line begun just before midnight lands in yesterday's file; compaction
+    must not read that file, then unlink it with the line inside."""
+    import threading
+
+    for i in range(2):
+        audit.write({"user_id": 1, "action": "query", "detail": f"SELECT {i}"})
+    [day] = _files("*.jsonl")
+    first, late = day.read_text().splitlines(keepends=True)
+    yesterday = day.with_name(f"{(date.today() - timedelta(days=1)).isoformat()}.jsonl")
+    day.unlink()
+    yesterday.write_text(first)
+
+    with audit._writer.lock:
+        worker = threading.Thread(target=audit.compact, args=(date.today(),))
+        worker.start()
+        worker.join(0.3)
+        assert worker.is_alive()
+        with open(yesterday, "a") as fh:
+            fh.write(late)
+    worker.join(10)
+
+    assert _files("*.jsonl") == []
+    assert audit.query()[1] == 2
+    assert audit.verify()["ok"] is True
+
+
+def test_a_missing_head_is_a_break_until_retention_explains_it():
+    for i in range(3):
+        audit.write({"user_id": 1, "action": "query", "detail": f"SELECT {i}"})
+    [path] = _files("*.jsonl")
+    path.write_text("".join(path.read_text().splitlines(keepends=True)[1:]))
+
+    assert audit.verify() == {"ok": False, "checked": 0, "brokenAtSeq": 2}
+    later = date.today() + timedelta(days=settings.audit_retention_days + 62)
+    assert audit.verify(later) == {"ok": True, "checked": 2, "brokenAtSeq": None}
+
+
 def test_compaction_appends_to_an_existing_month(monkeypatch):
     today = date(2026, 9, 25)
     for day in ("2026-09-20", "2026-09-21"):
