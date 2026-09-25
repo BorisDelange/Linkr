@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -6,7 +6,7 @@ import { Keyboard, Loader2, Play } from 'lucide-react'
 import type * as Monaco from 'monaco-editor'
 import { Button } from '@/components/ui/button'
 import { CodeEditor } from '@/components/editor/CodeEditor'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { OutputTable } from '@/features/projects/files/OutputTable'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
 import type { ShortcutActionId } from '@/types/shortcuts'
@@ -18,13 +18,8 @@ const SHOWN_ROWS = 1000
 
 const SHORTCUT_ACTIONS: ShortcutActionId[] = ['run_selection_or_line', 'run_file']
 
-interface ResultRow {
-  index: number
-  cells: string[]
-}
-
 type Outcome =
-  | { kind: 'rows'; headers: string[]; rows: ResultRow[]; total: number; ms: number }
+  | { kind: 'rows'; headers: string[]; rows: string[][]; total: number; ms: number }
   | { kind: 'error'; message: string; ms: number }
 
 /** The draft of each database's query, kept while the app is open — this tab
@@ -65,10 +60,7 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
       setOutcome({
         kind: 'rows',
         headers,
-        rows: rows.slice(0, SHOWN_ROWS).map((row, index) => ({
-          index,
-          cells: headers.map((h) => (row[h] == null ? '' : String(row[h]))),
-        })),
+        rows: rows.slice(0, SHOWN_ROWS).map((row) => headers.map((h) => (row[h] == null ? '' : String(row[h])))),
         total: rows.length,
         ms: Math.round(performance.now() - start),
       })
@@ -84,29 +76,10 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
     }
   }
 
-  const resultColumns = useMemo<ConceptColumn<ResultRow>[]>(
-    () => (outcome?.kind === 'rows' ? outcome.headers : []).map((h, i) => ({
-      id: `c${i}`,
-      header: h,
-      accessor: (r) => r.cells[i],
-      filter: 'text',
-      size: 160,
-    })),
-    [outcome],
-  )
-
   return (
     <TooltipProvider>
     <div className="flex h-full min-h-0 flex-col px-6 pb-4">
-      <div className="flex shrink-0 items-center gap-3 pb-2">
-        <div className="flex-1" />
-        {outcome && (
-          <span className={outcome.kind === 'error' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
-            {outcome.kind === 'error'
-              ? t('databases.sql_failed', { ms: outcome.ms })
-              : t('databases.sql_rows', { count: outcome.total, ms: outcome.ms })}
-          </span>
-        )}
+      <div className="flex shrink-0 items-center gap-2 pb-2">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon-xs" onClick={() => setShortcutsOpen(true)} aria-label={t('files.shortcuts')}>
@@ -115,8 +88,16 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
           </TooltipTrigger>
           <TooltipContent>{t('files.shortcuts')}</TooltipContent>
         </Tooltip>
-        <Button size="sm" onClick={() => void run('all')} disabled={running}>
-          {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+        <div className="flex-1" />
+        {outcome && (
+          <span className={outcome.kind === 'error' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+            {outcome.kind === 'error'
+              ? t('databases.sql_failed', { ms: outcome.ms })
+              : t('databases.sql_rows', { count: outcome.total, ms: outcome.ms })}
+          </span>
+        )}
+        <Button size="xs" className="gap-1" onClick={() => void run('all')} disabled={running}>
+          {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
           {t('databases.sql_run')}
         </Button>
       </div>
@@ -144,15 +125,7 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
               ) : outcome.headers.length === 0 ? (
                 <p className="p-4 text-xs text-muted-foreground">{t('databases.sql_no_rows')}</p>
               ) : (
-                <ConceptDataTable
-                  key={outcome.headers.join('\u0000')}
-                  data={outcome.rows}
-                  columns={resultColumns}
-                  rowKey={(r) => r.index}
-                  pageSize={100}
-                  reorderable
-                  cellTooltips="all"
-                />
+                <OutputTable key={outcome.headers.join('\u0000')} headers={outcome.headers} rows={outcome.rows} />
               )}
             </div>
           </Allotment.Pane>
