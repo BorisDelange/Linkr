@@ -5498,6 +5498,7 @@
     "unavailable_event-level": "Le rapport n’est pas disponible au niveau événement.",
     "unavailable_no-query": "Cette cohorte n’a pas encore de requête à décrire.",
     "needs_connection": "Connectez la base pour générer un rapport.",
+    "needs_mapping": "Cette base n’a pas de correspondance de schéma : le rapport ne peut pas retrouver ses patients. Définissez son schéma dans les paramètres de la base.",
     "error": "Le rapport n’a pas pu être généré : {{message}}",
     "source_title": "Source des données",
     "source_database": "Base",

@@ -56,7 +56,7 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
   const blocked = unavailableReason(cohort)
   const thresholdValue = Number.parseInt(threshold, 10)
   const thresholdValid = Number.isFinite(thresholdValue) && thresholdValue >= 1 && thresholdValue <= 1000
-  const loading = !blocked && !!source && (!built || built.threshold !== applied)
+  const loading = !blocked && !!source?.schemaMapping && (!built || built.threshold !== applied)
 
   // The suppression is applied in the model, so a new threshold is a new run —
   // asked for with the Recompute button.
@@ -120,7 +120,8 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
 
   const message = blocked
     ? t(`cohort_report.unavailable_${blocked}`)
-    : !source ? t('cohort_report.needs_connection') : null
+    : !source ? t('cohort_report.needs_connection')
+      : !source.schemaMapping ? t('cohort_report.needs_mapping') : null
 
   return (
     <DialogShell
