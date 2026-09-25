@@ -26,6 +26,9 @@ const drafts = new Map<string, string>()
 export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
   const { t } = useTranslation()
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+  // Controlled: CodeEditor feeds Monaco this value back once its debounced
+  // onChange lands, so a value that never follows the typing erases it.
+  const [sql, setSql] = useState(() => drafts.get(dataSourceId) ?? '')
   const [running, setRunning] = useState(false)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
 
@@ -64,10 +67,6 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col px-6 pb-4">
       <div className="flex shrink-0 items-center gap-3 pb-2">
-        <Button size="sm" onClick={() => void run()} disabled={running}>
-          {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-          {t('databases.sql_run')}
-        </Button>
         <span className="text-xs text-muted-foreground">{t('databases.sql_hint')}</span>
         <div className="flex-1" />
         {outcome && (
@@ -77,15 +76,22 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
               : t('databases.sql_rows', { count: outcome.total, ms: outcome.ms })}
           </span>
         )}
+        <Button size="sm" onClick={() => void run()} disabled={running}>
+          {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+          {t('databases.sql_run')}
+        </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden rounded-lg border">
         <Allotment vertical>
           <Allotment.Pane preferredSize="40%" minSize={80}>
             <CodeEditor
-              value={drafts.get(dataSourceId) ?? ''}
+              value={sql}
               language="sql"
               editorRef={editorRef}
-              onChange={(v) => drafts.set(dataSourceId, v ?? '')}
+              onChange={(v) => {
+                setSql(v ?? '')
+                drafts.set(dataSourceId, v ?? '')
+              }}
               onRunSelectionOrLine={() => void run()}
               onRunFile={() => void run()}
             />
