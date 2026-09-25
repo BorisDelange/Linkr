@@ -10,7 +10,8 @@ import type { DeriveRequest } from '@/lib/api/data-sources'
 import type { DerivationJobResult, Job } from '@/lib/api/environments'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
-import { qualify, sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { classRelation } from '@/lib/schema-classes/relations'
 import { localized } from '@/lib/localized'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -636,12 +637,12 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
   refreshPatientCount: async (id, opts) => {
     const ds = get().dataSources.find((d) => d.id === id)
-    const patientTable = ds?.schemaMapping?.patientTable
-    if (!ds || !patientTable || ds.status !== 'connected' || countingSources.has(id)) return
+    const patient = ds?.schemaMapping ? classRelation(ds.schemaMapping, 'patient') : undefined
+    if (!ds || !patient || ds.status !== 'connected' || countingSources.has(id)) return
     if (!opts?.force && ds.stats?.patientCount != null) return
     countingSources.add(id)
     try {
-      const rows = await inCountQueue(() => engine.queryDataSource(id, `SELECT COUNT(*) AS n FROM ${qualify(patientTable)}`))
+      const rows = await inCountQueue(() => engine.queryDataSource(id, `SELECT COUNT(*) AS n FROM ${patient.name}`))
       const n = Number(rows[0]?.n)
       if (Number.isFinite(n)) await get().recordRowCounts(id, { patientCount: n })
     } catch {

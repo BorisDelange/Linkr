@@ -1888,25 +1888,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     // database's mapping (d_items…) found no concept, so every name was missing.
     if (!vocabTarget) { setEnrichedSuggestions(suggestions); return }
     const dsId = vocabTarget.dsId
-    const dict = vocabTarget.dictionary
-
-    const ids = suggestions.map((s) => s.concept_id).join(', ')
-    const table = dict.table
-    const idCol = dict.idColumn ?? 'concept_id'
-    const nameCol = dict.nameColumn ?? 'concept_name'
-    const codeCol = dict.codeColumn ?? 'concept_code'
-    const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
-    const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
-    const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
-    const stdCol = dict.extraColumns?.standard_concept
-    const invalidCol = dict.extraColumns?.invalid_reason
-    const extraCols = [
-      domainCol ? `${domainCol} AS domain_id` : null,
-      classCol ? `${classCol} AS concept_class_id` : null,
-      stdCol ? `${stdCol} AS standard_concept` : null,
-      invalidCol ? `${invalidCol} AS invalid_reason` : null,
-    ].filter(Boolean).join(', ')
-    const sql = `SELECT ${idCol} AS concept_id, ${nameCol} AS concept_name, ${codeCol} AS concept_code, ${vocabCol} AS vocabulary_id${extraCols ? ', ' + extraCols : ''} FROM ${table} WHERE ${idCol} IN (${ids})`
+    const ids = suggestions.map((s) => s.concept_id)
+    const sql = buildStandardConceptSearchQuery(vocabTarget.mapping, '', { conceptIds: ids }, ids.length)
+    if (!sql) { setEnrichedSuggestions(suggestions); return }
 
     ensureMounted(dsId).then(() =>
       queryDataSource(dsId, sql) as Promise<Record<string, unknown>[]>
