@@ -96,7 +96,10 @@ In LibreChat: transport *Streamable HTTPS*, auth *API key*, header format *Beare
 With Docker, `docker/docker-compose.yml` runs it as the `mcp` service
 (`docker/Dockerfile.mcp`: the HTTP entry bundled by esbuild into one file, next to
 the files it reads at runtime — docs snapshot, app locales, analysis manifests),
-on port 3940 and pointed at the `api` service. Release tags publish it as
+pointed at the `api` service. Its port is published on `127.0.0.1:3940` only: keys
+travel in cleartext over plain HTTP, so put a TLS reverse proxy in front before
+exposing it to other hosts (a LibreChat container can also join the compose network
+and use `http://mcp:3940/mcp`). Release tags publish it as
 `interhop/linkr:mcp-<version>`.
 
 Optional single-user mode: set `LINKR_MCP_KEY` (≥ 24 characters) and a request carrying
