@@ -1,5 +1,5 @@
 import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
-import { buildConceptMatchCondition, getEventTablesForDictionary, qualify } from '@/lib/schema-helpers'
+import { conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { escSql as esc } from '@/lib/format-helpers'
 import { buildFuzzySearchSql, type FuzzySearchSql } from '@/lib/fuzzy-search'
 
@@ -166,58 +166,56 @@ export const EMPTY_FILTERS: ConceptFilters = {}
 /** Relevance ranking over the *output* aliases (concept_name / concept_code /
  *  concept_id), usable in an outer ORDER BY where the dict's raw column names
  *  are no longer in scope. Null when the toolbar search is empty. */
-function aliasedFuzzyRank(filters: ConceptFilters): string | null {
+function aliasedFuzzyRank(filters: ConceptFilters, allColumns: ColumnDescriptor[]): string | null {
   const term = filterText(filters._searchFuzzy)
   if (!term?.trim()) return null
+  // No code column in the output (MIMIC d_items) means no code to rank on:
+  // naming it anyway made the whole search fail to bind.
   return buildFuzzySearchSql(term, {
     nameColumn: 'concept_name',
-    codeColumn: 'concept_code',
+    codeColumn: allColumns.some((c) => c.id === 'concept_code') ? 'concept_code' : undefined,
     idColumn: 'concept_id',
   })?.rankExpr ?? null
 }
 
-/** Fuzzy-search clauses for a dict, or null when the toolbar search is empty. */
+/** Fuzzy-search clauses for a dictionary relation, or null when the toolbar search is empty. */
 function fuzzyClause(
-  dict: ConceptDictionary,
+  dict: ClassRelation,
   filters: ConceptFilters,
   alias?: string,
 ): FuzzySearchSql | null {
   const term = filterText(filters._searchFuzzy)
-  if (!term?.trim() || !dict.nameColumn) return null
+  if (!term?.trim()) return null
   return buildFuzzySearchSql(term, {
-    nameColumn: `"${dict.nameColumn}"`,
-    codeColumn: dict.codeColumn ? `"${dict.codeColumn}"` : undefined,
-    idColumn: dict.idColumn ? `"${dict.idColumn}"` : undefined,
+    nameColumn: 'concept_name',
+    codeColumn: has(dict, 'concept_code') ? 'concept_code' : undefined,
+    idColumn: 'concept_id',
     alias,
   })
 }
 
-function buildWhereClause(dict: ConceptDictionary, filters: ConceptFilters, allColumns: ColumnDescriptor[], alias?: string): string {
+function buildWhereClause(dict: ClassRelation, filters: ConceptFilters, allColumns: ColumnDescriptor[], alias?: string): string {
   const p = alias ? `${alias}.` : ''
   const conditions: string[] = []
 
   // Search by ID prefix
   const searchId = filterText(filters._searchId)
   if (searchId?.trim()) {
-    conditions.push(`CAST(${p}"${dict.idColumn}" AS TEXT) ILIKE '${esc(searchId.trim())}%'`)
+    conditions.push(`CAST(${p}concept_id AS TEXT) ILIKE '${esc(searchId.trim())}%'`)
   }
 
   // Search by name (multi-word fuzzy)
   const searchText = filterText(filters._searchText)
-  if (searchText?.trim() && dict.nameColumn) {
+  if (searchText?.trim()) {
     const words = searchText.trim().split(/\s+/).filter(Boolean)
-    if (words.length === 1) {
-      conditions.push(`${p}"${dict.nameColumn}" ILIKE '%${esc(words[0])}%'`)
-    } else {
-      const wordConditions = words.map((w) => `${p}"${dict.nameColumn}" ILIKE '%${esc(w)}%'`)
-      conditions.push(`(${wordConditions.join(' AND ')})`)
-    }
+    const wordConditions = words.map((w) => `${p}concept_name ILIKE '%${esc(w)}%'`)
+    conditions.push(words.length === 1 ? wordConditions[0] : `(${wordConditions.join(' AND ')})`)
   }
 
   // Search by code
   const searchCode = filterText(filters._searchCode)
-  if (searchCode?.trim() && dict.codeColumn) {
-    conditions.push(`${p}"${dict.codeColumn}" ILIKE '%${esc(searchCode.trim())}%'`)
+  if (searchCode?.trim() && has(dict, 'concept_code')) {
+    conditions.push(`${p}concept_code ILIKE '%${esc(searchCode.trim())}%'`)
   }
 
   // Toolbar fuzzy search — spans name/code/id with the shared tier ranking, so
@@ -253,19 +251,30 @@ export interface ConceptSorting {
   desc: boolean
 }
 
-/** Resolve a column alias to the actual SQL column name in a given dictionary. */
-function resolveActualColumn(dict: ConceptDictionary, columnId: string): string | null {
+/** The contract column of a dictionary relation behind a table column id. */
+function resolveActualColumn(dict: ClassRelation, columnId: string): string | null {
+  const extra = (alias: string) => dict.extras?.[alias] ?? null
   switch (columnId) {
-    case 'concept_id': return dict.idColumn ?? null
-    case 'concept_name': return dict.nameColumn
-    case 'concept_code': return dict.codeColumn ?? null
-    case 'vocabulary_id': return dict.terminologyIdColumn ?? dict.vocabularyColumn ?? null
-    case 'domain_id': return dict.categoryColumn ?? dict.extraColumns?.domain_id ?? null
-    case 'concept_class_id': return dict.subcategoryColumn ?? dict.extraColumns?.concept_class_id ?? null
-    default:
-      // Check extraColumns
-      return dict.extraColumns?.[columnId] ?? null
+    case 'concept_id': return 'concept_id'
+    case 'concept_name': return 'concept_name'
+    case 'concept_code': return has(dict, 'concept_code') ? 'concept_code' : null
+    case 'vocabulary_id': return has(dict, 'terminology_id') ? 'terminology_id' : null
+    case 'domain_id': return has(dict, 'category') ? 'category' : extra('domain_id')
+    case 'concept_class_id': return has(dict, 'subcategory') ? 'subcategory' : extra('concept_class_id')
+    default: return extra(columnId)
   }
+}
+
+/** The event relations whose concepts this dictionary names. */
+function eventsOf(mapping: SchemaMapping, dict: ClassRelation): ClassRelation[] {
+  return eventRelations(mapping).filter((e) => e.dictionary === dict.name)
+}
+
+/** The dictionary relations to query, narrowed by the `_dict_key` filter. */
+function activeDicts(mapping: SchemaMapping, filters: ConceptFilters): ClassRelation[] {
+  const keys = filterValues(filters._dict_key)
+  const dicts = conceptRelations(mapping)
+  return keys.length ? dicts.filter((d) => keys.includes(d.key ?? '')) : dicts
 }
 
 // ---------------------------------------------------------------------------
@@ -277,28 +286,14 @@ function resolveActualColumn(dict: ConceptDictionary, columnId: string): string 
  * across all event tables linked to that dictionary.
  * Returns null if no event tables exist for the dictionary.
  */
-function buildCountsSubquery(
-  mapping: SchemaMapping,
-  dictKey: string,
-): string | null {
-  const eventEntries = getEventTablesForDictionary(mapping, dictKey)
-  if (eventEntries.length === 0) return null
-
+function buildCountsSubquery(mapping: SchemaMapping, dict: ClassRelation): string | null {
   const parts: string[] = []
-  for (const { eventTable: et } of eventEntries) {
-    const patientCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
-    const patientSelect = patientCol ? `"${patientCol}"` : 'NULL'
-
-    parts.push(
-      `SELECT "${et.conceptIdColumn}" AS cid, ${patientSelect} AS pid FROM ${qualify(et)}`,
-    )
-    if (et.sourceConceptIdColumn) {
-      parts.push(
-        `SELECT "${et.sourceConceptIdColumn}" AS cid, ${patientSelect} AS pid FROM ${qualify(et)}`,
-      )
+  for (const event of eventsOf(mapping, dict)) {
+    parts.push(`SELECT concept_id AS cid, patient_id AS pid FROM ${event.name}`)
+    if (has(event, 'source_concept_id')) {
+      parts.push(`SELECT source_concept_id AS cid, patient_id AS pid FROM ${event.name}`)
     }
   }
-
   if (parts.length === 0) return null
 
   return `(SELECT cid AS concept_id, COUNT(*)::INTEGER AS record_count, COUNT(DISTINCT pid)::INTEGER AS patient_count
@@ -313,24 +308,22 @@ function buildCountsSubquery(
 // ---------------------------------------------------------------------------
 
 function buildSelectForDict(
-  dict: ConceptDictionary,
+  dict: ClassRelation,
   allColumns: ColumnDescriptor[],
   filters: ConceptFilters,
-  _multiDict: boolean,
   mapping: SchemaMapping,
   withCounts: boolean,
-): string | null {
+  extraWhere?: string,
+): string {
   // When counts are streamed/cached separately, skip the expensive GROUP-BY join
   // so the list renders immediately; record/patient counts fall back to 0 and are
   // filled in client-side from the count cache.
-  const countsSubquery = withCounts ? buildCountsSubquery(mapping, dict.key) : null
+  const countsSubquery = withCounts ? buildCountsSubquery(mapping, dict) : null
   const hasCounts = countsSubquery !== null
-  const where = buildWhereClause(dict, filters, allColumns, 'c')
+  const filterWhere = buildWhereClause(dict, filters, allColumns, 'c')
+  const where = extraWhere ? (filterWhere ? `${filterWhere} AND ${extraWhere}` : `WHERE ${extraWhere}`) : filterWhere
 
-  const cols: string[] = [
-    `c."${dict.idColumn}" AS concept_id`,
-    `c."${dict.nameColumn}" AS concept_name`,
-  ]
+  const cols: string[] = ['c.concept_id', 'c.concept_name']
 
   for (const col of allColumns) {
     if (col.id === 'concept_id' || col.id === 'concept_name') continue
@@ -338,7 +331,7 @@ function buildSelectForDict(
     // would emit NULL and shadow the values the table computes.
     if (col.source === 'conceptSet') continue
     if (col.source === 'dict') {
-      cols.push(`'${esc(dict.key)}' AS _dict_key`)
+      cols.push(`'${esc(dict.key ?? '')}' AS _dict_key`)
       continue
     }
     if (col.id === 'record_count') {
@@ -351,18 +344,12 @@ function buildSelectForDict(
     }
 
     const actual = resolveActualColumn(dict, col.id)
-    if (actual) {
-      cols.push(`c."${actual}" AS "${col.id}"`)
-    } else {
-      cols.push(`NULL AS "${col.id}"`)
-    }
+    cols.push(actual ? `c."${actual}" AS "${col.id}"` : `NULL AS "${col.id}"`)
   }
 
-  const joinClause = hasCounts
-    ? `LEFT JOIN ${countsSubquery} _counts ON c."${dict.idColumn}" = _counts.concept_id`
-    : ''
+  const joinClause = hasCounts ? `LEFT JOIN ${countsSubquery} _counts ON c.concept_id = _counts.concept_id` : ''
 
-  return `SELECT ${cols.join(', ')} FROM ${qualify(dict)} c ${joinClause} ${where}`
+  return `SELECT ${cols.join(', ')} FROM ${dict.name} c ${joinClause} ${where}`
 }
 
 export function buildConceptsQuery(
@@ -374,33 +361,18 @@ export function buildConceptsQuery(
   sorting?: ConceptSorting | null,
   withCounts = true,
 ): string | null {
-  const dicts = mapping.conceptTables
-  if (!dicts || dicts.length === 0) return null
-
-  const multiDict = dicts.length > 1
+  const dicts = activeDicts(mapping, filters)
+  if (dicts.length === 0) return null
   const offset = page * pageSize
-
-  // Filter by _dict_key: if set, only query that one dict
-  const dictKeys = filterValues(filters._dict_key)
-  const activeDicts = dictKeys.length
-    ? dicts.filter((d) => dictKeys.includes(d.key))
-    : dicts
-
-  if (activeDicts.length === 0) return null
-
-  const subQueries = activeDicts
-    .map((d) => buildSelectForDict(d, allColumns, filters, multiDict, mapping, withCounts))
-    .filter(Boolean)
-
-  if (subQueries.length === 0) return null
+  const subQueries = dicts.map((d) => buildSelectForDict(d, allColumns, filters, mapping, withCounts))
 
   // ORDER BY — all columns including record_count and patient_count. An explicit
   // sort wins; otherwise a fuzzy search orders by relevance (best tier first).
   let orderBy = 'concept_id'
   if (sorting) {
     orderBy = `"${sorting.columnId}" ${sorting.desc ? 'DESC' : 'ASC'}`
-  } else if (aliasedFuzzyRank(filters)) {
-    orderBy = `${aliasedFuzzyRank(filters)}, concept_name`
+  } else if (aliasedFuzzyRank(filters, allColumns)) {
+    orderBy = `${aliasedFuzzyRank(filters, allColumns)}, concept_name`
   }
 
   if (subQueries.length === 1) {
@@ -420,14 +392,8 @@ export function buildConceptsMaterializeQuery(
   mapping: SchemaMapping,
   allColumns: ColumnDescriptor[],
 ): string | null {
-  const dicts = mapping.conceptTables
-  if (!dicts || dicts.length === 0) return null
-  const multiDict = dicts.length > 1
-  const subQueries = dicts
-    .map((d) => buildSelectForDict(d, allColumns, EMPTY_FILTERS, multiDict, mapping, true))
-    .filter(Boolean)
+  const subQueries = conceptRelations(mapping).map((d) => buildSelectForDict(d, allColumns, EMPTY_FILTERS, mapping, true))
   if (subQueries.length === 0) return null
-  if (subQueries.length === 1) return subQueries[0] as string
   return subQueries.join('\n  UNION ALL\n  ')
 }
 
@@ -436,28 +402,10 @@ export function buildConceptsCountQuery(
   filters: ConceptFilters,
   allColumns: ColumnDescriptor[],
 ): string | null {
-  const dicts = mapping.conceptTables
-  if (!dicts || dicts.length === 0) return null
-
-  const dictKeys = filterValues(filters._dict_key)
-  const activeDicts = dictKeys.length
-    ? dicts.filter((d) => dictKeys.includes(d.key))
-    : dicts
-
-  if (activeDicts.length === 0) return null
-
-  if (activeDicts.length === 1) {
-    const dict = activeDicts[0]
-    const where = buildWhereClause(dict, filters, allColumns)
-    return `SELECT COUNT(*)::INTEGER AS cnt FROM ${qualify(dict)} ${where}`
-  }
-
-  // Multi-dict: sum counts
-  const parts = activeDicts.map((dict) => {
-    const where = buildWhereClause(dict, filters, allColumns)
-    return `SELECT COUNT(*)::INTEGER AS cnt FROM ${qualify(dict)} ${where}`
-  })
-
+  const dicts = activeDicts(mapping, filters)
+  if (dicts.length === 0) return null
+  const parts = dicts.map((dict) => `SELECT COUNT(*)::INTEGER AS cnt FROM ${dict.name} ${buildWhereClause(dict, filters, allColumns)}`)
+  if (parts.length === 1) return parts[0]
   return `SELECT SUM(cnt)::INTEGER AS cnt FROM (${parts.join(' UNION ALL ')}) _counts`
 }
 
@@ -469,15 +417,12 @@ export function buildFilterOptionsQuery(
   mapping: SchemaMapping,
   columnId: string,
 ): string | null {
-  const dicts = mapping.conceptTables
-  if (!dicts || dicts.length === 0) return null
-
   // Collect distinct values across all dicts that have this column
   const parts: string[] = []
-  for (const dict of dicts) {
+  for (const dict of conceptRelations(mapping)) {
     const actual = resolveActualColumn(dict, columnId)
     if (actual) {
-      parts.push(`SELECT DISTINCT "${actual}" AS val FROM ${qualify(dict)} WHERE "${actual}" IS NOT NULL`)
+      parts.push(`SELECT DISTINCT "${actual}" AS val FROM ${dict.name} WHERE "${actual}" IS NOT NULL`)
     }
   }
 
@@ -523,7 +468,7 @@ function buildCacheWhere(filters: ConceptFilters, allColumns: ColumnDescriptor[]
   if (fuzzyTerm?.trim()) {
     const fz = buildFuzzySearchSql(fuzzyTerm, {
       nameColumn: 'concept_name',
-      codeColumn: 'concept_code',
+      codeColumn: allColumns.some((c) => c.id === 'concept_code') ? 'concept_code' : undefined,
       idColumn: 'concept_id',
     })
     if (fz) conditions.push(fz.where)
@@ -551,7 +496,7 @@ export function buildCachePageQuery(
   sorting?: ConceptSorting | null,
 ): string {
   const where = buildCacheWhere(filters, allColumns)
-  const rank = aliasedFuzzyRank(filters)
+  const rank = aliasedFuzzyRank(filters, allColumns)
   const orderBy = sorting
     ? `"${sorting.columnId}" ${sorting.desc ? 'DESC' : 'ASC'}`
     : rank
@@ -576,44 +521,24 @@ export function buildCacheDetailQuery(conceptId: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Concept detail (SELECT * for a specific concept)
+// Concept detail
 // ---------------------------------------------------------------------------
 
+/**
+ * One concept's row, with the same columns as the list — which is also what the
+ * server-mode detail reads from the materialized cache, so both modes show the
+ * same fields.
+ */
 export function buildConceptFullQuery(
   mapping: SchemaMapping,
   conceptId: number,
   dictKey?: string,
 ): string | null {
-  const dicts = mapping.conceptTables
-  if (!dicts || dicts.length === 0) return null
-
-  // Alias the id/name columns to concept_id/concept_name (like the list query)
-  // so the detail sidebar reads the same fields. EXCLUDE drops the raw source
-  // columns first, so when idColumn is literally "concept_id" (OMOP) we don't
-  // emit a duplicate column (which DuckDB rejects). SELECT * keeps the rest.
-  const selectExpr = (d: ConceptDictionary): string => {
-    const excluded = [d.idColumn, d.nameColumn].filter(Boolean).map((c) => `"${c}"`)
-    const star = excluded.length ? `c.* EXCLUDE (${excluded.join(', ')})` : 'c.*'
-    return `${star}, c."${d.idColumn}" AS concept_id, c."${d.nameColumn}" AS concept_name`
-  }
-
-  // If dictKey provided, query that specific dict
-  if (dictKey) {
-    const dict = dicts.find((d) => d.key === dictKey)
-    if (!dict) return null
-    return `SELECT ${selectExpr(dict)} FROM ${qualify(dict)} c WHERE c."${dict.idColumn}" = ${conceptId}`
-  }
-
-  // Otherwise, try each dict (concept_id might not be unique across dicts, but typically is)
-  if (dicts.length === 1) {
-    const dict = dicts[0]
-    return `SELECT ${selectExpr(dict)} FROM ${qualify(dict)} c WHERE c."${dict.idColumn}" = ${conceptId}`
-  }
-
-  // Multi-dict: UNION ALL with _dict_key, take first match
-  const parts = dicts.map(
-    (d) => `SELECT ${selectExpr(d)}, '${esc(d.key)}' AS _dict_key FROM ${qualify(d)} c WHERE c."${d.idColumn}" = ${conceptId}`,
-  )
+  const dicts = conceptRelations(mapping).filter((d) => !dictKey || d.key === dictKey)
+  if (dicts.length === 0) return null
+  const columns = computeAvailableColumns(mapping.conceptTables ?? [])
+  const match = `c.concept_id = ${Number(conceptId)}`
+  const parts = dicts.map((d) => buildSelectForDict(d, columns, EMPTY_FILTERS, mapping, false, match))
   return `${parts.join(' UNION ALL ')} LIMIT 1`
 }
 
@@ -621,21 +546,27 @@ export function buildConceptFullQuery(
 // Single concept count (for detail panel)
 // ---------------------------------------------------------------------------
 
+/** `concept_id = n`, or its source concept, for one event relation. */
+function conceptMatch(event: ClassRelation, conceptId: number): string {
+  const id = Number(conceptId)
+  return has(event, 'source_concept_id') ? `concept_id = ${id} OR source_concept_id = ${id}` : `concept_id = ${id}`
+}
+
+function dictByKey(mapping: SchemaMapping, dictKey: string): ClassRelation | undefined {
+  return conceptRelations(mapping).find((d) => d.key === dictKey)
+}
+
 export function buildDomainCountQuery(
   mapping: SchemaMapping,
   dictKey: string,
   conceptId: number,
 ): string | null {
-  const eventEntries = getEventTablesForDictionary(mapping, dictKey)
-  if (eventEntries.length === 0) return null
+  const dict = dictByKey(mapping, dictKey)
+  const events = dict ? eventsOf(mapping, dict) : []
+  if (events.length === 0) return null
 
   // Sum across all event tables for this dict
-  const parts: string[] = []
-  for (const { eventTable: et } of eventEntries) {
-    const matchCond = buildConceptMatchCondition(`${qualify(et)}`, et, String(conceptId))
-    parts.push(`SELECT COUNT(*)::INTEGER AS cnt FROM ${qualify(et)} WHERE ${matchCond}`)
-  }
-
+  const parts = events.map((e) => `SELECT COUNT(*)::INTEGER AS cnt FROM ${e.name} WHERE ${conceptMatch(e, conceptId)}`)
   if (parts.length === 1) return parts[0]
   return `SELECT SUM(cnt)::INTEGER AS cnt FROM (${parts.join(' UNION ALL ')}) _counts`
 }
@@ -644,27 +575,30 @@ export function buildDomainCountQuery(
 // Value distribution & histogram (unchanged logic, generic interface)
 // ---------------------------------------------------------------------------
 
+/** Event relations of a dictionary that record a numeric value. */
+function valuedEvents(mapping: SchemaMapping, dictKey: string): ClassRelation[] {
+  const dict = dictByKey(mapping, dictKey)
+  return dict ? eventsOf(mapping, dict).filter((e) => has(e, 'value_number')) : []
+}
+
 /**
  * The concept's values, gathered from EVERY event table of the dictionary that
  * records one.
  *
  * A dictionary usually spans several tables (measurement, observation…), and
  * which of them holds a given concept is a property of the data, not of the
- * mapping. Reading only the first one that declares a `valueColumn` — the order
- * `Object.entries` happens to yield — reported "0 non-null values" and empty
- * min/max/mean for every concept living in another table.
+ * mapping. Reading only the first one that declares a value reported "0
+ * non-null values" and empty min/max/mean for every concept living in another
+ * table.
  */
 function valueSourceUnion(
   mapping: SchemaMapping,
   dictKey: string,
   conceptId: number,
 ): string | null {
-  const parts = getEventTablesForDictionary(mapping, dictKey)
-    .filter((e) => e.eventTable.valueColumn)
-    .map(({ eventTable: et }) => {
-      const matchCond = buildConceptMatchCondition(`${qualify(et)}`, et, String(conceptId))
-      return `SELECT "${et.valueColumn}" AS v FROM ${qualify(et)} WHERE (${matchCond}) AND "${et.valueColumn}" IS NOT NULL`
-    })
+  const parts = valuedEvents(mapping, dictKey).map(
+    (e) => `SELECT value_number AS v FROM ${e.name} WHERE (${conceptMatch(e, conceptId)}) AND value_number IS NOT NULL`,
+  )
   return parts.length === 0 ? null : parts.join(' UNION ALL ')
 }
 
@@ -736,7 +670,7 @@ ORDER BY 1`
 // Utilities
 // ---------------------------------------------------------------------------
 
-/** Check if any event table for a dictionary has a valueColumn. */
+/** Whether any event table of a dictionary records a numeric value. */
 export function hasValueColumnForDict(mapping: SchemaMapping, dictKey: string): boolean {
-  return getEventTablesForDictionary(mapping, dictKey).some((e) => !!e.eventTable.valueColumn)
+  return valuedEvents(mapping, dictKey).length > 0
 }

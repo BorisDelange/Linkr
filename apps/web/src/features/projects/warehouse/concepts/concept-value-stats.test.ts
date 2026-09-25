@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { buildValueDistributionQuery, buildValueHistogramQuery } from './concept-queries'
 import { isFreshCachedStats, HISTOGRAM_VARIANT, type ConceptStats } from './use-concepts'
 import type { SchemaMapping } from '@/types/schema-mapping'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 
 // A dictionary spans several event tables, and which one holds a given concept
 // is a property of the DATA, not of the mapping. Reading only the first table
@@ -31,15 +32,17 @@ const MAPPING: SchemaMapping = {
 describe('buildValueDistributionQuery', () => {
   it('reads every event table of the dictionary, not just the first', () => {
     const sql = buildValueDistributionQuery(MAPPING, 'omop', 3024171)!
-    expect(sql).toContain('FROM "observation"')
-    expect(sql).toContain('FROM "measurement"')
+    expect(sql).toContain('FROM linkr_event_observation')
+    expect(sql).toContain('FROM linkr_event_measurement')
     expect(sql).toContain('UNION ALL')
   })
 
   it('matches the concept on both the concept and source-concept columns', () => {
     const sql = buildValueDistributionQuery(MAPPING, 'omop', 3024171)!
-    expect(sql).toContain('measurement_concept_id')
-    expect(sql).toContain('measurement_source_concept_id')
+    expect(sql).toContain('concept_id = 3024171 OR source_concept_id = 3024171')
+    const full = withClassRelations(sql, MAPPING)
+    expect(full).toContain('e."measurement_concept_id" AS concept_id')
+    expect(full).toContain('e."measurement_source_concept_id" AS source_concept_id')
   })
 
   it('aggregates over the union rather than one table', () => {
@@ -64,7 +67,7 @@ describe('buildValueDistributionQuery', () => {
       eventTables: { measurement: MAPPING.eventTables!.measurement },
     } as unknown as SchemaMapping
     const sql = buildValueDistributionQuery(one, 'omop', 3024171)!
-    expect(sql).toContain('FROM "measurement"')
+    expect(sql).toContain('FROM linkr_event_measurement')
     expect(sql).not.toContain('UNION ALL')
   })
 })
@@ -72,8 +75,8 @@ describe('buildValueDistributionQuery', () => {
 describe('buildValueHistogramQuery', () => {
   it('bins values from every event table of the dictionary', () => {
     const sql = buildValueHistogramQuery(MAPPING, 'omop', 3024171)!
-    expect(sql).toContain('FROM "observation"')
-    expect(sql).toContain('FROM "measurement"')
+    expect(sql).toContain('FROM linkr_event_observation')
+    expect(sql).toContain('FROM linkr_event_measurement')
     expect(sql).toContain('UNION ALL')
   })
 

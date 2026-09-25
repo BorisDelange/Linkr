@@ -95,6 +95,15 @@ describe('buildCachePageQuery filters', () => {
     )
     expect(sql).toContain('ORDER BY "record_count" DESC')
   })
+
+  it('ranks on the code only when the output has a code column', () => {
+    // MIMIC d_items has no code: naming concept_code in the ORDER BY made the
+    // whole search fail to bind.
+    const noCode = buildCachePageQuery({ _searchFuzzy: 'heart rate' }, COLS, 0, 50, null)
+    expect(noCode).not.toContain('concept_code')
+    const withCode = [...COLS, { id: 'concept_code', source: 'code', filterable: false } as ColumnDescriptor]
+    expect(buildCachePageQuery({ _searchFuzzy: 'heart rate' }, withCode, 0, 50, null)).toContain('concept_code')
+  })
 })
 
 describe('computeAvailableColumns ordering', () => {
