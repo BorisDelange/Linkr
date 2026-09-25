@@ -4,6 +4,7 @@ import type { DqCustomCheck } from '@/types'
 import { qualify, tableListHas } from '@/lib/schema-helpers'
 import { quoteTableRef } from '@/lib/format-helpers'
 import { classRelation, classRelations, eventRelations, has as mapped, type ClassRelation } from '@/lib/schema-classes/relations'
+import { CLASS_CONTRACTS } from '@/lib/schema-classes/contracts'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -150,7 +151,7 @@ function ageAt(patient: ClassRelation, refDate: string): string | null {
     : byYear
 }
 
-function generateSchemaChecks(
+export function generateSchemaChecks(
   mapping: SchemaMapping,
   discovered: readonly string[],
 ): DqCheck[] {
@@ -344,6 +345,55 @@ function generateSchemaChecks(
             COUNT(DISTINCT e.patient_id) AS patients_with_records
           FROM ${event.name} e
         ) sub
+      `,
+    })
+  }
+
+  // --- Validity: each relation honours its contract ---
+  // A relation that leaves a required column empty (a visit without a start, an
+  // event without a concept) is read as missing by every page — counted here,
+  // whatever its SQL does. Its source table must exist for the relation to run.
+  for (const rel of classRelations(mapping)) {
+    if (!usable(rel)) continue
+    const required = CLASS_CONTRACTS[rel.cls].filter((c) => c.required).map((c) => c.name)
+    checks.push({
+      id: `schema_relation_contract_${rel.name}`,
+      name: 'relationContract',
+      description: `${rel.name} fills its required columns (${required.join(', ')})`,
+      category: 'validity',
+      severity: 'error',
+      level: 'table',
+      source: 'schema',
+      tableName: tableOf(rel),
+      threshold: 0,
+      sql: `
+        SELECT COUNT(*) FILTER (WHERE ${required.map((c) => `${c} IS NULL`).join(' OR ')})::BIGINT AS violated_rows,
+               COUNT(*)::BIGINT AS total_rows
+        FROM ${rel.name}
+      `,
+    })
+  }
+
+  // --- Uniqueness: one row per id, at each relation's grain ---
+  const GRAIN_ID: Partial<Record<ClassRelation['cls'], string>> = {
+    patient: 'patient_id', visit: 'visit_id', visit_detail: 'visit_detail_id', note: 'note_id', concept: 'concept_id',
+  }
+  for (const rel of classRelations(mapping)) {
+    const id = GRAIN_ID[rel.cls]
+    if (!id || !usable(rel)) continue
+    checks.push({
+      id: `schema_relation_unique_${rel.name}`,
+      name: 'relationUniqueId',
+      description: `${rel.name}: one row per ${id}`,
+      category: 'uniqueness',
+      severity: 'error',
+      level: 'table',
+      source: 'schema',
+      tableName: tableOf(rel),
+      threshold: 0,
+      sql: `
+        SELECT (COUNT(*) - COUNT(DISTINCT ${id}))::BIGINT AS violated_rows, COUNT(*)::BIGINT AS total_rows
+        FROM ${rel.name}
       `,
     })
   }
