@@ -982,8 +982,10 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   )
 
   const onWheel = useCallback(
-    (e: React.WheelEvent<HTMLCanvasElement>) => {
-      const rect = e.currentTarget.getBoundingClientRect()
+    (e: WheelEvent) => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
       const px = e.clientX - rect.left
       const py = e.clientY - rect.top
       const l = layoutRef.current
@@ -995,28 +997,38 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         return
       }
 
-      e.preventDefault()
       if (hitRange(px, py)) {
+        e.preventDefault()
         panBy(e.deltaY > 0 ? 0.15 : -0.15)
         return
       }
       if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault()
         panBy((e.shiftKey ? e.deltaY : e.deltaX) > 0 ? 0.15 : -0.15)
         return
       }
       // Over the plot a plain wheel scrolls the row under the pointer, exactly
       // as it does in the gutter beside it — the two halves of a row are one
       // thing, and zooming on scroll fought every attempt to reach a concept
-      // further down the group. Zoom keeps the modifier, as maps do.
+      // further down the group. Zoom keeps the modifier, as maps do. A row with
+      // nothing to scroll leaves the wheel to the page.
       if (!e.ctrlKey && !e.metaKey) {
-        if (scrollGroupAt(py, e.deltaY)) return
+        if (scrollGroupAt(py, e.deltaY)) e.preventDefault()
         return
       }
+      // Ctrl+wheel is also what a trackpad pinch emits; without this the
+      // browser zooms the whole page along with the chart.
+      e.preventDefault()
       const centre = msAt(px)
       if (centre != null) zoomBy(e.deltaY > 0 ? 1.25 : 0.8, centre)
     },
     [view, msAt, zoomBy, panBy, hitRange, scrollGroupAt],
   )
+
+  const onWheelRef = useRef(onWheel)
+  useEffect(() => {
+    onWheelRef.current = onWheel
+  }, [onWheel])
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1236,6 +1248,16 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           ? t('patient_data.overview_no_data')
           : null
 
+  const hasCanvas = !message
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!hasCanvas || !canvas) return
+    // React registers wheel listeners as passive, where preventDefault is ignored.
+    const listener = (e: WheelEvent) => onWheelRef.current(e)
+    canvas.addEventListener('wheel', listener, { passive: false })
+    return () => canvas.removeEventListener('wheel', listener)
+  }, [hasCanvas])
+
   // The wrapper is ALWAYS rendered, even for the messages: it carries the ref
   // the ResizeObserver attaches to on mount. Returning a bare message instead
   // left that ref null, so the observer never attached and the canvas kept a
@@ -1255,7 +1277,6 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           ref={canvasRef}
           tabIndex={0}
           className="absolute left-0 top-0 block outline-none"
-          onWheel={onWheel}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
