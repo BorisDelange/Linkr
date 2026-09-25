@@ -53,7 +53,7 @@ import { ExportAtlasDialog } from './atlas/ExportAtlasDialog'
 import { formatDateTime } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import type { CohortLevel, CriteriaGroupNode } from '@/types'
-import { qualify } from '@/lib/schema-helpers'
+import { classRelation } from '@/lib/schema-classes/relations'
 import { ProjectCohortHost, useCohortHost, useCohortSource } from './cohort-host'
 
 const levelOptions: { value: CohortLevel; labelKey: string }[] = [
@@ -131,10 +131,9 @@ export function CohortBuilder() {
   // Load min/max visit dates for period criteria defaults
   const [visitDateRange, setVisitDateRange] = useState<{ minDate: string; maxDate: string } | undefined>()
   useEffect(() => {
-    if (!activeSource || !mapping?.visitTable) return
-    const vt = mapping.visitTable
-    if (!vt.startDateColumn) return
-    const sql = `SELECT MIN("${vt.startDateColumn}")::DATE::TEXT AS min_date, MAX("${vt.startDateColumn}")::DATE::TEXT AS max_date FROM ${qualify(vt)}`
+    const visit = mapping ? classRelation(mapping, 'visit') : undefined
+    if (!activeSource || !visit) return
+    const sql = `SELECT MIN(start_datetime)::DATE::TEXT AS min_date, MAX(start_datetime)::DATE::TEXT AS max_date FROM ${visit.name}`
     engine.queryDataSource(activeSource.id, sql).then((rows) => {
       if (rows[0]?.min_date && rows[0]?.max_date) {
         setVisitDateRange({

@@ -19,7 +19,8 @@ import {
 } from '@/components/ui/select'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import type { CareSiteCriteriaConfig, SchemaMapping } from '@/types'
-import { qualify, qualifyIn } from '@/lib/schema-helpers'
+import { careSiteColumn } from '@/lib/duckdb/cohort-query'
+import { classRelation } from '@/lib/schema-classes/relations'
 
 interface CareSiteCriteriaFormProps {
   config: CareSiteCriteriaConfig
@@ -203,20 +204,10 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
   )
 }
 
+/** The values the criterion can match, read from the column it compares with. */
 function buildCareSiteQuery(level: 'visit' | 'visit_detail', mapping: SchemaMapping): string | null {
-  if (level === 'visit') {
-    const vt = mapping.visitTable
-    if (!vt?.careSiteColumn || !vt?.table) return null
-    if (vt.careSiteNameTable && vt.careSiteNameIdColumn && vt.careSiteNameColumn) {
-      return `SELECT DISTINCT "${vt.careSiteNameColumn}" AS care_site_label FROM ${qualifyIn(vt, vt.careSiteNameTable)} WHERE "${vt.careSiteNameIdColumn}" IN (SELECT DISTINCT "${vt.careSiteColumn}" FROM ${qualify(vt)} WHERE "${vt.careSiteColumn}" IS NOT NULL) ORDER BY 1`
-    }
-    return `SELECT DISTINCT "${vt.careSiteColumn}" AS care_site_label FROM ${qualify(vt)} WHERE "${vt.careSiteColumn}" IS NOT NULL ORDER BY 1`
-  } else {
-    const vdt = mapping.visitDetailTable
-    if (!vdt?.unitColumn || !vdt?.table) return null
-    if (vdt.unitNameTable && vdt.unitNameIdColumn && vdt.unitNameColumn) {
-      return `SELECT DISTINCT "${vdt.unitNameColumn}" AS care_site_label FROM ${qualifyIn(vdt, vdt.unitNameTable)} WHERE "${vdt.unitNameIdColumn}" IN (SELECT DISTINCT "${vdt.unitColumn}" FROM ${qualify(vdt)} WHERE "${vdt.unitColumn}" IS NOT NULL) ORDER BY 1`
-    }
-    return `SELECT DISTINCT "${vdt.unitColumn}" AS care_site_label FROM ${qualify(vdt)} WHERE "${vdt.unitColumn}" IS NOT NULL ORDER BY 1`
-  }
+  const rel = classRelation(mapping, level)
+  const column = careSiteColumn(rel)
+  if (!rel || !column) return null
+  return `SELECT DISTINCT ${column} AS care_site_label FROM ${rel.name} WHERE ${column} IS NOT NULL ORDER BY 1`
 }
