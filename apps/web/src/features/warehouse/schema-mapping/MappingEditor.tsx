@@ -1,8 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, X, Code, Table2 } from 'lucide-react'
+import { Plus, X, Code, Table2, Trash2 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -42,6 +43,9 @@ export interface MappingEditorProps {
   paramsSlot?: ReactNode
   /** Whether a relation may be removed; an override cannot drop a preset's one. */
   canRemove?: (specKey: string) => boolean
+  /** Saves a relation's SQL at once, outside edit mode: the SQL dialog stays
+   *  editable whenever the user may write, rather than showing a locked editor. */
+  persist?: (mapping: SchemaMapping) => void
 }
 
 /** Blocks two by two from xl up; side by side they share a height. */
@@ -59,7 +63,7 @@ const SINGLETONS: Record<'patient' | 'visit' | 'visitDetail' | 'note', ClassName
  * grouped by clinical subject, plus the parameters relations read. Used by the
  * schema preset page and, in override mode, by a database's Mapping tab.
  */
-export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewSources = [], relationExtra, paramsSlot, canRemove }: MappingEditorProps) {
+export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewSources = [], relationExtra, paramsSlot, canRemove, persist }: MappingEditorProps) {
   const { t, i18n } = useTranslation()
   const [tab, setTab] = useState<TabId>('all')
   const [sqlFor, setSqlFor] = useState<string | null>(null)
@@ -122,9 +126,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
       spec,
       title,
       removable(key) && key !== 'patient' ? (
-        <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setSpec(key, undefined)} aria-label={t('common.remove')}>
-          <X size={12} />
-        </Button>
+        <RemoveRelationButton name={title} className="ml-auto" onConfirm={() => setSpec(key, undefined)} />
       ) : undefined,
       children?.(spec),
     )
@@ -152,9 +154,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
         />
       )}
       {removable(`${list}.${spec.label}`) && (
-        <Button variant="ghost" size="icon-sm" onClick={() => setSpec(`${list}.${spec.label}`, undefined)} aria-label={t('common.remove')}>
-          <X size={12} />
-        </Button>
+        <RemoveRelationButton name={spec.label} onConfirm={() => setSpec(`${list}.${spec.label}`, undefined)} />
       )}
     </div>
   )
@@ -261,9 +261,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
                 className="h-6 w-32 font-mono text-xs"
                 label={t('schema_mapping.key')}
               />
-              <Button variant="ghost" size="icon-sm" onClick={() => setSpec(`concepts.${spec.key}`, undefined)} aria-label={t('common.remove')}>
-                <X size={12} />
-              </Button>
+              <RemoveRelationButton name={spec.key} onConfirm={() => setSpec(`concepts.${spec.key}`, undefined)} />
             </div>
           ) : undefined,
         ),
@@ -374,8 +372,8 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
           specKey={sqlFor}
           spec={sqlSpec}
           mapping={mapping}
-          readOnly={readOnly}
-          onChange={(s) => setSpec(sqlFor, s)}
+          readOnly={readOnly && !persist}
+          onChange={(s) => (readOnly ? persist?.(withSpec(mapping, sqlFor, s)) : setSpec(sqlFor, s))}
           previewSources={previewSources}
         />
       )}
@@ -413,7 +411,7 @@ export function ParamsEditor({
 
   return (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">{t('schema_mapping.params_hint', { example: '{{name}}' })}</p>
+      <p className="text-xs text-muted-foreground">{t('schema_mapping.params_hint', { example: '{{route_code}}' })}</p>
       {names.length === 0 && <p className="text-xs text-muted-foreground">{t('schema_mapping.none_yet')}</p>}
       {names.map((name) => {
         const p = params[name]
@@ -564,5 +562,33 @@ function CommitInput({ value, onCommit, className, label }: { value: string; onC
       className={className}
       aria-label={label}
     />
+  )
+}
+
+/** Removes a relation block, after a confirmation: the block may hold a whole
+ *  hand-written query. */
+function RemoveRelationButton({ name, onConfirm, className }: { name: string; onConfirm: () => void; className?: string }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Button variant="ghost" size="icon-sm" className={className} onClick={() => setOpen(true)} aria-label={t('common.delete')}>
+        <Trash2 size={12} />
+      </Button>
+      <DialogShell
+        open={open}
+        onOpenChange={setOpen}
+        title={t('schema_mapping.remove_title')}
+        description={t('schema_mapping.remove_description', { name })}
+        confirmLabel={t('common.delete')}
+        destructive
+        onConfirm={() => {
+          onConfirm()
+          setOpen(false)
+        }}
+      >
+        {null}
+      </DialogShell>
+    </>
   )
 }

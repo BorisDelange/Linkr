@@ -173,6 +173,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
         previewSources={[{ id: source.id, label: localized(source.name, i18n.language) }]}
         relationExtra={relationExtra}
         canRemove={(specKey) => !specAt(base, specKey)}
+        persist={canWrite && !editing ? (m) => void save(diffOverrides(base, m, overrides)) : undefined}
         paramsSlot={
           <ParamsEditor
             params={base.params ?? {}}

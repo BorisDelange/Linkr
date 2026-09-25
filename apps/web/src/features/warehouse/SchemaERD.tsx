@@ -13,10 +13,12 @@ import {
   useReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Table2, User, Stethoscope, BookOpen, Activity } from 'lucide-react'
+import { Table2, User, Stethoscope, BookOpen, Activity, Pill } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import type { RelationSpec, SchemaMapping } from '@/types/schema-mapping'
 import { fieldRef } from '@/lib/schema-classes/spec'
+import type { ClassName } from '@/lib/schema-classes/contracts'
+import { CLASS_TONES } from './schema-mapping/class-tones'
 
 // ---------------------------------------------------------------------------
 // Custom node: ERD table card with per-column handles + tooltips
@@ -36,22 +38,16 @@ interface ColumnDef {
 interface ERDNodeData {
   [key: string]: unknown
   label: string
-  tableType: 'patient' | 'visit' | 'concept' | 'event'
+  tableType: ClassName
   columns: ColumnDef[]
 }
 
-const COLORS: Record<string, { bg: string; border: string; headerBg: string; icon: string }> = {
-  patient: { bg: 'bg-blue-50 dark:bg-blue-950', border: 'border-blue-400 dark:border-blue-600', headerBg: 'bg-blue-100 dark:bg-blue-900', icon: 'text-blue-600 dark:text-blue-400' },
-  visit: { bg: 'bg-teal-50 dark:bg-teal-950', border: 'border-teal-400 dark:border-teal-600', headerBg: 'bg-teal-100 dark:bg-teal-900', icon: 'text-teal-600 dark:text-teal-400' },
-  concept: { bg: 'bg-amber-50 dark:bg-amber-950', border: 'border-amber-400 dark:border-amber-600', headerBg: 'bg-amber-100 dark:bg-amber-900', icon: 'text-amber-600 dark:text-amber-400' },
-  event: { bg: 'bg-rose-50 dark:bg-rose-950', border: 'border-rose-400 dark:border-rose-600', headerBg: 'bg-rose-100 dark:bg-rose-900', icon: 'text-rose-600 dark:text-rose-400' },
-}
-
-const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+const ICONS: Partial<Record<ClassName, React.ComponentType<{ size?: number; className?: string }>>> = {
   patient: User,
   visit: Stethoscope,
   concept: BookOpen,
   event: Activity,
+  drug: Pill,
 }
 
 const ROLE_BADGES: Record<string, string> = {
@@ -62,7 +58,7 @@ const ROLE_BADGES: Record<string, string> = {
 }
 
 function ERDTableNode({ data }: NodeProps<Node<ERDNodeData>>) {
-  const colors = COLORS[data.tableType] ?? COLORS.event
+  const colors = CLASS_TONES[data.tableType].node
   const Icon = ICONS[data.tableType] ?? Table2
 
   return (
@@ -226,8 +222,8 @@ function buildERDGraph(mapping: SchemaMapping): { nodes: Node<ERDNodeData>[]; ed
       zIndex: 1,
       data: {
         label: ev.from ? `${ev.from.table} (${ev.label})` : ev.label,
-        tableType: 'event',
-        columns: relationColumns('event', ev, { patient_id: patientTarget, concept_id: conceptTarget }),
+        tableType: i < (mapping.events?.length ?? 0) ? 'event' : 'drug',
+        columns: relationColumns(i < (mapping.events?.length ?? 0) ? 'event' : 'drug', ev, { patient_id: patientTarget, concept_id: conceptTarget }),
       },
     })
     if (dict) {

@@ -653,7 +653,12 @@ function SchemaDetailView({
           ) : isEditing && editMapping ? (
             <MappingEditor mapping={editMapping} onChange={setEditMapping} previewSources={previewSources} />
           ) : (
-            <MappingEditor mapping={displayMapping} readOnly previewSources={previewSources} />
+            <MappingEditor
+              mapping={displayMapping}
+              readOnly
+              previewSources={previewSources}
+              persist={canWrite ? (m) => void onSave(schemaId, m) : undefined}
+            />
           )}
         </TabsContent>
 

@@ -4,7 +4,6 @@ import { Loader2, Play, CheckCircle2, AlertTriangle, XCircle } from 'lucide-reac
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { GeneratedSqlEditor } from '@/components/editor/GeneratedSqlEditor'
@@ -169,7 +168,7 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
           )}
           {error && tab === 'check' && <p className="whitespace-pre-wrap text-xs text-destructive">{error}</p>}
           {report && (
-            <ContractReportView report={report} recorded={custom && !readOnly} />
+            <ContractReportView cls={cls} report={report} recorded={custom && !readOnly} />
           )}
         </TabsContent>
 
@@ -196,74 +195,92 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
 }
 
 /**
- * The columns the relation must return, beside the editor: what to name each
- * `AS …` and what type it should have. After a check, each says whether the SQL
- * fills it.
+ * The columns the relation must return: what to name each `AS …` and what type
+ * it should have. After a check, each says whether the SQL fills it. Shown
+ * beside the editor and, wider, as the check's own report.
  */
-function ContractPanel({ cls, report }: { cls: ClassName; report: ContractReport | null }) {
+function ContractList({ cls, report, wide }: { cls: ClassName; report: ContractReport | null; wide?: boolean }) {
   const { t } = useTranslation()
   const mismatch = new Map(report?.typeMismatches.map((m) => [m.column, m.type]) ?? [])
+  return (
+    <ul className={cn('space-y-0.5', wide && 'max-w-xl')}>
+      {CLASS_CONTRACTS[cls].map((col) => {
+        const status = !report
+          ? null
+          : mismatch.has(col.name)
+            ? 'mismatch'
+            : report.filled.includes(col.name)
+              ? 'filled'
+              : report.missingRequired.includes(col.name)
+                ? 'missing'
+                : 'empty'
+        return (
+          <li key={col.name} className="flex items-center gap-1.5 text-xs">
+            {status === 'filled' ? (
+              <CheckCircle2 size={11} className="shrink-0 text-green-600" />
+            ) : status === 'missing' ? (
+              <XCircle size={11} className="shrink-0 text-destructive" />
+            ) : status === 'mismatch' ? (
+              <AlertTriangle size={11} className="shrink-0 text-amber-600" />
+            ) : (
+              <span className="size-[11px] shrink-0" />
+            )}
+            <code className={cn('truncate', col.required && 'font-semibold', status === 'empty' && 'text-muted-foreground')}>{col.name}</code>
+            {col.required && <RequiredMark />}
+            {wide && status && (
+              <span className={cn('text-[10px]', status === 'missing' ? 'text-destructive' : status === 'mismatch' ? 'text-amber-600' : 'text-muted-foreground')}>
+                {t(`schema_mapping.contract_status_${status}`)}
+              </span>
+            )}
+            <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+              {mismatch.has(col.name) ? `${mismatch.get(col.name)} ≠ ` : ''}
+              {t(`schema_mapping.contract_type_${col.kind}`)}
+            </span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function ContractPanel({ cls, report }: { cls: ClassName; report: ContractReport | null }) {
+  const { t } = useTranslation()
   return (
     <aside className="flex w-64 shrink-0 flex-col border-l">
       <div className="border-b px-3 py-1.5">
         <SectionLabel>{t('schema_mapping.contract_title')}</SectionLabel>
         <p className="mt-0.5 text-[10px] text-muted-foreground">{t('schema_mapping.contract_help')}</p>
       </div>
-      <ul className="min-h-0 flex-1 space-y-0.5 overflow-auto px-3 py-2">
-        {CLASS_CONTRACTS[cls].map((col) => {
-          const status = !report
-            ? null
-            : mismatch.has(col.name)
-              ? 'mismatch'
-              : report.filled.includes(col.name)
-                ? 'filled'
-                : report.missingRequired.includes(col.name)
-                  ? 'missing'
-                  : null
-          return (
-            <li key={col.name} className="flex items-center gap-1.5 text-xs">
-              {status === 'filled' ? (
-                <CheckCircle2 size={11} className="shrink-0 text-green-600" />
-              ) : status === 'missing' ? (
-                <XCircle size={11} className="shrink-0 text-destructive" />
-              ) : status === 'mismatch' ? (
-                <AlertTriangle size={11} className="shrink-0 text-amber-600" />
-              ) : (
-                <span className="size-[11px] shrink-0" />
-              )}
-              <code className={cn('truncate', col.required && 'font-semibold')}>{col.name}</code>
-              {col.required && <RequiredMark />}
-              <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-                {mismatch.has(col.name) ? `${mismatch.get(col.name)} ≠ ` : ''}
-                {t(`schema_mapping.contract_type_${col.kind}`)}
-              </span>
-            </li>
-          )
-        })}
-      </ul>
+      <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+        <ContractList cls={cls} report={report} />
+      </div>
     </aside>
   )
 }
 
-function ContractReportView({ report, recorded }: { report: ContractReport; recorded: boolean }) {
+function ContractReportView({ cls, report, recorded }: { cls: ClassName; report: ContractReport; recorded: boolean }) {
   const { t } = useTranslation()
   const ok = report.missingRequired.length === 0 && report.typeMismatches.length === 0
   return (
-    <div className="space-y-2 text-xs">
+    <div className="space-y-3 text-xs">
       <div className="flex items-center gap-2">
         {ok ? <CheckCircle2 size={14} className="text-green-600" /> : <XCircle size={14} className="text-destructive" />}
         <span className="font-medium">{ok ? t('schema_mapping.check_ok') : t('schema_mapping.check_failed')}</span>
       </div>
-      <Line label={t('schema_mapping.check_filled')} items={report.filled} />
-      {report.missingRequired.length > 0 && <Line label={t('schema_mapping.check_missing')} items={report.missingRequired} tone="error" />}
-      {report.typeMismatches.length > 0 && (
-        <Line
-          label={t('schema_mapping.check_types')}
-          items={report.typeMismatches.map((m) => `${m.column}: ${m.type} (${t(`schema_mapping.kind_${m.expected}`)})`)}
-          tone="error"
-        />
+      <ContractList cls={cls} report={report} wide />
+      {report.unknown.length > 0 && (
+        <div className="space-y-0.5">
+          <p className="text-muted-foreground">{t('schema_mapping.check_unknown')}</p>
+          <ul className="space-y-0.5">
+            {report.unknown.map((c) => (
+              <li key={c} className="flex items-center gap-1.5">
+                <AlertTriangle size={11} className="shrink-0 text-amber-600" />
+                <code>{c}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
-      {report.unknown.length > 0 && <Line label={t('schema_mapping.check_unknown')} items={report.unknown} tone="warn" />}
       {report.globalWindow && (
         <p className="flex items-start gap-1.5 text-amber-600 dark:text-amber-400">
           <AlertTriangle size={12} className="mt-0.5 shrink-0" />
@@ -271,23 +288,6 @@ function ContractReportView({ report, recorded }: { report: ContractReport; reco
         </p>
       )}
       {recorded && <p className="text-muted-foreground">{t('schema_mapping.check_recorded')}</p>}
-    </div>
-  )
-}
-
-function Line({ label, items, tone }: { label: string; items: string[]; tone?: 'error' | 'warn' }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      <span className="mr-1 text-muted-foreground">{label}</span>
-      {items.map((i) => (
-        <Badge
-          key={i}
-          variant="outline"
-          className={tone === 'error' ? 'border-destructive/50 text-destructive font-mono' : tone === 'warn' ? 'border-amber-400/50 text-amber-600 dark:text-amber-400 font-mono' : 'font-mono'}
-        >
-          {i}
-        </Badge>
-      ))}
     </div>
   )
 }

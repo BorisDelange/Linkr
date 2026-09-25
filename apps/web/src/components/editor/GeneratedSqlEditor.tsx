@@ -1,6 +1,6 @@
 import { useState, useCallback, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Copy, Check, RotateCcw } from 'lucide-react'
+import { Copy, Check, RotateCcw, Save, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CodeEditor } from '@/components/editor/CodeEditor'
@@ -22,6 +22,7 @@ interface GeneratedSqlEditorProps {
  * The "generated, then editable" SQL editor (Cohort pattern): shows the SQL a
  * form generates, lets the user edit it, and saves the edit (Cmd+S) as
  * `customSql` — marked Modified, with a Reset back to the generated SQL.
+ * Save and Cancel (back to the last saved text) sit in the toolbar too.
  *
  * Used by the cohort SQL tab and by schema-mapping relations; the overwrite
  * prompt when the form changes under an edit belongs to the caller, which knows
@@ -58,6 +59,11 @@ export function GeneratedSqlEditor({
     onCustomSqlChange(editorValue === (generatedSql ?? '') ? null : editorValue)
   }, [editorValue, generatedSql, onCustomSqlChange])
 
+  // Back to the last saved text, unlike Reset, which goes back to the generated SQL.
+  const handleCancel = useCallback(() => {
+    setEditorValue(customSql ?? generatedSql ?? '')
+  }, [customSql, generatedSql])
+
   const handleReset = useCallback(() => {
     onCustomSqlChange(null)
     setEditorValue(generatedSql ?? '')
@@ -82,6 +88,18 @@ export function GeneratedSqlEditor({
         )}
         <div className="flex-1" />
         {toolbarExtra}
+        {!readOnly && (
+          <>
+            <Button variant="ghost" size="sm" onClick={handleCancel} disabled={!hasUnsavedChanges} className="h-6 gap-1 text-xs">
+              <Undo2 size={12} />
+              {t('common.cancel')}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleSave} disabled={!hasUnsavedChanges} className="h-6 gap-1 text-xs">
+              <Save size={12} />
+              {t('common.save')}
+            </Button>
+          </>
+        )}
         {isModified && !readOnly && (
           <Button variant="ghost" size="sm" onClick={handleReset} className="h-6 gap-1 text-xs">
             <RotateCcw size={12} />

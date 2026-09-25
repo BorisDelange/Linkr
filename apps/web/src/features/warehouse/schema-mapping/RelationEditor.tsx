@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { Code, Plus, X, FunctionSquare, Columns3, Quote } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { DraftInput, DraftTextarea } from './draft-input'
 import { Badge } from '@/components/ui/badge'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -22,10 +21,12 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { CLASS_CONTRACTS, type ClassName } from '@/lib/schema-classes/contracts'
-import { CLASS_TONES } from './class-tones'
 import { generatedRelationSql } from '@/lib/schema-classes/relations'
-import { withSpec } from '@/lib/schema-classes/spec'
-import type { FieldSpec, RelationJoin, RelationSpec, RelationTable, SchemaMapping } from '@/types/schema-mapping'
+import { fieldRef, withSpec } from '@/lib/schema-classes/spec'
+import type { FieldSpec, RelationSpec, RelationTable, SchemaMapping } from '@/types/schema-mapping'
+import { CLASS_TONES } from './class-tones'
+import { formEditable, FORM_ALIAS } from './form-editable'
+import { DraftInput, DraftTextarea } from './draft-input'
 
 /** Columns derived by the generator when left unmapped — worth a hint. */
 const DERIVED_HINTS: Record<string, string> = {
@@ -57,10 +58,10 @@ export interface RelationEditorProps {
 }
 
 /**
- * One class relation, read either from the visual form or from SQL (plan §3-4).
- * The form edits `from`, `joins`, `where` and `fields`; the Code button opens
- * the SQL. With custom SQL set, a form edit that changes the generated SQL asks
- * before discarding it — a cosmetic edit never does.
+ * One class relation, from the form or from SQL (plan §3-4). The form maps one
+ * table: its columns onto the contract, constants, a filter. The SQL button
+ * opens the relation's SQL, where everything else is written. With custom SQL
+ * set, a form edit that changes the generated SQL asks before discarding it.
  */
 export function RelationEditor({
   cls,
@@ -80,7 +81,8 @@ export function RelationEditor({
   const { t } = useTranslation()
   const [pending, setPending] = useState<RelationSpec | null>(null)
   const custom = !!spec.customSql?.trim()
-  const sqlOnly = custom && !spec.from
+  const advanced = !custom && !formEditable(spec)
+  const editable = !readOnly && !custom && !advanced
 
   const change = (next: RelationSpec) => {
     if (!onChange) return
@@ -95,14 +97,13 @@ export function RelationEditor({
     onChange(next)
   }
 
-  const aliases = [spec.from, ...(spec.joins ?? [])].filter((x): x is RelationTable => !!x?.alias)
-  const suggestions = aliases.flatMap((a) => (a.table ? (columnsOf(a) ?? []) : []).map((c) => `${a.alias}.${c}`))
+  const from = spec.from ?? { table: '', alias: FORM_ALIAS }
+  const alias = from.alias || FORM_ALIAS
   // One datalist per block, referenced by every field: a copy per field put
   // thousands of <option>s in the DOM once all blocks show.
+  const columns = from.table ? (columnsOf(from) ?? []) : []
   const columnListId = useId()
   const tableListId = useId()
-  const columnList = suggestions.length ? columnListId : undefined
-  const tableList = tableNames.length ? tableListId : undefined
   const contract = CLASS_CONTRACTS[cls]
   const extras = cls === 'concept' ? Object.keys(spec.fields ?? {}).filter((k) => k.startsWith('extra_')) : []
 
@@ -110,15 +111,49 @@ export function RelationEditor({
     const fields = { ...(spec.fields ?? {}) }
     if (value === undefined) delete fields[name]
     else fields[name] = value
-    change({ ...spec, fields })
+    change({ ...spec, from: spec.from ?? from, fields })
   }
+
+  const fieldRows = (rowReadOnly: boolean) => (
+    <div className="space-y-1">
+      {contract.map((col) => (
+        <FieldRow
+          key={col.name}
+          name={col.name}
+          required={col.required}
+          hint={DERIVED_HINTS[col.name] ? t(DERIVED_HINTS[col.name]) : undefined}
+          value={spec.fields?.[col.name]}
+          alias={alias}
+          columnList={columns.length ? columnListId : undefined}
+          readOnly={rowReadOnly}
+          onChange={(v) => setField(col.name, v)}
+        />
+      ))}
+      {extras.map((name) => (
+        <FieldRow
+          key={name}
+          name={name}
+          value={spec.fields?.[name]}
+          alias={alias}
+          columnList={columns.length ? columnListId : undefined}
+          readOnly={rowReadOnly}
+          onChange={(v) => setField(name, v)}
+          onRemove={rowReadOnly ? undefined : () => setField(name, undefined)}
+        />
+      ))}
+      {cls === 'concept' && !rowReadOnly && <AddExtraField onAdd={(name) => setField(`extra_${name}`, '')} taken={extras} />}
+    </div>
+  )
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-md border bg-card">
       <div className={cn('flex items-center gap-2 border-b px-3 py-2', CLASS_TONES[cls].header)}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate text-xs font-medium">{title}</span>
-          {relationName && <code className="truncate text-[10px] text-muted-foreground">{relationName}</code>}
+          {/* Baseline, not centre: the title and the smaller relation name share a line. */}
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-xs font-medium">{title}</span>
+            {relationName && <code className="truncate text-[10px] text-muted-foreground">{relationName}</code>}
+          </span>
           {custom && <CustomSqlDot />}
           {headerExtra}
         </div>
@@ -129,121 +164,75 @@ export function RelationEditor({
       </div>
 
       <div className="space-y-3 px-3 py-2">
-        {!readOnly && (
+        {editable && (
           <>
             <datalist id={columnListId}>
-              {suggestions.map((s) => (
-                <option key={s} value={s} />
+              {columns.map((c) => (
+                <option key={c} value={c} />
               ))}
             </datalist>
             <datalist id={tableListId}>
-              {tableNames.map((s) => (
-                <option key={s} value={s} />
+              {tableNames.map((n) => (
+                <option key={n} value={n} />
               ))}
             </datalist>
           </>
         )}
+
         {custom && (
-          <p className="text-xs text-muted-foreground">
-            {sqlOnly ? t('schema_mapping.defined_in_sql') : t('schema_mapping.sql_overrides_form')}
-          </p>
+          <>
+            <p className="text-xs text-muted-foreground">{t('schema_mapping.defined_in_sql')}</p>
+            <div className="flex flex-wrap gap-1">
+              {(spec.sqlColumns ?? []).map((c) => (
+                <Badge key={c} variant="secondary" className="font-mono">{c}</Badge>
+              ))}
+            </div>
+          </>
         )}
 
-        {!sqlOnly && (
+        {advanced && (
+          <>
+            {!readOnly && <p className="text-xs text-muted-foreground">{t('schema_mapping.advanced_relation')}</p>}
+            <AdvancedSummary spec={spec} />
+            <div className="space-y-1">
+              <SectionLabel>{t('schema_mapping.fields')}</SectionLabel>
+              {fieldRows(true)}
+            </div>
+          </>
+        )}
+
+        {!custom && !advanced && (
           <>
             <TableRow
-              label={t('schema_mapping.from')}
-              table={spec.from ?? { table: '', alias: '' }}
-              tableList={tableList}
-              readOnly={readOnly}
-              onChange={(from) => change({ ...spec, from })}
+              label={t('schema_mapping.table')}
+              table={from}
+              tableList={tableNames.length ? tableListId : undefined}
+              readOnly={!editable}
+              onChange={(next) => change({ ...spec, from: { ...next, alias } })}
             />
 
-            {(spec.joins?.length || !readOnly) && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <SectionLabel>{t('schema_mapping.joins')}</SectionLabel>
-                  {!readOnly && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-5 gap-0.5 px-1.5 text-[10px]"
-                      onClick={() => change({ ...spec, joins: [...(spec.joins ?? []), { type: 'left', table: '', alias: '', on: [['', '']] }] })}
-                    >
-                      <Plus size={9} />
-                      {t('common.add')}
-                    </Button>
-                  )}
-                </div>
-                {(spec.joins ?? []).map((join, i) => (
-                  <JoinRow
-                    key={i}
-                    join={join}
-                    tableList={tableList}
-                    columnList={columnList}
-                    readOnly={readOnly}
-                    onChange={(j) => change({ ...spec, joins: (spec.joins ?? []).map((x, k) => (k === i ? j : x)) })}
-                    onRemove={() => change({ ...spec, joins: (spec.joins ?? []).filter((_, k) => k !== i) })}
-                  />
-                ))}
-              </div>
-            )}
-
-            {(spec.where || !readOnly) && (
+            {(spec.where || editable) && (
               <div className="space-y-1">
                 <SectionLabel>{t('schema_mapping.where')}</SectionLabel>
-                {readOnly ? (
-                  <code className="block whitespace-pre-wrap text-xs">{spec.where}</code>
-                ) : (
+                {editable ? (
                   <DraftTextarea
                     value={spec.where ?? ''}
                     onCommit={(v) => change({ ...spec, where: v || undefined })}
-                    placeholder={t('schema_mapping.where_placeholder', { example: '{{attr_route}}' })}
+                    placeholder={t('schema_mapping.where_placeholder', { example: '{{category}}' })}
                     className="min-h-8 font-mono text-xs"
                     rows={1}
                   />
+                ) : (
+                  <code className="block whitespace-pre-wrap text-xs">{spec.where}</code>
                 )}
               </div>
             )}
 
             <div className="space-y-1">
               <SectionLabel>{t('schema_mapping.fields')}</SectionLabel>
-              <div className="space-y-1">
-                {contract.map((col) => (
-                  <FieldRow
-                    key={col.name}
-                    name={col.name}
-                    required={col.required}
-                    hint={DERIVED_HINTS[col.name] ? t(DERIVED_HINTS[col.name]) : undefined}
-                    value={spec.fields?.[col.name]}
-                    columnList={columnList}
-                    readOnly={readOnly}
-                    onChange={(v) => setField(col.name, v)}
-                  />
-                ))}
-                {extras.map((name) => (
-                  <FieldRow
-                    key={name}
-                    name={name}
-                    value={spec.fields?.[name]}
-                    columnList={columnList}
-                    readOnly={readOnly}
-                    onChange={(v) => setField(name, v)}
-                    onRemove={readOnly ? undefined : () => setField(name, undefined)}
-                  />
-                ))}
-                {cls === 'concept' && !readOnly && <AddExtraField onAdd={(name) => setField(`extra_${name}`, '')} taken={extras} />}
-              </div>
+              {fieldRows(!editable)}
             </div>
           </>
-        )}
-
-        {custom && (
-          <div className="flex flex-wrap gap-1">
-            {(spec.sqlColumns ?? []).map((c) => (
-              <Badge key={c} variant="secondary" className="font-mono">{c}</Badge>
-            ))}
-          </div>
         )}
 
         {children}
@@ -276,22 +265,25 @@ export function RelationEditor({
 // Rows
 // ---------------------------------------------------------------------------
 
-function SuggestInput({
-  value,
-  onChange,
-  list,
-  placeholder,
-  className,
-}: {
-  value: string
-  onChange: (v: string) => void
-  /** Id of the block's datalist. A datalist, not a combobox: a mapping may name
-   *  a column the DDL never listed, and the browser filters as the user types. */
-  list?: string
-  placeholder?: string
-  className?: string
-}) {
-  return <DraftInput value={value} onCommit={onChange} placeholder={placeholder} className={cn('h-7 font-mono text-xs', className)} list={list} />
+/** Where a relation the form cannot edit reads from: its tables and filter. */
+function AdvancedSummary({ spec }: { spec: RelationSpec }) {
+  const { t } = useTranslation()
+  const table = (x: RelationTable) => `${x.schema ? `${x.schema}.` : ''}${x.table} ${x.alias}`
+  return (
+    <div className="space-y-0.5 rounded bg-muted/50 px-2 py-1.5">
+      {spec.from && <code className="block text-xs">FROM {table(spec.from)}</code>}
+      {(spec.joins ?? []).map((j, i) => (
+        <code key={i} className="block text-xs">
+          {j.type.toUpperCase()} JOIN {table(j)} ON {(j.on ?? []).map(([l, r]) => `${l} = ${r}`).join(' AND ')}
+        </code>
+      ))}
+      {spec.where && (
+        <code className="block whitespace-pre-wrap text-xs">
+          {t('schema_mapping.where')}: {spec.where}
+        </code>
+      )}
+    </div>
+  )
 }
 
 function TableRow({
@@ -314,7 +306,7 @@ function TableRow({
         <SectionLabel>{label}</SectionLabel>
         <code className="text-xs">
           {table.schema ? `${table.schema}.` : ''}
-          {table.table} <span className="text-muted-foreground">{table.alias}</span>
+          {table.table}
         </code>
       </div>
     )
@@ -327,99 +319,24 @@ function TableRow({
   return (
     <div className="grid grid-cols-[100px_1fr] items-center gap-2">
       <SectionLabel>{label}</SectionLabel>
-      <div className="grid grid-cols-[1fr_2fr_70px] gap-1">
+      <div className="grid grid-cols-[1fr_2fr] gap-1">
         <DraftInput value={table.schema ?? ''} onCommit={(v) => set({ schema: v })} placeholder={t('schema_mapping.schema')} className="h-7 font-mono text-xs" />
-        <SuggestInput value={table.table ?? ''} onChange={(v) => set({ table: v })} list={tableList} placeholder={t('schema_mapping.table')} />
-        <DraftInput value={table.alias ?? ''} onCommit={(v) => set({ alias: v })} placeholder={t('schema_mapping.alias')} className="h-7 font-mono text-xs" />
+        <DraftInput value={table.table ?? ''} onCommit={(v) => set({ table: v })} list={tableList} placeholder={t('schema_mapping.table')} className="h-7 font-mono text-xs" />
       </div>
     </div>
   )
 }
 
-function JoinRow({
-  join,
-  tableList,
-  columnList,
-  readOnly,
-  onChange,
-  onRemove,
-}: {
-  join: RelationJoin
-  tableList?: string
-  columnList?: string
-  readOnly?: boolean
-  onChange: (j: RelationJoin) => void
-  onRemove: () => void
-}) {
-  const { t } = useTranslation()
-  const on = join.on?.length ? join.on : [['', ''] as [string, string]]
-  if (readOnly) {
-    return (
-      <code className="block text-xs">
-        {join.type.toUpperCase()} JOIN {join.schema ? `${join.schema}.` : ''}{join.table} {join.alias} ON{' '}
-        {on.map(([l, r]) => `${l} = ${r}`).join(' AND ')}
-      </code>
-    )
-  }
-  const setOn = (i: number, side: 0 | 1, v: string) =>
-    onChange({ ...join, on: on.map((pair, k) => (k === i ? (side === 0 ? [v, pair[1]] : [pair[0], v]) : pair)) as [string, string][] })
-  return (
-    <div className="space-y-1 rounded border border-dashed px-2 py-1.5">
-      <div className="flex items-center gap-1">
-        <Select value={join.type} onValueChange={(v) => onChange({ ...join, type: v as RelationJoin['type'] })}>
-          <SelectTrigger className="h-7 w-24 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="left">LEFT</SelectItem>
-            <SelectItem value="inner">INNER</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className="grid flex-1 grid-cols-[1fr_2fr_70px] gap-1">
-          <DraftInput value={join.schema ?? ''} onCommit={(v) => onChange({ ...join, schema: v || undefined })} placeholder={t('schema_mapping.schema')} className="h-7 font-mono text-xs" />
-          <SuggestInput value={join.table ?? ''} onChange={(v) => onChange({ ...join, table: v })} list={tableList} placeholder={t('schema_mapping.table')} />
-          <DraftInput value={join.alias ?? ''} onCommit={(v) => onChange({ ...join, alias: v })} placeholder={t('schema_mapping.alias')} className="h-7 font-mono text-xs" />
-        </div>
-        <Button variant="ghost" size="icon-sm" onClick={onRemove} aria-label={t('common.remove')}>
-          <X size={12} />
-        </Button>
-      </div>
-      {on.map(([l, r], i) => (
-        <div key={i} className="flex items-center gap-1 pl-[100px]">
-          <span className="text-[10px] text-muted-foreground">{i === 0 ? 'ON' : 'AND'}</span>
-          <SuggestInput value={l} onChange={(v) => setOn(i, 0, v)} list={columnList} placeholder="a.column" />
-          <span className="text-xs text-muted-foreground">=</span>
-          <SuggestInput value={r} onChange={(v) => setOn(i, 1, v)} list={columnList} placeholder="b.column" />
-          {on.length > 1 ? (
-            <Button variant="ghost" size="icon-sm" onClick={() => onChange({ ...join, on: on.filter((_, k) => k !== i) })} aria-label={t('common.remove')}>
-              <X size={10} />
-            </Button>
-          ) : (
-            <Button variant="ghost" size="icon-sm" onClick={() => onChange({ ...join, on: [...on, ['', '']] })} aria-label={t('common.add')}>
-              <Plus size={10} />
-            </Button>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
+type FieldMode = 'column' | 'value'
 
-type FieldMode = 'column' | 'expr' | 'value'
-
-const modeOf = (f: FieldSpec | undefined): FieldMode =>
-  f && typeof f === 'object' ? ('expr' in f ? 'expr' : 'value') : 'column'
-
-const textOf = (f: FieldSpec | undefined): string =>
-  f === undefined ? '' : typeof f === 'string' ? f : 'expr' in f ? f.expr : f.value === null ? '' : String(f.value)
-
-const MODE_ICONS: Record<FieldMode, typeof Columns3> = { column: Columns3, expr: FunctionSquare, value: Quote }
+const MODE_ICONS = { column: Columns3, expr: FunctionSquare, value: Quote } as const
 
 function FieldRow({
   name,
   required,
   hint,
   value,
+  alias,
   columnList,
   readOnly,
   onChange,
@@ -429,15 +346,25 @@ function FieldRow({
   required?: boolean
   hint?: string
   value: FieldSpec | undefined
+  /** The form's table alias: a column is stored as `alias.column`, shown bare. */
+  alias: string
   columnList?: string
   readOnly?: boolean
   onChange: (v: FieldSpec | undefined) => void
   onRemove?: () => void
 }) {
   const { t } = useTranslation()
-  const mode = modeOf(value)
-  const text = textOf(value)
-  const Icon = MODE_ICONS[mode]
+  const kind: keyof typeof MODE_ICONS = value && typeof value === 'object' ? ('expr' in value ? 'expr' : 'value') : 'column'
+  const ref = fieldRef(value)
+  const text =
+    value === undefined
+      ? ''
+      : typeof value === 'string'
+        ? ref && ref.alias.toLowerCase() === alias.toLowerCase() ? ref.column : value
+        : 'expr' in value
+          ? value.expr
+          : value.value == null ? '' : String(value.value)
+  const Icon = MODE_ICONS[kind]
 
   const label = (
     <div className="flex min-w-0 items-center gap-1">
@@ -459,20 +386,20 @@ function FieldRow({
   if (readOnly) {
     if (value === undefined) return null
     return (
-      <div className="grid grid-cols-[160px_1fr] items-center gap-2">
+      <div className="grid grid-cols-[150px_1fr] items-center gap-2">
         {label}
         <code className="flex items-center gap-1 truncate text-xs">
           <Icon size={11} className="shrink-0 text-muted-foreground" />
-          {text}
+          {kind === 'value' ? `'${text}'` : text}
         </code>
       </div>
     )
   }
 
+  const mode: FieldMode = kind === 'value' ? 'value' : 'column'
   const emit = (m: FieldMode, s: string) => {
-    if (!s.trim() && m !== 'value') return onChange(undefined)
-    if (m === 'column') return onChange(s)
-    if (m === 'expr') return onChange({ expr: s })
+    if (!s.trim() && m === 'column') return onChange(undefined)
+    if (m === 'column') return onChange(`${alias}.${s.trim()}`)
     const n = Number(s)
     return onChange({ value: s.trim() !== '' && Number.isFinite(n) && String(n) === s.trim() ? n : s })
   }
@@ -486,15 +413,15 @@ function FieldRow({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="column">{t('schema_mapping.mode_column')}</SelectItem>
-          <SelectItem value="expr">{t('schema_mapping.mode_expr')}</SelectItem>
           <SelectItem value="value">{t('schema_mapping.mode_value')}</SelectItem>
         </SelectContent>
       </Select>
-      <SuggestInput
+      <DraftInput
         value={text}
-        onChange={(s) => emit(mode, s)}
+        onCommit={(s) => emit(mode, s)}
         list={mode === 'column' ? columnList : undefined}
-        placeholder={mode === 'column' ? 'alias.column' : mode === 'expr' ? t('schema_mapping.expr_placeholder') : ''}
+        placeholder={mode === 'column' ? t('schema_mapping.column_placeholder') : ''}
+        className="h-7 font-mono text-xs"
       />
       {onRemove ? (
         <Button variant="ghost" size="icon-sm" onClick={onRemove} aria-label={t('common.remove')}>
