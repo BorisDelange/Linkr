@@ -5598,6 +5598,7 @@
     "revoke_description": "« {{name}} » cesse de fonctionner immédiatement. Cette action est irréversible."
   },
   "schema_mapping": {
+    "tab_all": "Tout",
     "tab_drugs": "Médicaments",
     "tab_params": "Paramètres",
     "class_patient": "Patients",

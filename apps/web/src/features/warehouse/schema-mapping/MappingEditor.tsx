@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { parseDdl, indexTables, resolveTableRef } from '@/lib/ddl-parse'
+import { cn } from '@/lib/utils'
 import { localized, setLocalized } from '@/lib/localized'
 import type { ClassName } from '@/lib/schema-classes/contracts'
 import { classRelations } from '@/lib/schema-classes/relations'
@@ -21,9 +22,10 @@ import type {
   SchemaMapping,
 } from '@/types/schema-mapping'
 import { RelationEditor } from './RelationEditor'
+import { CLASS_TONES } from './class-tones'
 import { RelationSqlDialog, type PreviewSource } from './RelationSqlDialog'
 
-type TabId = 'patient' | 'stays' | 'notes' | 'concepts' | 'events' | 'drugs' | 'params'
+type TabId = 'all' | 'patient' | 'stays' | 'notes' | 'concepts' | 'events' | 'drugs' | 'params'
 
 export interface MappingEditorProps {
   mapping: SchemaMapping
@@ -41,6 +43,9 @@ export interface MappingEditorProps {
   canRemove?: (specKey: string) => boolean
 }
 
+/** Blocks two by two from xl up; side by side they share a height. */
+const BLOCK_GRID = 'grid grid-cols-1 gap-4 xl:grid-cols-2'
+
 const SINGLETONS: Record<'patient' | 'visit' | 'visitDetail' | 'note', ClassName> = {
   patient: 'patient',
   visit: 'visit',
@@ -55,7 +60,7 @@ const SINGLETONS: Record<'patient' | 'visit' | 'visitDetail' | 'note', ClassName
  */
 export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewSources = [], relationExtra, paramsSlot, canRemove }: MappingEditorProps) {
   const { t, i18n } = useTranslation()
-  const [tab, setTab] = useState<TabId>('patient')
+  const [tab, setTab] = useState<TabId>('all')
   const [sqlFor, setSqlFor] = useState<string | null>(null)
 
   const ddlColumns = useMemo(() => {
@@ -202,7 +207,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
   )
 
   const list = (key: 'events' | 'drugs') => (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+    <>
       {!readOnly && (
         <div className="col-span-full flex justify-end">
           <Button
@@ -225,8 +230,91 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
       {(mapping[key] ?? []).map((spec) =>
         editorFor(`${key}.${spec.label}`, key === 'events' ? 'event' : 'drug', spec, spec.label, eventHeader(key, spec), eventOptions(key, spec)),
       )}
-    </div>
+    </>
   )
+
+  const patientBlocks = () => (
+    <>
+      {singleton('patient', t('schema_mapping.class_patient'), (spec) => (
+        <GenderValues
+          spec={spec as PatientSpec}
+          readOnly={readOnly}
+          onChange={(genderValues) => setSpec('patient', { ...spec, genderValues } as PatientSpec)}
+        />
+      ))}
+    </>
+  )
+  const stayBlocks = () => (
+    <>
+      {singleton('visit', t('schema_mapping.class_visit'))}
+      {singleton('visitDetail', t('schema_mapping.class_visit_detail'))}
+    </>
+  )
+  const noteBlocks = () => (
+    <>
+      {singleton('note', t('schema_mapping.class_note'))}
+    </>
+  )
+  const conceptBlocks = () => (
+    <>
+      {!readOnly && (
+        <div className="col-span-full flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 text-xs"
+            onClick={() => {
+              const taken = new Set(concepts.map((c) => c.key))
+              let key = `dict_${concepts.length + 1}`
+              for (let n = concepts.length + 2; taken.has(key); n++) key = `dict_${n}`
+              onChange?.({ ...mapping, concepts: [...concepts, { key, from: { table: '', alias: 'd' }, fields: {} }] })
+            }}
+          >
+            <Plus size={12} />
+            {t('schema_mapping.add_concept')}
+          </Button>
+        </div>
+      )}
+      {concepts.length === 0 && <p className="col-span-full text-xs text-muted-foreground">{t('schema_mapping.none_yet')}</p>}
+      {concepts.map((spec, i) =>
+        editorFor(
+          `concepts.${spec.key}`,
+          'concept',
+          spec,
+          <span>
+            {spec.key}
+            {i === 0 && <span className="ml-1 text-[10px] text-muted-foreground">({t('schema_mapping.default_dictionary')})</span>}
+          </span>,
+          removable(`concepts.${spec.key}`) ? (
+            <div className="ml-auto flex items-center gap-1">
+              <CommitInput
+                value={spec.key}
+                onCommit={(key) => {
+                  if (concepts.some((c) => c !== spec && c.key === key)) return
+                  onChange?.({ ...mapping, concepts: concepts.map((c) => (c === spec ? { ...spec, key } : c)) })
+                }}
+                className="h-6 w-32 font-mono text-xs"
+                label={t('schema_mapping.key')}
+              />
+              <Button variant="ghost" size="icon-sm" onClick={() => setSpec(`concepts.${spec.key}`, undefined)} aria-label={t('common.remove')}>
+                <X size={12} />
+              </Button>
+            </div>
+          ) : undefined,
+        ),
+      )}
+    </>
+  )
+
+  const SECTIONS: { id: Exclude<TabId, 'all' | 'params'>; label: string; tone: ClassName; blocks: () => ReactNode }[] = [
+    { id: 'patient', label: t('settings.schema_map_tab_patient'), tone: 'patient', blocks: patientBlocks },
+    { id: 'stays', label: t('settings.schema_map_tab_stay'), tone: 'visit', blocks: stayBlocks },
+    { id: 'notes', label: t('settings.schema_map_tab_notes'), tone: 'note', blocks: noteBlocks },
+    { id: 'concepts', label: t('settings.schema_map_tab_concepts'), tone: 'concept', blocks: conceptBlocks },
+    { id: 'events', label: t('settings.schema_map_tab_events'), tone: 'event', blocks: () => list('events') },
+    { id: 'drugs', label: t('schema_mapping.tab_drugs'), tone: 'drug', blocks: () => list('drugs') },
+  ]
+  const dot = (tone: ClassName) => <span className={cn('size-2 shrink-0 rounded-full', CLASS_TONES[tone].dot)} />
 
   const sqlSpec = sqlFor ? specAt(mapping, sqlFor) : undefined
   const sqlCls: ClassName | undefined = sqlFor
@@ -241,87 +329,35 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
         <div className="flex items-center">
           <div className="flex-1" />
           <TabsList>
-            <TabsTrigger value="patient">{t('settings.schema_map_tab_patient')}</TabsTrigger>
-            <TabsTrigger value="stays">{t('settings.schema_map_tab_stay')}</TabsTrigger>
-            <TabsTrigger value="notes">{t('settings.schema_map_tab_notes')}</TabsTrigger>
-            <TabsTrigger value="concepts">{t('settings.schema_map_tab_concepts')}</TabsTrigger>
-            <TabsTrigger value="events">{t('settings.schema_map_tab_events')}</TabsTrigger>
-            <TabsTrigger value="drugs">{t('schema_mapping.tab_drugs')}</TabsTrigger>
+            <TabsTrigger value="all">{t('schema_mapping.tab_all')}</TabsTrigger>
+            {SECTIONS.map((sec) => (
+              <TabsTrigger key={sec.id} value={sec.id}>
+                {dot(sec.tone)}
+                {sec.label}
+              </TabsTrigger>
+            ))}
             <TabsTrigger value="params">{t('schema_mapping.tab_params')}</TabsTrigger>
           </TabsList>
           <div className="flex-1" />
         </div>
 
-        <TabsContent value="patient" className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {singleton('patient', t('schema_mapping.class_patient'), (spec) => (
-            <GenderValues
-              spec={spec as PatientSpec}
-              readOnly={readOnly}
-              onChange={(genderValues) => setSpec('patient', { ...spec, genderValues } as PatientSpec)}
-            />
+        <TabsContent value="all" className="mt-4 space-y-6">
+          {SECTIONS.map((sec) => (
+            <section key={sec.id} className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                {dot(sec.tone)}
+                <SectionLabel>{sec.label}</SectionLabel>
+              </div>
+              <div className={BLOCK_GRID}>{sec.blocks()}</div>
+            </section>
           ))}
         </TabsContent>
 
-        <TabsContent value="stays" className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {singleton('visit', t('schema_mapping.class_visit'))}
-          {singleton('visitDetail', t('schema_mapping.class_visit_detail'))}
-        </TabsContent>
-
-        <TabsContent value="notes" className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {singleton('note', t('schema_mapping.class_note'))}
-        </TabsContent>
-
-        <TabsContent value="concepts" className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {!readOnly && (
-            <div className="col-span-full flex justify-end">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1 text-xs"
-                onClick={() => {
-                  const taken = new Set(concepts.map((c) => c.key))
-                  let key = `dict_${concepts.length + 1}`
-                  for (let n = concepts.length + 2; taken.has(key); n++) key = `dict_${n}`
-                  onChange?.({ ...mapping, concepts: [...concepts, { key, from: { table: '', alias: 'd' }, fields: {} }] })
-                }}
-              >
-                <Plus size={12} />
-                {t('schema_mapping.add_concept')}
-              </Button>
-            </div>
-          )}
-          {concepts.length === 0 && <p className="col-span-full text-xs text-muted-foreground">{t('schema_mapping.none_yet')}</p>}
-          {concepts.map((spec, i) =>
-            editorFor(
-              `concepts.${spec.key}`,
-              'concept',
-              spec,
-              <span>
-                {spec.key}
-                {i === 0 && <span className="ml-1 text-[10px] text-muted-foreground">({t('schema_mapping.default_dictionary')})</span>}
-              </span>,
-              removable(`concepts.${spec.key}`) ? (
-                <div className="ml-auto flex items-center gap-1">
-                  <CommitInput
-                    value={spec.key}
-                    onCommit={(key) => {
-                      if (concepts.some((c) => c !== spec && c.key === key)) return
-                      onChange?.({ ...mapping, concepts: concepts.map((c) => (c === spec ? { ...spec, key } : c)) })
-                    }}
-                    className="h-6 w-32 font-mono text-xs"
-                    label={t('schema_mapping.key')}
-                  />
-                  <Button variant="ghost" size="icon-sm" onClick={() => setSpec(`concepts.${spec.key}`, undefined)} aria-label={t('common.remove')}>
-                    <X size={12} />
-                  </Button>
-                </div>
-              ) : undefined,
-            ),
-          )}
-        </TabsContent>
-
-        <TabsContent value="events" className="mt-4">{list('events')}</TabsContent>
-        <TabsContent value="drugs" className="mt-4">{list('drugs')}</TabsContent>
+        {SECTIONS.map((sec) => (
+          <TabsContent key={sec.id} value={sec.id} className={cn('mt-4', BLOCK_GRID)}>
+            {sec.blocks()}
+          </TabsContent>
+        ))}
 
         <TabsContent value="params" className="mt-4">
           {paramsSlot ?? (

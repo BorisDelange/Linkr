@@ -5598,6 +5598,7 @@
     "revoke_description": "« {{name}} » stops working immediately. This cannot be undone."
   },
   "schema_mapping": {
+    "tab_all": "All",
     "tab_drugs": "Drugs",
     "tab_params": "Parameters",
     "class_patient": "Patients",

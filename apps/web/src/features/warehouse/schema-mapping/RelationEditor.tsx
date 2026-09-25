@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { CLASS_CONTRACTS, type ClassName } from '@/lib/schema-classes/contracts'
+import { CLASS_TONES } from './class-tones'
 import { generatedRelationSql } from '@/lib/schema-classes/relations'
 import { withSpec } from '@/lib/schema-classes/spec'
 import type { FieldSpec, RelationJoin, RelationSpec, RelationTable, SchemaMapping } from '@/types/schema-mapping'
@@ -108,8 +109,7 @@ export function RelationEditor({
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-md border bg-card">
-      {/* Teal: the Data Warehouse colour, as in the sidebar. */}
-      <div className="flex items-center gap-2 border-b border-teal-500/20 bg-teal-500/10 px-3 py-2">
+      <div className={cn('flex items-center gap-2 border-b px-3 py-2', CLASS_TONES[cls].header)}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="truncate text-xs font-medium">{title}</span>
           {relationName && <code className="truncate text-[10px] text-muted-foreground">{relationName}</code>}
