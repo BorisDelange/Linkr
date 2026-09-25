@@ -1,5 +1,5 @@
 import { queryDataSource, discoverTables } from './engine'
-import { escSql, quoteTableRef } from '@/lib/format-helpers'
+import { quoteTableRef } from '@/lib/format-helpers'
 import type {
   DatabaseStatsCache,
   AgePyramidBucket,
@@ -9,7 +9,20 @@ import type {
   DescriptiveStats,
 } from '@/types'
 import type { SchemaMapping } from '@/types'
-import { birthYearColumns, birthYearSql, qualify } from '@/lib/schema-helpers'
+import { classRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
+
+/**
+ * Age in whole years at `refDate` (SQL), from the patient relation aliased `p`:
+ * the exact birth date when present, else the birth year — OMOP maps both, and
+ * MIMIC-IV leaves every birth_datetime empty. Null when neither is mapped.
+ */
+function ageAt(patient: ClassRelation, refDate: string): string | null {
+  if (!has(patient, 'birth_year')) return null
+  const byYear = `EXTRACT(YEAR FROM ${refDate}::TIMESTAMP) - p.birth_year`
+  return has(patient, 'birth_date')
+    ? `COALESCE(EXTRACT(YEAR FROM AGE(${refDate}::TIMESTAMP, p.birth_date::TIMESTAMP)), ${byYear})`
+    : byYear
+}
 
 /**
  * Compute the "fast" database statistics — everything except per-table row
@@ -58,15 +71,10 @@ async function computeSummary(
   const tables = await discoverTables(dsId)
   const tableCount = tables.length
 
-  const patientCount = mapping.patientTable
-    ? await safeQueryCount(dsId, mapping.patientTable.table)
-    : 0
-  const visitCount = mapping.visitTable
-    ? await safeQueryCount(dsId, mapping.visitTable.table)
-    : 0
-  const visitDetailCount = mapping.visitDetailTable
-    ? await safeQueryCount(dsId, mapping.visitDetailTable.table)
-    : 0
+  const count = async (rel: ClassRelation | undefined) => (rel ? safeQueryCount(dsId, rel.name) : 0)
+  const patientCount = await count(classRelation(mapping, 'patient'))
+  const visitCount = await count(classRelation(mapping, 'visit'))
+  const visitDetailCount = await count(classRelation(mapping, 'visit_detail'))
 
   return { patientCount, visitCount, visitDetailCount, tableCount }
 }
@@ -76,17 +84,16 @@ async function computeGenderDistribution(
   dsId: string,
   mapping: SchemaMapping,
 ): Promise<GenderDistribution> {
-  const pt = mapping.patientTable
-  const gv = mapping.genderValues
-  if (!pt || !pt.genderColumn || !gv) return { male: 0, female: 0, other: 0 }
+  const patient = classRelation(mapping, 'patient')
+  if (!has(patient, 'gender')) return { male: 0, female: 0, other: 0 }
 
   try {
     const sql = `
       SELECT
-        SUM(CASE WHEN "${pt.genderColumn}" = '${escSql(gv.male)}' THEN 1 ELSE 0 END)::INTEGER as male,
-        SUM(CASE WHEN "${pt.genderColumn}" = '${escSql(gv.female)}' THEN 1 ELSE 0 END)::INTEGER as female,
-        SUM(CASE WHEN "${pt.genderColumn}" NOT IN ('${escSql(gv.male)}', '${escSql(gv.female)}') THEN 1 ELSE 0 END)::INTEGER as other
-      FROM ${qualify(pt)}
+        COUNT(*) FILTER (WHERE gender = 'male')::INTEGER as male,
+        COUNT(*) FILTER (WHERE gender = 'female')::INTEGER as female,
+        COUNT(*) FILTER (WHERE gender = 'unknown')::INTEGER as other
+      FROM ${patient!.name}
     `
     const rows = await queryDataSource(dsId, sql)
     if (rows[0]) {
@@ -108,33 +115,16 @@ async function computeAgePyramid(
   dsId: string,
   mapping: SchemaMapping,
 ): Promise<AgePyramidBucket[]> {
-  const pt = mapping.patientTable
-  if (!pt) return []
-
-  const gv = mapping.genderValues
-  if (!gv || !pt.genderColumn) return []
-
-  const vt = mapping.visitTable
-  if (!vt) return []
-
-  const visitTable = vt.table
-  const startDateCol = vt.startDateColumn
-  const patientIdCol = vt.patientIdColumn
-
-  if (!visitTable || !startDateCol || !patientIdCol) return []
-
-  // Use birth_datetime if available, otherwise fall back to year_of_birth
-  const birthExpr = pt.birthDateColumn
-    ? `EXTRACT(YEAR FROM AGE(v."${startDateCol}"::TIMESTAMP, p."${pt.birthDateColumn}"::TIMESTAMP))`
-    : birthYearSql(pt, 'p')
-      ? `EXTRACT(YEAR FROM v."${startDateCol}"::TIMESTAMP) - ${birthYearSql(pt, 'p')}`
-      : null
-  if (!birthExpr) return []
+  const patient = classRelation(mapping, 'patient')
+  const visit = classRelation(mapping, 'visit')
+  if (!patient || !visit || !has(patient, 'gender')) return []
+  const age = ageAt(patient, 'v.start_datetime')
+  if (!age) return []
 
   const sql = `
     SELECT age_group,
-           SUM(CASE WHEN "${pt.genderColumn}" = '${escSql(gv.male)}' THEN 1 ELSE 0 END)::INTEGER as male,
-           SUM(CASE WHEN "${pt.genderColumn}" = '${escSql(gv.female)}' THEN 1 ELSE 0 END)::INTEGER as female
+           COUNT(*) FILTER (WHERE gender = 'male')::INTEGER as male,
+           COUNT(*) FILTER (WHERE gender = 'female')::INTEGER as female
     FROM (
       SELECT
         CASE
@@ -149,11 +139,11 @@ async function computeAgePyramid(
           WHEN age < 90 THEN '80-89'
           ELSE '90+'
         END as age_group,
-        p."${pt.genderColumn}"
-      FROM "${visitTable}" v
-      JOIN ${qualify(pt)} p ON v."${patientIdCol}" = p."${pt.idColumn}"
+        p.gender
+      FROM ${visit.name} v
+      JOIN ${patient.name} p ON v.patient_id = p.patient_id
       CROSS JOIN LATERAL (
-        SELECT ${birthExpr} as age
+        SELECT ${age} as age
       ) ages
       WHERE ages.age >= 0 AND ages.age < 150
     ) sub
@@ -177,15 +167,15 @@ async function computeAdmissionTimeline(
   dsId: string,
   mapping: SchemaMapping,
 ): Promise<AdmissionTimelineBucket[]> {
-  const vt = mapping.visitTable
-  if (!vt) return []
+  const visit = classRelation(mapping, 'visit')
+  if (!visit) return []
 
   const sql = `
     SELECT
-      STRFTIME("${vt.startDateColumn}"::TIMESTAMP, '%Y-%m') as month,
+      STRFTIME(start_datetime::TIMESTAMP, '%Y-%m') as month,
       COUNT(*)::INTEGER as count
-    FROM ${qualify(vt)}
-    WHERE "${vt.startDateColumn}" IS NOT NULL
+    FROM ${visit.name}
+    WHERE start_datetime IS NOT NULL
     GROUP BY month
     ORDER BY month
   `
@@ -206,19 +196,14 @@ async function computeDescriptiveStats(
   mapping: SchemaMapping,
 ): Promise<DescriptiveStats> {
   const stats: DescriptiveStats = {}
-  const pt = mapping.patientTable
-  const vt = mapping.visitTable
+  const patient = classRelation(mapping, 'patient')
+  const visit = classRelation(mapping, 'visit')
 
-  if (!pt || !vt) return stats
+  if (!patient || !visit) return stats
 
   // Age stats (at first visit)
-  const birthExpr = pt.birthDateColumn
-    ? `EXTRACT(YEAR FROM AGE(MIN(vo."${vt.startDateColumn}")::TIMESTAMP, p."${pt.birthDateColumn}"::TIMESTAMP))`
-    : birthYearSql(pt, 'p')
-      ? `EXTRACT(YEAR FROM MIN(vo."${vt.startDateColumn}")::TIMESTAMP) - ${birthYearSql(pt, 'p')}`
-      : null
-
-  if (birthExpr) {
+  const age = ageAt(patient, 'MIN(vo.start_datetime)')
+  if (age) {
     try {
       const ageSql = `
         SELECT
@@ -229,13 +214,11 @@ async function computeDescriptiveStats(
           ROUND(QUANTILE_CONT(age, 0.25), 1) as age_q1,
           ROUND(QUANTILE_CONT(age, 0.75), 1) as age_q3
         FROM (
-          SELECT
-            p."${pt.idColumn}",
-            ${birthExpr} as age
-          FROM ${qualify(pt)} p
-          JOIN ${qualify(vt)} vo ON vo."${vt.patientIdColumn}" = p."${pt.idColumn}"
-          WHERE vo."${vt.startDateColumn}" IS NOT NULL
-          GROUP BY p."${pt.idColumn}"${pt.birthDateColumn ? `, p."${pt.birthDateColumn}"` : ''}${birthYearColumns(pt).map((c) => `, p."${c}"`).join('')}
+          SELECT p.patient_id, ${age} as age
+          FROM ${patient.name} p
+          JOIN ${visit.name} vo ON vo.patient_id = p.patient_id
+          WHERE vo.start_datetime IS NOT NULL
+          GROUP BY p.patient_id, p.birth_date, p.birth_year
         ) sub
         WHERE age >= 0 AND age < 150
       `
@@ -255,10 +238,10 @@ async function computeDescriptiveStats(
   try {
     const dateSql = `
       SELECT
-        MIN("${vt.startDateColumn}")::VARCHAR as date_min,
-        MAX("${vt.startDateColumn}")::VARCHAR as date_max
-      FROM ${qualify(vt)}
-      WHERE "${vt.startDateColumn}" IS NOT NULL
+        MIN(start_datetime)::VARCHAR as date_min,
+        MAX(start_datetime)::VARCHAR as date_max
+      FROM ${visit.name}
+      WHERE start_datetime IS NOT NULL
     `
     const rows = await queryDataSource(dsId, dateSql)
     if (rows[0]) {
@@ -268,17 +251,17 @@ async function computeDescriptiveStats(
   } catch { /* ignore */ }
 
   // Discharge date range and length of stay
-  if (vt.endDateColumn) {
+  if (has(visit, 'end_datetime')) {
     try {
       const losSql = `
         SELECT
-          MIN("${vt.endDateColumn}")::VARCHAR as discharge_min,
-          MAX("${vt.endDateColumn}")::VARCHAR as discharge_max,
-          ROUND(AVG(DATEDIFF('day', "${vt.startDateColumn}"::TIMESTAMP, "${vt.endDateColumn}"::TIMESTAMP)), 1) as los_mean,
-          ROUND(MEDIAN(DATEDIFF('day', "${vt.startDateColumn}"::TIMESTAMP, "${vt.endDateColumn}"::TIMESTAMP)), 1) as los_median
-        FROM ${qualify(vt)}
-        WHERE "${vt.startDateColumn}" IS NOT NULL
-          AND "${vt.endDateColumn}" IS NOT NULL
+          MIN(end_datetime)::VARCHAR as discharge_min,
+          MAX(end_datetime)::VARCHAR as discharge_max,
+          ROUND(AVG(DATEDIFF('day', start_datetime::TIMESTAMP, end_datetime::TIMESTAMP)), 1) as los_mean,
+          ROUND(MEDIAN(DATEDIFF('day', start_datetime::TIMESTAMP, end_datetime::TIMESTAMP)), 1) as los_median
+        FROM ${visit.name}
+        WHERE start_datetime IS NOT NULL
+          AND end_datetime IS NOT NULL
       `
       const rows = await queryDataSource(dsId, losSql)
       if (rows[0]) {
@@ -299,9 +282,9 @@ async function computeDescriptiveStats(
         MIN(visit_count)::INTEGER as vp_min,
         MAX(visit_count)::INTEGER as vp_max
       FROM (
-        SELECT "${vt.patientIdColumn}", COUNT(*)::INTEGER as visit_count
-        FROM ${qualify(vt)}
-        GROUP BY "${vt.patientIdColumn}"
+        SELECT patient_id, COUNT(*)::INTEGER as visit_count
+        FROM ${visit.name}
+        GROUP BY patient_id
       ) sub
     `
     const rows = await queryDataSource(dsId, vpSql)
@@ -314,16 +297,16 @@ async function computeDescriptiveStats(
   } catch { /* ignore */ }
 
   // Visit unit (visit_detail) length of stay
-  const vdt = mapping.visitDetailTable
-  if (vdt?.startDateColumn && vdt?.endDateColumn) {
+  const vd = classRelation(mapping, 'visit_detail')
+  if (vd && has(vd, 'end_datetime')) {
     try {
       const unitLosSql = `
         SELECT
-          ROUND(AVG(DATEDIFF('day', "${vdt.startDateColumn}"::TIMESTAMP, "${vdt.endDateColumn}"::TIMESTAMP)), 1) as los_mean,
-          ROUND(MEDIAN(DATEDIFF('day', "${vdt.startDateColumn}"::TIMESTAMP, "${vdt.endDateColumn}"::TIMESTAMP)), 1) as los_median
-        FROM ${qualify(vdt)}
-        WHERE "${vdt.startDateColumn}" IS NOT NULL
-          AND "${vdt.endDateColumn}" IS NOT NULL
+          ROUND(AVG(DATEDIFF('day', start_datetime::TIMESTAMP, end_datetime::TIMESTAMP)), 1) as los_mean,
+          ROUND(MEDIAN(DATEDIFF('day', start_datetime::TIMESTAMP, end_datetime::TIMESTAMP)), 1) as los_median
+        FROM ${vd.name}
+        WHERE start_datetime IS NOT NULL
+          AND end_datetime IS NOT NULL
       `
       const rows = await queryDataSource(dsId, unitLosSql)
       if (rows[0]) {
