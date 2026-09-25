@@ -1,17 +1,34 @@
 import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
 import type { DimensionConfig, ServiceMappingRule, PeriodConfig } from '@/types/catalog'
-import { birthYearSql, getEventTablesForDictionary, qualify, qualifyIn } from '@/lib/schema-helpers'
 import { escSql as esc } from '@/lib/format-helpers'
+import { classRelation, conceptRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 
 /**
- * Resolve a column alias (e.g. 'domain_id') to the actual SQL column name for a concept dictionary.
- * Checks dict.categoryColumn / dict.subcategoryColumn first (direct match on value),
- * then falls back to extraColumns[alias].
+ * Resolve a catalog column key (e.g. 'domain_id') to the dictionary relation's
+ * column: the category or subcategory when the mapping names that very column,
+ * else the extra column declared under that key.
  */
-function resolveDictColumn(dict: ConceptDictionary, alias: string): string | undefined {
-  if (dict.categoryColumn === alias) return alias
-  if (dict.subcategoryColumn === alias) return alias
-  return dict.extraColumns?.[alias]
+function resolveDictColumn(dict: ConceptDictionary, rel: ClassRelation, alias: string): string | undefined {
+  if (dict.categoryColumn === alias) return 'category'
+  if (dict.subcategoryColumn === alias) return 'subcategory'
+  return rel.extras?.[alias]
+}
+
+/** Age in whole years at `refDate`, from the patient relation aliased `p`: the
+ *  exact birth date when present, else the birth year (MIMIC-IV leaves every
+ *  OMOP birth_datetime empty). */
+function ageAt(mapping: SchemaMapping, refDate: string): string | null {
+  const patient = classRelation(mapping, 'patient')
+  if (!has(patient, 'birth_year')) return null
+  const byYear = `EXTRACT(YEAR FROM ${refDate}::TIMESTAMP) - p.birth_year`
+  return has(patient, 'birth_date')
+    ? `COALESCE(EXTRACT(YEAR FROM AGE(${refDate}::TIMESTAMP, p.birth_date::TIMESTAMP)), ${byYear})`
+    : byYear
+}
+
+/** The event relations whose concepts a dictionary names. */
+function eventsOf(mapping: SchemaMapping, dict: ClassRelation): ClassRelation[] {
+  return eventRelations(mapping).filter((e) => e.dictionary === dict.name)
 }
 
 // ---------------------------------------------------------------------------
@@ -22,15 +39,8 @@ function buildAgeGroupExpr(
   brackets: number[],
   mapping: SchemaMapping,
 ): string | null {
-  const pt = mapping.patientTable
-  const vt = mapping.visitTable
-  if (!pt || !vt) return null
-
-  const birthExpr = pt.birthDateColumn
-    ? `EXTRACT(YEAR FROM AGE(v."${vt.startDateColumn}"::TIMESTAMP, p."${pt.birthDateColumn}"::TIMESTAMP))`
-    : birthYearSql(pt, 'p')
-      ? `EXTRACT(YEAR FROM v."${vt.startDateColumn}"::TIMESTAMP) - ${birthYearSql(pt, 'p')}`
-      : null
+  if (!classRelation(mapping, 'visit')) return null
+  const birthExpr = ageAt(mapping, 'v.start_datetime')
   if (!birthExpr) return null
 
   if (brackets.length === 0) return `CAST(FLOOR(${birthExpr}) AS INTEGER)::VARCHAR`
@@ -56,22 +66,17 @@ function buildAgeGroupExpr(
 }
 
 function buildSexExpr(mapping: SchemaMapping): string | null {
-  const pt = mapping.patientTable
-  const gv = mapping.genderValues
-  if (!pt?.genderColumn || !gv) return null
-
-  return `CASE WHEN p."${pt.genderColumn}" = '${esc(gv.male)}' THEN 'Male' WHEN p."${pt.genderColumn}" = '${esc(gv.female)}' THEN 'Female' ELSE 'Other' END`
+  if (!has(classRelation(mapping, 'patient'), 'gender')) return null
+  return `CASE p.gender WHEN 'male' THEN 'Male' WHEN 'female' THEN 'Female' ELSE 'Other' END`
 }
 
 function buildAdmissionDateExpr(
   step: 'day' | 'month' | 'year',
   mapping: SchemaMapping,
 ): string | null {
-  const vt = mapping.visitTable
-  if (!vt) return null
-
+  if (!classRelation(mapping, 'visit')) return null
   const fmt = step === 'day' ? '%Y-%m-%d' : step === 'month' ? '%Y-%m' : '%Y'
-  return `STRFTIME(v."${vt.startDateColumn}"::TIMESTAMP, '${fmt}')`
+  return `STRFTIME(v.start_datetime::TIMESTAMP, '${fmt}')`
 }
 
 function buildCareSiteExpr(
@@ -79,27 +84,14 @@ function buildCareSiteExpr(
   level: 'visit' | 'visit_detail',
   rules?: ServiceMappingRule[],
 ): { expr: string; joins: string[] } | null {
+  // The catalog's service at stay level is the visit type (admission type), not
+  // the care site; at unit level, the looked-up unit name else its raw code.
   if (level === 'visit_detail') {
-    const vd = mapping.visitDetailTable
-    if (!vd?.unitColumn) return null
-
-    let nameExpr: string
-    const joins: string[] = []
-    if (vd.unitNameTable && vd.unitNameIdColumn && vd.unitNameColumn) {
-      joins.push(
-        `LEFT JOIN ${qualifyIn(vd, vd.unitNameTable)} csn ON vd."${vd.unitColumn}" = csn."${vd.unitNameIdColumn}"`,
-      )
-      nameExpr = `csn."${vd.unitNameColumn}"`
-    } else {
-      nameExpr = `vd."${vd.unitColumn}"`
-    }
-
-    return { expr: applyServiceMappingRules(nameExpr, rules), joins }
+    if (!has(classRelation(mapping, 'visit_detail'), 'unit_category')) return null
+    return { expr: applyServiceMappingRules('vd.unit_category', rules), joins: [] }
   }
-
-  const vt = mapping.visitTable
-  if (!vt?.typeColumn) return null
-  return { expr: applyServiceMappingRules(`v."${vt.typeColumn}"`, rules), joins: [] }
+  if (!has(classRelation(mapping, 'visit'), 'visit_type')) return null
+  return { expr: applyServiceMappingRules('v.visit_type', rules), joins: [] }
 }
 
 function applyServiceMappingRules(
@@ -184,9 +176,9 @@ function buildJoinClauses(
   mapping: SchemaMapping,
   dimParts: DimensionParts,
 ): { vdJoin: string; extraJoinStr: string } {
-  const vt = mapping.visitTable!
-  const vdJoin = dimParts.needsVisitDetail && mapping.visitDetailTable
-    ? `LEFT JOIN "${mapping.visitDetailTable.table}" vd ON v."${vt.idColumn}" = vd."${mapping.visitDetailTable.visitIdColumn}" AND e.pid = vd."${mapping.visitDetailTable.patientIdColumn}"`
+  const vd = classRelation(mapping, 'visit_detail')
+  const vdJoin = dimParts.needsVisitDetail && vd
+    ? `LEFT JOIN ${vd.name} vd ON v.visit_id = vd.visit_id AND e.pid = vd.patient_id`
     : ''
   const extraJoinStr = dimParts.extraJoins.length > 0 ? `\n  ${dimParts.extraJoins.join('\n  ')}` : ''
   return { vdJoin, extraJoinStr }
@@ -238,9 +230,9 @@ export function buildBatchedCatalogQueries(
   const dicts = mapping.conceptTables
   if (!dicts || dicts.length === 0) return null
 
-  const pt = mapping.patientTable
-  const vt = mapping.visitTable
-  if (!pt || !vt) return null
+  const patient = classRelation(mapping, 'patient')
+  const visit = classRelation(mapping, 'visit')
+  if (!patient || !visit) return null
 
   const dimParts = resolveDimensions(dimensions, mapping, serviceMappingRules)
   const hasCategory = !!categoryColumn
@@ -256,19 +248,21 @@ export function buildBatchedCatalogQueries(
 
   for (const dict of dicts) {
     if (!dict.idColumn) continue // can't build concept queries without an id column
-    const eventParts = buildEventPartsForDict(mapping, dict, pt.idColumn)
+    const rel = conceptRelation(mapping, dict.key)
+    if (!rel) continue
+    const eventParts = buildEventPartsForDict(mapping, rel)
     if (eventParts.length === 0) continue
 
     // 1. Concept list query
     conceptListQueries.push({
       dictKey: dict.key,
-      sql: `SELECT DISTINCT "${dict.idColumn}" AS cid FROM ${qualify(dict)}`,
-      table: dict.table,
-      idColumn: dict.idColumn,
+      sql: `SELECT DISTINCT concept_id AS cid FROM ${rel.name}`,
+      table: rel.name,
+      idColumn: 'concept_id',
     })
 
     // 2. Batch template — concept-level only (simple GROUP BY)
-    const cnBaseSql = buildConceptNameSql(dict, hasCategory, hasSubcategory, categoryColumn, subcategoryColumn)
+    const cnBaseSql = buildConceptNameSql(dict, rel, hasCategory, hasSubcategory, categoryColumn, subcategoryColumn)
 
     const conceptCols = ['cn.cid', 'cn.cname']
     if (hasCategory) conceptCols.push('cn.ccat')
@@ -304,10 +298,10 @@ SELECT
     ${dictKeyLiteral} AS dictionary_key${catSelectStr}${subcatSelectStr},
     COUNT(*)::INTEGER AS record_count,
     COUNT(DISTINCT e.pid)::INTEGER AS patient_count,
-    COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS visit_count
+    COUNT(DISTINCT v.visit_id)::INTEGER AS visit_count
 FROM events e
-JOIN ${qualify(pt)} p ON e.pid = p."${pt.idColumn}"
-JOIN ${qualify(vt)} v ON e.pid = v."${vt.patientIdColumn}"
+JOIN ${patient.name} p ON e.pid = p.patient_id
+JOIN ${visit.name} v ON e.pid = v.patient_id
 JOIN concept_names cn ON e.cid = cn.cid
 GROUP BY ${conceptColsStr}`
       },
@@ -319,7 +313,8 @@ GROUP BY ${conceptColsStr}`
   // Global query: dim-only margins + grand total (GROUPING SETS)
   const allEventParts: string[] = []
   for (const dict of dicts) {
-    allEventParts.push(...buildEventPartsForDict(mapping, dict, pt.idColumn))
+    const rel = conceptRelation(mapping, dict.key)
+    if (rel) allEventParts.push(...buildEventPartsForDict(mapping, rel))
   }
 
   const globalGs: string[] = []
@@ -340,10 +335,10 @@ GROUP BY ${conceptColsStr}`
 SELECT
     COUNT(*)::INTEGER AS record_count,
     COUNT(DISTINCT e.pid)::INTEGER AS patient_count,
-    COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS visit_count${dimSelectStr}
+    COUNT(DISTINCT v.visit_id)::INTEGER AS visit_count${dimSelectStr}
 FROM events e
-JOIN ${qualify(pt)} p ON e.pid = p."${pt.idColumn}"
-JOIN ${qualify(vt)} v ON e.pid = v."${vt.patientIdColumn}"
+JOIN ${patient.name} p ON e.pid = p.patient_id
+JOIN ${visit.name} v ON e.pid = v.patient_id
 ${vdJoin}${extraJoinStr}
 ${globalGroupByClause}`
 
@@ -354,22 +349,12 @@ ${globalGroupByClause}`
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildEventPartsForDict(
-  mapping: SchemaMapping,
-  dict: ConceptDictionary,
-  defaultPatientIdColumn: string,
-): string[] {
+function buildEventPartsForDict(mapping: SchemaMapping, dict: ClassRelation): string[] {
   const parts: string[] = []
-  const eventEntries = getEventTablesForDictionary(mapping, dict.key)
-  for (const { eventTable: et } of eventEntries) {
-    const patientCol = et.patientIdColumn ?? defaultPatientIdColumn
-    parts.push(
-      `SELECT "${et.conceptIdColumn}" AS cid, "${patientCol}" AS pid FROM ${qualify(et)}`,
-    )
-    if (et.sourceConceptIdColumn) {
-      parts.push(
-        `SELECT "${et.sourceConceptIdColumn}" AS cid, "${patientCol}" AS pid FROM ${qualify(et)}`,
-      )
+  for (const event of eventsOf(mapping, dict)) {
+    parts.push(`SELECT concept_id AS cid, patient_id AS pid FROM ${event.name}`)
+    if (has(event, 'source_concept_id')) {
+      parts.push(`SELECT source_concept_id AS cid, patient_id AS pid FROM ${event.name}`)
     }
   }
   return parts
@@ -377,16 +362,17 @@ function buildEventPartsForDict(
 
 function buildConceptNameSql(
   dict: ConceptDictionary,
+  rel: ClassRelation,
   hasCategory: boolean,
   hasSubcategory: boolean,
   categoryColumn?: string,
   subcategoryColumn?: string,
 ): string {
-  const catCol = categoryColumn ? resolveDictColumn(dict, categoryColumn) : undefined
-  const subcatCol = subcategoryColumn ? resolveDictColumn(dict, subcategoryColumn) : undefined
+  const catCol = categoryColumn ? resolveDictColumn(dict, rel, categoryColumn) : undefined
+  const subcatCol = subcategoryColumn ? resolveDictColumn(dict, rel, subcategoryColumn) : undefined
   const catExpr = catCol ? `"${catCol}"` : 'NULL'
   const subcatExpr = subcatCol ? `"${subcatCol}"` : 'NULL'
-  return `SELECT "${dict.idColumn}" AS cid, "${dict.nameColumn}" AS cname${hasCategory ? `, ${catExpr} AS ccat` : ''}${hasSubcategory ? `, ${subcatExpr} AS csubcat` : ''} FROM ${qualify(dict)}`
+  return `SELECT concept_id AS cid, concept_name AS cname${hasCategory ? `, ${catExpr} AS ccat` : ''}${hasSubcategory ? `, ${subcatExpr} AS csubcat` : ''} FROM ${rel.name}`
 }
 
 // ---------------------------------------------------------------------------
@@ -463,9 +449,9 @@ export function generatePeriodIntervals(
 
 /** SQL query to get the min and max visit start date from the visit table. */
 export function buildDateRangeQuery(mapping: SchemaMapping): string | null {
-  const vt = mapping.visitTable
-  if (!vt) return null
-  return `SELECT MIN("${vt.startDateColumn}"::TIMESTAMP)::VARCHAR AS min_date, MAX("${vt.startDateColumn}"::TIMESTAMP)::VARCHAR AS max_date FROM ${qualify(vt)} WHERE "${vt.startDateColumn}" IS NOT NULL`
+  const visit = classRelation(mapping, 'visit')
+  if (!visit) return null
+  return `SELECT MIN(start_datetime::TIMESTAMP)::VARCHAR AS min_date, MAX(start_datetime::TIMESTAMP)::VARCHAR AS max_date FROM ${visit.name} WHERE start_datetime IS NOT NULL`
 }
 
 /**
@@ -486,80 +472,56 @@ export function buildPeriodRowQuery(
   categoryColumn: string | undefined,
   conceptCategories: string[],
 ): string | null {
-  const pt = mapping.patientTable
-  const vt = mapping.visitTable
-  if (!pt || !vt) return null
-
-  const gv = mapping.genderValues
+  const patient = classRelation(mapping, 'patient')
+  const visit = classRelation(mapping, 'visit')
+  if (!patient || !visit) return null
 
   // WHERE clause for the period
   const whereClause = interval.granularity === 'all'
     ? '1=1'
-    : `"${vt.startDateColumn}"::TIMESTAMP BETWEEN '${interval.start}'::TIMESTAMP AND '${interval.end} 23:59:59'::TIMESTAMP`
+    : `v.start_datetime::TIMESTAMP BETWEEN '${interval.start}'::TIMESTAMP AND '${interval.end} 23:59:59'::TIMESTAMP`
 
   // Age expression (at visit time)
-  const birthExpr = pt.birthDateColumn
-    ? `EXTRACT(YEAR FROM AGE(v."${vt.startDateColumn}"::TIMESTAMP, p."${pt.birthDateColumn}"::TIMESTAMP))`
-    : birthYearSql(pt, 'p')
-      ? `EXTRACT(YEAR FROM v."${vt.startDateColumn}"::TIMESTAMP) - ${birthYearSql(pt, 'p')}`
-      : null
+  const birthExpr = ageAt(mapping, 'v.start_datetime')
 
   // Service column expression
   let serviceExpr: string | null = null
-  let serviceJoin = ''
-  if (periodConfig.serviceLevel === 'visit_detail' && mapping.visitDetailTable) {
-    const vd = mapping.visitDetailTable
-    if (vd.unitColumn) {
-      if (vd.unitNameTable && vd.unitNameIdColumn && vd.unitNameColumn) {
-        serviceJoin = `LEFT JOIN ${qualifyIn(vd, vd.unitNameTable)} csn ON vd."${vd.unitColumn}" = csn."${vd.unitNameIdColumn}"`
-        serviceExpr = applyPeriodServiceMapping(`csn."${vd.unitNameColumn}"`, smRules)
-      } else {
-        serviceExpr = applyPeriodServiceMapping(`vd."${vd.unitColumn}"`, smRules)
-      }
-    }
-  } else if (periodConfig.serviceLevel === 'visit' && vt.typeColumn) {
-    serviceExpr = applyPeriodServiceMapping(`v."${vt.typeColumn}"`, smRules)
+  let vdJoin = ''
+  const vd = classRelation(mapping, 'visit_detail')
+  if (periodConfig.serviceLevel === 'visit_detail' && vd) {
+    vdJoin = `LEFT JOIN ${vd.name} vd ON v.visit_id = vd.visit_id`
+    if (has(vd, 'unit_category')) serviceExpr = applyPeriodServiceMapping('vd.unit_category', smRules)
+  } else if (periodConfig.serviceLevel === 'visit' && has(visit, 'visit_type')) {
+    serviceExpr = applyPeriodServiceMapping('v.visit_type', smRules)
   }
-
-  // visit_detail JOIN (if needed for service)
-  const vdJoin = periodConfig.serviceLevel === 'visit_detail' && mapping.visitDetailTable
-    ? `LEFT JOIN "${mapping.visitDetailTable.table}" vd ON v."${vt.idColumn}" = vd."${mapping.visitDetailTable.visitIdColumn}"`
-    : ''
 
   // Event tables union for concept categories
   const allEventParts: string[] = []
   if (conceptCategories.length > 0 && categoryColumn && mapping.conceptTables) {
     for (const dict of mapping.conceptTables) {
-      const catCol = resolveDictColumn(dict, categoryColumn)
-      if (!catCol) continue
-      const eventEntries = getEventTablesForDictionary(mapping, dict.key)
-      for (const { eventTable: et } of eventEntries) {
-        const patCol = et.patientIdColumn ?? pt.idColumn
-        allEventParts.push(
-          `SELECT e."${patCol}" AS pid, d."${catCol}" AS cat FROM ${qualify(et)} e JOIN ${qualify(dict)} d ON e."${et.conceptIdColumn}" = d."${dict.idColumn}" WHERE d."${catCol}" IS NOT NULL`,
-        )
-        if (et.sourceConceptIdColumn) {
-          allEventParts.push(
-            `SELECT e."${patCol}" AS pid, d."${catCol}" AS cat FROM ${qualify(et)} e JOIN ${qualify(dict)} d ON e."${et.sourceConceptIdColumn}" = d."${dict.idColumn}" WHERE d."${catCol}" IS NOT NULL`,
-          )
-        }
+      const rel = conceptRelation(mapping, dict.key)
+      const catCol = rel ? resolveDictColumn(dict, rel, categoryColumn) : undefined
+      if (!rel || !catCol) continue
+      for (const event of eventsOf(mapping, rel)) {
+        const byColumn = (column: string) =>
+          `SELECT e.patient_id AS pid, d."${catCol}" AS cat FROM ${event.name} e JOIN ${rel.name} d ON e.${column} = d.concept_id WHERE d."${catCol}" IS NOT NULL`
+        allEventParts.push(byColumn('concept_id'))
+        if (has(event, 'source_concept_id')) allEventParts.push(byColumn('source_concept_id'))
       }
     }
   }
 
-  const patIdCol = vt.patientIdColumn
-
   // Build SELECT columns
   const selects: string[] = [
-    `COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS n_sejours`,
-    `COUNT(DISTINCT v."${patIdCol}")::INTEGER AS n_patients`,
+    'COUNT(DISTINCT v.visit_id)::INTEGER AS n_sejours',
+    'COUNT(DISTINCT v.patient_id)::INTEGER AS n_patients',
   ]
 
   // Sex columns
-  if (gv && pt.genderColumn) {
-    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" = '${esc(gv.male)}' THEN v."${patIdCol}" END)::INTEGER AS sex_m`)
-    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" = '${esc(gv.female)}' THEN v."${patIdCol}" END)::INTEGER AS sex_f`)
-    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" NOT IN ('${esc(gv.male)}', '${esc(gv.female)}') THEN v."${patIdCol}" END)::INTEGER AS sex_other`)
+  if (has(patient, 'gender')) {
+    selects.push(`COUNT(DISTINCT CASE WHEN p.gender = 'male' THEN v.patient_id END)::INTEGER AS sex_m`)
+    selects.push(`COUNT(DISTINCT CASE WHEN p.gender = 'female' THEN v.patient_id END)::INTEGER AS sex_f`)
+    selects.push(`COUNT(DISTINCT CASE WHEN p.gender = 'unknown' THEN v.patient_id END)::INTEGER AS sex_other`)
   } else {
     selects.push('NULL::INTEGER AS sex_m', 'NULL::INTEGER AS sex_f', 'NULL::INTEGER AS sex_other')
   }
@@ -580,7 +542,7 @@ export function buildPeriodRowQuery(
         ? `${birthExpr} >= ${b.lo} AND ${birthExpr} < ${b.hi}`
         : `${birthExpr} >= ${b.lo}`
       const alias = `age_${b.label.replace(/[^a-zA-Z0-9]/g, '_')}`
-      selects.push(`COUNT(DISTINCT CASE WHEN ${cond} THEN v."${patIdCol}" END)::INTEGER AS "${alias}"`)
+      selects.push(`COUNT(DISTINCT CASE WHEN ${cond} THEN v.patient_id END)::INTEGER AS "${alias}"`)
     }
   }
 
@@ -589,8 +551,8 @@ export function buildPeriodRowQuery(
     for (const svcLabel of serviceLabels) {
       const escapedLabel = esc(svcLabel)
       const aliasBase = svcLabel.replace(/[^a-zA-Z0-9]/g, '_')
-      selects.push(`COUNT(DISTINCT CASE WHEN ${serviceExpr} = '${escapedLabel}' THEN v."${patIdCol}" END)::INTEGER AS "svc_${aliasBase}_pat"`)
-      selects.push(`COUNT(DISTINCT CASE WHEN ${serviceExpr} = '${escapedLabel}' THEN v."${vt.idColumn}" END)::INTEGER AS "svc_${aliasBase}_sej"`)
+      selects.push(`COUNT(DISTINCT CASE WHEN ${serviceExpr} = '${escapedLabel}' THEN v.patient_id END)::INTEGER AS "svc_${aliasBase}_pat"`)
+      selects.push(`COUNT(DISTINCT CASE WHEN ${serviceExpr} = '${escapedLabel}' THEN v.visit_id END)::INTEGER AS "svc_${aliasBase}_sej"`)
     }
   }
 
@@ -599,30 +561,24 @@ export function buildPeriodRowQuery(
     for (const cat of conceptCategories) {
       const escapedCat = esc(cat)
       const aliasBase = cat.replace(/[^a-zA-Z0-9]/g, '_')
-      selects.push(`COUNT(DISTINCT CASE WHEN ev.cat = '${escapedCat}' THEN v."${patIdCol}" END)::INTEGER AS "cat_${aliasBase}_pat"`)
+      selects.push(`COUNT(DISTINCT CASE WHEN ev.cat = '${escapedCat}' THEN v.patient_id END)::INTEGER AS "cat_${aliasBase}_pat"`)
       selects.push(`SUM(CASE WHEN ev.cat = '${escapedCat}' THEN 1 ELSE 0 END)::INTEGER AS "cat_${aliasBase}_rows"`)
     }
   }
 
   const eventsCte = allEventParts.length > 0
-    ? `,\nevents_cat AS (\n  SELECT DISTINCT pid, cat FROM (\n    ${allEventParts.join('\n    UNION ALL\n    ')}\n  ) _ev\n)`
+    ? `WITH events_cat AS (\n  SELECT DISTINCT pid, cat FROM (\n    ${allEventParts.join('\n    UNION ALL\n    ')}\n  ) _ev\n)\n`
     : ''
 
   const evJoin = allEventParts.length > 0
-    ? `LEFT JOIN events_cat ev ON v."${patIdCol}" = ev.pid`
+    ? 'LEFT JOIN events_cat ev ON v.patient_id = ev.pid'
     : ''
 
-  return `WITH base_visits AS (
-  SELECT v."${vt.idColumn}" AS vid, v."${patIdCol}" AS pid
-  FROM ${qualify(vt)} v
-  WHERE ${whereClause}
-)${eventsCte}
-SELECT
+  return `${eventsCte}SELECT
   ${selects.join(',\n  ')}
-FROM ${qualify(vt)} v
-JOIN ${qualify(pt)} p ON v."${patIdCol}" = p."${pt.idColumn}"
+FROM ${visit.name} v
+JOIN ${patient.name} p ON v.patient_id = p.patient_id
 ${vdJoin}
-${serviceJoin}
 ${evJoin}
 WHERE ${whereClause}`
 }
@@ -645,21 +601,14 @@ export function buildServiceLabelsQuery(
   serviceLevel: 'visit' | 'visit_detail',
   smRules?: ServiceMappingRule[],
 ): string | null {
-  if (serviceLevel === 'visit_detail' && mapping.visitDetailTable) {
-    const vd = mapping.visitDetailTable
-    if (!vd.unitColumn) return null
-    let expr: string
-    if (vd.unitNameTable && vd.unitNameIdColumn && vd.unitNameColumn) {
-      return `SELECT DISTINCT ${applyPeriodServiceMapping(`csn."${vd.unitNameColumn}"`, smRules)} AS svc_label FROM ${qualify(vd)} vd JOIN ${qualifyIn(vd, vd.unitNameTable)} csn ON vd."${vd.unitColumn}" = csn."${vd.unitNameIdColumn}" WHERE vd."${vd.unitColumn}" IS NOT NULL ORDER BY svc_label`
-    } else {
-      expr = applyPeriodServiceMapping(`vd."${vd.unitColumn}"`, smRules)
-      return `SELECT DISTINCT ${expr} AS svc_label FROM ${qualify(vd)} vd WHERE vd."${vd.unitColumn}" IS NOT NULL ORDER BY svc_label`
-    }
+  const vd = classRelation(mapping, 'visit_detail')
+  if (serviceLevel === 'visit_detail' && vd) {
+    if (!has(vd, 'unit_category')) return null
+    return `SELECT DISTINCT ${applyPeriodServiceMapping('unit_category', smRules)} AS svc_label FROM ${vd.name} WHERE unit_category IS NOT NULL ORDER BY svc_label`
   }
-  const vt = mapping.visitTable
-  if (!vt?.typeColumn) return null
-  const expr = applyPeriodServiceMapping(`v."${vt.typeColumn}"`, smRules)
-  return `SELECT DISTINCT ${expr} AS svc_label FROM ${qualify(vt)} v WHERE v."${vt.typeColumn}" IS NOT NULL ORDER BY svc_label`
+  const visit = classRelation(mapping, 'visit')
+  if (!has(visit, 'visit_type')) return null
+  return `SELECT DISTINCT ${applyPeriodServiceMapping('visit_type', smRules)} AS svc_label FROM ${visit!.name} WHERE visit_type IS NOT NULL ORDER BY svc_label`
 }
 
 /** Query to get all distinct category values for a given category column key. */
@@ -667,10 +616,9 @@ export function buildCategoryLabelsQuery(
   mapping: SchemaMapping,
   categoryColumn: string,
 ): string | null {
-  if (!mapping.conceptTables) return null
-  const dict = mapping.conceptTables[0]
-  if (!dict) return null
-  const catCol = resolveDictColumn(dict, categoryColumn)
-  if (!catCol) return null
-  return `SELECT DISTINCT "${catCol}" AS cat_label FROM ${qualify(dict)} WHERE "${catCol}" IS NOT NULL ORDER BY cat_label`
+  const dict = mapping.conceptTables?.[0]
+  const rel = dict ? conceptRelation(mapping, dict.key) : undefined
+  const catCol = dict && rel ? resolveDictColumn(dict, rel, categoryColumn) : undefined
+  if (!rel || !catCol) return null
+  return `SELECT DISTINCT "${catCol}" AS cat_label FROM ${rel.name} WHERE "${catCol}" IS NOT NULL ORDER BY cat_label`
 }
