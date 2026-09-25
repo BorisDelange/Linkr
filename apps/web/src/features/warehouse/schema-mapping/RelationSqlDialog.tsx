@@ -123,7 +123,7 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
       description={t('schema_mapping.sql_description', { example: '{{name}}' })}
     >
       <Tabs value={tab} onValueChange={setTab} className="flex h-full flex-col">
-        <TabsList>
+        <TabsList className="self-center">
           <TabsTrigger value="sql">SQL</TabsTrigger>
           <TabsTrigger value="check">{t('schema_mapping.tab_check')}</TabsTrigger>
           <TabsTrigger value="preview">{t('schema_mapping.tab_preview')}</TabsTrigger>

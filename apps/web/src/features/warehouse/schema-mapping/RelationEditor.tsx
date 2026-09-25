@@ -107,8 +107,9 @@ export function RelationEditor({
   }
 
   return (
-    <div className="rounded-md border bg-card">
-      <div className="flex items-center gap-2 border-b px-3 py-2">
+    <div className="flex h-full flex-col overflow-hidden rounded-md border bg-card">
+      {/* Teal: the Data Warehouse colour, as in the sidebar. */}
+      <div className="flex items-center gap-2 border-b border-teal-500/20 bg-teal-500/10 px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="truncate text-xs font-medium">{title}</span>
           {relationName && <code className="truncate text-[10px] text-muted-foreground">{relationName}</code>}

@@ -202,7 +202,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
   )
 
   const list = (key: 'events' | 'drugs') => (
-    <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
       {!readOnly && (
         <div className="col-span-full flex justify-end">
           <Button
@@ -252,7 +252,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
           <div className="flex-1" />
         </div>
 
-        <TabsContent value="patient" className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+        <TabsContent value="patient" className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
           {singleton('patient', t('schema_mapping.class_patient'), (spec) => (
             <GenderValues
               spec={spec as PatientSpec}
@@ -262,16 +262,16 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
           ))}
         </TabsContent>
 
-        <TabsContent value="stays" className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+        <TabsContent value="stays" className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
           {singleton('visit', t('schema_mapping.class_visit'))}
           {singleton('visitDetail', t('schema_mapping.class_visit_detail'))}
         </TabsContent>
 
-        <TabsContent value="notes" className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+        <TabsContent value="notes" className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
           {singleton('note', t('schema_mapping.class_note'))}
         </TabsContent>
 
-        <TabsContent value="concepts" className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+        <TabsContent value="concepts" className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
           {!readOnly && (
             <div className="col-span-full flex justify-end">
               <Button
@@ -490,7 +490,7 @@ function GenderValues({ spec, readOnly, onChange }: { spec: PatientSpec; readOnl
 function EmptyRelation({ title, readOnly, onTable, onSql }: { title: string; readOnly?: boolean; onTable: () => void; onSql: () => void }) {
   const { t } = useTranslation()
   return (
-    <div className="rounded-md border border-dashed px-3 py-4 text-center">
+    <div className="flex h-full flex-col justify-center rounded-md border border-dashed px-3 py-4 text-center">
       <p className="text-xs font-medium">{title}</p>
       <p className="mt-1 text-xs text-muted-foreground">{t('schema_mapping.not_mapped')}</p>
       {!readOnly && (
