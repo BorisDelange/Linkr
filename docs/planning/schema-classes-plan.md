@@ -199,7 +199,7 @@ stay"), generalising `missing` in `widget-sql.ts`.
 | note | `linkr_note` | 1 row / document | `note_id*`, `patient_id*`, `visit_id`, `note_datetime*`, `title`, `text*`, `note_type` |
 | concept (n) | `linkr_concept_<key>` | 1 row / concept | `concept_id*`, `concept_terminology`, `concept_name*`, `concept_code`, `terminology_id`, `terminology_name`, `category`, `subcategory`, + declared `extra_*` (e.g. `standard_concept`) |
 | event (n) | `linkr_event_<slug>` | 1 row / observation | `patient_id*`, `concept_id*`, `start_datetime*`, `visit_id`, `visit_detail_id`, `concept_terminology`, `source_concept_id`, `concept_name`, `end_datetime`, `value_number`, `value_string`, `unit`, `unit_concept_id` |
-| drug (n) | `linkr_drug_<slug>` | 1 row / administration or prescription line | `patient_id*`, `concept_id*`, `start_datetime*`, `drug_id`, `visit_id`, `visit_detail_id`, `concept_terminology`, `source_concept_id`, `concept_name`, `end_datetime`, `quantity`, `amount_value`, `amount_unit`, `rate_value`, `rate_unit`, `concentration_value`, `concentration_unit`, `duration_value`, `duration_unit`, `is_continuous`, `route`, `route_concept_id`, `dose_source_value` |
+| drug (n) | `linkr_drug_<slug>` | 1 row / administration or prescription line | `patient_id*`, `concept_id*`, `start_datetime*`, `drug_kind*` (`administration` / `prescription`), `drug_id`, `visit_id`, `visit_detail_id`, `concept_terminology`, `source_concept_id`, `concept_name`, `end_datetime`, `quantity`, `amount_value`, `amount_unit`, `rate_value`, `rate_unit`, `concentration_value`, `concentration_unit`, `duration_value`, `duration_unit`, `is_continuous`, `route`, `route_concept_id`, `dose_source_value` |
 
 What each contract absorbs:
 
@@ -494,7 +494,8 @@ do. **Arbitrated: three phases, plus a fourth for ETL generation.**
 | St | Item | Effort |
 |----|------|--------|
 | ✅ | Arbitrated 2026-09-25: three phases; `linkr_*` names; class SQL reads its own database only (no roles); per-database override | — |
-| 🤔 | Arbitrate the details: the 7 contracts (§5), CTE injection over temp views, v1 converted then forgotten, parameters as literals only | S (review) |
+| ✅ | Arbitrated 2026-09-25: preset required, single `from` for singleton classes, `drug_kind`, OMOP-only ETL generation, the 7 contracts, v1 converted then forgotten | — |
+| 🤔 | Left: CTE injection over temp views, parameters as literals only | S (review) |
 | 🔜 | 1. `lib/schema-classes/`: contracts (declarative: column, required, type family) + `generateClassSql(mappingV1)` + `withClassRelations()` (reference detection via `sql-tokenizer`, `NOT MATERIALIZED`) — Vitest | M |
 | 🔜 | 2. Port consumers to `linkr_*`, parity-checked on the two demo DBs: patient data + overview → concepts → cohort builder + report → DQ + stats + catalog → concept-mapping extraction → MCP. The server's `cohort_derive.py` last | L |
 | 🔜 | 3. Mapping v2 types + `mappingV1ToV2` (tested on the 9 published presets) + sanitize/trust boundary + linkr-format (schema, canonical order, validator) + Python twin + goldens | M/L |
@@ -510,21 +511,27 @@ do. **Arbitrated: three phases, plus a fourth for ETL generation.**
 | 💤 | 13. Domain routing in ETL generation; source profile (value frequencies) in the field picker | M |
 | 🔜 | 14. User docs in `linkr-website` (schema presets, database Mapping tab, ETL generation) + `docs/architecture.md` | S/M |
 
+## Decisions (2026-09-25)
+
+1. **A database needs a preset.** A database cannot carry a mapping of its own:
+   the override layer is always a diff against a preset, and "Promote to preset"
+   always has a target.
+2. **No multi-source singleton classes.** `patient`, `visit`, `visit_detail` and
+   `note` keep a single `from`. Visits coming from two tables are a UNION in
+   custom SQL. Custom SQL is there for the special cases; the visual form stays
+   simple.
+3. **Administrations and prescriptions are kept apart**: two `drugs[]` entries,
+   with `drug_kind` (`administration` / `prescription`) in the drug contract.
+4. **ETL generation targets OMOP only**, like the vocabulary generation
+   (`00_vocabulary.sql` from a mapping project) already does.
+5. **The 7 contracts of §5 are validated.** The drug columns are still refined
+   with the patient-data drug widgets (step 9).
+6. **No dual support of v1**: a v1 mapping is converted on read, and Linkr
+   writes v2 only.
+
 ## Open questions 🤔
 
-1. **Multi-source singleton classes.** Visits coming from two tables: is a UNION
-   in custom SQL enough, or should `visit` accept several `from` like events do?
-   Recommendation: custom SQL. The events/drugs lists already cover the common
-   case.
-2. **Drug grain.** Administration, prescription, or both as two relations? Sources
-   often keep them apart. Recommendation:
-   two `drugs[]` entries, with `drug_kind` in the contract.
-3. **A database without a preset.** Can a database carry a mapping of its own
-   (overrides with no base), or must a preset exist first? Recommendation: a
-   preset first. The override layer stays a diff, and "Promote to preset" has a
-   target.
-4. **Non-OMOP targets for ETL generation.** Inversion works for any target whose
-   preset mapping is visual (MIMIC-shaped, a custom datamart). Should the first
-   version stay OMOP-only (its rules for dates, type concepts and vocabulary are
-   specific)? Recommendation: OMOP first, with a generic "contract columns only"
-   mode for other targets.
+1. **CTE injection over temp views** (§6). Recommendation: CTEs, since they are
+   stateless and identical in both modes.
+2. **Parameters as escaped literals only** (§7), never identifiers or SQL
+   fragments. Recommendation: yes.
