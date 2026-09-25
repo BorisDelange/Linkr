@@ -13,11 +13,25 @@ changed since it was written) was unusable already and is dropped.
 The concept detail-stats cache gains a `principal` in its key; being a cache, it
 is recreated empty rather than migrated.
 
+**Downgrade is irreversible for secrets.** It restores the schema, not the data:
+the deleted shared passwords are gone, and git tokens / IDE connection secrets
+stay sealed under the new key, which the previous code cannot open — each user
+re-enters them after a downgrade.
+
+The crypto is vendored (``_legacy_fernet_decrypt``, ``_seal``), not imported
+from ``app.core.crypto``: a migration must run the same forever, whatever that
+module becomes. It is byte-compatible with crypto.py as of this revision
+(``v2.<key id>.<b64 nonce||ciphertext+tag>``, AES-256-GCM, the context as
+associated data, the same key source) — tests/test_migration_crypto.py pins it.
+
 Revision ID: c4d5e6f7a8b9
 Revises: 83e1d5666f0f
 Create Date: 2026-09-25 12:00:00
 """
+import base64
+import hashlib
 import json
+import os
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -43,29 +57,90 @@ def _as_dict(value) -> dict:
     return {}
 
 
+# --- Vendored crypto (frozen at this revision) --------------------------------
+
+def _b64d(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def _b64e(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _parse_key(value: str) -> bytes:
+    key = _b64d(value.strip())
+    if len(key) != 32:
+        raise RuntimeError("LINKR_ENCRYPTION_KEY must be the urlsafe base64 of 32 bytes")
+    return key
+
+
+def _current_key(encryption_key: str | None, key_path) -> bytes:
+    """LINKR_ENCRYPTION_KEY, else ``data_dir/secret.key``, created (0600, O_EXCL)
+    when missing — the key the app then keeps using."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    if encryption_key:
+        return _parse_key(encryption_key)
+    if key_path.is_file():
+        return _parse_key(key_path.read_text())
+    key = AESGCM.generate_key(bit_length=256)
+    try:
+        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return _parse_key(key_path.read_text())
+    with os.fdopen(fd, "w") as fh:
+        fh.write(_b64e(key))
+    return key
+
+
+def _seal(plaintext: str, context: str, key: bytes) -> str:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    nonce = os.urandom(12)
+    sealed = AESGCM(key).encrypt(nonce, plaintext.encode("utf-8"), context.encode("utf-8"))
+    return f"v2.{hashlib.sha256(key).hexdigest()[:8]}.{_b64e(nonce + sealed)}"
+
+
+def _legacy_fernet_decrypt(token: str, secret_key: str) -> str | None:
+    from cryptography.fernet import Fernet, InvalidToken
+
+    digest = hashlib.sha256(secret_key.encode("utf-8")).digest()
+    try:
+        return Fernet(base64.urlsafe_b64encode(digest)).decrypt(token.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError):
+        return None
+
+
 def _reseal_secrets(bind) -> None:
     from app.config import settings
-    from app.core import crypto
+
+    key: list[bytes] = []
+
+    def seal(plain: str, context: str) -> str:
+        # Loaded on first use, as crypto.py does: no secret, no key file created.
+        if not key:
+            key.append(_current_key(settings.encryption_key, settings.data_path / "secret.key"))
+        return _seal(plain, context, key[0])
 
     for row_id, user_id, host, secret in bind.execute(
         sa.text("SELECT id, user_id, host, secret FROM git_credentials")
     ).all():
-        plain = crypto.decrypt_legacy_fernet(secret, settings.secret_key)
+        plain = _legacy_fernet_decrypt(secret, settings.secret_key)
         if plain is None:
             bind.execute(sa.text("DELETE FROM git_credentials WHERE id = :id"), {"id": row_id})
             continue
         bind.execute(
             sa.text("UPDATE git_credentials SET secret = :s WHERE id = :id"),
-            {"s": crypto.encrypt(plain, f"git:{user_id}:{host}"), "id": row_id},
+            {"s": seal(plain, f"git:{user_id}:{host}"), "id": row_id},
         )
 
     for row_id, secret in bind.execute(
         sa.text("SELECT id, connection_secret FROM ide_connections WHERE connection_secret IS NOT NULL")
     ).all():
-        plain = crypto.decrypt_legacy_fernet(secret, settings.secret_key)
+        plain = _legacy_fernet_decrypt(secret, settings.secret_key)
         bind.execute(
             sa.text("UPDATE ide_connections SET connection_secret = :s WHERE id = :id"),
-            {"s": crypto.encrypt(plain, f"ide:{row_id}") if plain is not None else None, "id": row_id},
+            {"s": seal(plain, f"ide:{row_id}") if plain is not None else None, "id": row_id},
         )
 
 
@@ -128,6 +203,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Schema only: the secrets are not restored (see the module docstring)."""
     op.drop_table("concept_stats_caches")
     op.create_table(
         "concept_stats_caches",
