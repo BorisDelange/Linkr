@@ -35,6 +35,8 @@ from app.services.data.db_connect import (
     _engine_spec,
     _dsn,
     _ext_dir,
+    _forbid_file_access,
+    _group_parquet,
     _lock_down_user_sql,
     _reject_forbidden_statements,
     _require_ident,
@@ -182,6 +184,15 @@ def _check_membership_sql(sql: str) -> str:
     return stmt
 
 
+def _source_files(source: SourceSpec) -> list[str]:
+    """The files a Parquet source's views read, which must stay readable once the
+    connection is cut off the filesystem."""
+    if source.spec.get("kind") != "parquet":
+        return []
+    groups = _group_parquet(source.spec.get("files") or [], source.spec.get("known") or [])
+    return [p for paths in groups.values() for p in paths]
+
+
 def compute_members(source: SourceSpec, membership_sql: str):
     """Phase 1: the cohort's `(id, patient_id)` rows, as an Arrow table."""
     stmt = _check_membership_sql(membership_sql)
@@ -190,6 +201,7 @@ def compute_members(source: SourceSpec, membership_sql: str):
         _attach_role(con, "source", source.spec)
         # Set before the lock: the client SQL must not be able to move it.
         con.execute(f"SET search_path='{_source_search_path(con, source)}'")
+        _forbid_file_access(con, _source_files(source))
         _lock_down_user_sql(con)
         table = con.execute(stmt).fetch_arrow_table()
     finally:
