@@ -1,0 +1,69 @@
+import type { SchemaMapping } from '@/types/schema-mapping'
+import { isProtected, protectedRegions, splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
+import { RELATION_PREFIX } from './contracts'
+import { classRelations } from './relations'
+
+// Matches a relation name used as an identifier: `linkr_visit`, `linkr_event_lab_events`.
+const RELATION_REF = new RegExp(`(?<![\\w.])${RELATION_PREFIX}[a-z0-9_]+(?!\\w)`, 'gi')
+
+/** Relation names a statement references outside literals, quoted identifiers and comments. */
+export function referencedRelations(sql: string): Set<string> {
+  const regions = protectedRegions(sql)
+  const names = new Set<string>()
+  for (const m of sql.matchAll(RELATION_REF)) {
+    if (!isProtected(regions, m.index)) names.add(m[0].toLowerCase())
+  }
+  return names
+}
+
+/** Index of the first character that is neither whitespace nor inside a comment. */
+function firstTokenIndex(sql: string): number {
+  const regions = protectedRegions(sql)
+  for (let i = 0; i < sql.length; i++) {
+    if (/\s/.test(sql[i])) continue
+    const region = regions.find((r) => r.start <= i && i < r.end)
+    if (!region) return i
+    // A quoted identifier or literal is structure, not a comment: stop there.
+    if (!sql.startsWith('--', region.start) && !sql.startsWith('/*', region.start)) return i
+    i = region.end - 1
+  }
+  return sql.length
+}
+
+/**
+ * Prepend the class relations a single statement references, as non-materialised
+ * CTEs. `NOT MATERIALIZED` is required, not a hint: DuckDB materialises a CTE
+ * referenced twice, which stops a per-patient filter from being pushed into it
+ * (measured, plan §6).
+ *
+ * Only a query statement (SELECT / WITH / VALUES / parenthesised) is rewritten;
+ * anything else is returned untouched and fails on the unknown name.
+ */
+export function withClassRelations(sql: string, mapping: SchemaMapping | undefined | null): string {
+  if (!mapping || !sql.toLowerCase().includes(RELATION_PREFIX)) return sql
+  const wanted = referencedRelations(sql)
+  if (wanted.size === 0) return sql
+  const ctes = classRelations(mapping)
+    .filter((r) => wanted.has(r.name))
+    .map((r) => `${r.name} AS NOT MATERIALIZED (\n${r.sql}\n)`)
+  if (ctes.length === 0) return sql
+
+  const start = firstTokenIndex(sql)
+  const head = sql.slice(start)
+  const withMatch = /^with(\s+recursive)?\s/i.exec(head)
+  if (withMatch) {
+    const at = start + withMatch[0].length
+    return `${sql.slice(0, at)}${ctes.join(',\n')},\n${sql.slice(at)}`
+  }
+  if (!/^(select|values|from|\()/i.test(head)) return sql
+  return `${sql.slice(0, start)}WITH ${ctes.join(',\n')}\n${head}`
+}
+
+/** Same, for a script of several statements. */
+export function injectClassRelations(script: string, mapping: SchemaMapping | undefined | null): string {
+  if (!mapping || !script.toLowerCase().includes(RELATION_PREFIX)) return script
+  const statements = splitSqlStatements(script)
+  if (statements.length <= 1) return withClassRelations(script, mapping)
+  const rewritten = statements.map((s) => withClassRelations(s, mapping))
+  return rewritten.every((s, i) => s === statements[i]) ? script : rewritten.join(';\n')
+}

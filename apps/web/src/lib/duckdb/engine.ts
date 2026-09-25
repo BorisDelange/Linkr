@@ -6,6 +6,7 @@ import { Type as ArrowType } from 'apache-arrow'
 import { isServerMode } from '@/lib/api-client'
 import { fetchDataSourceSchema, queryDataSourceOnServer } from '@/lib/api/data-sources'
 import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
+import { injectClassRelations } from '@/lib/schema-classes/inject'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
 const resetHooks = new Set<() => void>()
@@ -172,6 +173,17 @@ let mountGuard: ((dataSourceId: string) => Promise<void>) | undefined
 
 export function setMountGuard(guard: (dataSourceId: string) => Promise<void>): void {
   mountGuard = guard
+}
+
+/**
+ * The schema mapping of a data source, so `queryDataSource` can resolve the
+ * `linkr_*` class relations a query names. Injected by the store for the same
+ * reason as the mount guard.
+ */
+let mappingResolver: ((dataSourceId: string) => SchemaMapping | undefined) | undefined
+
+export function setMappingResolver(resolve: (dataSourceId: string) => SchemaMapping | undefined): void {
+  mappingResolver = resolve
 }
 
 // --- Mount / unmount ---
@@ -487,6 +499,7 @@ export async function queryDataSource(
   dataSourceId: string,
   sql: string,
 ): Promise<Record<string, unknown>[]> {
+  sql = injectClassRelations(sql, mappingResolver?.(dataSourceId))
   // Server mode: the tables live on the server (external DB or server-held
   // files), so the query runs there — the browser never loads the raw data.
   // Front-only mode keeps the in-browser DuckDB-WASM path below.

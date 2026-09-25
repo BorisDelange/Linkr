@@ -1194,3 +1194,4 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 // Every front-only query now waits for its source to be mounted, instead of
 // each caller having to remember to call ensureMounted first.
 engine.setMountGuard((id) => useDataSourceStore.getState().ensureMounted(id))
+engine.setMappingResolver((id) => useDataSourceStore.getState().dataSources.find((d) => d.id === id)?.schemaMapping)
