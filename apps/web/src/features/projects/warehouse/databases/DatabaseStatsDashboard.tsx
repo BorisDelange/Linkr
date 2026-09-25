@@ -6,7 +6,7 @@ import {
   LineChart, Line, CartesianGrid, PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
@@ -310,7 +310,7 @@ export function DatabaseStatsDashboard({
  */
 function TableCountsTable({ rows }: { rows: TableRowCount[] }) {
   const { t, i18n } = useTranslation()
-  const columns = useMemo<ConceptColumn<TableRowCount>[]>(() => [
+  const columns = useMemo<DataTableColumn<TableRowCount>[]>(() => [
     {
       id: 'tableName',
       header: t('databases.stats_table_name'),
@@ -330,7 +330,7 @@ function TableCountsTable({ rows }: { rows: TableRowCount[] }) {
   ], [t, i18n.language])
 
   return (
-    <ConceptDataTable
+    <DataTable
       data={rows}
       columns={columns}
       rowKey={(r) => r.tableName}

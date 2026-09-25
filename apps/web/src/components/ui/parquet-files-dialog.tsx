@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Copy } from 'lucide-react'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { humanBytes } from '@/lib/format-helpers'
@@ -141,7 +141,7 @@ export function ParquetFilesDialog({
       })
   }
 
-  const columns: ConceptColumn<ParquetFileRow>[] = useMemo(
+  const columns: DataTableColumn<ParquetFileRow>[] = useMemo(
     () => [
       {
         id: 'table',
@@ -215,7 +215,7 @@ export function ParquetFilesDialog({
         </>
       }
     >
-      <ConceptDataTable
+      <DataTable
         data={rows}
         columns={columns}
         rowKey={(r) => r.key}

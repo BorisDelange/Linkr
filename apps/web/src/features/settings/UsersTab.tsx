@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { isValidOrcid, normalizeOrcid } from '@/lib/user-identity'
 import { localized, localizedRaw, setLocalized, seedLocalizedForEditing, hasLocalizedContent } from '@/lib/localized'
 import type { Role, User, UserCreateInput, LocalizedString } from '@/types'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { Button } from '@/components/ui/button'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
@@ -229,7 +229,7 @@ export function UsersTab() {
   const adminCount = users.filter((u) => u.role === 'admin').length
   const activeAdminCount = users.filter((u) => u.role === 'admin' && u.isActive !== false).length
 
-  const columns = useMemo<ConceptColumn<User>[]>(() => [
+  const columns = useMemo<DataTableColumn<User>[]>(() => [
     { id: 'username', header: t('settings.user_username'), accessor: (u) => u.username, filter: 'text', size: 160 },
     { id: 'firstName', header: t('profile.first_name'), accessor: (u) => u.firstName ?? '', filter: 'text', size: 130 },
     { id: 'lastName', header: t('profile.last_name'), accessor: (u) => u.lastName ?? '', filter: 'text', size: 130 },
@@ -331,7 +331,7 @@ export function UsersTab() {
           table. Bounded height so it scrolls; the table's own bottom margin keeps the
           scrollbar off the last row. */}
       <div className="h-[calc(100vh-320px)] min-h-[280px] overflow-hidden rounded-lg border">
-        <ConceptDataTable
+        <DataTable
           data={users}
           columns={columns}
           rowKey={(u) => u.id}

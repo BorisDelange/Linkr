@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { CheckSquare, Square } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { cn } from '@/lib/utils'
 import type { MappingChange } from '@/lib/concept-mapping/merge'
 import type { ConceptMapping } from '@/types'
@@ -102,7 +102,7 @@ const typeFilterCache = new Map<string, TypeFilter>()
 
 /**
  * Full-size datatable to pick which mapping changes to pull. Built on the shared
- * `ConceptDataTable` — the same engine and interaction model as the mapping tab
+ * `DataTable` — the same engine and interaction model as the mapping tab
  * and its twin `PullConceptsDialog` (sortable headers, inline per-column filters,
  * column resizing and a visibility menu) — plus a checkbox column, a change-type
  * column and an out-of-table change-type filter.
@@ -160,7 +160,7 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
     })
   }
 
-  const columns = useMemo<ConceptColumn<Row>[]>(() => [
+  const columns = useMemo<DataTableColumn<Row>[]>(() => [
     // Nothing to tick when the changes are already decided (push side).
     ...(readOnly ? [] : [{
       id: '_select',
@@ -179,7 +179,7 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
       filter: 'none',
       size: 36,
       minSize: 36,
-    } as ConceptColumn<Row>]),
+    } as DataTableColumn<Row>]),
     {
       id: 'type',
       header: t('versioning.pull_col_change'),
@@ -255,7 +255,7 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          <ConceptDataTable
+          <DataTable
             data={rows}
             columns={columns}
             rowKey={(r) => r.key}

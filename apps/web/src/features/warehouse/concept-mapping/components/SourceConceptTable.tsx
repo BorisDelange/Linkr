@@ -1081,7 +1081,7 @@ export function SourceConceptTable({
       </div>
 
       {/* Footer: count + columns on the left, paging on the right — the layout
-          ConceptDataTable uses, so every table in the app reads the same. */}
+          DataTable uses, so every table in the app reads the same. */}
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
         <div className="flex items-center gap-1">
           <span className="text-[10px] text-muted-foreground">

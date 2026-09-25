@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { nextSelection, type RowKey } from '@/components/ui/concept-data-table'
+import { nextSelection, type RowKey } from '@/components/ui/data-table'
 
 export interface CardSelection {
   /** Keys currently selected. Empty when selection mode is off. */

@@ -16,9 +16,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  ConceptDataTable,
-  type ConceptColumn,
-} from '@/components/ui/concept-data-table'
+  DataTable,
+  type DataTableColumn,
+} from '@/components/ui/data-table'
 import {
   CLIPBOARD_COPY_FORMATS,
   CLIPBOARD_COPY_FORMAT_LABELS,
@@ -85,8 +85,8 @@ export function ConceptListModal({
 
   // Same column set and order as the Concepts table — terminology first, then
   // id / name / code — plus a remove action.
-  const columns = useMemo<ConceptColumn<ConceptRow>[]>(() => {
-    const cols: ConceptColumn<ConceptRow>[] = []
+  const columns = useMemo<DataTableColumn<ConceptRow>[]>(() => {
+    const cols: DataTableColumn<ConceptRow>[] = []
     if (terminologyColumn) {
       cols.push({
         id: terminologyColumn,
@@ -234,7 +234,7 @@ export function ConceptListModal({
         )}
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          <ConceptDataTable
+          <DataTable
             cellTooltips="all"
             pageSize={100}
             data={concepts}

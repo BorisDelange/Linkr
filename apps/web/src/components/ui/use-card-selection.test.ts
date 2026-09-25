@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { isSelectionClick, retainPresent } from './use-card-selection'
-import type { RowKey } from './concept-data-table'
+import type { RowKey } from './data-table'
 
 const mods = (over: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }> = {}) => ({
   metaKey: false,

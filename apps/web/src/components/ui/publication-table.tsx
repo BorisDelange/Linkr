@@ -1,7 +1,7 @@
 /**
  * A table typeset the way a journal typesets one.
  *
- * Deliberately NOT `ConceptDataTable`. That component exists to explore data —
+ * Deliberately NOT `DataTable`. That component exists to explore data —
  * inline filter fields under every header, a column-visibility menu, paging
  * controls, a row counter. Every one of those is chrome that must not appear in
  * a manuscript, so reusing it would mean fighting it to hide most of what it

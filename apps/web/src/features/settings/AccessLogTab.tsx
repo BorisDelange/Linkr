@@ -4,7 +4,7 @@ import { Download, RefreshCw, ShieldCheck, ShieldAlert } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { formatApiError } from '@/lib/api-client'
 import {
   auditEntriesToCsv,
@@ -70,7 +70,7 @@ export function AccessLogTab() {
     return source ? localized(source.name, i18n.language) : id
   }, [dataSources, i18n.language])
 
-  const columns = useMemo<ConceptColumn<AuditEntry>[]>(() => [
+  const columns = useMemo<DataTableColumn<AuditEntry>[]>(() => [
     {
       id: 'at',
       header: t('access_log.when'),
@@ -135,7 +135,7 @@ export function AccessLogTab() {
           <p className="text-xs text-muted-foreground">{t('access_log.showing_latest', { shown: entries.length, total })}</p>
         )}
         <div className="h-[560px] overflow-hidden rounded-lg border">
-          <ConceptDataTable
+          <DataTable
             data={entries}
             columns={columns}
             rowKey={(r) => String(r.seq)}

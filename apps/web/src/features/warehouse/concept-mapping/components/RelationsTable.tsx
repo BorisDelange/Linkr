@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 
 export interface RelationRow {
@@ -21,7 +21,7 @@ interface RelationsTableProps {
 export function RelationsTable({ relations }: RelationsTableProps) {
   const { t } = useTranslation()
 
-  const columns = useMemo<ConceptColumn<RelationRow>[]>(() => [
+  const columns = useMemo<DataTableColumn<RelationRow>[]>(() => [
     {
       id: 'relationship_id',
       header: t('concept_mapping.concept_info_col_relationship'),
@@ -97,7 +97,7 @@ export function RelationsTable({ relations }: RelationsTableProps) {
   ], [t])
 
   return (
-    <ConceptDataTable
+    <DataTable
       cellTooltips="all"
       pageSize={100}
       data={relations}

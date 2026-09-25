@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ConceptDataTable,
-  type ConceptColumn,
-  type ConceptColumnFilter,
-} from '@/components/ui/concept-data-table'
+  DataTable,
+  type DataTableColumn,
+  type DataTableColumnFilter,
+} from '@/components/ui/data-table'
 import { columnLabel, formatDate, formatDateTimeLocale } from '@/lib/format-helpers'
 
 interface ResultsTableProps {
@@ -58,7 +58,7 @@ function headerFor(key: string, t: (k: string) => string): string {
 export function ResultsTable({ rows }: ResultsTableProps) {
   const { t, i18n } = useTranslation()
 
-  const columns = useMemo<ConceptColumn<Row>[]>(() => {
+  const columns = useMemo<DataTableColumn<Row>[]>(() => {
     if (rows.length === 0) return []
     return Object.keys(rows[0]).map((key) => {
       // Named columns are always dates; anything else is judged on the first
@@ -66,7 +66,7 @@ export function ResultsTable({ rows }: ResultsTableProps) {
       const isDate =
         DATE_COLUMNS.has(key) || isDateValue(rows.find((r) => r[key] != null)?.[key])
       const isNumeric = NUMERIC_COLUMNS.has(key)
-      const filter: ConceptColumnFilter =
+      const filter: DataTableColumnFilter =
         key === 'gender' ? 'select' : isNumeric ? 'number' : 'text'
 
       return {
@@ -100,7 +100,7 @@ export function ResultsTable({ rows }: ResultsTableProps) {
   }, [rows, t, i18n.language])
 
   return (
-    <ConceptDataTable
+    <DataTable
       data={rows}
       columns={columns}
       rowKey={(row) => String(row.id ?? JSON.stringify(row))}

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Info, Library } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
@@ -58,7 +58,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
     [reweighted, providers],
   )
 
-  const columns = useMemo<ConceptColumn<SuggestionCandidate>[]>(() => [
+  const columns = useMemo<DataTableColumn<SuggestionCandidate>[]>(() => [
     {
       id: 'combined_score',
       header: t('concept_mapping.suggestions_col_score'),
@@ -305,7 +305,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
   ], [t, alreadyMappedIds, onInfo, onConceptSet, conceptSetNamesByUid, providerOptions, providers])
 
   return (
-    <ConceptDataTable
+    <DataTable
       pageSize={100}
       data={rows}
       columns={columns}

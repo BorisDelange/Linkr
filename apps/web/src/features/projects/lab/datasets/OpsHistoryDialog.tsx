@@ -6,7 +6,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -98,7 +98,7 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [ops, resolveName, t])
 
-  const columns = useMemo<ConceptColumn<OpRow>[]>(() => [
+  const columns = useMemo<DataTableColumn<OpRow>[]>(() => [
     {
       id: 'position',
       header: t('datasets.op_position'),
@@ -161,7 +161,7 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
         contentClassName="flex flex-col"
       >
         <div className="min-h-0 flex-1 overflow-auto">
-          <ConceptDataTable
+          <DataTable
             data={rows}
             columns={columns}
             rowKey={(r) => r.op.id}

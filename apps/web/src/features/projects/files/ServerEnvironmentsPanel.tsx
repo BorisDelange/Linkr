@@ -19,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import {
   Tooltip,
   TooltipContent,
@@ -279,7 +279,7 @@ export function ServerEnvironmentsPanel({
   // bug). The row actions (onUpgrade/onRemove/setRemoveTarget) are intentionally NOT
   // deps: they close over fresh state via `run`, and listing them would defeat the
   // memo. Deps are only the values the cells render from.
-  const columns: ConceptColumn<EnvPackage>[] = useMemo(() => [
+  const columns: DataTableColumn<EnvPackage>[] = useMemo(() => [
     {
       id: 'name',
       header: t('environments.col_name'),
@@ -579,7 +579,7 @@ export function ServerEnvironmentsPanel({
                 list stays inside the dialog instead of overflowing it. `flex` + min-h-0
                 lets the table's own `h-full`/overflow-auto resolve against this box. */}
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
-              <ConceptDataTable<EnvPackage>
+              <DataTable<EnvPackage>
                 data={packages}
                 columns={columns}
                 rowKey={(p) => p.name}

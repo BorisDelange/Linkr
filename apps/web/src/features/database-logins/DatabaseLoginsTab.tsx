@@ -4,7 +4,7 @@ import { Pencil, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   AlertDialog,
@@ -53,7 +53,7 @@ export function DatabaseLoginsTab() {
     }
   }
 
-  const columns = useMemo<ConceptColumn<DatabaseLoginEntry>[]>(() => [
+  const columns = useMemo<DataTableColumn<DatabaseLoginEntry>[]>(() => [
     { id: 'name', header: t('database_logins.database'), accessor: (r) => localized(r.name, i18n.language), filter: 'text', size: 220 },
     { id: 'username', header: t('database_logins.username'), accessor: (r) => r.username, filter: 'text', size: 160 },
     {
@@ -118,7 +118,7 @@ export function DatabaseLoginsTab() {
         <CardContent className="space-y-2">
           {loadError && <p className="text-xs text-destructive">{loadError}</p>}
           <div className="h-[360px] overflow-hidden rounded-lg border">
-            <ConceptDataTable
+            <DataTable
               data={logins}
               columns={columns}
               rowKey={(r) => r.dataSourceId}

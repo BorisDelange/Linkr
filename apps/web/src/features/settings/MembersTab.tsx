@@ -15,7 +15,7 @@ import {
   type WorkspaceMember,
 } from '@/lib/api/members'
 import { Button } from '@/components/ui/button'
-import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { FormField } from '@/components/ui/form-field'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
@@ -195,7 +195,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
     }
   }
 
-  const columns = useMemo<ConceptColumn<Row>[]>(() => [
+  const columns = useMemo<DataTableColumn<Row>[]>(() => [
     { id: 'username', header: t('settings.user_username'), accessor: (r) => r.username, filter: 'text', size: 160 },
     { id: 'firstName', header: t('profile.first_name'), accessor: (r) => r.firstName, filter: 'text', size: 130 },
     { id: 'lastName', header: t('profile.last_name'), accessor: (r) => r.lastName, filter: 'text', size: 130 },
@@ -273,7 +273,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
       {error && !addOpen && <p className="text-xs text-destructive">{error}</p>}
 
       <div className="h-[calc(100vh-320px)] min-h-[280px] overflow-hidden rounded-lg border">
-        <ConceptDataTable
+        <DataTable
           data={loading ? [] : rows}
           columns={columns}
           rowKey={(r) => r.userId}

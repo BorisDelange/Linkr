@@ -209,7 +209,7 @@ DuckDB (already there) reads it.
 
 - DuckDB queries `audit/*.parquet` + today's JSONL directly (`read_parquet`,
   `read_json`), filtered and paginated in SQL — no import, no index to maintain.
-- *Administration → Access log* (`audit:read`): filterable table (`ConceptDataTable`),
+- *Administration → Access log* (`audit:read`): filterable table (`DataTable`),
   CSV export. *Profile → My activity*: each user's own entries.
 
 ## 7. Code, the IDE and agents — where a password can escape

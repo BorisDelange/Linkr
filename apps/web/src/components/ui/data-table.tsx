@@ -92,9 +92,9 @@ export function nextSelection(
 type Sorting = { columnId: string; desc: boolean } | null
 
 /** Kind of inline column filter to render under a column header. */
-export type ConceptColumnFilter = 'text' | 'number' | 'select' | 'none'
+export type DataTableColumnFilter = 'text' | 'number' | 'select' | 'none'
 
-export interface ConceptColumn<T> {
+export interface DataTableColumn<T> {
   id: string
   header: string
   /**
@@ -117,7 +117,7 @@ export interface ConceptColumn<T> {
   display?: (row: T) => string
   /** Optional custom cell renderer (defaults to a truncated text of the accessor value). */
   cell?: (row: T) => ReactNode
-  filter?: ConceptColumnFilter
+  filter?: DataTableColumnFilter
   /**
    * Custom filter control, for a predicate the built-in filters cannot express —
    * a column whose cell shows several values and whose filter matches a row when
@@ -176,9 +176,9 @@ export interface ConceptColumn<T> {
   tooltip?: boolean | string
 }
 
-interface ConceptDataTableProps<T> {
+interface DataTableProps<T> {
   data: T[]
-  columns: ConceptColumn<T>[]
+  columns: DataTableColumn<T>[]
   /** Stable row key. */
   rowKey: (row: T) => string | number
   /** Empty-state message. */
@@ -282,7 +282,7 @@ const viewCache = new Map<string, ViewState>()
  * exist — hiding a column the user never hid. Mismatched state is dropped
  * rather than merged: starting fresh is the honest default.
  */
-function columnSignature<T>(cols: ConceptColumn<T>[]): string {
+function columnSignature<T>(cols: DataTableColumn<T>[]): string {
   return cols.map((c) => c.id).join(' ')
 }
 
@@ -340,7 +340,7 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated', stickyHeader, density = 'default', striped }: ConceptDataTableProps<T>) {
+export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated', stickyHeader, density = 'default', striped }: DataTableProps<T>) {
   const dense = density === 'compact'
   const cellPad = dense ? 'px-2 py-0.5' : 'px-2 py-1'
   const cellText = dense ? 'text-[10px]' : 'text-xs'

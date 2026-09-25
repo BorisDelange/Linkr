@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampPage, fromStoredFilters, nextSelection, pageCountOf, toStoredFilters, type RowKey } from './concept-data-table'
+import { clampPage, fromStoredFilters, nextSelection, pageCountOf, toStoredFilters, type RowKey } from './data-table'
 
 describe('pageCountOf', () => {
   it('is 1 when pagination is off, whatever the size', () => {

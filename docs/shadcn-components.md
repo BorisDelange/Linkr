@@ -84,7 +84,7 @@ alert-dialog, avatar, badge, button, card, checkbox, collapsible, context-menu, 
 
 Composed in-house — **see `docs/ui-patterns.md` for when and how to use them.**
 
-- **Tables**: `concept-data-table` (canonical datatable), `column-visibility-menu`, `multi-select-filter`, `truncated-header`, `truncated-text`
+- **Tables**: `data-table` (canonical datatable), `column-visibility-menu`, `multi-select-filter`, `truncated-header`, `truncated-text`
 - **Lists & entities**: `list-page-toolbar`, `card-meta-footer`, `badge-strip`, `type-badge`, `entity-actions-menu`, `entity-id-field`, `entity-docs-dialog`, `entity-versioning-dialog`, `authoring-fields`, `version-field`
 - **Dialogs**: `import-conflict-dialog`, `import-source-dialog`, `import-error-dialog`, `export-dialog` (⚠ no call sites)
 - **Inputs**: `searchable-select` (⚠ 1 call site), `debounced-input`, `password-input`, `icon-picker`, `color-picker-popover`, `palette-editor`, `editable-badge`, `badge-editor`, `badge-color-button`, `required-mark`
