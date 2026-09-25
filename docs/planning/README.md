@@ -369,13 +369,13 @@ database's grants and audit see a single login, and Linkr logs nothing. Arbitrat
 2026-09-25: **personal accounts only** per (user, database) (`DatabaseCredential`, like
 `GitCredential`), no shared mode; own encryption key + AES-GCM bound to context;
 credentials dropped when a database's target changes; optional session-only
-passwords; warm connections and caches per user; an **access log** in the app; no
+passwords; warm connections and caches per user; an **access log** (structlog → daily JSONL → monthly Parquet, read with DuckDB — not a DB table); no
 password reachable by an agent through `client_recipe`. No new dependency.
 
 | St | Item | Effort |
 |----|------|--------|
 | 🔜 | Crypto (own key, AES-GCM) + model + resolver (428) + pool/caches per user + routes | M–L |
-| 🔜 | Access log (table, choke-point writes, JSON logger, admin + "my activity" views) | M |
+| 🔜 | Access log (middleware + contextvars, JSONL → Parquet, hash chain, admin + "my activity" views) | M |
 | 🔜 | Front: credential dialog, *Database accounts* tab, *Access log* page | M |
 | 🔜 | Per-workspace browse roots for file-based databases | M |
 

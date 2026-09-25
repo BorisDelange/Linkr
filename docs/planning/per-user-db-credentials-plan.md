@@ -18,9 +18,10 @@ Decisions (2026-09-25):
 - **`client_recipe` refused to API-key sessions** (agents); proxy later.
 - **Secrets bound to their context** (AES-GCM, §2d) and **dropped when the target
   changes** (§2e).
-- **Access log** in the app (§6), plus the Linkr user stamped on each DB session.
+- **Access log** in the app (§6) — log files (JSONL → Parquet), not a DB table — plus
+  the Linkr user stamped on each session to the external database (§4).
 - **No new dependency**: everything below uses `cryptography` (already installed) and
-  the standard library. Kerberos is out of scope (§12).
+  the standard library (+ `structlog` and DuckDB, already there). Kerberos is dropped.
 
 ---
 
@@ -138,9 +139,10 @@ it mandatory per database (`DataSource.require_session_only`).
   schema introspection included (grants hide tables). Cost: one copy per user who
   opens the database — a handful in practice.
 
-## 4. Stamping the Linkr user on the DB session
+## 4. Stamping the Linkr user on the external database session
 
-Each connection sets `application_name = 'linkr:<username>'` (Postgres; MySQL
+This is about the **external databases users query** (a hospital's OMOP Postgres…),
+not Linkr's own database (SQLite by default). Each connection sets `application_name = 'linkr:<username>'` (Postgres; MySQL
 `program_name` connection attribute). With personal accounts the database's own log
 already names the person; this adds that the query came through Linkr, which makes
 `pg_stat_activity` and `pgaudit` output directly readable by the site's DBA.
@@ -157,39 +159,58 @@ concept-cache refresh.
 
 ## 6. Access log
 
-Append-only table, written at the choke points (resolver + query functions), so no
-route can forget it:
+Who ran what, on which database, when, from where (browser, agent, job), with what
+outcome — the traceability a DPO / CNIL review asks for first. It is **not a table in
+the Linkr database**: an append-only log is write-heavy, grows without bound and is
+read rarely, which is exactly what log files are for. No new dependency — `structlog`
+(already configured in [logging.py](../../apps/api/app/core/logging.py)) writes it,
+DuckDB (already there) reads it.
 
-```
-access_log
-  id           pk
-  at           timestamp
-  user_id      fk users (set null — the row outlives the user)
-  via          'web' | 'api_key:<token id>' | 'job:<job id>'
-  workspace_id, project_id, data_source_id   (nullable)
-  action       'query' | 'introspect' | 'export' | 'run_code' | 'client_recipe'
-               | 'credential_set' | 'credential_forget' | 'derive' | 'etl_run' …
-  detail       text       -- SQL text (truncated) or object ref; NEVER result rows
-  row_count, duration_ms, status ('ok' | 'error' | 'denied'), error
-  client_ip
-```
+### 6a. Written automatically, enriched at the choke points
 
-- **What it answers**: who queried which database, when, from where (browser, agent,
-  job), with what outcome — the traceability a DPO / CNIL review asks for first.
-- **What it never holds**: result data. The SQL text can contain identifiers
-  (`WHERE person_id = …`), so the log itself is sensitive: read access is
-  `audit:read` (admins), plus each user seeing their own entries.
-- **File databases too** (DuckDB, Parquet): they have no DB-side log, so Linkr's is
-  the only record.
-- **Retention**: `LINKR_AUDIT_RETENTION_DAYS` (default 365), purged by the existing
-  idle sweep.
-- **Out of the box to a SIEM**: every entry is also emitted as one JSON line on a
-  dedicated `linkr.audit` logger — hospitals' log collectors pick it up from stdout
-  with no Linkr-side integration.
-- **UI**: *Administration → Access log* (filterable table via `ConceptDataTable`,
-  CSV export), and *Profile → My activity* for one's own entries.
-- Denied attempts (`databases:read` missing, 428 without credential, DB auth failure)
-  are logged too.
+- **One middleware** opens an audit context for every HTTP request (and every
+  WebSocket session, e.g. the terminal) through `structlog.contextvars`: user, `via`
+  (`web` | `api_key:<id>` | `job:<id>`), route, client IP, start time. At the end of
+  the request it emits **one** `audit` event with status and duration. Nothing to add
+  per route.
+- **The choke points only add fields** to that context — `resolve_login`, `query`,
+  `introspect`, `client_recipe`, export, `run_code`: `data_source_id`, project, the SQL
+  (truncated to 2 KB), row count. A route that touches no database produces a
+  generic line; one that does gets the detail, without its author doing anything.
+- **Jobs** (no HTTP request) open the same context in the job runner, with
+  `via = job:<id>` and the launcher as user.
+- Only requests that **read or change data** are kept (the middleware drops GETs on
+  static metadata and health checks), so the log is not flooded by UI polling.
+- Denied attempts (missing permission, 428 without credential, DB auth failure) are
+  logged with `status = denied`.
+- **Never result data**. The SQL can hold identifiers (`WHERE person_id = …`), so the
+  log itself is sensitive (§6c).
+
+### 6b. Storage
+
+- A dedicated `linkr.audit` logger writes **JSON Lines** to
+  `data_dir/audit/YYYY-MM-DD.jsonl` (one file per day), and also to stdout so a
+  hospital's collector (ELK, Loki, Splunk…) picks it up with no Linkr-side
+  integration — that is the state-of-the-art path when the site has one.
+- A nightly step (existing idle sweep) **compacts the previous days into Parquet**
+  (`audit/YYYY-MM.parquet`, via DuckDB `COPY … TO … (FORMAT parquet, COMPRESSION zstd)`)
+  and deletes the JSONL. Parquet + zstd on this very repetitive data is ~10–20× smaller
+  than the JSON.
+- Retention `LINKR_AUDIT_RETENTION_DAYS` (default 365): older monthly files are
+  deleted.
+- **Order of magnitude**: ~400 bytes a line; 20 active users × 300 audited actions a
+  day ≈ 6 000 lines ≈ 2.5 MB/day of JSONL, ≈ 150–250 KB/day once in Parquet —
+  **under 100 MB for a year**.
+- **Tamper evidence**: each line carries the hash of the previous one (hash chain,
+  `hashlib`). It does not stop root from rewriting the files, but any edit or deletion
+  in the middle is detectable by a check endpoint.
+
+### 6c. Reading
+
+- DuckDB queries `audit/*.parquet` + today's JSONL directly (`read_parquet`,
+  `read_json`), filtered and paginated in SQL — no import, no index to maintain.
+- *Administration → Access log* (`audit:read`): filterable table (`ConceptDataTable`),
+  CSV export. *Profile → My activity*: each user's own entries.
 
 ## 7. Code, the IDE and agents — where a password can escape
 
@@ -270,7 +291,7 @@ permissions, as today.
 | 🔜 | 4. Pool key per principal + invalidation; target change drops credentials (§2e); `application_name` | S |
 | 🔜 | 5. Caches keyed per principal (stats, concept stats, concept Parquet, introspection) | M |
 | 🔜 | 6. Session-only credentials (in-memory store tied to the login session) + `require_session_only` | S |
-| 🔜 | 7. `access_log` table + writes at the choke points + JSON logger + retention purge | M |
+| 🔜 | 7. Audit: middleware + contextvars, enrichment at the choke points, jobs; JSONL → Parquet compaction, retention, hash chain | M |
 | 🔜 | 8. Routes: my credential (put / test / delete), list mine; access log (admin, mine) | S |
 | 🔜 | 9. Front: credential dialog on 428, database settings, *Database accounts* tab, *Access log* + *My activity* | M |
 | 🔜 | 10. Jobs resolve the launcher's login at run time (derive, ETL, concept refresh) | S |
@@ -278,5 +299,4 @@ permissions, as today.
 | 🔜 | 12. Per-workspace browse roots; `serverPath` registration behind `databases:manage` | M |
 | 🔜 | 13. MCP relays the 428; tests; `docs/architecture.md`; user docs (databases page, new settings tabs, threat model §11) | S |
 | 💤 | Server-side query proxy for kernels (no password in the kernel) | M |
-| 💤 | Kerberos / OIDC pass-through in `resolve_login` (needs `gssapi` + system `libkrb5`, and a site with AD) | L |
 | 💤 | Per-user OS identity for file access (spawner) | L |
