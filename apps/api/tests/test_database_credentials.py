@@ -105,6 +105,14 @@ async def test_database_requiring_session_only_ignores_remember(db):
     assert (await creds.resolve_login(db, source, alice.id)).password == "pw-a"
 
 
+async def test_listed_login_says_its_database_is_session_only(db):
+    source = await _pg(db, require_session_only=True)
+    alice = await _user(db, "alice")
+    await creds.save(db, source, alice.id, "alice_db", "pw-a", remember=True)
+    [entry] = await creds.list_for_user(db, alice.id)
+    assert entry["sessionOnly"] is True and entry["remembered"] is False
+
+
 async def test_session_login_does_not_follow_a_retarget(db):
     source = await _pg(db)
     alice = await _user(db, "alice")
@@ -190,7 +198,7 @@ async def test_my_login_roundtrip(client, db, monkeypatch):
     assert "good" not in r.text
 
     listed = (await client.get(f"{API}/auth/database-logins", headers=admin)).json()
-    assert [(e["dataSourceId"], e["username"]) for e in listed] == [(source_id, "me")]
+    assert [(e["dataSourceId"], e["username"], e["sessionOnly"]) for e in listed] == [(source_id, "me", False)]
     assert (await client.get(f"{API}/data-sources/{source_id}/login-count", headers=admin)).json() == {"count": 1}
 
     assert (await client.delete(f"{API}/data-sources/{source_id}/my-login", headers=admin)).status_code == 204

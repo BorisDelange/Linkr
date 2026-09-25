@@ -296,6 +296,7 @@ async def list_for_user(db: AsyncSession, user_id: int) -> list[dict]:
             "username": cred.username,
             "remembered": True,
             "lastUsedAt": cred.last_used_at,
+            "sessionOnly": bool(source.require_session_only),
         }
         for cred, source in rows
     ]
@@ -311,5 +312,6 @@ async def list_for_user(db: AsyncSession, user_id: int) -> list[dict]:
                 "username": username,
                 "remembered": False,
                 "lastUsedAt": None,
+                "sessionOnly": bool(source.require_session_only),
             })
     return out

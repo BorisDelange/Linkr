@@ -30,15 +30,19 @@ export function DatabaseLoginsTab() {
   const [editing, setEditing] = useState<{ entry: DatabaseLoginEntry; opening: number } | null>(null)
   const [forgetTarget, setForgetTarget] = useState<DatabaseLoginEntry | null>(null)
 
+  const errorText = useCallback((err: unknown) => {
+    const f = formatApiError(err)
+    return f.summaryKey ? t(f.summaryKey, { count: f.summaryCount ?? 0 }) : (f.summary ?? String(err))
+  }, [t])
+
   const load = useCallback(async () => {
     try {
       setLogins(await listMyDatabaseLogins())
       setLoadError(null)
     } catch (err) {
-      const f = formatApiError(err)
-      setLoadError(f.summaryKey ? t(f.summaryKey, { count: f.summaryCount ?? 0 }) : (f.summary ?? String(err)))
+      setLoadError(errorText(err))
     }
-  }, [t])
+  }, [errorText])
 
   useEffect(() => { void load() }, [load])
 
@@ -46,11 +50,14 @@ export function DatabaseLoginsTab() {
     if (!forgetTarget) return
     const id = forgetTarget.dataSourceId
     setForgetTarget(null)
+    let failure: string | null = null
     try {
       await forgetMyDatabaseLogin(id)
-    } finally {
-      await load()
+    } catch (err) {
+      failure = errorText(err)
     }
+    await load()
+    if (failure) setLoadError(failure)
   }
 
   const columns = useMemo<DataTableColumn<DatabaseLoginEntry>[]>(() => [
@@ -134,6 +141,7 @@ export function DatabaseLoginsTab() {
           key={editing.opening}
           dataSourceId={editing.entry.dataSourceId}
           initialUsername={editing.entry.username}
+          sessionOnly={editing.entry.sessionOnly}
           open
           onOpenChange={(open) => { if (!open) setEditing(null) }}
           onSaved={() => { setEditing(null); void load() }}
