@@ -23,6 +23,7 @@ import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import {
   COHORT_BOARDS_DIR, DATABASE_COHORTS_DIR, attachTreeIds, createCohortBoard, parseSourceConceptIdEntries, patientDashboardKey,
   projectCohortBoardKeyId, reassemblePresetMapping, replaceDatabaseBoards, replaceDatabaseCohorts, resolveDashboardBundle, slugify,
+  storableImportedCohort,
   type CohortBoardBundle, type CompactSourceConceptIdEntries, type DashboardBundle,
 } from '@/lib/entity-io'
 import i18n from '@/lib/i18n'
@@ -394,7 +395,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
     if (!cohort) continue
     const key = path.replace(/\.json$/, '')
     const id = cohort.id || keyId(key)
-    const created = await storage.cohorts.create({ ...cohort, id, projectUid })
+    const created = await storage.cohorts.create({ ...storableImportedCohort(cohort), id, projectUid })
       .then(() => true, (err) => { console.error(`[seed-loader] cohort ${path}:`, err); return false })
     if (!created || !cohortBoardFiles.has(path)) continue
     const board = await fetchJson<CohortBoardBundle>(`${base}/${COHORT_BOARDS_DIR}${path}`)
@@ -587,7 +588,7 @@ function parseSeedCsv(csv: string, df: DatasetFile): Record<string, unknown>[] {
  * The "data" entities (databases, concept mappings, etl scripts, datasets, dashboards) are
  * loaded later by seedDatabases() — they depend on these structural rows and on each other.
  */
-async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): Promise<void> {
+async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest, progress: SeedReporter): Promise<boolean> {
   const storage = getStorage()
   const base = `${SEED_BASE}/${folder}`
   const now = new Date().toISOString()
@@ -609,7 +610,7 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
   const workspace = await fetchManifest<Workspace>(base, 'workspace')
   if (!workspace) {
     console.warn(`[seed-loader] No workspace manifest in ${folder}, skipping`)
-    return
+    return false
   }
   // A real export carries no `id`: the local primary key belongs to the writing
   // instance and is stripped on purpose (identity travels as `lineageId`). The
@@ -667,16 +668,17 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
   // --- Structural first-class entities (phase 1: projects, mapping projects, dq, catalogs) ---
   for (const entity of manifest.entities) {
     if (!STRUCTURAL_KINDS.has(entity.type)) continue
-    reportSeedStep(seedLabel(entity.type, entity.id), structuralDone)
+    progress.step(seedLabel(entity.type, entity.id), structuralDone)
     try {
       await loadStructuralEntity(entity, base, wsId, now)
     } catch (err) {
       console.error(`[seed-loader] Failed to load ${entity.type} ${entity.id}:`, err)
     }
-    reportSeedStep(seedLabel(entity.type, entity.id), ++structuralDone)
+    progress.step(seedLabel(entity.type, entity.id), ++structuralDone)
   }
 
   console.info(`[seed-loader] Workspace "${folder}" loaded successfully`)
+  return true
 }
 
 /** Phase-1 entity kinds, loaded by loadSeedWorkspace before databases/datasets/etc. */
@@ -1619,6 +1621,28 @@ async function loadDataEntity(entity: SeedManifestEntity, wsId: string): Promise
   }
 }
 
+export interface SeedOptions {
+  /**
+   * Keep the boot screen out of it. The app raises that screen whenever a seed
+   * phase is open, unmounting the whole shell — right for a first install, wrong
+   * for a targeted re-seed started from a dialog inside that shell.
+   */
+  silent?: boolean
+}
+
+interface SeedReporter {
+  begin: typeof beginSeedPhase
+  step: typeof reportSeedStep
+  end: typeof endSeed
+}
+
+const BOOT_PROGRESS: SeedReporter = { begin: beginSeedPhase, step: reportSeedStep, end: endSeed }
+const NO_PROGRESS: SeedReporter = { begin: () => {}, step: () => {}, end: () => {} }
+
+function reporterFor(options: SeedOptions): SeedReporter {
+  return options.silent ? NO_PROGRESS : BOOT_PROGRESS
+}
+
 /**
  * Load all seed data on first launch.
  * Called from app-store loadProjects() when no workspaces exist.
@@ -1627,25 +1651,25 @@ async function loadDataEntity(entity: SeedManifestEntity, wsId: string): Promise
  * catalogs). Returns quickly so the UI can render. Databases/datasets/dashboards/mappings/etl
  * are loaded in phase 2 (seedDatabases) — they depend on these rows.
  */
-export async function seedWorkspaces(): Promise<void> {
+export async function seedWorkspaces(options: SeedOptions = {}): Promise<void> {
   if (isSeeded()) return
   // The localStorage guard only closes once the whole seed has finished, so it
   // cannot stop a second caller that starts while the first is still running —
   // StrictMode's double mount and a second tab both did, and the two passes then
   // raced to write the same deterministic ids (ConstraintError, then aborted
   // transactions). Share the in-flight run instead.
-  _seedWorkspacesPromise ??= runSeedWorkspaces().finally(() => { _seedWorkspacesPromise = null })
+  _seedWorkspacesPromise ??= runSeedWorkspaces(reporterFor(options)).finally(() => { _seedWorkspacesPromise = null })
   return _seedWorkspacesPromise
 }
 
 let _seedWorkspacesPromise: Promise<void> | null = null
 
-async function runSeedWorkspaces(): Promise<void> {
+async function runSeedWorkspaces(progress: SeedReporter): Promise<void> {
   const folders = await fetchSeedRoot()
   if (!folders.length) {
     console.warn('[seed-loader] No seed.json found or empty, skipping seed')
     localStorage.setItem(SEED_KEY, '1')
-    endSeed()
+    progress.end()
     return
   }
 
@@ -1661,16 +1685,20 @@ async function runSeedWorkspaces(): Promise<void> {
     (n, { manifest }) => n + manifest.entities.filter((e) => STRUCTURAL_KINDS.has(e.type)).length,
     0,
   )
-  beginSeedPhase('structure', structuralCount)
+  progress.begin('structure', structuralCount)
   structuralDone = 0
 
+  let loaded = 0
   for (const { folder, manifest } of manifests) {
     try {
-      await loadSeedWorkspace(folder, manifest)
+      if (await loadSeedWorkspace(folder, manifest, progress)) loaded++
     } catch (err) {
       console.error(`[seed-loader] Failed to load workspace "${folder}":`, err)
     }
   }
+  // Phase 2 is what closes the install, and it only starts once a workspace
+  // exists — with none created, the boot screen would wait on it for good.
+  if (loaded === 0) progress.end()
 
   localStorage.setItem(SEED_KEY, '1')
   console.info('[seed-loader] All workspaces seeded')
@@ -1681,19 +1709,19 @@ async function runSeedWorkspaces(): Promise<void> {
  * Called from App.tsx after stores are loaded. Entities load in dependency order
  * (DATA_KIND_ORDER); each step is idempotent via its uniform localStorage flag.
  */
-export async function seedDatabases(): Promise<void> {
+export async function seedDatabases(options: SeedOptions = {}): Promise<void> {
   // Same race as phase 1: the per-entity flags close too late to stop a
   // concurrent second pass, and these entities carry the heaviest writes.
-  _seedDatabasesPromise ??= runSeedDatabases().finally(() => { _seedDatabasesPromise = null })
+  _seedDatabasesPromise ??= runSeedDatabases(reporterFor(options)).finally(() => { _seedDatabasesPromise = null })
   return _seedDatabasesPromise
 }
 
 let _seedDatabasesPromise: Promise<void> | null = null
 
-async function runSeedDatabases(): Promise<void> {
+async function runSeedDatabases(progress: SeedReporter): Promise<void> {
   const folders = await fetchSeedRoot()
   if (!folders.length) {
-    endSeed()
+    progress.end()
     return
   }
 
@@ -1715,27 +1743,27 @@ async function runSeedDatabases(): Promise<void> {
     (n, { manifest }) => n + manifest.entities.filter((e) => DATA_KIND_ORDER.includes(e.type)).length,
     0,
   )
-  beginSeedPhase('data', dataCount)
+  progress.begin('data', dataCount)
   let done = 0
 
   for (const { wsId, manifest } of targets) {
     for (const kind of DATA_KIND_ORDER) {
       for (const entity of manifest.entities) {
         if (entity.type !== kind) continue
-        reportSeedStep(seedLabel(entity.type, entity.id), done)
+        progress.step(seedLabel(entity.type, entity.id), done)
         try {
           await loadDataEntity(entity, wsId)
         } catch (err) {
           console.error(`[seed-loader] Failed to seed ${entity.type} ${entity.id}:`, err)
         }
-        reportSeedStep(seedLabel(entity.type, entity.id), ++done)
+        progress.step(seedLabel(entity.type, entity.id), ++done)
       }
     }
 
     await attachSeededEntityLinks(wsId)
   }
 
-  endSeed()
+  progress.end()
   console.info('[seed-loader] Database seeding complete')
 }
 
