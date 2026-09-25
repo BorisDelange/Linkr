@@ -8,6 +8,7 @@ import {
   withinStaySql,
 } from './cohort-query'
 import type { Cohort, CohortLevel, SchemaMapping } from '@/types'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 
 // The membership query freezes cohort content into a snapshot (materialization).
 // It must return both the level id and a patient_id, and must NOT cap rows with
@@ -48,15 +49,15 @@ function makeCohort(level: CohortLevel): Cohort {
 describe('buildCohortMembershipSql', () => {
   it('at patient level returns id + patient_id from the same column, no LIMIT', () => {
     const sql = buildCohortMembershipSql(makeCohort('patient'), mapping)!
-    expect(sql).toContain('"person"."person_id" AS id')
-    expect(sql).toContain('"person"."person_id" AS patient_id')
+    expect(sql).toContain('linkr_patient.patient_id AS id')
+    expect(sql).toContain('linkr_patient.patient_id AS patient_id')
     expect(sql).not.toMatch(/LIMIT/i)
   })
 
   it('at visit level returns the visit id but the patient FK as patient_id', () => {
     const sql = buildCohortMembershipSql(makeCohort('visit'), mapping)!
-    expect(sql).toContain('"visit"."visit_id" AS id')
-    expect(sql).toContain('"visit"."person_id" AS patient_id')
+    expect(sql).toContain('linkr_visit.visit_id AS id')
+    expect(sql).toContain('linkr_visit.patient_id AS patient_id')
   })
 
   it('returns null for event level (no single base table)', () => {
@@ -81,23 +82,23 @@ describe('buildCohortResultsSql patient join', () => {
 
   it('joins the patient table whenever a p.-qualified column is selected', () => {
     const sql = buildCohortResultsSql(makeCohort('visit'), withPatientCols)!
-    expect(sql).toContain('INNER JOIN "person" p')
+    expect(sql).toContain('INNER JOIN linkr_patient p')
     // Every `p.` reference must be covered by that join.
-    expect(sql).toMatch(/p\."gender_concept_id"/)
+    expect(sql).toContain('p.gender_source_value')
   })
 
   it('never emits a p. reference without the join', () => {
     for (const level of ['patient', 'visit'] as CohortLevel[]) {
       const sql = buildCohortResultsSql(makeCohort(level), withPatientCols)
       if (!sql) continue
-      if (/\bp\."/.test(sql)) expect(sql).toContain('INNER JOIN "person" p')
+      if (/\bp\./.test(sql)) expect(sql).toContain('INNER JOIN linkr_patient p')
     }
   })
 
   it('leaves the join out when the mapping exposes no patient-derived column', () => {
     const sql = buildCohortResultsSql(makeCohort('visit'), mapping)!
-    expect(sql).not.toContain('INNER JOIN "person" p')
-    expect(sql).not.toMatch(/\bp\."/)
+    expect(sql).not.toContain('INNER JOIN linkr_patient p')
+    expect(sql).not.toMatch(/\bp\./)
   })
 })
 
@@ -117,10 +118,8 @@ describe('buildCohortResultsSql age column', () => {
 
   it('falls back to the birth year per row when both are mapped', () => {
     const sql = buildCohortResultsSql(makeCohort('visit'), withBoth)!
-    expect(sql).toContain('COALESCE(')
-    expect(sql).toContain('"birth_datetime"')
-    expect(sql).toContain('"year_of_birth"')
-    expect(sql).toMatch(/AS age_at_admission/)
+    expect(sql).toContain('p.birth_year AS age_at_admission')
+    expect(withClassRelations(sql, withBoth)).toContain(`COALESCE(DATE_PART('year', p."birth_datetime"::TIMESTAMP), p."year_of_birth") AS birth_year`)
   })
 
   it('emits a single expression when only one of the two is mapped', () => {
@@ -128,9 +127,9 @@ describe('buildCohortResultsSql age column', () => {
       ...mapping,
       patientTable: { table: 'person', idColumn: 'person_id', birthYearColumn: 'year_of_birth' },
     } as unknown as SchemaMapping
-    const sql = buildCohortResultsSql(makeCohort('visit'), yearOnly)!
+    const sql = withClassRelations(buildCohortResultsSql(makeCohort('visit'), yearOnly)!, yearOnly)
     expect(sql).not.toContain('COALESCE(')
-    expect(sql).toContain('"year_of_birth"')
+    expect(sql).toContain('p."year_of_birth" AS birth_year')
   })
 })
 
@@ -154,12 +153,13 @@ describe('age from the MIMIC-IV anchor pair', () => {
 
   it('filters on the age derived from anchor_year - anchor_age', () => {
     const sql = buildCohortCountSql(withAge('visit'), anchored)!
-    expect(sql).toContain(`DATE_PART('year', "visit"."start"::TIMESTAMP) - (p."anchor_year" - p."anchor_age") >= 50`)
+    expect(sql).toContain(`DATE_PART('year', linkr_visit.start_datetime::TIMESTAMP) - p.birth_year >= 50`)
+    expect(withClassRelations(sql, anchored)).toContain('(p."anchor_year" - p."anchor_age") AS birth_year')
   })
 
   it('shows the age in the results', () => {
     const sql = buildCohortResultsSql(makeCohort('visit'), anchored)!
-    expect(sql).toMatch(/\(p\."anchor_year" - p\."anchor_age"\) AS age_at_admission/)
+    expect(sql).toContain('p.birth_year AS age_at_admission')
   })
 })
 
@@ -236,9 +236,9 @@ describe('buildCohortCountSql free-text criterion', () => {
       }),
       withNotes,
     )!
-    expect(sql).toContain('"note_title"')
-    expect(sql).toContain('"note_text"')
-    expect(sql).toContain('EXISTS (SELECT 1 FROM "note" n')
+    expect(sql).toContain('n.title ILIKE')
+    expect(sql).toContain('n.text ILIKE')
+    expect(sql).toContain('EXISTS (SELECT 1 FROM linkr_note n')
   })
 
   it('ORs several terms by default and ANDs them when asked', () => {
@@ -309,7 +309,7 @@ describe('buildCohortCountSql free-text criterion', () => {
     expect(sql).toContain('AND')
     // The note link must stay ANDed with the whole disjunction, never absorbed
     // into one branch of it (which would match unrelated patients' notes).
-    expect(sql).toMatch(/n\."person_id" = "visit"\."person_id" AND .*\(/s)
+    expect(sql).toMatch(/n\.patient_id = linkr_visit\.patient_id AND .*\(/s)
   })
 
   it('drops a title search when the mapping has no title column', () => {
@@ -441,7 +441,7 @@ describe('criteria from an untrusted cohort JSON', () => {
       }),
       eventMapping,
     )!
-    expect(sql).toContain('"value_as_number" >= 3')
+    expect(sql).toContain('e.value_number >= 3')
     expect(sql).toContain('BETWEEN 1 AND 9')
     expect(sql).toContain('HAVING COUNT(*) >= 2')
   })
@@ -518,18 +518,18 @@ describe('concept criteria bound to the stay', () => {
 
   it('compares the event date with the visit bounds at visit level', () => {
     const sql = buildCohortCountSql(cohortOn('visit', 'Lab'), stayMapping)!
-    expect(sql).toContain(withinStaySql('e."charttime"', '"visit"."start"', '"visit"."end"'))
+    expect(sql).toContain(withinStaySql('e.start_datetime', 'linkr_visit.start_datetime', 'linkr_visit.end_datetime'))
   })
 
   it('uses the unit stay bounds at visit_detail level, occurrence counts included', () => {
     const sql = buildCohortCountSql(
       cohortOn('visit_detail', 'Lab', { occurrenceCount: { operator: '>=', count: 2 } }), stayMapping)!
-    expect(sql).toContain(withinStaySql('e."charttime"', '"icu"."intime"', '"icu"."outtime"'))
+    expect(sql).toContain(withinStaySql('e.start_datetime', 'linkr_visit_detail.start_datetime', 'linkr_visit_detail.end_datetime'))
     expect(sql).toContain('HAVING COUNT(*) >= 2')
   })
 
   it('adds no window at patient level, nor when the event table has no date', () => {
-    expect(buildCohortCountSql(cohortOn('patient', 'Lab'), stayMapping)).not.toContain('CAST(e."charttime"')
+    expect(buildCohortCountSql(cohortOn('patient', 'Lab'), stayMapping)).not.toContain('CAST(e.start_datetime')
     expect(buildCohortCountSql(cohortOn('visit', 'Undated'), stayMapping)).not.toContain('AS TIMESTAMP')
     expect(conceptCriterionBoundToStay('visit', stayMapping, 'Undated')).toBe(false)
     expect(conceptCriterionBoundToStay('visit', stayMapping, 'Lab')).toBe(true)

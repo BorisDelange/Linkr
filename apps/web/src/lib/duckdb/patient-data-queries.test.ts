@@ -7,12 +7,14 @@ import {
   buildTimelineQuery,
 } from './patient-data-queries'
 import type { SchemaMapping } from '@/types/schema-mapping'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 
 // The age columns are the point of these tests. In OMOP CDM 5.4 `year_of_birth`
 // is NOT NULL while `birth_datetime` is nullable and very often empty, so an age
 // built from the precise column alone silently resolves to NULL for most real
 // datasets — which is exactly how the sidebar's age field came to render "—".
-// Both columns must therefore be COALESCEd, and both must reach the GROUP BY.
+// Both columns must therefore be COALESCEd — the patient relation's `birth_year`
+// does it, and the queries read that one column.
 
 const patientTable = {
   table: 'person',
@@ -50,32 +52,28 @@ const noBirth = {
 } as unknown as SchemaMapping
 
 describe('patient age expression', () => {
+  const full = (m: SchemaMapping) => withClassRelations(buildPatientDemographicsQuery(m, '123')!, m)
+
   it('falls back to the year column when the birth datetime is null', () => {
-    const sql = buildPatientDemographicsQuery(bothColumns, '123')!
     // The whole bug: preferring birth_datetime alone yields NULL on OMOP data.
-    expect(sql).toContain('COALESCE')
-    expect(sql).toContain('birth_datetime')
-    expect(sql).toContain('year_of_birth')
+    expect(buildPatientDemographicsQuery(bothColumns, '123')).toContain('p.birth_year AS age')
+    expect(full(bothColumns)).toContain(`COALESCE(DATE_PART('year', p."birth_datetime"::TIMESTAMP), p."year_of_birth") AS birth_year`)
   })
 
-  it('groups by every birth column it reads', () => {
+  it('groups by the birth column it reads', () => {
     const sql = buildPatientDemographicsQuery(bothColumns, '123')!
-    const groupBy = sql.slice(sql.indexOf('GROUP BY'))
-    // Omitting either one is a DuckDB binder error, not a wrong number.
-    expect(groupBy).toContain('birth_datetime')
-    expect(groupBy).toContain('year_of_birth')
+    // Omitting it is a DuckDB binder error, not a wrong number.
+    expect(sql.slice(sql.indexOf('GROUP BY'))).toContain('p.birth_year')
   })
 
   it('uses the year column directly when it is the only one mapped', () => {
-    const sql = buildPatientDemographicsQuery(yearOnly, '123')!
-    expect(sql).toContain('year_of_birth')
-    expect(sql).not.toContain('COALESCE')
+    expect(full(yearOnly)).toContain('p."year_of_birth" AS birth_year')
+    expect(full(yearOnly)).not.toContain('COALESCE')
   })
 
   it('uses the birth date directly when it is the only one mapped', () => {
-    const sql = buildPatientDemographicsQuery(dateOnly, '123')!
-    expect(sql).toContain('birth_datetime')
-    expect(sql).not.toContain('COALESCE')
+    expect(full(dateOnly)).toContain(`DATE_PART('year', p."birth_datetime"::TIMESTAMP) AS birth_year`)
+    expect(full(dateOnly)).not.toContain('COALESCE')
   })
 
   it('omits the age column entirely when no birth column is mapped', () => {
@@ -83,21 +81,12 @@ describe('patient age expression', () => {
     expect(sql).not.toContain('AS age')
   })
 
-  it('qualifies both birth columns with the table alias', () => {
-    // An unqualified column is ambiguous once the visit table is joined.
-    const sql = buildPatientDemographicsQuery(bothColumns, '123')!
-    expect(sql).toContain('p."birth_datetime"')
-    expect(sql).toContain('p."year_of_birth"')
-  })
-
   it('applies the same fallback to the summary widget query', () => {
     const sql = buildPatientSummaryQuery(bothColumns, '123')!
     // Both age_first_visit and age_last_visit go through the same builder.
-    expect(sql).toContain('age_first_visit')
-    expect(sql).toContain('COALESCE')
-    const groupBy = sql.slice(sql.indexOf('GROUP BY'))
-    expect(groupBy).toContain('birth_datetime')
-    expect(groupBy).toContain('year_of_birth')
+    expect(sql).toContain('p.birth_year AS age_first_visit')
+    expect(sql).toContain('p.birth_year AS age_last_visit')
+    expect(sql.slice(sql.indexOf('GROUP BY'))).toContain('p.birth_year')
   })
 
   it('casts the reference date so a bare year subtraction stays valid', () => {
@@ -192,7 +181,8 @@ const timelineMapping = {
 } as unknown as SchemaMapping
 
 describe('timeline query', () => {
-  const sql = () => buildTimelineQuery(timelineMapping, [220045, 220210], '10002495', null)
+  const sql = () => withClassRelations(buildTimelineQuery(timelineMapping, [220045, 220210], '10002495', null)!, timelineMapping)
+  const full = (m: SchemaMapping, ids: number[]) => withClassRelations(buildTimelineQuery(m, ids, '10002495', null)!, m)
 
   it('keeps the tables whose concepts are ids', () => {
     expect(sql()).toContain('"chartevents"')
@@ -234,16 +224,18 @@ describe('timeline query', () => {
         },
       },
     } as SchemaMapping
-    const sql = buildTimelineQuery(withBoth, [220045], '10002495', null)!
-    expect(sql).toContain('AS value_string')
-    expect(sql).toContain('AS end_date')
+    const sql = full(withBoth, [220045])
+    expect(sql).toContain('e."value" AS value_string')
+    expect(sql).toContain('e."endtime" AS end_datetime')
+    expect(sql).toContain('e.end_datetime AS end_date')
   })
 
   it('still names both columns when the table maps neither, so the UNION lines up', () => {
-    // Every branch must expose the same columns or DuckDB rejects the UNION.
-    const sql = buildTimelineQuery(timelineMapping, [220045], '10002495', null)!
+    // Every branch must expose the same columns or DuckDB rejects the UNION; the
+    // relation emits every contract column, NULL where unmapped.
+    const sql = full(timelineMapping, [220045])
     expect(sql).toContain('NULL AS value_string')
-    expect(sql).toContain('NULL AS end_date')
+    expect(sql).toContain('NULL AS end_datetime')
   })
 
   it('keeps a row when only the categorical value is present', () => {
@@ -262,8 +254,8 @@ describe('timeline query', () => {
       },
     } as unknown as SchemaMapping
     const sql = buildTimelineQuery(stringOnly, [220048], '10002495', null)!
-    expect(sql).toContain('"value" IS NOT NULL')
-    expect(sql).toContain('NULL AS value')
+    expect(sql).toContain('(e.value_string IS NOT NULL)')
+    expect(sql).not.toContain('e.value_number IS NOT NULL')
   })
 
   it('selects the unit and route, without which a figure says nothing', () => {
@@ -280,9 +272,11 @@ describe('timeline query', () => {
         },
       },
     } as SchemaMapping
-    const sql = buildTimelineQuery(withUnits, [220045], '10002495', null)!
-    expect(sql).toContain('"amountuom" AS unit')
-    expect(sql).toContain('"route" AS route')
+    const sql = full(withUnits, [220045])
+    expect(sql).toContain('e."amountuom" AS unit')
+    expect(sql).toContain('e."route" AS route')
+    expect(sql).toContain('e.unit AS unit')
+    expect(sql).toContain('e.route AS route')
   })
 
   it('names both columns even when the table maps neither, so the UNION lines up', () => {
@@ -307,7 +301,7 @@ describe('timeline query', () => {
         },
       },
     } as unknown as SchemaMapping
-    const sql = buildTimelineQuery(noDict, [3027018], '123', null)
+    const sql = withClassRelations(buildTimelineQuery(noDict, [3027018], '123', null)!, noDict)
     expect(sql).toContain('"measurement"')
     expect(sql).toContain('IN (3027018)')
   })

@@ -1,8 +1,7 @@
 import type { Cohort } from '@/types'
-import type { SchemaMapping, EventTable } from '@/types/schema-mapping'
+import type { SchemaMapping } from '@/types/schema-mapping'
 import { buildCohortQueryParts, escapeLikeTerm, escPatternLiteral } from './cohort-query'
-import { birthYearColumns, birthYearSql, buildConceptJoinCondition, getDictionaryForEvent, qualify, qualifyIn } from '@/lib/schema-helpers'
-import { pickUnitColumn } from '@/lib/duckdb/patient-overview-queries'
+import { classRelation, conceptJoinOn, dictionaryOf, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 
 // ---------------------------------------------------------------------------
@@ -72,21 +71,17 @@ export function buildVisitListQuery(
   mapping: SchemaMapping,
   patientId: string,
 ): string | null {
-  const vt = mapping.visitTable
-  if (!vt) return null
+  const visit = classRelation(mapping, 'visit')
+  if (!visit) return null
 
-  const endCol = vt.endDateColumn
-    ? `, "${vt.endDateColumn}" AS end_date`
-    : ''
-  const typeCol = vt.typeColumn
-    ? `, "${vt.typeColumn}" AS visit_type`
-    : ''
+  const endCol = has(visit, 'end_datetime') ? ', end_datetime AS end_date' : ''
+  const typeCol = has(visit, 'visit_type') ? ', visit_type' : ''
 
-  return `SELECT "${vt.idColumn}" AS visit_id,
-  "${vt.startDateColumn}" AS start_date${endCol}${typeCol}
-FROM ${qualify(vt)}
-WHERE "${vt.patientIdColumn}" = '${escSql(patientId)}'
-ORDER BY "${vt.startDateColumn}"`
+  return `SELECT visit_id,
+  start_datetime AS start_date${endCol}${typeCol}
+FROM ${visit.name}
+WHERE patient_id = '${escSql(patientId)}'
+ORDER BY start_datetime`
 }
 
 // ---------------------------------------------------------------------------
@@ -96,35 +91,22 @@ ORDER BY "${vt.startDateColumn}"`
 /**
  * Build query to list visit details (sub-stays) for a given visit.
  * Returns: visit_detail_id, start_date, end_date, unit.
- * When unitNameTable is configured, joins to resolve unit IDs to names.
  */
 export function buildVisitDetailListQuery(
   mapping: SchemaMapping,
   visitId: string,
 ): string | null {
-  const vdt = mapping.visitDetailTable
-  if (!vdt) return null
+  const vd = classRelation(mapping, 'visit_detail')
+  if (!vd) return null
 
-  const endCol = vdt.endDateColumn
-    ? `, vd."${vdt.endDateColumn}" AS end_date`
-    : ''
+  const endCol = has(vd, 'end_datetime') ? ', end_datetime AS end_date' : ''
+  const unitCol = has(vd, 'unit_name') ? ', unit_name AS unit' : ''
 
-  // Resolve unit name via lookup table if configured, otherwise use raw column
-  const hasUnitJoin = vdt.unitColumn && vdt.unitNameTable && vdt.unitNameIdColumn && vdt.unitNameColumn
-  const unitCol = hasUnitJoin
-    ? `, un."${vdt.unitNameColumn}" AS unit`
-    : vdt.unitColumn
-      ? `, vd."${vdt.unitColumn}" AS unit`
-      : ''
-  const unitJoin = hasUnitJoin
-    ? `\nLEFT JOIN ${qualifyIn(vdt, vdt.unitNameTable)} un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"`
-    : ''
-
-  return `SELECT vd."${vdt.idColumn}" AS visit_detail_id,
-  vd."${vdt.startDateColumn}" AS start_date${endCol}${unitCol}
-FROM ${qualify(vdt)} vd${unitJoin}
-WHERE vd."${vdt.visitIdColumn}" = '${escSql(visitId)}'
-ORDER BY vd."${vdt.startDateColumn}"`
+  return `SELECT visit_detail_id,
+  start_datetime AS start_date${endCol}${unitCol}
+FROM ${vd.name}
+WHERE visit_id = '${escSql(visitId)}'
+ORDER BY start_datetime`
 }
 
 // ---------------------------------------------------------------------------
@@ -140,45 +122,31 @@ export function buildPatientDemographicsQuery(
   patientId: string,
   visitId: string | null = null,
 ): string | null {
-  const pt = mapping.patientTable
-  if (!pt) return null
-  const vt = mapping.visitTable
+  const patient = classRelation(mapping, 'patient')
+  if (!patient) return null
+  const visit = classRelation(mapping, 'visit')
 
-  // Death date: from the patient table, or a correlated subquery on the death
-  // table (a JOIN+GROUP BY would inflate counts if a patient had >1 death row).
-  let deathCol = ''
-  if (pt.deathDateColumn) {
-    deathCol = `, p."${pt.deathDateColumn}" AS death_date`
-  } else if (mapping.deathTable) {
-    const dt = mapping.deathTable
-    deathCol = `, (SELECT MIN(_d."${dt.dateColumn}") FROM ${qualify(dt)} _d WHERE _d."${dt.patientIdColumn}" = p."${pt.idColumn}") AS death_date`
-  }
-  const deathGroupBy = pt.deathDateColumn ? `, p."${pt.deathDateColumn}"` : ''
+  const genderCol = has(patient, 'gender_source_value') ? ', p.gender_source_value AS gender' : ''
+  const deathCol = has(patient, 'death_datetime') ? ', p.death_datetime AS death_date' : ''
 
-  if (vt) {
-    const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
+  if (visit) {
     // Age relative to selected visit start date, or first visit if none selected
     const refDate = visitId
-      ? `(SELECT "${vt.startDateColumn}" FROM ${qualify(vt)} WHERE "${vt.idColumn}" = '${escSql(visitId)}')`
-      : `MIN(v."${vt.startDateColumn}")`
-    const ageExpr = buildAgeExprAlias('p', pt, refDate)
-    const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
+      ? `(SELECT start_datetime FROM ${visit.name} WHERE visit_id = '${escSql(visitId)}')`
+      : 'MIN(v.start_datetime)'
+    const ageCol = ageColumn(patient, 'p', refDate, 'age')
 
-    return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathCol},
-  COUNT(v."${vt.idColumn}") AS visit_count
-FROM ${qualify(pt)} p
-LEFT JOIN ${qualify(vt)} v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
-WHERE p."${pt.idColumn}" = '${escSql(patientId)}'
-GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathGroupBy}${buildBirthGroupBy('p', pt)}`
+    return `SELECT p.patient_id${genderCol}${ageCol}${deathCol},
+  COUNT(v.visit_id) AS visit_count
+FROM ${patient.name} p
+LEFT JOIN ${visit.name} v ON p.patient_id = v.patient_id
+WHERE p.patient_id = '${escSql(patientId)}'
+GROUP BY ${PATIENT_GROUP_BY('p')}`
   }
 
-  const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
-  const ageExpr = buildAgeExpr(pt, 'CURRENT_DATE')
-  const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
-
-  return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathCol}
-FROM ${qualify(pt)} p
-WHERE p."${pt.idColumn}" = '${escSql(patientId)}'`
+  return `SELECT p.patient_id${genderCol}${ageColumn(patient, 'p', 'CURRENT_DATE', 'age')}${deathCol}
+FROM ${patient.name} p
+WHERE p.patient_id = '${escSql(patientId)}'`
 }
 
 // ---------------------------------------------------------------------------
@@ -194,65 +162,42 @@ export function buildPatientSummaryQuery(
   mapping: SchemaMapping,
   patientId: string,
 ): string | null {
-  const pt = mapping.patientTable
-  if (!pt) return null
-  const vt = mapping.visitTable
+  const patient = classRelation(mapping, 'patient')
+  if (!patient) return null
+  const visit = classRelation(mapping, 'visit')
 
-  const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
+  const genderCol = has(patient, 'gender_source_value') ? ', p.gender_source_value AS gender' : ''
+  const deathCol = has(patient, 'death_datetime') ? ', p.death_datetime AS death_date' : ''
 
-  // Death date: prefer patientTable.deathDateColumn, fallback to deathTable
-  let deathCol = ''
-  let deathJoin = ''
-  if (pt.deathDateColumn) {
-    deathCol = `, p."${pt.deathDateColumn}" AS death_date`
-  } else if (mapping.deathTable) {
-    const dt = mapping.deathTable
-    deathCol = `, d."${dt.dateColumn}" AS death_date`
-    deathJoin = `\nLEFT JOIN ${qualify(dt)} d ON p."${pt.idColumn}" = d."${dt.patientIdColumn}"`
-  }
-
-  if (vt) {
-    const ageFirstExpr = buildAgeExprAlias('p', pt, `MIN(v."${vt.startDateColumn}")`)
-    const ageLastExpr = buildAgeExprAlias('p', pt, `MAX(v."${vt.startDateColumn}")`)
-    const ageFirstCol = ageFirstExpr ? `, ${ageFirstExpr} AS age_first_visit` : ''
-    const ageLastCol = ageLastExpr ? `, ${ageLastExpr} AS age_last_visit` : ''
+  if (visit) {
+    const ageFirstCol = ageColumn(patient, 'p', 'MIN(v.start_datetime)', 'age_first_visit')
+    const ageLastCol = ageColumn(patient, 'p', 'MAX(v.start_datetime)', 'age_last_visit')
 
     // Visit detail count (sub-query to avoid messing up the GROUP BY)
-    const vdt = mapping.visitDetailTable
-    let vdCountCol = ''
-    if (vdt) {
-      vdCountCol = `, (SELECT COUNT(*) FROM ${qualify(vdt)} WHERE "${vdt.patientIdColumn}" = '${escSql(patientId)}') AS visit_detail_count`
-    }
-
-    // Total hospitalization length of stay (sum of per-visit LOS in days).
-    const totalLosCol = vt.endDateColumn
-      ? `, SUM(DATE_DIFF('day', v."${vt.startDateColumn}"::DATE, v."${vt.endDateColumn}"::DATE)) AS total_los_days`
+    const vd = classRelation(mapping, 'visit_detail')
+    const vdCountCol = vd
+      ? `, (SELECT COUNT(*) FROM ${vd.name} WHERE patient_id = '${escSql(patientId)}') AS visit_detail_count`
       : ''
 
-    let deathGroupBy = ''
-    if (pt.deathDateColumn) {
-      deathGroupBy = `, p."${pt.deathDateColumn}"`
-    } else if (mapping.deathTable) {
-      deathGroupBy = `, d."${mapping.deathTable.dateColumn}"`
-    }
+    // Total hospitalization length of stay (sum of per-visit LOS in days).
+    const totalLosCol = has(visit, 'end_datetime')
+      ? `, SUM(DATE_DIFF('day', v.start_datetime::DATE, v.end_datetime::DATE)) AS total_los_days`
+      : ''
 
-    return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${deathCol},
-  MIN(v."${vt.startDateColumn}") AS first_visit_start,
-  MAX(v."${vt.startDateColumn}") AS last_visit_start${ageFirstCol}${ageLastCol},
-  COUNT(DISTINCT v."${vt.idColumn}") AS visit_count${vdCountCol}${totalLosCol}
-FROM ${qualify(pt)} p
-LEFT JOIN ${qualify(vt)} v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"${deathJoin}
-WHERE p."${pt.idColumn}" = '${escSql(patientId)}'
-GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathGroupBy}${buildBirthGroupBy('p', pt)}`
+    return `SELECT p.patient_id${genderCol}${deathCol},
+  MIN(v.start_datetime) AS first_visit_start,
+  MAX(v.start_datetime) AS last_visit_start${ageFirstCol}${ageLastCol},
+  COUNT(DISTINCT v.visit_id) AS visit_count${vdCountCol}${totalLosCol}
+FROM ${patient.name} p
+LEFT JOIN ${visit.name} v ON p.patient_id = v.patient_id
+WHERE p.patient_id = '${escSql(patientId)}'
+GROUP BY ${PATIENT_GROUP_BY('p')}`
   }
 
   // No visit table — simpler query
-  const ageExpr = buildAgeExprAlias('p', pt, 'CURRENT_DATE')
-  const ageCol = ageExpr ? `, ${ageExpr} AS age_first_visit` : ''
-
-  return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${deathCol}${ageCol}
-FROM ${qualify(pt)} p${deathJoin}
-WHERE p."${pt.idColumn}" = '${escSql(patientId)}'`
+  return `SELECT p.patient_id${genderCol}${deathCol}${ageColumn(patient, 'p', 'CURRENT_DATE', 'age_first_visit')}
+FROM ${patient.name} p
+WHERE p.patient_id = '${escSql(patientId)}'`
 }
 
 /**
@@ -264,60 +209,40 @@ export function buildPatientVisitSummaryQuery(
   mapping: SchemaMapping,
   patientId: string,
 ): string | null {
-  const vt = mapping.visitTable
-  if (!vt) return null
+  const visit = classRelation(mapping, 'visit')
+  if (!visit) return null
 
-  const endCol = vt.endDateColumn
-    ? `, "${vt.endDateColumn}" AS end_date`
-    : ', NULL AS end_date'
-  const typeCol = vt.typeColumn
-    ? `, "${vt.typeColumn}" AS visit_type`
-    : ", NULL AS visit_type"
-  const losExpr = vt.endDateColumn
-    ? `, DATE_DIFF('day', "${vt.startDateColumn}"::DATE, "${vt.endDateColumn}"::DATE) AS los_days`
-    : ', NULL AS los_days'
-
-  const parts: string[] = []
-
-  parts.push(`SELECT 'visit' AS row_type,
-  "${vt.idColumn}" AS visit_id,
+  const parts: string[] = [`SELECT 'visit' AS row_type,
+  visit_id,
   NULL AS visit_detail_id,
-  "${vt.startDateColumn}" AS start_date${endCol}${typeCol},
-  NULL AS unit${losExpr}
-FROM ${qualify(vt)}
-WHERE "${vt.patientIdColumn}" = '${escSql(patientId)}'`)
+  start_datetime AS start_date, ${endAndLos(visit, 'visit_type', 'NULL')}
+FROM ${visit.name}
+WHERE patient_id = '${escSql(patientId)}'`]
 
-  const vdt = mapping.visitDetailTable
-  if (vdt) {
-    const vdEndCol = vdt.endDateColumn
-      ? `, vd."${vdt.endDateColumn}" AS end_date`
-      : ', NULL AS end_date'
-    const vdLosExpr = vdt.endDateColumn
-      ? `, DATE_DIFF('day', vd."${vdt.startDateColumn}"::DATE, vd."${vdt.endDateColumn}"::DATE) AS los_days`
-      : ', NULL AS los_days'
-
-    // Resolve unit name
-    const hasUnitJoin = vdt.unitColumn && vdt.unitNameTable && vdt.unitNameIdColumn && vdt.unitNameColumn
-    const unitCol = hasUnitJoin
-      ? `, un."${vdt.unitNameColumn}" AS unit`
-      : vdt.unitColumn
-        ? `, vd."${vdt.unitColumn}" AS unit`
-        : ', NULL AS unit'
-    const unitJoin = hasUnitJoin
-      ? `\nLEFT JOIN ${qualifyIn(vdt, vdt.unitNameTable)} un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"`
-      : ''
-
+  const vd = classRelation(mapping, 'visit_detail')
+  if (vd) {
     parts.push(`SELECT 'visit_detail' AS row_type,
-  vd."${vdt.visitIdColumn}" AS visit_id,
-  vd."${vdt.idColumn}" AS visit_detail_id,
-  vd."${vdt.startDateColumn}" AS start_date${vdEndCol},
-  NULL AS visit_type${unitCol}${vdLosExpr}
-FROM ${qualify(vdt)} vd${unitJoin}
-WHERE vd."${vdt.patientIdColumn}" = '${escSql(patientId)}'`)
+  visit_id,
+  visit_detail_id,
+  start_datetime AS start_date, ${endAndLos(vd, 'NULL', 'unit_name')}
+FROM ${vd.name}
+WHERE patient_id = '${escSql(patientId)}'`)
   }
 
   return `${parts.join('\nUNION ALL\n')}
 ORDER BY start_date, row_type`
+}
+
+/** `end_date, visit_type, unit, los_days` for one branch of the visit summary. */
+function endAndLos(rel: ClassRelation, visitType: string, unit: string): string {
+  const hasEnd = has(rel, 'end_datetime')
+  const col = (c: string) => (c === 'NULL' || has(rel, c) ? c : 'NULL')
+  return [
+    `${hasEnd ? 'end_datetime' : 'NULL'} AS end_date`,
+    `${col(visitType)} AS visit_type`,
+    `${col(unit)} AS unit`,
+    `${hasEnd ? "DATE_DIFF('day', start_datetime::DATE, end_datetime::DATE)" : 'NULL'} AS los_days`,
+  ].join(',\n  ')
 }
 
 // ---------------------------------------------------------------------------
@@ -340,92 +265,74 @@ export function buildTimelineQuery(
   patientId: string,
   visitId: string | null,
 ): string | null {
-  if (!mapping.eventTables || conceptIds.length === 0) return null
+  if (conceptIds.length === 0) return null
   if (!validateIntegerIds(conceptIds)) return null
   const idList = conceptIds.join(', ')
   const parts: string[] = []
 
-  for (const [, et] of Object.entries(mapping.eventTables)) {
-    const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
-    if (!patientIdCol || !et.dateColumn) continue
+  for (const event of eventRelations(mapping)) {
+    if (!has(event, 'patient_id') || !has(event, 'start_datetime')) continue
     // A table with neither kind of value has nothing to put on a timeline.
-    if (!et.valueColumn && !et.valueStringColumn) continue
+    if (!has(event, 'value_number') && !has(event, 'value_string')) continue
 
-    // `'none'` marks a table that names its concept inline: the column holds
-    // "Vancomycin", not an id. Matching it against numeric ids cannot select
-    // anything, and DuckDB casts the whole column to compare, failing on the first
-    // non-numeric row. Every branch shares one UNION ALL, so that single error
-    // empties the widget: skip the table rather than emit SQL that throws.
-    if (et.conceptDictionaryKey === 'none') continue
+    // A table that names its concept inline holds "Vancomycin", not an id.
+    // Matching it against numeric ids cannot select anything, and DuckDB casts
+    // the whole column to compare, failing on the first non-numeric row. Every
+    // branch shares one UNION ALL, so that single error empties the widget.
+    if (event.dictionary === null) continue
 
-    const dict = getDictionaryForEvent(mapping, et)
-    const conceptMatch = buildConceptInCondition('e', et, idList)
-    const visitFilter = buildVisitFilter(mapping, visitId, 'e')
-
-    const valueExpr = et.valueColumn ? `e."${et.valueColumn}"` : 'NULL'
-    const valueStringExpr = et.valueStringColumn ? `e."${et.valueStringColumn}"` : 'NULL'
-    const endExpr = et.endDateColumn ? `e."${et.endDateColumn}"` : 'NULL'
+    const dict = dictionaryOf(mapping, event)
+    const conceptMatch = has(event, 'source_concept_id')
+      ? `e.concept_id IN (${idList}) OR e.source_concept_id IN (${idList})`
+      : `e.concept_id IN (${idList})`
+    const visitFilter = visitId && classRelation(mapping, 'visit') ? `\n  AND e.visit_id = '${escSql(visitId)}'` : ''
 
     // Unit and route, resolved the way the overview does it — a bare figure says
     // nothing without its unit, and the route is what tells a drip from a bolus
     // where the standard vocabulary calls both "Intravenous". Source text is
     // preferred over the standard concept: "mmHg" reads better than "millimeter
     // mercury column", and it keeps distinctions the vocabulary drops.
-    const srcUnitCol = pickUnitColumn(et)
-    const unitJoin =
-      et.valueUnitConceptIdColumn && dict
-        ? `\nLEFT JOIN ${qualify(dict)} uc ON uc."${dict.idColumn}" = e."${et.valueUnitConceptIdColumn}"`
-        : ''
-    const unitExpr =
-      srcUnitCol && unitJoin
-        ? `COALESCE(e."${srcUnitCol}", uc."${dict!.nameColumn}")`
-        : srcUnitCol
-          ? `e."${srcUnitCol}"`
-          : unitJoin
-            ? `uc."${dict!.nameColumn}"`
-            : 'NULL'
+    const unitJoin = dict && has(event, 'unit_concept_id')
+      ? `\nLEFT JOIN ${dict.name} uc ON uc.concept_id = e.unit_concept_id`
+      : ''
+    const routeJoin = dict && has(event, 'route_concept_id')
+      ? `\nLEFT JOIN ${dict.name} rc ON rc.concept_id = e.route_concept_id`
+      : ''
+    const unitExpr = labelled(has(event, 'unit') ? 'e.unit' : null, unitJoin ? 'uc.concept_name' : null)
+    const routeExpr = labelled(has(event, 'route') ? 'e.route' : null, routeJoin ? 'rc.concept_name' : null)
 
-    const routeJoin =
-      et.routeConceptIdColumn && dict
-        ? `\nLEFT JOIN ${qualify(dict)} rc ON rc."${dict.idColumn}" = e."${et.routeConceptIdColumn}"`
-        : ''
-    const routeExpr =
-      et.routeColumn && routeJoin
-        ? `COALESCE(e."${et.routeColumn}", rc."${dict!.nameColumn}")`
-        : et.routeColumn
-          ? `e."${et.routeColumn}"`
-          : routeJoin
-            ? `rc."${dict!.nameColumn}"`
-            : 'NULL'
     // Keep a row when EITHER value is present: dropping on the numeric column
     // alone would discard every categorical event the string column carries.
-    const presence = [
-      et.valueColumn ? `e."${et.valueColumn}" IS NOT NULL` : null,
-      et.valueStringColumn ? `e."${et.valueStringColumn}" IS NOT NULL` : null,
-    ].filter(Boolean).join(' OR ')
+    const presence = (['value_number', 'value_string'] as const)
+      .filter((c) => has(event, c))
+      .map((c) => `e.${c} IS NOT NULL`)
+      .join(' OR ')
 
-    const nameExpr = dict ? `c."${dict.nameColumn}"` : `CAST(e."${et.conceptIdColumn}" AS VARCHAR)`
-    const join = dict
-      ? `\nINNER JOIN ${qualify(dict)} c ON ${buildConceptJoinCondition('e', 'c', et, dict)}`
-      : ''
+    const nameExpr = dict ? 'c.concept_name' : 'CAST(e.concept_id AS VARCHAR)'
+    const join = dict ? `\nINNER JOIN ${dict.name} c ON ${conceptJoinOn(event, 'e', 'c')}` : ''
 
-    parts.push(`SELECT e."${et.conceptIdColumn}" AS concept_id,
+    parts.push(`SELECT e.concept_id,
   ${nameExpr} AS concept_name,
-  ${valueExpr} AS value,
-  ${valueStringExpr} AS value_string,
+  e.value_number AS value,
+  e.value_string,
   ${unitExpr} AS unit,
   ${routeExpr} AS route,
-  e."${et.dateColumn}" AS event_date,
-  ${endExpr} AS end_date
-FROM ${qualify(et)} e${join}${unitJoin}${routeJoin}
-WHERE e."${patientIdCol}" = '${escSql(patientId)}'
+  e.start_datetime AS event_date,
+  e.end_datetime AS end_date
+FROM ${event.name} e${join}${unitJoin}${routeJoin}
+WHERE e.patient_id = '${escSql(patientId)}'
   AND (${conceptMatch})
   AND (${presence})${visitFilter}`)
   }
 
   if (parts.length === 0) return null
-  if (parts.length === 1) return `${parts[0]}\nORDER BY event_date`
   return `${parts.join('\nUNION ALL\n')}\nORDER BY event_date`
+}
+
+/** Source text first, the standard concept's name as the fallback. */
+function labelled(source: string | null, standard: string | null): string {
+  if (source && standard) return `COALESCE(${source}, ${standard})`
+  return source ?? standard ?? 'NULL'
 }
 
 // ---------------------------------------------------------------------------
@@ -441,33 +348,36 @@ export function buildNotesQuery(
   patientId: string,
   visitId: string | null,
 ): string | null {
-  const nt = mapping.noteTable
-  if (!nt) return null
+  const note = classRelation(mapping, 'note')
+  if (!note) return null
 
-  const titleCol = nt.titleColumn
-    ? `, "${nt.titleColumn}" AS note_title`
-    : ", '' AS note_title"
-  const typeCol = nt.typeColumn
-    ? `, "${nt.typeColumn}" AS note_type`
-    : ", '' AS note_type"
-  const visitCol = nt.visitIdColumn
-    ? `, "${nt.visitIdColumn}" AS visit_id`
-    : ', NULL AS visit_id'
-  const visitFilter = visitId && nt.visitIdColumn
-    ? `\n  AND "${nt.visitIdColumn}" = '${escSql(visitId)}'`
-    : ''
+  const visitFilter = visitId && has(note, 'visit_id') ? `\n  AND visit_id = '${escSql(visitId)}'` : ''
+  const orEmpty = (c: string) => (has(note, c) ? c : "''")
 
-  return `SELECT "${nt.idColumn}" AS note_id,
-  "${nt.dateColumn}" AS note_date${titleCol},
-  "${nt.textColumn}" AS note_text${typeCol}${visitCol}
-FROM ${qualify(nt)}
-WHERE "${nt.patientIdColumn}" = '${escSql(patientId)}'${visitFilter}
-ORDER BY "${nt.dateColumn}" DESC`
+  return `SELECT note_id,
+  note_datetime AS note_date,
+  ${orEmpty('title')} AS note_title,
+  text AS note_text,
+  ${orEmpty('note_type')} AS note_type,
+  visit_id
+FROM ${note.name}
+WHERE patient_id = '${escSql(patientId)}'${visitFilter}
+ORDER BY note_datetime DESC`
 }
 
 // ---------------------------------------------------------------------------
 // Helpers (private)
 // ---------------------------------------------------------------------------
+
+/** Every patient column a per-patient aggregate selects must be grouped. */
+const PATIENT_GROUP_BY = (alias: string) =>
+  ['patient_id', 'gender_source_value', 'death_datetime', 'birth_year'].map((c) => `${alias}.${c}`).join(', ')
+
+/** `, <age> AS <label>` relative to a reference date, or '' when no birth column is mapped. */
+function ageColumn(patient: ClassRelation, alias: string, refDateExpr: string, label: string): string {
+  if (!has(patient, 'birth_year')) return ''
+  return `, DATE_PART('year', (${refDateExpr})::TIMESTAMP) - ${alias}.birth_year AS ${label}`
+}
 
 /**
  * Build base patient query (without LIMIT/OFFSET/ORDER or filter WHERE).
@@ -478,31 +388,29 @@ function buildPatientBaseQuery(
   mapping: SchemaMapping,
   cohort: Cohort | null,
 ): string | null {
-  const pt = mapping.patientTable
-  if (!pt) return null
-  const vt = mapping.visitTable
-  const vdt = mapping.visitDetailTable
+  const patient = classRelation(mapping, 'patient')
+  if (!patient) return null
+  const visit = classRelation(mapping, 'visit')
+  const vd = classRelation(mapping, 'visit_detail')
 
+  const genderCol = (alias: string) => (has(patient, 'gender_source_value') ? `, ${alias}.gender_source_value AS gender` : '')
   // Optional stay count per patient via correlated subquery (no GROUP BY impact).
-  const stayCountExpr = (patientIdExpr: string): string =>
-    vdt
-      ? `, (SELECT COUNT(*) FROM ${qualify(vdt)} _vd WHERE _vd."${vdt.patientIdColumn}" = ${patientIdExpr}) AS stay_count`
-      : ''
+  const stayCount = (alias: string) =>
+    vd ? `, (SELECT COUNT(*) FROM ${vd.name} _vd WHERE _vd.patient_id = ${alias}.patient_id) AS stay_count` : ''
 
-  // Optional death_date per patient. From the patient table directly, or via a
-  // correlated subquery on the death table — neither affects the GROUP BY.
-  const deathDateExpr = (patientTableAlias: string, patientIdExpr: string): string => {
-    if (pt.deathDateColumn) {
-      return `, ${patientTableAlias}."${pt.deathDateColumn}" AS death_date`
+  /** The per-patient columns over `from`, grouped when visits are joined as `v`. */
+  const perPatient = (alias: string, from: string, where: string): string => {
+    if (!visit) {
+      return `SELECT ${alias}.patient_id${genderCol(alias)}${ageColumn(patient, alias, 'CURRENT_DATE', 'age')}, ${alias}.death_datetime AS death_date
+FROM ${from}${where}`
     }
-    if (mapping.deathTable) {
-      const dt = mapping.deathTable
-      return `, (SELECT MIN(_d."${dt.dateColumn}") FROM ${qualify(dt)} _d WHERE _d."${dt.patientIdColumn}" = ${patientIdExpr}) AS death_date`
-    }
-    return ', NULL AS death_date'
+    return `SELECT ${alias}.patient_id${genderCol(alias)}${ageColumn(patient, alias, 'MIN(v.start_datetime)', 'age')},
+  COUNT(DISTINCT v.visit_id) AS visit_count${stayCount(alias)}, ${alias}.death_datetime AS death_date,
+  MIN(v.start_datetime) AS first_admission
+FROM ${from}
+LEFT JOIN ${visit.name} v ON ${alias}.patient_id = v.patient_id${where}
+GROUP BY ${PATIENT_GROUP_BY(alias)}`
   }
-  const deathDateGroupBy = (patientTableAlias: string): string =>
-    pt.deathDateColumn ? `, ${patientTableAlias}."${pt.deathDateColumn}"` : ''
 
   // Materialized cohort: read the frozen membership instead of recomputing the
   // criteria tree, so results stay stable even if the source data changed.
@@ -511,87 +419,22 @@ function buildPatientBaseQuery(
     // An empty snapshot is a valid (empty) cohort — force a no-match filter.
     // Ids are quoted+escaped; string comparison works for numeric id columns too.
     const inList = mat.patientIds.map((id) => `'${escSql(id)}'`).join(', ')
-    const whereIn = inList
-      ? `WHERE p."${pt.idColumn}" IN (${inList})`
-      : `WHERE 1=0`
-
-    const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
-    if (vt) {
-      const ageExpr = buildAgeExprAlias('p', pt, `MIN(v."${vt.startDateColumn}")`)
-      const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
-      return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol},
-  COUNT(DISTINCT v."${vt.idColumn}") AS visit_count${stayCountExpr(`p."${pt.idColumn}"`)}${deathDateExpr('p', `p."${pt.idColumn}"`)},
-  MIN(v."${vt.startDateColumn}") AS first_admission
-FROM ${qualify(pt)} p
-LEFT JOIN ${qualify(vt)} v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
-${whereIn}
-GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathDateGroupBy('p')}${buildBirthGroupBy('p', pt)}`
-    }
-    const ageExpr = buildAgeExprAlias('p', pt, 'CURRENT_DATE')
-    const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
-    return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathDateExpr('p', `p."${pt.idColumn}"`)}
-FROM ${qualify(pt)} p
-${whereIn}`
+    return perPatient('p', `${patient.name} p`, inList ? `\nWHERE p.patient_id IN (${inList})` : '\nWHERE 1=0')
   }
 
   if (cohort && cohort.criteriaTree.children.length > 0) {
     const parts = buildCohortQueryParts(cohort, mapping)
     if (!parts) return null
-
+    const where = parts.whereClause ? `\nWHERE ${parts.whereClause}` : ''
     if (cohort.level === 'patient') {
-      const genderCol = pt.genderColumn ? `, ${qualify(pt)}."${pt.genderColumn}" AS gender` : ''
-      if (vt) {
-        const ageExpr = buildAgeExpr(pt, `MIN(v_age."${vt.startDateColumn}")`)
-        const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
-        return `SELECT ${qualify(pt)}."${pt.idColumn}" AS patient_id${genderCol}${ageCol},
-  COUNT(DISTINCT v_age."${vt.idColumn}") AS visit_count${stayCountExpr(`${qualify(pt)}."${pt.idColumn}"`)}${deathDateExpr(`${qualify(pt)}`, `${qualify(pt)}."${pt.idColumn}"`)},
-  MIN(v_age."${vt.startDateColumn}") AS first_admission
-FROM ${parts.from}
-LEFT JOIN ${qualify(vt)} v_age ON ${qualify(pt)}."${pt.idColumn}" = v_age."${vt.patientIdColumn}"
-${parts.whereClause}
-GROUP BY ${qualify(pt)}."${pt.idColumn}"${pt.genderColumn ? `, ${qualify(pt)}."${pt.genderColumn}"` : ''}${deathDateGroupBy(`${qualify(pt)}`)}${buildBirthGroupBy(`${qualify(pt)}`, pt)}`
-      }
-      const ageExpr = buildAgeExpr(pt, 'CURRENT_DATE')
-      const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
-      return `SELECT DISTINCT ${qualify(pt)}."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathDateExpr(`${qualify(pt)}`, `${qualify(pt)}."${pt.idColumn}"`)}
-FROM ${parts.from}
-${parts.whereClause}`
+      return perPatient(parts.baseTable, parts.from, where)
     }
-
-    // Visit-level cohort
-    if (!vt) return null
-    const genderCol = pt.genderColumn ? `, p2."${pt.genderColumn}" AS gender` : ''
-    const ageExpr = buildAgeExprAlias('p2', pt, `MIN(v_age."${vt.startDateColumn}")`)
-    const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
-
-    return `SELECT ${qualify(vt)}."${vt.patientIdColumn}" AS patient_id${genderCol}${ageCol},
-  COUNT(DISTINCT v_age."${vt.idColumn}") AS visit_count${stayCountExpr(`p2."${pt.idColumn}"`)}${deathDateExpr('p2', `p2."${pt.idColumn}"`)},
-  MIN(v_age."${vt.startDateColumn}") AS first_admission
-FROM ${parts.from}
-INNER JOIN ${qualify(pt)} p2 ON ${qualify(vt)}."${vt.patientIdColumn}" = p2."${pt.idColumn}"
-LEFT JOIN ${qualify(vt)} v_age ON p2."${pt.idColumn}" = v_age."${vt.patientIdColumn}"
-${parts.whereClause}
-GROUP BY ${qualify(vt)}."${vt.patientIdColumn}", p2."${pt.idColumn}"${pt.genderColumn ? `, p2."${pt.genderColumn}"` : ''}${deathDateGroupBy('p2')}${buildBirthGroupBy('p2', pt)}`
+    // A stay-level cohort lists the patients owning a matching stay.
+    const members = `SELECT DISTINCT ${parts.baseTable}.patient_id FROM ${parts.from}${where}`
+    return perPatient('p', `${patient.name} p`, `\nWHERE p.patient_id IN (${members})`)
   }
 
-  // No cohort
-  const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
-
-  if (vt) {
-    const ageExpr = buildAgeExprAlias('p', pt, `MIN(v."${vt.startDateColumn}")`)
-    const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
-    return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol},
-  COUNT(DISTINCT v."${vt.idColumn}") AS visit_count${stayCountExpr(`p."${pt.idColumn}"`)}${deathDateExpr('p', `p."${pt.idColumn}"`)},
-  MIN(v."${vt.startDateColumn}") AS first_admission
-FROM ${qualify(pt)} p
-LEFT JOIN ${qualify(vt)} v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
-GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathDateGroupBy('p')}${buildBirthGroupBy('p', pt)}`
-  }
-
-  const ageExpr = buildAgeExprAlias('p', pt, 'CURRENT_DATE')
-  const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
-  return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathDateExpr('p', `p."${pt.idColumn}"`)}
-FROM ${qualify(pt)} p`
+  return perPatient('p', `${patient.name} p`, '')
 }
 
 /** Build WHERE clause for patient filters applied to the CTE. */
@@ -634,78 +477,3 @@ function buildPatientFilterWhere(filters?: PatientFilters): string {
     ? `\nWHERE ${clauses.join(' AND ')}`
     : ''
 }
-
-/**
- * Build age expression relative to a reference date expression.
- *
- * When both birth columns are mapped they are COALESCEd, birth date first: in OMOP
- * `year_of_birth` is NOT NULL but `birth_datetime` is nullable and frequently empty,
- * so preferring the precise column alone yields a NULL age on most real datasets.
- *
- * @param refDateExpr SQL expression for the reference date (e.g. a column or CURRENT_DATE)
- * @param alias optional table alias qualifying the birth columns
- */
-function buildAgeExpr(
-  pt: NonNullable<SchemaMapping['patientTable']>,
-  refDateExpr: string,
-  alias?: string,
-): string | null {
-  const q = (col: string) => (alias ? `${alias}."${col}"` : `"${col}"`)
-  const refYear = `DATE_PART('year', (${refDateExpr})::TIMESTAMP)`
-  const fromDate = pt.birthDateColumn
-    ? `DATE_PART('year', ${q(pt.birthDateColumn)}::TIMESTAMP)`
-    : null
-  const fromYear = birthYearSql(pt, alias)
-
-  const birthYear =
-    fromDate && fromYear ? `COALESCE(${fromDate}, ${fromYear})` : (fromDate ?? fromYear)
-  if (!birthYear) return null
-  return `${refYear} - ${birthYear}`
-}
-
-function buildAgeExprAlias(
-  alias: string,
-  pt: NonNullable<SchemaMapping['patientTable']>,
-  refDateExpr: string,
-): string | null {
-  return buildAgeExpr(pt, refDateExpr, alias)
-}
-
-/** Every birth column the age expression reads must be grouped, not just the
- *  preferred one — buildAgeExpr COALESCEs both when both are mapped. */
-function buildBirthGroupBy(
-  alias: string,
-  pt: NonNullable<SchemaMapping['patientTable']>,
-): string {
-  return [pt.birthDateColumn, ...birthYearColumns(pt)]
-    .filter((col): col is string => Boolean(col))
-    .map((col) => `, ${alias}."${col}"`)
-    .join('')
-}
-
-/** Build IN condition for concept matching (standard + source columns). */
-function buildConceptInCondition(
-  alias: string,
-  et: EventTable,
-  idList: string,
-): string {
-  const parts = [`${alias}."${et.conceptIdColumn}" IN (${idList})`]
-  if (et.sourceConceptIdColumn) {
-    parts.push(`${alias}."${et.sourceConceptIdColumn}" IN (${idList})`)
-  }
-  return parts.join(' OR ')
-}
-
-/** Build visit filter clause for event table queries. */
-function buildVisitFilter(
-  mapping: SchemaMapping,
-  visitId: string | null,
-  alias: string,
-): string {
-  if (!visitId || !mapping.visitTable) return ''
-  // Try to find a visit FK column in the event table
-  // Convention: same name as visit table's idColumn (e.g., visit_occurrence_id, hadm_id)
-  const visitIdCol = mapping.visitTable.idColumn
-  return `\n  AND ${alias}."${visitIdCol}" = '${escSql(visitId)}'`
-}
-

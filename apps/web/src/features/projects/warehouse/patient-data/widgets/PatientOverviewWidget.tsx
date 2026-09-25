@@ -545,32 +545,20 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       for (const row of wanted) {
         const key = eventKey(row, view)
         if (eventsRef.current.has(key)) continue
-        const build = (omitValueString: boolean) =>
-          buildOverviewEventsQuery(
-            schemaMapping,
-            selectedPatientId,
-            selectedVisitId,
-            row.table,
-            row.conceptIds,
-            fromIso,
-            toIso,
-            EVENT_FETCH_LIMIT,
-            stayWindow,
-            omitValueString,
-          )
-        const sql = build(false)
+        const sql = buildOverviewEventsQuery(
+          schemaMapping,
+          selectedPatientId,
+          selectedVisitId,
+          row.table,
+          row.conceptIds,
+          fromIso,
+          toIso,
+          EVENT_FETCH_LIMIT,
+          stayWindow,
+        )
         if (!sql) continue
         try {
-          let raw: Record<string, unknown>[]
-          try {
-            raw = await queryDataSource(dataSourceId, sql)
-          } catch (err) {
-            // A stale mapping can name a value column the table lacks. Retry
-            // without it: the events still draw, only the text tooltip is lost.
-            const retry = build(true)
-            if (!retry || retry === sql) throw err
-            raw = await queryDataSource(dataSourceId, retry)
-          }
+          const raw = await queryDataSource(dataSourceId, sql)
           if (cancelled) return
           eventsRef.current.set(
             key,

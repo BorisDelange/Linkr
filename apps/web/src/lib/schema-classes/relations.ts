@@ -1,6 +1,6 @@
 import type { ConceptDictionary, EventTable, SchemaMapping } from '@/types/schema-mapping'
 import { escSql, isSafeIdentifier } from '@/lib/format-helpers'
-import { birthYearSql, qualify, qualifyIn } from '@/lib/schema-helpers'
+import { qualify, qualifyIn } from '@/lib/schema-helpers'
 import { CLASS_CONTRACTS, RELATION_PREFIX, type ClassName } from './contracts'
 
 /**
@@ -83,18 +83,45 @@ export function has(rel: ClassRelation | undefined, column: string): boolean {
 
 type Exprs = Record<string, string | null | undefined>
 
-/** `SELECT <contract columns> FROM …`, one line per column, NULL where unmapped. */
-function select(cls: ClassName, exprs: Exprs, from: string): { sql: string; mapped: Set<string> } {
+/** `SELECT <contract columns> FROM …`, one line per column, NULL where unmapped.
+ *  `from` is a thunk: it pads the columns the expressions recorded. */
+function select(cls: ClassName, exprs: Exprs, from: () => string): { sql: string; mapped: Set<string> } {
   const mapped = new Set<string>()
   const lines = CLASS_CONTRACTS[cls].map(({ name }) => {
     const expr = exprs[name]
     if (expr) mapped.add(name)
     return `  ${expr ?? 'NULL'} AS ${name}`
   })
-  return { sql: `SELECT\n${lines.join(',\n')}\nFROM ${from}`, mapped }
+  return { sql: `SELECT\n${lines.join(',\n')}\nFROM ${from()}`, mapped }
 }
 
-const c = (alias: string, column: string | undefined): string | null => (column ? `${alias}."${column}"` : null)
+/**
+ * Column references per table alias, and the FROM that makes them all bind.
+ *
+ * A mapping naming a column its table lacks — a stale preset, a typo — would
+ * make the relation fail for every query that touches it, not only the ones
+ * reading that column. An empty UNION BY NAME branch pads each named column with
+ * NULLs where it is missing (matched case-insensitively). Measured free under a
+ * per-patient filter or a GROUP BY; only a bare whole-table COUNT(*) loses its
+ * metadata shortcut (plan §6).
+ */
+function columns() {
+  const used = new Map<string, Map<string, string>>()
+  const c = (alias: string, column: string | undefined): string | null => {
+    if (!column) return null
+    let cols = used.get(alias)
+    if (!cols) used.set(alias, (cols = new Map()))
+    cols.set(column.toLowerCase(), column)
+    return `${alias}."${column}"`
+  }
+  const table = (ref: { schema?: string; table: string }, alias: string): string => {
+    const cols = [...(used.get(alias)?.values() ?? [])]
+    if (cols.length === 0) return `${qualify(ref)} ${alias}`
+    const pads = cols.map((col) => `NULL AS "${col}"`).join(', ')
+    return `(SELECT * FROM ${qualify(ref)} UNION ALL BY NAME SELECT ${pads} WHERE false) ${alias}`
+  }
+  return { c, table }
+}
 
 function slug(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'table'
@@ -140,7 +167,10 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
           ? mapping.conceptTables?.find((d) => d.key === et.conceptDictionaryKey)
           : defaultDict
     const name = uniqueName(`${RELATION_PREFIX}event_${slug(label)}`, taken)
-    rels.push(eventRelation1(mapping, label, et, dict, name, dict ? (dictNames.get(dict.key) ?? null) : null))
+    // null only for the explicit inline opt-out; an id-keyed table with no
+    // dictionary loaded is still filterable by id, it just has nothing to join.
+    const dictionary = et.conceptDictionaryKey === 'none' ? null : dict ? dictNames.get(dict.key) : undefined
+    rels.push(eventRelation1(mapping, label, et, dict, name, dictionary))
   }
   return rels
 }
@@ -148,8 +178,14 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
 function patientRelation(mapping: SchemaMapping): ClassRelation | null {
   const pt = mapping.patientTable
   if (!pt) return null
-  const birthDateYear = pt.birthDateColumn ? `DATE_PART('year', p."${pt.birthDateColumn}"::TIMESTAMP)` : null
-  const yearCol = birthYearSql(pt, 'p')
+  const { c, table } = columns()
+  const birthDate = c('p', pt.birthDateColumn)
+  const birthDateYear = birthDate ? `DATE_PART('year', ${birthDate}::TIMESTAMP)` : null
+  const yearCol = pt.birthYearColumn
+    ? c('p', pt.birthYearColumn)
+    : pt.anchorYearColumn && pt.anchorAgeColumn
+      ? `(${c('p', pt.anchorYearColumn)} - ${c('p', pt.anchorAgeColumn)})`
+      : null
   // Birth date first: in OMOP `year_of_birth` is NOT NULL but `birth_datetime` is
   // frequently empty, so the precise column alone leaves most ages NULL.
   const birthYear = birthDateYear && yearCol ? `COALESCE(${birthDateYear}, ${yearCol})` : (birthDateYear ?? yearCol)
@@ -163,22 +199,23 @@ function patientRelation(mapping: SchemaMapping): ClassRelation | null {
 
   // A death table is read through MIN(): a JOIN would duplicate a patient who
   // has more than one death row.
+  const patientId = c('p', pt.idColumn)
   const dt = mapping.deathTable
   const death =
     c('p', pt.deathDateColumn) ??
-    (dt ? `(SELECT MIN(_d."${dt.dateColumn}") FROM ${qualify(dt)} _d WHERE _d."${dt.patientIdColumn}" = p."${pt.idColumn}")` : null)
+    (dt ? `(SELECT MIN(_d."${dt.dateColumn}") FROM ${qualify(dt)} _d WHERE _d."${dt.patientIdColumn}" = ${patientId})` : null)
 
   const { sql, mapped } = select(
     'patient',
     {
-      patient_id: c('p', pt.idColumn),
-      birth_date: c('p', pt.birthDateColumn),
+      patient_id: patientId,
+      birth_date: birthDate,
       birth_year: birthYear,
       gender,
       gender_source_value: genderCol,
       death_datetime: death,
     },
-    `${qualify(pt)} p`,
+    () => table(pt, 'p'),
   )
   return { name: `${RELATION_PREFIX}patient`, cls: 'patient', sql, mapped }
 }
@@ -186,9 +223,10 @@ function patientRelation(mapping: SchemaMapping): ClassRelation | null {
 function visitRelation(mapping: SchemaMapping): ClassRelation | null {
   const vt = mapping.visitTable
   if (!vt) return null
+  const { c, table } = columns()
   const hasLookup = !!(vt.careSiteColumn && vt.careSiteNameTable && vt.careSiteNameIdColumn && vt.careSiteNameColumn)
   const join = hasLookup
-    ? `\nLEFT JOIN ${qualifyIn(vt, vt.careSiteNameTable)} cs ON v."${vt.careSiteColumn}" = cs."${vt.careSiteNameIdColumn}"`
+    ? `\nLEFT JOIN ${qualifyIn(vt, vt.careSiteNameTable)} cs ON ${c('v', vt.careSiteColumn)} = cs."${vt.careSiteNameIdColumn}"`
     : ''
   const { sql, mapped } = select(
     'visit',
@@ -199,9 +237,9 @@ function visitRelation(mapping: SchemaMapping): ClassRelation | null {
       end_datetime: c('v', vt.endDateColumn),
       visit_type: c('v', vt.typeColumn),
       care_site_id: c('v', vt.careSiteColumn),
-      care_site_name: hasLookup ? c('cs', vt.careSiteNameColumn) : null,
+      care_site_name: hasLookup ? `cs."${vt.careSiteNameColumn}"` : null,
     },
-    `${qualify(vt)} v${join}`,
+    () => `${table(vt, 'v')}${join}`,
   )
   return { name: `${RELATION_PREFIX}visit`, cls: 'visit', sql, mapped }
 }
@@ -209,17 +247,20 @@ function visitRelation(mapping: SchemaMapping): ClassRelation | null {
 function visitDetailRelation(mapping: SchemaMapping): ClassRelation | null {
   const vdt = mapping.visitDetailTable
   if (!vdt) return null
+  const { c, table } = columns()
   const hasLookup = !!(vdt.unitColumn && vdt.unitNameTable && vdt.unitNameIdColumn && vdt.unitNameColumn)
+  const unit = c('vd', vdt.unitColumn)
   const join = hasLookup
-    ? `\nLEFT JOIN ${qualifyIn(vdt, vdt.unitNameTable)} un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"`
+    ? `\nLEFT JOIN ${qualifyIn(vdt, vdt.unitNameTable)} un ON ${unit} = un."${vdt.unitNameIdColumn}"`
     : ''
+  const lookupName = hasLookup ? `un."${vdt.unitNameColumn}"` : null
   // The ward, in order of clinical usefulness: the verbatim source value, then
   // the looked-up name, then the raw column — a name on MIMIC, an id on OMOP.
-  const candidates = [c('vd', vdt.unitSourceValueColumn), hasLookup ? c('un', vdt.unitNameColumn) : null, c('vd', vdt.unitColumn)]
+  const candidates = [c('vd', vdt.unitSourceValueColumn), lookupName, unit]
     .filter((x): x is string => !!x)
     .map((x) => `NULLIF(CAST(${x} AS VARCHAR), '')`)
   // The looked-up name groups wards of the same kind.
-  const category = hasLookup ? `CAST(un."${vdt.unitNameColumn}" AS VARCHAR)` : vdt.unitColumn ? `CAST(vd."${vdt.unitColumn}" AS VARCHAR)` : null
+  const category = lookupName ?? unit
   const { sql, mapped } = select(
     'visit_detail',
     {
@@ -228,11 +269,11 @@ function visitDetailRelation(mapping: SchemaMapping): ClassRelation | null {
       patient_id: c('vd', vdt.patientIdColumn),
       start_datetime: c('vd', vdt.startDateColumn),
       end_datetime: c('vd', vdt.endDateColumn),
-      unit_id: c('vd', vdt.unitColumn),
+      unit_id: unit,
       unit_name: candidates.length ? `COALESCE(${candidates.join(', ')})` : null,
-      unit_category: category,
+      unit_category: category ? `CAST(${category} AS VARCHAR)` : null,
     },
-    `${qualify(vdt)} vd${join}`,
+    () => `${table(vdt, 'vd')}${join}`,
   )
   return { name: `${RELATION_PREFIX}visit_detail`, cls: 'visit_detail', sql, mapped }
 }
@@ -240,6 +281,7 @@ function visitDetailRelation(mapping: SchemaMapping): ClassRelation | null {
 function noteRelation(mapping: SchemaMapping): ClassRelation | null {
   const nt = mapping.noteTable
   if (!nt) return null
+  const { c, table } = columns()
   const { sql, mapped } = select(
     'note',
     {
@@ -251,12 +293,13 @@ function noteRelation(mapping: SchemaMapping): ClassRelation | null {
       text: c('n', nt.textColumn),
       note_type: c('n', nt.typeColumn),
     },
-    `${qualify(nt)} n`,
+    () => table(nt, 'n'),
   )
   return { name: `${RELATION_PREFIX}note`, cls: 'note', sql, mapped }
 }
 
 function conceptRelation1(dict: ConceptDictionary, name: string): ClassRelation {
+  const { c, table } = columns()
   const extras: Record<string, string> = {}
   const extraLines: string[] = []
   for (const [alias, column] of Object.entries(dict.extraColumns ?? {})) {
@@ -264,7 +307,7 @@ function conceptRelation1(dict: ConceptDictionary, name: string): ClassRelation 
     // one; `sanitizeSchemaMapping` only vets the values.
     if (!isSafeIdentifier(alias)) continue
     extras[alias] = `extra_${alias}`
-    extraLines.push(`  d."${column}" AS "extra_${alias}"`)
+    extraLines.push(`  ${c('d', column)} AS "extra_${alias}"`)
   }
   const { sql, mapped } = select(
     'concept',
@@ -279,7 +322,7 @@ function conceptRelation1(dict: ConceptDictionary, name: string): ClassRelation 
       category: c('d', dict.categoryColumn),
       subcategory: c('d', dict.subcategoryColumn),
     },
-    `${qualify(dict)} d`,
+    () => table(dict, 'd'),
   )
   const withExtras = extraLines.length ? sql.replace(/\nFROM /, `,\n${extraLines.join(',\n')}\nFROM `) : sql
   return { name, cls: 'concept', key: dict.key, sql: withExtras, mapped, extras }
@@ -291,30 +334,27 @@ function eventRelation1(
   et: EventTable,
   dict: ConceptDictionary | undefined,
   name: string,
-  dictionary: string | null,
+  dictionary: string | null | undefined,
 ): ClassRelation {
+  const { c, table } = columns()
   const legacyUnit = (et as EventTable & { unitColumn?: string }).unitColumn
-  // v1 names no visit column on an event table: by convention it is the visit
-  // table's id column (`visit_occurrence_id`, `hadm_id`), which not every event
-  // table has. An empty UNION BY NAME branch pads the column with NULLs where it
-  // is missing, so the relation binds either way.
-  const visitIdCol = mapping.visitTable?.idColumn
-  const from = visitIdCol
-    ? `(SELECT * FROM ${qualify(et)} UNION ALL BY NAME SELECT NULL AS "${visitIdCol}" WHERE false) e`
-    : `${qualify(et)} e`
+  const conceptId = c('e', et.conceptIdColumn)
   const composite = !!(et.conceptVocabularyColumn && et.conceptCodeColumn && dict?.vocabularyColumn && dict.codeColumn)
 
   const { sql, mapped } = select(
     'event',
     {
       patient_id: c('e', et.patientIdColumn ?? mapping.patientTable?.idColumn),
-      concept_id: c('e', et.conceptIdColumn),
+      concept_id: conceptId,
       start_datetime: c('e', et.dateColumn),
-      visit_id: c('e', visitIdCol),
+      // v1 names no visit column on an event table: by convention it is the
+      // visit table's id column (`visit_occurrence_id`, `hadm_id`), which not
+      // every event table has — the padding makes it NULL there.
+      visit_id: c('e', mapping.visitTable?.idColumn),
       concept_terminology: c('e', et.conceptVocabularyColumn),
       concept_code: c('e', et.conceptCodeColumn),
       source_concept_id: c('e', et.sourceConceptIdColumn),
-      concept_name: et.conceptDictionaryKey === 'none' ? `CAST(e."${et.conceptIdColumn}" AS VARCHAR)` : null,
+      concept_name: et.conceptDictionaryKey === 'none' ? `CAST(${conceptId} AS VARCHAR)` : null,
       end_datetime: c('e', et.endDateColumn),
       value_number: c('e', et.valueColumn),
       value_string: c('e', et.valueStringColumn),
@@ -323,9 +363,9 @@ function eventRelation1(
       route: c('e', et.routeColumn),
       route_concept_id: c('e', et.routeConceptIdColumn),
     },
-    from,
+    () => table(et, 'e'),
   )
-  // The padded visit column is a guess, not a mapping: never advertise it.
+  // The conventional visit column is a guess, not a mapping: never advertise it.
   mapped.delete('visit_id')
   return { name, cls: 'event', key: label, sql, mapped, dictionary, compositeConceptKey: composite }
 }

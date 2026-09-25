@@ -6,12 +6,19 @@ import { classRelations } from './relations'
 // Matches a relation name used as an identifier: `linkr_visit`, `linkr_event_lab_events`.
 const RELATION_REF = new RegExp(`(?<![\\w.])${RELATION_PREFIX}[a-z0-9_]+(?!\\w)`, 'gi')
 
-/** Relation names a statement references outside literals, quoted identifiers and comments. */
+const QUOTED_RELATION = new RegExp(`^"(${RELATION_PREFIX}[a-z0-9_]+)"$`, 'i')
+
+/** Relation names a statement references, bare or as a quoted identifier — never
+ *  inside a string literal or a comment. */
 export function referencedRelations(sql: string): Set<string> {
   const regions = protectedRegions(sql)
   const names = new Set<string>()
   for (const m of sql.matchAll(RELATION_REF)) {
     if (!isProtected(regions, m.index)) names.add(m[0].toLowerCase())
+  }
+  for (const r of regions) {
+    const quoted = QUOTED_RELATION.exec(sql.slice(r.start, r.end))
+    if (quoted) names.add(quoted[1].toLowerCase())
   }
   return names
 }

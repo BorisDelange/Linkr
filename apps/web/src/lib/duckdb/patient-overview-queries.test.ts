@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildOverviewEventsQuery, buildOverviewInventoryQuery } from './patient-overview-queries'
 import type { SchemaMapping } from '@/types/schema-mapping'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 
 /**
  * The failure this guards is silent, which is what made it expensive: a mapping
@@ -29,36 +30,17 @@ const args: [string, null, string, string[], string, string, number, null] = [
 ]
 
 describe('buildOverviewEventsQuery — a stale value column cannot kill the row', () => {
-  it('selects the mapped text column by default', () => {
+  it('selects the text column through the relation', () => {
     const sql = buildOverviewEventsQuery(mapping, ...args)!
-    expect(sql).toContain('e."value_as_string"')
+    expect(sql).toContain('CAST(e.value_string AS VARCHAR) AS value_string')
+    expect(withClassRelations(sql, mapping)).toContain('e."value_as_string" AS value_string')
   })
 
-  it('omits it on request, keeping the shape so callers can retry', () => {
-    const sql = buildOverviewEventsQuery(mapping, ...args, true)!
-    expect(sql).not.toContain('value_as_string')
-    // The retry is only worth anything if the figure still gets its data.
-    expect(sql).toContain('e."measurement_datetime"')
-    expect(sql).toContain('e."value_as_number"')
-    expect(sql).toContain('AS value_string')
-  })
-
-  it('produces a different query when omitting, or the retry is pointless', () => {
-    const full = buildOverviewEventsQuery(mapping, ...args)
-    const bare = buildOverviewEventsQuery(mapping, ...args, true)
-    expect(bare).not.toBe(full)
-  })
-
-  it('is a no-op for a mapping with no text column, so retrying is detectable', () => {
-    const noText = {
-      ...mapping,
-      eventTables: {
-        Measurement: { ...mapping.eventTables!.Measurement, valueStringColumn: undefined },
-      },
-    } as unknown as SchemaMapping
-    expect(buildOverviewEventsQuery(noText, ...args, true)).toBe(
-      buildOverviewEventsQuery(noText, ...args),
-    )
+  it('pads the column, so a table lacking it reads NULL instead of failing', () => {
+    // The relation's FROM adds an empty UNION BY NAME branch naming every mapped
+    // column: where the table has it, nothing changes; where it does not, NULL.
+    const sql = withClassRelations(buildOverviewEventsQuery(mapping, ...args)!, mapping)
+    expect(sql).toMatch(/UNION ALL BY NAME SELECT [^)]*NULL AS "value_as_string"/)
   })
 })
 
@@ -79,9 +61,9 @@ describe('buildOverviewInventoryQuery — values carry their unit', () => {
         },
       },
     } as unknown as SchemaMapping
-    const sql = buildOverviewInventoryQuery(withUnit, 'p1', null)!
-    expect(sql).toContain('unit_source_value')
-    expect(sql).toContain('AS unit')
+    const sql = withClassRelations(buildOverviewInventoryQuery(withUnit, 'p1', null)!, withUnit)
+    expect(sql).toContain('e."unit_source_value" AS unit')
+    expect(sql).toContain('MAX(e.unit) AS unit')
   })
 
   it('still builds when no unit column is mapped', () => {
@@ -118,17 +100,17 @@ describe('an event table can declare it has no dictionary', () => {
   } as unknown as SchemaMapping
 
   it('joins no dictionary, so a text concept column cannot break the query', () => {
-    const sql = buildOverviewInventoryQuery(inline, 'p1', null)!
+    const sql = withClassRelations(buildOverviewInventoryQuery(inline, 'p1', null)!, inline)
     expect(sql).not.toContain('d_items')
     expect(sql).toContain('prescriptions')
   })
 
   it('still reports the unit and the route, which do not need a dictionary', () => {
-    const sql = buildOverviewInventoryQuery(inline, 'p1', null)!
-    expect(sql).toContain('dose_unit_rx')
+    const sql = withClassRelations(buildOverviewInventoryQuery(inline, 'p1', null)!, inline)
+    expect(sql).toContain('e."dose_unit_rx" AS unit')
     const events = buildOverviewEventsQuery(
       inline, 'p1', null, 'Prescriptions', ['Vancomycin'], '2174-01-01', '2174-12-31', 10,
     )!
-    expect(events).toContain('e."route"')
+    expect(events).toContain('CAST(e.route AS VARCHAR) AS route')
   })
 })

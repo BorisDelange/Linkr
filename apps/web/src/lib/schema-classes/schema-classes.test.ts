@@ -74,7 +74,7 @@ describe('classRelations (v1 mapping)', () => {
   it('derives the MIMIC-IV birth year from the anchor pair and qualifies schemas', () => {
     const p = classRelation(mimic, 'patient')!
     expect(p.sql).toContain('(p."anchor_year" - p."anchor_age") AS birth_year')
-    expect(p.sql).toContain('FROM "hosp"."patients" p')
+    expect(p.sql).toContain('FROM (SELECT * FROM "hosp"."patients" UNION ALL BY NAME')
     expect(p.sql).toContain('p."dod" AS death_datetime')
   })
 
@@ -82,12 +82,13 @@ describe('classRelations (v1 mapping)', () => {
     const rx = eventRelation(mimic, 'Prescriptions')!
     expect(rx.dictionary).toBeNull()
     expect(rx.sql).toContain('CAST(e."drug" AS VARCHAR) AS concept_name')
-    expect(rx.sql).toContain('FROM "hosp"."prescriptions" e')
+    expect(rx.sql).toContain('FROM (SELECT * FROM "hosp"."prescriptions" UNION ALL BY NAME')
   })
 
-  it('pads the conventional visit column instead of assuming it exists', () => {
+  it('pads every named column, so a missing one reads as NULL instead of failing', () => {
     const m = eventRelation(omop, 'Measurement')!
-    expect(m.sql).toContain('UNION ALL BY NAME SELECT NULL AS "visit_occurrence_id" WHERE false')
+    expect(m.sql).toMatch(/UNION ALL BY NAME SELECT .*NULL AS "visit_occurrence_id".* WHERE false\) e/)
+    expect(m.sql).toContain('NULL AS "value_as_number"')
     expect(has(m, 'visit_id')).toBe(false)
     expect(m.dictionary).toBe('linkr_concept_concept')
     expect(dictionaryOf(omop, m)?.cls).toBe('concept')
@@ -114,8 +115,12 @@ describe('withClassRelations', () => {
     expect(withClassRelations(sql, omop)).toBe(sql)
   })
 
-  it('ignores names inside literals, quoted identifiers and comments', () => {
-    expect(referencedRelations(`SELECT 'linkr_visit', "linkr_patient" -- linkr_note\nFROM x`).size).toBe(0)
+  it('ignores names inside literals and comments', () => {
+    expect(referencedRelations(`SELECT 'linkr_visit', "not linkr_patient" -- linkr_note\nFROM x`).size).toBe(0)
+  })
+
+  it('sees a relation named as a quoted identifier', () => {
+    expect([...referencedRelations('SELECT "linkr_visit"."visit_id" FROM "linkr_visit"')]).toEqual(['linkr_visit'])
   })
 
   it('prepends only the referenced relations, non-materialised', () => {
