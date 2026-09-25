@@ -142,9 +142,9 @@ export function sortNeedsCounts(sort: ExtractionSort): boolean {
 /** The dictionary's own key expression, or a hash of the code when it has none. */
 function conceptIdExpr(source: ProfileSource): string {
   const dict = source.dictionary
-  return dict.idColumn
+  return dict.ownId
     ? 'd.concept_id'
-    : `(hash(d.${dict.codeColumn ? 'concept_code' : 'concept_name'}) % 2147483647)::INTEGER`
+    : `(hash(d.${dict.hasCode ? 'concept_code' : 'concept_name'}) % 2147483647)::INTEGER`
 }
 
 /**
@@ -260,7 +260,7 @@ export function buildDictionaryPageQuery(
   // (vocabulary, code) identity mappings are keyed on.
   const select = `SELECT
     ${idExpr} AS concept_id,
-    ${dict.codeColumn ? 'CAST(d.concept_code AS VARCHAR)' : `CAST(${idExpr} AS VARCHAR)`} AS concept_code,
+    ${dict.hasCode ? 'CAST(d.concept_code AS VARCHAR)' : `CAST(${idExpr} AS VARCHAR)`} AS concept_code,
     d.concept_name AS concept_name,
     ${has(rel, 'terminology_id') ? 'CAST(d.terminology_id AS VARCHAR)' : `'${escSql(dict.table)}'`} AS vocabulary_id,
     ${has(rel, 'category') ? 'CAST(d.category AS VARCHAR)' : 'NULL'} AS category
@@ -283,7 +283,7 @@ export function buildDictionaryPageQuery(
   const direction = sort.direction === 'desc' ? 'DESC' : 'ASC'
   const column = sort.key === 'name'
     ? 'd.concept_name'
-    : sort.key === 'code' && dict.codeColumn
+    : sort.key === 'code' && dict.hasCode
       ? 'd.concept_code'
       : idExpr
   const order = column === idExpr

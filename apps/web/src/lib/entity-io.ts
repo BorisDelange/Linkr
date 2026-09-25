@@ -2,6 +2,7 @@
  * Shared utilities for entity export/import (ZIP and JSON).
  */
 import JSZip from 'jszip'
+import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import {
   CONTENT_FILE, EDITS_SUFFIX, editsFileName, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, type LayoutKind,
   buildTabKeyMap, buildWidgetKeyMap, canonicalOps, canonicalSchemaMapping,
@@ -3206,7 +3207,7 @@ export async function buildSchemaPresetFolder(
   const {
     presetLabel: _label, description: _blurb, presetId: _retiredId, templateId: _dead,
     ...mappingPayload
-  } = mapping
+  } = mapping as SchemaMapping & { templateId?: string }
   zip.file(`${prefix}${SCHEMA_PRESET_MAPPING_FILE}`, json(canonicalSchemaMapping(mappingPayload)))
   if (ddl) zip.file(`${prefix}${SCHEMA_PRESET_DDL_FILE}`, ddl)
   // `organization` is an INSTANCE_FIELD, stripped above; every other entity puts
@@ -3470,9 +3471,10 @@ async function applyClonedDatabase(
   const inlineMapping = typeof meta.schema === 'string' ? undefined : meta.schema
   const baseMapping = fromFile ?? inlineMapping
   const ddl = ddlEntry && !ddlEntry.dir ? await ddlEntry.async('string') : undefined
-  const schemaMapping = baseMapping && ddl
+  // Converted (v1 → v2) and validated once the DDL is back: the conversion reads it.
+  const schemaMapping = sanitizeSchemaMapping(baseMapping && ddl
     ? { ...baseMapping, ddl } as SchemaMapping
-    : baseMapping
+    : baseMapping)
   if (!schemaMapping) {
     throw new Error(
       typeof meta.schema === 'string'
@@ -4046,7 +4048,7 @@ export async function applyClonedEntity(
         // value made the two drift whenever the install minted a fresh id, and
         // a later ZIP import — which reads `mapping.presetId` as the entity id
         // and deletes whatever holds it — then deleted a different preset.
-        mapping: { ...presetMapping, presetId: targetId, ddl },
+        mapping: sanitizeSchemaMapping({ ...presetMapping, presetId: targetId, ddl }),
       }) as CustomSchemaPreset,
       'schema-preset',
     )
@@ -4919,7 +4921,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const ddlEntry = zipData.files[`${prefix}${SCHEMA_PRESET_DDL_FILE}`]
     const ddl = ddlEntry && !ddlEntry.dir ? await ddlEntry.async('string') : undefined
     const mapping = reassemblePresetMapping(sp, mappingFile ?? undefined)
-    sp.mapping = (ddl ? { ...mapping, ddl } : mapping) as SchemaMapping
+    sp.mapping = sanitizeSchemaMapping((ddl ? { ...mapping, ddl } : mapping) as SchemaMapping)
     const docs = await readEntityDocs(zipData, prefix, sp)
     if (docs.readme) sp.readme = docs.readme
     if (docs.license) sp.license = docs.license
@@ -4950,7 +4952,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const ddlEntry = zipData.files[`${prefix}${SCHEMA_PRESET_DDL_FILE}`]
     const ddl = ddlEntry && !ddlEntry.dir ? await ddlEntry.async('string') : undefined
     const base = mappingFile ?? (ds.schemaMapping as SchemaMapping | undefined)
-    if (base) ds.schemaMapping = (ddl ? { ...base, ddl } : base) as SchemaMapping
+    if (base) ds.schemaMapping = sanitizeSchemaMapping((ddl ? { ...base, ddl } : base) as SchemaMapping)
     const docs = await readEntityDocs(zipData, prefix, ds as { readmeLang?: string })
     if (docs.readme) ds.readme = docs.readme
     if (docs.license) ds.license = docs.license

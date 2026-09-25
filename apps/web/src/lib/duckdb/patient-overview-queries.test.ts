@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { buildOverviewEventsQuery, buildOverviewInventoryQuery } from './patient-overview-queries'
-import type { SchemaMapping } from '@/types/schema-mapping'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 
 /**
@@ -11,7 +11,7 @@ import { withClassRelations } from '@/lib/schema-classes/inject'
  * broken row was indistinguishable from a deliberately aggregated one, at every
  * zoom level.
  */
-const mapping = {
+const mapping_V1: any = {
   patientTable: { table: 'person', idColumn: 'person_id' },
   eventTables: {
     Measurement: {
@@ -23,7 +23,8 @@ const mapping = {
       dateColumn: 'measurement_datetime',
     },
   },
-} as unknown as SchemaMapping
+}
+const mapping = mappingV1ToV2(mapping_V1)
 
 const args: [string, null, string, string[], string, string, number, null] = [
   'p1', null, 'Measurement', ['3027018'], '2128-01-01', '2128-12-31', 500, null,
@@ -52,15 +53,15 @@ describe('buildOverviewEventsQuery — a stale value column cannot kill the row'
  */
 describe('buildOverviewInventoryQuery — values carry their unit', () => {
   it('selects the mapped unit column', () => {
-    const withUnit = {
-      ...mapping,
+    const withUnit = mappingV1ToV2({
+      ...mapping_V1,
       eventTables: {
         Measurement: {
-          ...mapping.eventTables!.Measurement,
+          ...mapping_V1.eventTables!.Measurement,
           valueUnitColumn: 'unit_source_value',
         },
       },
-    } as unknown as SchemaMapping
+    } as never)
     const sql = withClassRelations(buildOverviewInventoryQuery(withUnit, 'p1', null)!, withUnit)
     expect(sql).toContain('e."unit_source_value" AS unit')
     expect(sql).toContain('MAX(e.unit) AS unit')
@@ -79,7 +80,7 @@ describe('buildOverviewInventoryQuery — values carry their unit', () => {
  * says so explicitly.
  */
 describe('an event table can declare it has no dictionary', () => {
-  const inline = {
+  const inline = mappingV1ToV2({
     patientTable: { table: 'patients', idColumn: 'subject_id' },
     conceptTables: [
       { key: 'd_items', table: 'd_items', idColumn: 'itemid', nameColumn: 'label' },
@@ -97,7 +98,7 @@ describe('an event table can declare it has no dictionary', () => {
         conceptDictionaryKey: 'none',
       },
     },
-  } as unknown as SchemaMapping
+  } as never)
 
   it('joins no dictionary, so a text concept column cannot break the query', () => {
     const sql = withClassRelations(buildOverviewInventoryQuery(inline, 'p1', null)!, inline)

@@ -22,174 +22,127 @@ export interface ErdGroup {
 }
 
 /**
- * Mapping that tells the app how to interpret a database schema.
- * Stored per DataSource. Designed to work across OMOP, MIMIC-III, CoDOC, eHOP,
- * and any other clinical data model.
+ * A column of a relation's source, as the visual form names it: `alias.column`
+ * (validated as two identifiers, quoted by the generator), a free SQL expression
+ * over the aliases, or a constant.
+ */
+export type FieldSpec = string | { expr: string } | { value: string | number | boolean | null }
+
+/** A table of the source, under the alias the fields refer to it by. */
+export interface RelationTable {
+  /** Schema holding the table, for a source published as several (MIMIC-IV
+   *  `hosp`/`icu`). Omitted means "wherever the search path finds it". */
+  schema?: string
+  table: string
+  alias: string
+}
+
+export interface RelationJoin extends RelationTable {
+  type: 'left' | 'inner'
+  /** Column pairs, `alias.column` on both sides, ANDed. */
+  on: [string, string][]
+}
+
+/**
+ * How one class relation is read from the source: the visual form (`from`,
+ * `joins`, `where`, `fields`), or SQL (`customSql`) — the Cohort "Modified"
+ * pattern. Effective SQL = `customSql ?? generate(visual form)`.
+ * See docs/planning/schema-classes-plan.md §3-4.
+ */
+export interface RelationSpec {
+  /** The grain table: one row of the class per row of this table. */
+  from?: RelationTable
+  joins?: RelationJoin[]
+  /** SQL filter over the aliases — lets one table feed several relations. */
+  where?: string
+  /** Contract column → where it comes from. An unmapped column reads NULL. */
+  fields?: Record<string, FieldSpec>
+  /** SQL written or edited by hand; replaces the generated SQL when set. */
+  customSql?: string | null
+  /** Contract columns `customSql` fills, as last measured by the contract check.
+   *  Unset: the keys of `fields`, plus the required columns. */
+  sqlColumns?: string[]
+}
+
+export interface PatientSpec extends RelationSpec {
+  /**
+   * Raw values of `gender_source_value` meaning male / female. The generator
+   * turns them into the normalised `gender` column (`male`/`female`/`unknown`)
+   * unless `fields.gender` is mapped directly.
+   */
+  genderValues?: { male: string; female: string; unknown?: string }
+}
+
+/** A concept dictionary: one row per concept. Several for MIMIC (d_items, d_labitems…). */
+export interface ConceptSpec extends RelationSpec {
+  /** Stable key events refer to it by (`concept`, `d_items`). */
+  key: string
+}
+
+/** An event relation: one row per observation. */
+export interface EventSpec extends RelationSpec {
+  /** Stable, unique label — cohorts and widgets refer to the relation by it. */
+  label: string
+  /**
+   * Concept dictionary its `concept_id` points into (`ConceptSpec.key`).
+   * Omitted: the first dictionary. `'none'`: the relation names its concepts
+   * inline (MIMIC `prescriptions.drug`), and `concept_name` defaults to the id.
+   */
+  conceptDictionaryKey?: string | 'none'
+}
+
+export type DrugKind = 'administration' | 'prescription'
+
+/** A drug relation: one row per administration or per prescription line. */
+export interface DrugSpec extends EventSpec {
+  drugKind: DrugKind
+}
+
+/** A value a relation's SQL reads as `{{name}}`, substituted as an escaped
+ *  string literal only — never as an identifier or a fragment (plan §7). */
+export interface MappingParam {
+  default: string
+  label?: LocalizedString
+  description?: LocalizedString
+}
+
+export type SingletonClassKey = 'patient' | 'visit' | 'visitDetail' | 'note'
+
+/**
+ * How the app reads a database schema: one relation per class, each honouring
+ * its class contract (`lib/schema-classes/contracts.ts`). Every query reads the
+ * `linkr_*` relations, never these fields. A v1 mapping (one block per table) is
+ * converted on read by `mappingV1ToV2`; only this shape is ever written.
  */
 export interface SchemaMapping {
+  formatVersion: 2
   presetId: SchemaPresetId
   presetLabel: LocalizedString
   /** Optional human-readable description of the schema, bilingual like the label. */
   description?: LocalizedString
-  /**
-   * @deprecated Vestige of the built-in preset pickers.
-   *
-   * It named the compiled-in schema a preset was created from, and drove an
-   * "already added" mark in the create dialog. Both are gone: schemas are
-   * ordinary entities installed from the catalog, and no code reads this. It is
-   * no longer written to a preset's export — kept on the type only so a mapping
-   * stored before the pickers went away still parses.
-   */
-  templateId?: SchemaPresetId
 
-  patientTable?: {
-    /**
-     * Schema holding the table, for a source published as several — MIMIC-IV's
-     * `hosp`/`icu`, eHOP's Oracle schemas. Omitted means "wherever the search
-     * path finds it", which is how every preset written before schemas worked
-     * and still works. Set it when two schemas of one source hold the same table
-     * name: there the bare name resolves to whichever comes first, silently.
-     */
-    schema?: string
-    table: string
-    idColumn: string
-    birthDateColumn?: string
-    birthYearColumn?: string
-    /**
-     * MIMIC-IV has no birth date or year: `anchor_age` is the patient's age in
-     * `anchor_year`, both on the de-identified timeline, so the birth year is
-     * `anchor_year - anchor_age`. Used only when `birthYearColumn` is unset, and
-     * only as a pair. See `birthYearSql`.
-     */
-    anchorAgeColumn?: string
-    anchorYearColumn?: string
-    genderColumn?: string
-    /** Optional death date column in the patient table (e.g. MIMIC `dod`). */
-    deathDateColumn?: string
-  }
+  patient?: PatientSpec
+  visit?: RelationSpec
+  visitDetail?: RelationSpec
+  note?: RelationSpec
+  concepts?: ConceptSpec[]
+  events?: EventSpec[]
+  drugs?: DrugSpec[]
 
-  visitTable?: {
-    schema?: string
-    table: string
-    idColumn: string
-    patientIdColumn: string
-    startDateColumn: string
-    endDateColumn?: string
-    /** Optional column describing the visit type (e.g. visit_source_value, admission_type). */
-    typeColumn?: string
-    /** Optional care site column on the visit table (e.g. care_site_id in OMOP). */
-    careSiteColumn?: string
-    /** Optional lookup table to resolve care site IDs to names (e.g. care_site). */
-    careSiteNameTable?: string
-    /** ID column in the lookup table (e.g. care_site_id). */
-    careSiteNameIdColumn?: string
-    /** Name column in the lookup table (e.g. care_site_name). */
-    careSiteNameColumn?: string
-  }
-
-  /**
-   * Optional note/text table: clinical documents (discharge summaries, progress notes, etc.).
-   * OMOP CDM: note. MIMIC-III: noteevents.
-   */
-  noteTable?: {
-    schema?: string
-    table: string
-    idColumn: string
-    patientIdColumn: string
-    visitIdColumn?: string
-    dateColumn: string
-    titleColumn?: string
-    textColumn: string
-    /** Column describing the type/class of note (e.g. note_source_value, category). */
-    typeColumn?: string
-  }
-
-  /**
-   * Optional visit detail table: sub-visits within a hospitalization.
-   * OMOP CDM: visit_detail (unit stays within a visit_occurrence).
-   * MIMIC-III: icustays / transfers within an admission.
-   */
-  visitDetailTable?: {
-    schema?: string
-    table: string
-    idColumn: string
-    visitIdColumn: string
-    patientIdColumn: string
-    startDateColumn: string
-    endDateColumn?: string
-    /** Optional care site / unit column (e.g. care_site_id, curr_careunit). */
-    unitColumn?: string
-    /**
-     * Optional lookup table to resolve unitColumn IDs to human-readable names.
-     * OMOP: care_site table (care_site_id → care_site_name).
-     * Not needed when unitColumn already contains names (e.g. MIMIC-III first_careunit).
-     */
-    unitNameTable?: string
-    /** ID column in the lookup table to join on (e.g. care_site_id). */
-    unitNameIdColumn?: string
-    /** Name column in the lookup table (e.g. care_site_name). */
-    unitNameColumn?: string
-    /**
-     * Optional verbatim ward name on the visit-detail row itself
-     * (OMOP `visit_detail_source_value`). Preferred over the lookup when set:
-     * it holds the actual unit ("Medical Intensive Care Unit") where the
-     * standard concept is far coarser, and many ETLs leave care_site_id NULL
-     * while filling this in.
-     */
-    unitSourceValueColumn?: string
-  }
-
-  /**
-   * Optional separate death table (e.g. OMOP CDM `death` table).
-   * Use this when death info is NOT in the patient table but in a dedicated table.
-   * If patientTable.deathDateColumn is set, it takes precedence.
-   */
-  deathTable?: {
-    schema?: string
-    table: string
-    patientIdColumn: string
-    dateColumn: string
-  }
-
-  /**
-   * Concept dictionaries: table(s) that define the vocabulary/concepts.
-   * Single dictionary for most CDMs (OMOP, CoDOC, eHOP),
-   * multiple for MIMIC-III (d_items, d_labitems, d_icd_diagnoses...).
-   */
-  conceptTables?: ConceptDictionary[]
-
-  /**
-   * Event tables: clinical data tables referencing the concept dictionary.
-   * Key = user-friendly label (e.g. "Measurements", "Lab events", "Clinical data").
-   */
-  eventTables?: Record<string, EventTable>
-
-  /**
-   * Gender value mapping: what values to match in the genderColumn.
-   * Works for both concept IDs (OMOP: '8507') and text values (MIMIC: 'M', eHOP: '1').
-   * SQL builders always quote these values; DuckDB handles implicit cast for numeric columns.
-   */
-  genderValues?: {
-    male: string
-    female: string
-    unknown?: string
-  }
+  /** Values relations read as `{{name}}`; a database overrides the values only. */
+  params?: Record<string, MappingParam>
 
   /** Known table names for Parquet folder table name extraction. */
   knownTables?: string[]
 
   /**
    * Optional DDL (CREATE TABLE statements) for this schema.
-   * Used to create empty databases from a preset (e.g., empty OMOP target for ETL).
-   * The DDL should use DuckDB-compatible SQL syntax.
+   * Used to create empty databases from a preset (e.g., empty OMOP target for ETL),
+   * and as the column list the visual editor offers. DuckDB-compatible SQL.
    */
   ddl?: string
 
-  /**
-   * ERD group definitions for the DDL diagram.
-   * Each group is a colored region that contains related tables.
-   * Built-in presets (OMOP) provide default groups; users can override.
-   */
+  /** ERD group definitions for the DDL diagram. */
   erdGroups?: ErdGroup[]
 
   /**
@@ -200,122 +153,17 @@ export interface SchemaMapping {
 }
 
 /**
- * A concept dictionary: a table that acts as a lookup/reference
- * for clinical concepts (vocabulary, items, thesaurus, etc.)
+ * What a database changes on top of its preset (plan §7): parameter values, and
+ * whole relations replaced for a structural difference. Keys of `relations`:
+ * `patient`, `visit`, `visitDetail`, `note`, `concepts.<key>`, `events.<label>`,
+ * `drugs.<label>`.
  */
-export interface ConceptDictionary {
-  /** Unique key to reference this dictionary from eventTables (e.g. 'concept', 'd_items'). */
-  key: string
-  /** Schema holding the table, when the source has several. See `patientTable.schema`. */
-  schema?: string
-  /** Table name (concept, d_items, dwh_thesaurus_data, concept). */
-  table: string
-  /** Primary key column (concept_id, itemid, thesaurus_data_num). Optional for code-only tables (e.g. d_icd_diagnoses). */
-  idColumn?: string
-  /** Human-readable name column (concept_name, label, concept_str). */
-  nameColumn: string
-  /** Optional code column within a vocabulary (concept_code). */
-  codeColumn?: string
-  /**
-   * @deprecated Use terminologyIdColumn instead.
-   * Kept for backward compatibility with saved custom presets.
-   */
-  vocabularyColumn?: string
-  /** Optional column containing the terminology/vocabulary identifier (vocabulary_id, dbsource, thesaurus_code, terminology_code). */
-  terminologyIdColumn?: string
-  /** Optional column containing the human-readable terminology/vocabulary name (e.g. vocabulary_name). */
-  terminologyNameColumn?: string
-  /** Optional column for the category of this concept (e.g. category in MIMIC d_items). */
-  categoryColumn?: string
-  /** Optional column for the subcategory of this concept. */
-  subcategoryColumn?: string
-  /**
-   * Extra filterable columns specific to this CDM (e.g. OMOP domain_id, concept_class_id, standard_concept).
-   * Key = SQL alias used in queries, value = actual column name in the table.
-   * These are displayed as additional hidden columns in the mapping editor.
-   */
-  extraColumns?: Record<string, string>
-}
-
-/**
- * An event table: a clinical data table containing events/observations
- * that reference a concept dictionary.
- */
-export interface EventTable {
-  /** Schema holding the table, when the source has several. See `patientTable.schema`. */
-  schema?: string
-  /** Table name (measurement, chartevents, dwh_data, document_data). */
-  table: string
-  /** Column that references the concept dictionary PK (measurement_concept_id, itemid, thesaurus_data_num). */
-  conceptIdColumn: string
-  /** Optional second concept ID column for source concepts (OMOP-specific). */
-  sourceConceptIdColumn?: string
-  /**
-   * For composite joins (e.g. eHOP): column in event table matching vocabulary/terminology.
-   * Used with conceptCodeColumn for joins like: event.terminology_code = dict.terminology_code AND event.concept_code = dict.concept_code
-   */
-  conceptVocabularyColumn?: string
-  /** For composite joins: column in event table matching concept code. */
-  conceptCodeColumn?: string
-  /** Numeric value column (value_as_number, valuenum, val_numeric, nb). */
-  valueColumn?: string
-  /** String/categorical value column (value_as_string, value, val_text). */
-  valueStringColumn?: string
-  /**
-   * Column holding the value's unit as text (`unit_source_value`, MIMIC-IV
-   * `valueuom`). A number without its unit is not a measurement, so the overview
-   * shows it beside the value. Distinct from `visitDetailTable.unitColumn`,
-   * which means a hospital ward.
-   */
-  valueUnitColumn?: string
-  /**
-   * FK to the concept naming the value's unit (OMOP `unit_concept_id`).
-   *
-   * Preferred over `valueUnitColumn`: it is the standardised unit rather than
-   * whatever text the source wrote. Note the two disagree in a way that matters
-   * for reading — the standard name is "millimeter mercury column" where the
-   * source says "mmHg", and both "bpm" and "insp/min" standardise to "per
-   * minute" — so the source text is kept as the fallback and, where it exists,
-   * as the shorter label.
-   */
-  valueUnitConceptIdColumn?: string
-  /**
-   * FK to the concept naming the administration route (OMOP `route_concept_id`).
-   *
-   * Resolved through the concept dictionary like any other concept, so the route
-   * shows as "Intravenous" rather than a local code. Note that the standard
-   * vocabulary does not distinguish a continuous drip from a bolus — both are
-   * `Intravenous` — so this names the route but cannot classify it.
-   */
-  routeConceptIdColumn?: string
-  /**
-   * Column holding the route as text (MIMIC `route`, OMOP `route_source_value`).
-   *
-   * Preferred over the concept when both are set — it is shorter and keeps
-   * distinctions the vocabulary drops — and it is the only option for a model
-   * with no route concept at all.
-   */
-  routeColumn?: string
-  /** Patient FK column. Defaults to patientTable.idColumn name if omitted. */
-  patientIdColumn?: string
-  /** Event date column (measurement_datetime, charttime, document_date, start_at). */
-  dateColumn?: string
-  /**
-   * Optional end date column, for events that last rather than happen: an
-   * infusion, a procedure, a device. OMOP `drug_exposure_end_datetime`,
-   * MIMIC-IV `endtime`. When set, the overview draws these events as blocks
-   * instead of points.
-   */
-  endDateColumn?: string
-  /**
-   * Which concept dictionary this event table uses (ConceptDictionary.key).
-   *
-   * Omitted means "the first dictionary" — convenient, but wrong for a table
-   * that names its concept inline (MIMIC `prescriptions.drug` holds
-   * "Vancomycin", not an id), where joining the default dictionary fails on the
-   * type. Set `'none'` for those: the concept column is its own label.
-   */
-  conceptDictionaryKey?: string | 'none'
+export interface SchemaOverrides {
+  params?: Record<string, string>
+  relations?: Record<string, RelationSpec>
+  /** Base relation (as JSON) each override was made against, to flag an override
+   *  whose base the preset changed since. Same keys as `relations`. */
+  baseAtOverride?: Record<string, string>
 }
 
 /**

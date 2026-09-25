@@ -25,7 +25,8 @@
  * not to invent a second format.
  */
 
-import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
+import type { SchemaMapping } from '@/types/schema-mapping'
+import { conceptIdentity, type ConceptIdentity } from '@/lib/schema-classes/spec'
 import { classRelation, conceptRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 
 // ---------------------------------------------------------------------------
@@ -128,7 +129,7 @@ export const DEFAULT_PROFILE_OPTIONS: ProfileOptions = {
  */
 export interface ProfileSource {
   label: string
-  dictionary: ConceptDictionary
+  dictionary: ConceptIdentity
   /** The event table's relation (`linkr_event_*`). */
   event: ClassRelation
   /** The dictionary's relation (`linkr_concept_*`). */
@@ -146,7 +147,7 @@ export function resolveProfileSource(
   mapping: SchemaMapping,
   dictionaryKey: string,
 ): ProfileSource | null {
-  const dictionary = (mapping.conceptTables ?? []).find((d) => d.key === dictionaryKey)
+  const dictionary = conceptIdentity(mapping, dictionaryKey)
   const dict = conceptRelation(mapping, dictionaryKey)
   if (!dictionary || !dict) return null
   const candidates = eventRelations(mapping).filter((e) => e.dictionary === dict.name)

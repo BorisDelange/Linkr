@@ -1,4 +1,4 @@
-import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
+import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { escSql as esc } from '@/lib/format-helpers'
 import { buildFuzzySearchSql, type FuzzySearchSql } from '@/lib/fuzzy-search'
@@ -41,7 +41,7 @@ export const DEFAULT_HIDDEN_COLUMNS = [...VALIDITY_COLUMNS, ...CONCEPT_SET_COLUM
  * Compute the union of all columns across multiple concept dictionaries.
  * Returns stable column descriptors that drive the table, filters, and sort.
  */
-export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescriptor[] {
+export function computeAvailableColumns(dicts: readonly ClassRelation[]): ColumnDescriptor[] {
   // Order mirrors the conventional concept layout:
   // vocabulary_id, concept_id, concept_name, concept_code, domain_id,
   // concept_class_id, [other extras], standard_concept, then counts last.
@@ -52,18 +52,18 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
   if (dicts.length > 1) {
     cols.push({ id: '_dict_key', source: 'dict', filterable: true })
   }
-  if (dicts.some((d) => d.terminologyIdColumn || d.vocabularyColumn)) {
+  if (dicts.some((d) => has(d, 'terminology_id'))) {
     cols.push({ id: 'vocabulary_id', source: 'vocabulary', filterable: true })
   }
   cols.push({ id: 'concept_id', source: 'core', filterable: false })
   cols.push({ id: 'concept_name', source: 'core', filterable: false })
-  if (dicts.some((d) => d.codeColumn)) {
+  if (dicts.some((d) => has(d, 'concept_code'))) {
     cols.push({ id: 'concept_code', source: 'code', filterable: false })
   }
-  if (dicts.some((d) => d.categoryColumn)) {
+  if (dicts.some((d) => has(d, 'category'))) {
     cols.push({ id: 'domain_id', source: 'extra', filterable: true })
   }
-  if (dicts.some((d) => d.subcategoryColumn)) {
+  if (dicts.some((d) => has(d, 'subcategory'))) {
     cols.push({ id: 'concept_class_id', source: 'extra', filterable: true })
   }
 
@@ -74,8 +74,8 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
   const extraKeys = new Set<string>()
   let hasStandardConcept = false
   for (const d of dicts) {
-    if (d.extraColumns) {
-      for (const key of Object.keys(d.extraColumns)) {
+    if (d.extras) {
+      for (const key of Object.keys(d.extras)) {
         if (alreadyEmitted.has(key)) continue
         if (key === 'standard_concept') { hasStandardConcept = true; continue }
         if (VALIDITY_COLUMNS.includes(key)) continue
@@ -93,7 +93,7 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
   // OMOP validity trio — rarely-consulted metadata, hidden by default.
   const hasValidity = new Set<string>()
   for (const d of dicts) {
-    for (const key of Object.keys(d.extraColumns ?? {})) {
+    for (const key of Object.keys(d.extras ?? {})) {
       if (VALIDITY_COLUMNS.includes(key)) hasValidity.add(key)
     }
   }
@@ -536,7 +536,7 @@ export function buildConceptFullQuery(
 ): string | null {
   const dicts = conceptRelations(mapping).filter((d) => !dictKey || d.key === dictKey)
   if (dicts.length === 0) return null
-  const columns = computeAvailableColumns(mapping.conceptTables ?? [])
+  const columns = computeAvailableColumns(conceptRelations(mapping))
   const match = `c.concept_id = ${Number(conceptId)}`
   const parts = dicts.map((d) => buildSelectForDict(d, columns, EMPTY_FILTERS, mapping, false, match))
   return `${parts.join(' UNION ALL ')} LIMIT 1`

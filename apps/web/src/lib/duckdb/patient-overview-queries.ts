@@ -1,5 +1,6 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { classRelation, conceptJoinOn, conceptRelations, dictionaryOf, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { specTables } from '@/lib/schema-classes/spec'
 import { escSql } from '@/lib/format-helpers'
 
 /**
@@ -296,7 +297,7 @@ LIMIT 1`
 
 /** The label under which this model exposes unit stays (for the lane's name). */
 export function overviewUnitTableLabel(mapping: SchemaMapping): string | null {
-  return mapping.visitDetailTable?.table ?? null
+  return specTables(mapping.visitDetail)[0]?.table ?? null
 }
 
 // ---------------------------------------------------------------------------

@@ -18,14 +18,16 @@ function collection(over: Record<string, unknown> = {}, files: Record<string, st
 
 const PRESET = {
   presetId: 'omop-5-4',
-  // Canonical order: declared keys first, unlisted ones (here `tables`) appended
-  // sorted — so `eventTables` precedes `tables`. A well-formed fixture has to be
-  // in that order, or it trips the legacy-format warning it is meant to not trip.
+  // Canonical order (format v2): a well-formed fixture has to be in it, or it
+  // trips the legacy-format warning it is meant to not trip.
   mapping: {
-    eventTables: {
-      Labs: { table: 'measurement', conceptIdColumn: 'measurement_concept_id', dateColumn: 'measurement_date' },
-    },
-    tables: { person: { columns: { person_id: 'id' } } },
+    formatVersion: 2,
+    patient: { from: { table: 'person', alias: 'p' }, fields: { patient_id: 'p.person_id' } },
+    events: [{
+      label: 'Labs',
+      from: { table: 'measurement', alias: 'e' },
+      fields: { patient_id: 'e.person_id', concept_id: 'e.measurement_concept_id', start_datetime: 'e.measurement_date' },
+    }],
   },
 }
 
@@ -112,6 +114,25 @@ describe('schema preset', () => {
       'mapping.json': JSON.stringify(mapping),
     })
   }
+
+  it('reads a v1 mapping but says the next export rewrites it as v2', () => {
+    const issues = validateEntity(preset({ mapping: { eventTables: { L: { table: 'm', conceptIdColumn: 'c', dateColumn: 'd' } } } }), 'schema-preset')
+    expect(issues.map((i) => [i.severity, i.code])).toEqual([['warning', 'legacy-format']])
+  })
+
+  it('checks each v2 relation: a table or SQL, well-formed fields and joins, unique labels', () => {
+    const issues = validateEntity(preset({
+      mapping: {
+        formatVersion: 2,
+        visit: { fields: { visit_id: 'no dot' }, joins: [{ type: 'outer', table: 't', alias: 't', on: [['a', 'b.c']] }] },
+        events: [{ label: 'A', customSql: 'SELECT 1' }, { label: 'A', customSql: 'SELECT 2' }],
+        drugs: [{ label: 'D', customSql: 'SELECT 1', drugKind: 'dose' }],
+      },
+    }), 'schema-preset').filter((i) => i.severity === 'error')
+    expect(issues.map((i) => i.pointer)).toEqual([
+      '/visit/from', '/visit/joins/0/type', '/visit/joins/0/on', '/visit/fields/visit_id', '/events/1/label', '/drugs/0/drugKind',
+    ])
+  })
 
   it('accepts a well-formed preset', () => {
     expect(validateEntity(preset(), 'schema-preset')).toEqual([])

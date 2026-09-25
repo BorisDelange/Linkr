@@ -1,7 +1,8 @@
-import type { ConceptDictionary, EventTable, SchemaMapping } from '@/types/schema-mapping'
+import type { DrugSpec, EventSpec, FieldSpec, PatientSpec, RelationSpec, RelationTable, SchemaMapping } from '@/types/schema-mapping'
 import { escSql, isSafeIdentifier } from '@/lib/format-helpers'
-import { qualify, qualifyIn } from '@/lib/schema-helpers'
+import { protectedRegions, splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 import { CLASS_CONTRACTS, RELATION_PREFIX, type ClassName } from './contracts'
+import { specTables } from './spec'
 
 /**
  * One class relation: a SELECT honouring its class contract, and the name
@@ -11,12 +12,21 @@ import { CLASS_CONTRACTS, RELATION_PREFIX, type ClassName } from './contracts'
 export interface ClassRelation {
   name: string
   cls: ClassName
-  /** Concept dictionary key, or event-table label (v1 `eventTables` key). */
+  /** Concept dictionary key, or event / drug label. */
   key?: string
+  /** Where the relation is defined in the mapping: `visit`, `events.<label>`… */
+  specKey: string
+  /** The effective SQL is the hand-written `customSql`. */
+  custom: boolean
+  /** What the generator had to drop: a field naming an unknown alias, a bad
+   *  identifier, custom SQL that is not a single statement. */
+  problems: string[]
+  /** The source tables a visual relation reads (`from` first); empty for SQL. */
+  tables: RelationTable[]
   sql: string
   /** Contract columns that carry data; the others are emitted as NULL. */
   mapped: ReadonlySet<string>
-  /** Event: relation name of its concept dictionary; null when the event names
+  /** Event / drug: relation name of its concept dictionary; null when it names
    *  its concepts inline (`conceptDictionaryKey: 'none'`). */
   dictionary?: string | null
   /** Event: joins its dictionary on (concept_terminology, concept_code) rather
@@ -46,6 +56,10 @@ export function eventRelations(mapping: SchemaMapping): ClassRelation[] {
   return classRelations(mapping).filter((r) => r.cls === 'event')
 }
 
+export function drugRelations(mapping: SchemaMapping): ClassRelation[] {
+  return classRelations(mapping).filter((r) => r.cls === 'drug')
+}
+
 export function conceptRelations(mapping: SchemaMapping): ClassRelation[] {
   return classRelations(mapping).filter((r) => r.cls === 'concept')
 }
@@ -57,6 +71,10 @@ export function eventRelation(mapping: SchemaMapping, label: string): ClassRelat
 
 export function conceptRelation(mapping: SchemaMapping, key: string): ClassRelation | undefined {
   return conceptRelations(mapping).find((r) => r.key === key)
+}
+
+export function drugRelation(mapping: SchemaMapping, label: string): ClassRelation | undefined {
+  return drugRelations(mapping).find((r) => r.key === label)
 }
 
 /** The concept dictionary an event relation joins, if any. */
@@ -77,26 +95,51 @@ export function has(rel: ClassRelation | undefined, column: string): boolean {
   return !!rel && rel.mapped.has(column)
 }
 
+
 // ---------------------------------------------------------------------------
-// Generation from the v1 mapping blocks
+// Generation
 // ---------------------------------------------------------------------------
+
+const PARAM_REF = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g
+
+/**
+ * Replace each `{{name}}` outside literals and comments by the parameter's value
+ * as an escaped string literal; an unknown name reads NULL. Never substituted as
+ * an identifier or a SQL fragment, so a value cannot inject SQL (plan §7).
+ */
+export function substituteParams(sql: string, params: SchemaMapping['params']): string {
+  if (!sql.includes('{{')) return sql
+  const regions = protectedRegions(sql)
+  return sql.replace(PARAM_REF, (m: string, name: string, offset: number) => {
+    if (regions.some((r) => offset >= r.start && offset < r.end)) return m
+    const p = params?.[name]
+    return p ? `'${escSql(p.default)}'` : 'NULL'
+  })
+}
+
+/** String literals, comments and dollar blocks blanked out (same length);
+ *  quoted identifiers kept, since `a."col"` is a column reference. */
+export function blankSqlLiterals(sql: string): string {
+  let out = sql
+  for (const r of protectedRegions(sql)) {
+    if (sql[r.start] === '"') continue
+    out = out.slice(0, r.start) + ' '.repeat(r.end - r.start) + out.slice(r.end)
+  }
+  return out
+}
+
+// `alias.column` or `alias."column"` inside an expression.
+const ALIAS_COLUMN = /(?<![\w."])([A-Za-z_]\w*)\s*\.\s*(?:"((?:[^"]|"")+)"|([A-Za-z_]\w*))/g
+
+const REF = /^([A-Za-z_]\w*)\.([A-Za-z_]\w*)$/
+
+const isColumnName = (name: string) => isSafeIdentifier(name) && !name.includes('.')
 
 type Exprs = Record<string, string | null | undefined>
 
-/** `SELECT <contract columns> FROM …`, one line per column, NULL where unmapped.
- *  `from` is a thunk: it pads the columns the expressions recorded. */
-function select(cls: ClassName, exprs: Exprs, from: () => string): { sql: string; mapped: Set<string> } {
-  const mapped = new Set<string>()
-  const lines = CLASS_CONTRACTS[cls].map(({ name }) => {
-    const expr = exprs[name]
-    if (expr) mapped.add(name)
-    return `  ${expr ?? 'NULL'} AS ${name}`
-  })
-  return { sql: `SELECT\n${lines.join(',\n')}\nFROM ${from()}`, mapped }
-}
-
 /**
- * Column references per table alias, and the FROM that makes them all bind.
+ * Compiles one visual relation: resolves `alias.column` references against
+ * `from` + `joins`, and records every column it names so the FROM can pad it.
  *
  * A mapping naming a column its table lacks — a stale preset, a typo — would
  * make the relation fail for every query that touches it, not only the ones
@@ -105,22 +148,189 @@ function select(cls: ClassName, exprs: Exprs, from: () => string): { sql: string
  * per-patient filter or a GROUP BY; only a bare whole-table COUNT(*) loses its
  * metadata shortcut (plan §6).
  */
-function columns() {
-  const used = new Map<string, Map<string, string>>()
-  const c = (alias: string, column: string | undefined): string | null => {
-    if (!column) return null
-    let cols = used.get(alias)
-    if (!cols) used.set(alias, (cols = new Map()))
+class Builder {
+  private aliases = new Map<string, RelationTable>()
+  private used = new Map<string, Map<string, string>>()
+  readonly problems: string[] = []
+
+  private params: SchemaMapping['params']
+  private readable: boolean
+
+  /** `readable`: the SQL a person edits — no padding, `{{parameters}}` kept. */
+  constructor(spec: RelationSpec, params: SchemaMapping['params'], readable = false) {
+    this.params = params
+    this.readable = readable
+    for (const t of [spec.from, ...(spec.joins ?? [])]) {
+      if (!t) continue
+      if (!isColumnName(t.alias) || !isSafeIdentifier(t.table) || (t.schema && !isSafeIdentifier(t.schema))) {
+        this.problems.push(`invalid table or alias: ${t.alias}`)
+        continue
+      }
+      this.aliases.set(t.alias.toLowerCase(), t)
+    }
+  }
+
+  private record(alias: string, column: string) {
+    const key = alias.toLowerCase()
+    let cols = this.used.get(key)
+    if (!cols) this.used.set(key, (cols = new Map()))
     cols.set(column.toLowerCase(), column)
-    return `${alias}."${column}"`
   }
-  const table = (ref: { schema?: string; table: string }, alias: string): string => {
-    const cols = [...(used.get(alias)?.values() ?? [])]
-    if (cols.length === 0) return `${qualify(ref)} ${alias}`
-    const pads = cols.map((col) => `NULL AS "${col}"`).join(', ')
-    return `(SELECT * FROM ${qualify(ref)} UNION ALL BY NAME SELECT ${pads} WHERE false) ${alias}`
+
+  /** `alias."column"` for a reference, or null (with a problem) when it does not resolve. */
+  ref(text: string): string | null {
+    const m = REF.exec(text.trim())
+    const table = m && this.aliases.get(m[1].toLowerCase())
+    if (!m || !table) {
+      this.problems.push(`unknown column reference: ${text}`)
+      return null
+    }
+    this.record(table.alias, m[2])
+    return `${table.alias}."${m[2]}"`
   }
-  return { c, table }
+
+  /** A free SQL expression: parameters substituted, column references recorded. */
+  expr(sql: string): string {
+    const text = this.readable ? sql.trim() : substituteParams(sql.trim(), this.params)
+    for (const m of blankSqlLiterals(text).matchAll(ALIAS_COLUMN)) {
+      const table = this.aliases.get(m[1].toLowerCase())
+      if (table) this.record(table.alias, m[2]?.replace(/""/g, '"') ?? m[3])
+    }
+    return text
+  }
+
+  field(f: FieldSpec | undefined): string | null {
+    if (f === undefined || f === null) return null
+    if (typeof f === 'string') return f.trim() ? this.ref(f) : null
+    if ('expr' in f) return f.expr?.trim() ? `(${this.expr(f.expr)})` : null
+    if ('value' in f) {
+      const v = f.value
+      if (v === null || v === undefined) return null
+      if (typeof v === 'number') return Number.isFinite(v) ? String(v) : null
+      if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE'
+      return `'${escSql(String(v))}'`
+    }
+    return null
+  }
+
+  /** The table under its alias, padded with every column the relation named. */
+  table(t: RelationTable): string {
+    const base = t.schema ? `"${t.schema}"."${t.table}"` : `"${t.table}"`
+    const cols = [...(this.used.get(t.alias.toLowerCase())?.values() ?? [])]
+    if (cols.length === 0 || this.readable) return `${base} ${t.alias}`
+    const pads = cols.map((col) => `NULL AS "${col.replace(/"/g, '""')}"`).join(', ')
+    return `(SELECT * FROM ${base} UNION ALL BY NAME SELECT ${pads} WHERE false) ${t.alias}`
+  }
+
+  has(alias: string): boolean {
+    return this.aliases.has(alias.toLowerCase())
+  }
+}
+
+interface Compiled {
+  sql: string
+  mapped: Set<string>
+  custom: boolean
+  problems: string[]
+  extras: Record<string, string>
+}
+
+/** Class-specific columns derived from the others (visual form only). */
+type Derive = (exprs: Exprs, b: Builder) => void
+
+const EXTRA_KEY = /^extra_[A-Za-z0-9_]+$/
+
+function selectList(cls: ClassName, exprs: Exprs, extraKeys: string[], mappedOnly = false): { lines: string[]; mapped: Set<string> } {
+  const mapped = new Set<string>()
+  const lines = CLASS_CONTRACTS[cls].flatMap(({ name }) => {
+    const expr = exprs[name]
+    if (expr) mapped.add(name)
+    return expr || !mappedOnly ? [`  ${expr ?? 'NULL'} AS ${name}`] : []
+  })
+  for (const key of extraKeys) {
+    const expr = exprs[key]
+    if (expr) mapped.add(key)
+    lines.push(`  ${expr ?? 'NULL'} AS "${key}"`)
+  }
+  return { lines, mapped }
+}
+
+function compileVisual(cls: ClassName, spec: RelationSpec, params: SchemaMapping['params'], derive?: Derive, readable = false): Compiled | null {
+  if (!spec.from) return null
+  const b = new Builder(spec, params, readable)
+  if (!b.has(spec.from.alias)) return null
+  const contract = new Set(CLASS_CONTRACTS[cls].map((c) => c.name))
+  const exprs: Exprs = {}
+  const extraKeys: string[] = []
+  for (const [key, f] of Object.entries(spec.fields ?? {})) {
+    const isExtra = cls === 'concept' && EXTRA_KEY.test(key)
+    if (!contract.has(key) && !isExtra) {
+      b.problems.push(`not a ${cls} column: ${key}`)
+      continue
+    }
+    if (isExtra) extraKeys.push(key)
+    exprs[key] = b.field(f)
+  }
+  derive?.(exprs, b)
+
+  const joins = (spec.joins ?? []).filter((j) => b.has(j.alias)).map((j) => {
+    const on = (j.on ?? [])
+      .map(([l, r]) => {
+        const left = b.ref(l)
+        const right = b.ref(r)
+        return left && right ? `${left} = ${right}` : null
+      })
+      .filter((x): x is string => !!x)
+    return { j, on: on.length ? on.join(' AND ') : 'false' }
+  })
+  const where = spec.where?.trim() ? b.expr(spec.where) : null
+
+  const { lines, mapped } = selectList(cls, exprs, extraKeys, readable)
+  const from = [
+    `FROM ${b.table(spec.from)}`,
+    ...joins.map(({ j, on }) => `${j.type === 'inner' ? 'INNER' : 'LEFT'} JOIN ${b.table(j)} ON ${on}`),
+    ...(where ? [`WHERE (${where})`] : []),
+  ]
+  const extras = Object.fromEntries(extraKeys.map((k) => [k.slice('extra_'.length), k]))
+  return { sql: `SELECT\n${lines.join(',\n')}\n${from.join('\n')}`, mapped, custom: false, problems: b.problems, extras }
+}
+
+/**
+ * Hand-written SQL, projected onto the contract: a column it does not return
+ * reads NULL, one it returns beyond the contract is dropped, so every consumer
+ * binds whatever the SQL does inside.
+ */
+function compileCustom(cls: ClassName, spec: RelationSpec, params: SchemaMapping['params'], fixed: Exprs = {}): Compiled {
+  const problems: string[] = []
+  const contract = CLASS_CONTRACTS[cls].map((c) => c.name)
+  const declared = spec.sqlColumns ?? [
+    ...Object.keys(spec.fields ?? {}),
+    ...CLASS_CONTRACTS[cls].filter((c) => c.required).map((c) => c.name),
+  ]
+  const extraKeys = cls === 'concept' ? [...new Set(declared.filter((k) => EXTRA_KEY.test(k)))] : []
+  const columns = [...contract, ...extraKeys]
+  const mapped = new Set(declared.filter((k) => columns.includes(k)))
+  for (const k of Object.keys(fixed)) if (fixed[k]) mapped.add(k)
+
+  let body = substituteParams((spec.customSql ?? '').trim().replace(/;\s*$/, ''), params)
+  if (splitSqlStatements(body).length !== 1 || !/^\s*(\(|select\b|with\b|from\b|values\b)/i.test(blankSqlLiterals(body))) {
+    problems.push('custom SQL must be a single SELECT statement')
+    body = `SELECT error('${escSql(`Custom SQL of the ${cls} relation must be a single SELECT statement`)}') AS _linkr_error`
+    const nulls = columns.map((c) => `  NULL AS "${c}"`).join(',\n')
+    return { sql: `SELECT\n${nulls}\nFROM (${body}) _c\nWHERE _c._linkr_error IS NULL`, mapped: new Set(), custom: true, problems, extras: {} }
+  }
+  const pads = columns.map((c) => `NULL AS "${c}"`).join(', ')
+  const lines = columns.map((c) => {
+    const col = `_c."${c}"`
+    return `  ${fixed[c] ? `COALESCE(${col}, ${fixed[c]})` : col} AS ${EXTRA_KEY.test(c) ? `"${c}"` : c}`
+  })
+  const sql = `SELECT\n${lines.join(',\n')}\nFROM (SELECT * FROM (\n${body}\n) _src UNION ALL BY NAME SELECT ${pads} WHERE false) _c`
+  const extras = Object.fromEntries(extraKeys.map((k) => [k.slice('extra_'.length), k]))
+  return { sql, mapped, custom: true, problems, extras }
+}
+
+function compile(cls: ClassName, spec: RelationSpec, params: SchemaMapping['params'], derive?: Derive, fixed?: Exprs): Compiled | null {
+  return spec.customSql?.trim() ? compileCustom(cls, spec, params, fixed) : compileVisual(cls, spec, params, derive)
 }
 
 function slug(text: string): string {
@@ -134,238 +344,129 @@ function uniqueName(base: string, taken: Set<string>): string {
   return name
 }
 
+const derivePatient =
+  (spec: PatientSpec): Derive =>
+  (exprs) => {
+    // Birth date first: in OMOP `year_of_birth` is NOT NULL but `birth_datetime` is
+    // frequently empty, so the precise column alone leaves most ages NULL.
+    if (exprs.birth_date) {
+      const fromDate = `DATE_PART('year', ${exprs.birth_date}::TIMESTAMP)`
+      exprs.birth_year = exprs.birth_year ? `COALESCE(${fromDate}, ${exprs.birth_year})` : fromDate
+    }
+    const gv = spec.genderValues
+    const raw = exprs.gender_source_value
+    if (!exprs.gender && raw && gv) {
+      exprs.gender = `CASE WHEN ${raw} IS NULL THEN NULL WHEN CAST(${raw} AS VARCHAR) = '${escSql(gv.male)}' THEN 'male' WHEN CAST(${raw} AS VARCHAR) = '${escSql(gv.female)}' THEN 'female' ELSE 'unknown' END`
+    }
+  }
+
+const deriveEvent =
+  (spec: EventSpec): Derive =>
+  (exprs) => {
+    // A relation naming its concepts inline: the concept column is its own label.
+    if (spec.conceptDictionaryKey === 'none' && !exprs.concept_name && exprs.concept_id) {
+      exprs.concept_name = `CAST(${exprs.concept_id} AS VARCHAR)`
+    }
+  }
+
 function buildRelations(mapping: SchemaMapping): ClassRelation[] {
   const rels: ClassRelation[] = []
   const taken = new Set<string>()
-  const push = (rel: ClassRelation) => {
-    taken.add(rel.name)
-    rels.push(rel)
+  const params = mapping.params
+  const push = (base: Omit<ClassRelation, 'sql' | 'mapped' | 'custom' | 'problems' | 'tables'>, spec: RelationSpec, compiled: Compiled | null) => {
+    if (!compiled) return
+    taken.add(base.name)
+    rels.push({ ...base, sql: compiled.sql, mapped: compiled.mapped, custom: compiled.custom, problems: compiled.problems, tables: specTables(spec) })
   }
 
-  const patient = patientRelation(mapping)
-  if (patient) push(patient)
-  const visit = visitRelation(mapping)
-  if (visit) push(visit)
-  const visitDetail = visitDetailRelation(mapping)
-  if (visitDetail) push(visitDetail)
-  const note = noteRelation(mapping)
-  if (note) push(note)
-
-  const dictNames = new Map<string, string>()
-  for (const dict of mapping.conceptTables ?? []) {
-    const name = uniqueName(`${RELATION_PREFIX}concept_${slug(dict.key)}`, taken)
-    dictNames.set(dict.key, name)
-    rels.push(conceptRelation1(dict, name))
+  if (mapping.patient) {
+    const spec = mapping.patient
+    push({ name: `${RELATION_PREFIX}patient`, cls: 'patient', specKey: 'patient' }, spec, compile('patient', spec, params, derivePatient(spec)))
+  }
+  const singletons = [
+    ['visit', 'visit', mapping.visit],
+    ['visit_detail', 'visitDetail', mapping.visitDetail],
+    ['note', 'note', mapping.note],
+  ] as const
+  for (const [cls, specKey, spec] of singletons) {
+    if (spec) push({ name: `${RELATION_PREFIX}${cls}`, cls, specKey }, spec, compile(cls, spec, params))
   }
 
-  const defaultDict = mapping.conceptTables?.[0]
-  for (const [label, et] of Object.entries(mapping.eventTables ?? {})) {
-    const dict =
-      et.conceptDictionaryKey === 'none'
-        ? undefined
-        : et.conceptDictionaryKey
-          ? mapping.conceptTables?.find((d) => d.key === et.conceptDictionaryKey)
-          : defaultDict
-    const name = uniqueName(`${RELATION_PREFIX}event_${slug(label)}`, taken)
-    // null only for the explicit inline opt-out; an id-keyed table with no
+  const dicts = new Map<string, { name: string; mapped: ReadonlySet<string> }>()
+  for (const spec of mapping.concepts ?? []) {
+    const name = uniqueName(`${RELATION_PREFIX}concept_${slug(spec.key)}`, taken)
+    const compiled = compile('concept', spec, params)
+    if (!compiled) continue
+    dicts.set(spec.key, { name, mapped: compiled.mapped })
+    rels.push({
+      name, cls: 'concept', key: spec.key, specKey: `concepts.${spec.key}`,
+      sql: compiled.sql, mapped: compiled.mapped, custom: compiled.custom, problems: compiled.problems, extras: compiled.extras,
+      tables: specTables(spec),
+    })
+  }
+
+  const defaultDict = mapping.concepts?.[0]?.key
+  const addEvent = (cls: 'event' | 'drug', spec: EventSpec, fixed?: Exprs) => {
+    const derive = deriveEvent(spec)
+    const compiled = compile(cls, spec, params, fixed ? (exprs, b) => { derive(exprs, b); for (const [k, v] of Object.entries(fixed)) exprs[k] ??= v } : derive, fixed)
+    if (!compiled) return
+    const name = uniqueName(`${RELATION_PREFIX}${cls}_${slug(spec.label)}`, taken)
+    const dictKey = spec.conceptDictionaryKey === 'none' ? null : (spec.conceptDictionaryKey ?? defaultDict)
+    const dict = dictKey ? dicts.get(dictKey) : undefined
+    // null only for the explicit inline opt-out; an id-keyed relation with no
     // dictionary loaded is still filterable by id, it just has nothing to join.
-    const dictionary = et.conceptDictionaryKey === 'none' ? null : dict ? dictNames.get(dict.key) : undefined
-    rels.push(eventRelation1(mapping, label, et, dict, name, dictionary))
+    const dictionary = dictKey === null ? null : dict?.name
+    const composite = !!dict && ['concept_terminology', 'concept_code'].every((c) => compiled.mapped.has(c) && dict.mapped.has(c))
+    rels.push({
+      name, cls, key: spec.label, specKey: `${cls}s.${spec.label}`,
+      sql: compiled.sql, mapped: compiled.mapped, custom: compiled.custom, problems: compiled.problems,
+      dictionary, compositeConceptKey: composite, tables: specTables(spec),
+    })
   }
+  for (const spec of mapping.events ?? []) addEvent('event', spec)
+  for (const spec of mapping.drugs ?? []) addEvent('drug', spec, { drug_kind: `'${spec.drugKind === 'prescription' ? 'prescription' : 'administration'}'` })
   return rels
 }
 
-function patientRelation(mapping: SchemaMapping): ClassRelation | null {
-  const pt = mapping.patientTable
-  if (!pt) return null
-  const { c, table } = columns()
-  const birthDate = c('p', pt.birthDateColumn)
-  const birthDateYear = birthDate ? `DATE_PART('year', ${birthDate}::TIMESTAMP)` : null
-  const yearCol = pt.birthYearColumn
-    ? c('p', pt.birthYearColumn)
-    : pt.anchorYearColumn && pt.anchorAgeColumn
-      ? `(${c('p', pt.anchorYearColumn)} - ${c('p', pt.anchorAgeColumn)})`
-      : null
-  // Birth date first: in OMOP `year_of_birth` is NOT NULL but `birth_datetime` is
-  // frequently empty, so the precise column alone leaves most ages NULL.
-  const birthYear = birthDateYear && yearCol ? `COALESCE(${birthDateYear}, ${yearCol})` : (birthDateYear ?? yearCol)
-
-  const gv = mapping.genderValues
-  const genderCol = c('p', pt.genderColumn)
-  const gender =
-    genderCol && gv
-      ? `CASE WHEN ${genderCol} IS NULL THEN NULL WHEN CAST(${genderCol} AS VARCHAR) = '${escSql(gv.male)}' THEN 'male' WHEN CAST(${genderCol} AS VARCHAR) = '${escSql(gv.female)}' THEN 'female' ELSE 'unknown' END`
-      : null
-
-  // A death table is read through MIN(): a JOIN would duplicate a patient who
-  // has more than one death row.
-  const patientId = c('p', pt.idColumn)
-  const dt = mapping.deathTable
-  const death =
-    c('p', pt.deathDateColumn) ??
-    (dt ? `(SELECT MIN(_d."${dt.dateColumn}") FROM ${qualify(dt)} _d WHERE _d."${dt.patientIdColumn}" = ${patientId})` : null)
-
-  const { sql, mapped } = select(
-    'patient',
-    {
-      patient_id: patientId,
-      birth_date: birthDate,
-      birth_year: birthYear,
-      gender,
-      gender_source_value: genderCol,
-      death_datetime: death,
-    },
-    () => table(pt, 'p'),
-  )
-  return { name: `${RELATION_PREFIX}patient`, cls: 'patient', sql, mapped }
-}
-
-function visitRelation(mapping: SchemaMapping): ClassRelation | null {
-  const vt = mapping.visitTable
-  if (!vt) return null
-  const { c, table } = columns()
-  const hasLookup = !!(vt.careSiteColumn && vt.careSiteNameTable && vt.careSiteNameIdColumn && vt.careSiteNameColumn)
-  const join = hasLookup
-    ? `\nLEFT JOIN ${qualifyIn(vt, vt.careSiteNameTable)} cs ON ${c('v', vt.careSiteColumn)} = cs."${vt.careSiteNameIdColumn}"`
-    : ''
-  const { sql, mapped } = select(
-    'visit',
-    {
-      visit_id: c('v', vt.idColumn),
-      patient_id: c('v', vt.patientIdColumn),
-      start_datetime: c('v', vt.startDateColumn),
-      end_datetime: c('v', vt.endDateColumn),
-      visit_type: c('v', vt.typeColumn),
-      care_site_id: c('v', vt.careSiteColumn),
-      care_site_name: hasLookup ? `cs."${vt.careSiteNameColumn}"` : null,
-    },
-    () => `${table(vt, 'v')}${join}`,
-  )
-  return { name: `${RELATION_PREFIX}visit`, cls: 'visit', sql, mapped }
-}
-
-function visitDetailRelation(mapping: SchemaMapping): ClassRelation | null {
-  const vdt = mapping.visitDetailTable
-  if (!vdt) return null
-  const { c, table } = columns()
-  const hasLookup = !!(vdt.unitColumn && vdt.unitNameTable && vdt.unitNameIdColumn && vdt.unitNameColumn)
-  const unit = c('vd', vdt.unitColumn)
-  const join = hasLookup
-    ? `\nLEFT JOIN ${qualifyIn(vdt, vdt.unitNameTable)} un ON ${unit} = un."${vdt.unitNameIdColumn}"`
-    : ''
-  const lookupName = hasLookup ? `un."${vdt.unitNameColumn}"` : null
-  // The ward, in order of clinical usefulness: the verbatim source value, then
-  // the looked-up name, then the raw column — a name on MIMIC, an id on OMOP.
-  const candidates = [c('vd', vdt.unitSourceValueColumn), lookupName, unit]
-    .filter((x): x is string => !!x)
-    .map((x) => `NULLIF(CAST(${x} AS VARCHAR), '')`)
-  // The looked-up name groups wards of the same kind.
-  const category = lookupName ?? unit
-  const { sql, mapped } = select(
-    'visit_detail',
-    {
-      visit_detail_id: c('vd', vdt.idColumn),
-      visit_id: c('vd', vdt.visitIdColumn),
-      patient_id: c('vd', vdt.patientIdColumn),
-      start_datetime: c('vd', vdt.startDateColumn),
-      end_datetime: c('vd', vdt.endDateColumn),
-      unit_id: unit,
-      unit_name: candidates.length ? `COALESCE(${candidates.join(', ')})` : null,
-      unit_category: category ? `CAST(${category} AS VARCHAR)` : null,
-    },
-    () => `${table(vdt, 'vd')}${join}`,
-  )
-  return { name: `${RELATION_PREFIX}visit_detail`, cls: 'visit_detail', sql, mapped }
-}
-
-function noteRelation(mapping: SchemaMapping): ClassRelation | null {
-  const nt = mapping.noteTable
-  if (!nt) return null
-  const { c, table } = columns()
-  const { sql, mapped } = select(
-    'note',
-    {
-      note_id: c('n', nt.idColumn),
-      patient_id: c('n', nt.patientIdColumn),
-      visit_id: c('n', nt.visitIdColumn),
-      note_datetime: c('n', nt.dateColumn),
-      title: c('n', nt.titleColumn),
-      text: c('n', nt.textColumn),
-      note_type: c('n', nt.typeColumn),
-    },
-    () => table(nt, 'n'),
-  )
-  return { name: `${RELATION_PREFIX}note`, cls: 'note', sql, mapped }
-}
-
-function conceptRelation1(dict: ConceptDictionary, name: string): ClassRelation {
-  const { c, table } = columns()
-  const extras: Record<string, string> = {}
-  const extraLines: string[] = []
-  for (const [alias, column] of Object.entries(dict.extraColumns ?? {})) {
-    // The alias becomes a column name here, unlike before, so it is checked like
-    // one; `sanitizeSchemaMapping` only vets the values.
-    if (!isSafeIdentifier(alias)) continue
-    extras[alias] = `extra_${alias}`
-    extraLines.push(`  ${c('d', column)} AS "extra_${alias}"`)
+/** The relation's class, derived columns and fixed values, by where it lives. */
+function compileParts(mapping: SchemaMapping, specKey: string): { cls: ClassName; spec: RelationSpec; derive?: Derive } | null {
+  if (specKey === 'patient' && mapping.patient) return { cls: 'patient', spec: mapping.patient, derive: derivePatient(mapping.patient) }
+  if (specKey === 'visit' && mapping.visit) return { cls: 'visit', spec: mapping.visit }
+  if (specKey === 'visitDetail' && mapping.visitDetail) return { cls: 'visit_detail', spec: mapping.visitDetail }
+  if (specKey === 'note' && mapping.note) return { cls: 'note', spec: mapping.note }
+  const [list, ...rest] = specKey.split('.')
+  const key = rest.join('.')
+  if (list === 'concepts') {
+    const spec = mapping.concepts?.find((c) => c.key === key)
+    return spec ? { cls: 'concept', spec } : null
   }
-  const { sql, mapped } = select(
-    'concept',
-    {
-      // A code-only dictionary (MIMIC d_icd_diagnoses) is keyed by its code.
-      concept_id: c('d', dict.idColumn ?? dict.codeColumn),
-      concept_terminology: c('d', dict.vocabularyColumn ?? dict.terminologyIdColumn),
-      concept_name: c('d', dict.nameColumn),
-      concept_code: c('d', dict.codeColumn),
-      terminology_id: c('d', dict.terminologyIdColumn ?? dict.vocabularyColumn),
-      terminology_name: c('d', dict.terminologyNameColumn),
-      category: c('d', dict.categoryColumn),
-      subcategory: c('d', dict.subcategoryColumn),
-    },
-    () => table(dict, 'd'),
-  )
-  const withExtras = extraLines.length ? sql.replace(/\nFROM /, `,\n${extraLines.join(',\n')}\nFROM `) : sql
-  return { name, cls: 'concept', key: dict.key, sql: withExtras, mapped, extras }
+  if (list === 'events' || list === 'drugs') {
+    const spec = (list === 'events' ? mapping.events : mapping.drugs)?.find((e) => e.label === key)
+    if (!spec) return null
+    const derive = deriveEvent(spec)
+    if (list === 'events') return { cls: 'event', spec, derive }
+    const kind = (spec as DrugSpec).drugKind === 'prescription' ? 'prescription' : 'administration'
+    return { cls: 'drug', spec, derive: (exprs, b) => { derive(exprs, b); exprs.drug_kind ??= `'${kind}'` } }
+  }
+  return null
 }
 
-function eventRelation1(
-  mapping: SchemaMapping,
-  label: string,
-  et: EventTable,
-  dict: ConceptDictionary | undefined,
-  name: string,
-  dictionary: string | null | undefined,
-): ClassRelation {
-  const { c, table } = columns()
-  const legacyUnit = (et as EventTable & { unitColumn?: string }).unitColumn
-  const conceptId = c('e', et.conceptIdColumn)
-  const composite = !!(et.conceptVocabularyColumn && et.conceptCodeColumn && dict?.vocabularyColumn && dict.codeColumn)
+/**
+ * The SQL of a relation's visual form as a person would write it: mapped
+ * columns only, no padding, `{{parameters}}` left in place. What the SQL editor
+ * starts from; saved as `customSql`, it is projected onto the contract like any
+ * hand-written SQL.
+ */
+export function readableRelationSql(mapping: SchemaMapping, specKey: string): string | null {
+  const parts = compileParts(mapping, specKey)
+  if (!parts) return null
+  return compileVisual(parts.cls, { ...parts.spec, customSql: null }, mapping.params, parts.derive, true)?.sql ?? null
+}
 
-  const { sql, mapped } = select(
-    'event',
-    {
-      patient_id: c('e', et.patientIdColumn ?? mapping.patientTable?.idColumn),
-      concept_id: conceptId,
-      start_datetime: c('e', et.dateColumn),
-      // v1 names no visit column on an event table: by convention it is the
-      // visit table's id column (`visit_occurrence_id`, `hadm_id`), which not
-      // every event table has — the padding makes it NULL there.
-      visit_id: c('e', mapping.visitTable?.idColumn),
-      concept_terminology: c('e', et.conceptVocabularyColumn),
-      concept_code: c('e', et.conceptCodeColumn),
-      source_concept_id: c('e', et.sourceConceptIdColumn),
-      concept_name: et.conceptDictionaryKey === 'none' ? `CAST(${conceptId} AS VARCHAR)` : null,
-      end_datetime: c('e', et.endDateColumn),
-      value_number: c('e', et.valueColumn),
-      value_string: c('e', et.valueStringColumn),
-      unit: c('e', et.valueUnitColumn ?? legacyUnit),
-      unit_concept_id: c('e', et.valueUnitConceptIdColumn),
-      route: c('e', et.routeColumn),
-      route_concept_id: c('e', et.routeConceptIdColumn),
-    },
-    () => table(et, 'e'),
-  )
-  // The conventional visit column is a guess, not a mapping: never advertise it.
-  mapped.delete('visit_id')
-  return { name, cls: 'event', key: label, sql, mapped, dictionary, compositeConceptKey: composite }
+/** The SQL the visual form generates as the relation runs it — compared before
+ *  and after a form edit to know whether a hand edit would be overwritten. */
+export function generatedRelationSql(mapping: SchemaMapping, specKey: string): string | null {
+  const parts = compileParts(mapping, specKey)
+  if (!parts) return null
+  return compileVisual(parts.cls, { ...parts.spec, customSql: null }, mapping.params, parts.derive)?.sql ?? null
 }

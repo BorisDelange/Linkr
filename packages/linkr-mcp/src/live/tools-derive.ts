@@ -14,7 +14,7 @@ async function cohortSource(cohort: Cohort): Promise<WebDataSource> {
   let id = cohort.ownerDataSourceId ?? cohort.dataSourceId
   if (!id && cohort.projectUid) {
     const dbs = await projectDatabases(cohort.projectUid)
-    id = dbs.find((d) => d.status === 'connected' && d.schemaMapping?.patientTable)?.id
+    id = dbs.find((d) => d.status === 'connected' && d.schemaMapping?.patient)?.id
   }
   if (!id) throw new Error('This cohort has no database to derive from.')
   return await api.getDataSource(id) as unknown as WebDataSource

@@ -17,8 +17,14 @@ import type {
 import type { DerivePlanTable, DeriveRequest } from '@/lib/api/data-sources'
 import type { Job } from '@/lib/api/environments'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
+import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { RELATION_PREFIX } from '@/lib/schema-classes/contracts'
 import type { ExecutionOutput, RunLanguage } from './ide.js'
+
+
+function withV2Mapping(ds: DataSource): DataSource {
+  return ds?.schemaMapping ? { ...ds, schemaMapping: sanitizeSchemaMapping(ds.schemaMapping) } : ds
+}
 
 export interface Project {
   uid: string
@@ -191,8 +197,12 @@ export class LinkrApi {
   listProjects = () => this.request<Project[]>('GET', '/projects')
   getProject = (uid: string) => this.request<Project>('GET', `/projects/${encodeURIComponent(uid)}`)
 
-  listDataSources = () => this.request<DataSource[]>('GET', '/data-sources')
-  getDataSource = (id: string) => this.request<DataSource>('GET', `/data-sources/${encodeURIComponent(id)}`)
+  // A mapping stored before format v2 is converted here, like the app does on
+  // read: every builder and tool below reads v2 only.
+  listDataSources = async () =>
+    (await this.request<DataSource[]>('GET', '/data-sources')).map(withV2Mapping)
+  getDataSource = async (id: string) =>
+    withV2Mapping(await this.request<DataSource>('GET', `/data-sources/${encodeURIComponent(id)}`))
   getSchema = (id: string) =>
     this.request<IntrospectedTable[]>('GET', `/data-sources/${encodeURIComponent(id)}/schema`)
   query = async (id: string, sql: string) =>

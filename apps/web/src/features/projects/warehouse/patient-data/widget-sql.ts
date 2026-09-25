@@ -79,7 +79,7 @@ export function buildWidgetQueries({
             ? undefined
             : conceptIds.length === 0
               ? 'conceptIds'
-              : 'schemaMapping.eventTables',
+              : 'schemaMapping.events',
         },
       ]
     }
@@ -91,7 +91,7 @@ export function buildWidgetQueries({
           id: 'notes',
           label: { en: 'Notes', fr: 'Notes' },
           sql,
-          missing: sql ? undefined : 'schemaMapping.noteTable',
+          missing: sql ? undefined : 'schemaMapping.note',
         },
       ]
     }
@@ -104,13 +104,13 @@ export function buildWidgetQueries({
           id: 'demographics',
           label: { en: 'Demographics', fr: 'Démographie' },
           sql: demographics,
-          missing: demographics ? undefined : 'schemaMapping.patientTable',
+          missing: demographics ? undefined : 'schemaMapping.patient',
         },
         {
           id: 'visits',
           label: { en: 'Visits', fr: 'Séjours' },
           sql: visits,
-          missing: visits ? undefined : 'schemaMapping.visitTable',
+          missing: visits ? undefined : 'schemaMapping.visit',
         },
       ]
     }

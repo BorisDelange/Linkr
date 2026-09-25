@@ -522,6 +522,15 @@ function validateSchemaPreset(tree: EntityTree, bag: IssueBag): void {
     }
   }
 
+  if (mapping.formatVersion === 2) {
+    checkMappingV2(bag, mappingPath, mapping, at)
+    return
+  }
+  // A v1 mapping (one block per table): read, converted by the app on import, and
+  // re-written as v2 by the next export.
+  bag.warn(mappingPath, at('/mapping'), 'legacy-format',
+    'The mapping is in format v1 (one block per table); Linkr converts it on import and exports format v2.',
+    're-export the preset from Linkr')
   const eventTables = mapping.eventTables
   if (eventTables != null && !isObject(eventTables)) {
     bag.error(mappingPath, at('/mapping/eventTables'), 'wrong-type', '`eventTables` must be an object.')
@@ -560,6 +569,112 @@ function checkInstanceFields(bag: IssueBag, path: string, record: Record<string,
       bag.warn(path, `/${field}`, 'legacy-format',
         `\`${field}\` is specific to the exporting instance; exports omit it.`,
         `remove the \`${field}\` field`)
+    }
+  }
+}
+
+const RELATION_KEYS = ['patient', 'visit', 'visitDetail', 'note'] as const
+const RELATION_LISTS = ['concepts', 'events', 'drugs'] as const
+const COLUMN_REF = /^[A-Za-z_]\w*\.[A-Za-z_]\w*$/
+
+/**
+ * A v2 mapping: each relation is read either from a table (`from`, with `alias`)
+ * or from SQL (`customSql`), and each field is a column reference, an expression
+ * or a constant. Names are what the app's generator validates again; this says
+ * where a hand-written tree went wrong before an import silently drops a field.
+ */
+function checkMappingV2(
+  bag: IssueBag,
+  path: string,
+  mapping: Record<string, unknown>,
+  at: (pointer: string) => string,
+): void {
+  const checkRelation = (rel: unknown, pointer: string) => {
+    if (!isObject(rel)) {
+      bag.error(path, at(pointer), 'wrong-type', 'A relation must be an object.')
+      return
+    }
+    const hasSql = typeof rel.customSql === 'string' && rel.customSql.trim() !== ''
+    if (rel.customSql != null) checkString(bag, path, at(`${pointer}/customSql`), rel.customSql, { label: 'customSql' })
+    if (rel.from != null || !hasSql) {
+      if (!isObject(rel.from)) {
+        if (!('genderValues' in rel)) {
+          bag.error(path, at(`${pointer}/from`), 'missing-field', 'A relation needs `from` (a table and its alias) or `customSql`.')
+        }
+      } else {
+        checkString(bag, path, at(`${pointer}/from/table`), rel.from.table, { required: true, label: 'table' })
+        checkString(bag, path, at(`${pointer}/from/alias`), rel.from.alias, { required: true, label: 'alias' })
+      }
+    }
+    if (rel.joins != null) {
+      if (!Array.isArray(rel.joins)) {
+        bag.error(path, at(`${pointer}/joins`), 'wrong-type', '`joins` must be an array.')
+      } else {
+        rel.joins.forEach((j, i) => {
+          const jp = `${pointer}/joins/${i}`
+          if (!isObject(j)) return bag.error(path, at(jp), 'wrong-type', 'A join must be an object.')
+          if (j.type !== 'left' && j.type !== 'inner') bag.error(path, at(`${jp}/type`), 'wrong-type', 'A join type is `left` or `inner`.')
+          checkString(bag, path, at(`${jp}/table`), j.table, { required: true, label: 'table' })
+          checkString(bag, path, at(`${jp}/alias`), j.alias, { required: true, label: 'alias' })
+          const pairsOk = Array.isArray(j.on) && j.on.every((pair) =>
+            Array.isArray(pair) && pair.length === 2 && pair.every((side) => typeof side === 'string' && COLUMN_REF.test(side)))
+          if (!pairsOk) bag.error(path, at(`${jp}/on`), 'wrong-type', '`on` must be a list of [`alias.column`, `alias.column`] pairs.')
+        })
+      }
+    }
+    if (rel.fields != null) {
+      if (!isObject(rel.fields)) {
+        bag.error(path, at(`${pointer}/fields`), 'wrong-type', '`fields` must be an object.')
+      } else {
+        for (const [name, f] of Object.entries(rel.fields)) {
+          const ok = typeof f === 'string'
+            ? COLUMN_REF.test(f)
+            : isObject(f) && (typeof f.expr === 'string' || 'value' in f)
+          if (!ok) {
+            bag.error(path, at(`${pointer}/fields/${name}`), 'wrong-type',
+              'A field is `alias.column`, `{ "expr": "…" }` or `{ "value": … }`.')
+          }
+        }
+      }
+    }
+  }
+
+  for (const key of RELATION_KEYS) {
+    if (mapping[key] != null) checkRelation(mapping[key], `/mapping/${key}`)
+  }
+  for (const key of RELATION_LISTS) {
+    const list = mapping[key]
+    if (list == null) continue
+    if (!Array.isArray(list)) {
+      bag.error(path, at(`/mapping/${key}`), 'wrong-type', `\`${key}\` must be an array.`)
+      continue
+    }
+    const seen = new Set<string>()
+    list.forEach((rel, i) => {
+      const pointer = `/mapping/${key}/${i}`
+      checkRelation(rel, pointer)
+      if (!isObject(rel)) return
+      const idField = key === 'concepts' ? 'key' : 'label'
+      if (checkString(bag, path, at(`${pointer}/${idField}`), rel[idField], { required: true, label: idField })) {
+        const id = rel[idField] as string
+        if (seen.has(id)) bag.error(path, at(`${pointer}/${idField}`), 'duplicate-key', `Two ${key} share the ${idField} "${id}".`)
+        seen.add(id)
+      }
+      if (key === 'drugs' && rel.drugKind !== 'administration' && rel.drugKind !== 'prescription') {
+        bag.error(path, at(`${pointer}/drugKind`), 'wrong-type', '`drugKind` is `administration` or `prescription`.')
+      }
+    })
+  }
+  if (mapping.params != null && !isObject(mapping.params)) {
+    bag.error(path, at('/mapping/params'), 'wrong-type', '`params` must be an object.')
+  } else if (isObject(mapping.params)) {
+    for (const [name, p] of Object.entries(mapping.params)) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+        bag.error(path, at(`/mapping/params/${name}`), 'wrong-type', 'A parameter name is an identifier (letters, digits, `_`).')
+      }
+      if (!isObject(p) || typeof p.default !== 'string') {
+        bag.error(path, at(`/mapping/params/${name}/default`), 'wrong-type', 'A parameter needs a string `default`.')
+      }
     }
   }
 }

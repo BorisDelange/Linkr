@@ -145,7 +145,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const mapping = dataSource?.schemaMapping
-  const dictionaries = useMemo(() => mapping?.conceptTables ?? [], [mapping])
+  const dictionaries = useMemo(() => mapping?.concepts ?? [], [mapping])
 
   const saved = project.sourceExtraction
   // Every dictionary by default: a project's source concepts are all of them,
@@ -461,7 +461,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             <Label>{t('concept_mapping.extract_dictionary')}</Label>
             <MultiSelectFilter
               value={dictionaryKeys}
-              options={dictionaries.map((d) => ({ value: d.key, label: d.table }))}
+              options={dictionaries.map((d) => ({ value: d.key, label: d.from?.table ?? d.key }))}
               placeholder={t('concept_mapping.extract_dictionary_placeholder')}
               onChange={setDictionaryKeys}
               showChevron

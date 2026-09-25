@@ -8,6 +8,7 @@
  */
 
 import type { SchemaMapping, CatalogResultCache, DataCatalog } from '@/types'
+import { mappedTableDocs } from './mapped-tables'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
 
@@ -324,97 +325,9 @@ export function buildJsonLd(
  * to produce a CSVW TableGroup with one Table per schema table and Column per column.
  */
 function buildCsvwDistribution(mapping: SchemaMapping): Record<string, unknown> | null {
-  const tables: Record<string, unknown>[] = []
-
-  // Patient table
-  if (mapping.patientTable) {
-    const pt = mapping.patientTable
-    const cols: Record<string, unknown>[] = [
-      col(pt.idColumn, 'Patient ID', 'Primary key — unique patient identifier', 'integer'),
-    ]
-    if (pt.birthDateColumn) cols.push(col(pt.birthDateColumn, 'Birth date', 'Date of birth', 'date'))
-    if (pt.birthYearColumn) cols.push(col(pt.birthYearColumn, 'Birth year', 'Year of birth', 'integer'))
-    if (pt.genderColumn) cols.push(col(pt.genderColumn, 'Gender', 'Gender concept ID or value', 'string'))
-    tables.push(table(pt.table, `Patient demographics (${pt.table})`, cols))
-  }
-
-  // Visit table
-  if (mapping.visitTable) {
-    const vt = mapping.visitTable
-    const cols: Record<string, unknown>[] = [
-      col(vt.idColumn, 'Visit ID', 'Primary key — unique visit identifier', 'integer'),
-      col(vt.patientIdColumn, 'Patient ID', 'Foreign key to patient', 'integer'),
-      col(vt.startDateColumn, 'Start date', 'Visit start date/time', 'datetime'),
-    ]
-    if (vt.endDateColumn) cols.push(col(vt.endDateColumn, 'End date', 'Visit end date/time', 'datetime'))
-    if (vt.typeColumn) cols.push(col(vt.typeColumn, 'Visit type', 'Type or source of visit', 'string'))
-    tables.push(table(vt.table, `Visit/encounter records (${vt.table})`, cols))
-  }
-
-  // Visit detail table
-  if (mapping.visitDetailTable) {
-    const vd = mapping.visitDetailTable
-    const cols: Record<string, unknown>[] = [
-      col(vd.idColumn, 'Visit detail ID', 'Primary key', 'integer'),
-      col(vd.visitIdColumn, 'Visit ID', 'Foreign key to visit', 'integer'),
-      col(vd.patientIdColumn, 'Patient ID', 'Foreign key to patient', 'integer'),
-      col(vd.startDateColumn, 'Start date', 'Sub-visit start date/time', 'datetime'),
-    ]
-    if (vd.endDateColumn) cols.push(col(vd.endDateColumn, 'End date', 'Sub-visit end date/time', 'datetime'))
-    if (vd.unitColumn) cols.push(col(vd.unitColumn, 'Care site / unit', 'Care site or unit identifier', 'string'))
-    tables.push(table(vd.table, `Visit detail / unit stays (${vd.table})`, cols))
-  }
-
-  // Note table
-  if (mapping.noteTable) {
-    const nt = mapping.noteTable
-    const cols: Record<string, unknown>[] = [
-      col(nt.idColumn, 'Note ID', 'Primary key', 'integer'),
-      col(nt.patientIdColumn, 'Patient ID', 'Foreign key to patient', 'integer'),
-      col(nt.dateColumn, 'Date', 'Note date', 'datetime'),
-      col(nt.textColumn, 'Text', 'Clinical note text', 'string'),
-    ]
-    if (nt.visitIdColumn) cols.push(col(nt.visitIdColumn, 'Visit ID', 'Foreign key to visit', 'integer'))
-    if (nt.titleColumn) cols.push(col(nt.titleColumn, 'Title', 'Note title', 'string'))
-    if (nt.typeColumn) cols.push(col(nt.typeColumn, 'Type', 'Note type or category', 'string'))
-    tables.push(table(nt.table, `Clinical notes (${nt.table})`, cols))
-  }
-
-  // Concept dictionary tables
-  if (mapping.conceptTables) {
-    for (const cd of mapping.conceptTables) {
-      if (!cd.idColumn) continue
-      const cols: Record<string, unknown>[] = [
-        col(cd.idColumn, 'Concept ID', 'Primary key — concept identifier', 'integer'),
-        col(cd.nameColumn, 'Concept name', 'Human-readable concept label', 'string'),
-      ]
-      if (cd.codeColumn) cols.push(col(cd.codeColumn, 'Concept code', 'Code within the vocabulary', 'string'))
-      if (cd.vocabularyColumn) cols.push(col(cd.vocabularyColumn, 'Vocabulary', 'Vocabulary/terminology identifier', 'string'))
-      if (cd.extraColumns) {
-        for (const [semantic, actual] of Object.entries(cd.extraColumns)) {
-          cols.push(col(actual, titleCase(semantic), `Concept ${semantic}`, 'string'))
-        }
-      }
-      tables.push(table(cd.table, `Concept dictionary (${cd.table})`, cols))
-    }
-  }
-
-  // Event tables (clinical data)
-  if (mapping.eventTables) {
-    for (const [label, et] of Object.entries(mapping.eventTables)) {
-      const cols: Record<string, unknown>[] = [
-        col(et.conceptIdColumn, 'Concept ID', 'Foreign key to concept dictionary', 'integer'),
-      ]
-      if (et.sourceConceptIdColumn) {
-        cols.push(col(et.sourceConceptIdColumn, 'Source concept ID', 'Source concept identifier', 'integer'))
-      }
-      if (et.patientIdColumn) cols.push(col(et.patientIdColumn, 'Patient ID', 'Foreign key to patient', 'integer'))
-      if (et.dateColumn) cols.push(col(et.dateColumn, 'Date', 'Event date/time', 'datetime'))
-      if (et.valueColumn) cols.push(col(et.valueColumn, 'Numeric value', 'Measurement numeric value', 'decimal'))
-      if (et.valueStringColumn) cols.push(col(et.valueStringColumn, 'String value', 'Measurement string value', 'string'))
-      tables.push(table(et.table, `${label} (${et.table})`, cols))
-    }
-  }
+  const tables = mappedTableDocs(mapping).map((t) =>
+    table(t.table, `${t.role} (${t.table})`, t.columns.map((c) => col(c.name, c.title, c.description, c.datatype))),
+  )
 
   if (tables.length === 0) return null
 
@@ -489,89 +402,11 @@ function buildSchemaAnnotations(mapping?: SchemaMapping | null): Map<string, Tab
   const result = new Map<string, TableAnnotation>()
   if (!mapping) return result
 
-  const addTable = (tableName: string, role: string, cols: [string, string, string][]) => {
-    const colMap = new Map<string, ColumnAnnotation>()
-    for (const [name, title, description] of cols) {
-      colMap.set(name, { title, description })
-    }
-    result.set(tableName, { role, columns: colMap })
-  }
-
-  if (mapping.patientTable) {
-    const pt = mapping.patientTable
-    const cols: [string, string, string][] = [
-      [pt.idColumn, 'Patient ID', 'Primary key — unique patient identifier'],
-    ]
-    if (pt.birthDateColumn) cols.push([pt.birthDateColumn, 'Birth date', 'Date of birth'])
-    if (pt.birthYearColumn) cols.push([pt.birthYearColumn, 'Birth year', 'Year of birth'])
-    if (pt.genderColumn) cols.push([pt.genderColumn, 'Gender', 'Gender concept ID or value'])
-    addTable(pt.table, 'Patient demographics', cols)
-  }
-
-  if (mapping.visitTable) {
-    const vt = mapping.visitTable
-    const cols: [string, string, string][] = [
-      [vt.idColumn, 'Visit ID', 'Primary key — unique visit identifier'],
-      [vt.patientIdColumn, 'Patient ID', 'Foreign key to patient'],
-      [vt.startDateColumn, 'Start date', 'Visit start date/time'],
-    ]
-    if (vt.endDateColumn) cols.push([vt.endDateColumn, 'End date', 'Visit end date/time'])
-    if (vt.typeColumn) cols.push([vt.typeColumn, 'Visit type', 'Type or source of visit'])
-    addTable(vt.table, 'Visit/encounter records', cols)
-  }
-
-  if (mapping.visitDetailTable) {
-    const vd = mapping.visitDetailTable
-    const cols: [string, string, string][] = [
-      [vd.idColumn, 'Visit detail ID', 'Primary key'],
-      [vd.visitIdColumn, 'Visit ID', 'Foreign key to visit'],
-      [vd.patientIdColumn, 'Patient ID', 'Foreign key to patient'],
-      [vd.startDateColumn, 'Start date', 'Sub-visit start date/time'],
-    ]
-    if (vd.endDateColumn) cols.push([vd.endDateColumn, 'End date', 'Sub-visit end date/time'])
-    if (vd.unitColumn) cols.push([vd.unitColumn, 'Care site / unit', 'Care site or unit identifier'])
-    addTable(vd.table, 'Visit detail / unit stays', cols)
-  }
-
-  if (mapping.noteTable) {
-    const nt = mapping.noteTable
-    const cols: [string, string, string][] = [
-      [nt.idColumn, 'Note ID', 'Primary key'],
-      [nt.patientIdColumn, 'Patient ID', 'Foreign key to patient'],
-      [nt.dateColumn, 'Date', 'Note date'],
-      [nt.textColumn, 'Text', 'Clinical note text'],
-    ]
-    if (nt.visitIdColumn) cols.push([nt.visitIdColumn, 'Visit ID', 'Foreign key to visit'])
-    if (nt.titleColumn) cols.push([nt.titleColumn, 'Title', 'Note title'])
-    if (nt.typeColumn) cols.push([nt.typeColumn, 'Type', 'Note type or category'])
-    addTable(nt.table, 'Clinical notes', cols)
-  }
-
-  if (mapping.conceptTables) {
-    for (const cd of mapping.conceptTables) {
-      if (!cd.idColumn) continue
-      const cols: [string, string, string][] = [
-        [cd.idColumn, 'Concept ID', 'Primary key — concept identifier'],
-        [cd.nameColumn, 'Concept name', 'Human-readable concept label'],
-      ]
-      if (cd.codeColumn) cols.push([cd.codeColumn, 'Concept code', 'Code within the vocabulary'])
-      if (cd.vocabularyColumn) cols.push([cd.vocabularyColumn, 'Vocabulary', 'Vocabulary/terminology identifier'])
-      addTable(cd.table, `Concept dictionary`, cols)
-    }
-  }
-
-  if (mapping.eventTables) {
-    for (const [label, et] of Object.entries(mapping.eventTables)) {
-      const cols: [string, string, string][] = [
-        [et.conceptIdColumn, 'Concept ID', 'Foreign key to concept dictionary'],
-      ]
-      if (et.sourceConceptIdColumn) cols.push([et.sourceConceptIdColumn, 'Source concept ID', 'Source concept identifier'])
-      if (et.patientIdColumn) cols.push([et.patientIdColumn, 'Patient ID', 'Foreign key to patient'])
-      if (et.dateColumn) cols.push([et.dateColumn, 'Date', 'Event date/time'])
-      if (et.valueColumn) cols.push([et.valueColumn, 'Numeric value', 'Measurement numeric value'])
-      if (et.valueStringColumn) cols.push([et.valueStringColumn, 'String value', 'Measurement string value'])
-      addTable(et.table, label, cols)
-    }
+  for (const t of mappedTableDocs(mapping)) {
+    result.set(t.table, {
+      role: t.role,
+      columns: new Map(t.columns.map((c) => [c.name, { title: c.title, description: c.description }])),
+    })
   }
 
   return result
@@ -595,8 +430,4 @@ function col(name: string, title: string, description: string, datatype: string)
 
 function table(name: string, title: string, columns: Record<string, unknown>[]): Record<string, unknown> {
   return { '@type': 'csvw:Table', 'dct:title': title, 'csvw:url': name, 'csvw:column': columns }
-}
-
-function titleCase(s: string): string {
-  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }

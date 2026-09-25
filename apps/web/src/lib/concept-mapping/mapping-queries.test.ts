@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { buildFileSourceConceptsQuery, buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildSourceConceptsGroupCountQuery, buildFileSourceConceptsGroupCountQuery, buildStandardConceptSearchQuery, buildSourceConceptsRelation } from './mapping-queries'
-import type { SchemaMapping } from '@/types/schema-mapping'
 
-const mapping: SchemaMapping = {
+const mapping_V1: any = {
   eventTables: [],
   conceptTables: [
     {
@@ -15,7 +15,8 @@ const mapping: SchemaMapping = {
       subcategoryColumn: 'subcategory',
     },
   ],
-} as unknown as SchemaMapping
+}
+const mapping = mappingV1ToV2(mapping_V1)
 
 describe('buildFilterOptionsQuery — vocabulary scoping', () => {
   it('returns unscoped DISTINCT when no scope is given', () => {
@@ -55,12 +56,12 @@ describe('buildFilterOptionsQuery — vocabulary scoping', () => {
   })
 
   it('excludes a dictionary that has no column for the scoped vocabulary', () => {
-    const noVocab: SchemaMapping = {
+    const noVocab = mappingV1ToV2({
       eventTables: [],
       conceptTables: [
         { key: 'plain', table: 'plain', nameColumn: 'label', categoryColumn: 'category' },
       ],
-    } as unknown as SchemaMapping
+    } as never)
     // Scoping by vocabulary_id, but the only dictionary has no vocab column → no rows.
     const sql = buildFilterOptionsQuery(noVocab, 'category', { column: 'vocabulary_id', values: ['X'] })
     expect(sql).toBe('')
@@ -172,19 +173,19 @@ describe('buildSourceConceptsGroupCountQuery — per-group totals over the DB so
   })
 
   it('returns empty string for category when no dictionary maps a category column', () => {
-    const noCategory: SchemaMapping = {
+    const noCategory = mappingV1ToV2({
       eventTables: [],
       conceptTables: [
         { key: 'd', table: 'd', nameColumn: 'label', terminologyIdColumn: 'vocabulary_id' },
       ],
-    } as unknown as SchemaMapping
+    } as never)
     expect(buildSourceConceptsGroupCountQuery(noCategory, 'category')).toBe('')
     // vocabulary_id is always projected, so it still produces a query.
     expect(buildSourceConceptsGroupCountQuery(noCategory, 'vocabulary_id')).not.toBe('')
   })
 
   it('returns empty string when there are no concept tables', () => {
-    const empty = { eventTables: [], conceptTables: [] } as unknown as SchemaMapping
+    const empty = mappingV1ToV2({ eventTables: [], conceptTables: [] } as never)
     expect(buildSourceConceptsGroupCountQuery(empty, 'vocabulary_id')).toBe('')
   })
 })
@@ -203,7 +204,7 @@ describe('buildFileSourceConceptsGroupCountQuery — per-group totals over the f
   })
 })
 
-const vocabMapping: SchemaMapping = {
+const vocabMapping_V1: any = {
   eventTables: [],
   conceptTables: [
     {
@@ -221,7 +222,8 @@ const vocabMapping: SchemaMapping = {
       },
     },
   ],
-} as unknown as SchemaMapping
+}
+const vocabMapping = mappingV1ToV2(vocabMapping_V1)
 
 describe('buildStandardConceptSearchQuery', () => {
   it('caps the result set at the requested limit', () => {
@@ -326,13 +328,13 @@ describe('buildFileSourceConceptsQuery — pagination is a stable window', () =>
 
 describe('buildSourceConceptsRelation', () => {
   it('unions every dictionary with the source_concepts columns, and is empty without one', () => {
-    const two = { ...mapping, conceptTables: [...mapping.conceptTables!, { key: 'd_labitems', table: 'd_labitems', idColumn: 'itemid', nameColumn: 'label' }] } as SchemaMapping
+    const two = mappingV1ToV2({ ...mapping_V1, conceptTables: [...mapping_V1.conceptTables!, { key: 'd_labitems', table: 'd_labitems', idColumn: 'itemid', nameColumn: 'label' }] } as never)
     const sql = buildSourceConceptsRelation(two)
     expect(sql.split('UNION ALL')).toHaveLength(2)
     expect(sql).toContain('AS concept_name')
     expect(sql).toContain('AS vocabulary_id')
     // No code column (MIMIC d_items): the id stands in, as the extraction writes it.
     expect(sql).toContain('CAST(d.concept_id AS VARCHAR) AS concept_code')
-    expect(buildSourceConceptsRelation({ eventTables: [], conceptTables: [] } as unknown as SchemaMapping)).toBe('')
+    expect(buildSourceConceptsRelation(mappingV1ToV2({ eventTables: [], conceptTables: [] } as never))).toBe('')
   })
 })

@@ -1057,6 +1057,70 @@ def _order_keys(obj: dict, order: list[str]) -> dict:
     return {k: obj[k] for k in [*order, *rest] if k in obj}
 
 
+# Format v2 (one relation per class). Twin of canonicalSchemaMappingV2
+# (packages/linkr-format/src/schema-mapping.ts): same orders, same bytes.
+_MAPPING_V2_FIELD_ORDER = [
+    "formatVersion", "presetId", "presetLabel", "patient", "visit", "visitDetail", "note",
+    "concepts", "events", "drugs", "params", "knownTables", "erdGroups", "description",
+]
+_RELATION_FIELD_ORDER = [
+    "key", "label", "drugKind", "conceptDictionaryKey", "genderValues", "from", "joins",
+    "where", "fields", "customSql", "sqlColumns",
+]
+_TABLE_FIELD_ORDER = ["type", "schema", "table", "alias", "on"]
+_PARAM_FIELD_ORDER = ["default", "label", "description"]
+_RELATION_COLUMN_ORDER = {
+    "patient": ["patient_id", "birth_date", "birth_year", "gender", "gender_source_value", "death_datetime"],
+    "visit": ["visit_id", "patient_id", "start_datetime", "end_datetime", "visit_type", "care_site_id", "care_site_name"],
+    "visitDetail": ["visit_detail_id", "visit_id", "patient_id", "start_datetime", "end_datetime", "unit_id", "unit_name", "unit_category"],
+    "note": ["note_id", "patient_id", "visit_id", "note_datetime", "title", "text", "note_type"],
+    "concepts": ["concept_id", "concept_terminology", "concept_name", "concept_code", "terminology_id", "terminology_name", "category", "subcategory"],
+    "events": [
+        "patient_id", "concept_id", "start_datetime", "visit_id", "visit_detail_id", "concept_terminology", "concept_code",
+        "source_concept_id", "concept_name", "end_datetime", "value_number", "value_string", "unit", "unit_concept_id",
+        "route", "route_concept_id",
+    ],
+    "drugs": [
+        "patient_id", "concept_id", "start_datetime", "drug_kind", "drug_id", "visit_id", "visit_detail_id",
+        "concept_terminology", "concept_code", "source_concept_id", "concept_name", "end_datetime", "quantity",
+        "amount_value", "amount_unit", "rate_value", "rate_unit", "concentration_value", "concentration_unit",
+        "duration_value", "duration_unit", "is_continuous", "route", "route_concept_id", "dose_source_value",
+    ],
+}
+
+
+def _canonical_relation(rel, columns: list[str]):
+    if not isinstance(rel, dict):
+        return rel
+    out = _order_keys(rel, _RELATION_FIELD_ORDER)
+    if isinstance(out.get("from"), dict):
+        out["from"] = _order_keys(out["from"], _TABLE_FIELD_ORDER)
+    if isinstance(out.get("joins"), list):
+        out["joins"] = [_order_keys(j, _TABLE_FIELD_ORDER) if isinstance(j, dict) else j for j in out["joins"]]
+    if isinstance(out.get("fields"), dict):
+        out["fields"] = _order_keys(out["fields"], columns)
+    return out
+
+
+def _canonical_schema_mapping_v2(mapping: dict) -> dict:
+    """A v2 mapping in deterministic order; arrays keep their order (the first
+    dictionary is the default one)."""
+    out = _order_keys(mapping, _MAPPING_V2_FIELD_ORDER)
+    for key in ("patient", "visit", "visitDetail", "note"):
+        if key in out:
+            out[key] = _canonical_relation(out[key], _RELATION_COLUMN_ORDER[key])
+    for key in ("concepts", "events", "drugs"):
+        if isinstance(out.get(key), list):
+            out[key] = [_canonical_relation(r, _RELATION_COLUMN_ORDER[key]) for r in out[key]]
+    if isinstance(out.get("params"), dict):
+        params = out["params"]
+        out["params"] = {
+            k: _order_keys(params[k], _PARAM_FIELD_ORDER) if isinstance(params[k], dict) else params[k]
+            for k in sorted(params)
+        }
+    return out
+
+
 def _canonical_schema_mapping(mapping: dict) -> dict:
     """Mapping with its top-level keys, event tables, and their keys ordered.
 
@@ -1065,7 +1129,11 @@ def _canonical_schema_mapping(mapping: dict) -> dict:
     presetLabel in entity.json rather than mapping.json, so a database installed
     from one wrote them at the END of its copy while the same mapping exported
     anywhere else had them first — a pure reordering diff.
+
+    A v1 mapping (stored before format v2) is ordered the way it was written.
     """
+    if mapping.get("formatVersion") == 2:
+        return _canonical_schema_mapping_v2(mapping)
     out = _order_keys(mapping, _MAPPING_FIELD_ORDER)
     tables = out.get("eventTables")
     if not isinstance(tables, dict):

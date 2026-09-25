@@ -98,7 +98,7 @@ export function PatientDataSidebar({ cohort }: PatientDataSidebarProps = {}) {
   } = usePatientData(dataSourceId, schemaMapping, projectUid, cohort)
 
   const totalPages = Math.ceil(patientCount / patientPageSize)
-  const genderValues = schemaMapping?.genderValues
+  const genderValues = schemaMapping?.patient?.genderValues
   const hasActiveFilters = !!(
     patientFilters.gender ||
     patientFilters.ageMin != null ||

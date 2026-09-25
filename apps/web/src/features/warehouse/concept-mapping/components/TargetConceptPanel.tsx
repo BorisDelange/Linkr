@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, useTransition } from 'react'
+import { has } from '@/lib/schema-classes/relations'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -624,15 +625,18 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     if (!vocabTarget) return
     const targetDsId = vocabTarget.dsId
     const dict = vocabTarget.dictionary
-    const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
-    const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
-    const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
-    const stdCol = dict.extraColumns?.standard_concept
+    const column = (extra: string, fallback: 'category' | 'subcategory' | null) =>
+      dict.extras?.[extra] ? `"${dict.extras[extra]}"` : fallback && has(dict, fallback) ? fallback : undefined
+    const vocabCol = 'terminology_id'
+    const domainCol = column('domain_id', 'category')
+    const classCol = column('concept_class_id', 'subcategory')
+    const stdCol = column('standard_concept', null)
     const parts: string[] = []
-    parts.push(`SELECT DISTINCT d.${vocabCol} AS v FROM ${dict.table} d WHERE d.${vocabCol} IS NOT NULL ORDER BY v`)
-    if (domainCol) parts.push(`SELECT DISTINCT d.${domainCol} AS v FROM ${dict.table} d WHERE d.${domainCol} IS NOT NULL ORDER BY v`)
-    if (classCol) parts.push(`SELECT DISTINCT d.${classCol} AS v FROM ${dict.table} d WHERE d.${classCol} IS NOT NULL ORDER BY v`)
-    if (stdCol) parts.push(`SELECT DISTINCT d.${stdCol} AS v FROM ${dict.table} d WHERE d.${stdCol} IS NOT NULL ORDER BY v`)
+    const distinct = (col: string) => `SELECT DISTINCT d.${col} AS v FROM ${dict.name} d WHERE d.${col} IS NOT NULL ORDER BY v`
+    parts.push(distinct(vocabCol))
+    if (domainCol) parts.push(distinct(domainCol))
+    if (classCol) parts.push(distinct(classCol))
+    if (stdCol) parts.push(distinct(stdCol))
     ;(async () => {
       try {
         await ensureMounted(targetDsId)

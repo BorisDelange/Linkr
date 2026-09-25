@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import {
   buildPatientDemographicsQuery,
   buildPatientSummaryQuery,
@@ -31,25 +32,25 @@ const visitTable = {
 }
 
 /** The OMOP preset shape: both birth columns mapped. */
-const bothColumns = {
+const bothColumns = mappingV1ToV2({
   patientTable: { ...patientTable, birthDateColumn: 'birth_datetime', birthYearColumn: 'year_of_birth' },
   visitTable,
-} as unknown as SchemaMapping
+} as never)
 
-const yearOnly = {
+const yearOnly = mappingV1ToV2({
   patientTable: { ...patientTable, birthYearColumn: 'year_of_birth' },
   visitTable,
-} as unknown as SchemaMapping
+} as never)
 
-const dateOnly = {
+const dateOnly = mappingV1ToV2({
   patientTable: { ...patientTable, birthDateColumn: 'birth_datetime' },
   visitTable,
-} as unknown as SchemaMapping
+} as never)
 
-const noBirth = {
+const noBirth = mappingV1ToV2({
   patientTable,
   visitTable,
-} as unknown as SchemaMapping
+} as never)
 
 describe('patient age expression', () => {
   const full = (m: SchemaMapping) => withClassRelations(buildPatientDemographicsQuery(m, '123')!, m)
@@ -155,7 +156,7 @@ describe('patient id search', () => {
 // non-numeric row. Every table shares one UNION ALL, so that single error empties
 // the whole widget: the branch must not be emitted at all.
 
-const timelineMapping = {
+const timelineMapping_V1: any = {
   patientTable: { table: 'patients', idColumn: 'subject_id' },
   conceptTables: [
     { key: 'd_items', table: 'd_items', idColumn: 'itemid', nameColumn: 'label' },
@@ -178,7 +179,8 @@ const timelineMapping = {
       conceptDictionaryKey: 'none',
     },
   },
-} as unknown as SchemaMapping
+}
+const timelineMapping = mappingV1ToV2(timelineMapping_V1)
 
 describe('timeline query', () => {
   const sql = () => withClassRelations(buildTimelineQuery(timelineMapping, [220045, 220210], '10002495', null)!, timelineMapping)
@@ -201,10 +203,10 @@ describe('timeline query', () => {
   })
 
   it('returns null when no table can be filtered by concept id', () => {
-    const inlineOnly = {
-      ...timelineMapping,
-      eventTables: { Prescriptions: timelineMapping.eventTables!.Prescriptions },
-    } as SchemaMapping
+    const inlineOnly = mappingV1ToV2({
+      ...timelineMapping_V1,
+      eventTables: { Prescriptions: timelineMapping_V1.eventTables!.Prescriptions },
+    } as never)
     // Null is the honest answer: the widget reports a mapping problem instead of
     // rendering an error, which is what `missing` in buildWidgetQueries is for.
     expect(buildTimelineQuery(inlineOnly, [220045], '10002495', null)).toBeNull()
@@ -214,16 +216,16 @@ describe('timeline query', () => {
     // Without these the timeline can only ever plot numbers: a categorical
     // observation has nothing to put on a y axis, and an infusion that lasts
     // four hours would collapse to a dot at its start.
-    const withBoth = {
-      ...timelineMapping,
+    const withBoth = mappingV1ToV2({
+      ...timelineMapping_V1,
       eventTables: {
         Measurements: {
-          ...timelineMapping.eventTables!.Measurements,
+          ...timelineMapping_V1.eventTables!.Measurements,
           valueStringColumn: 'value',
           endDateColumn: 'endtime',
         },
       },
-    } as SchemaMapping
+    } as never)
     const sql = full(withBoth, [220045])
     expect(sql).toContain('e."value" AS value_string')
     expect(sql).toContain('e."endtime" AS end_datetime')
@@ -240,8 +242,8 @@ describe('timeline query', () => {
 
   it('keeps a row when only the categorical value is present', () => {
     // Filtering on the numeric column alone dropped every categorical event.
-    const stringOnly = {
-      ...timelineMapping,
+    const stringOnly = mappingV1ToV2({
+      ...timelineMapping_V1,
       eventTables: {
         Observations: {
           table: 'chartevents',
@@ -252,7 +254,7 @@ describe('timeline query', () => {
           conceptDictionaryKey: 'd_items',
         },
       },
-    } as unknown as SchemaMapping
+    } as never)
     const sql = buildTimelineQuery(stringOnly, [220048], '10002495', null)!
     expect(sql).toContain('(e.value_string IS NOT NULL)')
     expect(sql).not.toContain('e.value_number IS NOT NULL')
@@ -261,17 +263,17 @@ describe('timeline query', () => {
   it('selects the unit and route, without which a figure says nothing', () => {
     // "2.47" is not a dose. The unit makes it one, and the route is what tells a
     // drip from a single shot.
-    const withUnits = {
-      ...timelineMapping,
+    const withUnits = mappingV1ToV2({
+      ...timelineMapping_V1,
       eventTables: {
         Inputs: {
-          ...timelineMapping.eventTables!.Measurements,
+          ...timelineMapping_V1.eventTables!.Measurements,
           table: 'inputevents',
           valueUnitColumn: 'amountuom',
           routeColumn: 'route',
         },
       },
-    } as SchemaMapping
+    } as never)
     const sql = full(withUnits, [220045])
     expect(sql).toContain('e."amountuom" AS unit')
     expect(sql).toContain('e."route" AS route')
@@ -289,7 +291,7 @@ describe('timeline query', () => {
     // Only the inline opt-out is dropped. A concept id column with no dictionary
     // is still an id column — OMOP `measurement_concept_id` with no vocabulary
     // loaded filters fine, it just labels the series with the raw id.
-    const noDict = {
+    const noDict = mappingV1ToV2({
       patientTable: { table: 'person', idColumn: 'person_id' },
       eventTables: {
         measurement: {
@@ -300,7 +302,7 @@ describe('timeline query', () => {
           valueColumn: 'value_as_number',
         },
       },
-    } as unknown as SchemaMapping
+    } as never)
     const sql = withClassRelations(buildTimelineQuery(noDict, [3027018], '123', null)!, noDict)
     expect(sql).toContain('"measurement"')
     expect(sql).toContain('IN (3027018)')

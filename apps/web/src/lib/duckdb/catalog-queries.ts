@@ -1,17 +1,20 @@
-import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
+import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DimensionConfig, ServiceMappingRule, PeriodConfig } from '@/types/catalog'
 import { escSql as esc } from '@/lib/format-helpers'
-import { classRelation, conceptRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { classRelation, conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { fieldColumn } from '@/lib/schema-classes/spec'
 
 /**
  * Resolve a catalog column key (e.g. 'domain_id') to the dictionary relation's
- * column: the category or subcategory when the mapping names that very column,
- * else the extra column declared under that key.
+ * column: the category or subcategory when the key names it, or names the source
+ * column it is read from, else the extra column declared under that key.
  */
-function resolveDictColumn(dict: ConceptDictionary, rel: ClassRelation, alias: string): string | undefined {
-  if (dict.categoryColumn === alias) return 'category'
-  if (dict.subcategoryColumn === alias) return 'subcategory'
-  return rel.extras?.[alias]
+export function resolveDictColumn(mapping: SchemaMapping, rel: ClassRelation, key: string): string | undefined {
+  const spec = mapping.concepts?.find((c) => c.key === rel.key)
+  for (const column of ['category', 'subcategory'] as const) {
+    if (key === column || fieldColumn(spec, column)?.column === key) return column
+  }
+  return rel.extras?.[key]
 }
 
 /** Age in whole years at `refDate`, from the patient relation aliased `p`: the
@@ -227,8 +230,8 @@ export function buildBatchedCatalogQueries(
   categoryColumn?: string,
   subcategoryColumn?: string,
 ): BatchedCatalogQueries | null {
-  const dicts = mapping.conceptTables
-  if (!dicts || dicts.length === 0) return null
+  const dicts = conceptRelations(mapping)
+  if (dicts.length === 0) return null
 
   const patient = classRelation(mapping, 'patient')
   const visit = classRelation(mapping, 'visit')
@@ -246,23 +249,20 @@ export function buildBatchedCatalogQueries(
   const conceptListQueries: ConceptListQuery[] = []
   const batchTemplates: BatchQueryTemplate[] = []
 
-  for (const dict of dicts) {
-    if (!dict.idColumn) continue // can't build concept queries without an id column
-    const rel = conceptRelation(mapping, dict.key)
-    if (!rel) continue
+  for (const rel of dicts) {
     const eventParts = buildEventPartsForDict(mapping, rel)
     if (eventParts.length === 0) continue
 
     // 1. Concept list query
     conceptListQueries.push({
-      dictKey: dict.key,
+      dictKey: rel.key ?? '',
       sql: `SELECT DISTINCT concept_id AS cid FROM ${rel.name}`,
       table: rel.name,
       idColumn: 'concept_id',
     })
 
     // 2. Batch template — concept-level only (simple GROUP BY)
-    const cnBaseSql = buildConceptNameSql(dict, rel, hasCategory, hasSubcategory, categoryColumn, subcategoryColumn)
+    const cnBaseSql = buildConceptNameSql(mapping, rel, hasCategory, hasSubcategory, categoryColumn, subcategoryColumn)
 
     const conceptCols = ['cn.cid', 'cn.cname']
     if (hasCategory) conceptCols.push('cn.ccat')
@@ -273,10 +273,10 @@ export function buildBatchedCatalogQueries(
     const subcatSelectStr = hasSubcategory ? `,\n    cn.csubcat AS concept_subcategory` : ''
 
     const eventsSql = eventParts.join('\n    UNION ALL\n    ')
-    const dictKeyLiteral = `'${esc(dict.key)}'`
+    const dictKeyLiteral = `'${esc(rel.key ?? '')}'`
 
     batchTemplates.push({
-      dictKey: dict.key,
+      dictKey: rel.key ?? '',
       buildSql: (conceptIds) => {
         const inList = conceptIds.map((id) =>
           typeof id === 'string' ? `'${esc(id)}'` : String(id),
@@ -312,10 +312,7 @@ GROUP BY ${conceptColsStr}`
 
   // Global query: dim-only margins + grand total (GROUPING SETS)
   const allEventParts: string[] = []
-  for (const dict of dicts) {
-    const rel = conceptRelation(mapping, dict.key)
-    if (rel) allEventParts.push(...buildEventPartsForDict(mapping, rel))
-  }
+  for (const rel of dicts) allEventParts.push(...buildEventPartsForDict(mapping, rel))
 
   const globalGs: string[] = []
   if (dimParts.hasDimensions) {
@@ -361,15 +358,15 @@ function buildEventPartsForDict(mapping: SchemaMapping, dict: ClassRelation): st
 }
 
 function buildConceptNameSql(
-  dict: ConceptDictionary,
+  mapping: SchemaMapping,
   rel: ClassRelation,
   hasCategory: boolean,
   hasSubcategory: boolean,
   categoryColumn?: string,
   subcategoryColumn?: string,
 ): string {
-  const catCol = categoryColumn ? resolveDictColumn(dict, rel, categoryColumn) : undefined
-  const subcatCol = subcategoryColumn ? resolveDictColumn(dict, rel, subcategoryColumn) : undefined
+  const catCol = categoryColumn ? resolveDictColumn(mapping, rel, categoryColumn) : undefined
+  const subcatCol = subcategoryColumn ? resolveDictColumn(mapping, rel, subcategoryColumn) : undefined
   const catExpr = catCol ? `"${catCol}"` : 'NULL'
   const subcatExpr = subcatCol ? `"${subcatCol}"` : 'NULL'
   return `SELECT concept_id AS cid, concept_name AS cname${hasCategory ? `, ${catExpr} AS ccat` : ''}${hasSubcategory ? `, ${subcatExpr} AS csubcat` : ''} FROM ${rel.name}`
@@ -497,11 +494,10 @@ export function buildPeriodRowQuery(
 
   // Event tables union for concept categories
   const allEventParts: string[] = []
-  if (conceptCategories.length > 0 && categoryColumn && mapping.conceptTables) {
-    for (const dict of mapping.conceptTables) {
-      const rel = conceptRelation(mapping, dict.key)
-      const catCol = rel ? resolveDictColumn(dict, rel, categoryColumn) : undefined
-      if (!rel || !catCol) continue
+  if (conceptCategories.length > 0 && categoryColumn) {
+    for (const rel of conceptRelations(mapping)) {
+      const catCol = resolveDictColumn(mapping, rel, categoryColumn)
+      if (!catCol) continue
       for (const event of eventsOf(mapping, rel)) {
         const byColumn = (column: string) =>
           `SELECT e.patient_id AS pid, d."${catCol}" AS cat FROM ${event.name} e JOIN ${rel.name} d ON e.${column} = d.concept_id WHERE d."${catCol}" IS NOT NULL`
@@ -616,9 +612,8 @@ export function buildCategoryLabelsQuery(
   mapping: SchemaMapping,
   categoryColumn: string,
 ): string | null {
-  const dict = mapping.conceptTables?.[0]
-  const rel = dict ? conceptRelation(mapping, dict.key) : undefined
-  const catCol = dict && rel ? resolveDictColumn(dict, rel, categoryColumn) : undefined
+  const rel = conceptRelations(mapping)[0]
+  const catCol = rel ? resolveDictColumn(mapping, rel, categoryColumn) : undefined
   if (!rel || !catCol) return null
   return `SELECT DISTINCT "${catCol}" AS cat_label FROM ${rel.name} WHERE "${catCol}" IS NOT NULL ORDER BY cat_label`
 }

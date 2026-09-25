@@ -9,7 +9,12 @@ import {
   DEFAULT_HIDDEN_COLUMNS,
   type ColumnDescriptor,
 } from './concept-queries'
-import type { ConceptDictionary } from '@/types/schema-mapping'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
+import { conceptRelations } from '@/lib/schema-classes/relations'
+
+type ConceptDictionary = NonNullable<SchemaMappingV1['conceptTables']>[number]
+const rels = (...conceptTables: ConceptDictionary[]) =>
+  conceptRelations(mappingV1ToV2({ presetId: 't', presetLabel: { en: 't' }, conceptTables }))
 
 const COLS: ColumnDescriptor[] = [
   { id: 'domain_id', source: 'extra', filterable: true },
@@ -125,12 +130,12 @@ describe('computeAvailableColumns ordering', () => {
   }
 
   it('puts patient_count before record_count', () => {
-    const ids = computeAvailableColumns([dict]).map((c) => c.id)
+    const ids = computeAvailableColumns(rels(dict)).map((c) => c.id)
     expect(ids.indexOf('patient_count')).toBeLessThan(ids.indexOf('record_count'))
   })
 
   it('puts the counts last, after the validity trio', () => {
-    const ids = computeAvailableColumns([dict]).map((c) => c.id)
+    const ids = computeAvailableColumns(rels(dict)).map((c) => c.id)
     expect(ids.slice(-2)).toEqual(['patient_count', 'record_count'])
     expect(ids.indexOf('invalid_reason')).toBeLessThan(ids.indexOf('patient_count'))
     // The trio keeps its documented order.
@@ -139,12 +144,12 @@ describe('computeAvailableColumns ordering', () => {
   })
 
   it('emits each column exactly once', () => {
-    const ids = computeAvailableColumns([dict]).map((c) => c.id)
+    const ids = computeAvailableColumns(rels(dict)).map((c) => c.id)
     expect(new Set(ids).size).toBe(ids.length)
   })
 
   it('omits _dict_key for a single dictionary', () => {
-    expect(computeAvailableColumns([dict]).map((c) => c.id)).not.toContain('_dict_key')
+    expect(computeAvailableColumns(rels(dict)).map((c) => c.id)).not.toContain('_dict_key')
   })
 
   it('leads with _dict_key, next to vocabulary_id, when several dictionaries exist', () => {
@@ -155,7 +160,7 @@ describe('computeAvailableColumns ordering', () => {
       nameColumn: 'label',
       terminologyIdColumn: 'linksto',
     }
-    const ids = computeAvailableColumns([dict, other]).map((c) => c.id)
+    const ids = computeAvailableColumns(rels(dict, other)).map((c) => c.id)
     expect(ids[0]).toBe('_dict_key')
     expect(ids[1]).toBe('vocabulary_id')
   })
@@ -178,12 +183,12 @@ describe('concept-set (data dictionary) columns', () => {
   }
 
   it('offers the dictionary columns when the source has both join keys', () => {
-    const ids = computeAvailableColumns([withCode]).map((c) => c.id)
+    const ids = computeAvailableColumns(rels(withCode)).map((c) => c.id)
     for (const id of CONCEPT_SET_COLUMNS) expect(ids).toContain(id)
   })
 
   it('omits them when the source has no vocabulary/code to join on', () => {
-    const ids = computeAvailableColumns([withoutCode]).map((c) => c.id)
+    const ids = computeAvailableColumns(rels(withoutCode)).map((c) => c.id)
     for (const id of CONCEPT_SET_COLUMNS) expect(ids).not.toContain(id)
   })
 
@@ -192,7 +197,7 @@ describe('concept-set (data dictionary) columns', () => {
   })
 
   it('never reaches SQL: no SELECT alias and no WHERE predicate', () => {
-    const cols = computeAvailableColumns([withCode])
+    const cols = computeAvailableColumns(rels(withCode))
     const sql = buildCachePageQuery(
       { concept_set_name: ['Fibrinogen antigen'] },
       cols,

@@ -1,4 +1,5 @@
 import { withClassRelations } from '@/lib/schema-classes/inject'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -24,7 +25,7 @@ import {
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 /** An OMOP-shaped mapping: FK join, both concept id columns, a ward lookup. */
-const OMOP: SchemaMapping = {
+const OMOP_V1: any = {
   presetId: 'omop-5.4',
   presetLabel: { en: 'OMOP CDM 5.4' },
   patientTable: { table: 'person', idColumn: 'person_id' },
@@ -60,6 +61,7 @@ const OMOP: SchemaMapping = {
     },
   },
 }
+const OMOP = mappingV1ToV2(OMOP_V1)
 
 function source(mapping: SchemaMapping = OMOP, key = 'concept'): ProfileSource {
   const resolved = resolveProfileSource(mapping, key)
@@ -79,7 +81,7 @@ describe('resolveProfileSource', () => {
   })
 
   it('yields nothing when no event table references the dictionary', () => {
-    const orphan: SchemaMapping = { ...OMOP, eventTables: {} }
+    const orphan = mappingV1ToV2({ ...OMOP_V1, eventTables: {} } as never)
     expect(resolveProfileSource(orphan, 'concept')).toBeNull()
   })
 })
@@ -92,11 +94,11 @@ describe('availableSections', () => {
   it('withholds the sections a bare schema cannot produce', () => {
     // The whole point of the preset-driven design: a model with only a code
     // column gets a profile of what it has, not a crash or an empty chart.
-    const bare: SchemaMapping = {
-      ...OMOP,
+    const bare = mappingV1ToV2({
+      ...OMOP_V1,
       visitDetailTable: undefined,
       eventTables: { Events: { table: 'ev', conceptIdColumn: 'concept_id' } },
-    }
+    } as never)
     expect(availableSections(bare, source(bare))).toEqual({
       numeric: false, histogram: false, categorical: false, unit: false,
       frequency: false, temporal: false, hospitalUnits: false, missingRate: false,
@@ -215,10 +217,10 @@ describe('query builders', () => {
   it('prefers the verbatim ward over the coarser lookup', () => {
     // visit_detail_source_value holds the real unit where the standard concept
     // is far coarser, and many ETLs leave care_site_id NULL entirely.
-    const withSourceValue: SchemaMapping = {
-      ...OMOP,
-      visitDetailTable: { ...OMOP.visitDetailTable!, unitSourceValueColumn: 'visit_detail_source_value' },
-    }
+    const withSourceValue = mappingV1ToV2({
+      ...OMOP_V1,
+      visitDetailTable: { ...OMOP_V1.visitDetailTable!, unitSourceValueColumn: 'visit_detail_source_value' },
+    } as never)
     const sql = withClassRelations(buildHospitalUnitsQuery(withSourceValue, source(withSourceValue), 42, 10)!, withSourceValue)
     // Per row: the verbatim ward first, the looked-up name only where it is empty.
     expect(sql).toMatch(/COALESCE\(NULLIF\(CAST\(vd\."visit_detail_source_value" AS VARCHAR\), ''\), NULLIF\(CAST\(un\."care_site_name"/)
@@ -259,11 +261,11 @@ describe('query builders', () => {
 
   it('returns nothing for a block the schema cannot back', () => {
     // An empty string, not broken SQL: the caller skips it.
-    const bare: SchemaMapping = {
-      ...OMOP,
+    const bare = mappingV1ToV2({
+      ...OMOP_V1,
       visitDetailTable: undefined,
       eventTables: { Events: { table: 'ev', conceptIdColumn: 'concept_id' } },
-    }
+    } as never)
     const s = source(bare)
     expect(buildNumericStatsQuery(s, 42, null)).toBe('')
     expect(buildCategoricalQuery(s, 42, { minCategoryCount: 50, topN: 10 })).toBe('')

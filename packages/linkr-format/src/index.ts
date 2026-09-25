@@ -74,7 +74,7 @@ export type {
   SerializableEntityKind, SqlCollectionSpec,
 } from './serialize/entities.js'
 
-export { EVENT_TABLE_FIELD_ORDER, canonicalSchemaMapping, orderKeys } from './schema-mapping.js'
+export { EVENT_TABLE_FIELD_ORDER, RELATION_COLUMN_ORDER, canonicalSchemaMapping, canonicalSchemaMappingV2, orderKeys } from './schema-mapping.js'
 
 export { validateProject } from './validate/project.js'
 export { detectEntityKind, detectTreeKind, validateEntity } from './validate/entities.js'

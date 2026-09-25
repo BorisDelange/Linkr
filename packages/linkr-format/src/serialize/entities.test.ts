@@ -38,16 +38,14 @@ const SPECS: { [K in SerializableEntityKind]: EntitySpecMap[K] } = {
   'schema-preset': {
     presetId: 'omop-cdm-5-4',
     presetLabel: { en: 'OMOP CDM 5.4', fr: 'OMOP CDM 5.4' },
-    eventTables: {
-      Measurement: {
-        table: 'measurement',
-        conceptIdColumn: 'measurement_concept_id',
-        dateColumn: 'measurement_datetime',
-        valueColumn: 'value_as_number',
-      },
-    },
     mapping: {
-      patientTable: { table: 'person', idColumn: 'person_id' },
+      formatVersion: 2,
+      patient: { from: { table: 'person', alias: 'p' }, fields: { patient_id: 'p.person_id' } },
+      events: [{
+        label: 'Measurement',
+        from: { table: 'measurement', alias: 'e' },
+        fields: { concept_id: 'e.measurement_concept_id', start_datetime: 'e.measurement_datetime', value_number: 'e.value_as_number' },
+      }],
     },
     ddl: 'CREATE TABLE person (person_id INTEGER);\n',
   },
@@ -238,7 +236,7 @@ describe('serializeEntity', () => {
       const tree = treeOf('schema-preset', {
         presetId: 'p',
         presetLabel: { en: 'P' },
-        mapping: { ddl: 'CREATE TABLE t (a INT);\n' },
+        mapping: { formatVersion: 2, ddl: 'CREATE TABLE t (a INT);\n' },
       })
       expect(tree.read('schema.ddl')).toBe('CREATE TABLE t (a INT);\n')
       expect(validateEntity(tree, 'schema-preset')).toEqual([])
@@ -282,9 +280,36 @@ describe('serializeEntity', () => {
     it('keeps the rest of the mapping as supplied', () => {
       const tree = treeOf('schema-preset', SPECS['schema-preset'])
       const preset = JSON.parse(tree.read('mapping.json')!) as {
-        patientTable: { table: string }
+        patient: { from: { table: string } }
       }
-      expect(preset.patientTable.table).toBe('person')
+      expect(preset.patient.from.table).toBe('person')
+    })
+
+    it('orders a v2 mapping: declared keys, contract-ordered fields, arrays as written', () => {
+      const tree = treeOf('schema-preset', {
+        presetId: 'p',
+        presetLabel: { en: 'P' },
+        mapping: {
+          knownTables: ['t'],
+          params: { b: { label: { en: 'B' }, default: '2' }, a: { default: '1' } },
+          events: [
+            { fields: { start_datetime: 'e.d', patient_id: 'e.p' }, from: { alias: 'e', table: 't' }, label: 'Z' },
+            { label: 'A', customSql: 'SELECT 1' },
+          ],
+          formatVersion: 2,
+          visit: { joins: [{ on: [['v.a', 'c.a']], alias: 'c', table: 'c', type: 'left' }], from: { alias: 'v', table: 'v' } },
+        },
+      })
+      expect(tree.read('mapping.json')).toBe(JSON.stringify({
+        formatVersion: 2,
+        visit: { from: { table: 'v', alias: 'v' }, joins: [{ type: 'left', table: 'c', alias: 'c', on: [['v.a', 'c.a']] }] },
+        events: [
+          { label: 'Z', from: { table: 't', alias: 'e' }, fields: { patient_id: 'e.p', start_datetime: 'e.d' } },
+          { label: 'A', customSql: 'SELECT 1' },
+        ],
+        params: { a: { default: '1' }, b: { default: '2', label: { en: 'B' } } },
+        knownTables: ['t'],
+      }, null, 2))
     })
 
     it('emits the mapping keys in the order the app exports them', () => {

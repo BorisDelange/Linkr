@@ -124,7 +124,7 @@ export function CohortBuilder() {
   const executionError = cohortId ? executionErrors.get(cohortId) ?? null : null
 
   const eventTableLabels = useMemo(
-    () => Object.keys(mapping?.eventTables ?? {}),
+    () => (mapping?.events ?? []).map((e) => e.label),
     [mapping],
   )
 
@@ -142,7 +142,7 @@ export function CohortBuilder() {
         })
       }
     }).catch(() => {})
-  }, [activeSource, mapping?.visitTable])
+  }, [activeSource, mapping])
 
 
   const handleUpdateTree = useCallback(
@@ -442,7 +442,7 @@ export function CohortBuilder() {
                   criteriaTree={cohort.criteriaTree}
                   onChange={handleUpdateTree}
                   eventTableLabels={eventTableLabels}
-                  genderValues={mapping?.genderValues}
+                  genderValues={mapping?.patient?.genderValues}
                   visitDateRange={visitDateRange}
                   dataSourceId={activeSource?.id}
                   schemaMapping={mapping}
@@ -466,7 +466,7 @@ export function CohortBuilder() {
               onExecute={handleExecute}
               onExportCsv={handleExportCsv}
               renderPatients={
-                activeSource && mapping?.patientTable && cohort.level !== 'event'
+                activeSource && mapping?.patient && cohort.level !== 'event'
                   ? (r) => (
                       <CohortPatientsPanel
                         dataSourceId={activeSource.id}

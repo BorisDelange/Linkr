@@ -15,7 +15,8 @@ import {
 import '@xyflow/react/dist/style.css'
 import { Table2, User, Stethoscope, BookOpen, Activity } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
-import type { SchemaMapping, ConceptDictionary, EventTable } from '@/types/schema-mapping'
+import type { RelationSpec, SchemaMapping } from '@/types/schema-mapping'
+import { fieldRef } from '@/lib/schema-classes/spec'
 
 // ---------------------------------------------------------------------------
 // Custom node: ERD table card with per-column handles + tooltips
@@ -134,6 +135,29 @@ const nodeTypes = { erdTable: ERDTableNode }
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
+const PK_FIELD: Record<string, string> = { patient: 'patient_id', visit: 'visit_id', concept: 'concept_id' }
+const EDGE_STYLE = { stroke: 'var(--color-muted-foreground)', strokeWidth: 1.5, opacity: 0.35 }
+
+/** A relation's mapped fields as ERD rows: the source column a reference reads,
+ *  or the contract column marked ƒx for an expression. */
+function relationColumns(cls: string, spec: RelationSpec, fkTargets: Record<string, string | undefined>): ColumnDef[] {
+  if (spec.customSql?.trim()) return [{ name: 'SQL' }]
+  return Object.entries(spec.fields ?? {}).map(([field, f]) => {
+    const ref = fieldRef(f)
+    const name = ref ? ref.column : `${field} (ƒx)`
+    if (PK_FIELD[cls] === field) return { name, role: 'pk', handleId: 'pk', handleType: 'target' }
+    if (field === 'patient_id' || field === 'concept_id') {
+      return { name, role: 'fk', handleId: `fk-${field === 'patient_id' ? 'patient' : 'concept'}`, handleType: 'source', fkTarget: fkTargets[field] }
+    }
+    if (field === 'visit_id' || field === 'source_concept_id') return { name, role: 'fk' }
+    if (field.startsWith('value_')) return { name, role: 'value' }
+    if (/datetime$|_date$/.test(field)) return { name, role: 'date' }
+    return { name }
+  })
+}
+
+const relationLabel = (spec: RelationSpec, fallback: string) => spec.from?.table ?? fallback
+
 function buildERDGraph(mapping: SchemaMapping): { nodes: Node<ERDNodeData>[]; edges: Edge[] } {
   const nodes: Node<ERDNodeData>[] = []
   const edges: Edge[] = []
@@ -141,164 +165,82 @@ function buildERDGraph(mapping: SchemaMapping): { nodes: Node<ERDNodeData>[]; ed
   const NODE_W = 280
   const ROW_GAP = 40
 
-  const conceptCount = mapping.conceptTables?.length ?? 0
-  const eventCount = mapping.eventTables ? Object.keys(mapping.eventTables).length : 0
-  const maxCols = Math.max(2, conceptCount, eventCount)
+  const concepts = mapping.concepts ?? []
+  const events = [...(mapping.events ?? []), ...(mapping.drugs ?? [])]
+  const maxCols = Math.max(2, concepts.length, events.length)
 
   const centerX = (n: number) => ((maxCols - n) / 2) * NODE_W
   const estimateHeight = (colCount: number) => 32 + colCount * 20 + 16
 
-  let row0MaxHeight = 0
+  const patientRef = mapping.patient ? fieldRef(mapping.patient.fields?.patient_id) : null
+  const patientTarget = mapping.patient ? `${relationLabel(mapping.patient, 'patient')}.${patientRef?.column ?? 'patient_id'}` : undefined
 
   // Row 0: Patient + Visit
-  const row0Count = (mapping.patientTable ? 1 : 0) + (mapping.visitTable ? 1 : 0)
-  let col0 = centerX(row0Count)
-
-  if (mapping.patientTable) {
-    const pt = mapping.patientTable
-    const columns: ColumnDef[] = [
-      { name: pt.idColumn, role: 'pk', handleId: 'pk', handleType: 'target' },
-    ]
-    if (pt.birthDateColumn) columns.push({ name: pt.birthDateColumn, role: 'date' })
-    if (pt.birthYearColumn) columns.push({ name: pt.birthYearColumn })
-    if (pt.anchorAgeColumn) columns.push({ name: pt.anchorAgeColumn })
-    if (pt.anchorYearColumn) columns.push({ name: pt.anchorYearColumn })
-    if (pt.genderColumn) columns.push({ name: pt.genderColumn })
-
+  let row0MaxHeight = 0
+  const row0 = [
+    mapping.patient ? { id: 'patient', cls: 'patient', spec: mapping.patient } : null,
+    mapping.visit ? { id: 'visit', cls: 'visit', spec: mapping.visit } : null,
+  ].filter((x): x is { id: string; cls: string; spec: RelationSpec } => !!x)
+  let col0 = centerX(row0.length)
+  for (const { id, cls, spec } of row0) {
+    const columns = relationColumns(cls, spec, { patient_id: patientTarget })
     nodes.push({
-      id: `patient-${pt.table}`,
+      id,
       type: 'erdTable',
       position: { x: col0, y: 0 },
       zIndex: 1,
-      data: { label: pt.table, tableType: 'patient', columns },
+      data: { label: relationLabel(spec, id), tableType: cls as ERDNodeData['tableType'], columns },
     })
     row0MaxHeight = Math.max(row0MaxHeight, estimateHeight(columns.length))
     col0 += NODE_W
   }
 
-  if (mapping.visitTable) {
-    const vt = mapping.visitTable
-    const columns: ColumnDef[] = [
-      { name: vt.idColumn, role: 'pk', handleId: 'pk', handleType: 'target' },
-      { name: vt.patientIdColumn, role: 'fk', handleId: 'fk-patient', handleType: 'source', fkTarget: `${mapping.patientTable?.table ?? '?'}.${mapping.patientTable?.idColumn ?? '?'}` },
-      { name: vt.startDateColumn, role: 'date' },
-    ]
-    if (vt.endDateColumn) columns.push({ name: vt.endDateColumn, role: 'date' })
-
-    nodes.push({
-      id: `visit-${vt.table}`,
-      type: 'erdTable',
-      position: { x: col0, y: 0 },
-      zIndex: 1,
-      data: { label: vt.table, tableType: 'visit', columns },
-    })
-    row0MaxHeight = Math.max(row0MaxHeight, estimateHeight(columns.length))
-  }
-
   // Row 1: Concept dictionaries
   const row1Y = row0MaxHeight + ROW_GAP
   let row1MaxHeight = 0
-
-  if (mapping.conceptTables && conceptCount > 0) {
-    const startX = centerX(conceptCount)
-    mapping.conceptTables.forEach((dict: ConceptDictionary, i: number) => {
-      const columns: ColumnDef[] = [
-        { name: dict.idColumn ?? '', role: 'pk', handleId: 'pk', handleType: 'target' },
-        { name: dict.nameColumn },
-      ]
-      if (dict.codeColumn) columns.push({ name: dict.codeColumn })
-      if (dict.vocabularyColumn) columns.push({ name: dict.vocabularyColumn })
-      if (dict.extraColumns) {
-        Object.values(dict.extraColumns).forEach((col) => columns.push({ name: col }))
-      }
-
-      nodes.push({
-        id: `concept-${dict.key}`,
-        type: 'erdTable',
-        position: { x: startX + i * NODE_W, y: row1Y },
-        zIndex: 1,
-        data: { label: dict.table, tableType: 'concept', columns },
-      })
-      row1MaxHeight = Math.max(row1MaxHeight, estimateHeight(columns.length))
+  const startX1 = centerX(concepts.length)
+  concepts.forEach((dict, i) => {
+    const columns = relationColumns('concept', dict, {})
+    nodes.push({
+      id: `concept-${dict.key}`,
+      type: 'erdTable',
+      position: { x: startX1 + i * NODE_W, y: row1Y },
+      zIndex: 1,
+      data: { label: relationLabel(dict, dict.key), tableType: 'concept', columns },
     })
-  }
+    row1MaxHeight = Math.max(row1MaxHeight, estimateHeight(columns.length))
+  })
 
-  // Row 2: Event tables
+  // Row 2: Event and drug relations
   const row2Y = row1Y + (row1MaxHeight > 0 ? row1MaxHeight + ROW_GAP : 0)
-
-  if (mapping.eventTables && eventCount > 0) {
-    const startX = centerX(eventCount)
-    const eventEntries = Object.entries(mapping.eventTables)
-    eventEntries.forEach(([label, et]: [string, EventTable], i: number) => {
-      // Resolve FK targets for tooltips
-      const dictKey = et.conceptDictionaryKey ?? mapping.conceptTables?.[0]?.key
-      const dictTable = mapping.conceptTables?.find((d) => d.key === dictKey)
-      const conceptFkTarget = dictTable ? `${dictTable.table}.${dictTable.idColumn}` : undefined
-      const patientFkTarget = mapping.patientTable ? `${mapping.patientTable.table}.${mapping.patientTable.idColumn}` : undefined
-
-      const columns: ColumnDef[] = [
-        { name: et.conceptIdColumn, role: 'fk', handleId: 'fk-concept', handleType: 'source', fkTarget: conceptFkTarget },
-      ]
-      if (et.sourceConceptIdColumn) columns.push({ name: et.sourceConceptIdColumn, role: 'fk' })
-      if (et.patientIdColumn) columns.push({ name: et.patientIdColumn, role: 'fk', handleId: 'fk-patient', handleType: 'source', fkTarget: patientFkTarget })
-      if (et.valueColumn) columns.push({ name: et.valueColumn, role: 'value' })
-      if (et.valueStringColumn) columns.push({ name: et.valueStringColumn, role: 'value' })
-      if (et.dateColumn) columns.push({ name: et.dateColumn, role: 'date' })
-
-      nodes.push({
-        id: `event-${label}`,
-        type: 'erdTable',
-        position: { x: startX + i * NODE_W, y: row2Y },
-        zIndex: 1,
-        data: { label: `${et.table} (${label})`, tableType: 'event', columns },
-      })
+  const startX2 = centerX(events.length)
+  events.forEach((ev, i) => {
+    const dictKey = ev.conceptDictionaryKey === 'none' ? undefined : (ev.conceptDictionaryKey ?? concepts[0]?.key)
+    const dict = concepts.find((d) => d.key === dictKey)
+    const conceptTarget = dict ? `${relationLabel(dict, dict.key)}.${fieldRef(dict.fields?.concept_id)?.column ?? 'concept_id'}` : undefined
+    const id = `event-${i}`
+    nodes.push({
+      id,
+      type: 'erdTable',
+      position: { x: startX2 + i * NODE_W, y: row2Y },
+      zIndex: 1,
+      data: {
+        label: ev.from ? `${ev.from.table} (${ev.label})` : ev.label,
+        tableType: 'event',
+        columns: relationColumns('event', ev, { patient_id: patientTarget, concept_id: conceptTarget }),
+      },
     })
-  }
+    if (dict) {
+      edges.push({ id: `e-${id}-concept`, source: id, sourceHandle: 'fk-concept', target: `concept-${dict.key}`, targetHandle: 'pk', type: 'smoothstep', style: EDGE_STYLE })
+    }
+    if (mapping.patient && ev.fields?.patient_id && !ev.customSql?.trim()) {
+      edges.push({ id: `e-${id}-patient`, source: id, sourceHandle: 'fk-patient', target: 'patient', targetHandle: 'pk', type: 'smoothstep', style: EDGE_STYLE })
+    }
+  })
 
-  // Build edges from FK handles
   // Visit → Patient
-  if (mapping.visitTable && mapping.patientTable) {
-    edges.push({
-      id: 'e-visit-patient',
-      source: `visit-${mapping.visitTable.table}`,
-      sourceHandle: 'fk-patient',
-      target: `patient-${mapping.patientTable.table}`,
-      targetHandle: 'pk',
-      type: 'smoothstep',
-      style: { stroke: 'var(--color-muted-foreground)', strokeWidth: 1.5, opacity: 0.35 },
-    })
-  }
-
-  // Event tables → Concept dictionary + Patient
-  if (mapping.eventTables) {
-    const eventEntries = Object.entries(mapping.eventTables)
-    eventEntries.forEach(([label, et]: [string, EventTable]) => {
-      // Event → Concept dictionary
-      const dictKey = et.conceptDictionaryKey ?? mapping.conceptTables?.[0]?.key
-      if (dictKey) {
-        edges.push({
-          id: `e-${label}-concept`,
-          source: `event-${label}`,
-          sourceHandle: 'fk-concept',
-          target: `concept-${dictKey}`,
-          targetHandle: 'pk',
-          type: 'smoothstep',
-          style: { stroke: 'var(--color-muted-foreground)', strokeWidth: 1.5, opacity: 0.35 },
-        })
-      }
-      // Event → Patient
-      if (et.patientIdColumn && mapping.patientTable) {
-        edges.push({
-          id: `e-${label}-patient`,
-          source: `event-${label}`,
-          sourceHandle: 'fk-patient',
-          target: `patient-${mapping.patientTable.table}`,
-          targetHandle: 'pk',
-          type: 'smoothstep',
-          style: { stroke: 'var(--color-muted-foreground)', strokeWidth: 1.5, opacity: 0.35 },
-        })
-      }
-    })
+  if (mapping.visit?.fields?.patient_id && mapping.patient && !mapping.visit.customSql?.trim()) {
+    edges.push({ id: 'e-visit-patient', source: 'visit', sourceHandle: 'fk-patient', target: 'patient', targetHandle: 'pk', type: 'smoothstep', style: EDGE_STYLE })
   }
 
   return { nodes, edges }
@@ -356,10 +298,11 @@ export function SchemaERD({
   fullscreen?: boolean
 }) {
   const hasContent =
-    mapping.patientTable ||
-    mapping.visitTable ||
-    (mapping.conceptTables && mapping.conceptTables.length > 0) ||
-    (mapping.eventTables && Object.keys(mapping.eventTables).length > 0)
+    mapping.patient ||
+    mapping.visit ||
+    (mapping.concepts?.length ?? 0) > 0 ||
+    (mapping.events?.length ?? 0) > 0 ||
+    (mapping.drugs?.length ?? 0) > 0
 
   if (!hasContent) {
     return (

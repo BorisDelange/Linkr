@@ -41,6 +41,7 @@ import type {
   CriteriaType,
   CriteriaConfig,
   SchemaMapping,
+  PatientSpec,
   CohortLevel,
 } from '@/types'
 
@@ -54,7 +55,7 @@ interface CriteriaGroupNodeComponentProps {
   onUpdateNode: (id: string, changes: Partial<CriteriaTreeNode>) => void
   onMoveNode: (groupId: string, fromIdx: number, toIdx: number) => void
   eventTableLabels: string[]
-  genderValues?: SchemaMapping['genderValues']
+  genderValues?: PatientSpec['genderValues']
   visitDateRange?: { minDate: string; maxDate: string }
   dataSourceId?: string
   schemaMapping?: SchemaMapping

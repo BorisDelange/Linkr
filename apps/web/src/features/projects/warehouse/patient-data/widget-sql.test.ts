@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { buildWidgetQueries, supportsCustomSql } from './widget-sql'
-import type { SchemaMapping } from '@/types'
 
 // The SQL tab exists to answer "why does this widget show no data?". A builder
 // returning null is the interesting case: it means the mapping or the config is
 // incomplete, and `missing` must name which field — a blank editor would tell the
 // user nothing.
 
-const fullMapping = {
+const fullMapping_V1: any = {
   patientTable: { table: 'person', idColumn: 'person_id', genderColumn: 'gender_concept_id' },
   visitTable: {
     table: 'visit_occurrence',
@@ -32,7 +32,8 @@ const fullMapping = {
       valueColumn: 'value_as_number',
     },
   },
-} as unknown as SchemaMapping
+}
+const fullMapping = mappingV1ToV2(fullMapping_V1)
 
 const TIMELINE = 'linkr-widget-timeline'
 const NOTES = 'linkr-widget-notes'
@@ -65,7 +66,7 @@ describe('buildWidgetQueries', () => {
   })
 
   it('names the event tables when the mapping has none, not the concepts', () => {
-    const noEvents = { ...fullMapping, eventTables: undefined } as unknown as SchemaMapping
+    const noEvents = mappingV1ToV2({ ...fullMapping_V1, eventTables: undefined } as never)
     const [q] = buildWidgetQueries({
       pluginId: TIMELINE,
       config: { conceptIds: [3027018] },
@@ -74,11 +75,11 @@ describe('buildWidgetQueries', () => {
       visitId: null,
     })
     expect(q.sql).toBeNull()
-    expect(q.missing).toBe('schemaMapping.eventTables')
+    expect(q.missing).toBe('schemaMapping.events')
   })
 
   it('names the note table when notes cannot be queried', () => {
-    const noNotes = { ...fullMapping, noteTable: undefined } as unknown as SchemaMapping
+    const noNotes = mappingV1ToV2({ ...fullMapping_V1, noteTable: undefined } as never)
     const [q] = buildWidgetQueries({
       pluginId: NOTES,
       config: {},
@@ -87,7 +88,7 @@ describe('buildWidgetQueries', () => {
       visitId: null,
     })
     expect(q.sql).toBeNull()
-    expect(q.missing).toBe('schemaMapping.noteTable')
+    expect(q.missing).toBe('schemaMapping.note')
   })
 
   it('returns the patient summary as two labelled queries', () => {
@@ -103,7 +104,7 @@ describe('buildWidgetQueries', () => {
   })
 
   it('reports the missing table per query, not for the whole widget', () => {
-    const noVisits = { ...fullMapping, visitTable: undefined } as unknown as SchemaMapping
+    const noVisits = mappingV1ToV2({ ...fullMapping_V1, visitTable: undefined } as never)
     const qs = buildWidgetQueries({
       pluginId: SUMMARY,
       config: {},
@@ -114,7 +115,7 @@ describe('buildWidgetQueries', () => {
     // Demographics still works; only the visit query is blocked.
     expect(qs[0].sql).toBeTruthy()
     expect(qs[1].sql).toBeNull()
-    expect(qs[1].missing).toBe('schemaMapping.visitTable')
+    expect(qs[1].missing).toBe('schemaMapping.visit')
   })
 
   it('flags the whole widget when no schema is mapped at all', () => {

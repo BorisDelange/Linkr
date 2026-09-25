@@ -10,6 +10,7 @@
 import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogDimensionRow, SchemaMapping, AnonymizationMode } from '@/types'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { buildJsonLd } from './jsonld'
+import { mappedTableDocs } from './mapped-tables'
 import { localized } from '@/lib/localized'
 import { DCAT_FIELDS, DCAT_VOCABULARIES, type DcatClass } from './schema'
 
@@ -274,33 +275,12 @@ function buildSchemaHtml(fullSchema?: IntrospectedTable[] | null, schemaMapping?
   const keyColumns = new Map<string, Set<string>>() // table → set of PK/FK column names
   const fkColumns = new Map<string, Set<string>>()   // table → set of FK column names
 
-  if (schemaMapping) {
-    if (schemaMapping.patientTable) {
-      mappedTableRoles.set(schemaMapping.patientTable.table, 'Patient demographics')
-      addKey(keyColumns, schemaMapping.patientTable.table, schemaMapping.patientTable.idColumn)
-    }
-    if (schemaMapping.visitTable) {
-      mappedTableRoles.set(schemaMapping.visitTable.table, 'Visit / encounter records')
-      addKey(keyColumns, schemaMapping.visitTable.table, schemaMapping.visitTable.idColumn)
-      addKey(fkColumns, schemaMapping.visitTable.table, schemaMapping.visitTable.patientIdColumn)
-    }
-    if (schemaMapping.visitDetailTable) {
-      mappedTableRoles.set(schemaMapping.visitDetailTable.table, 'Visit detail / unit stays')
-      if (schemaMapping.visitDetailTable.idColumn) addKey(keyColumns, schemaMapping.visitDetailTable.table, schemaMapping.visitDetailTable.idColumn)
-      if (schemaMapping.visitDetailTable.visitIdColumn) addKey(fkColumns, schemaMapping.visitDetailTable.table, schemaMapping.visitDetailTable.visitIdColumn)
-    }
-    if (schemaMapping.conceptTables) {
-      for (const cd of schemaMapping.conceptTables) {
-        mappedTableRoles.set(cd.table, 'Concept dictionary')
-        if (cd.idColumn) addKey(keyColumns, cd.table, cd.idColumn)
-      }
-    }
-    if (schemaMapping.eventTables) {
-      for (const [label, et] of Object.entries(schemaMapping.eventTables)) {
-        mappedTableRoles.set(et.table, label)
-        if (et.conceptIdColumn) addKey(fkColumns, et.table, et.conceptIdColumn)
-        if (et.patientIdColumn) addKey(fkColumns, et.table, et.patientIdColumn)
-      }
+  const docs = mappedTableDocs(schemaMapping)
+  for (const t of docs) {
+    mappedTableRoles.set(t.table, t.role)
+    for (const c of t.columns) {
+      if (c.key === 'pk') addKey(keyColumns, t.table, c.name)
+      else if (c.key === 'fk') addKey(fkColumns, t.table, c.name)
     }
   }
 
@@ -336,40 +316,7 @@ ${rows}
   }
 
   // Fallback: render only mapped tables from SchemaMapping (legacy)
-  const tables: { name: string; description: string; columns: { name: string; datatype: string }[] }[] = []
-
-  if (schemaMapping!.patientTable) {
-    const pt = schemaMapping!.patientTable
-    const cols = [{ name: pt.idColumn, datatype: 'integer' }]
-    if (pt.birthDateColumn) cols.push({ name: pt.birthDateColumn, datatype: 'date' })
-    if (pt.birthYearColumn) cols.push({ name: pt.birthYearColumn, datatype: 'integer' })
-    if (pt.genderColumn) cols.push({ name: pt.genderColumn, datatype: 'string' })
-    tables.push({ name: pt.table, description: 'Patient demographics', columns: cols })
-  }
-  if (schemaMapping!.visitTable) {
-    const vt = schemaMapping!.visitTable
-    const cols = [{ name: vt.idColumn, datatype: 'integer' }, { name: vt.patientIdColumn, datatype: 'integer' }, { name: vt.startDateColumn, datatype: 'datetime' }]
-    if (vt.endDateColumn) cols.push({ name: vt.endDateColumn, datatype: 'datetime' })
-    if (vt.typeColumn) cols.push({ name: vt.typeColumn, datatype: 'string' })
-    tables.push({ name: vt.table, description: 'Visit / encounter records', columns: cols })
-  }
-  if (schemaMapping!.conceptTables) {
-    for (const cd of schemaMapping!.conceptTables) {
-      if (!cd.idColumn) continue
-      const cols = [{ name: cd.idColumn, datatype: 'integer' }, { name: cd.nameColumn, datatype: 'string' }]
-      if (cd.codeColumn) cols.push({ name: cd.codeColumn, datatype: 'string' })
-      if (cd.vocabularyColumn) cols.push({ name: cd.vocabularyColumn, datatype: 'string' })
-      tables.push({ name: cd.table, description: 'Concept dictionary', columns: cols })
-    }
-  }
-  if (schemaMapping!.eventTables) {
-    for (const [label, et] of Object.entries(schemaMapping!.eventTables)) {
-      const cols = [{ name: et.conceptIdColumn, datatype: 'integer' }]
-      if (et.patientIdColumn) cols.push({ name: et.patientIdColumn, datatype: 'integer' })
-      if (et.dateColumn) cols.push({ name: et.dateColumn, datatype: 'datetime' })
-      tables.push({ name: et.table, description: label, columns: cols })
-    }
-  }
+  const tables = docs.map((t) => ({ name: t.table, description: t.role, columns: t.columns }))
 
   if (tables.length === 0) return '      <p class="schema-empty">No tables defined in schema mapping.</p>'
 

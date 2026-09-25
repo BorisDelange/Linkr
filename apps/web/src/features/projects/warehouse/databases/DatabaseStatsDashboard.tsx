@@ -40,10 +40,10 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const recordRowCounts = useDataSourceStore((s) => s.recordRowCounts)
   const keepCounts = useCallback((stats: DatabaseStatsCache) => {
-    if (!schemaMapping.patientTable) return
+    if (!schemaMapping.patient) return
     recordRowCounts(dataSourceId, {
       patientCount: stats.summary.patientCount,
-      visitCount: schemaMapping.visitTable ? stats.summary.visitCount : undefined,
+      visitCount: schemaMapping.visit ? stats.summary.visitCount : undefined,
     }).catch(() => {})
   }, [dataSourceId, schemaMapping, recordRowCounts])
   const keepCountsRef = useRef(keepCounts)

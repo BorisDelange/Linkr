@@ -1,5 +1,6 @@
 import { queryDataSource, discoverTables } from './engine'
 import { quoteTableRef } from '@/lib/format-helpers'
+import { specTables } from '@/lib/schema-classes/spec'
 import type {
   DatabaseStatsCache,
   AgePyramidBucket,
@@ -322,12 +323,9 @@ async function computeDescriptiveStats(
 /** The tables named by the schema mapping, in priority order — these are the
  *  ones the user most likely cares about, so they get counted first. */
 function mappedTableNames(mapping: SchemaMapping): string[] {
-  const names = [
-    mapping.patientTable?.table,
-    mapping.visitTable?.table,
-    mapping.visitDetailTable?.table,
-    ...Object.values(mapping.eventTables ?? {}).map((e) => e.table),
-  ].filter((t): t is string => !!t)
+  const names = [mapping.patient, mapping.visit, mapping.visitDetail, ...(mapping.events ?? [])]
+    .map((spec) => specTables(spec)[0]?.table)
+    .filter((t): t is string => !!t)
   return [...new Set(names)]
 }
 

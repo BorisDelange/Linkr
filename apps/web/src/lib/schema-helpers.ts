@@ -1,5 +1,6 @@
-import type { ConceptDictionary, EventTable, SchemaMapping } from '@/types/schema-mapping'
+import type { SchemaMapping } from '@/types/schema-mapping'
 import { isSafeIdentifier } from '@/lib/format-helpers'
+import { isMappingV1, mappingV1ToV2 } from '@/lib/schema-classes/v1'
 
 // ---------------------------------------------------------------------------
 // Trust boundary: schema-mapping identifiers
@@ -28,7 +29,26 @@ import { isSafeIdentifier } from '@/lib/format-helpers'
  *  `schema` is named outright: it is interpolated exactly like a table name but
  *  ends in neither suffix, so the pattern alone would let it through unchecked. */
 function isIdentifierField(key: string): boolean {
-  return key === 'schema' || /(^|[a-z])(table|column)s?$/i.test(key)
+  return key === 'schema' || key === 'alias' || /(^|[a-z])(table|column)s?$/i.test(key)
+}
+
+/** `alias.column`, the only shape a visual field or a join side may take. */
+const COLUMN_REF = /^[A-Za-z_]\w*\.[A-Za-z_]\w*$/
+
+/** `fields`: a string is a column reference and must look like one; an
+ *  expression or a constant is SQL/data like a cohort's custom SQL, checked by
+ *  the generator and run read-only. */
+function sanitizeFields(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'string') {
+      if (COLUMN_REF.test(v.trim())) out[k] = v.trim()
+    } else if (v && typeof v === 'object' && ('expr' in v || 'value' in v)) {
+      out[k] = v
+    }
+  }
+  return out
 }
 
 /** A `Record<string, string>` whose VALUES are identifiers — `extraColumns`,
@@ -56,6 +76,17 @@ function sanitizeNode<T>(node: T): T {
 
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === 'fields') {
+      const fields = sanitizeFields(value)
+      if (fields) out[key] = fields
+      continue
+    }
+    if (key === 'on' && Array.isArray(value)) {
+      out[key] = value.filter(
+        (pair) => Array.isArray(pair) && pair.length === 2 && pair.every((side) => typeof side === 'string' && COLUMN_REF.test(side)),
+      )
+      continue
+    }
     if (isIdentifierField(key)) {
       if (typeof value === 'string') {
         if (isSafeIdentifier(value)) out[key] = value
@@ -87,23 +118,15 @@ function sanitizeNode<T>(node: T): T {
 }
 
 /**
- * Validate every SQL identifier in a schema mapping, dropping the unsafe ones.
+ * Validate every SQL identifier in a schema mapping, dropping the unsafe ones,
+ * after converting a v1 mapping to v2 — the one place a v1 mapping is read.
  * Call this at each point a mapping enters the app from outside (import, clone,
  * seed, manual save) — never trust one that has not been through here.
  */
 export function sanitizeSchemaMapping<T extends SchemaMapping | undefined | null>(mapping: T): T {
   if (!mapping || typeof mapping !== 'object') return mapping
-  return sanitizeNode(mapping)
-}
-
-/** Get the default (first) concept dictionary. */
-function getDefaultConceptDictionary(mapping: SchemaMapping): ConceptDictionary | undefined {
-  return mapping.conceptTables?.[0]
-}
-
-/** Get a concept dictionary by key. */
-function getConceptDictionary(mapping: SchemaMapping, key: string): ConceptDictionary | undefined {
-  return mapping.conceptTables?.find((d) => d.key === key)
+  const v2 = isMappingV1(mapping) ? mappingV1ToV2(sanitizeNode(mapping)) : mapping
+  return sanitizeNode(v2) as T
 }
 
 /**
@@ -121,29 +144,6 @@ function getConceptDictionary(mapping: SchemaMapping, key: string): ConceptDicti
 export function qualify(ref: { schema?: string; table: string }): string {
   const table = `"${ref.table}"`
   return ref.schema ? `"${ref.schema}".${table}` : table
-}
-
-type PatientTable = NonNullable<SchemaMapping['patientTable']>
-
-/**
- * The patient's birth year as SQL, or null when the mapping cannot tell it: the
- * birth-year column, else MIMIC-IV's anchor pair (`anchor_year - anchor_age`).
- * Without the anchor pair every age on MIMIC-IV was unknown, and an age
- * criterion compiled to `1=1` — it kept everyone, silently.
- */
-export function birthYearSql(pt: PatientTable | undefined, alias?: string): string | null {
-  if (!pt) return null
-  const col = (c: string) => (alias ? `${alias}."${c}"` : `"${c}"`)
-  if (pt.birthYearColumn) return col(pt.birthYearColumn)
-  if (pt.anchorYearColumn && pt.anchorAgeColumn) return `(${col(pt.anchorYearColumn)} - ${col(pt.anchorAgeColumn)})`
-  return null
-}
-
-/** The columns `birthYearSql` reads, for a GROUP BY. */
-export function birthYearColumns(pt: PatientTable | undefined): string[] {
-  if (!pt) return []
-  if (pt.birthYearColumn) return [pt.birthYearColumn]
-  return pt.anchorYearColumn && pt.anchorAgeColumn ? [pt.anchorYearColumn, pt.anchorAgeColumn] : []
 }
 
 /**
@@ -164,92 +164,4 @@ export function tableListHas(tables: readonly string[], ref: { schema?: string; 
   const wanted = new Set<string>([ref.table.toLowerCase()])
   if (ref.schema) wanted.add(`${ref.schema.toLowerCase()}.${ref.table.toLowerCase()}`)
   return tables.some((t) => wanted.has(t.toLowerCase()))
-}
-
-/**
- * Same, for a lookup table named by a sibling field (`careSiteNameTable`,
- * `unitNameTable`): it has no `schema` of its own, so it inherits the one of the
- * descriptor that names it — they come from the same source, and a lookup in a
- * different schema than its table would need its own field.
- */
-export function qualifyIn(ref: { schema?: string }, table: string | undefined): string {
-  // `undefined` is accepted because every call sits behind a guard that already
-  // checked the field (`hasLookup`), which TypeScript cannot narrow through a
-  // boolean. Emitting `""` there would be a syntax error, not a wrong table, so
-  // it surfaces immediately rather than querying something unintended.
-  return qualify({ schema: ref.schema, table: table ?? '' })
-}
-
-/** Get the concept dictionary for a given event table. */
-export function getDictionaryForEvent(mapping: SchemaMapping, eventTable: EventTable): ConceptDictionary | undefined {
-  // 'none' is an explicit opt-out, distinct from "omitted": a table naming its
-  // concept inline has no dictionary to join, and falling back to the default
-  // one would join a drug name against a numeric id.
-  if (eventTable.conceptDictionaryKey === 'none') return undefined
-  if (eventTable.conceptDictionaryKey) {
-    return getConceptDictionary(mapping, eventTable.conceptDictionaryKey)
-  }
-  return getDefaultConceptDictionary(mapping)
-}
-
-/**
- * Get all event tables that reference a specific concept dictionary.
- * If dictKey matches the default (first) dictionary, also includes event tables with no explicit conceptDictionaryKey.
- */
-export function getEventTablesForDictionary(
-  mapping: SchemaMapping,
-  dictKey: string,
-): { label: string; eventTable: EventTable }[] {
-  if (!mapping.eventTables) return []
-  const defaultDict = getDefaultConceptDictionary(mapping)
-  const isDefault = defaultDict?.key === dictKey
-
-  return Object.entries(mapping.eventTables)
-    .filter(([, et]) => {
-      if (et.conceptDictionaryKey) return et.conceptDictionaryKey === dictKey
-      return isDefault
-    })
-    .map(([label, eventTable]) => ({ label, eventTable }))
-}
-
-/**
- * Build a SQL JOIN condition between an event table and its concept dictionary.
- * Handles both simple FK joins and composite (vocabulary+code) joins.
- *
- * @param eventAlias - SQL alias for the event table (e.g. 'e')
- * @param dictAlias - SQL alias for the concept dictionary table (e.g. 'c')
- * @param et - EventTable definition
- * @param dict - ConceptDictionary definition
- * @returns SQL ON clause content (without the 'ON' keyword)
- */
-export function buildConceptJoinCondition(
-  eventAlias: string,
-  dictAlias: string,
-  et: EventTable,
-  dict: ConceptDictionary,
-): string {
-  // Composite join: vocabulary + code columns (e.g. eHOP)
-  if (et.conceptVocabularyColumn && et.conceptCodeColumn && dict.vocabularyColumn && dict.codeColumn) {
-    return `${eventAlias}."${et.conceptVocabularyColumn}" = ${dictAlias}."${dict.vocabularyColumn}" AND ${eventAlias}."${et.conceptCodeColumn}" = ${dictAlias}."${dict.codeColumn}"`
-  }
-  // Simple FK join (OMOP, MIMIC, CoDOC)
-  return `${eventAlias}."${et.conceptIdColumn}" = ${dictAlias}."${dict.idColumn}"`
-}
-
-/**
- * Build a SQL WHERE condition to match a concept in an event table.
- * For simple FK: WHERE conceptIdColumn = :conceptId (OR sourceConceptIdColumn = :conceptId)
- * For composite: WHERE vocabularyColumn = :vocab AND codeColumn = :code
- */
-export function buildConceptMatchCondition(
-  tableAlias: string,
-  et: EventTable,
-  conceptIdExpr: string,
-): string {
-  const conditions: string[] = []
-  conditions.push(`${tableAlias}."${et.conceptIdColumn}" = ${conceptIdExpr}`)
-  if (et.sourceConceptIdColumn) {
-    conditions.push(`${tableAlias}."${et.sourceConceptIdColumn}" = ${conceptIdExpr}`)
-  }
-  return conditions.join(' OR ')
 }

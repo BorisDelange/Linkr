@@ -59,7 +59,7 @@ import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import type { SourceConceptFilters, SourceConceptSorting } from '@/lib/concept-mapping/mapping-queries'
 import { SUGGESTION_CATEGORIES, type SuggestionCategory } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
-import type { ConceptDictionary } from '@/types/schema-mapping'
+import { has, type ClassRelation } from '@/lib/schema-classes/relations'
 import type { ConceptMapping } from '@/types'
 import type { ExternalMappingInfo } from '@/stores/concept-mapping-store'
 
@@ -83,7 +83,7 @@ interface SourceConceptTableProps {
   filters: SourceConceptFilters
   sorting: SourceConceptSorting | null
   filterOptions: Record<string, string[]>
-  conceptDicts: ConceptDictionary[]
+  conceptDicts: readonly ClassRelation[]
   mappingStatusMap: Map<number, string>
   /** Set of source concept IDs that are mapped in another project. */
   mappedElsewhereIds: Set<number>
@@ -307,9 +307,9 @@ export function SourceConceptTable({
   const MAPPING_STATUS_OPTIONS: MappingStatusFilter[] = ['all', 'unmapped', 'mapped', 'mapped_elsewhere']
 
   // Determine which optional columns are available based on the schema dicts
-  const hasCategory = conceptDicts.some((d) => !!d.categoryColumn) || (isFileSource && (filterOptions.category?.length ?? 0) > 0)
-  const hasSubcategory = conceptDicts.some((d) => !!d.subcategoryColumn) || (isFileSource && (filterOptions.subcategory?.length ?? 0) > 0)
-  const hasExtraColumns = conceptDicts.some((d) => d.extraColumns && Object.keys(d.extraColumns).length > 0)
+  const hasCategory = conceptDicts.some((d) => has(d, 'category')) || (isFileSource && (filterOptions.category?.length ?? 0) > 0)
+  const hasSubcategory = conceptDicts.some((d) => has(d, 'subcategory')) || (isFileSource && (filterOptions.subcategory?.length ?? 0) > 0)
+  const hasExtraColumns = conceptDicts.some((d) => d.extras && Object.keys(d.extras).length > 0)
   // For file sources, check if terminology/domain/class columns exist in data
   const fileHasTerminology = isFileSource && filterOptions.terminology_name?.length > 0
   const fileHasDomain = isFileSource && filterOptions.domain_id?.length > 0

@@ -11,6 +11,7 @@ import type { DerivationJobResult, Job } from '@/lib/api/environments'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { isMappingV1 } from '@/lib/schema-classes/v1'
 import { classRelation } from '@/lib/schema-classes/relations'
 import { localized } from '@/lib/localized'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
@@ -42,7 +43,7 @@ import type {
  * stale id (unlinked since, or deleted) resolves to the fallback instead of to
  * nothing, so the screen keeps working while the user fixes the choice.
  *
- * The fallback requires `schemaMapping.patientTable` because every caller reads
+ * The fallback requires `schemaMapping.patient` because every caller reads
  * patient-scoped OMOP tables through it; an unmapped database cannot answer.
  */
 export function resolveProjectSource(
@@ -57,7 +58,7 @@ export function resolveProjectSource(
     const asked = eligible.find((ds) => ds.id === dataSourceId)
     if (asked) return asked
   }
-  return eligible.find((ds) => !!ds.schemaMapping?.patientTable)
+  return eligible.find((ds) => !!ds.schemaMapping?.patient)
 }
 
 /**
@@ -344,7 +345,13 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
           // without passing through this store, and every warehouse query
           // interpolates these table/column names straight into SQL. This array
           // is what those queries read, so this is the one gate they all share.
-          if (ds.schemaMapping) ds.schemaMapping = sanitizeSchemaMapping(ds.schemaMapping)
+          if (ds.schemaMapping) {
+            const wasV1 = isMappingV1(ds.schemaMapping)
+            ds.schemaMapping = sanitizeSchemaMapping(ds.schemaMapping)
+            // Converted from format v1 on read: written back once, so storage
+            // (and the server's exports) only ever hold v2.
+            if (wasV1) getStorage().dataSources.update(ds.id, { schemaMapping: ds.schemaMapping }).catch(() => {})
+          }
         }
         // Only the newest load may publish. In server mode `getAll()` is an HTTP
         // request, so a plain read that started first can resolve AFTER a forced

@@ -175,7 +175,7 @@ export async function buildCohortReportModel(args: {
     ? (await run(ageSql)).map((r) => ({ label: `${num(r.bin)}–${num(r.bin) + 9}`, count: count(r.n) }))
     : []
 
-  const gv = mapping.genderValues
+  const gv = mapping.patient?.genderValues
   const sexName = (v: string) =>
     v === gv?.male ? t('cohort_report.sex_male')
       : v === gv?.female ? t('cohort_report.sex_female')

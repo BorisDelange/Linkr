@@ -104,20 +104,22 @@ const ATHENA_KNOWN_TABLES = [...VOCAB_TABLES]
  * a dependency that does not exist and never did).
  */
 const ATHENA_SCHEMA_MAPPING: SchemaMapping = {
+  formatVersion: 2,
   presetId: 'athena-vocabulary' as SchemaPresetId,
   presetLabel: { en: 'ATHENA Vocabulary', fr: 'Vocabulaire ATHENA' },
-  conceptTables: [{
+  concepts: [{
     key: 'concept',
-    table: 'concept',
-    idColumn: 'concept_id',
-    nameColumn: 'concept_name',
-    codeColumn: 'concept_code',
-    vocabularyColumn: 'vocabulary_id',
-    extraColumns: {
-      domain_id: 'domain_id',
-      concept_class_id: 'concept_class_id',
-      standard_concept: 'standard_concept',
-      invalid_reason: 'invalid_reason',
+    from: { table: 'concept', alias: 'd' },
+    fields: {
+      concept_id: 'd.concept_id',
+      concept_name: 'd.concept_name',
+      concept_code: 'd.concept_code',
+      concept_terminology: 'd.vocabulary_id',
+      terminology_id: 'd.vocabulary_id',
+      extra_domain_id: 'd.domain_id',
+      extra_concept_class_id: 'd.concept_class_id',
+      extra_standard_concept: 'd.standard_concept',
+      extra_invalid_reason: 'd.invalid_reason',
     },
   }],
   knownTables: ATHENA_KNOWN_TABLES,

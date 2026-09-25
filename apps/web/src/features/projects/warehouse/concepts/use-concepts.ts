@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { queryDataSource, discoverTables } from '@/lib/duckdb/engine'
 import { withClassRelations } from '@/lib/schema-classes/inject'
+import { conceptRelations } from '@/lib/schema-classes/relations'
 import { isServerMode } from '@/lib/api-client'
 import {
   getConceptCacheStatus,
@@ -251,7 +252,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   // Stabilize the reference: `?? []` would otherwise mint a fresh empty array
   // each render, churning availableColumns and re-triggering every dependent
   // effect (notably the concepts fetch) on remount.
-  const dicts = useMemo(() => schemaMapping?.conceptTables ?? [], [schemaMapping])
+  const dicts = useMemo(() => (schemaMapping ? conceptRelations(schemaMapping) : []), [schemaMapping])
   const availableColumns = useMemo(() => computeAvailableColumns(dicts), [dicts])
 
   // ---------------------------------------------------------------------------
@@ -307,8 +308,9 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     discoverTables(dataSourceId).then((tables) => {
       // At least one concept dict table must exist. Matched through `tableListHas`
       // because discovery reports qualified names (`icu.d_items`) for a source with
-      // schemas, while the mapping keeps schema and table apart.
-      setHasConceptTable(dicts.some((d) => tableListHas(tables, d)))
+      // schemas, while the mapping keeps schema and table apart. A dictionary in
+      // SQL names no table: trusted to exist.
+      setHasConceptTable(dicts.some((d) => !d.tables[0] || tableListHas(tables, d.tables[0])))
     }).catch(() => {
       setHasConceptTable(false)
     })
@@ -352,7 +354,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
         // For _dict_key, generate from the dicts themselves
         if (dicts.length > 1) {
-          results._dict_key = dicts.map((d) => d.key)
+          results._dict_key = dicts.map((d) => d.key ?? '')
         }
 
         setFilterOptions(results)
@@ -634,7 +636,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
     setCountsRefreshing(true)
     try {
-      const cols = computeAvailableColumns(schemaMapping.conceptTables ?? [])
+      const cols = computeAvailableColumns(conceptRelations(schemaMapping))
       const selectSql = buildConceptsMaterializeQuery(schemaMapping, cols)
       if (!selectSql) {
         setRefreshError('no_concept_table')

@@ -94,7 +94,7 @@ const PROJECT_TAB_IDS = ['overview', 'statistics', 'schema'] as const
 
 /** Stand-in for a source with no data model: every clinical table is unknown, so
  *  only the table row counts can be computed. */
-const EMPTY_MAPPING: SchemaMapping = { presetId: 'none', presetLabel: { en: '', fr: '' } }
+const EMPTY_MAPPING: SchemaMapping = { formatVersion: 2, presetId: 'none', presetLabel: { en: '', fr: '' } }
 
 const statusColors: Record<string, string> = {
   connected: 'bg-green-500',
@@ -209,7 +209,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
     )
   }
 
-  const hasMappedSchema = !!source.schemaMapping?.patientTable
+  const hasMappedSchema = !!source.schemaMapping?.patient
   // Without a data model there are no patient/visit tables to count, but table
   // row counts still make sense — and that is where the refresh button lives.
   const statsMapping = source.schemaMapping ?? EMPTY_MAPPING

@@ -7,6 +7,7 @@ import { isServerMode } from '@/lib/api-client'
 import { fetchDataSourceSchema, queryDataSourceOnServer } from '@/lib/api/data-sources'
 import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
+import { grainTable } from '@/lib/schema-classes/spec'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
 const resetHooks = new Set<() => void>()
@@ -425,15 +426,11 @@ export async function computeStats(
   if (isServerMode()) {
     const tables = await fetchDataSourceSchema(dataSourceId)
     const stats: DataSourceStats = { tableCount: tables.length }
-    if (countRows && schemaMapping?.patientTable) {
-      stats.patientCount = await serverCount(
-        dataSourceId, schemaMapping.patientTable.table, schemaMapping.patientTable.schema,
-      )
-      if (schemaMapping.visitTable) {
-        stats.visitCount = await serverCount(
-          dataSourceId, schemaMapping.visitTable.table, schemaMapping.visitTable.schema,
-        )
-      }
+    const patients = grainTable(schemaMapping?.patient)
+    if (countRows && patients) {
+      stats.patientCount = await serverCount(dataSourceId, patients.table, patients.schema)
+      const visits = grainTable(schemaMapping?.visit)
+      if (visits) stats.visitCount = await serverCount(dataSourceId, visits.table, visits.schema)
     }
     return stats
   }
@@ -453,15 +450,13 @@ export async function computeStats(
     )
     const tableCount = Number(tablesResult.toArray()[0]?.cnt ?? 0)
 
-    if (schemaMapping?.patientTable) {
-      const patientCount = await safeCount(
-        conn, schema, schemaMapping.patientTable.table, schemaMapping.patientTable.schema,
-      )
-      const visitCount = schemaMapping.visitTable
-        ? await safeCount(
-            conn, schema, schemaMapping.visitTable.table, schemaMapping.visitTable.schema,
-          )
-        : 0
+    // A relation in SQL or filtered has no table to count: the counts are left
+    // to `refreshPatientCount`, which goes through the relation.
+    const patients = grainTable(schemaMapping?.patient)
+    if (patients) {
+      const patientCount = await safeCount(conn, schema, patients.table, patients.schema)
+      const visits = grainTable(schemaMapping?.visit)
+      const visitCount = visits ? await safeCount(conn, schema, visits.table, visits.schema) : 0
       return { patientCount, visitCount, tableCount }
     }
 

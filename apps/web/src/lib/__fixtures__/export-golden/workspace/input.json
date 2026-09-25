@@ -611,6 +611,16 @@
    "presetId": "omop-cdm-5-4",
    "workspaceId": "ws1",
    "mapping": {
+    "formatVersion": 2,
+    "patient": {
+     "from": {
+      "table": "person",
+      "alias": "p"
+     },
+     "fields": {
+      "patient_id": "p.person_id"
+     }
+    },
     "presetId": "omop-cdm-5-4",
     "presetLabel": {
      "en": "OMOP CDM 5.4",
@@ -619,10 +629,6 @@
     "description": {
      "en": "OMOP 5.4 subset.",
      "fr": "Sous-ensemble OMOP 5.4."
-    },
-    "patientTable": {
-     "table": "person",
-     "idColumn": "person_id"
     },
     "knownTables": [
      "person",

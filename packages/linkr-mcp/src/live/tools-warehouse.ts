@@ -7,7 +7,7 @@ import {
 import {
   buildConceptsQuery, computeAvailableColumns,
 } from '@/features/projects/warehouse/concepts/concept-queries'
-import { qualify } from '@/lib/schema-helpers'
+import { conceptRelations, dictionaryOf, eventRelation } from '@/lib/schema-classes/relations'
 import { buildCohortReportModel, CohortReportUnavailable } from '@/lib/cohort-report/model'
 import { renderReportHtml } from '@/lib/cohort-report/render-html'
 import { DEFAULT_SUPPRESSION_THRESHOLD } from '@/lib/cohort-report/suppress'
@@ -28,7 +28,7 @@ export async function cohortDatabase(cohort: Cohort): Promise<string> {
   if (own) return own
   if (!cohort.projectUid) throw new Error('This cohort has neither a project nor a database.')
   const dbs = await projectDatabases(cohort.projectUid)
-  const usable = dbs.find((d) => d.status === 'connected' && d.schemaMapping?.patientTable)
+  const usable = dbs.find((d) => d.status === 'connected' && d.schemaMapping?.patient)
   if (!usable) throw new Error('This cohort has no database and its project has no usable linked database.')
   return usable.id
 }
@@ -37,13 +37,11 @@ export async function cohortDatabase(cohort: Cohort): Promise<string> {
 async function fillConceptNames(databaseId: string, mapping: SchemaMapping, tree: Cohort['criteriaTree']) {
   const names = new Map<string, Map<number, string>>()
   for (const [label, ids] of conceptIdsByTable(tree)) {
-    const event = mapping.eventTables?.[label] as { conceptDictionaryKey?: string } | undefined
-    const dict = mapping.conceptTables?.find((d) => d.key === event?.conceptDictionaryKey)
-      ?? (mapping.conceptTables?.length === 1 ? mapping.conceptTables[0] : undefined)
-    if (!dict?.idColumn) continue
+    const event = eventRelation(mapping, label)
+    const dict = event ? dictionaryOf(mapping, event) : undefined
+    if (!dict) continue
     const rows = await api.query(databaseId,
-      `SELECT "${dict.idColumn}" AS id, "${dict.nameColumn}" AS name FROM ${qualify(dict)} `
-      + `WHERE "${dict.idColumn}" IN (${[...ids].join(', ')})`)
+      `SELECT concept_id AS id, concept_name AS name FROM ${dict.name} WHERE concept_id IN (${[...ids].join(', ')})`)
     names.set(label, new Map(rows.map((r) => [Number(r.id), String(r.name)])))
   }
   applyConceptNames(tree, names)
@@ -162,7 +160,7 @@ export function registerWarehouseTools(server: Server): void {
     }),
   }, guard(async ({ database_id, query, dictionary, limit }) => {
     const mapping = await mappingOf(database_id)
-    const dicts = mapping.conceptTables ?? []
+    const dicts = conceptRelations(mapping)
     if (dicts.length === 0) return failure('This database has no concept dictionary in its mapping.')
     const columns = computeAvailableColumns(dicts)
     const filters = { _searchFuzzy: query, ...(dictionary ? { _dict_key: [dictionary] } : {}) }
@@ -262,7 +260,7 @@ export function registerWarehouseTools(server: Server): void {
     const dbs = await projectDatabases(project_uid)
     const db = database_id
       ? dbs.find((d) => d.id === database_id)
-      : dbs.find((d) => d.status === 'connected' && d.schemaMapping?.patientTable)
+      : dbs.find((d) => d.status === 'connected' && d.schemaMapping?.patient)
     if (!db) return failure(database_id ? `Database ${database_id} is not linked to this project.` : 'No usable database in this project.')
     const prepared = await prepareCriteria(criteria ?? [], db.id)
     if (prepared.errors.length) return failure(`Not created — fix the criteria:\n- ${prepared.errors.join('\n- ')}`)

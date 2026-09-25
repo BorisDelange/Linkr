@@ -3,7 +3,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DqCustomCheck } from '@/types'
 import { qualify, tableListHas } from '@/lib/schema-helpers'
 import { quoteTableRef } from '@/lib/format-helpers'
-import { classRelation, eventRelation, has as mapped, type ClassRelation } from '@/lib/schema-classes/relations'
+import { classRelation, classRelations, eventRelations, has as mapped, type ClassRelation } from '@/lib/schema-classes/relations'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -162,21 +162,19 @@ function generateSchemaChecks(
     !!ref && tableListHas(discovered, ref)
   const checks: DqCheck[] = []
 
+  // A relation defined in SQL names no table to check; a visual one is usable
+  // when its grain table exists.
+  const usable = (rel: ClassRelation | undefined): rel is ClassRelation => !!rel && (!rel.tables[0] || has(rel.tables[0]))
+  const tableOf = (rel: ClassRelation) => rel.tables[0]?.table ?? rel.name
+  const labelOf = (rel: ClassRelation) => (rel.tables[0] ? qualify(rel.tables[0]) : rel.name)
+
   // --- Validity: table exists ---
   const mappedTables: { role: string; ref: { schema?: string; table: string } }[] = []
-  if (mapping.patientTable) mappedTables.push({ role: 'patient', ref: mapping.patientTable })
-  if (mapping.visitTable) mappedTables.push({ role: 'visit', ref: mapping.visitTable })
-  if (mapping.noteTable) mappedTables.push({ role: 'note', ref: mapping.noteTable })
-  if (mapping.visitDetailTable) mappedTables.push({ role: 'visitDetail', ref: mapping.visitDetailTable })
-  if (mapping.eventTables) {
-    for (const [label, et] of Object.entries(mapping.eventTables)) {
-      mappedTables.push({ role: `event:${label}`, ref: et })
-    }
-  }
-  if (mapping.conceptTables) {
-    for (const ct of mapping.conceptTables) {
-      mappedTables.push({ role: `concept:${ct.key}`, ref: ct })
-    }
+  for (const rel of classRelations(mapping)) {
+    const ref = rel.tables[0]
+    if (!ref) continue
+    const role = rel.key !== undefined ? `${rel.cls}:${rel.key}` : rel.specKey
+    mappedTables.push({ role, ref })
   }
 
   for (const { role, ref } of mappedTables) {
@@ -199,22 +197,20 @@ function generateSchemaChecks(
     })
   }
 
-  const pt = mapping.patientTable
-  const vt = mapping.visitTable
   const patient = classRelation(mapping, 'patient')
   const visit = classRelation(mapping, 'visit')
 
   // --- Consistency: orphan visits (visit.patientId not in patient.id) ---
-  if (pt && vt && patient && visit && has(pt) && has(vt)) {
+  if (usable(patient) && usable(visit)) {
     checks.push({
-      id: `schema_orphan_visits_${vt.table}`,
+      id: `schema_orphan_visits_${tableOf(visit)}`,
       name: 'orphanRecords',
-      description: `Visits in ${qualify(vt)} referencing non-existent patients`,
+      description: `Visits in ${labelOf(visit)} referencing non-existent patients`,
       category: 'consistency',
       severity: 'error',
       level: 'table',
       source: 'schema',
-      tableName: vt.table,
+      tableName: tableOf(visit),
       threshold: 0,
       sql: `
         SELECT COUNT(*)::BIGINT AS violated_rows,
@@ -228,14 +224,14 @@ function generateSchemaChecks(
     // --- Plausibility: temporal order (visit start ≤ end) ---
     if (mapped(visit, 'end_datetime')) {
       checks.push({
-        id: `schema_temporal_order_${vt.table}`,
+        id: `schema_temporal_order_${tableOf(visit)}`,
         name: 'temporalOrder',
-        description: `Visit start date ≤ end date in ${qualify(vt)}`,
+        description: `Visit start date ≤ end date in ${labelOf(visit)}`,
         category: 'plausibility',
         severity: 'warning',
         level: 'table',
         source: 'schema',
-        tableName: vt.table,
+        tableName: tableOf(visit),
         threshold: 0,
         sql: wrapCountSql(
           'start_datetime IS NOT NULL AND end_datetime IS NOT NULL AND start_datetime::TIMESTAMP > end_datetime::TIMESTAMP',
@@ -248,14 +244,14 @@ function generateSchemaChecks(
     const age = ageAt(patient, 'v.start_datetime')
     if (age) {
       checks.push({
-        id: `schema_plausible_age_${pt.table}`,
+        id: `schema_plausible_age_${tableOf(patient)}`,
         name: 'plausibleAge',
         description: `Patient age at visit between 0 and 130`,
         category: 'plausibility',
         severity: 'error',
         level: 'table',
         source: 'schema',
-        tableName: vt.table,
+        tableName: tableOf(visit),
         threshold: 0,
         sql: `
           SELECT COUNT(*)::BIGINT AS violated_rows,
@@ -269,23 +265,21 @@ function generateSchemaChecks(
     }
   }
 
-  const eventChecks = pt && patient && has(pt)
-    ? Object.entries(mapping.eventTables ?? {})
-      .filter(([, et]) => has(et))
-      .map(([label, et]) => ({ label, et, event: eventRelation(mapping, label)! }))
+  const eventChecks = usable(patient)
+    ? eventRelations(mapping).filter(usable).map((event) => ({ label: event.key ?? '', event }))
     : []
 
   // --- Consistency: orphan events (event.patientId not in patient.id) ---
-  for (const { label, et, event } of eventChecks) {
+  for (const { label, event } of eventChecks) {
     checks.push({
-      id: `schema_orphan_events_${et.table}`,
+      id: `schema_orphan_events_${tableOf(event)}`,
       name: 'orphanRecords',
-      description: `Records in ${qualify(et)} (${label}) referencing non-existent patients`,
+      description: `Records in ${labelOf(event)} (${label}) referencing non-existent patients`,
       category: 'consistency',
       severity: 'error',
       level: 'table',
       source: 'schema',
-      tableName: et.table,
+      tableName: tableOf(event),
       threshold: 0,
       sql: `
         SELECT COUNT(*)::BIGINT AS violated_rows,
@@ -304,17 +298,17 @@ function generateSchemaChecks(
     const beforeBirth = mapped(patient, 'birth_date')
       ? 'COALESCE(e.start_datetime::TIMESTAMP < p.birth_date::TIMESTAMP, EXTRACT(YEAR FROM e.start_datetime::TIMESTAMP) < p.birth_year)'
       : 'EXTRACT(YEAR FROM e.start_datetime::TIMESTAMP) < p.birth_year'
-    for (const { label, et, event } of eventChecks) {
+    for (const { label, event } of eventChecks) {
       if (!mapped(event, 'start_datetime')) continue
       checks.push({
-        id: `schema_event_after_birth_${et.table}`,
+        id: `schema_event_after_birth_${tableOf(event)}`,
         name: 'eventAfterBirth',
-        description: `Events in ${qualify(et)} (${label}) occur after patient birth`,
+        description: `Events in ${labelOf(event)} (${label}) occur after patient birth`,
         category: 'plausibility',
         severity: 'error',
         level: 'table',
         source: 'schema',
-        tableName: et.table,
+        tableName: tableOf(event),
         threshold: 0,
         sql: `
           SELECT COUNT(*)::BIGINT AS violated_rows,
@@ -329,16 +323,16 @@ function generateSchemaChecks(
   }
 
   // --- Completeness: patient coverage per event table ---
-  for (const { label, et, event } of eventChecks) {
+  for (const { label, event } of eventChecks) {
     checks.push({
-      id: `schema_patient_coverage_${et.table}`,
+      id: `schema_patient_coverage_${tableOf(event)}`,
       name: 'patientCoverage',
-      description: `% of patients with ≥1 record in ${qualify(et)} (${label})`,
+      description: `% of patients with ≥1 record in ${labelOf(event)} (${label})`,
       category: 'completeness',
       severity: 'notice',
       level: 'table',
       source: 'schema',
-      tableName: et.table,
+      tableName: tableOf(event),
       threshold: 100, // Informational — always passes, user sees the %
       sql: `
         SELECT

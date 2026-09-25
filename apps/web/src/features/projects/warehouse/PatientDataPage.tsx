@@ -275,7 +275,7 @@ export function PatientDataPage() {
   }
 
   // No patient table in schema
-  if (!schemaMapping?.patientTable) {
+  if (!schemaMapping?.patient) {
     return (
       <div className="h-full overflow-auto">
         <div className="mx-auto max-w-3xl px-6 py-10">

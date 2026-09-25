@@ -1,4 +1,5 @@
-import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
+import type { SchemaMapping } from '@/types/schema-mapping'
+import { conceptIdentity, type ConceptIdentity } from '@/lib/schema-classes/spec'
 import { escSql as esc } from '@/lib/format-helpers'
 import { buildFuzzySearchSql } from '@/lib/fuzzy-search'
 import { conceptRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
@@ -7,14 +8,15 @@ import { conceptRelation, eventRelations, has, type ClassRelation } from '@/lib/
  *  makes a source concept's identity (id column present? table name as the
  *  fallback vocabulary?), the relation for everything the SQL reads. */
 interface DictSource {
-  dict: ConceptDictionary
+  dict: ConceptIdentity
   rel: ClassRelation
 }
 
 function dictSources(mapping: SchemaMapping): DictSource[] {
-  return (mapping.conceptTables ?? []).flatMap((dict) => {
-    const rel = conceptRelation(mapping, dict.key)
-    return rel ? [{ dict, rel }] : []
+  return (mapping.concepts ?? []).flatMap(({ key }) => {
+    const rel = conceptRelation(mapping, key)
+    const dict = conceptIdentity(mapping, key)
+    return rel && dict ? [{ dict, rel }] : []
   })
 }
 
@@ -25,8 +27,8 @@ function dictSources(mapping: SchemaMapping): DictSource[] {
  * Mapping projects store these ids: the expression must not change.
  */
 function sourceIdExpr({ dict }: DictSource, alias = 'd'): string {
-  if (dict.idColumn) return `${alias}.concept_id`
-  return `(hash(${alias}.${dict.codeColumn ? 'concept_code' : 'concept_name'}) % 2147483647)::INTEGER`
+  if (dict.ownId) return `${alias}.concept_id`
+  return `(hash(${alias}.${dict.hasCode ? 'concept_code' : 'concept_name'}) % 2147483647)::INTEGER`
 }
 
 /** A source concept's vocabulary: its terminology column, else the table name —
@@ -305,7 +307,7 @@ function buildConceptUnionParts(sources: DictSource[]): string[] {
     // Without a code column the id is the code, as the extraction writes it
     // (buildDictionaryPageQuery): an empty code gave every concept of the table
     // the same (vocabulary, code) key, so one mapping marked them all mapped.
-    const code = source.dict.codeColumn ? 'd.concept_code' : `CAST(${idValue} AS VARCHAR)`
+    const code = source.dict.hasCode ? 'd.concept_code' : `CAST(${idValue} AS VARCHAR)`
     const extraCols = extraAliases.map((alias) => {
       const col = source.rel.extras?.[alias]
       return `, ${col ? `d."${col}"` : 'NULL'} AS ${alias}`

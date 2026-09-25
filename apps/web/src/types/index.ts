@@ -1,5 +1,5 @@
 // Core application types
-export type { SchemaMapping, SchemaPresetId, ConceptDictionary, EventTable, CustomSchemaPreset, ErdGroup } from './schema-mapping'
+export type { SchemaMapping, SchemaPresetId, CustomSchemaPreset, ErdGroup, PatientSpec, RelationSpec, ConceptSpec, EventSpec, DrugSpec, FieldSpec, SchemaOverrides } from './schema-mapping'
 export type { ConceptList, ConceptListItem, ConceptSet, ConceptSetItem, ConceptSetTranslation, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectSourceType, MappingProjectStatus, MappingProjectStats, FileColumnMapping, FileSourceData, SourceExtraction, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, MappingEquivalence, MappingType, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore, ScoresIndex, SuggestionCategory } from './concept-mapping'
 export type { DataSourceRef, EntityRef } from './concept-mapping'
 export { SUGGESTION_CATEGORIES } from './concept-mapping'

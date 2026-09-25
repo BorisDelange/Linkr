@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import type { Cohort, DataSource, SchemaMapping } from '@/types'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
+import type { Cohort, DataSource } from '@/types'
 import {
   DERIVE_SCHEMA_NAME, createdData, defaultDeriveSchemaName, derivableReason, derivationRequest, derivedDatabaseRow,
   isWritableTarget, rebuildRequest,
 } from './cohort-derive'
 
-const mapping = {
+const mapping = mappingV1ToV2({
   presetId: 'omop',
   patientTable: { table: 'person', idColumn: 'person_id' },
   visitTable: { table: 'visit_occurrence', idColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'd' },
-} as SchemaMapping
+} as never)
 
 const db = (over: Partial<DataSource> = {}): DataSource => ({
   id: 'db1', alias: 'db', name: { en: 'Parent' }, sourceType: 'database', workspaceId: 'ws',
@@ -37,7 +38,7 @@ describe('derivableReason', () => {
     expect(derivableReason(cohort(), db())).toBeNull()
     expect(derivableReason(cohort({ customSql: 'SELECT 1' }), db())).toBe('custom-sql')
     expect(derivableReason(cohort({ level: 'event' }), db())).toBe('event-level')
-    expect(derivableReason(cohort(), db({ schemaMapping: { presetId: 'x' } as SchemaMapping }))).toBe('no-mapping')
+    expect(derivableReason(cohort(), db({ schemaMapping: mappingV1ToV2({ presetId: 'x' } as never) }))).toBe('no-mapping')
   })
 })
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { buildValueDistributionQuery, buildValueHistogramQuery } from './concept-queries'
 import { isFreshCachedStats, HISTOGRAM_VARIANT, type ConceptStats } from './use-concepts'
-import type { SchemaMapping } from '@/types/schema-mapping'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 
 // A dictionary spans several event tables, and which one holds a given concept
@@ -10,7 +10,7 @@ import { withClassRelations } from '@/lib/schema-classes/inject'
 // for every concept stored in another one — an OMOP measurement read from
 // `observation` because that table happened to be declared first.
 
-const MAPPING: SchemaMapping = {
+const MAPPING_V1 = {
   conceptTables: [{ key: 'omop', table: 'concept', idColumn: 'concept_id', nameColumn: 'concept_name' }],
   eventTables: {
     // Declared FIRST on purpose: the bug picked whichever came first.
@@ -27,7 +27,8 @@ const MAPPING: SchemaMapping = {
       valueColumn: 'value_as_number',
     },
   },
-} as unknown as SchemaMapping
+} as const
+const MAPPING = mappingV1ToV2(MAPPING_V1 as never)
 
 describe('buildValueDistributionQuery', () => {
   it('reads every event table of the dictionary, not just the first', () => {
@@ -52,20 +53,20 @@ describe('buildValueDistributionQuery', () => {
   })
 
   it('returns null when no event table records a value', () => {
-    const noValues = {
-      conceptTables: MAPPING.conceptTables,
+    const noValues = mappingV1ToV2({
+      conceptTables: MAPPING_V1.conceptTables,
       eventTables: {
         condition: { table: 'condition_occurrence', conceptIdColumn: 'condition_concept_id' },
       },
-    } as unknown as SchemaMapping
+    } as never)
     expect(buildValueDistributionQuery(noValues, 'omop', 1)).toBeNull()
   })
 
   it('still works when a single table declares a value column', () => {
-    const one = {
-      conceptTables: MAPPING.conceptTables,
-      eventTables: { measurement: MAPPING.eventTables!.measurement },
-    } as unknown as SchemaMapping
+    const one = mappingV1ToV2({
+      conceptTables: MAPPING_V1.conceptTables,
+      eventTables: { measurement: MAPPING_V1.eventTables.measurement },
+    } as never)
     const sql = buildValueDistributionQuery(one, 'omop', 3024171)!
     expect(sql).toContain('FROM linkr_event_measurement')
     expect(sql).not.toContain('UNION ALL')

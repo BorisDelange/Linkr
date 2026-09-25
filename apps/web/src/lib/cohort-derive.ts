@@ -67,7 +67,7 @@ export function derivableReason(definition: DerivationDefinition, source: DataSo
   // rows in no known shape, so there is nothing to filter the tables on.
   if (definition.customSql) return 'custom-sql'
   if (definition.level === 'event') return 'event-level'
-  if (!source.schemaMapping?.patientTable) return 'no-mapping'
+  if (!source.schemaMapping?.patient) return 'no-mapping'
   if (!buildCohortMembershipSql(definition as Cohort, source.schemaMapping)) return 'no-mapping'
   return null
 }

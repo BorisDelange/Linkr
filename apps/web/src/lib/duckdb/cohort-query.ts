@@ -922,7 +922,7 @@ function buildSubqueryLink(
 function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTable: string): string {
   const cols: string[] = [`${baseTable}.${getIdColumn(level, mapping)} AS id`]
   const patient = classRelation(mapping, 'patient')
-  const gv = mapping.genderValues
+  const gv = mapping.patient?.genderValues
   const ref = level === 'patient' ? baseTable : 'p'
 
   // Patient ID (for visit/visit_detail levels)
@@ -1001,7 +1001,7 @@ export function getNodeLabel(node: CriteriaTreeNode, mapping?: SchemaMapping): s
       // property of the mapping (8532 is OMOP's female, another CDM's is not).
       // The picker named them when they were chosen, so an attrition step must
       // not read back "Sex: 8532".
-      const gv = mapping?.genderValues
+      const gv = mapping?.patient?.genderValues
       const name = (v: string) =>
         v === gv?.male ? 'Male' : v === gv?.female ? 'Female' : v === gv?.unknown ? 'Unknown' : v
       return `${prefix}Sex: ${c.values.map(name).join(', ')}`
