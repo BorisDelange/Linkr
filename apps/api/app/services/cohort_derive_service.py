@@ -35,7 +35,8 @@ async def _source_spec(db: AsyncSession, source: DataSource) -> cohort_derive.So
 async def plan(db: AsyncSession, source: DataSource, level: str) -> list[dict]:
     spec = await _source_spec(db, source)
     connection_pool.invalidate(source.id)
-    return await asyncio.to_thread(cohort_derive.plan, spec, source.schema_mapping or {}, level)
+    mapping = cohort_derive.effective_mapping(source.schema_mapping or {}, source.schema_overrides)
+    return await asyncio.to_thread(cohort_derive.plan, spec, mapping, level)
 
 
 def _writable_target(target: DataSource, schema_name: str, replace: bool) -> cohort_derive.TargetSpec:
@@ -125,8 +126,11 @@ async def derive(
 
     `progress(percent, line)` is told of each table as it starts. A new database
     that never held a build is removed again when this fails or is cancelled: it
-    was created for this derivation and would only be an empty card."""
-    mapping = source.schema_mapping or {}
+    was created for this derivation and would only be an empty card.
+
+    The derived database copies the EFFECTIVE mapping (base + the source's
+    overrides) as its own base, as the app does (derivedDatabaseRow)."""
+    mapping = cohort_derive.effective_mapping(source.schema_mapping or {}, source.schema_overrides)
     spec = await _source_spec(db, source)
     t = body.target
     target_spec, config, new_location = _target_spec(target, body)

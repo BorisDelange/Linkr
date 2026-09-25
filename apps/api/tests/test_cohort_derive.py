@@ -140,3 +140,40 @@ def test_a_cancelled_derivation_leaves_nothing_behind(source, tmp_path):
         assert con.execute("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = 'cohort_x'").fetchone()[0] == 0
     finally:
         con.close()
+
+
+MAPPING_V2 = {
+    "formatVersion": 2,
+    "patient": {"from": {"table": "person", "alias": "p"}, "fields": {"patient_id": "p.person_id"}},
+    "visit": {"from": {"table": "visit_occurrence", "alias": "v"}, "fields": {"visit_id": "v.visit_occurrence_id", "patient_id": "v.person_id"}},
+    "visitDetail": {
+        "from": {"table": "visit_detail", "alias": "vd"},
+        "fields": {"visit_detail_id": "vd.visit_detail_id", "visit_id": "vd.visit_occurrence_id", "patient_id": "vd.person_id"},
+    },
+    "events": [{"label": "Measurement", "from": {"table": "measurement", "alias": "e"}, "fields": {"patient_id": "e.person_id"}}],
+}
+
+
+def test_a_v2_mapping_names_the_same_id_columns_as_its_v1_twin(source):
+    assert cohort_derive.id_columns(MAPPING_V2) == cohort_derive.id_columns(MAPPING)
+    for level in ("patient", "visit", "visit_detail"):
+        assert cohort_derive.plan(source, MAPPING_V2, level) == cohort_derive.plan(source, MAPPING, level)
+
+
+def test_a_relation_in_sql_or_an_expression_names_no_id_column():
+    mapping = {
+        "formatVersion": 2,
+        "patient": {"customSql": "SELECT person_id AS patient_id FROM person", "from": {"table": "person", "alias": "p"}, "fields": {"patient_id": "p.person_id"}},
+        "visit": {"from": {"table": "v", "alias": "v"}, "fields": {"visit_id": {"expr": "v.a || v.b"}, "patient_id": "x.person_id"}},
+    }
+    ids = cohort_derive.id_columns(mapping)
+    assert ids.patient == set() and ids.visit == set()
+
+
+def test_the_database_overrides_apply_before_the_ids_are_read():
+    overrides = {"relations": {"visit": {"from": {"table": "stays", "alias": "s"}, "fields": {"visit_id": "s.stay_key", "patient_id": "s.pid"}}}}
+    effective = cohort_derive.effective_mapping(MAPPING_V2, overrides)
+    ids = cohort_derive.id_columns(effective)
+    assert "stay_key" in ids.visit and "pid" in ids.patient
+    assert cohort_derive.effective_mapping(MAPPING_V2, None) is MAPPING_V2
+    assert cohort_derive.mapping_schemas({**MAPPING_V2, "note": {"from": {"schema": "note", "table": "d", "alias": "n"}}}) == {"note"}
