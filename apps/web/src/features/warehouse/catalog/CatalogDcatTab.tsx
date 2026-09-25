@@ -40,7 +40,7 @@ import {
 } from '@/lib/dcat-ap/schema'
 import { buildJsonLd } from '@/lib/dcat-ap/jsonld'
 import type { DataCatalog, CatalogResultCache } from '@/types'
-import { birthYearColumns, birthYearSql, qualify } from '@/lib/schema-helpers'
+import { classRelation, conceptRelations, has } from '@/lib/schema-classes/relations'
 
 interface Props {
   catalog: DataCatalog
@@ -150,60 +150,56 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
         try {
           await ensureMounted(catalog.dataSourceId)
 
+          const patient = classRelation(schemaMapping, 'patient')
+          const visit = classRelation(schemaMapping, 'visit')
+
           // Unique patients count
-          if (!next['dataset.numberOfUniqueIndividuals'] && schemaMapping.patientTable) {
+          if (!next['dataset.numberOfUniqueIndividuals'] && patient) {
             try {
-              const rows = await queryDataSource(
-                catalog.dataSourceId,
-                `SELECT COUNT(*) as cnt FROM "${schemaMapping.patientTable.table}"`,
-              )
+              const rows = await queryDataSource(catalog.dataSourceId, `SELECT COUNT(*) as cnt FROM ${patient.name}`)
               const cnt = Number(rows[0]?.cnt ?? 0)
               if (cnt > 0) next['dataset.numberOfUniqueIndividuals'] = cnt
             } catch { /* ignore */ }
           }
 
-          // Min/max age
-          const pt = schemaMapping.patientTable
-          const vt = schemaMapping.visitTable
-          if (pt && vt && (!next['dataset.minTypicalAge'] || !next['dataset.maxTypicalAge'])) {
-            const birthExpr = pt.birthDateColumn
-              ? `EXTRACT(YEAR FROM AGE(MIN(vo."${vt.startDateColumn}")::TIMESTAMP, p."${pt.birthDateColumn}"::TIMESTAMP))`
-              : birthYearSql(pt, 'p')
-                ? `EXTRACT(YEAR FROM MIN(vo."${vt.startDateColumn}")::TIMESTAMP) - ${birthYearSql(pt, 'p')}`
-                : null
-            if (birthExpr) {
-              try {
-                const ageSql = `
-                  SELECT MIN(age)::INTEGER as age_min, MAX(age)::INTEGER as age_max
-                  FROM (
-                    SELECT p."${pt.idColumn}", ${birthExpr} as age
-                    FROM ${qualify(pt)} p
-                    JOIN ${qualify(vt)} vo ON vo."${vt.patientIdColumn}" = p."${pt.idColumn}"
-                    WHERE vo."${vt.startDateColumn}" IS NOT NULL
-                    GROUP BY p."${pt.idColumn}"${pt.birthDateColumn ? `, p."${pt.birthDateColumn}"` : ''}${birthYearColumns(pt).map((c) => `, p."${c}"`).join('')}
-                  ) sub WHERE age >= 0 AND age < 150
-                `
-                const rows = await queryDataSource(catalog.dataSourceId, ageSql)
-                if (rows[0]) {
-                  if (!next['dataset.minTypicalAge'] && rows[0].age_min != null) {
-                    next['dataset.minTypicalAge'] = Number(rows[0].age_min)
-                  }
-                  if (!next['dataset.maxTypicalAge'] && rows[0].age_max != null) {
-                    next['dataset.maxTypicalAge'] = Number(rows[0].age_max)
-                  }
+          // Min/max age at first stay: the exact birth date when present, else
+          // the birth year (MIMIC-IV leaves every OMOP birth_datetime empty).
+          if (patient && visit && has(patient, 'birth_year') && (!next['dataset.minTypicalAge'] || !next['dataset.maxTypicalAge'])) {
+            const byYear = 'EXTRACT(YEAR FROM MIN(vo.start_datetime)::TIMESTAMP) - p.birth_year'
+            const age = has(patient, 'birth_date')
+              ? `COALESCE(EXTRACT(YEAR FROM AGE(MIN(vo.start_datetime)::TIMESTAMP, p.birth_date::TIMESTAMP)), ${byYear})`
+              : byYear
+            try {
+              const ageSql = `
+                SELECT MIN(age)::INTEGER as age_min, MAX(age)::INTEGER as age_max
+                FROM (
+                  SELECT p.patient_id, ${age} as age
+                  FROM ${patient.name} p
+                  JOIN ${visit.name} vo ON vo.patient_id = p.patient_id
+                  WHERE vo.start_datetime IS NOT NULL
+                  GROUP BY p.patient_id, p.birth_date, p.birth_year
+                ) sub WHERE age >= 0 AND age < 150
+              `
+              const rows = await queryDataSource(catalog.dataSourceId, ageSql)
+              if (rows[0]) {
+                if (!next['dataset.minTypicalAge'] && rows[0].age_min != null) {
+                  next['dataset.minTypicalAge'] = Number(rows[0].age_min)
                 }
-              } catch { /* ignore */ }
-            }
+                if (!next['dataset.maxTypicalAge'] && rows[0].age_max != null) {
+                  next['dataset.maxTypicalAge'] = Number(rows[0].age_max)
+                }
+              }
+            } catch { /* ignore */ }
           }
 
           // Temporal coverage (admission date range)
-          if (!next['dataset.temporal'] && vt) {
+          if (!next['dataset.temporal'] && visit) {
             try {
               const dateSql = `
                 SELECT
-                  MIN("${vt.startDateColumn}")::VARCHAR as date_min,
-                  MAX("${vt.startDateColumn}")::VARCHAR as date_max
-                FROM ${qualify(vt)} WHERE "${vt.startDateColumn}" IS NOT NULL
+                  MIN(start_datetime)::VARCHAR as date_min,
+                  MAX(start_datetime)::VARCHAR as date_max
+                FROM ${visit.name} WHERE start_datetime IS NOT NULL
               `
               const rows = await queryDataSource(catalog.dataSourceId, dateSql)
               if (rows[0]?.date_min && rows[0]?.date_max) {
@@ -214,19 +210,18 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
             } catch { /* ignore */ }
           }
 
-          // Auto-detect coding systems from concept dictionary vocabulary columns
+          // Auto-detect coding systems from the concept dictionaries' terminologies
           if ((!next['dataset.codingSystem'] || (Array.isArray(next['dataset.codingSystem']) && next['dataset.codingSystem'].length === 0))) {
             const vocabNames = new Set<string>()
-            for (const cd of schemaMapping.conceptTables ?? []) {
-              if (cd.vocabularyColumn) {
-                try {
-                  const vocabSql = `SELECT DISTINCT "${cd.vocabularyColumn}" as v FROM ${qualify(cd)} WHERE "${cd.vocabularyColumn}" IS NOT NULL LIMIT 100`
-                  const rows = await queryDataSource(catalog.dataSourceId, vocabSql)
-                  for (const r of rows) {
-                    if (r.v) vocabNames.add(String(r.v).toLowerCase())
-                  }
-                } catch { /* ignore */ }
-              }
+            for (const dict of conceptRelations(schemaMapping)) {
+              if (!has(dict, 'terminology_id')) continue
+              try {
+                const vocabSql = `SELECT DISTINCT terminology_id as v FROM ${dict.name} WHERE terminology_id IS NOT NULL LIMIT 100`
+                const rows = await queryDataSource(catalog.dataSourceId, vocabSql)
+                for (const r of rows) {
+                  if (r.v) vocabNames.add(String(r.v).toLowerCase())
+                }
+              } catch { /* ignore */ }
             }
             if (vocabNames.size > 0) {
               const matched: string[] = []
