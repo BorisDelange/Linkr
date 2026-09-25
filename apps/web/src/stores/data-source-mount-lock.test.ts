@@ -103,4 +103,47 @@ describe('mounting the same source from both paths', () => {
 
     expect(mounts.count).toBe(1)
   })
+
+  it('mounts once when the connection check races a table listing', async () => {
+    const store = await freshStore()
+
+    // The schema browser fires both in the same tick.
+    const viaCheck = store.testConnection('db-1')
+    await Promise.resolve()
+    const viaListing = store.ensureMounted('db-1')
+
+    mounts.release()
+    await Promise.all([viaCheck, viaListing])
+
+    expect(mounts.count).toBe(1)
+  })
+})
+
+describe('a disconnected source', () => {
+  async function disconnectedStore() {
+    const store = await freshStore()
+    const { useDataSourceStore } = await import('./data-source-store')
+    useDataSourceStore.setState({ dataSources: [{ ...SOURCE, status: 'disconnected' } as never] })
+    return store
+  }
+
+  it('is not remounted behind the user by a query', async () => {
+    const store = await disconnectedStore()
+
+    await expect(store.ensureMounted('db-1')).rejects.toThrow(/disconnected/)
+    expect(mounts.count).toBe(0)
+  })
+
+  it('still mounts when connected explicitly', async () => {
+    const store = await disconnectedStore()
+    const { useDataSourceStore } = await import('./data-source-store')
+
+    const connecting = store.testConnection('db-1')
+    await Promise.resolve()
+    mounts.release()
+    await connecting
+
+    expect(mounts.count).toBe(1)
+    expect(useDataSourceStore.getState().dataSources[0].status).toBe('connected')
+  })
 })
