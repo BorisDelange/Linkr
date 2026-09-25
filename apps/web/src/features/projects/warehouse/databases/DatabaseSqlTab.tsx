@@ -80,6 +80,14 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
     <TooltipProvider>
     <div className="flex h-full min-h-0 flex-col px-6 pb-4">
       <div className="flex shrink-0 items-center gap-2 pb-2">
+        {outcome && (
+          <span className={outcome.kind === 'error' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+            {outcome.kind === 'error'
+              ? t('databases.sql_failed', { ms: outcome.ms })
+              : t('databases.sql_rows', { count: outcome.total, ms: outcome.ms })}
+          </span>
+        )}
+        <div className="flex-1" />
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon-xs" onClick={() => setShortcutsOpen(true)} aria-label={t('files.shortcuts')}>
@@ -88,14 +96,6 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
           </TooltipTrigger>
           <TooltipContent>{t('files.shortcuts')}</TooltipContent>
         </Tooltip>
-        <div className="flex-1" />
-        {outcome && (
-          <span className={outcome.kind === 'error' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
-            {outcome.kind === 'error'
-              ? t('databases.sql_failed', { ms: outcome.ms })
-              : t('databases.sql_rows', { count: outcome.total, ms: outcome.ms })}
-          </span>
-        )}
         <Button size="xs" className="gap-1" onClick={() => void run('all')} disabled={running}>
           {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
           {t('databases.sql_run')}
