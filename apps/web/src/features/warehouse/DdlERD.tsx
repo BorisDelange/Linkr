@@ -219,6 +219,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
       tableNodes.push({
         id: t.name,
         type: 'ddlTable',
+        zIndex: 2,
         position: pos ?? { x: 0, y: 0 },
         data: nodeData(t),
       })
@@ -251,6 +252,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
       nodes.push({
         id: `group-${group.id}`,
         type: 'ddlGroup',
+        zIndex: 0,
         position: { x: gx, y: gy },
         data: { label: group.label, color: group.color, groupId: group.id } as DdlGroupNodeData,
         style: { width: gw, height: gh },
@@ -297,6 +299,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
         nodes.push({
           id: t.name,
           type: 'ddlTable',
+          zIndex: 2,
           position: { x: gx, y: gy },
           data: nodeData(t),
           parentId: `group-${group.id}`,
@@ -324,6 +327,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
       nodes.push({
         id: `group-${group.id}`,
         type: 'ddlGroup',
+        zIndex: 0,
         position: { x: metaX, y: metaY },
         data: { label: group.label, color: group.color, groupId: group.id } as DdlGroupNodeData,
         style: { width: groupW, height: groupH },
@@ -355,6 +359,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
         nodes.push({
           id: t.name,
           type: 'ddlTable',
+          zIndex: 2,
           position: { x: ux, y: uy },
           data: nodeData(t),
         })
@@ -389,8 +394,8 @@ function HoverHandle({ node, id, type }: { node: string; id: string; type: 'sour
       {...hover}
       className={
         type === 'target'
-          ? '!w-2 !h-2 !bg-yellow-500 !border-[1px] !border-background !left-[-9px] hover:!scale-150'
-          : '!w-2 !h-2 !bg-blue-500 !border-[1px] !border-background !right-[-9px] hover:!scale-150'
+          ? '!w-2 !h-2 !bg-yellow-500 !border-[1px] !border-background !left-[-9px] hover:!shadow-[0_0_0_3px_var(--color-primary)]'
+          : '!w-2 !h-2 !bg-blue-500 !border-[1px] !border-background !right-[-9px] hover:!shadow-[0_0_0_3px_var(--color-primary)]'
       }
     />
   )
@@ -423,6 +428,7 @@ function buildFkEdges(tables: ParsedTable[]): { edges: Edge[]; referenced: Map<s
           target: target.name,
           targetHandle: `pk-${refCol}`,
           type: 'smoothstep',
+          zIndex: 1,
         })
       })
     }
@@ -494,6 +500,9 @@ function DdlCanvas({ tables, erdGroups, erdLayout, isEditing, hiddenTables, onLa
       nodeTypes={nodeTypes}
       onInit={onInit}
       onNodeClick={(_, node) => node.type === 'ddlTable' && highlight.toggle(node.id)}
+      // Groups under links under tables, set by hand: the automatic mode lifts a
+      // grouped table's links above every other table.
+      zIndexMode="manual"
       onPaneClick={highlight.clear}
       onNodesChange={isEditing ? onNodesChange : undefined}
       onNodeDragStop={isEditing ? onNodeDragStop : undefined}

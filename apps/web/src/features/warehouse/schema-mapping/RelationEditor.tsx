@@ -81,8 +81,10 @@ export function RelationEditor({
   const { t } = useTranslation()
   const [pending, setPending] = useState<RelationSpec | null>(null)
   const custom = !!spec.customSql?.trim()
+  // A join or an expression (a v1 conversion, say) stays as it is and is shown
+  // read-only; the table, the filter and the plain columns remain editable.
   const advanced = !custom && !formEditable(spec)
-  const editable = !readOnly && !custom && !advanced
+  const editable = !readOnly && !custom
 
   const change = (next: RelationSpec) => {
     if (!onChange) return
@@ -190,18 +192,7 @@ export function RelationEditor({
           </>
         )}
 
-        {advanced && (
-          <>
-            {!readOnly && <p className="text-xs text-muted-foreground">{t('schema_mapping.advanced_relation')}</p>}
-            <AdvancedSummary spec={spec} />
-            <div className="space-y-1">
-              <SectionLabel>{t('schema_mapping.fields')}</SectionLabel>
-              {fieldRows(true)}
-            </div>
-          </>
-        )}
-
-        {!custom && !advanced && (
+        {!custom && (
           <>
             <TableRow
               label={t('schema_mapping.table')}
@@ -210,6 +201,13 @@ export function RelationEditor({
               readOnly={!editable}
               onChange={(next) => change({ ...spec, from: { ...next, alias } })}
             />
+
+            {advanced && (spec.joins?.length ?? 0) > 0 && (
+              <div className="space-y-1">
+                <AdvancedSummary spec={spec} />
+                {!readOnly && <p className="text-[10px] text-muted-foreground">{t('schema_mapping.advanced_relation')}</p>}
+              </div>
+            )}
 
             {(spec.where || editable) && (
               <div className="space-y-1">
@@ -265,23 +263,16 @@ export function RelationEditor({
 // Rows
 // ---------------------------------------------------------------------------
 
-/** Where a relation the form cannot edit reads from: its tables and filter. */
+/** The joins of a relation the form cannot edit: kept as they are, changed in SQL. */
 function AdvancedSummary({ spec }: { spec: RelationSpec }) {
-  const { t } = useTranslation()
   const table = (x: RelationTable) => `${x.schema ? `${x.schema}.` : ''}${x.table} ${x.alias}`
   return (
     <div className="space-y-0.5 rounded bg-muted/50 px-2 py-1.5">
-      {spec.from && <code className="block text-xs">FROM {table(spec.from)}</code>}
       {(spec.joins ?? []).map((j, i) => (
         <code key={i} className="block text-xs">
           {j.type.toUpperCase()} JOIN {table(j)} ON {(j.on ?? []).map(([l, r]) => `${l} = ${r}`).join(' AND ')}
         </code>
       ))}
-      {spec.where && (
-        <code className="block whitespace-pre-wrap text-xs">
-          {t('schema_mapping.where')}: {spec.where}
-        </code>
-      )}
     </div>
   )
 }
@@ -383,6 +374,10 @@ function FieldRow({
     </div>
   )
 
+  // An expression, or a column of a joined table: the form keeps it as it is.
+  const locked = kind === 'expr' || (kind === 'column' && !!ref && ref.alias.toLowerCase() !== alias.toLowerCase())
+  const shown = kind === 'value' ? `'${text}'` : text
+
   if (readOnly) {
     if (value === undefined) return null
     return (
@@ -390,8 +385,30 @@ function FieldRow({
         {label}
         <code className="flex items-center gap-1 truncate text-xs">
           <Icon size={11} className="shrink-0 text-muted-foreground" />
-          {kind === 'value' ? `'${text}'` : text}
+          {shown}
         </code>
+      </div>
+    )
+  }
+
+  if (locked) {
+    return (
+      <div className="grid grid-cols-[150px_1fr_auto] items-center gap-1">
+        {label}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <code className="flex h-7 items-center gap-1 truncate rounded-md bg-muted/50 px-2 text-xs">
+                <Icon size={11} className="shrink-0 text-muted-foreground" />
+                {shown}
+              </code>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-64">{t('schema_mapping.locked_field')}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <Button variant="ghost" size="icon-sm" onClick={() => onChange(undefined)} aria-label={t('common.remove')}>
+          <X size={10} />
+        </Button>
       </div>
     )
   }

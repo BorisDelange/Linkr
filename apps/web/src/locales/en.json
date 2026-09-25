@@ -632,6 +632,7 @@
     "dictionary_replace": "Replace"
   },
   "databases": {
+    "error_file_missing": "The database « {{name}} » cannot be read: its file is no longer where it was (moved or deleted). Check its connection on the Databases page.",
     "detail_cohorts": "Cohorts",
     "location": "Location",
     "location_hint": "Where the database file is written. Linkr's data folder is managed for you; a server folder keeps the file where you want it — outside Linkr, deleting the database leaves the file in place.",
@@ -5598,10 +5599,11 @@
     "revoke_description": "« {{name}} » stops working immediately. This cannot be undone."
   },
   "schema_mapping": {
+    "locked_field": "An expression or a column of a joined table: the form keeps it as it is. Change it in SQL, or remove it to map a column instead.",
     "remove_title": "Delete this block?",
     "remove_description": "« {{name}} » and its mapping (form or SQL) will be removed from the schema. Saving makes it final.",
     "column_placeholder": "column",
-    "advanced_relation": "This relation uses joins or expressions, which the form does not edit: change it in SQL.",
+    "advanced_relation": "Joins are kept as they are; change them in SQL.",
     "contract_status_filled": "filled",
     "contract_status_missing": "required, missing",
     "contract_status_mismatch": "wrong type",
@@ -5632,7 +5634,7 @@
     "add_extra": "Add extra column",
     "hint_birth_year": "Derived from birth_date when that is mapped; this column is the fallback.",
     "hint_gender": "Leave empty: normalised from gender_source_value with the gender values below.",
-    "hint_concept_name": "Leave empty when the relation names its concepts inline (dictionary: none): the concept column is its label.",
+    "hint_concept_name": "The concept's name, when this table carries it. Leave empty with dictionary \"none\" (the concept column already holds a name, e.g. a drug name): that column is then used as the name.",
     "hint_drug_kind": "Leave empty: set from the drug kind of the relation.",
     "defined_in_sql": "Defined in SQL. The columns it fills:",
     "sql_overrides_form": "Custom SQL is in effect and overrides this form. Changing the form discards it.",

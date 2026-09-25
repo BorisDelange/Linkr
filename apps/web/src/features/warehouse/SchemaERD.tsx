@@ -122,7 +122,7 @@ function HoverHandle({ node, id, type }: { node: string; id: string; type: 'sour
       position={type === 'target' ? Position.Left : Position.Right}
       id={id}
       {...hover}
-      className={`!w-2 !h-2 !bg-muted-foreground/40 !border-[1.5px] !border-background hover:!scale-150 hover:!bg-primary ${type === 'target' ? '!left-[-13px]' : '!right-[-13px]'}`}
+      className={`!w-2 !h-2 !bg-muted-foreground/40 !border-[1.5px] !border-background hover:!bg-primary hover:!shadow-[0_0_0_3px_var(--color-primary)] ${type === 'target' ? '!left-[-13px]' : '!right-[-13px]'}`}
     />
   )
 }

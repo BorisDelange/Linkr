@@ -632,6 +632,7 @@
     "dictionary_replace": "Changer"
   },
   "databases": {
+    "error_file_missing": "La base « {{name}} » ne peut pas être lue : son fichier n'est plus à l'emplacement indiqué (déplacé ou supprimé). Vérifiez sa connexion dans la page Bases de données.",
     "detail_cohorts": "Cohortes",
     "location": "Emplacement",
     "location_hint": "Où le fichier de la base est écrit. Le dossier de données de Linkr est géré pour vous ; un dossier du serveur garde le fichier où vous le voulez — hors de Linkr, supprimer la base laisse le fichier en place.",
@@ -5598,10 +5599,11 @@
     "revoke_description": "« {{name}} » cesse de fonctionner immédiatement. Cette action est irréversible."
   },
   "schema_mapping": {
+    "locked_field": "Une expression ou une colonne d'une table jointe : le formulaire la garde telle quelle. Modifiez-la en SQL, ou retirez-la pour mapper une colonne à la place.",
     "remove_title": "Supprimer ce bloc ?",
     "remove_description": "« {{name}} » et son mapping (formulaire ou SQL) seront retirés du schéma. L'enregistrement le rend définitif.",
     "column_placeholder": "colonne",
-    "advanced_relation": "Cette relation utilise des jointures ou des expressions, que le formulaire ne modifie pas : modifiez-la en SQL.",
+    "advanced_relation": "Les jointures sont conservées telles quelles ; modifiez-les en SQL.",
     "contract_status_filled": "remplie",
     "contract_status_missing": "obligatoire, absente",
     "contract_status_mismatch": "mauvais type",
@@ -5632,7 +5634,7 @@
     "add_extra": "Ajouter une colonne",
     "hint_birth_year": "Déduite de birth_date quand elle est mappée ; cette colonne sert de repli.",
     "hint_gender": "À laisser vide : normalisé depuis gender_source_value avec les valeurs de sexe ci-dessous.",
-    "hint_concept_name": "À laisser vide quand la relation nomme ses concepts en clair (dictionnaire : aucun) : la colonne de concept sert de libellé.",
+    "hint_concept_name": "Le nom du concept, si cette table le contient. À laisser vide avec le dictionnaire « aucun » (la colonne concept contient déjà un nom, par exemple un nom de médicament) : cette colonne sert alors de nom.",
     "hint_drug_kind": "À laisser vide : fixé par le type de la relation.",
     "defined_in_sql": "Définie en SQL. Colonnes remplies :",
     "sql_overrides_form": "Un SQL modifié est actif et remplace ce formulaire. Modifier le formulaire le supprime.",

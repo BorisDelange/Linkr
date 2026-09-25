@@ -55,7 +55,8 @@ export function useErdHighlightState(edges: Edge[], showAll: boolean) {
         const hot = !!hovered && touchesHandle(e, hovered)
         const picked = !!selected && touchesNode(e, selected)
         if (!showAll && !hot && !picked) return []
-        return [{ ...e, style: hot ? ON : picked ? SELECTED : BASE, zIndex: hot || picked ? 10 : 0, animated: hot }]
+        // No z-index lift: a link drawn over the tables hides their columns.
+        return [{ ...e, style: hot ? ON : picked ? SELECTED : BASE, animated: hot }]
       }),
     [edges, hovered, selected, showAll],
   )

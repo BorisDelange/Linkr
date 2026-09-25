@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { GeneratedSqlEditor } from '@/components/editor/GeneratedSqlEditor'
 import { queryDataSource } from '@/lib/duckdb/engine'
+import { queryErrorMessage } from '@/lib/duckdb/query-error'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { CLASS_CONTRACTS, type ClassName } from '@/lib/schema-classes/contracts'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -91,7 +92,7 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
         setRows(await queryDataSource(sourceId, withClassRelations(`SELECT * FROM ${relation.name} LIMIT 100`, mapping)))
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(queryErrorMessage(e, t, previewSources.find((p) => p.id === sourceId)?.label ?? sourceId))
     } finally {
       setBusy(false)
     }
