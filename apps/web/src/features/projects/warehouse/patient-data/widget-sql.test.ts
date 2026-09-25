@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { buildWidgetQueries, supportsCustomSql } from './widget-sql'
 
 // The SQL tab exists to answer "why does this widget show no data?". A builder
@@ -7,7 +7,9 @@ import { buildWidgetQueries, supportsCustomSql } from './widget-sql'
 // incomplete, and `missing` must name which field — a blank editor would tell the
 // user nothing.
 
-const fullMapping_V1: any = {
+const fullMapping_V1: SchemaMappingV1 = {
+  presetId: 'test',
+  presetLabel: { en: 'Test' },
   patientTable: { table: 'person', idColumn: 'person_id', genderColumn: 'gender_concept_id' },
   visitTable: {
     table: 'visit_occurrence',

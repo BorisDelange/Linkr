@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { buildOverviewEventsQuery, buildOverviewInventoryQuery } from './patient-overview-queries'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 
@@ -11,7 +11,9 @@ import { withClassRelations } from '@/lib/schema-classes/inject'
  * broken row was indistinguishable from a deliberately aggregated one, at every
  * zoom level.
  */
-const mapping_V1: any = {
+const mapping_V1: SchemaMappingV1 = {
+  presetId: 'test',
+  presetLabel: { en: 'Test' },
   patientTable: { table: 'person', idColumn: 'person_id' },
   eventTables: {
     Measurement: {

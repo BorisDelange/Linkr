@@ -37,6 +37,22 @@ function sourceVocabExpr({ dict, rel }: DictSource, alias = 'd'): string {
   return has(rel, 'terminology_id') ? `${alias}.terminology_id` : `'${esc(dict.table)}'`
 }
 
+/**
+ * The (vocabulary, code) a concept of dictionary `dictKey` is known by — in
+ * mapping projects and in the vocabulary the ETL generates — as expressions over
+ * a row of its relation aliased `alias`. What a generated ETL script joins on.
+ */
+export function sourceConceptKeyExprs(
+  mapping: SchemaMapping, dictKey: string, alias = 'd',
+): { vocabulary: string; code: string } | null {
+  const source = dictSources(mapping).find((s) => s.dict.key === dictKey)
+  if (!source) return null
+  return {
+    vocabulary: sourceVocabExpr(source, alias),
+    code: source.dict.hasCode ? `${alias}.concept_code` : `CAST(${sourceIdExpr(source, alias)} AS VARCHAR)`,
+  }
+}
+
 /** The relation column behind a source-concept column alias, or null. */
 function sourceColumn({ rel }: DictSource, alias: string): string | null {
   switch (alias) {

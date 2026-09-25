@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { identityColumnsFromMapping } from './identity-columns'
 
-const mimic_V1: any = {
+const mimic_V1: SchemaMappingV1 = {
+  presetId: 'test',
+  presetLabel: { en: 'Test' },
   patientTable: { table: 'patients', idColumn: 'subject_id' },
   visitTable: { table: 'admissions', idColumn: 'hadm_id', patientIdColumn: 'subject_id', startDateColumn: 'admittime' },
   visitDetailTable: { table: 'icustays', idColumn: 'stay_id', visitIdColumn: 'hadm_id', patientIdColumn: 'subject_id', startDateColumn: 'intime' },

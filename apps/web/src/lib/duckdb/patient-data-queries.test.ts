@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import {
   buildPatientDemographicsQuery,
   buildPatientSummaryQuery,
@@ -156,7 +156,9 @@ describe('patient id search', () => {
 // non-numeric row. Every table shares one UNION ALL, so that single error empties
 // the whole widget: the branch must not be emitted at all.
 
-const timelineMapping_V1: any = {
+const timelineMapping_V1: SchemaMappingV1 = {
+  presetId: 'test',
+  presetLabel: { en: 'Test' },
   patientTable: { table: 'patients', idColumn: 'subject_id' },
   conceptTables: [
     { key: 'd_items', table: 'd_items', idColumn: 'itemid', nameColumn: 'label' },

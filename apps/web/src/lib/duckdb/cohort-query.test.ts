@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import {
   buildCohortCountSql,
   buildCohortMembershipSql,
@@ -15,7 +15,9 @@ import { withClassRelations } from '@/lib/schema-classes/inject'
 // It must return both the level id and a patient_id, and must NOT cap rows with
 // a LIMIT — a truncated snapshot would silently lose members.
 
-const mapping_V1: any = {
+const mapping_V1: SchemaMappingV1 = {
+  presetId: 'test',
+  presetLabel: { en: 'Test' },
   patientTable: { table: 'person', idColumn: 'person_id' },
   visitTable: {
     table: 'visit',
@@ -169,7 +171,7 @@ describe('age from the MIMIC-IV anchor pair', () => {
 // a real DuckDB: `word` matches "art" but not "artere", `contains` matches both,
 // and quoted input cannot escape the literal.
 describe('buildCohortCountSql free-text criterion', () => {
-  const withNotes_V1: any = {
+  const withNotes_V1: SchemaMappingV1 = {
     ...mapping_V1,
     noteTable: {
       table: 'note',

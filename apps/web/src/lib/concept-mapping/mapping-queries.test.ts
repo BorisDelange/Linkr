@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { buildFileSourceConceptsQuery, buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildSourceConceptsGroupCountQuery, buildFileSourceConceptsGroupCountQuery, buildStandardConceptSearchQuery, buildSourceConceptsRelation } from './mapping-queries'
 
-const mapping_V1: any = {
-  eventTables: [],
+const mapping_V1: SchemaMappingV1 = {
+  presetId: 'test',
+  presetLabel: { en: 'Test' },
+  eventTables: {},
   conceptTables: [
     {
       key: 'd_items',
@@ -204,8 +206,10 @@ describe('buildFileSourceConceptsGroupCountQuery — per-group totals over the f
   })
 })
 
-const vocabMapping_V1: any = {
-  eventTables: [],
+const vocabMapping_V1: SchemaMappingV1 = {
+  presetId: 'test',
+  presetLabel: { en: 'Test' },
+  eventTables: {},
   conceptTables: [
     {
       key: 'concept',

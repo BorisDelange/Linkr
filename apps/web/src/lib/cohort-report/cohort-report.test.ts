@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import type { TFunction } from 'i18next'
 import type { Cohort } from '@/types'
 import { columnChart, donut, flowchart, horizontalBars, niceScale, verticalBars } from './charts'
@@ -15,7 +15,7 @@ import { withClassRelations } from '@/lib/schema-classes/inject'
 const t = ((key: string, opts?: Record<string, unknown>) =>
   opts ? `${key}(${Object.entries(opts).map(([k, v]) => `${k}=${v}`).join(',')})` : key) as unknown as TFunction
 
-const mapping_V1: any = {
+const mapping_V1: SchemaMappingV1 = {
   presetId: 'omop', presetLabel: { en: 'OMOP' },
   patientTable: { table: 'person', idColumn: 'person_id', birthDateColumn: 'birth_datetime', genderColumn: 'gender_concept_id' },
   visitTable: { table: 'visit_occurrence', idColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'visit_start_datetime' },

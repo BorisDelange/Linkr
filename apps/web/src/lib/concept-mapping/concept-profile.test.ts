@@ -1,5 +1,5 @@
 import { withClassRelations } from '@/lib/schema-classes/inject'
-import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -25,7 +25,7 @@ import {
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 /** An OMOP-shaped mapping: FK join, both concept id columns, a ward lookup. */
-const OMOP_V1: any = {
+const OMOP_V1: SchemaMappingV1 = {
   presetId: 'omop-5.4',
   presetLabel: { en: 'OMOP CDM 5.4' },
   patientTable: { table: 'person', idColumn: 'person_id' },
