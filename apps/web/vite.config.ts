@@ -52,27 +52,25 @@ function stripCoiInServerMode(serverMode: boolean) {
 }
 
 /**
- * Publish what a boot actually downloads, as `boot-size.json`.
+ * Publish the entry chunk's size, as `boot-size.json`.
  *
- * The boot splash reports how much of the app has arrived and had no total to put
- * it against: the boot discovers its chunks as each importer parses, so nothing
- * knows the sum up front — least of all on the first visit, which is the one that
- * waits. The bundle is fully known here, so the denominator ships with the build
- * instead of being guessed from a previous run.
+ * The boot splash streams the entry chunk itself and reports how much of it has
+ * arrived; it had no total to put that against, least of all on the first visit,
+ * which is the one that waits. The bundle is fully known here, so the denominator
+ * ships with the build instead of being guessed from a previous run.
  *
- * Two things this has to match, or the bar is worse than no bar at all:
+ * It has to measure what the splash counts, or the bar is worse than none:
  *
- * - **Only what boots.** The entry chunk and its *static* imports, plus the CSS
- *   and fonts the page pulls. The lazy route chunks are most of the bundle and
- *   none of them load before the app renders, so counting them put the bar at 7%
- *   when the download was in fact complete.
- * - **Compressed bytes.** The splash measures `transferSize`, which is what came
- *   over the wire; a host serving this build gzips it. Summing the raw source
- *   compared ~1.2 MB received against a ~17 MB total.
+ * - **The entry chunk alone.** That is the one download the splash can follow
+ *   byte by byte, and the one that dominates a cold boot. A total that also
+ *   counted its static imports, CSS and fonts left the bar short of 100% when
+ *   the entry — all the numerator ever sees — had fully arrived.
+ * - **Compressed bytes.** The splash scales what it reads by the compression
+ *   ratio and records `encodedBodySize` for the next load, both of which are
+ *   wire bytes; a host serving this build gzips it.
  *
- * Dev emits no bundle (modules are served one by one, unminified) and so no file;
- * the splash falls back to what the browser measured last time, and shows the
- * count alone until then.
+ * Dev emits no bundle and so no file; the splash falls back to what the browser
+ * measured last time, and shows the count alone until then.
  */
 function injectBootBytes(): Plugin {
   return {
@@ -81,57 +79,17 @@ function injectBootBytes(): Plugin {
     // writes index.html after `closeBundle`, the last Rollup hook, so no hook can
     // put a figure in the markup and a deferred write races the process exit.
     generateBundle(_options, bundle) {
-      const sizeOf = (name: string): number => {
-        const file = bundle[name]
-        if (!file) return 0
-        const content = file.type === 'chunk' ? file.code : file.source
-        const buf = typeof content === 'string' ? Buffer.from(content) : Buffer.from(content ?? '')
-        // gzip, because that is what a static host negotiates and therefore what
-        // the splash's `transferSize` will report. Level 6 is zlib's default and
-        // close enough to what a server does at rest.
-        return gzipSync(buf, { level: 6 }).byteLength
-      }
-
-      // The boot graph: the entry and everything it imports *statically*
-      // (Rollup's `imports`, not `dynamicImports` — those are the lazy routes),
-      // plus the CSS those chunks bring in.
-      //
-      // Only code and styles: `importedAssets` also carries every image reachable
-      // from the graph — the doc screenshots alone are several MB — and the
-      // browser fetches none of them to paint the first screen. Counting them put
-      // the bar at 16% when the download was in fact done.
-      const seen = new Set<string>()
-      const walk = (name: string) => {
-        if (seen.has(name)) return
-        seen.add(name)
-        const file = bundle[name]
-        if (!file || file.type !== 'chunk') return
-        for (const imported of file.imports) walk(imported)
-        for (const css of file.viteMetadata?.importedCss ?? []) seen.add(css)
-      }
+      let bytes = 0
       for (const file of Object.values(bundle)) {
-        if (file.type === 'chunk' && file.isEntry) walk(file.fileName)
+        if (file.type !== 'chunk' || !file.isEntry) continue
+        // gzip, because that is what a static host negotiates. Level 6 is zlib's
+        // default and close enough to what a server does at rest.
+        bytes += gzipSync(Buffer.from(file.code), { level: 6 }).byteLength
       }
-
-      // Fonts are referenced by `url()` from the CSS, so no chunk imports them and
-      // the walk cannot reach them — yet they are ~100 KB of a cold boot.
-      //
-      // Counting the declarations does not work: @fontsource ships a face per
-      // weight per subset and the boot stylesheet declares 95 of them, while a
-      // browser downloads only the faces the rendered text actually needs — the
-      // four latin weights, here. Match that rather than the @font-face list.
-      const bootFonts = /inter-latin-(400|500|600|700)-normal-[^.]+\.woff2$/
-      for (const name of Object.keys(bundle)) {
-        if (bootFonts.test(name)) seen.add(name)
-      }
-
-      let total = 0
-      for (const name of seen) total += sizeOf(name)
-
       this.emitFile({
         type: 'asset',
         fileName: 'boot-size.json',
-        source: JSON.stringify({ bytes: total }),
+        source: JSON.stringify({ bytes }),
       })
     },
   }
