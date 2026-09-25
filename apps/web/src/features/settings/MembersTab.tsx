@@ -87,9 +87,9 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
   const [removeTarget, setRemoveTarget] = useState<Row | null>(null)
   const roleOptions = scope === 'project' ? PROJECT_ROLES : WORKSPACE_ROLES
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (initial = false) => {
     if (!isServerMode()) return
-    setLoading(true)
+    if (initial) setLoading(true)
     try {
       const rows =
         scope === 'workspace'
@@ -105,7 +105,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
   }, [scope, targetId, t])
 
   useEffect(() => {
-    load()
+    void load(true)
   }, [load])
 
   useEffect(() => {
@@ -154,13 +154,15 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
   const handleAdd = async () => {
     if (selectedUserIds.length === 0) return
     setBusy(true)
+    let failed = false
     try {
       for (const id of selectedUserIds) await upsert(Number(id), newRole)
       setAddOpen(false)
-      await load()
     } catch {
-      setError(t('members.save_error'))
+      failed = true
     } finally {
+      await load()
+      if (failed) setError(t('members.save_error'))
       setBusy(false)
     }
   }
@@ -277,6 +279,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
           data={loading ? [] : rows}
           columns={columns}
           rowKey={(r) => r.userId}
+          pageSize={100}
           emptyMessage={
             loading
               ? t('common.loading')
