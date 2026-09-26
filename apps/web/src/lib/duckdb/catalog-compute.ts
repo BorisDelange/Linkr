@@ -409,7 +409,7 @@ function getAgeBrackets(catalog: DataCatalog): number[] {
  * Parse the raw SQL row returned by buildPeriodRowQuery into a CatalogPeriodRow.
  * Applies anonymization threshold: values below threshold → null.
  */
-function parsePeriodRow(
+export function parsePeriodRow(
   raw: Record<string, unknown>,
   interval: PeriodInterval,
   ageBrackets: number[],
@@ -421,6 +421,11 @@ function parsePeriodRow(
     const n = v != null ? Number(v) : 0
     return n < threshold ? null : n
   }
+  // A cell's other measures (stays, rows) are masked on its PATIENT count: one
+  // patient with twelve stays is still one patient, and publishing the 12 would
+  // show the cell is not empty.
+  const maskWith = (patients: unknown, v: unknown): number | null =>
+    mask(patients) === null ? null : (v != null ? Number(v) : 0)
 
   // Age bucket labels (must match the alias generation in buildPeriodRowQuery)
   const bucketLabels: string[] = []
@@ -445,7 +450,7 @@ function parsePeriodRow(
     const aliasBase = svcLabel.replace(/[^a-zA-Z0-9]/g, '_')
     services[svcLabel] = {
       n_patients: mask(raw[`svc_${aliasBase}_pat`]),
-      n_sejours: mask(raw[`svc_${aliasBase}_sej`]),
+      n_sejours: maskWith(raw[`svc_${aliasBase}_pat`], raw[`svc_${aliasBase}_sej`]),
     }
   }
 
@@ -454,7 +459,7 @@ function parsePeriodRow(
     const aliasBase = cat.replace(/[^a-zA-Z0-9]/g, '_')
     concept_categories[cat] = {
       n_patients: mask(raw[`cat_${aliasBase}_pat`]),
-      n_rows: mask(raw[`cat_${aliasBase}_rows`]),
+      n_rows: maskWith(raw[`cat_${aliasBase}_pat`], raw[`cat_${aliasBase}_rows`]),
     }
   }
 
@@ -463,7 +468,7 @@ function parsePeriodRow(
     period_start: interval.start,
     period_label: interval.label,
     n_patients: mask(raw.n_patients),
-    n_sejours: mask(raw.n_sejours),
+    n_sejours: maskWith(raw.n_patients, raw.n_sejours),
     sex_m: mask(raw.sex_m),
     sex_f: mask(raw.sex_f),
     sex_other: mask(raw.sex_other),
