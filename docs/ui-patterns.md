@@ -160,6 +160,11 @@ order and visibility are remembered under that key, so reopening the dialog
 gives the user back the view they left. It is a module-level cache on purpose —
 meant to survive a remount, not a reload.
 
+**`pinnedRows`** holds rows above the body on every page — a totals row (`ALL`
+in the data catalog's period tables). They are not sorted, filtered, paged or
+counted, and their cells are opaque so a `pinned` column stays readable over
+them while the table scrolls sideways.
+
 Two escape hatches for what the table cannot know: **`filterCell`** places your
 own control in the filter row when a column's predicate isn't per-value (a row
 listing several providers must match a pick of any one of them), and
@@ -598,6 +603,7 @@ Check this table before writing any form field.
 | `CopyablePath` / `ParquetFilesDialog` | A server path shown as copyable code, and the "N files" + Show dialog listing a Parquet source's table → blob paths (ETL sidebar, database Connection card). |
 | `CustomSqlDot` | Marks a widget whose SQL was hand-edited; its tooltip carries the consequence (regenerating discards the edit). |
 | `ImageLightbox` / `ZoomableImage` | The full-screen image viewer (zoom, pan, reset) and the click-to-enlarge `<img>` built on it. **Every markdown view already enlarges its images** via `markdownComponents` (below) — you only reach for these directly for an image outside markdown, as `CellOutput` does for notebook figures. |
+| `StatCard` | A headline figure: tinted icon square, `text-2xl` value, label, optional `detail` line (a share, a progress bar). Link (`to`), button (`onClick`) or static. The workspace and project summaries, the catalog's Data and Anonymization tabs. Tint with an `ENTITY_COLORS` `bg` + `icon` pair. |
 | `LinkrLogo` | The logo. |
 
 ### Rendering markdown

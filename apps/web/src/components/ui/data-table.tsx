@@ -287,6 +287,13 @@ interface DataTableProps<T> {
   striped?: boolean
   /** Page, sort and filter on the server — see DataTableServer. Needs `pageSize`. */
   server?: DataTableServer
+  /**
+   * Rows held above the body on every page — a totals row. They are not
+   * sorted, filtered, paged or counted: a total that moved with the sort, or
+   * vanished behind a filter, would stop being the reference the rows are read
+   * against.
+   */
+  pinnedRows?: T[]
 }
 
 interface ViewState {
@@ -367,7 +374,7 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated', stickyHeader, density = 'default', striped, server }: DataTableProps<T>) {
+export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated', stickyHeader, density = 'default', striped, server, pinnedRows }: DataTableProps<T>) {
   const dense = density === 'compact'
   const serverMode = !!server
   const cellPad = dense ? 'px-2 py-0.5' : 'px-2 py-1'
@@ -723,6 +730,35 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
             )}
           </TableHeader>
           <TableBody>
+            {pinnedRows?.map((row) => (
+              // Opaque on every cell, not just the pinned ones: a translucent
+              // tint lets the scrolled cells show through under a pinned column.
+              <TableRow key={`pinned-${rowKey(row)}`} className="bg-muted font-medium hover:bg-muted">
+                {table.getVisibleLeafColumns().map((column) => {
+                  const col = colById.get(column.id)
+                  return (
+                    <TableCell
+                      key={column.id}
+                      className={cn(
+                        'overflow-hidden truncate bg-muted',
+                        cellPad,
+                        cellText,
+                        col?.align === 'right' && 'text-right',
+                        (col?.align ?? (col?.center ? 'center' : 'left')) === 'center' && 'text-center',
+                        col?.pinned && 'sticky z-[5]',
+                        col?.cellClassName,
+                      )}
+                      style={{
+                        maxWidth: column.getSize(),
+                        ...(col?.pinned ? { left: pinnedOffset(column.id) } : {}),
+                      }}
+                    >
+                      {col?.cell ? col.cell(row) : String((col?.display ? col.display(row) : col?.accessor(row)) ?? '')}
+                    </TableCell>
+                  )
+                })}
+              </TableRow>
+            ))}
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-16 text-center text-xs text-muted-foreground">
