@@ -327,14 +327,12 @@ def _split_statements(sql: str) -> list[str]:
 
 
 # Statements a user script may never run. `enable_external_access` is the real
-# filesystem/network gate, but it can only be set at connect time and must stay ON
-# whenever a legitimate role reads Parquet files or a mapping CSV — which is the
-# NORMAL pipeline shape, not an edge case. In that state `_lock_down_user_sql` is
-# not enough on its own: it only disables AUTO-install/load, so an explicit
-# `INSTALL httpfs; LOAD httpfs` still succeeded and handed the script outbound
-# network access. DuckDB's `allowed_directories` cannot help either — it is
-# refused before startup and, after it, only enforced while external access is
-# disabled. So the extension surface is closed here instead.
+# filesystem/network gate: it can be switched off on a running connection, with
+# `allowed_paths` naming the files that stay readable (`_forbid_file_access`, which
+# every read route applies). The ETL runner still leaves it ON whenever a role reads
+# Parquet files or a mapping CSV, and in that state `_lock_down_user_sql` only
+# disables AUTO-install/load: an explicit `INSTALL httpfs; LOAD httpfs` would hand
+# the script outbound network access. So the extension surface is closed here too.
 #
 # ATTACH is included because it opens arbitrary database files (and would also
 # collide with the role attaches the runner owns); the roles it legitimately needs
@@ -357,6 +355,37 @@ def _reject_forbidden_statements(sql: str) -> None:
         m = _FORBIDDEN_IN_USER_SQL.match(_strip_leading_noise(stmt))
         if m:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a pipeline script")
+
+
+# On a pooled connection shared by every user of a file/Parquet source, these would
+# outlive the request: DETACH/USE change the catalog for everyone, and ending the
+# transaction `_run_isolated` wraps the query in would let DDL persist.
+_FORBIDDEN_IN_SHARED_READ = re.compile(
+    r"^\s*(?:FORCE\s+)?(INSTALL|LOAD|ATTACH|DETACH|USE|BEGIN|START|COMMIT|END|ROLLBACK|ABORT)\b",
+    re.IGNORECASE,
+)
+
+
+def _reject_session_statements(sql: str) -> None:
+    for stmt in _split_statements(sql):
+        m = _FORBIDDEN_IN_SHARED_READ.match(_strip_leading_noise(stmt))
+        if m:
+            raise ValueError(f"{m.group(1).upper()} is not allowed in a query")
+
+
+def _run_isolated(con: duckdb.DuckDBPyConnection, search_path: str, sql: str, arrow: bool):
+    """`_run_read` inside a transaction that is always rolled back, so a view, table
+    or macro the query creates never reaches the next caller of the connection.
+    Session variables are not transactional, hence the explicit reset."""
+    _reject_session_statements(sql)
+    con.execute("BEGIN TRANSACTION")
+    try:
+        return _run_read(con, search_path, sql, arrow)
+    finally:
+        con.execute("ROLLBACK")
+        for (name,) in con.execute("SELECT name FROM duckdb_variables()").fetchall():
+            quoted = '"' + name.replace('"', '""') + '"'
+            con.execute(f"RESET VARIABLE {quoted}")
 
 
 def _run_statements(
@@ -464,25 +493,27 @@ def query_file(
     engine: str, path: str, sql: str, pool_key: str | None = None, arrow: bool = False,
 ):
     """Run SQL against a local DuckDB/SQLite file (server-side). Read-only file;
-    CREATE VIEW / temp tables land in the writable `memory` catalog. With
-    `pool_key`, the ATTACHed connection is kept warm across calls."""
+    CREATE VIEW / temp tables land in the writable `memory` catalog and are rolled
+    back after the call. With `pool_key`, the ATTACHed connection is kept warm
+    across calls — shared by every user of the source, hence `_run_isolated`."""
 
     def _setup() -> duckdb.DuckDBPyConnection:
         con = duckdb.connect()
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_file(con, engine, path)
         _forbid_file_access(con)
+        _lock_down_user_sql(con)
         return con
 
     if pool_key is None:
         con = _setup()
         try:
-            return _run_read(con, _file_search_path(con), sql, arrow)
+            return _run_isolated(con, _file_search_path(con), sql, arrow)
         finally:
             con.close()
 
     return connection_pool.run_pooled(
-        pool_key, _setup, lambda con: _run_read(con, _file_search_path(con), sql, arrow)
+        pool_key, _setup, lambda con: _run_isolated(con, _file_search_path(con), sql, arrow)
     )
 
 
@@ -544,18 +575,10 @@ def query_file_source(
             f"QUALIFY row_number() OVER "
             f"(PARTITION BY {dedup_partition} ORDER BY concept_id) = 1"
         )
-        # The `sql` here is arbitrary client SQL (editor-authored, mirroring the
-        # in-browser DuckDB-WASM path). Harden the connection before running it:
-        # reject INSTALL/LOAD/ATTACH outright, block auto-loading unknown/community
-        # extensions, and lock the config so the query can't re-enable anything.
-        # NOTE: DuckDB 1.5 cannot confine the local filesystem once the DB is
-        # running (allowed_directories can't be set at/after connect and
-        # enable_external_access can't be toggled), so this does NOT sandbox
-        # arbitrary local-file reads — that residual is accepted because /query is
-        # now editor-only, and editors already hold ide:execute in this app. What
-        # the statement check adds is the network: without it, httpfs could be
-        # loaded explicitly and turn a file read into outbound egress.
+        # `sql` is arbitrary client SQL (editor-authored, mirroring the in-browser
+        # DuckDB-WASM path): only the blob — or its UTF-8 transcode — stays readable.
         _reject_forbidden_statements(sql)
+        _forbid_file_access(con, [path, *file_reader.transcoded_paths(con)])
         _lock_down_user_sql(con)
         return _run_statements(con, "memory", sql, max_rows=max_rows)
     finally:
@@ -775,17 +798,18 @@ def query_parquet_folder(
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_parquet_views(con, groups)
         _forbid_file_access(con, [p for paths in groups.values() for p in paths])
+        _lock_down_user_sql(con)
         return con
 
     if pool_key is None:
         con = _setup()
         try:
-            return _run_read(con, search_path, sql, arrow)
+            return _run_isolated(con, search_path, sql, arrow)
         finally:
             con.close()
 
     return connection_pool.run_pooled(
-        pool_key, _setup, lambda con: _run_read(con, search_path, sql, arrow)
+        pool_key, _setup, lambda con: _run_isolated(con, search_path, sql, arrow)
     )
 
 
@@ -794,10 +818,12 @@ def _source_setup(
     password: str | None,
     files: list[tuple[str, str]] | None,
     known: list[str] | None,
-) -> tuple[Callable[[], duckdb.DuckDBPyConnection], str]:
-    """Return a (setup, search_path) pair that connects to the source and makes
-    its tables resolvable by bare name — the same wiring query_external/query_file/
-    query_parquet_folder use, factored out so materialize_parquet can reuse it."""
+) -> tuple[Callable[[], duckdb.DuckDBPyConnection], str, list[str]]:
+    """Return (setup, search_path, readable): a setup that connects to the source
+    and makes its tables resolvable by bare name — the same wiring query_external/
+    query_file/query_parquet_folder use, factored out so materialize_parquet can
+    reuse it — and the files its views read lazily, which must stay readable once
+    file access is cut (an attached database stays readable on its own)."""
     engine = config.get("engine")
     if engine in ("postgresql", "mysql"):
         spec = _engine_spec(config)
@@ -808,7 +834,7 @@ def _source_setup(
             _attach(con, config, password)
             return con
 
-        return _setup_ext, f"memory,{_ATTACH_ALIAS}.{scope}"
+        return _setup_ext, f"memory,{_ATTACH_ALIAS}.{scope}", []
 
     if not files:
         raise ValueError("no files for file/parquet source materialization")
@@ -824,7 +850,10 @@ def _source_setup(
             _attach_parquet_views(con, groups)
             return con
 
-        return _setup_pq, _parquet_search_path(groups)
+        return (
+            _setup_pq, _parquet_search_path(groups),
+            [p for paths in groups.values() for p in paths],
+        )
 
     path = files[0][1]
 
@@ -834,7 +863,7 @@ def _source_setup(
         _attach_file(con, str(engine), path)
         return con
 
-    return _setup_file, f"memory,{_ATTACH_ALIAS}"
+    return _setup_file, f"memory,{_ATTACH_ALIAS}", []
 
 
 def materialize_parquet(
@@ -857,12 +886,16 @@ def materialize_parquet(
     readers always see either the previous complete cache or the new one — never a
     half-written file.
     """
-    setup, search_path = _source_setup(config, password, files, known)
+    setup, search_path, readable = _source_setup(config, password, files, known)
     dest = Path(dest_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + f".tmp-{os.getpid()}-{uuid.uuid4().hex}")
     con = setup()
     try:
+        # `select_sql` is client SQL spliced into the COPY: the temp file is the only
+        # path it may write, whatever it closes the parenthesis on.
+        _forbid_file_access(con, [*readable, tmp.as_posix()])
+        _lock_down_user_sql(con)
         con.execute(f"SET search_path='{search_path}'")
         con.execute(
             f"COPY ({select_sql}) TO '{tmp.as_posix()}' (FORMAT PARQUET)"
@@ -880,8 +913,10 @@ def query_cached_parquet(path: str, sql: str) -> list[dict]:
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
         con.execute(
-            f"CREATE VIEW concepts AS SELECT * FROM read_parquet('{path}')"
+            f"CREATE VIEW concepts AS SELECT * FROM read_parquet('{_sql_path(path)}')"
         )
+        _forbid_file_access(con, [path])
+        _lock_down_user_sql(con)
         return _run_statements(con, "memory", sql)
     finally:
         con.close()
