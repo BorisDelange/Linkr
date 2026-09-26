@@ -436,3 +436,4 @@ class DatabaseLoginEntry(CamelModel):
     username: str
     remembered: bool
     last_used_at: datetime | None = None
+    session_only: bool = False

@@ -310,7 +310,7 @@ const viewCache = new Map<string, ViewState>()
  * rather than merged: starting fresh is the honest default.
  */
 function columnSignature<T>(cols: DataTableColumn<T>[]): string {
-  return cols.map((c) => c.id).join(' ')
+  return cols.map((c) => c.id).join('\0')
 }
 
 /** Sets don't survive the cache, so filters are stored as arrays. */

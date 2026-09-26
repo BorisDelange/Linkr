@@ -102,11 +102,14 @@ export function ApiTokensTab() {
     if (!revokeTarget) return
     const id = revokeTarget.id
     setRevokeTarget(null)
+    let failure: string | null = null
     try {
       await revokeApiToken(id)
-    } finally {
-      await load()
+    } catch (err) {
+      failure = errorText(err)
     }
+    await load()
+    if (failure) setLoadError(failure)
   }
 
   const statusLabel = useCallback((s: ApiTokenStatus) => t(`api_tokens.status_${s}`), [t])

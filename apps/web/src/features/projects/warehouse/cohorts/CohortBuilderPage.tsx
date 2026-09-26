@@ -280,6 +280,9 @@ export function CohortBuilder() {
             <Button
               variant={leftView ? 'secondary' : 'ghost'}
               size="icon-xs"
+              aria-label={t('cohorts.toggle_builder')}
+              aria-pressed={!!leftView}
+              disabled={!!leftView && !resultsVisible}
               onClick={() => {
                 if (leftView) { if (resultsVisible) { lastLeftView.current = leftView; setLeftView(null) } }
                 else setLeftView(lastLeftView.current)
@@ -424,6 +427,9 @@ export function CohortBuilder() {
             <Button
               variant={resultsVisible ? 'secondary' : 'ghost'}
               size="icon-xs"
+              aria-label={t('cohorts.toggle_results')}
+              aria-pressed={resultsVisible}
+              disabled={resultsVisible && !leftView}
               onClick={() => { if (!resultsVisible || leftView) setResultsVisible(!resultsVisible) }}
             >
               {resultsVisible ? <Eye size={14} /> : <EyeOff size={14} />}

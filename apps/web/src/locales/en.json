@@ -5498,6 +5498,7 @@
     "unavailable_event-level": "A report is not available at event level.",
     "unavailable_no-query": "This cohort has no query to report on yet.",
     "needs_connection": "Connect the database to generate a report.",
+    "needs_mapping": "This database has no schema mapping, so the report cannot find its patients. Set its schema in the database settings.",
     "error": "The report could not be generated: {{message}}",
     "source_title": "Data source",
     "source_database": "Database",

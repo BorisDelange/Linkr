@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment, LayoutPriority } from 'allotment'
 import 'allotment/dist/style.css'
-import { LayoutGrid, Lock, Pencil, Plus, Settings2 } from 'lucide-react'
+import { LayoutGrid, Loader2, Lock, Pencil, Plus, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { useContextRoleStore } from '@/stores/context-role-store'
 import { isServerMode } from '@/lib/api-client'
+import { deterministicId } from '@/lib/deterministic-id'
 import { cohortBoardKey, usePatientChartStore } from '@/stores/patient-chart-store'
 import { PatientChartContext } from '@/features/projects/warehouse/patient-data/PatientChartContext'
 import { PatientChartTabBar } from '@/features/projects/warehouse/patient-data/PatientChartTabBar'
@@ -80,8 +82,9 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
         ids,
         patientIds,
         count: ids.length,
-        // Stands for this run: the sidebar re-reads its pages when it changes.
-        materializedAt: `${ids.length}:${ids[0] ?? ''}:${ids[ids.length - 1] ?? ''}`,
+        // Stands for this run: the sidebar re-reads its pages when it changes,
+        // so it must change whenever any member does.
+        materializedAt: deterministicId(cohort.id, ids.join('\n')),
       },
     }
   }, [cohort, rows, level])
@@ -114,7 +117,29 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
     codeWidgets: inProject || !isServerMode(),
   }), [selectionKey, boardId, dataSourceId, schemaMapping, can, inProject])
 
-  if (!loaded) return null
+  if (!loaded) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 size={14} className="animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  const emptyBoard = (
+    <div className="flex h-full items-center justify-center p-6">
+      <EmptyState
+        icon={LayoutGrid}
+        title={t('cohorts.patients_board_empty_title')}
+        description={t('cohorts.patients_board_empty_description')}
+        action={
+          <Button size="sm" className="gap-1.5" disabled={!canWrite} onClick={() => void startConfiguring()}>
+            <Plus size={14} />
+            {t('dashboard.add_widget')}
+          </Button>
+        }
+      />
+    </div>
+  )
 
   return (
     <PatientChartContext.Provider value={context}>
@@ -167,40 +192,12 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
                     fitToHeight={board.fitToHeight ?? true}
                   />
                 ) : (
-                  <div className="flex h-full items-center justify-center p-6">
-                    <div className="flex w-full max-w-sm flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 px-4 py-12 text-center">
-                      <div className="flex size-12 items-center justify-center rounded-xl bg-muted">
-                        <LayoutGrid size={24} className="text-muted-foreground" />
-                      </div>
-                      <h3 className="mt-4 text-sm font-medium text-foreground">{t('cohorts.patients_board_empty_title')}</h3>
-                      <p className="mt-1.5 text-xs text-muted-foreground">
-                        {t('cohorts.patients_board_empty_description')}
-                      </p>
-                      <Button size="sm" className="mt-4 gap-1.5" disabled={!canWrite} onClick={() => void startConfiguring()}>
-                        <Plus size={14} />
-                        {t('dashboard.add_widget')}
-                      </Button>
-                    </div>
-                  </div>
+                  emptyBoard
                 )}
               </div>
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center p-6">
-              <div className="flex w-full max-w-sm flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 px-4 py-12 text-center">
-                <div className="flex size-12 items-center justify-center rounded-xl bg-muted">
-                  <LayoutGrid size={24} className="text-muted-foreground" />
-                </div>
-                <h3 className="mt-4 text-sm font-medium text-foreground">{t('cohorts.patients_board_empty_title')}</h3>
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  {t('cohorts.patients_board_empty_description')}
-                </p>
-                <Button size="sm" className="mt-4 gap-1.5" disabled={!canWrite} onClick={() => void startConfiguring()}>
-                  <Plus size={14} />
-                  {t('dashboard.add_widget')}
-                </Button>
-              </div>
-            </div>
+            emptyBoard
           )}
         </Allotment.Pane>
         {/* The patient sidebar of a project's boards, on the same side. */}

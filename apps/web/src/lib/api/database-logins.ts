@@ -24,6 +24,7 @@ export interface DatabaseLoginEntry {
   username: string
   remembered: boolean
   lastUsedAt: string | null
+  sessionOnly: boolean
 }
 
 export const getMyDatabaseLogin = (dataSourceId: string) =>
