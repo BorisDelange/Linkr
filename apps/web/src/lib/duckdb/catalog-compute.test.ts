@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parsePeriodRow } from './catalog-compute'
 
-const interval = { granularity: 'month' as const, start: '2020-01-01', label: 'Jan 2020' }
+const interval = { granularity: 'month' as const, start: '2020-01-01', end: '2020-01-31', label: 'Jan 2020' }
 
 describe('parsePeriodRow', () => {
   it('masks a cell’s stays and rows on its patient count, not on their own value', () => {
