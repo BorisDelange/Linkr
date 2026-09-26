@@ -282,7 +282,12 @@ def test_only_what_linkr_created_is_offered_for_removal():
     # In Linkr's own folder the file always goes; a plain connection never offers anything.
     assert created_data(DataSource(id="b", connection_config={"engine": "duckdb", "managed": True})) is None
     assert created_data(DataSource(id="c", connection_config={"engine": "postgresql", "schema": "public"})) is None
-    derived = {"target": "schema", "schemaName": "cohort_x"}
-    assert created_data(DataSource(id="d", connection_config={"engine": "postgresql", "schema": "cohort_x"}, derived_from=derived)) == "schema"
-    # Re-pointed at another schema by hand: not Linkr's to drop.
-    assert created_data(DataSource(id="e", connection_config={"engine": "postgresql", "schema": "public"}, derived_from=derived)) is None
+    pg = {"engine": "postgresql", "host": "h", "database": "d"}
+    created = {"schema": "cohort_x", "server": ["postgresql", "h", None, "d"]}
+    assert created_data(DataSource(id="d", connection_config={**pg, "schema": "cohort_x"}, linkr_created=created)) == "schema"
+    # Re-pointed at another schema, or another server, by hand: not Linkr's to drop.
+    assert created_data(DataSource(id="e", connection_config={**pg, "schema": "public"}, linkr_created=created)) is None
+    assert created_data(DataSource(id="f", connection_config={**pg, "host": "prod", "schema": "cohort_x"}, linkr_created=created)) is None
+    # Provenance a client sent (or an import carried) is display only.
+    forged = {"schemaName": "public"}
+    assert created_data(DataSource(id="g", connection_config={**pg, "schema": "public"}, derived_from=forged)) is None

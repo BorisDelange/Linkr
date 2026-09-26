@@ -94,6 +94,26 @@ def test_the_membership_query_can_only_read(source, sql):
     assert _rows(source.spec["path"], "person") == 10
 
 
+def test_the_membership_query_cannot_read_server_files(source, tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("hunter2")
+    with pytest.raises(duckdb.Error) as err:
+        cohort_derive.compute_members(source, f"SELECT CAST(content AS INTEGER) AS id, 1 AS patient_id FROM read_text('{secret}')")
+    assert "hunter2" not in str(err.value)
+
+
+def test_a_parquet_source_still_reads_its_own_files(tmp_path):
+    path = tmp_path / "person.parquet"
+    duckdb.execute(f"COPY (SELECT i AS person_id FROM range(1, 4) t(i)) TO '{path}' (FORMAT parquet)")
+    src = SourceSpec({"kind": "parquet", "files": [("person.parquet", str(path))], "known": ["person"]})
+    members = cohort_derive.compute_members(src, "SELECT person_id AS id, person_id AS patient_id FROM person")
+    assert members.num_rows == 3
+    other = tmp_path / "other.parquet"
+    duckdb.execute(f"COPY (SELECT 1 AS x) TO '{other}' (FORMAT parquet)")
+    with pytest.raises(duckdb.Error):
+        cohort_derive.compute_members(src, f"SELECT x AS id, x AS patient_id FROM read_parquet('{other}')")
+
+
 def test_a_multi_schema_source_goes_to_a_new_database_only(tmp_path):
     path = tmp_path / "mimic.duckdb"
     con = duckdb.connect(str(path))
@@ -140,3 +160,24 @@ def test_a_cancelled_derivation_leaves_nothing_behind(source, tmp_path):
         assert con.execute("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = 'cohort_x'").fetchone()[0] == 0
     finally:
         con.close()
+
+
+def test_a_failed_rebuild_keeps_the_previous_build(source, tmp_path):
+    members = cohort_derive.compute_members(source, "SELECT person_id AS id, person_id AS patient_id FROM person WHERE person_id <= 3")
+    out = tmp_path / "derived.duckdb"
+    cohort_derive.derive(source, TargetSpec("file", path=str(out), fresh_file=True), members, MAPPING, "patient", True)
+    assert _rows(out, "person") == 3
+
+    control = cohort_derive.DeriveControl()
+    control.on_table = lambda done, total, table: control.cancel() if done == 1 else None
+    with pytest.raises(cohort_derive.DeriveCancelled):
+        cohort_derive.derive(source, TargetSpec("file", path=str(out), fresh_file=True), members, MAPPING, "patient", True, control)
+    assert _rows(out, "person") == 3
+    assert not (tmp_path / "derived.duckdb.tmp").exists()
+
+
+def test_a_new_database_is_never_its_own_source(source):
+    members = cohort_derive.compute_members(source, "SELECT person_id AS id, person_id AS patient_id FROM person")
+    with pytest.raises(ValueError, match="its own file"):
+        cohort_derive.derive(source, TargetSpec("file", path=source.spec["path"], fresh_file=True), members, MAPPING, "patient", True)
+    assert _rows(source.spec["path"], "person") == 10

@@ -24,7 +24,9 @@ from app.services import cohort_access, cohort_service, dashboard_service, proje
 
 
 def cohort_snapshot(cohort) -> dict:
-    return CohortResponse.model_validate(cohort).model_dump(mode="json")
+    # Not what the server derives from the cohort: undoing an edit must not erase
+    # a later derivation's record, and a frozen membership is a whole id list.
+    return CohortResponse.model_validate(cohort).model_dump(mode="json", exclude={"derivations", "materialization"})
 
 
 def widget_snapshot(widget) -> dict:

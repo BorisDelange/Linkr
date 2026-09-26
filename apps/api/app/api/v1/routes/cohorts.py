@@ -125,15 +125,18 @@ async def delete_cohort(
 
 async def _record_materialization(
     db: AsyncSession, request: Request, user: User, cohort: Cohort, action: str, count: int | None,
-    before: dict,
+    before: dict | None,
 ) -> None:
+    """`before` None: the change cannot be undone (the snapshot does not keep a
+    frozen id list to restore)."""
     detail: dict = {"part": "materialization", "action": action, "name": {"en": ""}}
     if count is not None:
         detail["count"] = count
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action="updated",
         entity_type="cohort", entity_id=cohort.id, project_uid=cohort.project_uid, label=cohort.name,
-        detail=detail, undo={"kind": "cohort", "op": "restore", "id": cohort.id, "snapshot": before},
+        detail=detail,
+        undo={"kind": "cohort", "op": "restore", "id": cohort.id, "snapshot": before} if before is not None else None,
     )
 
 
@@ -180,7 +183,8 @@ async def materialize_cohort(
         cohort.level, table.column("id").to_pylist(), table.column("patient_id").to_pylist(),
         datetime.now(timezone.utc),
     )
-    before = undo_service.cohort_snapshot(cohort)
+    # Undone by unfreezing — only a first freeze: an earlier id list is not kept.
+    before = {**undo_service.cohort_snapshot(cohort), "materialization": None} if cohort.materialization is None else None
     cohort = await cohort_service.update(db, cohort, CohortUpdate(
         materialization=materialization, result_count=materialization["count"],
     ))
@@ -199,7 +203,6 @@ async def clear_materialization(
     cohort = await _load(db, cohort_id, user, "cohorts:write")
     if cohort.materialization is None:
         return cohort
-    before = undo_service.cohort_snapshot(cohort)
     cohort = await cohort_service.update(db, cohort, CohortUpdate(materialization=None))
-    await _record_materialization(db, request, user, cohort, "deleted", None, before)
+    await _record_materialization(db, request, user, cohort, "deleted", None, None)
     return cohort

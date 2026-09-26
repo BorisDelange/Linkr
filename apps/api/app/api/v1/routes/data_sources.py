@@ -333,7 +333,8 @@ async def derive(
     a cohort updated with the result must be one of this database's own.
 
     Every refusal that needs no data (target, name, write toggle) answers 400
-    here; the job's own failures land on the job. An external client's user is
+    here, a target another derivation is still writing 409; the job's own
+    failures land on the job. An external client's user is
     notified when the job starts and when it ends."""
     source = await _load_source(db, source_id, user, "databases:read")
     target = await _load_source(db, body.target.data_source_id, user, "databases:write")
@@ -348,12 +349,27 @@ async def derive(
         await _require_source_access(db, source, user, "databases:write")
     try:
         await cohort_derive_service.validate(db, source, target, body, user.id)
+        cohort_derive_service.reserve(target.id)
+    except cohort_derive_service.DeriveBusy as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     except cohort_derive_service.DeriveError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
     label = cohort_derive_service.job_label(source, target, body, cohort)
+    try:
+        return await _launch_derive(db, request, user, source, target, body, cohort, label)
+    except BaseException:
+        cohort_derive_service.release(target.id)
+        raise
+
+
+async def _launch_derive(
+    db: AsyncSession, request: Request, user: User, source: DataSource, target: DataSource,
+    body: DeriveRequest, cohort: Cohort | None, label: str,
+) -> JobResponse:
     job = await jobs.create(db, None, user.id, kind="derive", label=label, workspace_id=source.workspace_id)
     ids = (source.id, target.id, cohort.id if cohort else None)
+    first_build = body.target.kind == "new-database" and not (target.linkr_created or {}).get("file")
     client = notification_service.client_source(request)
     what = cohort.name if cohort is not None else ((body.derived_from or {}).get("cohort") or {}).get("name") or source.name
     workspace_id, user_id = source.workspace_id, user.id
@@ -375,6 +391,8 @@ async def derive(
             with contextlib.suppress(Exception):
                 await _notify_derivation(client, user_id, workspace_id, ids[1], what, "failed")
             raise
+        finally:
+            cohort_derive_service.release(ids[1], handle.job_id)
         await handle.log(f"{result['patient_count']} patients, {len([t for t in result['tables'] if not t['skipped']])} tables")
         await handle.set_result({
             "targetId": ids[1],
@@ -392,11 +410,12 @@ async def derive(
 
     await notification_service.record_change(
         db, user=user, source=client,
-        action="created" if body.target.kind == "new-database" and target.derived_from is None else "updated",
+        action="created" if first_build else "updated",
         entity_type="database", entity_id=target.id, project_uid=None, label=target.name,
         detail=_derivation_detail("started", what, workspace_id),
     )
     jobs.launch(job.id, run)
+    cohort_derive_service.bind_job(target.id, job.id)
     return JobResponse.model_validate(job, from_attributes=True)
 
 

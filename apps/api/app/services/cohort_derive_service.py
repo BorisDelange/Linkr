@@ -17,13 +17,18 @@ from app.models.data_source import DataSource
 from app.schemas.data_source import DeriveRequest
 from app.services import data_source_service, database_credential_service
 from app.services.database_credential_service import Login
-from app.services.data import cohort_derive, connection_pool, managed_db
+from app.services.data import cohort_derive, connection_pool, db_connect, managed_db
+from app.services.execution import jobs
 
 _SCHEMA_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 
 class DeriveError(ValueError):
     """A derivation refused for a reason the user can act on (surfaced as 400)."""
+
+
+class DeriveBusy(DeriveError):
+    """Another derivation into the same target has not finished (surfaced as 409)."""
 
 
 async def _source_spec(db: AsyncSession, source: DataSource, user_id: int) -> cohort_derive.SourceSpec:
@@ -72,15 +77,58 @@ async def _target_login(db: AsyncSession, target: DataSource, body: DeriveReques
     return await database_credential_service.resolve_login(db, target, user_id)
 
 
-def _target_spec(
-    target: DataSource, body: DeriveRequest, login: Login | None,
+def _created(source: DataSource) -> dict:
+    return source.linkr_created or {}
+
+
+def _same_database(source: DataSource, target: DataSource) -> bool:
+    if source.id == target.id:
+        return True
+    if data_source_service.is_managed(source) and data_source_service.is_managed(target):
+        return data_source_service.managed_path(source).resolve() == data_source_service.managed_path(target).resolve()
+    s, t = source.connection_config or {}, target.connection_config or {}
+    return s.get("engine") not in (None, "duckdb") and data_source_service.server_of(s) == data_source_service.server_of(t)
+
+
+def _source_scope(source: DataSource) -> str:
+    if data_source_service.is_managed(source):
+        return "main"
+    return db_connect._scope(source.connection_config or {})
+
+
+async def _check_new_database(source: DataSource, target: DataSource) -> None:
+    """A new database overwrites the target's file: only a file a derivation
+    wrote before (a rebuild), or one that holds nothing yet."""
+    if not data_source_service.is_managed(target):
+        raise DeriveError("the target must be a database Linkr creates")
+    if _same_database(source, target):
+        raise DeriveError("a database cannot be derived into itself")
+    if _created(target).get("file"):
+        return
+    connection_pool.invalidate(target.id)
+    if await asyncio.to_thread(managed_db.holds_tables, data_source_service.managed_path(target)):
+        raise DeriveError("the target database already holds data; derive into a new database")
+
+
+def _check_schema(source: DataSource, target: DataSource, schema_name: str | None, replace: bool) -> None:
+    if not schema_name or not _SCHEMA_NAME.match(schema_name):
+        raise DeriveError("the schema name must be lowercase letters, digits and underscores")
+    if _same_database(source, target) and schema_name == _source_scope(source):
+        raise DeriveError("a cohort cannot be derived into its source's own schema")
+    # Replacing drops the schema with everything in it: only one a derivation
+    # created in this very database.
+    if replace and schema_name not in _created(target).get("schemas", []):
+        raise DeriveError("only a schema a derivation created in this database can be replaced")
+
+
+async def _target_spec(
+    source: DataSource, target: DataSource, body: DeriveRequest, login: Login | None,
 ) -> tuple[cohort_derive.TargetSpec, dict | None, str | None]:
     """Where the copy lands, and for a new database the config and newly claimed
     location it is written under. Raises DeriveError before anything runs."""
     t = body.target
     if t.kind == "new-database":
-        if not data_source_service.is_managed(target):
-            raise DeriveError("the target must be a database Linkr creates")
+        await _check_new_database(source, target)
         try:
             config, new_location = data_source_service.claim_managed_location(target, t.path)
         except ValueError as exc:
@@ -88,10 +136,35 @@ def _target_spec(
         spec = cohort_derive.TargetSpec("file", path=str(managed_db.path_of(target.id, config)), fresh_file=True)
         return spec, config, new_location
     if t.kind == "schema":
-        if not t.schema_name or not _SCHEMA_NAME.match(t.schema_name):
-            raise DeriveError("the schema name must be lowercase letters, digits and underscores")
+        _check_schema(source, target, t.schema_name, t.replace)
         return _writable_target(target, t.schema_name, t.replace, login), None, None
     raise DeriveError(f"unknown target kind {t.kind!r}")
+
+
+# Target id → the job deriving into it (None while that job is being created).
+# In memory: jobs run in this process, and none survives a restart.
+_running: dict[str, str | None] = {}
+
+
+def reserve(target_id: str) -> None:
+    """Claim `target_id` for one derivation, or raise DeriveBusy: two builds into
+    one target would overwrite each other's file or schema. Synchronous, so no
+    other request can slip in between the check and the claim."""
+    if target_id in _running:
+        job_id = _running[target_id]
+        task = jobs._tasks.get(job_id) if job_id else None
+        if job_id is None or (task is not None and not task.done()):
+            raise DeriveBusy("a derivation into this database is already queued or running")
+    _running[target_id] = None
+
+
+def bind_job(target_id: str, job_id: str) -> None:
+    _running[target_id] = job_id
+
+
+def release(target_id: str, job_id: str | None = None) -> None:
+    if target_id in _running and _running[target_id] == job_id:
+        del _running[target_id]
 
 
 def _name(value) -> str:
@@ -116,7 +189,7 @@ async def validate(
     request that starts the job answers 400 (or 428, a missing login) rather than
     queueing a job that fails."""
     await _source_spec(db, source, user_id)
-    _target_spec(target, body, await _target_login(db, target, body, user_id))
+    await _target_spec(source, target, body, await _target_login(db, target, body, user_id))
 
 
 async def _in_thread(fn, control: cohort_derive.DeriveControl):
@@ -152,8 +225,8 @@ async def derive(
     spec = await _source_spec(db, source, user_id)
     t = body.target
     target_login = await _target_login(db, target, body, user_id)
-    target_spec, config, new_location = _target_spec(target, body, target_login)
-    first_build = t.kind == "new-database" and target.derived_from is None
+    target_spec, config, new_location = await _target_spec(source, target, body, target_login)
+    first_build = t.kind == "new-database" and not _created(target).get("file")
     target_id = target.id  # read now: a rollback expires the instance
     try:
         return await _derive(
@@ -209,13 +282,23 @@ async def _derive(
         None,
     )
     registered_before = await db.get(DataSource, previous["registeredId"]) if previous and t.kind == "schema" else None
+    if registered_before is not None and (
+        registered_before.workspace_id != target.workspace_id
+        or _created(registered_before).get("schema") != t.schema_name
+        or _created(registered_before).get("targetId") != target.id
+    ):
+        registered_before = None
     registered_new: DataSource | None = None
+    if t.kind == "schema":
+        schemas = {*_created(target).get("schemas", []), t.schema_name}
+        target.linkr_created = {**_created(target), "schemas": sorted(schemas)}
     if t.kind == "new-database":
         config["managed"] = True
         config.pop("inMemory", None)
         target.connection_config = config
         target.schema_mapping = copy.deepcopy(mapping)
         target.derived_from = derived_from
+        target.linkr_created = {**_created(target), "file": True}
         target.status = "connected"
         target.error_message = None
         target.stats = {"patientCount": patient_count, "tableCount": len([x for x in tables if not x["skipped"]])}
@@ -237,9 +320,13 @@ async def _derive(
             connection_config={**{k: v for k, v in (target.connection_config or {}).items() if k != "allowWrites"}, "schema": t.schema_name},
             schema_mapping=copy.deepcopy(mapping),
             schema_source=source.schema_source,
+            derived_from={**derived_from, "schemaName": t.schema_name},
             # The schema this derivation created: the one deleting the database
             # may drop — never whatever the connection is later pointed at.
-            derived_from={**derived_from, "schemaName": t.schema_name},
+            linkr_created={
+                "schema": t.schema_name, "targetId": target.id,
+                "server": data_source_service.server_of(target.connection_config or {}),
+            },
             status="connected",
             stats={"patientCount": patient_count},
             owner_id=target.owner_id,

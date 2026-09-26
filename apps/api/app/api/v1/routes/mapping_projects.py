@@ -416,6 +416,16 @@ async def query_file_source(
 # --- Suggestion-scores blob (precomputed match scores parquet) -------------
 
 
+# Appending and removing rows read the project's scores file, merge, and store a
+# new one: two calls interleaved would each drop the other's rows. One worker
+# serves the API, so an in-process lock per project is enough.
+_scores_locks: dict[str, asyncio.Lock] = {}
+
+
+def _scores_lock(project_id: str) -> asyncio.Lock:
+    return _scores_locks.setdefault(project_id, asyncio.Lock())
+
+
 class ScoresFileRef(CamelModel):
     sha: str
     file_name: str | None = None
@@ -523,27 +533,30 @@ async def append_scores(
     project = await _load_project(db, project_id, user, "concept-mapping:write")
     if not body.rows:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No rows")
-    existing = (
-        str(blob_store.path_for(project.scores_file_sha))
-        if project.scores_file_sha and blob_store.exists(project.scores_file_sha)
-        else None
-    )
-    fd, tmp = tempfile.mkstemp(suffix=".parquet")
-    os.close(fd)
-    try:
-        rows = [r.model_dump() for r in body.rows]
-        added, skipped = await asyncio.to_thread(scores_service.append_rows, existing, rows, tmp)
-        sha, _ = await blob_store.store_file(Path(tmp))
-    finally:
-        Path(tmp).unlink(missing_ok=True)
-    await svc.update(
-        db,
-        project,
-        MappingProjectUpdate(
-            scores_file_sha=sha,
-            scores_file_name=project.scores_file_name or "similarity-scores.parquet",
-        ),
-    )
+    async with _scores_lock(project_id):
+        # Re-read under the lock: a concurrent call may have just replaced the file.
+        await db.refresh(project)
+        existing = (
+            str(blob_store.path_for(project.scores_file_sha))
+            if project.scores_file_sha and blob_store.exists(project.scores_file_sha)
+            else None
+        )
+        fd, tmp = tempfile.mkstemp(suffix=".parquet")
+        os.close(fd)
+        try:
+            rows = [r.model_dump() for r in body.rows]
+            added, skipped = await asyncio.to_thread(scores_service.append_rows, existing, rows, tmp)
+            sha, _ = await blob_store.store_file(Path(tmp))
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+        await svc.update(
+            db,
+            project,
+            MappingProjectUpdate(
+                scores_file_sha=sha,
+                scores_file_name=project.scores_file_name or "similarity-scores.parquet",
+            ),
+        )
     if added:
         # The count comes from the merge (rows already in the file are skipped);
         # the items are what was sent, for the hover detail.
@@ -583,23 +596,25 @@ async def remove_scores(
     project = await _load_project(db, project_id, user, "concept-mapping:write")
     if not body.methods:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No method")
-    if not project.scores_file_sha or not blob_store.exists(project.scores_file_sha):
-        return {"index": None, "removed": 0}
-    path = str(blob_store.path_for(project.scores_file_sha))
     keys = [(k.vocabulary_id, k.concept_code) for k in body.sources] if body.sources is not None else None
-    fd, tmp = tempfile.mkstemp(suffix=".parquet")
-    os.close(fd)
-    try:
-        removed, remaining = await asyncio.to_thread(scores_service.remove_rows, path, body.methods, keys, tmp)
-        if removed == 0:
-            return {"index": await asyncio.to_thread(scores_service.build_index, project_id, path), "removed": 0}
-        sha = (await blob_store.store_file(Path(tmp)))[0] if remaining else None
-    finally:
-        Path(tmp).unlink(missing_ok=True)
-    await svc.update(
-        db, project,
-        MappingProjectUpdate(scores_file_sha=sha, scores_file_name=project.scores_file_name if sha else None),
-    )
+    async with _scores_lock(project_id):
+        await db.refresh(project)
+        if not project.scores_file_sha or not blob_store.exists(project.scores_file_sha):
+            return {"index": None, "removed": 0}
+        path = str(blob_store.path_for(project.scores_file_sha))
+        fd, tmp = tempfile.mkstemp(suffix=".parquet")
+        os.close(fd)
+        try:
+            removed, remaining = await asyncio.to_thread(scores_service.remove_rows, path, body.methods, keys, tmp)
+            if removed == 0:
+                return {"index": await asyncio.to_thread(scores_service.build_index, project_id, path), "removed": 0}
+            sha = (await blob_store.store_file(Path(tmp)))[0] if remaining else None
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+        await svc.update(
+            db, project,
+            MappingProjectUpdate(scores_file_sha=sha, scores_file_name=project.scores_file_name if sha else None),
+        )
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request),
         action="updated", entity_type="mapping_project", entity_id=project.id,

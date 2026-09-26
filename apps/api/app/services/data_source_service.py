@@ -303,13 +303,21 @@ def created_data(source: DataSource) -> str | None:
     config = source.connection_config or {}
     if is_managed(source) and config.get("managedPath"):
         return "file"
-    derived = source.derived_from or {}
-    # Only the schema the derivation itself recorded creating, and only while the
+    created = source.linkr_created or {}
+    # Only the schema a derivation recorded creating, and only while the
     # connection still points at it: a schema edited in by hand is not Linkr's.
-    schema = derived.get("schemaName")
-    if schema and config.get("schema") == schema and config.get("engine") not in (None, "duckdb"):
+    schema = created.get("schema")
+    if (
+        schema and config.get("schema") == schema and config.get("engine") not in (None, "duckdb")
+        and created.get("server") == server_of(config)
+    ):
         return "schema"
     return None
+
+
+def server_of(config: dict) -> list:
+    """Which server a connection reaches — what a recorded schema belongs to."""
+    return [config.get("engine"), config.get("host"), config.get("port"), config.get("database")]
 
 
 async def _drop_created_data(source: DataSource, kind: str, login: Login | None) -> None:
@@ -349,6 +357,8 @@ async def delete(
     # outside Linkr's data folder to keep it, and may still use it outside Linkr.
     owns_default_file = is_managed(source) and not (source.connection_config or {}).get("managedPath")
     source_id = source.id
+    if created == "schema":
+        await _forget_created_schema(db, source)
     await _forget_derivations_into(db, source_id)
     await database_credential_service.forget_all(db, source_id)
     await db.delete(source)  # cascades to data_source_files via FK
@@ -361,6 +371,17 @@ async def delete(
     for sha in shas:
         if not await _sha_still_referenced(db, sha):
             await blob_store.delete(sha)
+
+
+async def _forget_created_schema(db: AsyncSession, source: DataSource) -> None:
+    """The dropped schema is no longer one the database it was derived into holds."""
+    created = source.linkr_created or {}
+    target = await db.get(DataSource, created["targetId"]) if created.get("targetId") else None
+    if target is None:
+        return
+    held = dict(target.linkr_created or {})
+    held["schemas"] = [s for s in held.get("schemas", []) if s != created.get("schema")]
+    target.linkr_created = held
 
 
 async def _forget_derivations_into(db: AsyncSession, source_id: str) -> None:
