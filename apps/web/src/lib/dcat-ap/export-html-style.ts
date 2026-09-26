@@ -8,6 +8,7 @@
 const ICON_PATHS = {
   code: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  download: '<path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>',
   copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   chevronLeft: '<path d="m15 18-6-6 6-6"/>',
@@ -215,6 +216,9 @@ ${TABLE_TYPES.map((t) => `.tbl.t-${t} .tbl-head{background:var(--${t}-bg);border
   .chart svg line{stroke:var(--line)}
 }
 .hm{padding:16px 18px;margin-top:14px}
+.hm-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.hm-head h3.eyebrow{flex:1;margin:0}
+.hm-head .btn,.dt-csv{height:26px;padding:0 9px;font-size:11px;gap:5px}
 .hm-scroll{overflow-x:auto}
 .hm table{border-collapse:separate;border-spacing:2px;font-size:11px}
 .hm th{padding:4px 8px;font-weight:500;font-size:10px;color:var(--muted);white-space:nowrap;text-align:center}
@@ -225,7 +229,7 @@ ${TABLE_TYPES.map((t) => `.tbl.t-${t} .tbl-head{background:var(--${t}-bg);border
 .hm-scale .bar{width:120px;height:8px;border-radius:4px}
 .hm-scale .mask{width:14px;height:10px;border-radius:3px;background:repeating-linear-gradient(45deg,var(--hatch) 0 2px,transparent 2px 6px);border:1px solid var(--line-soft)}
 
-/* Concepts */
+/* DataTable (createDataTable in the page script) */
 .dt{overflow:hidden}
 .dt-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line-soft)}
 .search{position:relative;flex:0 1 300px}
@@ -235,12 +239,19 @@ ${TABLE_TYPES.map((t) => `.tbl.t-${t} .tbl-head{background:var(--${t}-bg);border
 .dt-note{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
 .dt-note .ico{color:var(--warn)}
 .dt-scroll{max-height:68vh;overflow:auto}
-.dt table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
+.dt table{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:12px}
 .dt thead th{position:sticky;z-index:2;background:var(--soft);text-align:left;font-weight:600;color:var(--ink);white-space:nowrap}
+.dt th.fill,.dt td.fill{padding:0!important}
 .dt thead tr.head th{top:0;height:34px;padding:0 10px;border-bottom:1px solid var(--line-soft)}
 .dt thead tr.filters th{top:34px;padding:4px 6px 6px;border-bottom:1px solid var(--line)}
 .dt th.r,.dt td.r{text-align:right}
-.sort{display:inline-flex;align-items:center;gap:5px;padding:0;border:0;background:none;font-weight:600;font-size:12px;color:inherit;cursor:pointer}
+.sort{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:0;border:0;background:none;font-weight:600;font-size:12px;color:inherit;cursor:pointer}
+.sort .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.rz{position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;touch-action:none;user-select:none}
+.rz::after{content:'';position:absolute;top:0;bottom:0;right:3px;width:2px;border-radius:1px;background:transparent;transition:background .15s}
+.rz:hover::after{background:var(--line)}
+.rz.on::after{background:var(--blue2)}
+body.col-resizing{cursor:col-resize;user-select:none}
 th.r .sort{flex-direction:row-reverse}
 .sort .ico{color:var(--muted);opacity:.45}
 .sort.on .ico{color:var(--blue2);opacity:1}
@@ -248,10 +259,11 @@ th.r .sort{flex-direction:row-reverse}
 .f::placeholder{color:var(--muted)}
 .f:focus{border-color:var(--blue2);border-style:solid}
 select.f{padding:0 2px;cursor:pointer}
-.dt tbody td{padding:6px 10px;border-bottom:1px solid var(--line-soft);color:var(--text);vertical-align:top}
+.dt tbody td{padding:6px 10px;border-bottom:1px solid var(--line-soft);color:var(--text);vertical-align:top;overflow:hidden;text-overflow:ellipsis;overflow-wrap:anywhere}
+.dt tr.pinned td{background:var(--soft);color:var(--ink);font-weight:600}
 .dt tbody tr:hover td{background:var(--row-hover)}
 .dt td.id{font-family:${MONO};font-size:11px;color:var(--muted);white-space:nowrap}
-.dt td.name{color:var(--ink);min-width:240px}
+.dt td.name{color:var(--ink)}
 .dt td.r{font-variant-numeric:tabular-nums;white-space:nowrap}
 .dt tr.anon td.r{color:var(--warn)}
 .dt tr.anon td.r.p{font-weight:500}
@@ -269,7 +281,7 @@ footer span{display:inline-flex;align-items:center;gap:6px}
 
 @media print{
   body{background:#fff}
-  .tabs,.toc,.dt-toolbar,.dt-foot,.ov-controls,.overlay{display:none!important}
+  .tabs,.toc,.dt-toolbar,.dt-foot,.ov-controls,.overlay,.hm-csv,.rz{display:none!important}
   .tab-content{display:block!important;margin-bottom:24px}
   .sheet{margin:0;border:0;box-shadow:none;max-width:none}
   .dt-scroll{max-height:none;overflow:visible}

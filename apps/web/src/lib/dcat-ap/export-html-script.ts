@@ -8,13 +8,64 @@
  * (`lib/cohort-report/charts.ts`); the ports below redraw them only when one
  * period is picked, so they must keep the same geometry and colours.
  */
+
+/**
+ * Cell text and CSV serialisation shared by every table of the page. Kept apart
+ * so the tests can evaluate it: the CSV must carry masked counts ("< 10")
+ * exactly as displayed, never the number behind them.
+ */
+export const TABLE_HELPERS = `
+  function fmt(n) { return Number(n).toLocaleString('en'); }
+  function cellText(col, row) {
+    var v = row[col.key];
+    if (col.format) return col.format(v, row);
+    if (v == null) return '';
+    return col.type === 'number' ? fmt(v) : String(v);
+  }
+  // A number goes out raw, unless its cell shows something else (a masked count).
+  function csvValue(col, row) {
+    var v = row[col.key];
+    if (col.csv) return col.csv(v, row);
+    var text = cellText(col, row);
+    return col.type === 'number' && typeof v === 'number' && text === fmt(v) ? String(v) : text;
+  }
+  // RFC 4180.
+  function csvField(v) {
+    var s = v == null ? '' : String(v);
+    return /[",\\r\\n]/.test(s) || s !== s.trim() ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function toCsv(lines) {
+    return lines.map(function(l) { return l.map(csvField).join(','); }).join('\\r\\n') + '\\r\\n';
+  }
+  function tableCsv(columns, rows) {
+    return toCsv([columns.map(function(c) { return c.label; })].concat(rows.map(function(r) {
+      return columns.map(function(c) { return csvValue(c, r); });
+    })));
+  }
+`
+
 export const CATALOG_SCRIPT = `
 (function() {
   var NNBSP = String.fromCharCode(8239);
   function escHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
-  function fmt(n) { return Number(n).toLocaleString('en'); }
+${TABLE_HELPERS}
+  function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'table'; }
+  // The in-app preview is a sandboxed iframe: without allow-downloads the browser drops the click silently.
+  function downloadCsv(fileName, text) {
+    try {
+      var url = URL.createObjectURL(new Blob(['\\uFEFF' + text], { type: 'text/csv;charset=utf-8' }));
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
+    } catch (err) { /* nothing to fall back to without a download permission */ }
+  }
   function $(id) { return document.getElementById(id); }
   function each(list, fn) { Array.prototype.forEach.call(list, fn); }
 
@@ -230,8 +281,17 @@ export const CATALOG_SCRIPT = `
   }
   var hmScale = 'linear-gradient(90deg,' + heat(0) + ',' + heat(1) + ')';
 
-  function heatmap(title, labels, rows, pick) {
-    var h = '<div class="card hm"><h3 class="eyebrow">' + escHtml(title) + '</h3><div class="hm-scroll"><table><thead><tr><th></th>';
+  var heatmapSpecs = [];
+  function heatmapCsv(spec) {
+    var lines = [[spec.rowHeader].concat(spec.rows.map(function(r) { return r.period_label; }))];
+    spec.labels.forEach(function(lab) {
+      lines.push([lab].concat(spec.rows.map(function(r) { var v = spec.pick(r, lab); return v == null ? masked : String(v); })));
+    });
+    return toCsv(lines);
+  }
+  function heatmap(title, rowHeader, labels, rows, pick) {
+    heatmapSpecs.push({ title: title, rowHeader: rowHeader, labels: labels, rows: rows, pick: pick });
+    var h = '<div class="card hm"><div class="hm-head"><h3 class="eyebrow">' + escHtml(title) + '</h3><button class="btn hm-csv" type="button" data-hm="' + (heatmapSpecs.length - 1) + '" title="Download this table as CSV">' + ICONS.download + 'CSV</button></div><div class="hm-scroll"><table><thead><tr><th></th>';
     rows.forEach(function(r) { h += '<th>' + escHtml(r.period_label) + '</th>'; });
     h += '</tr></thead><tbody>';
     labels.forEach(function(lab) {
@@ -263,12 +323,19 @@ export const CATALOG_SCRIPT = `
     var allRow = PERIODS.find(function(r) { return r.period_granularity === 'all'; });
     if (!allRow || rows.length < 2) { section.innerHTML = ''; return; }
     var html = '';
+    heatmapSpecs = [];
     var svc = Object.keys(allRow.services || {});
-    if (svc.length) html += heatmap('Patients by service over time', svc, rows, function(r, l) { return r.services[l] ? r.services[l].n_patients : null; });
+    if (svc.length) html += heatmap('Patients by service over time', 'Service', svc, rows, function(r, l) { return r.services[l] ? r.services[l].n_patients : null; });
     var cats = Object.keys(allRow.concept_categories || {});
-    if (cats.length) html += heatmap('Patients by concept category over time', cats, rows, function(r, l) { return r.concept_categories[l] ? r.concept_categories[l].n_patients : null; });
+    if (cats.length) html += heatmap('Patients by concept category over time', 'Concept category', cats, rows, function(r, l) { return r.concept_categories[l] ? r.concept_categories[l].n_patients : null; });
     section.innerHTML = html;
   }
+  var heatmapSection = $('heatmaps');
+  if (heatmapSection) heatmapSection.addEventListener('click', function(e) {
+    var btn = e.target.closest('.hm-csv');
+    var spec = btn && heatmapSpecs[Number(btn.dataset.hm)];
+    if (spec) downloadCsv(META.fileBase + '-' + slug(spec.title) + '.csv', heatmapCsv(spec));
+  });
 
   if (PERIODS.length) {
     var gran = 'all', periodSel = $('period-filter');
@@ -298,117 +365,242 @@ export const CATALOG_SCRIPT = `
     renderHeatmaps(gran, '');
   }
 
-  // ---- Concepts table ----
-  var cols = CONCEPT_COLS;
-  var anonIdx = cols.length;
-  var rows = CONCEPTS;
-  var filtered = rows;
-  var sorting = { idx: cols.findIndex(function(c) { return c.key === 'patientCount'; }), desc: true };
-  var page = 0, pageSize = 50;
-  var tbody = $('concept-tbody');
-  var search = $('concept-search');
-  var clearBtn = $('concept-clear');
-  var filterEls = document.querySelectorAll('#concept-table .f');
-  var sortBtns = document.querySelectorAll('#concept-table .sort');
+  // ---- DataTable ----
+  /*
+   * createDataTable(container, opts) renders the page's DataTable into container: toolbar
+   * (search, clear filters, CSV), resizable sortable header with inline filters, paged body,
+   * footer. Returns { setRows(rows, pinnedRows) }, which keeps filters, sort and widths.
+   *   columns: [{ key, label, type: 'text'|'number',
+   *     filter?: 'text'|'select'|'min'|'none' (default none), align?: 'left'|'right' (number: right),
+   *     width?: px (default 180, number 120), className?: td class,
+   *     format?: (value, row) => shown text (number default: 1,234; null: empty),
+   *     csv?: (value, row) => CSV cell (default: raw number when shown as such, else shown text),
+   *     title?: (value, row) => tooltip, style?: (value, row) => inline td style }]
+   *   rows: [{ key: value }]; pinnedRows?: rows kept on top, never sorted, filtered nor paged
+   *   (first in the CSV too); rowClass?: row => tr class
+   *   searchKeys?: keys the search box matches (default: text columns; [] hides the box)
+   *   searchPlaceholder?, initialSort?: { key, desc } | null, pageSize? (50),
+   *   noun?: [singular, plural], emptyText?, note?: trusted HTML shown in the toolbar,
+   *   csvFileName?: the CSV holds the filtered rows in their sort order, all pages.
+   */
+  function createDataTable(container, o) {
+    var cols = o.columns, all = o.rows, pinned = o.pinnedRows || [];
+    var searchKeys = o.searchKeys || cols.filter(function(c) { return c.type !== 'number'; }).map(function(c) { return c.key; });
+    var noun = o.noun || ['row', 'rows'];
+    var pageSize = o.pageSize || 50, page = 0;
+    var sorting = o.initialSort || null;
+    var filtered = all;
+    var hasFilters = cols.some(function(c) { return c.filter && c.filter !== 'none'; });
+    function isRight(c) { return c.align ? c.align === 'right' : c.type === 'number'; }
+    function defaultWidth(c) { return c.width || (c.type === 'number' ? 120 : 180); }
+    var widths = cols.map(defaultWidth);
 
-  function fuzzy(needle, hay) {
-    if (hay.indexOf(needle) !== -1) return true;
-    var n = 0;
-    for (var h = 0; h < hay.length && n < needle.length; h++) if (hay[h] === needle[n]) n++;
-    return n === needle.length;
-  }
+    function filterCell(c, i) {
+      var attrs = 'class="f" data-idx="' + i + '" aria-label="Filter ' + escHtml(c.label) + '"';
+      if (c.filter === 'min') return '<input ' + attrs + ' type="number" min="0" placeholder="≥ min">';
+      if (c.filter === 'text') return '<input ' + attrs + ' type="text" placeholder="Filter…">';
+      if (c.filter !== 'select') return '';
+      var seen = {}, values = [];
+      all.forEach(function(r) { var v = r[c.key]; if (v != null && v !== '' && !seen[v]) { seen[v] = true; values.push(String(v)); } });
+      values.sort(function(a, b) { return a.localeCompare(b, 'en', { numeric: true }); });
+      return '<select ' + attrs + '><option value="">All</option>' + values.map(function(v) { return '<option value="' + escHtml(v) + '">' + escHtml(v) + '</option>'; }).join('') + '</select>';
+    }
 
-  function apply() {
-    var q = search.value.trim().toLowerCase();
-    var active = [];
-    each(filterEls, function(el) {
-      var v = el.value.trim();
-      if (v !== '') active.push({ idx: Number(el.dataset.idx), kind: el.dataset.kind, v: el.dataset.kind === 'num' ? Number(v) : v.toLowerCase() });
+    var h = '<div class="dt-toolbar">';
+    if (searchKeys.length) h += '<label class="search">' + ICONS.search + '<input type="search" class="input dt-search" placeholder="' + escHtml(o.searchPlaceholder || 'Search…') + '" autocomplete="off"></label>';
+    h += '<button class="btn dt-clear" type="button" hidden>' + ICONS.x + 'Clear filters</button><span class="spacer"></span>';
+    if (o.note) h += '<span class="dt-note">' + o.note + '</span>';
+    h += '<button class="btn dt-csv" type="button" title="Download the filtered rows as CSV">' + ICONS.download + 'CSV</button></div>';
+    // The last, width-less column takes the slack, so resizing one column never stretches the others.
+    h += '<div class="dt-scroll"><table><colgroup>' + widths.map(function(w) { return '<col style="width:' + w + 'px">'; }).join('') + '<col></colgroup><thead><tr class="head">';
+    cols.forEach(function(c, i) {
+      h += '<th' + (isRight(c) ? ' class="r"' : '') + ' aria-sort="none"><button class="sort" type="button" data-idx="' + i + '"><span class="lbl">' + escHtml(c.label) + '</span><span class="sort-ico"></span></button>'
+        + '<span class="rz" data-idx="' + i + '" title="Drag to resize, double-click to reset"></span></th>';
     });
-    clearBtn.hidden = !q && !active.length;
-    filtered = rows.filter(function(r) {
-      if (q && !fuzzy(q, (String(r[0]) + ' ' + String(r[1])).toLowerCase())) return false;
-      for (var i = 0; i < active.length; i++) {
-        var f = active[i], cell = r[f.idx];
-        if (f.kind === 'num') { if (!(Number(cell) >= f.v)) return false; }
-        else if (f.kind === 'select') { if (String(cell).toLowerCase() !== f.v) return false; }
-        else if (String(cell).toLowerCase().indexOf(f.v) === -1) return false;
+    h += '<th class="fill"></th></tr>';
+    if (hasFilters) {
+      h += '<tr class="filters">';
+      cols.forEach(function(c, i) { h += '<th' + (isRight(c) ? ' class="r"' : '') + '>' + filterCell(c, i) + '</th>'; });
+      h += '<th class="fill"></th></tr>';
+    }
+    h += '</thead><tbody></tbody></table></div><div class="dt-foot"><span class="num dt-count"></span><span class="spacer"></span><span>Rows per page</span><select class="select dt-size">'
+      + [25, 50, 100, 250, 500].map(function(n) { return '<option value="' + n + '"' + (n === pageSize ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select>'
+      + '<button class="btn icon-only dt-prev" type="button" aria-label="Previous page">' + ICONS.left + '</button><span class="page-info num dt-page"></span>'
+      + '<button class="btn icon-only dt-next" type="button" aria-label="Next page">' + ICONS.right + '</button></div>';
+    container.innerHTML = h;
+
+    function q(sel) { return container.querySelector(sel); }
+    var tbody = q('tbody'), search = q('.dt-search'), clearBtn = q('.dt-clear');
+    var filterEls = container.querySelectorAll('.f'), sortBtns = container.querySelectorAll('.sort');
+    var colEls = container.querySelectorAll('col');
+
+    function fuzzy(needle, hay) {
+      if (hay.indexOf(needle) !== -1) return true;
+      var n = 0;
+      for (var k = 0; k < hay.length && n < needle.length; k++) if (hay[k] === needle[n]) n++;
+      return n === needle.length;
+    }
+    function compare(a, b, num) {
+      if (num) {
+        var x = a == null || a === '' ? -Infinity : Number(a), y = b == null || b === '' ? -Infinity : Number(b);
+        return x === y ? 0 : x < y ? -1 : 1;
       }
-      return true;
-    });
-    if (sorting) {
-      var idx = sorting.idx, num = cols[idx].kind === 'num', dir = sorting.desc ? -1 : 1;
-      filtered = filtered.slice().sort(function(a, b) {
-        var x = a[idx], y = b[idx];
-        if (num) return (Number(x) - Number(y)) * dir;
-        x = String(x == null ? '' : x).toLowerCase(); y = String(y == null ? '' : y).toLowerCase();
-        return (x < y ? -1 : x > y ? 1 : 0) * dir;
+      a = String(a == null ? '' : a).toLowerCase(); b = String(b == null ? '' : b).toLowerCase();
+      return a < b ? -1 : a > b ? 1 : 0;
+    }
+
+    function apply() {
+      var needle = search ? search.value.trim().toLowerCase() : '';
+      var active = [];
+      each(filterEls, function(el) {
+        var v = el.value.trim();
+        if (v === '') return;
+        var c = cols[Number(el.dataset.idx)];
+        active.push({ key: c.key, kind: c.filter, v: c.filter === 'min' ? Number(v) : v.toLowerCase() });
+      });
+      clearBtn.hidden = !needle && !active.length;
+      filtered = all.filter(function(r) {
+        if (needle && !fuzzy(needle, searchKeys.map(function(k) { return r[k] == null ? '' : String(r[k]); }).join(' ').toLowerCase())) return false;
+        for (var i = 0; i < active.length; i++) {
+          var f = active[i], cell = r[f.key];
+          if (f.kind === 'min') { if (cell == null || !(Number(cell) >= f.v)) return false; }
+          else if (f.kind === 'select') { if (String(cell).toLowerCase() !== f.v) return false; }
+          else if (String(cell == null ? '' : cell).toLowerCase().indexOf(f.v) === -1) return false;
+        }
+        return true;
+      });
+      var sc = sorting && cols.filter(function(c) { return c.key === sorting.key; })[0];
+      if (sc) {
+        var dir = sorting.desc ? -1 : 1, num = sc.type === 'number';
+        filtered = filtered.slice().sort(function(a, b) { return compare(a[sc.key], b[sc.key], num) * dir; });
+      }
+      page = 0;
+      render();
+    }
+
+    function paintSort() {
+      each(sortBtns, function(b) {
+        var on = !!sorting && sorting.key === cols[Number(b.dataset.idx)].key;
+        b.classList.toggle('on', on);
+        b.querySelector('.sort-ico').innerHTML = on ? (sorting.desc ? ICONS.down : ICONS.up) : ICONS.both;
+        b.closest('th').setAttribute('aria-sort', on ? (sorting.desc ? 'descending' : 'ascending') : 'none');
       });
     }
-    page = 0;
-    render();
-  }
 
-  function paintSort() {
-    each(sortBtns, function(b) {
-      var on = sorting && sorting.idx === Number(b.dataset.idx);
-      b.classList.toggle('on', !!on);
-      b.querySelector('.sort-ico').innerHTML = on ? (sorting.desc ? ICONS.down : ICONS.up) : ICONS.both;
-      b.closest('th').setAttribute('aria-sort', on ? (sorting.desc ? 'descending' : 'ascending') : 'none');
-    });
-  }
-
-  function render() {
-    var pages = Math.max(1, Math.ceil(filtered.length / pageSize));
-    if (page >= pages) page = pages - 1;
-    var slice = filtered.slice(page * pageSize, page * pageSize + pageSize);
-    var html = '';
-    slice.forEach(function(r) {
-      var anon = r[anonIdx] === true;
-      html += anon ? '<tr class="anon">' : '<tr>';
-      cols.forEach(function(c, i) {
-        var v = r[i];
-        if (c.kind === 'num') {
-          html += '<td class="r' + (c.key === 'patientCount' ? ' p' : '') + '"' + (anon ? ' title="Below the anonymisation threshold"' : '') + '>' + (anon ? '&lt; ' : '') + fmt(v) + '</td>';
-        } else {
-          html += '<td class="' + (c.kind === 'id' ? 'id' : c.key === 'conceptName' ? 'name' : '') + '">' + escHtml(v == null ? '' : v) + '</td>';
-        }
+    function rowHtml(r, extraClass) {
+      var rc = [extraClass, o.rowClass ? o.rowClass(r) : ''].filter(Boolean).join(' ');
+      var s = rc ? '<tr class="' + rc + '">' : '<tr>';
+      cols.forEach(function(c) {
+        var v = r[c.key];
+        var cls = [isRight(c) ? 'r' : '', c.className || ''].filter(Boolean).join(' ');
+        var tip = c.title ? c.title(v, r) : '', st = c.style ? c.style(v, r) : '';
+        s += '<td' + (cls ? ' class="' + cls + '"' : '') + (tip ? ' title="' + escHtml(tip) + '"' : '') + (st ? ' style="' + escHtml(st) + '"' : '') + '>' + escHtml(cellText(c, r)) + '</td>';
       });
-      html += '</tr>';
-    });
-    tbody.innerHTML = html || '<tr class="no-rows"><td colspan="' + cols.length + '">No concept matches these filters.</td></tr>';
-    $('concept-count').textContent = filtered.length === rows.length
-      ? fmt(rows.length) + ' concepts'
-      : fmt(filtered.length) + ' of ' + fmt(rows.length) + ' concepts';
-    $('concept-page-info').textContent = (page + 1) + ' / ' + pages;
-    $('concept-prev').disabled = page === 0;
-    $('concept-next').disabled = page >= pages - 1;
-  }
+      return s + '<td class="fill"></td></tr>';
+    }
 
-  var timer;
-  function debounced() { clearTimeout(timer); timer = setTimeout(apply, 150); }
-  search.addEventListener('input', debounced);
-  each(filterEls, function(el) { el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', debounced); });
-  clearBtn.addEventListener('click', function() {
-    search.value = '';
-    each(filterEls, function(el) { el.value = ''; });
-    apply();
-  });
-  each(sortBtns, function(b) {
-    b.addEventListener('click', function() {
-      var idx = Number(b.dataset.idx);
-      // Same cycle as the app's tables: a fresh column sorts descending, then ascending, then clears.
-      if (!sorting || sorting.idx !== idx) sorting = { idx: idx, desc: true };
-      else sorting = sorting.desc ? { idx: idx, desc: false } : null;
-      paintSort();
+    function render() {
+      var pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+      if (page >= pages) page = pages - 1;
+      var html = pinned.map(function(r) { return rowHtml(r, 'pinned'); }).join('');
+      var slice = filtered.slice(page * pageSize, page * pageSize + pageSize);
+      html += slice.map(function(r) { return rowHtml(r, ''); }).join('');
+      if (!slice.length) html += '<tr class="no-rows"><td colspan="' + (cols.length + 1) + '">' + escHtml(o.emptyText || 'No row matches these filters.') + '</td></tr>';
+      tbody.innerHTML = html;
+      var total = all.length, word = function(n) { return n === 1 ? noun[0] : noun[1]; };
+      q('.dt-count').textContent = filtered.length === total ? fmt(total) + ' ' + word(total) : fmt(filtered.length) + ' of ' + fmt(total) + ' ' + word(total);
+      q('.dt-page').textContent = (page + 1) + ' / ' + pages;
+      q('.dt-prev').disabled = page === 0;
+      q('.dt-next').disabled = page >= pages - 1;
+    }
+
+    function setWidth(i, w) {
+      widths[i] = Math.max(50, Math.round(w));
+      colEls[i].style.width = widths[i] + 'px';
+    }
+    each(container.querySelectorAll('.rz'), function(grip) {
+      var i = Number(grip.dataset.idx);
+      grip.addEventListener('pointerdown', function(e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        var startX = e.clientX, startW = colEls[i].getBoundingClientRect().width || widths[i];
+        try { grip.setPointerCapture(e.pointerId); } catch (err) { /* synthetic event: no live pointer */ }
+        grip.classList.add('on');
+        document.body.classList.add('col-resizing');
+        var move = function(ev) { setWidth(i, startW + ev.clientX - startX); };
+        var end = function() {
+          grip.classList.remove('on');
+          document.body.classList.remove('col-resizing');
+          grip.removeEventListener('pointermove', move);
+          grip.removeEventListener('pointerup', end);
+          grip.removeEventListener('pointercancel', end);
+        };
+        grip.addEventListener('pointermove', move);
+        grip.addEventListener('pointerup', end);
+        grip.addEventListener('pointercancel', end);
+      });
+      grip.addEventListener('dblclick', function() { setWidth(i, defaultWidth(cols[i])); });
+    });
+
+    var timer;
+    function debounced() { clearTimeout(timer); timer = setTimeout(apply, 150); }
+    if (search) search.addEventListener('input', debounced);
+    each(filterEls, function(el) { el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', debounced); });
+    clearBtn.addEventListener('click', function() {
+      if (search) search.value = '';
+      each(filterEls, function(el) { el.value = ''; });
       apply();
     });
-  });
-  $('concept-prev').addEventListener('click', function() { if (page > 0) { page--; render(); } });
-  $('concept-next').addEventListener('click', function() { page++; render(); });
-  $('concept-page-size').addEventListener('change', function() { pageSize = Number(this.value) || 50; page = 0; render(); });
+    each(sortBtns, function(b) {
+      b.addEventListener('click', function() {
+        var key = cols[Number(b.dataset.idx)].key;
+        // Same cycle as the app's tables: a fresh column sorts descending, then ascending, then clears.
+        if (!sorting || sorting.key !== key) sorting = { key: key, desc: true };
+        else sorting = sorting.desc ? { key: key, desc: false } : null;
+        paintSort();
+        apply();
+      });
+    });
+    q('.dt-csv').addEventListener('click', function() {
+      downloadCsv(o.csvFileName || 'table.csv', tableCsv(cols, pinned.concat(filtered)));
+    });
+    q('.dt-prev').addEventListener('click', function() { if (page > 0) { page--; render(); } });
+    q('.dt-next').addEventListener('click', function() { page++; render(); });
+    q('.dt-size').addEventListener('change', function() { pageSize = Number(this.value) || 50; page = 0; render(); });
 
-  paintSort();
-  render();
+    paintSort();
+    apply();
+    return {
+      setRows: function(rows, pinnedRows) {
+        all = rows;
+        if (pinnedRows) pinned = pinnedRows;
+        apply();
+      },
+    };
+  }
+
+  // ---- Concepts table ----
+  var conceptBox = $('concept-dt');
+  if (conceptBox) {
+    var anonIdx = CONCEPT_COLS.length;
+    var anonText = function(v, r) { return v == null ? '' : (r._anon ? '< ' : '') + fmt(v); };
+    var anonTitle = function(v, r) { return r._anon ? 'Below the anonymisation threshold' : ''; };
+    createDataTable(conceptBox, {
+      columns: CONCEPT_COLS.map(function(c) { return c.type === 'number' ? Object.assign({ format: anonText, title: anonTitle }, c) : c; }),
+      rows: CONCEPTS.map(function(a) {
+        var r = { _anon: a[anonIdx] === true };
+        CONCEPT_COLS.forEach(function(c, i) { r[c.key] = a[i]; });
+        return r;
+      }),
+      rowClass: function(r) { return r._anon ? 'anon' : ''; },
+      searchKeys: ['conceptId', 'conceptName'],
+      searchPlaceholder: 'Search concepts…',
+      initialSort: { key: 'patientCount', desc: true },
+      noun: ['concept', 'concepts'],
+      emptyText: 'No concept matches these filters.',
+      note: META.conceptNote,
+      csvFileName: META.fileBase + '-concepts.csv',
+    });
+  }
 })();
 `

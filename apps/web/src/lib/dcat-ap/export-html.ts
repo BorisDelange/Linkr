@@ -139,32 +139,7 @@ ${buildOverviewHtml(catalog.dimensions.filter((d) => d.enabled), dimensions, tot
     <div class="section-head">
       <h2>Concepts</h2><span class="sub">Distinct patients, hospitalizations and records per concept</span>
     </div>
-    <div class="card dt">
-      <div class="dt-toolbar">
-        <label class="search">${icon('search', 14)}<input type="search" id="concept-search" class="input" placeholder="Search concepts…" autocomplete="off"></label>
-        <button class="btn" id="concept-clear" type="button" hidden>${icon('x', 13)}Clear filters</button>
-        <span class="spacer"></span>
-        <span class="dt-note">${icon('shield', 13)}${mode === 'suppress' ? `Concepts with fewer than ${threshold} patients are not listed` : `Counts below ${threshold} patients are shown as &lt; ${threshold}`}</span>
-      </div>
-      <div class="dt-scroll">
-        <table id="concept-table">
-          <thead>
-            <tr class="head">${table.headHtml}</tr>
-            <tr class="filters">${table.filterHtml}</tr>
-          </thead>
-          <tbody id="concept-tbody"></tbody>
-        </table>
-      </div>
-      <div class="dt-foot">
-        <span id="concept-count" class="num"></span>
-        <span class="spacer"></span>
-        <span>Rows per page</span>
-        <select id="concept-page-size" class="select">${[25, 50, 100, 250, 500].map((n) => `<option value="${n}"${n === 50 ? ' selected' : ''}>${n}</option>`).join('')}</select>
-        <button class="btn icon-only" id="concept-prev" type="button" aria-label="Previous page">${icon('chevronLeft', 14)}</button>
-        <span id="concept-page-info" class="page-info num"></span>
-        <button class="btn icon-only" id="concept-next" type="button" aria-label="Next page">${icon('chevronRight', 14)}</button>
-      </div>
-    </div>
+    <div class="card dt" id="concept-dt"></div>
   </section>
 
   <footer>
@@ -176,10 +151,20 @@ ${buildOverviewHtml(catalog.dimensions.filter((d) => d.enabled), dimensions, tot
 
 <script>
 var CONCEPTS = ${inlineJson(table.rows)};
-var CONCEPT_COLS = ${inlineJson(table.cols.map(({ key, kind }) => ({ key, kind })))};
+var CONCEPT_COLS = ${inlineJson(table.cols)};
 var PERIODS = ${inlineJson(periods)};
-var META = ${inlineJson({ threshold, totalPatients: totals.patients, totalVisits: totals.visits })};
-var ICONS = ${inlineJson({ up: icon('arrowUp', 11), down: icon('arrowDown', 11), both: icon('arrowUpDown', 11) })};
+var META = ${inlineJson({
+    threshold,
+    totalPatients: totals.patients,
+    totalVisits: totals.visits,
+    fileBase: fileSlug(catalogTitle),
+    conceptNote: icon('shield', 13) + (mode === 'suppress' ? `Concepts with fewer than ${threshold} patients are not listed` : `Counts below ${threshold} patients are shown as &lt; ${threshold}`),
+  })};
+var ICONS = ${inlineJson({
+    up: icon('arrowUp', 11), down: icon('arrowDown', 11), both: icon('arrowUpDown', 11),
+    search: icon('search', 14), x: icon('x', 13), download: icon('download', 13),
+    left: icon('chevronLeft', 14), right: icon('chevronRight', 14),
+  })};
 ${CATALOG_SCRIPT}
 </script>
 </body>
@@ -257,44 +242,39 @@ function buildOverviewHtml(
 // Concepts table
 // ---------------------------------------------------------------------------
 
+/** Column spec of the page script's `createDataTable` (see export-html-script.ts). */
 interface ConceptCol {
   key: string
   label: string
-  kind: 'id' | 'text' | 'select' | 'num'
+  type: 'text' | 'number'
+  filter: 'text' | 'select' | 'min'
+  width: number
+  className?: string
 }
 
 function buildConceptTable(concepts: Anonymized<CatalogConceptRow>[], catalog: DataCatalog) {
   const hasDictionary = new Set(concepts.map((r) => r.dictionaryKey).filter(Boolean)).size > 1
+  const select = (key: string, label: string): ConceptCol => ({ key, label, type: 'text', filter: 'select', width: 150 })
+  const count = (key: string, label: string): ConceptCol => ({ key, label, type: 'number', filter: 'min', width: 130 })
   const cols: ConceptCol[] = [
-    { key: 'conceptId', label: 'Concept ID', kind: 'id' },
-    { key: 'conceptName', label: 'Concept name', kind: 'text' },
-    ...(hasDictionary ? [{ key: 'dictionaryKey', label: 'Vocabulary', kind: 'select' } as const] : []),
-    ...(catalog.categoryColumn ? [{ key: 'category', label: 'Category', kind: 'select' } as const] : []),
-    ...(catalog.subcategoryColumn ? [{ key: 'subcategory', label: 'Subcategory', kind: 'select' } as const] : []),
-    { key: 'patientCount', label: 'Patients', kind: 'num' },
-    { key: 'visitCount', label: 'Hospitalizations', kind: 'num' },
-    { key: 'recordCount', label: 'Records', kind: 'num' },
+    { key: 'conceptId', label: 'Concept ID', type: 'text', filter: 'text', width: 130, className: 'id' },
+    { key: 'conceptName', label: 'Concept name', type: 'text', filter: 'text', width: 380, className: 'name' },
+    ...(hasDictionary ? [select('dictionaryKey', 'Vocabulary')] : []),
+    ...(catalog.categoryColumn ? [select('category', 'Category')] : []),
+    ...(catalog.subcategoryColumn ? [select('subcategory', 'Subcategory')] : []),
+    { ...count('patientCount', 'Patients'), className: 'p' },
+    { ...count('visitCount', 'Hospitalizations'), width: 160 },
+    count('recordCount', 'Records'),
   ]
   const rows = concepts.map((r) => [
     ...cols.map((c) => (r[c.key as keyof CatalogConceptRow] ?? '') as string | number),
     r._anonymized === true,
   ])
+  return { cols, rows }
+}
 
-  const headHtml = cols.map((c, i) =>
-    `<th${c.kind === 'num' ? ' class="r"' : ''}><button class="sort" type="button" data-idx="${i}"><span>${c.label}</span><span class="sort-ico"></span></button></th>`,
-  ).join('')
-
-  const filterHtml = cols.map((c, i) => {
-    const attrs = `class="f" data-idx="${i}" aria-label="Filter ${c.label}"`
-    if (c.kind === 'num') return `<th class="r"><input ${attrs} data-kind="num" type="number" min="0" placeholder="≥ min"></th>`
-    if (c.kind === 'select') {
-      const values = [...new Set(rows.map((r) => String(r[i])).filter(Boolean))].sort((a, b) => a.localeCompare(b))
-      return `<th><select ${attrs} data-kind="select"><option value="">All</option>${values.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}</select></th>`
-    }
-    return `<th><input ${attrs} data-kind="text" type="text" placeholder="Filter…"></th>`
-  }).join('')
-
-  return { cols, rows, headHtml, filterHtml }
+function fileSlug(title: string): string {
+  return title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'catalog'
 }
 
 // ---------------------------------------------------------------------------

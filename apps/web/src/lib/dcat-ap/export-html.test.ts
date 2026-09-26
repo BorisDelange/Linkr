@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { CatalogResultCache, DataCatalog, SchemaMapping } from '@/types'
 import { generateCatalogHtml } from './export-html'
+import { TABLE_HELPERS } from './export-html-script'
 
 const EVIL = '</script><img src=x onerror=alert(1)>'
 
@@ -109,5 +110,36 @@ describe('generateCatalogHtml', () => {
     const concepts = JSON.parse(/var CONCEPTS = (.*);/.exec(suppressed)![1])
     expect(concepts).toHaveLength(1)
     expect(suppressed).not.toContain('5–17')
+  })
+})
+
+describe('page table CSV', () => {
+  type Row = Record<string, unknown>
+  type Col = { key: string; label: string; type: 'text' | 'number'; format?: (v: unknown, r: Row) => string }
+  const { tableCsv, csvField } = new Function(`${TABLE_HELPERS}; return { tableCsv: tableCsv, csvField: csvField }`)() as {
+    tableCsv: (cols: Col[], rows: Row[]) => string
+    csvField: (v: unknown) => string
+  }
+
+  it('quotes per RFC 4180', () => {
+    expect(csvField('plain')).toBe('plain')
+    expect(csvField('a,b')).toBe('"a,b"')
+    expect(csvField('say "hi"')).toBe('"say ""hi"""')
+    expect(csvField('two\nlines')).toBe('"two\nlines"')
+    expect(csvField(' padded')).toBe('" padded"')
+    expect(csvField(null)).toBe('')
+  })
+
+  it('exports masked counts as displayed and other numbers raw', () => {
+    const masked = (v: unknown, r: Row) => (r._anon ? '< ' : '') + Number(v).toLocaleString('en')
+    const cols: Col[] = [
+      { key: 'name', label: 'Concept name', type: 'text' },
+      { key: 'n', label: 'Patients', type: 'number', format: masked },
+    ]
+    const csv = tableCsv(cols, [
+      { name: 'Heart rate, bedside', n: 90000 },
+      { name: 'Rare', n: 10, _anon: true },
+    ])
+    expect(csv).toBe('Concept name,Patients\r\n"Heart rate, bedside",90000\r\nRare,< 10\r\n')
   })
 })
