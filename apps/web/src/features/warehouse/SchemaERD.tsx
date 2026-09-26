@@ -14,12 +14,13 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Table2, User, Stethoscope, BookOpen, Activity, Pill } from 'lucide-react'
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
+import { Tooltip, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import type { RelationSpec, SchemaMapping } from '@/types/schema-mapping'
 import { fieldRef } from '@/lib/schema-classes/spec'
 import type { ClassName } from '@/lib/schema-classes/contracts'
 import { CLASS_TONES } from './schema-mapping/class-tones'
 import { ErdHighlightProvider, useErdHighlight, useErdHighlightState, useHandleHover } from './erd-highlight'
+import { HandleTooltipContent } from './erd-tooltip'
 
 // ---------------------------------------------------------------------------
 // Custom node: ERD table card with per-column handles + tooltips
@@ -97,14 +98,13 @@ function ERDTableNode({ id, data }: NodeProps<Node<ERDNodeData>>) {
             return (
               <Tooltip key={col.name}>
                 <TooltipTrigger asChild>{row}</TooltipTrigger>
-                {/* Clear of the connection point: a tooltip over it steals its hover. */}
-                <TooltipContent side={col.handleType === 'source' ? 'right' : 'left'} sideOffset={28}>
+                <HandleTooltipContent side={col.handleType === 'source' ? 'right' : 'left'}>
                   <div className="space-y-0.5">
                     <div className="font-mono font-semibold">{col.name}</div>
                     {col.role === 'pk' && <div className="text-[10px] opacity-80">Primary Key</div>}
                     {col.role === 'fk' && col.fkTarget && <div className="text-[10px] opacity-80">FK &rarr; {col.fkTarget}</div>}
                   </div>
-                </TooltipContent>
+                </HandleTooltipContent>
               </Tooltip>
             )
           })}
