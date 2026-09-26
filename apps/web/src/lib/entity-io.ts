@@ -2,9 +2,12 @@
  * Shared utilities for entity export/import (ZIP and JSON).
  */
 import JSZip from 'jszip'
+import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { isEmptyOverrides } from '@/lib/schema-classes/overrides'
+import type { SchemaOverrides } from '@/types/schema-mapping'
 import {
   CONTENT_FILE, EDITS_SUFFIX, editsFileName, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, type LayoutKind,
-  buildTabKeyMap, buildWidgetKeyMap, canonicalOps, canonicalSchemaMapping,
+  buildTabKeyMap, buildWidgetKeyMap, canonicalOps, canonicalSchemaMapping, canonicalSchemaOverrides,
   dashboardKey as sharedDashboardKey, slugify, type DatasetOp, type Issue,
 } from '@linkr/format'
 import type { Storage } from '@/lib/storage'
@@ -690,6 +693,7 @@ const json = (data: unknown) => JSON.stringify(data, null, 2)
 
 /** Where a schema preset's DDL and mapping live, beside its entity.json. */
 export const SCHEMA_PRESET_DDL_FILE = CONTENT_FILE.schemaDdl
+export const SCHEMA_OVERRIDES_FILE = CONTENT_FILE.schemaOverrides
 export const SCHEMA_PRESET_MAPPING_FILE = CONTENT_FILE.schemaMapping
 
 /**
@@ -2671,6 +2675,30 @@ function resolveWorkspaceName(ws: Workspace): string {
 }
 
 /**
+ * A database's `mapping-overrides.json`, validated like a mapping: its relations
+ * are interpolated into SQL as readily as the base's are. Anything but an object
+ * reads as no overrides.
+ */
+function readOverrides(text: string): SchemaOverrides | undefined {
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const o = raw as SchemaOverrides
+  // The relations go through the mapping sanitizer, as the specs of a mapping.
+  const probe = sanitizeSchemaMapping({ formatVersion: 2, presetId: '', presetLabel: {}, overrides: o.relations ?? {} } as unknown as SchemaMapping) as unknown as { overrides: SchemaOverrides['relations'] }
+  const out: SchemaOverrides = {}
+  if (probe.overrides && Object.keys(probe.overrides).length) {
+    out.relations = probe.overrides
+    if (o.baseAtOverride) out.baseAtOverride = o.baseAtOverride
+  }
+  return isEmptyOverrides(out) ? undefined : out
+}
+
+/**
  * Lay out a database in a git-friendly tree under `prefix`: `entity.json`
  * (metadata), `mapping.json` + `schema.ddl` (its schema mapping, split so the DDL
  * is readable and diffable), `README.md`, `LICENSE.md`, `attachments/`.
@@ -2687,7 +2715,13 @@ export async function buildDataSourceFolder(
   source: DataSource,
   storage: Storage,
 ): Promise<void> {
-  const { connectionConfig, schemaMapping, ...rest } = stripInstanceFields(source) as unknown as Record<string, unknown>
+  // The store publishes the EFFECTIVE mapping in `schemaMapping` and keeps the
+  // base apart; a stored row has the base in `schemaMapping`. The export writes
+  // the base, and the overrides beside it.
+  const {
+    connectionConfig, schemaMapping: stored, schemaBaseMapping, schemaOverrides, ...rest
+  } = stripInstanceFields(source) as unknown as Record<string, unknown>
+  const schemaMapping = schemaBaseMapping ?? stored
   for (const field of DATA_SOURCE_LOCAL_FIELDS) delete rest[field]
   const meta: Record<string, unknown> = {
     ...stripEntityDocs(rest as unknown as DataSource),
@@ -2715,6 +2749,9 @@ export async function buildDataSourceFolder(
     const { ddl, ...mapping } = schemaMapping as Record<string, unknown>
     zip.file(`${prefix}${SCHEMA_PRESET_MAPPING_FILE}`, json(canonicalSchemaMapping(mapping)))
     if (typeof ddl === 'string' && ddl) zip.file(`${prefix}${SCHEMA_PRESET_DDL_FILE}`, ddl)
+  }
+  if (!isEmptyOverrides(schemaOverrides as SchemaOverrides | undefined)) {
+    zip.file(`${prefix}${SCHEMA_OVERRIDES_FILE}`, json(canonicalSchemaOverrides(schemaOverrides as Record<string, unknown>)))
   }
   // `organization` is stripped as an instance field, and every other entity puts
   // its provenance snapshot back. A database did not, so each re-export silently
@@ -3206,7 +3243,7 @@ export async function buildSchemaPresetFolder(
   const {
     presetLabel: _label, description: _blurb, presetId: _retiredId, templateId: _dead,
     ...mappingPayload
-  } = mapping
+  } = mapping as SchemaMapping & { templateId?: string }
   zip.file(`${prefix}${SCHEMA_PRESET_MAPPING_FILE}`, json(canonicalSchemaMapping(mappingPayload)))
   if (ddl) zip.file(`${prefix}${SCHEMA_PRESET_DDL_FILE}`, ddl)
   // `organization` is an INSTANCE_FIELD, stripped above; every other entity puts
@@ -3470,9 +3507,14 @@ async function applyClonedDatabase(
   const inlineMapping = typeof meta.schema === 'string' ? undefined : meta.schema
   const baseMapping = fromFile ?? inlineMapping
   const ddl = ddlEntry && !ddlEntry.dir ? await ddlEntry.async('string') : undefined
-  const schemaMapping = baseMapping && ddl
+  // Converted (v1 → v2) and validated once the DDL is back: the conversion reads it.
+  const overridesEntry = zip.files[SCHEMA_OVERRIDES_FILE]
+  const schemaOverrides = overridesEntry && !overridesEntry.dir
+    ? readOverrides(await overridesEntry.async('string'))
+    : undefined
+  const schemaMapping = sanitizeSchemaMapping(baseMapping && ddl
     ? { ...baseMapping, ddl } as SchemaMapping
-    : baseMapping
+    : baseMapping)
   if (!schemaMapping) {
     throw new Error(
       typeof meta.schema === 'string'
@@ -3508,6 +3550,7 @@ async function applyClonedDatabase(
     sourceType: 'database' as const,
     connectionConfig,
     schemaMapping,
+    ...(schemaOverrides ? { schemaOverrides } : {}),
     // Which published schema the inline mapping came from: the id recognizes it
     // across instances, the label names it here even when that preset is not
     // installed. Both travel with the repo.
@@ -4046,7 +4089,7 @@ export async function applyClonedEntity(
         // value made the two drift whenever the install minted a fresh id, and
         // a later ZIP import — which reads `mapping.presetId` as the entity id
         // and deletes whatever holds it — then deleted a different preset.
-        mapping: { ...presetMapping, presetId: targetId, ddl },
+        mapping: sanitizeSchemaMapping({ ...presetMapping, presetId: targetId, ddl }),
       }) as CustomSchemaPreset,
       'schema-preset',
     )
@@ -4919,7 +4962,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const ddlEntry = zipData.files[`${prefix}${SCHEMA_PRESET_DDL_FILE}`]
     const ddl = ddlEntry && !ddlEntry.dir ? await ddlEntry.async('string') : undefined
     const mapping = reassemblePresetMapping(sp, mappingFile ?? undefined)
-    sp.mapping = (ddl ? { ...mapping, ddl } : mapping) as SchemaMapping
+    sp.mapping = sanitizeSchemaMapping((ddl ? { ...mapping, ddl } : mapping) as SchemaMapping)
     const docs = await readEntityDocs(zipData, prefix, sp)
     if (docs.readme) sp.readme = docs.readme
     if (docs.license) sp.license = docs.license
@@ -4950,7 +4993,10 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const ddlEntry = zipData.files[`${prefix}${SCHEMA_PRESET_DDL_FILE}`]
     const ddl = ddlEntry && !ddlEntry.dir ? await ddlEntry.async('string') : undefined
     const base = mappingFile ?? (ds.schemaMapping as SchemaMapping | undefined)
-    if (base) ds.schemaMapping = (ddl ? { ...base, ddl } : base) as SchemaMapping
+    if (base) ds.schemaMapping = sanitizeSchemaMapping((ddl ? { ...base, ddl } : base) as SchemaMapping)
+    const overridesEntry = zipData.files[`${prefix}${SCHEMA_OVERRIDES_FILE}`]
+    const schemaOverrides = overridesEntry && !overridesEntry.dir ? readOverrides(await overridesEntry.async('string')) : undefined
+    if (schemaOverrides) ds.schemaOverrides = schemaOverrides
     const docs = await readEntityDocs(zipData, prefix, ds as { readmeLang?: string })
     if (docs.readme) ds.readme = docs.readme
     if (docs.license) ds.license = docs.license

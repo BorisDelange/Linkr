@@ -8,6 +8,7 @@ import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { toLocalized } from '@/lib/localized'
 import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 import * as engine from '@/lib/duckdb/engine'
 import type {
   Cohort,
@@ -512,8 +513,9 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       let materialization: CohortMaterialization
       if (isServerMode()) {
         // The server runs the whole membership and stores it — the same endpoint
-        // an agent (MCP freeze_cohort) calls.
-        const saved = await materializeCohortOnServer(id, { membershipSql: sql, dataSourceId })
+        // an agent (MCP freeze_cohort) calls. It runs the SQL as sent, bypassing
+        // queryDataSource, so the class relations travel with it.
+        const saved = await materializeCohortOnServer(id, { membershipSql: withClassRelations(sql, schemaMapping), dataSourceId })
         if (!saved.materialization) throw new Error('The server stored no materialization')
         materialization = saved.materialization
       } else {

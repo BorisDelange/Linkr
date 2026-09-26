@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { conceptRelations, has } from '@/lib/schema-classes/relations'
+import { fieldColumn } from '@/lib/schema-classes/spec'
 import { useTranslation } from 'react-i18next'
 import { AlertCircle, Calendar, Info, Loader2, Pause, Play, RotateCcw, Tag, Trash2, Users, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -94,13 +96,16 @@ export function CatalogConfigTab({ catalog }: Props) {
   }, [currentBrackets])
 
   // --- Available columns for concept classification ---
-  // Collected from dict.categoryColumn, dict.subcategoryColumn and extraColumns keys.
+  // The dictionaries' category and subcategory (by the source column they read,
+  // which is what a saved catalog config names) and their extra columns.
   const availableExtraColumns = useMemo(() => {
     const keys = new Set<string>()
-    for (const d of mapping?.conceptTables ?? []) {
-      if (d.categoryColumn) keys.add(d.categoryColumn)
-      if (d.subcategoryColumn) keys.add(d.subcategoryColumn)
-      for (const key of Object.keys(d.extraColumns ?? {})) keys.add(key)
+    for (const d of mapping ? conceptRelations(mapping) : []) {
+      const spec = mapping?.concepts?.find((c) => c.key === d.key)
+      for (const column of ['category', 'subcategory'] as const) {
+        if (has(d, column)) keys.add(fieldColumn(spec, column)?.column ?? column)
+      }
+      for (const key of Object.keys(d.extras ?? {})) keys.add(key)
     }
     return [...keys].sort()
   }, [mapping])

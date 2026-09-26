@@ -15,33 +15,84 @@
         "fr": "Modèle de données commun OMOP 5.4"
       },
       "ddl": "-- Demo DDL\n\nCREATE TABLE person (\n  person_id integer NOT NULL PRIMARY KEY,\n  year_of_birth integer NOT NULL\n);\n\nCREATE TABLE visit_occurrence (\n  visit_occurrence_id integer NOT NULL PRIMARY KEY,\n  person_id integer NOT NULL\n);\n",
-      "tables": {
-        "person": {
-          "columns": {
-            "person_id": "id",
-            "year_of_birth": "birth_year"
-          }
+      "events": [
+        {
+          "fields": {
+            "value_number": "e.value_as_number",
+            "start_datetime": "e.measurement_date",
+            "concept_id": "e.measurement_concept_id",
+            "patient_id": "e.person_id"
+          },
+          "from": {
+            "alias": "e",
+            "table": "measurement"
+          },
+          "label": "Zeta labs"
         },
-        "visit_occurrence": {
-          "columns": {
-            "visit_occurrence_id": "visit_id"
+        {
+          "label": "Alpha notes",
+          "customSql": "SELECT person_id AS patient_id, note_type_concept_id AS concept_id, note_date AS start_datetime FROM note WHERE note_class_concept_id = 44814637"
+        }
+      ],
+      "drugs": [
+        {
+          "drugKind": "administration",
+          "label": "Alpha drugs",
+          "from": {
+            "table": "drug_exposure",
+            "alias": "d"
+          },
+          "fields": {
+            "end_datetime": "d.drug_exposure_end_date",
+            "start_datetime": "d.drug_exposure_start_date",
+            "concept_id": "d.drug_concept_id",
+            "patient_id": "d.person_id"
           }
+        }
+      ],
+      "patient": {
+        "genderValues": {
+          "male": "8507",
+          "female": "8532"
+        },
+        "fields": {
+          "gender_source_value": "p.gender_concept_id",
+          "patient_id": "p.person_id",
+          "birth_year": "p.year_of_birth"
+        },
+        "from": {
+          "table": "person",
+          "alias": "p"
         }
       },
-      "eventTables": {
-        "Zeta labs": {
-          "dateColumn": "measurement_date",
-          "table": "measurement",
-          "valueColumn": "value_as_number",
-          "conceptIdColumn": "measurement_concept_id"
+      "visit": {
+        "joins": [
+          {
+            "on": [
+              [
+                "v.care_site_id",
+                "cs.care_site_id"
+              ]
+            ],
+            "alias": "cs",
+            "table": "care_site",
+            "type": "left"
+          }
+        ],
+        "from": {
+          "alias": "v",
+          "table": "visit_occurrence"
         },
-        "Alpha drugs": {
-          "conceptIdColumn": "drug_concept_id",
-          "endDateColumn": "drug_exposure_end_date",
-          "table": "drug_exposure",
-          "dateColumn": "drug_exposure_start_date"
+        "fields": {
+          "care_site_name": "cs.care_site_name",
+          "start_datetime": {
+            "expr": "CAST(v.visit_start_date AS TIMESTAMP)"
+          },
+          "patient_id": "v.person_id",
+          "visit_id": "v.visit_occurrence_id"
         }
-      }
+      },
+      "formatVersion": 2
     },
     "gitRemoteConfig": {
       "url": "https://git.example.org/preset.git",

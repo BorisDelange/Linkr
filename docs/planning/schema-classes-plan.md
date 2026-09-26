@@ -496,20 +496,64 @@ do. **Arbitrated: three phases, plus a fourth for ETL generation.**
 | ✅ | Arbitrated 2026-09-25: three phases; `linkr_*` names; class SQL reads its own database only (no roles); per-database override | — |
 | ✅ | Arbitrated 2026-09-25: preset required, single `from` for singleton classes, `drug_kind`, OMOP-only ETL generation, the 7 contracts, v1 converted then forgotten | — |
 | ✅ | CTE injection, parameters as escaped literals only (2026-09-25) | — |
-| 🔜 | 1. `lib/schema-classes/`: contracts (declarative: column, required, type family) + `generateClassSql(mappingV1)` + `withClassRelations()` (reference detection via `sql-tokenizer`, `NOT MATERIALIZED`) — Vitest | M |
-| 🔜 | 2. Port consumers to `linkr_*`, parity-checked on the two demo DBs: patient data + overview → concepts → cohort builder + report → DQ + stats + catalog → concept-mapping extraction → MCP. The server's `cohort_derive.py` last | L |
-| 🔜 | 3. Mapping v2 types + `mappingV1ToV2` (tested on the 9 published presets) + sanitize/trust boundary + linkr-format (schema, canonical order, validator) + Python twin + goldens | M/L |
-| 🔜 | 4. Visual editor v2: `from` / `joins` / `where` / field combobox (`alias.column`, ƒx expression, constant) from DDL columns; replaces the per-block `Editable*Table` and fixes the care-site gap | L |
-| 🔜 | 5. Code modal per relation: extract a generic `GeneratedSqlEditor` from `SqlPreviewPanel` (extend, don't fork — ui-patterns §6); `customSql` + `CustomSqlDot` + Reset + overwrite dialog only when the generated SQL changes | M |
-| 🔜 | 6. Contract check (`DESCRIBE`) + Preview (`LIMIT 100`) + single-statement guard + global-window warning; DQ rule "honours contract / id unique per grain" | M |
-| 🔜 | 7. Parameters (`params` + `{{name}}` as escaped literals) | S |
-| 🔜 | 8. Per-database override: `schemaOverrides` + `effectiveMapping()` + **Mapping** tab (override mode, badges, revert, promote) + explicit "Update from preset" with flagged overrides + `mapping-overrides.json` in the database export; fix `CreateFromPresetDialog` provenance and the silent re-copy on Edit | L |
-| 🔜 | 9. Drug class: settle its contract with the patient-data drug widgets, retire `looksLikeDrugName` | M |
-| 🔜 | 10. **[Acceptance]** administrations from an EAV source as a `drugs[]` relation (pivot on attribute codes, codes as parameters, one site overriding them) + the OMOP twin on `drug_exposure` | M |
-| 🔜 | 11. ETL generation: invert the target preset's visual mapping, compose with source relations, OMOP rules (dates, type concepts, vocabulary joins), per-relation target table, `upsertGeneratedScript` + last-generated hash | L |
+| ✅ | 1. `lib/schema-classes/`: contracts + v1 relation generator (every mapped column padded, so a stale column reads NULL) + idempotent `withClassRelations()` injected in `queryDataSource` — Vitest. Branch `feature/schema-classes` | M |
+| ✅ | 2. Consumers ported to `linkr_*`: patient data + overview, cohort builder + report, Concepts page, DQ, stats, catalog + DCAT, concept-mapping (source view, extraction, profiles, target search), care-site picker. Direct-to-server SQL injects itself (materialize, derive, concept cache, MCP). Parity vs the previous builders on MIMIC-IV demo (589/590 identical) and the full MIMIC-IV OMOP (identical except fixes, below) | L |
+| 🔜 | 2b. **[TO TEST]** In the app, both modes: Patient Data (list, filters, a cohort, a stay selected), cohort builder (every criterion, attrition, freeze, derive), Concepts page (search, detail, stats, server cache refresh), DQ, stats, catalog, a concept-mapping extraction | M |
+| ✅ | 2c. `cohort_derive.py` reads id columns from v2 relations (+ the database's relation overrides); a stored v1 row is still read server-side | S |
+| ✅ | 3. Mapping v2 types + `mappingV1ToV2` (tested on the 9 published presets) + sanitize/trust boundary + linkr-format (schema, canonical order, validator) + Python twin + goldens | M/L |
+| ✅ | 4. Visual editor v2: `from` / `joins` / `where` / field combobox (`alias.column`, ƒx expression, constant) from DDL columns; replaces the per-block `Editable*Table` and fixes the care-site gap | L |
+| ✅ | 5. Code modal per relation: extract a generic `GeneratedSqlEditor` from `SqlPreviewPanel` (extend, don't fork — ui-patterns §6); `customSql` + `CustomSqlDot` + Reset + overwrite dialog only when the generated SQL changes | M |
+| ✅ | 6. Contract check (`DESCRIBE`) + Preview (`LIMIT 100`) + single-statement guard + global-window warning; DQ rule "honours contract / id unique per grain" | M |
+| ❌ | 7. Parameters (mapping-level `params` + `{{name}}` as escaped literals) — built, then **removed 2026-09-26**: a concept too many for a rare case; a site that records a code differently overrides the relation's SQL in its database | S |
+| ✅ | 8. Per-database override: `schemaOverrides` + `effectiveMapping()` + **Mapping** tab (override mode, badges, revert, promote) + explicit "Update from preset" with flagged overrides + `mapping-overrides.json` in the database export; fix `CreateFromPresetDialog` provenance and the silent re-copy on Edit | L |
+| ✅ | 9. Drug class: the drug contract also carries the event columns (derived from the dose ones unless mapped); `eventRelations()` returns drugs, so they work wherever events do; labels unique across events + drugs (editor + validator); the overview and timeline tell a drug by its class and show the recorded rate, the name heuristic kept only for drugs mapped as plain events | M |
+| ✅ | 10. **[Acceptance]** administrations from a generic EAV source as a `drugs[]` relation (attribute codes in the SQL, one site overriding the relation) + the OMOP twin on `drug_exposure` — `drug-acceptance.test.ts`, also run end to end on DuckDB | M |
+| ✅ | 11. ETL generation: `generateOmopEtl` inverts the target preset's visual mapping, composes it with the source relations, applies the OMOP rules (dates, end = start, type concepts, NOT NULL defaults, gender codes, death table, joined companions) and resolves concepts through the pipeline vocabulary (C/CR or STCM) or as is; "Generate from the schemas" dialog in the Scripts tab; the body hash in each header decides whether regenerating may overwrite. Run end to end on DuckDB. **To verify in a real run**: a custom SQL source relation with two-part names (`schema.table`) resolving through the ETL search path, in both modes | L |
 | 💤 | 12. Opt-in materialisation (server Parquet cache attached as a catalog; client in-session table) | M/L |
 | 💤 | 13. Domain routing in ETL generation; source profile (value frequencies) in the field picker | M |
-| 🔜 | 14. User docs in `linkr-website` (schema presets, database Mapping tab, ETL generation) + `docs/architecture.md` | S/M |
+| 🔜 | 14. User docs in `linkr-website` (schema presets, database Mapping tab, ETL generation) — `docs/architecture.md` and `ui-patterns.md` done | S/M |
+
+## Revised after the first test pass (2026-09-26)
+
+- **The form stays generic**: one table (schema + table, no visible alias), each
+  contract column mapped to one of its columns or a constant, an optional
+  filter, and the class options (gender values, drug kind, dictionary). Joins,
+  aliases and expressions left the form; a relation using them (a v1
+  conversion) keeps them and shows them read-only, the rest stays editable.
+  Anything specific is written in SQL, with the contract shown beside the editor.
+- **Parameters removed** (step 7): the per-database override of whole relations
+  covers the case they served. §7's parameter design is historical.
+- The contract check records the columns a hand-written SQL fills, and runs on
+  its own after a save; the SQL dialog is editable outside edit mode.
+
+## Phase A — what the parity run found (2026-09-25)
+
+The harness ran every builder, old and new, on the MIMIC-IV demo and on a full
+MIMIC-IV OMOP database (364k patients, 197M measurements) and compared rows.
+Everything matched except these, all bugs of the previous builders:
+
+- **Patient list filtered by a live cohort** never ran: the cohort's WHERE was
+  inserted without the `WHERE` keyword (syntax error at every level).
+- **Timeline and overview with a stay selected** failed on OMOP: the visit
+  filter assumed `visit_occurrence_id` on every event table, and `specimen`
+  has none, so the whole UNION failed.
+- **"Died during this stay"** ignored the stay when death lives in a separate
+  table (OMOP `death`): 177,708 stays matched instead of 11,355.
+- **Ages were empty on MIMIC-IV OMOP** in the stats age pyramid, the age
+  statistics, the catalog age brackets, the DQ age checks and the DCAT
+  auto-fill: with a birth-date column mapped they used it alone, and
+  `birth_datetime` is empty for all 364k patients.
+- **Concepts page fuzzy search** failed on a dictionary without a code column
+  (MIMIC `d_items`); so did the standard-concept search.
+- **DQ universal checks** quoted `icu.d_items` as one identifier (a table whose
+  name contains a dot).
+- **DCAT coding systems** were only detected from the deprecated
+  `vocabularyColumn`, so OMOP presets detected none.
+
+Found, not fixed (unrelated to the contract): the catalog's global query joins
+events to stays on the patient alone, so on a large database its record count
+multiplies and overflows `INTEGER` (3.86 billion on MIMIC-IV OMOP) — both before
+and after.
 
 ## Decisions (2026-09-25)
 

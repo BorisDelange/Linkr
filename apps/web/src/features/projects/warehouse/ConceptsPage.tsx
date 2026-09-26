@@ -407,7 +407,7 @@ export function ConceptsPage() {
   const hasValueCol = useMemo(() => {
     if (!mappedSource?.schemaMapping || selectedConceptId === null) return false
     const row = concepts.find((c) => c.concept_id === selectedConceptId)
-    const dictKey = (row?._dict_key as string) ?? mappedSource.schemaMapping.conceptTables?.[0]?.key
+    const dictKey = (row?._dict_key as string) ?? mappedSource.schemaMapping.concepts?.[0]?.key
     if (!dictKey) return false
     return hasValueColumnForDict(mappedSource.schemaMapping, dictKey)
   }, [mappedSource?.schemaMapping, selectedConceptId, concepts])
@@ -420,7 +420,7 @@ export function ConceptsPage() {
     const mapping = mappedSource?.schemaMapping
     if (!mapping || selectedConceptId === null) return []
     const row = concepts.find((c) => c.concept_id === selectedConceptId)
-    const dictKey = (row?._dict_key as string) ?? mapping.conceptTables?.[0]?.key
+    const dictKey = (row?._dict_key as string) ?? mapping.concepts?.[0]?.key
     if (!dictKey) return []
 
     const parts: { titleKey: string; sql: string }[] = []

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { detectDatasetRoles } from './dataset-role-detection'
 import type { DatasetColumn } from '@/types'
-import type { SchemaMapping } from '@/types/schema-mapping'
 
-const mimic = {
+const mimic = mappingV1ToV2({
   patientTable: { table: 'patients', idColumn: 'subject_id' },
   visitTable: { table: 'admissions', idColumn: 'hadm_id' },
   visitDetailTable: { table: 'icustays', idColumn: 'stay_id' },
-} as unknown as SchemaMapping
+} as never)
 
 /** Columns as the dataset store holds them: id derived from the name. */
 function cols(...specs: (string | [string, DatasetColumn['type']])[]): DatasetColumn[] {

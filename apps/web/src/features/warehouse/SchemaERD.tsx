@@ -13,9 +13,14 @@ import {
   useReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Table2, User, Stethoscope, BookOpen, Activity } from 'lucide-react'
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
-import type { SchemaMapping, ConceptDictionary, EventTable } from '@/types/schema-mapping'
+import { Table2, User, Stethoscope, BookOpen, Activity, Pill } from 'lucide-react'
+import { Tooltip, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
+import type { RelationSpec, SchemaMapping } from '@/types/schema-mapping'
+import { fieldRef } from '@/lib/schema-classes/spec'
+import type { ClassName } from '@/lib/schema-classes/contracts'
+import { CLASS_TONES } from './schema-mapping/class-tones'
+import { ErdHighlightProvider, useErdHighlight, useErdHighlightState, useHandleHover } from './erd-highlight'
+import { HandleTooltipContent } from './erd-tooltip'
 
 // ---------------------------------------------------------------------------
 // Custom node: ERD table card with per-column handles + tooltips
@@ -35,22 +40,16 @@ interface ColumnDef {
 interface ERDNodeData {
   [key: string]: unknown
   label: string
-  tableType: 'patient' | 'visit' | 'concept' | 'event'
+  tableType: ClassName
   columns: ColumnDef[]
 }
 
-const COLORS: Record<string, { bg: string; border: string; headerBg: string; icon: string }> = {
-  patient: { bg: 'bg-blue-50 dark:bg-blue-950', border: 'border-blue-400 dark:border-blue-600', headerBg: 'bg-blue-100 dark:bg-blue-900', icon: 'text-blue-600 dark:text-blue-400' },
-  visit: { bg: 'bg-teal-50 dark:bg-teal-950', border: 'border-teal-400 dark:border-teal-600', headerBg: 'bg-teal-100 dark:bg-teal-900', icon: 'text-teal-600 dark:text-teal-400' },
-  concept: { bg: 'bg-amber-50 dark:bg-amber-950', border: 'border-amber-400 dark:border-amber-600', headerBg: 'bg-amber-100 dark:bg-amber-900', icon: 'text-amber-600 dark:text-amber-400' },
-  event: { bg: 'bg-rose-50 dark:bg-rose-950', border: 'border-rose-400 dark:border-rose-600', headerBg: 'bg-rose-100 dark:bg-rose-900', icon: 'text-rose-600 dark:text-rose-400' },
-}
-
-const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+const ICONS: Partial<Record<ClassName, React.ComponentType<{ size?: number; className?: string }>>> = {
   patient: User,
   visit: Stethoscope,
   concept: BookOpen,
   event: Activity,
+  drug: Pill,
 }
 
 const ROLE_BADGES: Record<string, string> = {
@@ -60,14 +59,15 @@ const ROLE_BADGES: Record<string, string> = {
   date: 'bg-violet-200 text-violet-800 dark:bg-violet-800 dark:text-violet-200',
 }
 
-function ERDTableNode({ data }: NodeProps<Node<ERDNodeData>>) {
-  const colors = COLORS[data.tableType] ?? COLORS.event
+function ERDTableNode({ id, data }: NodeProps<Node<ERDNodeData>>) {
+  const { selected } = useErdHighlight()
+  const colors = CLASS_TONES[data.tableType].node
   const Icon = ICONS[data.tableType] ?? Table2
 
   return (
     <TooltipProvider>
       <div
-        className={`rounded-lg border-2 shadow-lg ${colors.bg} ${colors.border}`}
+        className={`rounded-lg border-2 shadow-lg ${colors.bg} ${selected === id ? 'border-primary' : colors.border}`}
         style={{ width: 220 }}
       >
         {/* Header */}
@@ -89,22 +89,7 @@ function ERDTableNode({ data }: NodeProps<Node<ERDNodeData>>) {
                   <span className="min-w-[28px]" />
                 )}
                 <code className="text-[11px] text-foreground/80 font-mono truncate">{col.name}</code>
-                {col.handleId && col.handleType === 'source' && (
-                  <Handle
-                    type="source"
-                    position={Position.Right}
-                    id={col.handleId}
-                    className="!w-2 !h-2 !bg-muted-foreground/40 !border-[1.5px] !border-background !right-[-13px]"
-                  />
-                )}
-                {col.handleId && col.handleType === 'target' && (
-                  <Handle
-                    type="target"
-                    position={Position.Left}
-                    id={col.handleId}
-                    className="!w-2 !h-2 !bg-muted-foreground/40 !border-[1.5px] !border-background !left-[-13px]"
-                  />
-                )}
+                {col.handleId && col.handleType && <HoverHandle node={id} id={col.handleId} type={col.handleType} />}
               </div>
             )
 
@@ -113,13 +98,13 @@ function ERDTableNode({ data }: NodeProps<Node<ERDNodeData>>) {
             return (
               <Tooltip key={col.name}>
                 <TooltipTrigger asChild>{row}</TooltipTrigger>
-                <TooltipContent side={col.handleType === 'source' ? 'right' : 'left'} sideOffset={12}>
+                <HandleTooltipContent side={col.handleType === 'source' ? 'right' : 'left'}>
                   <div className="space-y-0.5">
                     <div className="font-mono font-semibold">{col.name}</div>
                     {col.role === 'pk' && <div className="text-[10px] opacity-80">Primary Key</div>}
                     {col.role === 'fk' && col.fkTarget && <div className="text-[10px] opacity-80">FK &rarr; {col.fkTarget}</div>}
                   </div>
-                </TooltipContent>
+                </HandleTooltipContent>
               </Tooltip>
             )
           })}
@@ -129,10 +114,46 @@ function ERDTableNode({ data }: NodeProps<Node<ERDNodeData>>) {
   )
 }
 
+/** A connection point that lights up its links on hover (see DdlERD's HoverHandle). */
+function HoverHandle({ node, id, type }: { node: string; id: string; type: 'source' | 'target' }) {
+  const hover = useHandleHover(node, id)
+  return (
+    <Handle
+      type={type}
+      position={type === 'target' ? Position.Left : Position.Right}
+      id={id}
+      {...hover}
+      className={`!w-2 !h-2 !bg-muted-foreground/40 !border-[1.5px] !border-background hover:!bg-primary !pointer-events-auto after:absolute after:-inset-1.5 after:content-[''] hover:!shadow-[0_0_0_3px_var(--color-primary)] ${type === 'target' ? '!left-[-13px]' : '!right-[-13px]'}`}
+    />
+  )
+}
+
 const nodeTypes = { erdTable: ERDTableNode }
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+
+const PK_FIELD: Record<string, string> = { patient: 'patient_id', visit: 'visit_id', concept: 'concept_id' }
+
+/** A relation's mapped fields as ERD rows: the source column a reference reads,
+ *  or the contract column marked ƒx for an expression. */
+function relationColumns(cls: string, spec: RelationSpec, fkTargets: Record<string, string | undefined>): ColumnDef[] {
+  if (spec.customSql?.trim()) return [{ name: 'SQL' }]
+  return Object.entries(spec.fields ?? {}).map(([field, f]) => {
+    const ref = fieldRef(f)
+    const name = ref ? ref.column : `${field} (ƒx)`
+    if (PK_FIELD[cls] === field) return { name, role: 'pk', handleId: 'pk', handleType: 'target' }
+    if (field === 'patient_id' || field === 'concept_id') {
+      return { name, role: 'fk', handleId: `fk-${field === 'patient_id' ? 'patient' : 'concept'}`, handleType: 'source', fkTarget: fkTargets[field] }
+    }
+    if (field === 'visit_id' || field === 'source_concept_id') return { name, role: 'fk' }
+    if (field.startsWith('value_')) return { name, role: 'value' }
+    if (/datetime$|_date$/.test(field)) return { name, role: 'date' }
+    return { name }
+  })
+}
+
+const relationLabel = (spec: RelationSpec, fallback: string) => spec.from?.table ?? fallback
 
 function buildERDGraph(mapping: SchemaMapping): { nodes: Node<ERDNodeData>[]; edges: Edge[] } {
   const nodes: Node<ERDNodeData>[] = []
@@ -141,164 +162,82 @@ function buildERDGraph(mapping: SchemaMapping): { nodes: Node<ERDNodeData>[]; ed
   const NODE_W = 280
   const ROW_GAP = 40
 
-  const conceptCount = mapping.conceptTables?.length ?? 0
-  const eventCount = mapping.eventTables ? Object.keys(mapping.eventTables).length : 0
-  const maxCols = Math.max(2, conceptCount, eventCount)
+  const concepts = mapping.concepts ?? []
+  const events = [...(mapping.events ?? []), ...(mapping.drugs ?? [])]
+  const maxCols = Math.max(2, concepts.length, events.length)
 
   const centerX = (n: number) => ((maxCols - n) / 2) * NODE_W
   const estimateHeight = (colCount: number) => 32 + colCount * 20 + 16
 
-  let row0MaxHeight = 0
+  const patientRef = mapping.patient ? fieldRef(mapping.patient.fields?.patient_id) : null
+  const patientTarget = mapping.patient ? `${relationLabel(mapping.patient, 'patient')}.${patientRef?.column ?? 'patient_id'}` : undefined
 
   // Row 0: Patient + Visit
-  const row0Count = (mapping.patientTable ? 1 : 0) + (mapping.visitTable ? 1 : 0)
-  let col0 = centerX(row0Count)
-
-  if (mapping.patientTable) {
-    const pt = mapping.patientTable
-    const columns: ColumnDef[] = [
-      { name: pt.idColumn, role: 'pk', handleId: 'pk', handleType: 'target' },
-    ]
-    if (pt.birthDateColumn) columns.push({ name: pt.birthDateColumn, role: 'date' })
-    if (pt.birthYearColumn) columns.push({ name: pt.birthYearColumn })
-    if (pt.anchorAgeColumn) columns.push({ name: pt.anchorAgeColumn })
-    if (pt.anchorYearColumn) columns.push({ name: pt.anchorYearColumn })
-    if (pt.genderColumn) columns.push({ name: pt.genderColumn })
-
+  let row0MaxHeight = 0
+  const row0 = [
+    mapping.patient ? { id: 'patient', cls: 'patient', spec: mapping.patient } : null,
+    mapping.visit ? { id: 'visit', cls: 'visit', spec: mapping.visit } : null,
+  ].filter((x): x is { id: string; cls: string; spec: RelationSpec } => !!x)
+  let col0 = centerX(row0.length)
+  for (const { id, cls, spec } of row0) {
+    const columns = relationColumns(cls, spec, { patient_id: patientTarget })
     nodes.push({
-      id: `patient-${pt.table}`,
+      id,
       type: 'erdTable',
       position: { x: col0, y: 0 },
       zIndex: 1,
-      data: { label: pt.table, tableType: 'patient', columns },
+      data: { label: relationLabel(spec, id), tableType: cls as ERDNodeData['tableType'], columns },
     })
     row0MaxHeight = Math.max(row0MaxHeight, estimateHeight(columns.length))
     col0 += NODE_W
   }
 
-  if (mapping.visitTable) {
-    const vt = mapping.visitTable
-    const columns: ColumnDef[] = [
-      { name: vt.idColumn, role: 'pk', handleId: 'pk', handleType: 'target' },
-      { name: vt.patientIdColumn, role: 'fk', handleId: 'fk-patient', handleType: 'source', fkTarget: `${mapping.patientTable?.table ?? '?'}.${mapping.patientTable?.idColumn ?? '?'}` },
-      { name: vt.startDateColumn, role: 'date' },
-    ]
-    if (vt.endDateColumn) columns.push({ name: vt.endDateColumn, role: 'date' })
-
-    nodes.push({
-      id: `visit-${vt.table}`,
-      type: 'erdTable',
-      position: { x: col0, y: 0 },
-      zIndex: 1,
-      data: { label: vt.table, tableType: 'visit', columns },
-    })
-    row0MaxHeight = Math.max(row0MaxHeight, estimateHeight(columns.length))
-  }
-
   // Row 1: Concept dictionaries
   const row1Y = row0MaxHeight + ROW_GAP
   let row1MaxHeight = 0
-
-  if (mapping.conceptTables && conceptCount > 0) {
-    const startX = centerX(conceptCount)
-    mapping.conceptTables.forEach((dict: ConceptDictionary, i: number) => {
-      const columns: ColumnDef[] = [
-        { name: dict.idColumn ?? '', role: 'pk', handleId: 'pk', handleType: 'target' },
-        { name: dict.nameColumn },
-      ]
-      if (dict.codeColumn) columns.push({ name: dict.codeColumn })
-      if (dict.vocabularyColumn) columns.push({ name: dict.vocabularyColumn })
-      if (dict.extraColumns) {
-        Object.values(dict.extraColumns).forEach((col) => columns.push({ name: col }))
-      }
-
-      nodes.push({
-        id: `concept-${dict.key}`,
-        type: 'erdTable',
-        position: { x: startX + i * NODE_W, y: row1Y },
-        zIndex: 1,
-        data: { label: dict.table, tableType: 'concept', columns },
-      })
-      row1MaxHeight = Math.max(row1MaxHeight, estimateHeight(columns.length))
+  const startX1 = centerX(concepts.length)
+  concepts.forEach((dict, i) => {
+    const columns = relationColumns('concept', dict, {})
+    nodes.push({
+      id: `concept-${dict.key}`,
+      type: 'erdTable',
+      position: { x: startX1 + i * NODE_W, y: row1Y },
+      zIndex: 1,
+      data: { label: relationLabel(dict, dict.key), tableType: 'concept', columns },
     })
-  }
+    row1MaxHeight = Math.max(row1MaxHeight, estimateHeight(columns.length))
+  })
 
-  // Row 2: Event tables
+  // Row 2: Event and drug relations
   const row2Y = row1Y + (row1MaxHeight > 0 ? row1MaxHeight + ROW_GAP : 0)
-
-  if (mapping.eventTables && eventCount > 0) {
-    const startX = centerX(eventCount)
-    const eventEntries = Object.entries(mapping.eventTables)
-    eventEntries.forEach(([label, et]: [string, EventTable], i: number) => {
-      // Resolve FK targets for tooltips
-      const dictKey = et.conceptDictionaryKey ?? mapping.conceptTables?.[0]?.key
-      const dictTable = mapping.conceptTables?.find((d) => d.key === dictKey)
-      const conceptFkTarget = dictTable ? `${dictTable.table}.${dictTable.idColumn}` : undefined
-      const patientFkTarget = mapping.patientTable ? `${mapping.patientTable.table}.${mapping.patientTable.idColumn}` : undefined
-
-      const columns: ColumnDef[] = [
-        { name: et.conceptIdColumn, role: 'fk', handleId: 'fk-concept', handleType: 'source', fkTarget: conceptFkTarget },
-      ]
-      if (et.sourceConceptIdColumn) columns.push({ name: et.sourceConceptIdColumn, role: 'fk' })
-      if (et.patientIdColumn) columns.push({ name: et.patientIdColumn, role: 'fk', handleId: 'fk-patient', handleType: 'source', fkTarget: patientFkTarget })
-      if (et.valueColumn) columns.push({ name: et.valueColumn, role: 'value' })
-      if (et.valueStringColumn) columns.push({ name: et.valueStringColumn, role: 'value' })
-      if (et.dateColumn) columns.push({ name: et.dateColumn, role: 'date' })
-
-      nodes.push({
-        id: `event-${label}`,
-        type: 'erdTable',
-        position: { x: startX + i * NODE_W, y: row2Y },
-        zIndex: 1,
-        data: { label: `${et.table} (${label})`, tableType: 'event', columns },
-      })
+  const startX2 = centerX(events.length)
+  events.forEach((ev, i) => {
+    const dictKey = ev.conceptDictionaryKey === 'none' ? undefined : (ev.conceptDictionaryKey ?? concepts[0]?.key)
+    const dict = concepts.find((d) => d.key === dictKey)
+    const conceptTarget = dict ? `${relationLabel(dict, dict.key)}.${fieldRef(dict.fields?.concept_id)?.column ?? 'concept_id'}` : undefined
+    const id = `event-${i}`
+    nodes.push({
+      id,
+      type: 'erdTable',
+      position: { x: startX2 + i * NODE_W, y: row2Y },
+      zIndex: 1,
+      data: {
+        label: ev.from ? `${ev.from.table} (${ev.label})` : ev.label,
+        tableType: i < (mapping.events?.length ?? 0) ? 'event' : 'drug',
+        columns: relationColumns(i < (mapping.events?.length ?? 0) ? 'event' : 'drug', ev, { patient_id: patientTarget, concept_id: conceptTarget }),
+      },
     })
-  }
+    if (dict) {
+      edges.push({ id: `e-${id}-concept`, source: id, sourceHandle: 'fk-concept', target: `concept-${dict.key}`, targetHandle: 'pk', type: 'smoothstep' })
+    }
+    if (mapping.patient && ev.fields?.patient_id && !ev.customSql?.trim()) {
+      edges.push({ id: `e-${id}-patient`, source: id, sourceHandle: 'fk-patient', target: 'patient', targetHandle: 'pk', type: 'smoothstep' })
+    }
+  })
 
-  // Build edges from FK handles
   // Visit → Patient
-  if (mapping.visitTable && mapping.patientTable) {
-    edges.push({
-      id: 'e-visit-patient',
-      source: `visit-${mapping.visitTable.table}`,
-      sourceHandle: 'fk-patient',
-      target: `patient-${mapping.patientTable.table}`,
-      targetHandle: 'pk',
-      type: 'smoothstep',
-      style: { stroke: 'var(--color-muted-foreground)', strokeWidth: 1.5, opacity: 0.35 },
-    })
-  }
-
-  // Event tables → Concept dictionary + Patient
-  if (mapping.eventTables) {
-    const eventEntries = Object.entries(mapping.eventTables)
-    eventEntries.forEach(([label, et]: [string, EventTable]) => {
-      // Event → Concept dictionary
-      const dictKey = et.conceptDictionaryKey ?? mapping.conceptTables?.[0]?.key
-      if (dictKey) {
-        edges.push({
-          id: `e-${label}-concept`,
-          source: `event-${label}`,
-          sourceHandle: 'fk-concept',
-          target: `concept-${dictKey}`,
-          targetHandle: 'pk',
-          type: 'smoothstep',
-          style: { stroke: 'var(--color-muted-foreground)', strokeWidth: 1.5, opacity: 0.35 },
-        })
-      }
-      // Event → Patient
-      if (et.patientIdColumn && mapping.patientTable) {
-        edges.push({
-          id: `e-${label}-patient`,
-          source: `event-${label}`,
-          sourceHandle: 'fk-patient',
-          target: `patient-${mapping.patientTable.table}`,
-          targetHandle: 'pk',
-          type: 'smoothstep',
-          style: { stroke: 'var(--color-muted-foreground)', strokeWidth: 1.5, opacity: 0.35 },
-        })
-      }
-    })
+  if (mapping.visit?.fields?.patient_id && mapping.patient && !mapping.visit.customSql?.trim()) {
+    edges.push({ id: 'e-visit-patient', source: 'visit', sourceHandle: 'fk-patient', target: 'patient', targetHandle: 'pk', type: 'smoothstep' })
   }
 
   return { nodes, edges }
@@ -312,17 +251,22 @@ function ERDCanvas({ mapping }: { mapping: SchemaMapping }) {
   const { fitView } = useReactFlow()
 
   const { nodes, edges } = useMemo(() => buildERDGraph(mapping), [mapping])
+  // A handful of links: all drawn, the clicked table's and the hovered point's lit.
+  const highlight = useErdHighlightState(edges, true)
 
   const onInit = useCallback(() => {
     setTimeout(() => fitView({ padding: 0.2, maxZoom: 1 }), 50)
   }, [fitView])
 
   return (
+    <ErdHighlightProvider value={highlight.context}>
     <ReactFlow
       nodes={nodes}
-      edges={edges}
+      edges={highlight.shown}
       nodeTypes={nodeTypes}
       onInit={onInit}
+      onNodeClick={(_, node) => highlight.toggle(node.id)}
+      onPaneClick={highlight.clear}
       fitView
       fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
       panOnScroll
@@ -340,6 +284,7 @@ function ERDCanvas({ mapping }: { mapping: SchemaMapping }) {
         className="!bg-card !border-border !shadow-sm [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-muted-foreground [&>button:hover]:!bg-muted"
       />
     </ReactFlow>
+    </ErdHighlightProvider>
   )
 }
 
@@ -356,10 +301,11 @@ export function SchemaERD({
   fullscreen?: boolean
 }) {
   const hasContent =
-    mapping.patientTable ||
-    mapping.visitTable ||
-    (mapping.conceptTables && mapping.conceptTables.length > 0) ||
-    (mapping.eventTables && Object.keys(mapping.eventTables).length > 0)
+    mapping.patient ||
+    mapping.visit ||
+    (mapping.concepts?.length ?? 0) > 0 ||
+    (mapping.events?.length ?? 0) > 0 ||
+    (mapping.drugs?.length ?? 0) > 0
 
   if (!hasContent) {
     return (

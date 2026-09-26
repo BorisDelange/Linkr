@@ -61,14 +61,17 @@ const PRESET: CustomSchemaPreset = {
   createdBy: 'Boris Delange',
   license: { id: 'CC-BY-4.0' },
   mapping: {
+    formatVersion: 2,
     presetId: 'omop-cdm-5-4',
     presetLabel: { en: 'OMOP CDM 5.4', fr: 'OMOP CDM 5.4' },
     description: { en: 'The common data model', fr: 'Le modèle commun' },
     ddl: 'CREATE TABLE person (person_id INTEGER);\n',
-    patientTable: { table: 'person', idColumn: 'person_id' },
-    eventTables: {
-      Measurement: { table: 'measurement', conceptIdColumn: 'measurement_concept_id', dateColumn: 'measurement_date' },
-    },
+    patient: { from: { table: 'person', alias: 'p' }, fields: { patient_id: 'p.person_id' } },
+    events: [{
+      label: 'Measurement',
+      from: { table: 'measurement', alias: 'e' },
+      fields: { concept_id: 'e.measurement_concept_id', start_datetime: 'e.measurement_date' },
+    }],
   },
 } as unknown as CustomSchemaPreset
 
@@ -119,8 +122,8 @@ describe('schema preset: export → import → re-export', () => {
     expect(imported.version).toBe('1.2.0')
     // Payload survives the split into its own file.
     expect(imported.mapping.ddl).toBe('CREATE TABLE person (person_id INTEGER);\n')
-    expect(imported.mapping.patientTable?.table).toBe('person')
-    expect(imported.mapping.eventTables?.Measurement?.table).toBe('measurement')
+    expect(imported.mapping.patient?.from?.table).toBe('person')
+    expect(imported.mapping.events?.find((e) => e.label === 'Measurement')?.from?.table).toBe('measurement')
     // presetLabel is required on a SchemaMapping and lives at the manifest root
     // in the export — the reader has to put it back or the row is unnameable.
     expect(imported.mapping.presetLabel).toEqual({ en: 'OMOP CDM 5.4', fr: 'OMOP CDM 5.4' })
@@ -148,6 +151,30 @@ describe('schema preset: export → import → re-export', () => {
     const secondTree = await treeOf(await bytesOf(secondZip!.blob))
 
     expect(await treeOf(await bytesOf(thirdZip!.blob))).toEqual(secondTree)
+  })
+
+  it('converts a repo published before format v2, and re-exports it as v2', async () => {
+    const v1 = {
+      ...PRESET,
+      mapping: {
+        presetId: 'omop-cdm-5-4',
+        presetLabel: PRESET.mapping.presetLabel,
+        ddl: 'CREATE TABLE measurement (\n  person_id INTEGER\n);\n',
+        patientTable: { table: 'person', idColumn: 'person_id' },
+        visitTable: { table: 'visit_occurrence', idColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'visit_start_date' },
+        eventTables: { Measurement: { table: 'measurement', conceptIdColumn: 'measurement_concept_id', dateColumn: 'measurement_date' } },
+      },
+    } as unknown as CustomSchemaPreset
+    const source = makeStore(v1)
+    const built = await buildSchemaPresetZip(v1.id, source.store)
+    const target = makeStore()
+    await applyClonedEntity(await JSZip.loadAsync(await bytesOf(built!.blob)), 'schema-preset', 'omop-cdm-5-4', target.store, 'ws-1')
+    const imported = [...target.presets.values()][0]
+    expect(imported.mapping.formatVersion).toBe(2)
+    // The DDL is back before the conversion reads it: measurement has no visit column.
+    expect(imported.mapping.events?.[0].fields?.visit_id).toBeUndefined()
+    const again = await treeOf(await bytesOf((await buildSchemaPresetZip(imported.id, target.store))!.blob))
+    expect(JSON.parse(again['mapping.json']).formatVersion).toBe(2)
   })
 
   it('does not need the local id the export stopped writing', async () => {

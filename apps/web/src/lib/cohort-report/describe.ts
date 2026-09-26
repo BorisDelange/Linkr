@@ -62,7 +62,7 @@ function describeLeaf(
     }
     case 'sex': {
       const c = config as SexCriteriaConfig
-      const gv = mapping?.genderValues
+      const gv = mapping?.patient?.genderValues
       const name = (v: string) =>
         v === gv?.male ? t(`${K}sex_male`) : v === gv?.female ? t(`${K}sex_female`) : v === gv?.unknown ? t(`${K}sex_unknown`) : v
       return t(`${K}sex`, { values: c.values.map(name).join(', ') })

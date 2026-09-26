@@ -156,10 +156,13 @@ the inverted target preset mapping.
 | ✅ | Arbitrated 2026-09-25: phases A→D, `linkr_*` names, no roles in class SQL, per-database override | — |
 | ✅ | Arbitrated 2026-09-25: preset required, single `from`, `drug_kind`, OMOP-only ETL generation, the 7 contracts, v1 converted then forgotten | — |
 | ✅ | CTE injection, parameters as escaped literals only | — |
-| 🔜 | A. Generator from v1 + port the consumers to the contract, parity-checked on the demo DBs | L |
-| 🔜 | B. Format v2 (+ linkr-format, Python twin, goldens) + visual editor + Code modal + contract check + parameters + database *Mapping* tab | L |
-| 🔜 | C. Drug class + EAV administrations (attribute codes as parameters) and the OMOP twin as acceptance tests | M |
-| 🔜 | D. Generate OMOP scripts into an ETL pipeline from a source schema | L |
+| ✅ | A. Generator from v1 + consumers ported to the contract, parity-checked on MIMIC-IV demo + full MIMIC-IV OMOP (branch `feature/schema-classes`); fixed 7 pre-existing bugs on the way | L |
+| 🔜 | A'. **[TO TEST]** Manual pass in the app, both modes (plan step 2b) | M |
+| ✅ | B. Format v2 (+ linkr-format, Python twin, goldens) + visual editor + Code modal + contract check + parameters + database *Mapping* tab | L |
+| ✅ | C. Drug class + EAV administrations (attribute codes as parameters) and the OMOP twin as acceptance tests | M |
+| ✅ | D. Generate OMOP scripts into an ETL pipeline from a source schema | L |
+| 🔜 | **[TO TEST]** Manual pass in the app on B–D: Schemas editor, database Mapping tab, drug widgets, ETL generation run in both modes | M |
+| 🔜 | User docs in `linkr-website` (schema presets, Mapping tab, ETL generation) | S/M |
 
 ## eCRF / survey plugin — [survey-plugin-plan.md](survey-plugin-plan.md)
 

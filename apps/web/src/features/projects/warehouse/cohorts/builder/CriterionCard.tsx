@@ -61,6 +61,7 @@ import type {
   ConceptCriteriaConfig,
   TextCriteriaConfig,
   SchemaMapping,
+  PatientSpec,
   CohortLevel,
 } from '@/types'
 
@@ -69,7 +70,7 @@ interface CriterionCardProps {
   onUpdate: (id: string, changes: Partial<CriterionNode>) => void
   onRemove: (id: string) => void
   eventTableLabels: string[]
-  genderValues?: SchemaMapping['genderValues']
+  genderValues?: PatientSpec['genderValues']
   visitDateRange?: { minDate: string; maxDate: string }
   dataSourceId?: string
   schemaMapping?: SchemaMapping
@@ -305,7 +306,7 @@ function CriteriaConfigForm({
   config: CriteriaConfig
   onChange: (config: CriteriaConfig) => void
   eventTableLabels: string[]
-  genderValues?: SchemaMapping['genderValues']
+  genderValues?: PatientSpec['genderValues']
   visitDateRange?: { minDate: string; maxDate: string }
   dataSourceId?: string
   schemaMapping?: SchemaMapping

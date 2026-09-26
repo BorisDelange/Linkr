@@ -1091,7 +1091,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
 
   const PRESET = (over: Partial<CustomSchemaPreset> = {}): CustomSchemaPreset => ({
     presetId: 'my-preset', workspaceId: 'w1',
-    mapping: { presetId: 'my-preset', presetLabel: { en: 'My Preset' } },
+    mapping: { formatVersion: 2, presetId: 'my-preset', presetLabel: { en: 'My Preset' } },
     createdAt: '2020', updatedAt: '2021', ...over,
   } as unknown as CustomSchemaPreset)
 
@@ -1307,7 +1307,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
   it('round-trips a schema preset name through the promoted root field', async () => {
     // The name lives at the root of the manifest but the app reads it from
     // mapping.presetLabel; without the bridge the preset came back nameless.
-    const zip = await exportZip({ presets: [PRESET({ mapping: { presetId: 'my-preset', presetLabel: { en: 'My preset' }, ddl: 'CREATE TABLE t (a INT);' } })] })
+    const zip = await exportZip({ presets: [PRESET({ mapping: { formatVersion: 2, presetId: 'my-preset', presetLabel: { en: 'My preset' }, ddl: 'CREATE TABLE t (a INT);' } })] })
     const manifest = JSON.parse(await zip.files['schemas/my-preset/entity.json'].async('string'))
     expect(manifest.name).toEqual({ en: 'My preset' })
     expect(await zip.files['schemas/my-preset/schema.ddl'].async('string')).toBe('CREATE TABLE t (a INT);')

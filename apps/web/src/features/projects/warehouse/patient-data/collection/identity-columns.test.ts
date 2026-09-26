@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { identityColumnsFromMapping } from './identity-columns'
-import type { SchemaMapping } from '@/types/schema-mapping'
 
-const mimic = {
+const mimic_V1: SchemaMappingV1 = {
+  presetId: 'test',
+  presetLabel: { en: 'Test' },
   patientTable: { table: 'patients', idColumn: 'subject_id' },
   visitTable: { table: 'admissions', idColumn: 'hadm_id', patientIdColumn: 'subject_id', startDateColumn: 'admittime' },
   visitDetailTable: { table: 'icustays', idColumn: 'stay_id', visitIdColumn: 'hadm_id', patientIdColumn: 'subject_id', startDateColumn: 'intime' },
-} as unknown as SchemaMapping
+}
+const mimic = mappingV1ToV2(mimic_V1)
 
 describe('identityColumnsFromMapping', () => {
   it('uses the names the active database actually uses', () => {
@@ -24,14 +27,14 @@ describe('identityColumnsFromMapping', () => {
   it('skips a table the mapping does not declare', () => {
     // A source with no visit_detail table has no unit stays to collect against;
     // offering the column would create a field nothing can ever fill.
-    const noDetail = { ...mimic, visitDetailTable: undefined } as unknown as SchemaMapping
+    const noDetail = mappingV1ToV2({ ...mimic_V1, visitDetailTable: undefined } as never)
     expect(identityColumnsFromMapping(noDetail).map((c) => c.role))
       .toEqual(['person', 'visit'])
   })
 
   it('keeps the person column even when the mapping declares no patient table', () => {
     // A row must name its patient, so this one is never dropped.
-    const bare = {} as SchemaMapping
+    const bare = {} as never
     const cols = identityColumnsFromMapping(bare)
     expect(cols).toHaveLength(1)
     expect(cols[0]).toEqual({ name: 'person_id', role: 'person', type: 'number' })

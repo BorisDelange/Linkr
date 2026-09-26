@@ -126,6 +126,11 @@ export const CONTENT_FILE = {
    * `entity.json` carries identity + provenance; substantial payload lives beside it.
    */
   schemaMapping: 'mapping.json',
+  /**
+   * A database's changes on top of its preset's mapping (parameter values,
+   * relations replaced): `SchemaOverrides`. Written only when there are some.
+   */
+  schemaOverrides: 'mapping-overrides.json',
   /** A DQ rule set's checks. */
   dqChecks: 'checks.json',
   /** A plugin's own functional manifest — NOT Linkr entity metadata. */

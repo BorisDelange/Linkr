@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import type { AuthoringValue } from '@/components/ui/authoring-fields'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { isMappingV1 } from '@/lib/schema-classes/v1'
 import { stampAuthored, stampLineage } from '@/stores/app-store'
 import type { CustomSchemaPreset, GitRemoteConfig, ProjectBadge, SchemaMapping } from '@/types'
 
@@ -45,6 +46,11 @@ export const useSchemaPresetStore = create<SchemaPresetState>((set, get) => ({
     // savePreset, and a preset's mapping ends up interpolated into SQL.
     const presets = rows.map((p) => ({ ...p, mapping: sanitizeSchemaMapping(p.mapping) }))
     set({ presets, loaded: true })
+    // A row stored before format v2 is converted on read; write it back once,
+    // so storage (and the server's exports) only ever hold v2.
+    for (const [i, row] of rows.entries()) {
+      if (isMappingV1(row.mapping)) storage.schemaPresets.save(presets[i]).catch(() => {})
+    }
   },
 
   getWorkspacePresets: (workspaceId) =>

@@ -33,6 +33,8 @@ export interface TimelineSeries {
    */
   unit: string | null
   events: OverviewEvent[]
+  /** Read from a drug relation. */
+  drug?: boolean
 }
 
 interface TimelineCanvasProps {
@@ -167,7 +169,7 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale, gut
       // MG/ML Injection" — and the gutter truncates from the right, so the one
       // word that identifies the row is the first thing lost. Lead with the
       // substance instead, as the overview does.
-      const full = looksLikeDrugName(s.name) ? shortenDrugName(s.name) : s.name
+      const full = s.drug || looksLikeDrugName(s.name) ? shortenDrugName(s.name) : s.name
       let label = full
       while (label.length > 1 && ctx.measureText(`${label}…`).width > GUTTER - 14) {
         label = label.slice(0, -1)
@@ -376,7 +378,7 @@ export function TimelineCanvas({ series, bounds, view, onViewChange, locale, gut
       // Same shape as the overview's tooltip: the figure with its unit (and the
       // average rate when something was infused), then when it happened, then
       // the route — which is what tells a drip from a single shot.
-      const value = fmtEventValue(ev.value, ev.text, s.unit, ev.start, ev.end)
+      const value = fmtEventValue(ev.value, ev.text, s.unit, ev.start, ev.end, ev)
       const lines = [fmtEventWhen(ev.start, ev.end)]
       if (ev.route) lines.push(ev.route)
       // The labels are bare nouns, so the count is composed here — as the

@@ -1,5 +1,5 @@
 // Core application types
-export type { SchemaMapping, SchemaPresetId, ConceptDictionary, EventTable, CustomSchemaPreset, ErdGroup } from './schema-mapping'
+export type { SchemaMapping, SchemaPresetId, CustomSchemaPreset, ErdGroup, PatientSpec, RelationSpec, ConceptSpec, EventSpec, DrugSpec, FieldSpec, SchemaOverrides } from './schema-mapping'
 export type { ConceptList, ConceptListItem, ConceptSet, ConceptSetItem, ConceptSetTranslation, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectSourceType, MappingProjectStatus, MappingProjectStats, FileColumnMapping, FileSourceData, SourceExtraction, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, MappingEquivalence, MappingType, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore, ScoresIndex, SuggestionCategory } from './concept-mapping'
 export type { DataSourceRef, EntityRef } from './concept-mapping'
 export { SUGGESTION_CATEGORIES } from './concept-mapping'
@@ -9,6 +9,7 @@ export { getDefaultDimensions } from './catalog'
 export type { AuthorDetails, Authored, Lineaged } from './author'
 import type { Authored, Lineaged } from './author'
 import type { DerivedFrom } from './cohort'
+import type { SchemaMapping, SchemaOverrides } from './schema-mapping'
 // The ops log is defined once, in the format package, because the replay engine
 // there is the shared contract between the client, the server and the validator.
 export type { DatasetOp } from '@linkr/format'
@@ -441,6 +442,18 @@ export interface DataSource extends Seedable, Authored, Lineaged {
    * mapping was hand-built rather than taken from a preset.
    */
   schemaSource?: SchemaSource
+  /**
+   * What this database changes on top of its preset's mapping (plan §7):
+   * parameter values and whole relations. Stored beside the base copy
+   * (`schemaMapping`); null clears it.
+   */
+  schemaOverrides?: SchemaOverrides | null
+  /**
+   * In memory only, never stored: the preset copy the overrides apply to. The
+   * store publishes `schemaMapping` as the EFFECTIVE mapping (base + overrides),
+   * which is what every query reads, and keeps the base here for the Mapping tab.
+   */
+  schemaBaseMapping?: SchemaMapping
   /** Set when this database is a cohort's derivation of another one. */
   derivedFrom?: DerivedFrom
   status: DataSourceStatus

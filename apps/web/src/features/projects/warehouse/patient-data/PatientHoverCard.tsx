@@ -73,7 +73,7 @@ export function PatientHoverCard({
     }
   }, [dataSourceId, schemaMapping, patientId])
 
-  const gv = schemaMapping?.genderValues
+  const gv = schemaMapping?.patient?.genderValues
   const round = (n: number | undefined) =>
     n != null ? Math.round(Number(n)) : null
 

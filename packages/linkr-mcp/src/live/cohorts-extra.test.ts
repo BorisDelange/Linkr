@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { SchemaMapping } from '@/types'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { normalizeCriteria } from './cohorts.js'
 import { convertAtlas, describeFreeze, freezeBlocker, readAtlasInput } from './cohorts-extra.js'
 
@@ -46,15 +46,15 @@ describe('convertAtlas', () => {
     const read = readAtlasInput(ATLAS)
     if (!('definition' in read)) throw new Error('unreadable')
     const { tree } = convertAtlas(read.definition)
-    const omop = {
+    const omop = mappingV1ToV2({
       patientTable: { table: 'person', idColumn: 'person_id', birthDateColumn: 'birth_datetime' },
       genderValues: { male: '8507', female: '8532' },
       eventTables: { measurement: { table: 'measurement', conceptIdColumn: 'measurement_concept_id' } },
-    } as unknown as SchemaMapping
+    } as never)
     expect(normalizeCriteria(tree, omop).errors).toEqual([])
-    const mimic = { ...omop, genderValues: { male: 'M', female: 'F' }, eventTables: { labevents: {} } } as unknown as SchemaMapping
+    const mimic = mappingV1ToV2({ ...omop, genderValues: { male: 'M', female: 'F' }, eventTables: { labevents: {} } } as never)
     const errors = normalizeCriteria(tree, mimic).errors.join('\n')
-    expect(errors).toContain('"measurement" is not an event table')
+    expect(errors).toContain('"measurement" is not an event or drug table')
     expect(errors).toContain('8507 not in genderValues')
   })
 })

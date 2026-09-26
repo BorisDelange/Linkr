@@ -1,0 +1,19 @@
+{
+  "relations": {
+    "events.Site labs": {
+      "label": "Site labs",
+      "from": {
+        "table": "site_labs",
+        "alias": "e"
+      },
+      "fields": {
+        "patient_id": "e.pid",
+        "concept_id": "e.c",
+        "start_datetime": "e.d"
+      }
+    }
+  },
+  "baseAtOverride": {
+    "events.Site labs": "none"
+  }
+}

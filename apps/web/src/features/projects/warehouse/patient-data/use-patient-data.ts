@@ -217,7 +217,7 @@ export function usePatientData(
   // --- Visit details (sub-stays) ---
   const [visitDetails, setVisitDetails] = useState<VisitDetailRow[]>([])
   const [visitDetailsLoading, setVisitDetailsLoading] = useState(false)
-  const hasVisitDetailTable = !!schemaMapping?.visitDetailTable
+  const hasVisitDetailTable = !!schemaMapping?.visitDetail
 
   useEffect(() => {
     if (!dataSourceId || !schemaMapping || !visitId || !hasVisitDetailTable) {

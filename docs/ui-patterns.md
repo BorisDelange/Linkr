@@ -586,6 +586,7 @@ Check this table before writing any form field.
 | `DateTimeField` | A date that also needs a time of day. Wraps `DatePickerField` and adds a time input, so a plain date still gets the shared calendar. Date and datetime are different questions — "when did the stay start" wants a day, "when was the drug given" wants a minute — so pick deliberately rather than always offering both. |
 | `DatabaseSelect` | **Any "choose a database" control.** Wraps `useDatabaseOptions` (workspace scoping + vocabulary exclusion) and says why the list is empty. Pass `projectUid` for a **project** feature (patient board, cohort, Concepts): it then offers only the databases that project has linked. Omit it for a **workspace** entity (ETL, DQ, catalog, SQL collection), which sees the whole workspace. |
 | `DatabaseLocationField` | **Where a DuckDB file Linkr creates is written** — Linkr's data folder, or a server folder + file name, checked live as a *new* `.duckdb` (`validate-path` `expect: new-file`). Server mode only (renders nothing in the browser build). Reports validity through `onValidityChange` so the dialog gates its confirm button; `databaseLocationPath()` gives the path to send. Used by Create from schema; the cohort derive dialog reuses it. |
+| `SuggestInput` | **A free-text field with suggestions** (table, column, schema names): a compact filtered list in the app's type scale, keyboard-navigable, committing on blur/Enter/pick. **Never `<datalist>`** — the browser's popup ignores the app's spacing and scale. The value stays free: the list only helps. |
 | `PasswordInput` | Any secret input (reveal toggle). |
 | `RequiredMark` | The required-field asterisk. |
 | `GatedButton` | An action the user may lack permission for: renders disabled with an explanatory tooltip. **UX only — real enforcement is server-side.** |
@@ -597,6 +598,8 @@ Check this table before writing any form field.
 | `CopySelectButton` | The "Copy SELECT" button in every database schema view. |
 | `CopyablePath` / `ParquetFilesDialog` | A server path shown as copyable code, and the "N files" + Show dialog listing a Parquet source's table → blob paths (ETL sidebar, database Connection card). |
 | `CustomSqlDot` | Marks a widget whose SQL was hand-edited; its tooltip carries the consequence (regenerating discards the edit). |
+| `GeneratedSqlEditor` | **SQL generated from a form, then editable** (the Cohort pattern): shows the generated SQL, saves an edit (Cmd+S) as `customSql` with a *Modified* badge and a Reset. Used by the cohort SQL tab and by schema-mapping relations. The overwrite prompt when the form changes under an edit stays with the caller, which knows whether its generated SQL changed. |
+| `MappingEditor` | A schema mapping edited class by class (visual relation or SQL, parameters, contract check and preview on a database). Used by the Schemas page and a database's Mapping tab (override mode: `relationExtra`, `canRemove`, `paramsSlot`). Don't build another mapping form. |
 | `ImageLightbox` / `ZoomableImage` | The full-screen image viewer (zoom, pan, reset) and the click-to-enlarge `<img>` built on it. **Every markdown view already enlarges its images** via `markdownComponents` (below) — you only reach for these directly for an image outside markdown, as `CellOutput` does for notebook figures. |
 | `LinkrLogo` | The logo. |
 

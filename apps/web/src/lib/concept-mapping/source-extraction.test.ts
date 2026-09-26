@@ -1,3 +1,5 @@
+import { withClassRelations } from '@/lib/schema-classes/inject'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_PROFILE_OPTIONS, resolveProfileSource, type ProfileSource } from './concept-profile'
@@ -15,10 +17,9 @@ import {
 } from './source-extraction'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
-// `satisfies`, not a type annotation: it checks the fixture against SchemaMapping
-// while keeping the literal's own type, so the tests below can reach into
-// `eventTables` — optional on the interface, always there on this fixture.
-const OMOP = {
+// Written as a v1 mapping, converted below: the raw literal keeps its own type,
+// so the tests can derive variants of its blocks.
+const OMOP_V1 = {
   presetId: 'omop-5.4',
   presetLabel: { en: 'OMOP CDM 5.4' },
   patientTable: { table: 'person', idColumn: 'person_id' },
@@ -39,7 +40,8 @@ const OMOP = {
       dateColumn: 'measurement_datetime',
     },
   },
-} satisfies SchemaMapping
+}
+const OMOP = mappingV1ToV2(OMOP_V1)
 
 function source(mapping: SchemaMapping = OMOP, key = 'concept'): ProfileSource {
   const resolved = resolveProfileSource(mapping, key)
@@ -115,26 +117,27 @@ describe('buildDictionaryPageQuery', () => {
     // would let two concepts sharing one swap between pages — one extracted
     // twice, another never.
     const sql = buildDictionaryPageQuery(source(), 100, 200)
-    expect(sql).toContain('ORDER BY d."concept_id"')
+    expect(sql).toContain('ORDER BY d.concept_id')
     expect(sql).toContain('LIMIT 100 OFFSET 200')
   })
 
   it('derives an id when the dictionary has no key column', () => {
     // Code-only dictionaries (MIMIC d_icd_diagnoses) still need one id per
     // concept, and it must be the same one the source view derives.
-    const codeOnly: SchemaMapping = {
-      ...OMOP,
+    const codeOnly = mappingV1ToV2({
+      ...OMOP_V1,
       conceptTables: [{ key: 'd', table: 'd_icd', nameColumn: 'long_title', codeColumn: 'icd_code' }],
-    }
+    } as never)
     const sql = buildDictionaryPageQuery(source(codeOnly, 'd'), 10, 0)
-    expect(sql).toContain('hash(d."icd_code")')
+    expect(sql).toContain('hash(d.concept_code)')
+    expect(withClassRelations(sql, codeOnly)).toContain('d."icd_code" AS concept_code')
   })
 
   it('falls back to the table name when the dictionary names no vocabulary', () => {
-    const noVocab: SchemaMapping = {
-      ...OMOP,
+    const noVocab = mappingV1ToV2({
+      ...OMOP_V1,
       conceptTables: [{ key: 'd', table: 'items', nameColumn: 'label', codeColumn: 'code' }],
-    }
+    } as never)
     expect(buildDictionaryPageQuery(source(noVocab, 'd'), 10, 0)).toContain("'items' AS vocabulary_id")
   })
 })
@@ -269,18 +272,18 @@ describe('extraction ordering', () => {
     // An OMOP row reached through measurement_concept_id OR
     // measurement_source_concept_id is ONE record; grouping both separately
     // would double the counts the ranking is built on.
-    const withSource: SchemaMapping = {
-      ...OMOP,
+    const withSource = mappingV1ToV2({
+      ...OMOP_V1,
       eventTables: {
         Measurements: {
-          ...OMOP.eventTables.Measurements,
+          ...OMOP_V1.eventTables.Measurements,
           sourceConceptIdColumn: 'measurement_source_concept_id',
         },
       },
-    }
+    } as never)
     const sql = buildConceptCountsQuery(source(withSource))
-    expect(sql).toContain('COALESCE(e."measurement_concept_id", e."measurement_source_concept_id")')
-    expect(sql).toContain('COUNT(DISTINCT e."person_id")')
+    expect(sql).toContain('COALESCE(e.concept_id, e.source_concept_id)')
+    expect(sql).toContain('COUNT(DISTINCT e.patient_id)')
   })
 
   it('ranks by the chosen column, breaking ties on the id', () => {
@@ -331,6 +334,6 @@ describe('extraction ordering', () => {
   it('ends every dictionary order on the key, so paging is stable', () => {
     // Two concepts sharing a name would otherwise swap between pages.
     const sql = buildDictionaryPageQuery(source(), 10, 0, { key: 'name', direction: 'asc' })
-    expect(sql).toContain('ORDER BY d."concept_name" ASC, d."concept_id" ASC')
+    expect(sql).toContain('ORDER BY d.concept_name ASC, d.concept_id ASC')
   })
 })

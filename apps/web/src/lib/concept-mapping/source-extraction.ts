@@ -27,7 +27,7 @@ import {
 } from './concept-profile'
 import { csvEscape } from './export'
 import { escSql } from '@/lib/format-helpers'
-import { qualify } from '@/lib/schema-helpers'
+import { has } from '@/lib/schema-classes/relations'
 
 /** Execute SQL against the source database and return its rows. */
 export type QueryFn = (sql: string) => Promise<Record<string, unknown>[]>
@@ -99,7 +99,7 @@ export interface ExtractedConcept {
  * make "3000 of 40000" meaningless.
  */
 export function buildDictionaryCountQuery(source: ProfileSource): string {
-  return `SELECT COUNT(*) AS total FROM "${source.dictionary.table}"`
+  return `SELECT COUNT(*) AS total FROM ${source.dict.name}`
 }
 
 /**
@@ -142,9 +142,9 @@ export function sortNeedsCounts(sort: ExtractionSort): boolean {
 /** The dictionary's own key expression, or a hash of the code when it has none. */
 function conceptIdExpr(source: ProfileSource): string {
   const dict = source.dictionary
-  return dict.idColumn
-    ? `d."${dict.idColumn}"`
-    : `(hash(d."${dict.codeColumn ?? dict.nameColumn}") % 2147483647)::INTEGER`
+  return dict.ownId
+    ? 'd.concept_id'
+    : `(hash(d.${dict.hasCode ? 'concept_code' : 'concept_name'}) % 2147483647)::INTEGER`
 }
 
 /**
@@ -159,17 +159,14 @@ function conceptIdExpr(source: ProfileSource): string {
  * last, since a concept with no records is exactly what a volume sort defers.
  */
 export function buildConceptCountsQuery(source: ProfileSource): string {
-  const et = source.eventTable
-  const patientCol = et.patientIdColumn
+  const event = source.event
   // Both OMOP concept columns name the same concept, so a row reached through
   // either must count once — hence the coalesce rather than two groupings.
-  const key = et.sourceConceptIdColumn
-    ? `COALESCE(e."${et.conceptIdColumn}", e."${et.sourceConceptIdColumn}")`
-    : `e."${et.conceptIdColumn}"`
+  const key = has(event, 'source_concept_id') ? 'COALESCE(e.concept_id, e.source_concept_id)' : 'e.concept_id'
   return `SELECT ${key} AS concept_id,
     COUNT(*) AS record_count,
-    ${patientCol ? `COUNT(DISTINCT e."${patientCol}")` : 'NULL'} AS patient_count
-  FROM ${qualify(et)} e
+    ${has(event, 'patient_id') ? 'COUNT(DISTINCT e.patient_id)' : 'NULL'} AS patient_count
+  FROM ${event.name} e
   WHERE ${key} IS NOT NULL
   GROUP BY ${key}`
 }
@@ -187,7 +184,7 @@ export function buildDictionaryIdsQuery(source: ProfileSource): string {
   // under two vocabulary versions, or a plain collision). A duplicate would make
   // `sizes[i]` count a concept the page query — which fetches by `IN (ids)` —
   // returns only once, so the run could never reach that dictionary's end.
-  return `SELECT DISTINCT ${idExpr} AS concept_id FROM "${source.dictionary.table}" d`
+  return `SELECT DISTINCT ${idExpr} AS concept_id FROM ${source.dict.name} d`
 }
 
 /** One concept's counts, as the counting pass returns them. */
@@ -257,15 +254,17 @@ export function buildDictionaryPageQuery(
   orderedIds?: number[],
 ): string {
   const dict = source.dictionary
+  const rel = source.dict
   const idExpr = conceptIdExpr(source)
-  const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn
+  // The table name stands in for a missing vocabulary: it is half of the
+  // (vocabulary, code) identity mappings are keyed on.
   const select = `SELECT
     ${idExpr} AS concept_id,
-    ${dict.codeColumn ? `CAST(d."${dict.codeColumn}" AS VARCHAR)` : `CAST(${idExpr} AS VARCHAR)`} AS concept_code,
-    d."${dict.nameColumn}" AS concept_name,
-    ${vocabCol ? `CAST(d."${vocabCol}" AS VARCHAR)` : `'${escSql(dict.table)}'`} AS vocabulary_id,
-    ${dict.categoryColumn ? `CAST(d."${dict.categoryColumn}" AS VARCHAR)` : 'NULL'} AS category
-  FROM ${qualify(dict)} d`
+    ${dict.hasCode ? 'CAST(d.concept_code AS VARCHAR)' : `CAST(${idExpr} AS VARCHAR)`} AS concept_code,
+    d.concept_name AS concept_name,
+    ${has(rel, 'terminology_id') ? 'CAST(d.terminology_id AS VARCHAR)' : `'${escSql(dict.table)}'`} AS vocabulary_id,
+    ${has(rel, 'category') ? 'CAST(d.category AS VARCHAR)' : 'NULL'} AS category
+  FROM ${rel.name} d`
 
   if (orderedIds) {
     // The ranking already IS the page: take its slice and fetch those concepts,
@@ -283,9 +282,9 @@ export function buildDictionaryPageQuery(
 
   const direction = sort.direction === 'desc' ? 'DESC' : 'ASC'
   const column = sort.key === 'name'
-    ? `d."${dict.nameColumn}"`
-    : sort.key === 'code' && dict.codeColumn
-      ? `d."${dict.codeColumn}"`
+    ? 'd.concept_name'
+    : sort.key === 'code' && dict.hasCode
+      ? 'd.concept_code'
       : idExpr
   const order = column === idExpr
     ? `${idExpr} ${direction}`

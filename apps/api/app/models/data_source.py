@@ -40,6 +40,10 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     # nothing records where it came from — and the UI cannot name the schema on an
     # instance where that preset is not installed.
     schema_source: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # What this database changes on top of its preset's mapping (parameter
+    # values, relations replaced): {params, relations, baseAtOverride}. The
+    # client applies it; the server stores and exports it.
+    schema_overrides: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Set on a database derived from a cohort: the parent database (portable
     # ref), the cohort (key + name), its level, a snapshot of its criteria, when
     # it was built and on how many patients. Not `parent_lineage_id`: that means
