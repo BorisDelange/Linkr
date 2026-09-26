@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import {
   Activity,
@@ -141,7 +141,6 @@ interface DatabaseDetailPageProps {
  */
 export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId, siblingIds = [] }: DatabaseDetailPageProps) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
   const dbActions = useDatabaseActions()
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
@@ -194,8 +193,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   const shownTab: DatabaseTabId = onCohortRoute ? 'cohorts' : activeTab
   const selectTab = (tab: DatabaseTabId) => {
     if (!onCohortRoute || !source) return setActiveTab(tab)
-    const base = paths.warehouseDatabase(wsUid ?? '', source.id, siblingIds)
-    navigate(tab === 'overview' ? base : `${base}?tab=${tab}`)
+    setActiveTab(tab, { pathname: paths.warehouseDatabase(wsUid ?? '', source.id, siblingIds) })
   }
 
   if (!source) {
