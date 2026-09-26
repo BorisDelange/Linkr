@@ -8,6 +8,11 @@
   },
   "footer": {
     "source": "Source code",
+    "cite": "Cite",
+    "cite_title": "Cite this article",
+    "cite_group_styles": "Citation styles",
+    "cite_group_files": "Reference manager files",
+    "cite_hint": "If Linkr helps your research, please cite this article.",
     "deployment_hint_local": "Linkr comes in two deployments. This one is client-only: everything runs in your browser, with no server needed. The other is server mode, where a backend handles storage and compute.",
     "deployment_hint_server": "Linkr comes in two deployments. This one is server mode: a backend handles storage and compute. The other is client-only, where everything runs in your browser with no server needed."
   },

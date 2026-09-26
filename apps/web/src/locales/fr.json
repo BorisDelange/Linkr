@@ -8,6 +8,11 @@
   },
   "footer": {
     "source": "Code source",
+    "cite": "Citer",
+    "cite_title": "Citer cet article",
+    "cite_group_styles": "Styles de citation",
+    "cite_group_files": "Fichiers pour gestionnaires de références",
+    "cite_hint": "Si Linkr vous est utile dans vos travaux, merci de citer cet article.",
     "deployment_hint_local": "Linkr existe en deux déploiements. Celui-ci est client uniquement : tout fonctionne dans votre navigateur, sans serveur. L'autre est le mode serveur, où un backend gère le stockage et les calculs.",
     "deployment_hint_server": "Linkr existe en deux déploiements. Celui-ci est le mode serveur : un backend gère le stockage et les calculs. L'autre est client uniquement, où tout fonctionne dans votre navigateur, sans serveur."
   },
