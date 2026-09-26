@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
@@ -48,6 +49,28 @@ import { birthYearColumns, birthYearSql, qualify } from '@/lib/schema-helpers'
 interface Props {
   catalog: DataCatalog
   cache?: CatalogResultCache | null
+}
+
+/** Linkr's organization types → EHDS publisher types. `consortium` and `other` have no counterpart. */
+const ORG_TYPE_TO_PUBLISHER: Record<string, string | undefined> = {
+  hospital: vocabularyIri('publisherType', 'inpatient-institute'),
+  university: vocabularyIri('publisherType', 'university'),
+  research_institute: vocabularyIri('publisherType', 'research-institute-org'),
+  company: vocabularyIri('publisherType', 'private-company'),
+}
+
+/** An organization's free-text country ("France", "FR", "FRA") → EU country IRI, when recognisable. */
+function countryIri(country: unknown): string | undefined {
+  const values = typeof country === 'string' ? [country] : country && typeof country === 'object' ? Object.values(country as Record<string, string>) : []
+  for (const raw of values) {
+    const v = String(raw).trim().toLowerCase()
+    if (!v) continue
+    for (const [alpha3, alpha2] of Object.entries(COUNTRY_ALPHA2)) {
+      const names = ['en', 'fr'].map((l) => new Intl.DisplayNames([l], { type: 'region' }).of(alpha2)?.toLowerCase())
+      if (v === alpha3.toLowerCase() || v === alpha2.toLowerCase() || names.includes(v)) return vocabularyIri('country', alpha3)
+    }
+  }
+  return undefined
 }
 
 const SECTIONS: DcatSection[] = ['identity', 'health', 'coverage', 'agents', 'distribution', 'catalog', 'generated']
@@ -93,21 +116,37 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
   const [section, setSection] = useState<DcatSection | 'all'>('identity')
   const [mandatoryOnly, setMandatoryOnly] = useState(false)
 
-  const metadata = useMemo(() => normalizeDcatMetadata(catalog.dcatApMetadata), [catalog.dcatApMetadata])
+  // Edits (and Auto-fill) go to a draft; nothing is written until Save.
+  const saved = useMemo(() => normalizeDcatMetadata(catalog.dcatApMetadata), [catalog.dcatApMetadata])
+  const [draft, setDraft] = useState(saved)
+  const [draftBase, setDraftBase] = useState(saved)
+  // A new saved version (ours, or another tab's) replaces the draft only when
+  // there are no pending edits to lose.
+  if (draftBase !== saved) {
+    setDraftBase(saved)
+    if (JSON.stringify(draft) === JSON.stringify(draftBase)) setDraft(saved)
+  }
+  const metadata = draft
+  const { isDirty, canSaveNow, save } = useSaveForm({
+    current: draft,
+    baseline: saved,
+    onSave: () => updateCatalog(catalog.id, { dcatApMetadata: draft }),
+    canSave: canWrite,
+  })
 
-  const orgName = useMemo(() => {
+  const organization = useMemo(() => {
     const ws = _workspacesRaw.find((w) => w.id === activeWorkspaceId)
-    if (!ws) return ''
-    const org = ws.organizationId ? getOrganization(ws.organizationId) : undefined
-    return localized(org?.name ?? ws.organization?.name, language)
-  }, [activeWorkspaceId, _workspacesRaw, getOrganization, language])
+    if (!ws) return undefined
+    return (ws.organizationId ? getOrganization(ws.organizationId) : undefined) ?? ws.organization
+  }, [activeWorkspaceId, _workspacesRaw, getOrganization])
+  const orgName = localized(organization?.name, language)
 
-  const save = (next: Record<string, unknown>) => updateCatalog(catalog.id, { dcatApMetadata: next })
-
-  const handleFieldChange = async (key: string, value: unknown) => {
-    const next = { ...metadata, [key]: value }
-    if (!isFilled(value) && value !== false) delete next[key]
-    await save(next)
+  const handleFieldChange = (key: string, value: unknown) => {
+    setDraft((prev) => {
+      const next = { ...prev, [key]: value }
+      if (!isFilled(value) && value !== false) delete next[key]
+      return next
+    })
   }
 
   const handleAutoFill = async () => {
@@ -134,8 +173,17 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
       fill('dataset.personalData', ['HealthRecord', 'Age', 'Gender'].map((c) => vocabularyIri('personalData', c)))
       if (next['dataset.hasStructuredData'] == null && schemaMapping) next['dataset.hasStructuredData'] = true
       if (isOmop) fill('dataset.conformsTo', [vocabularyIri('standard', 'OMOP-CDM')])
+      // The workspace's organization is the publisher and, by default, the custodian.
       fill('publisher.name', orgName)
+      fill('publisher.type', organization?.type ? ORG_TYPE_TO_PUBLISHER[organization.type] : undefined)
+      fill('publisher.email', organization?.email)
+      fill('publisher.contactPage', organization?.website)
       fill('custodian.name', orgName)
+      fill('custodian.email', organization?.email)
+      fill('contact.email', organization?.email)
+      fill('catalog.homepage', organization?.website)
+      const country = countryIri(organization?.country)
+      if (country) fill('dataset.spatial', [country])
       if (cache) {
         fill('dataset.numberOfUniqueIndividuals', cache.totalPatients || undefined)
         fill('dataset.numberOfRecords', cache.totalVisits || undefined)
@@ -199,7 +247,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
         } catch { /* database unavailable: keep what was filled */ }
       }
 
-      await save(next)
+      setDraft(next)
     } finally {
       setAutoFilling(false)
     }
@@ -281,6 +329,12 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setPreviewOpen(true)}>
                 <Eye size={14} />
                 {t('dcat.preview')}
+              </Button>
+              <Button variant="outline" size="sm" disabled={!isDirty} onClick={() => setDraft(saved)}>
+                {t('common.cancel')}
+              </Button>
+              <Button size="sm" disabled={!canSaveNow} onClick={save}>
+                {t('common.save')}
               </Button>
             </div>
           </div>
@@ -512,7 +566,7 @@ function FieldEditor({ field, metadata, canWrite, onChange }: {
             </SelectContent>
           </Select>
         )}
-        {field.type === 'multiselect' && (options.length > 8 ? (
+        {field.type === 'multiselect' && (
           <MultiSelectFilter
             value={arrVal}
             options={options.map((o) => ({ value: o.value, label: optionLabel(o, t, language) }))}
@@ -523,23 +577,7 @@ function FieldEditor({ field, metadata, canWrite, onChange }: {
             popoverWidthClass="w-(--radix-popover-trigger-width) min-w-80"
             triggerClass={cn(MULTI_SELECT_FORM_TRIGGER, !canWrite && 'pointer-events-none opacity-50')}
           />
-        ) : (
-          <div className="flex min-h-8 flex-wrap items-center gap-1.5">
-            {options.map((o) => {
-              const selected = arrVal.includes(o.value)
-              return (
-                <Badge
-                  key={o.value}
-                  variant={selected ? 'default' : 'outline'}
-                  className={cn('cursor-pointer', !canWrite && 'pointer-events-none opacity-60')}
-                  onClick={() => onChange(selected ? arrVal.filter((v) => v !== o.value) : [...arrVal, o.value])}
-                >
-                  {optionLabel(o, t, language)}
-                </Badge>
-              )
-            })}
-          </div>
-        ))}
+        )}
         {field.type === 'tags' && <TagsInput value={arrVal} canWrite={canWrite} onChange={onChange} />}
       </div>
     </div>

@@ -413,7 +413,7 @@ const LEGACY_KEYS: [string, string][] = [
   ['dataset.custodian', 'custodian.name'],
 ]
 /** Old free-text fields R8 wants as IRIs or periods — dropped rather than guessed. */
-const LEGACY_DROPPED = ['agent.type', 'dataset.personalData', 'dataset.retentionPeriod', 'dataset.temporal']
+const LEGACY_DROPPED = ['agent.type', 'dataset.retentionPeriod', 'dataset.temporal']
 
 /**
  * Metadata as the R8 fields expect it. Pre-R8 keys are renamed, their codes
@@ -435,6 +435,8 @@ export function normalizeDcatMetadata(input: Record<string, unknown> | undefined
     if (!m['dataset.temporalEnd'] && /^\d{4}-\d{2}-\d{2}$/.test(end ?? '')) m['dataset.temporalEnd'] = end
   }
   if (typeof m['dataset.theme'] === 'string') m['dataset.theme'] = [vocabularyIri('dataTheme', 'HEAL')]
+  // Same key as before R8, which held free text ("No — aggregated counts only"); now DPV IRIs.
+  if (typeof m['dataset.personalData'] === 'string') delete m['dataset.personalData']
   for (const key of LEGACY_DROPPED) delete m[key]
 
   const remap = (key: string, vocab: string, legacy: Record<string, string>) => {
