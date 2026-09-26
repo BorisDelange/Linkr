@@ -78,6 +78,11 @@ def _transcode_to_utf8(con: duckdb.DuckDBPyConnection, path: str, codec: str) ->
     return tmp.name
 
 
+def transcoded_paths(con: duckdb.DuckDBPyConnection) -> list[str]:
+    """The UTF-8 temps build_read_expr created for `con` — files its views read."""
+    return list(_transcoded.get(id(con), []))
+
+
 def cleanup_transcoded(con: duckdb.DuckDBPyConnection) -> None:
     """Unlink any UTF-8 temp files build_read_expr created for `con`. Call in the
     caller's ``finally`` (alongside ``con.close()``)."""

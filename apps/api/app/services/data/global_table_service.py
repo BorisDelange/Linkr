@@ -524,8 +524,9 @@ def query_page(
     con.execute(f"SET extension_directory = '{db_connect._ext_dir()}'")
     try:
         con.execute(
-            f"CREATE VIEW g AS SELECT * FROM read_parquet('{path.as_posix()}')"
+            f"CREATE VIEW g AS SELECT * FROM read_parquet('{_esc(path.as_posix())}')"
         )
+        db_connect._forbid_file_access(con, [path.as_posix()])
         total = con.execute(f"SELECT COUNT(*) FROM g{where}").fetchone()[0]
         result = con.execute(
             f"SELECT * FROM g{where}{order} LIMIT {int(limit)} OFFSET {int(offset)}"
@@ -554,8 +555,9 @@ def distinct_filter_values(path: Path, mode: str) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     try:
         con.execute(
-            f"CREATE VIEW g AS SELECT * FROM read_parquet('{path.as_posix()}')"
+            f"CREATE VIEW g AS SELECT * FROM read_parquet('{_esc(path.as_posix())}')"
         )
+        db_connect._forbid_file_access(con, [path.as_posix()])
         for col in cols:
             rows = con.execute(
                 f"SELECT DISTINCT {col} AS v FROM g "
