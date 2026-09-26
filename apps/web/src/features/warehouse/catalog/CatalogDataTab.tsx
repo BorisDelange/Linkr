@@ -1,623 +1,366 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUpDown, ChevronDown, X, Check } from 'lucide-react'
-import { Card } from '@/components/ui/card'
-import { SearchInput } from '@/components/ui/search-input'
+import { AlertTriangle, BedDouble, BookOpen, Search, SlidersHorizontal, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { StatCard } from '@/components/ui/stat-card'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
+import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@/components/ui/tabs'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { useDebouncedValue } from '@/hooks/use-debounced-value'
-import type { DataCatalog, CatalogResultCache, CatalogConceptRow } from '@/types'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { EmptyState } from '@/components/ui/empty-state'
+import { ENTITY_COLORS } from '@/lib/entity-colors'
+import { fuzzyTextMatch } from '@/lib/fuzzy-search'
+import { cn } from '@/lib/utils'
+import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogPeriodRow } from '@/types'
 
 interface Props {
   catalog: DataCatalog
   cache: CatalogResultCache
 }
 
-/** Simple fuzzy match: all query tokens must appear (in any order) in the target string. */
-function fuzzyMatch(target: string, query: string): boolean {
-  const lower = target.toLowerCase()
-  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
-  return tokens.every((tok) => lower.includes(tok))
+const HUE = `${ENTITY_COLORS['data-catalog'].bg} ${ENTITY_COLORS['data-catalog'].icon}`
+
+/** A count, or the threshold it hides under. Suppressed cells read in amber so they stand apart from real small numbers. */
+function Masked({ value, threshold }: { value: number | null | undefined; threshold: number }) {
+  if (value == null || value < threshold) {
+    return <span className="text-amber-600 dark:text-amber-400">{`< ${threshold}`}</span>
+  }
+  return <>{value.toLocaleString()}</>
 }
 
-
-// ── Multi-select filter dropdown ─────────────────────────────────
-
-interface FilterDropdownProps {
-  label: string
-  values: string[]
-  selected: Set<string>
-  onToggle: (value: string) => void
-  onClear: () => void
-}
-
-function FilterDropdown({ label, values, selected, onToggle, onClear }: FilterDropdownProps) {
-  const { t } = useTranslation()
-  const [search, setSearch] = useState('')
-
-  const filtered = search.trim()
-    ? values.filter((v) => v.toLowerCase().includes(search.toLowerCase()))
-    : values
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant={selected.size > 0 ? 'secondary' : 'outline'}
-          size="sm"
-          className="h-8 gap-1 text-xs"
-        >
-          {label}
-          {selected.size > 0 && (
-            <Badge variant="default" className="ml-0.5 h-4 min-w-4 px-1 text-[9px]">
-              {selected.size}
-            </Badge>
-          )}
-          <ChevronDown size={12} className="opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-56 p-0" onCloseAutoFocus={(e) => e.preventDefault()}>
-        <div className="border-b p-2">
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder={t('data_catalog.search_filter_values')}
-            size="dense"
-          />
-        </div>
-        <div className="max-h-72 overflow-y-auto p-1">
-          {filtered.length === 0 ? (
-            <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-              {t('data_catalog.no_results')}
-            </p>
-          ) : (
-            filtered.map((val) => {
-              const isSelected = selected.has(val)
-              return (
-                <button
-                  key={val}
-                  onClick={() => onToggle(val)}
-                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent"
-                >
-                  <div
-                    className={`flex size-3.5 shrink-0 items-center justify-center rounded-sm border ${
-                      isSelected
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-muted-foreground/30'
-                    }`}
-                  >
-                    {isSelected && <Check size={9} />}
-                  </div>
-                  <span className="min-w-0 truncate">{val}</span>
-                </button>
-              )
-            })
-          )}
-        </div>
-        {selected.size > 0 && (
-          <div className="border-t p-1.5">
-            <Button
-              variant="ghost"
-              size="sm-tight"
-              className="w-full"
-              onClick={onClear}
-            >
-              {t('data_catalog.clear_filter')}
-            </Button>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-// ── Sort button ──────────────────────────────────────────────────
-
-function SortButton({ colKey, sortKey: _sortKey, sortDesc: _sortDesc, onSort, children }: {
-  colKey: string
-  sortKey: string
-  sortDesc: boolean
-  onSort: (key: string) => void
-  children: React.ReactNode
-}) {
-  return (
-    <Button
-      variant="ghost"
-      size="sm-tight"
-      className="-ml-2 font-medium"
-      onClick={() => onSort(colKey)}
-    >
-      {children}
-      <ArrowUpDown size={12} className="ml-1" />
-    </Button>
-  )
-}
-
-// ── Anonymization display helper ─────────────────────────────────
-
-function formatCount(count: number, threshold: number): string {
-  if (count < threshold) return `< ${threshold}`
-  return count.toLocaleString()
-}
-
-// ── Concepts sub-tab ─────────────────────────────────────────────
-
-type SortKey = 'conceptId' | 'conceptName' | 'dictionaryKey' | 'category' | 'subcategory' | 'patientCount' | 'visitCount' | 'recordCount'
-
-function getSortValue(row: CatalogConceptRow, key: SortKey): string | number | null {
-  switch (key) {
-    case 'conceptId': return typeof row.conceptId === 'number' ? row.conceptId : String(row.conceptId)
-    case 'conceptName': return row.conceptName
-    case 'dictionaryKey': return row.dictionaryKey ?? null
-    case 'category': return row.category ?? null
-    case 'subcategory': return row.subcategory ?? null
-    case 'patientCount': return row.patientCount
-    case 'visitCount': return row.visitCount
-    case 'recordCount': return row.recordCount
+function countColumn<T>(
+  id: string,
+  header: string,
+  get: (row: T) => number | null | undefined,
+  threshold: number,
+): DataTableColumn<T> {
+  return {
+    id,
+    header,
+    accessor: (r) => get(r) ?? null,
+    cell: (r) => <Masked value={get(r)} threshold={threshold} />,
+    align: 'right',
+    cellClassName: 'tabular-nums',
+    size: 110,
+    minSize: 70,
   }
 }
 
-function compareRows(a: CatalogConceptRow, b: CatalogConceptRow, sortKey: SortKey, sortDesc: boolean): number {
-  const aVal = getSortValue(a, sortKey)
-  const bVal = getSortValue(b, sortKey)
-  if (aVal == null && bVal == null) return 0
-  if (aVal == null) return 1
-  if (bVal == null) return -1
-  if (typeof aVal === 'number' && typeof bVal === 'number') return sortDesc ? bVal - aVal : aVal - bVal
-  const cmp = String(aVal).localeCompare(String(bVal))
-  return sortDesc ? -cmp : cmp
+// ── Period views ─────────────────────────────────────────────────
+
+type PeriodView = 'demographics' | 'services' | 'categories'
+
+function PeriodTable({ catalog, cache, view }: Props & { view: PeriodView }) {
+  const { t } = useTranslation()
+  const threshold = catalog.anonymization.threshold
+  const periods = cache.periods ?? []
+  const allRow = periods.find((r) => r.period_granularity === 'all')
+  const rows = useMemo(() => periods.filter((r) => r.period_granularity !== 'all'), [periods])
+  const [metric, setMetric] = useState<'patients' | 'second'>('patients')
+
+  const columns = useMemo<DataTableColumn<CatalogPeriodRow>[]>(() => {
+    const period: DataTableColumn<CatalogPeriodRow> = {
+      id: 'period',
+      header: t('data_catalog.period_col_period'),
+      accessor: (r) => r.period_start || r.period_label,
+      display: (r) => r.period_label,
+      filter: 'text',
+      pinned: true,
+      size: 110,
+    }
+    if (view === 'demographics') {
+      const ageLabels = allRow ? Object.keys(allRow.age_buckets) : []
+      const hasSex = !!allRow && [allRow.sex_m, allRow.sex_f, allRow.sex_other].some((v) => v !== undefined)
+        && catalog.dimensions.some((d) => d.type === 'sex' && d.enabled)
+      return [
+        period,
+        countColumn('n_patients', t('data_catalog.period_col_n_patients'), (r) => r.n_patients, threshold),
+        countColumn('n_sejours', t('data_catalog.period_col_n_sejours'), (r) => r.n_sejours, threshold),
+        ...(hasSex
+          ? [
+              countColumn<CatalogPeriodRow>('sex_m', t('data_catalog.period_col_sex_m'), (r) => r.sex_m, threshold),
+              countColumn<CatalogPeriodRow>('sex_f', t('data_catalog.period_col_sex_f'), (r) => r.sex_f, threshold),
+              countColumn<CatalogPeriodRow>('sex_other', t('data_catalog.period_col_sex_other'), (r) => r.sex_other, threshold),
+            ]
+          : []),
+        ...ageLabels.map((label) =>
+          countColumn<CatalogPeriodRow>(`age_${label}`, label.replace('+inf', '+∞'), (r) => r.age_buckets[label], threshold),
+        ),
+      ]
+    }
+    if (view === 'services') {
+      const labels = allRow ? Object.keys(allRow.services) : []
+      return [
+        period,
+        ...labels.map((svc) =>
+          countColumn<CatalogPeriodRow>(
+            `svc_${svc}`,
+            svc,
+            (r) => (metric === 'patients' ? r.services[svc]?.n_patients : r.services[svc]?.n_sejours),
+            threshold,
+          ),
+        ),
+      ]
+    }
+    const labels = allRow ? Object.keys(allRow.concept_categories) : []
+    return [
+      period,
+      ...labels.map((cat) =>
+        countColumn<CatalogPeriodRow>(
+          `cat_${cat}`,
+          cat,
+          (r) => (metric === 'patients' ? r.concept_categories[cat]?.n_patients : r.concept_categories[cat]?.n_rows),
+          threshold,
+        ),
+      ),
+    ]
+  }, [view, allRow, metric, threshold, catalog.dimensions, t])
+
+  const secondLabel = view === 'services' ? t('data_catalog.period_col_n_sejours') : t('data_catalog.col_records')
+
+  return (
+    <div className="flex flex-col gap-2">
+      {view !== 'demographics' && (
+        <div className="flex justify-end">
+          <Tabs value={metric} onValueChange={(v) => setMetric(v as 'patients' | 'second')}>
+            <TabsList className="h-8">
+              <TabsTrigger value="patients" className="text-xs">{t('data_catalog.period_col_n_patients')}</TabsTrigger>
+              <TabsTrigger value="second" className="text-xs">{secondLabel}</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
+      <div className="overflow-hidden rounded-lg border bg-card">
+        <DataTable
+          data={rows}
+          columns={columns}
+          rowKey={(r) => r.period_start || r.period_label}
+          pinnedRows={allRow ? [allRow] : undefined}
+          pageSize={100}
+          stickyHeader
+          initialSorting={{ columnId: 'period', desc: false }}
+          emptyMessage={t('data_catalog.no_results')}
+        />
+      </div>
+    </div>
+  )
 }
+
+/** Share of masked period cells, shown once above the period tables. */
+function ReliabilityBanner({ score }: { score: number }) {
+  const { t } = useTranslation()
+  const pct = Math.round(score * 100)
+  const warn = pct > 20
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2 rounded-lg border px-3 py-2 text-xs',
+        warn ? 'border-amber-400/50 bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400' : 'text-muted-foreground',
+      )}
+    >
+      {warn && <AlertTriangle size={14} className="shrink-0" />}
+      <span className={warn ? 'font-medium' : undefined}>{t('data_catalog.period_reliability_score', { pct })}</span>
+      {warn && <span>— {t('data_catalog.period_reliability_warning')}</span>}
+    </div>
+  )
+}
+
+// ── Concepts view ────────────────────────────────────────────────
 
 function ConceptsView({ catalog, cache }: Props) {
   const { t } = useTranslation()
   const threshold = catalog.anonymization.threshold
   const [search, setSearch] = useState('')
-  const debouncedSearch = useDebouncedValue(search, 250)
-  const [sortKey, setSortKey] = useState<SortKey>('patientCount')
-  const [sortDesc, setSortDesc] = useState(true)
-  const [page, setPage] = useState(0)
-  const [activeFilters, setActiveFilters] = useState<Record<string, Set<string>>>({})
-  const pageSize = 50
+  const [picked, setPicked] = useState<Record<'dictionaryKey' | 'category' | 'subcategory', string[]>>({
+    dictionaryKey: [],
+    category: [],
+    subcategory: [],
+  })
 
+  const hasDictionary = useMemo(
+    () => new Set(cache.concepts.map((r) => r.dictionaryKey).filter(Boolean)).size > 1,
+    [cache.concepts],
+  )
   const hasCategory = !!catalog.categoryColumn
   const hasSubcategory = !!catalog.subcategoryColumn
 
-  const hasDictionary = useMemo(() => {
-    const keys = new Set(cache.concepts.map((r) => r.dictionaryKey).filter(Boolean))
-    return keys.size > 1
-  }, [cache.concepts])
+  const facets = useMemo(() => {
+    const collect = (get: (r: CatalogConceptRow) => string | null | undefined, rows = cache.concepts) =>
+      [...new Set(rows.map(get).filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b))
+    // Subcategories follow the picked categories, so the list only offers what can still match.
+    const underCategory = picked.category.length
+      ? cache.concepts.filter((r) => r.category != null && picked.category.includes(r.category))
+      : cache.concepts
+    return [
+      ...(hasDictionary ? [{ key: 'dictionaryKey' as const, label: t('data_catalog.col_vocabulary'), options: collect((r) => r.dictionaryKey) }] : []),
+      ...(hasCategory ? [{ key: 'category' as const, label: t('data_catalog.col_category'), options: collect((r) => r.category) }] : []),
+      ...(hasSubcategory ? [{ key: 'subcategory' as const, label: t('data_catalog.col_subcategory'), options: collect((r) => r.subcategory, underCategory) }] : []),
+    ]
+  }, [cache.concepts, hasDictionary, hasCategory, hasSubcategory, picked.category, t])
 
-  // Build filterable columns
-  interface FilterColumn {
-    key: string
-    label: string
-    getValue: (row: CatalogConceptRow) => string | null | undefined
-  }
+  const activeFilterCount = facets.reduce((n, f) => n + picked[f.key].length, 0)
 
-  const filterColumns = useMemo<FilterColumn[]>(() => {
-    const cols: FilterColumn[] = []
-    if (hasDictionary) {
-      cols.push({ key: 'dictionaryKey', label: t('data_catalog.col_vocabulary'), getValue: (r) => r.dictionaryKey ?? null })
-    }
-    if (hasCategory) {
-      cols.push({ key: 'category', label: t('data_catalog.col_category'), getValue: (r) => r.category })
-    }
-    if (hasSubcategory) {
-      cols.push({ key: 'subcategory', label: t('data_catalog.col_subcategory'), getValue: (r) => r.subcategory })
-    }
-    return cols
-  }, [hasDictionary, hasCategory, hasSubcategory, t])
-
-  const distinctValues = useMemo(() => {
-    const result: Record<string, string[]> = {}
-    const categorySelection = hasCategory ? activeFilters['category'] : undefined
-    const hasCategoryFilter = categorySelection && categorySelection.size > 0
-
-    for (const col of filterColumns) {
-      const valSet = new Set<string>()
-      const sourceRows = (col.key === 'subcategory' && hasCategoryFilter)
-        ? cache.concepts.filter((r) => r.category != null && categorySelection!.has(r.category))
-        : cache.concepts
-      for (const row of sourceRows) {
-        const v = col.getValue(row)
-        if (v != null && v !== '') valSet.add(v)
+  const rows = useMemo(() => {
+    const q = search.trim()
+    return cache.concepts.filter((r) => {
+      if (q && !fuzzyTextMatch(r.conceptName, q) && !String(r.conceptId).includes(q)) return false
+      for (const f of facets) {
+        const sel = picked[f.key]
+        if (sel.length && !sel.includes((r[f.key] ?? '') as string)) return false
       }
-      result[col.key] = Array.from(valSet).sort((a, b) => a.localeCompare(b))
-    }
-    return result
-  }, [cache.concepts, filterColumns, hasCategory, activeFilters])
-
-  // Pre-sort the full dataset whenever sort key/direction changes (avoid re-sorting on search/filter changes)
-  const sortedConcepts = useMemo(() => {
-    const arr = [...cache.concepts]
-    arr.sort((a, b) => compareRows(a, b, sortKey, sortDesc))
-    return arr
-  }, [cache.concepts, sortKey, sortDesc])
-
-  // Filter from the pre-sorted array
-  const filteredRows = useMemo(() => {
-    let rows = sortedConcepts
-
-    if (debouncedSearch.trim()) {
-      rows = rows.filter(
-        (r) => fuzzyMatch(r.conceptName, debouncedSearch) || fuzzyMatch(String(r.conceptId), debouncedSearch),
-      )
-    }
-
-    for (const col of filterColumns) {
-      const selected = activeFilters[col.key]
-      if (selected && selected.size > 0) {
-        rows = rows.filter((r) => {
-          const v = col.getValue(r)
-          return v != null && selected.has(v)
-        })
-      }
-    }
-
-    return rows
-  }, [sortedConcepts, debouncedSearch, activeFilters, filterColumns])
-
-  const totalPages = Math.ceil(filteredRows.length / pageSize)
-  const pageRows = filteredRows.slice(page * pageSize, (page + 1) * pageSize)
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) setSortDesc(!sortDesc)
-    else { setSortKey(key as SortKey); setSortDesc(true) }
-    setPage(0)
-  }
-
-  const toggleFilterValue = useCallback((colKey: string, value: string) => {
-    setActiveFilters((prev) => {
-      const current = new Set(prev[colKey] ?? [])
-      if (current.has(value)) current.delete(value)
-      else current.add(value)
-      const next = { ...prev, [colKey]: current }
-      if (colKey === 'category' && prev['subcategory']?.size) next['subcategory'] = new Set<string>()
-      return next
+      return true
     })
-    setPage(0)
-  }, [])
+  }, [cache.concepts, search, facets, picked])
 
-  const clearFilter = useCallback((colKey: string) => {
-    setActiveFilters((prev) => { const next = { ...prev }; delete next[colKey]; return next })
-    setPage(0)
-  }, [])
-
-  const clearAllFilters = useCallback(() => { setActiveFilters({}); setPage(0) }, [])
-
-  // Reset page when search changes
-  const prevSearchRef = useRef(debouncedSearch)
-  useEffect(() => {
-    if (prevSearchRef.current !== debouncedSearch) {
-      setPage(0)
-      prevSearchRef.current = debouncedSearch
-    }
-  }, [debouncedSearch])
-
-  const activeFilterCount = Object.values(activeFilters).reduce((sum, s) => sum + (s.size > 0 ? 1 : 0), 0)
-
-  const colSpan = 4 + (hasDictionary ? 1 : 0) + (hasCategory ? 1 : 0) + (hasSubcategory ? 1 : 0)
+  const columns = useMemo<DataTableColumn<CatalogConceptRow>[]>(() => [
+    { id: 'conceptId', header: t('data_catalog.col_concept_id'), accessor: (r) => r.conceptId, filter: 'text', size: 100, cellClassName: 'font-mono' },
+    { id: 'conceptName', header: t('data_catalog.col_concept_name'), accessor: (r) => r.conceptName, filter: 'text', size: 320 },
+    ...(hasDictionary ? [{ id: 'dictionaryKey', header: t('data_catalog.col_vocabulary'), accessor: (r: CatalogConceptRow) => r.dictionaryKey ?? null, filter: 'select' as const, size: 140 }] : []),
+    ...(hasCategory ? [{ id: 'category', header: t('data_catalog.col_category'), accessor: (r: CatalogConceptRow) => r.category ?? null, filter: 'select' as const, size: 150 }] : []),
+    ...(hasSubcategory ? [{ id: 'subcategory', header: t('data_catalog.col_subcategory'), accessor: (r: CatalogConceptRow) => r.subcategory ?? null, filter: 'select' as const, size: 150 }] : []),
+    countColumn('patientCount', t('data_catalog.col_patients'), (r) => r.patientCount, threshold),
+    // Visits and records are masked on the row's patient count, as the export does:
+    // a row's small cohort is what identifies, whatever it is counted in.
+    { ...countColumn<CatalogConceptRow>('visitCount', t('data_catalog.col_visits'), (r) => r.visitCount, threshold), cell: (r) => <Masked value={r.patientCount < threshold ? null : r.visitCount} threshold={threshold} /> },
+    { ...countColumn<CatalogConceptRow>('recordCount', t('data_catalog.col_records'), (r) => r.recordCount, threshold), cell: (r) => <Masked value={r.patientCount < threshold ? null : r.recordCount} threshold={threshold} /> },
+  ], [hasDictionary, hasCategory, hasSubcategory, threshold, t])
 
   return (
-    <div className="space-y-4">
-      {/* Search + Filters */}
-      <div className="flex flex-wrap items-center gap-2">
-        <SearchInput
-          value={search}
-          onChange={setSearch}
-          placeholder={t('data_catalog.search_concepts')}
-          size="dense"
-          className="w-64"
-        />
-        {filterColumns.map((col) => (
-          <FilterDropdown
-            key={col.key}
-            label={col.label}
-            values={distinctValues[col.key] ?? []}
-            selected={activeFilters[col.key] ?? new Set()}
-            onToggle={(val) => toggleFilterValue(col.key, val)}
-            onClear={() => clearFilter(col.key)}
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-1.5">
+        {facets.length > 0 && (
+          <Popover>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" className={cn('h-8 w-8 shrink-0', activeFilterCount > 0 && 'text-primary')}>
+                    <SlidersHorizontal size={14} />
+                  </Button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('common.filters')}</TooltipContent>
+            </Tooltip>
+            <PopoverContent align="start" className="w-[260px] space-y-3 p-3" onCloseAutoFocus={(e) => e.preventDefault()}>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium">{t('common.filters')}</p>
+                {activeFilterCount > 0 && (
+                  <button
+                    type="button"
+                    className="text-[10px] text-muted-foreground hover:text-foreground"
+                    onClick={() => setPicked({ dictionaryKey: [], category: [], subcategory: [] })}
+                  >
+                    {t('common.clear')}
+                  </button>
+                )}
+              </div>
+              {facets.map((f) => (
+                <div key={f.key} className="space-y-1">
+                  <label className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{f.label}</label>
+                  <MultiSelectFilter
+                    value={picked[f.key]}
+                    options={f.options}
+                    placeholder={f.label}
+                    onChange={(v) => setPicked((p) => ({
+                      ...p,
+                      [f.key]: v,
+                      // A subcategory picked under a category no longer selected would match nothing.
+                      ...(f.key === 'category' ? { subcategory: [] } : {}),
+                    }))}
+                    triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
+                    popoverWidthClass="w-[300px]"
+                  />
+                </div>
+              ))}
+            </PopoverContent>
+          </Popover>
+        )}
+        <div className="relative max-w-md min-w-0 flex-1">
+          <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="h-8 pr-7 pl-8 text-xs"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setSearch('') }}
+            placeholder={t('data_catalog.search_concepts')}
           />
-        ))}
-        {activeFilterCount > 0 && (
-          <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs text-muted-foreground" onClick={clearAllFilters}>
-            <X size={12} />
-            {t('data_catalog.clear_all')}
-          </Button>
-        )}
-      </div>
-
-      {/* Table */}
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-20">
-                <SortButton colKey="conceptId" sortKey={sortKey} sortDesc={sortDesc} onSort={handleSort}>{t('data_catalog.col_concept_id')}</SortButton>
-              </TableHead>
-              <TableHead>
-                <SortButton colKey="conceptName" sortKey={sortKey} sortDesc={sortDesc} onSort={handleSort}>{t('data_catalog.col_concept_name')}</SortButton>
-              </TableHead>
-              {hasDictionary && (
-                <TableHead>
-                  <SortButton colKey="dictionaryKey" sortKey={sortKey} sortDesc={sortDesc} onSort={handleSort}>{t('data_catalog.col_vocabulary')}</SortButton>
-                </TableHead>
-              )}
-              {hasCategory && (
-                <TableHead>
-                  <SortButton colKey="category" sortKey={sortKey} sortDesc={sortDesc} onSort={handleSort}>{t('data_catalog.col_category')}</SortButton>
-                </TableHead>
-              )}
-              {hasSubcategory && (
-                <TableHead>
-                  <SortButton colKey="subcategory" sortKey={sortKey} sortDesc={sortDesc} onSort={handleSort}>{t('data_catalog.col_subcategory')}</SortButton>
-                </TableHead>
-              )}
-              <TableHead className="w-28 text-right">
-                <SortButton colKey="patientCount" sortKey={sortKey} sortDesc={sortDesc} onSort={handleSort}>{t('data_catalog.col_patients')}</SortButton>
-              </TableHead>
-              <TableHead className="w-28 text-right">
-                <SortButton colKey="visitCount" sortKey={sortKey} sortDesc={sortDesc} onSort={handleSort}>{t('data_catalog.col_visits')}</SortButton>
-              </TableHead>
-              <TableHead className="w-28 text-right">
-                <SortButton colKey="recordCount" sortKey={sortKey} sortDesc={sortDesc} onSort={handleSort}>{t('data_catalog.col_records')}</SortButton>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {pageRows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={colSpan} className="py-8 text-center text-sm text-muted-foreground">
-                  {t('data_catalog.no_results')}
-                </TableCell>
-              </TableRow>
-            ) : (
-              pageRows.map((row, i) => {
-                const isAnon = row.patientCount < threshold
-                return (
-                  <TableRow key={`${row.conceptId}-${i}`} className={isAnon ? 'text-amber-600 dark:text-amber-400' : undefined}>
-                    <TableCell className="font-mono text-xs">{row.conceptId}</TableCell>
-                    <TableCell className="text-sm">{row.conceptName}</TableCell>
-                    {hasDictionary && <TableCell className="text-xs">{row.dictionaryKey ?? '—'}</TableCell>}
-                    {hasCategory && <TableCell className="text-xs">{row.category ?? '—'}</TableCell>}
-                    {hasSubcategory && <TableCell className="text-xs">{row.subcategory ?? '—'}</TableCell>}
-                    <TableCell className="text-right font-mono text-xs">{formatCount(row.patientCount, threshold)}</TableCell>
-                    <TableCell className="text-right font-mono text-xs">{formatCount(row.visitCount, threshold)}</TableCell>
-                    <TableCell className="text-right font-mono text-xs">{formatCount(row.recordCount, threshold)}</TableCell>
-                  </TableRow>
-                )
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{t('data_catalog.showing_rows', { from: page * pageSize + 1, to: Math.min((page + 1) * pageSize, filteredRows.length), total: filteredRows.length })}</span>
-          <div className="flex gap-1">
-            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>{t('common.back')}</Button>
-            <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>{t('data_catalog.next')}</Button>
-          </div>
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label={t('common.clear')}
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
-      )}
-    </div>
-  )
-}
-
-// ── Periods sub-tab ──────────────────────────────────────────────
-
-function MaskedCell({ value, threshold }: { value: number | null; threshold: number }) {
-  if (value === null) return <span className="text-amber-600 dark:text-amber-400">{'< ' + threshold}</span>
-  return <span>{value.toLocaleString()}</span>
-}
-
-function PeriodsView({ catalog, cache }: Props) {
-  const { t } = useTranslation()
-  const threshold = catalog.anonymization.threshold
-  const periods = cache.periods ?? []
-  const reliabilityScore = cache.periodReliabilityScore ?? 0
-
-  const allRow = periods.find((r) => r.period_granularity === 'all')
-  const dataRows = useMemo(() => periods.filter((r) => r.period_granularity !== 'all'), [periods])
-
-  const [page, setPage] = useState(0)
-  const pageSize = 50
-  const totalPages = Math.ceil(dataRows.length / pageSize)
-  const pageRows = dataRows.slice(page * pageSize, (page + 1) * pageSize)
-
-  if (periods.length === 0) {
-    return (
-      <div className="py-12 text-center text-sm text-muted-foreground">
-        {t('data_catalog.no_data')}
       </div>
-    )
-  }
-
-  // Collect all service labels and category labels from the data
-  const serviceLabels = allRow ? Object.keys(allRow.services) : []
-  const categoryLabels = allRow ? Object.keys(allRow.concept_categories) : []
-  const ageBucketLabels = allRow ? Object.keys(allRow.age_buckets) : []
-
-  const maskedPct = Math.round(reliabilityScore * 100)
-
-  return (
-    <div className="space-y-3">
-      {/* Reliability indicator */}
-      <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${maskedPct > 20 ? 'border-amber-400/50 bg-amber-50 dark:bg-amber-950/20' : 'bg-muted/30'}`}>
-        <span className={maskedPct > 20 ? 'font-medium text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}>
-          {t('data_catalog.period_reliability_score', { pct: maskedPct })}
-        </span>
-        {maskedPct > 20 && (
-          <span className="text-amber-600 dark:text-amber-400">— {t('data_catalog.period_reliability_warning')}</span>
-        )}
+      <div className="overflow-hidden rounded-lg border bg-card">
+        <DataTable
+          data={rows}
+          columns={columns}
+          rowKey={(r) => `${r.dictionaryKey ?? ''}:${r.conceptId}`}
+          pageSize={100}
+          stickyHeader
+          cellTooltips="all"
+          initialSorting={{ columnId: 'patientCount', desc: true }}
+          emptyMessage={t('data_catalog.no_results')}
+        />
       </div>
-
-      {/* Scrollable table */}
-      <div className="overflow-x-auto rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="sticky left-0 z-10 min-w-28 bg-background">{t('data_catalog.period_col_period')}</TableHead>
-              <TableHead className="min-w-24 text-right">{t('data_catalog.period_col_n_patients')}</TableHead>
-              <TableHead className="min-w-24 text-right">{t('data_catalog.period_col_n_sejours')}</TableHead>
-              <TableHead className="min-w-16 text-right">{t('data_catalog.period_col_sex_m')}</TableHead>
-              <TableHead className="min-w-16 text-right">{t('data_catalog.period_col_sex_f')}</TableHead>
-              <TableHead className="min-w-16 text-right">{t('data_catalog.period_col_sex_other')}</TableHead>
-              {ageBucketLabels.map((label) => (
-                <TableHead key={label} className="min-w-20 text-right text-xs">{label}</TableHead>
-              ))}
-              {serviceLabels.map((svc) => (
-                <TableHead key={svc} className="min-w-28 text-right text-xs" colSpan={2}>{svc}</TableHead>
-              ))}
-              {categoryLabels.map((cat) => (
-                <TableHead key={cat} className="min-w-28 text-right text-xs" colSpan={2}>{cat}</TableHead>
-              ))}
-            </TableRow>
-            {/* Sub-header for services and categories */}
-            {(serviceLabels.length > 0 || categoryLabels.length > 0) && (
-              <TableRow className="bg-muted/30">
-                <TableHead className="sticky left-0 z-10 bg-muted/30" />
-                <TableHead /><TableHead /><TableHead /><TableHead /><TableHead />
-                {ageBucketLabels.map((label) => <TableHead key={label} />)}
-                {serviceLabels.map((svc) => (
-                  <>
-                    <TableHead key={`${svc}-pat`} className="text-right text-[10px] text-muted-foreground">{t('data_catalog.period_col_n_patients')}</TableHead>
-                    <TableHead key={`${svc}-sej`} className="text-right text-[10px] text-muted-foreground">{t('data_catalog.period_col_n_sejours')}</TableHead>
-                  </>
-                ))}
-                {categoryLabels.map((cat) => (
-                  <>
-                    <TableHead key={`${cat}-pat`} className="text-right text-[10px] text-muted-foreground">{t('data_catalog.period_col_n_patients')}</TableHead>
-                    <TableHead key={`${cat}-rows`} className="text-right text-[10px] text-muted-foreground">{t('data_catalog.col_records')}</TableHead>
-                  </>
-                ))}
-              </TableRow>
-            )}
-          </TableHeader>
-          <TableBody>
-            {/* ALL row — always visible (sticky, not paginated) */}
-            {allRow && (
-              <TableRow className="bg-muted/20 font-medium">
-                <TableCell className="sticky left-0 z-10 bg-muted/20 text-xs font-semibold">{allRow.period_label}</TableCell>
-                <TableCell className="text-right font-mono text-xs"><MaskedCell value={allRow.n_patients} threshold={threshold} /></TableCell>
-                <TableCell className="text-right font-mono text-xs"><MaskedCell value={allRow.n_sejours} threshold={threshold} /></TableCell>
-                <TableCell className="text-right font-mono text-xs"><MaskedCell value={allRow.sex_m} threshold={threshold} /></TableCell>
-                <TableCell className="text-right font-mono text-xs"><MaskedCell value={allRow.sex_f} threshold={threshold} /></TableCell>
-                <TableCell className="text-right font-mono text-xs"><MaskedCell value={allRow.sex_other} threshold={threshold} /></TableCell>
-                {ageBucketLabels.map((label) => (
-                  <TableCell key={label} className="text-right font-mono text-xs"><MaskedCell value={allRow.age_buckets[label] ?? null} threshold={threshold} /></TableCell>
-                ))}
-                {serviceLabels.map((svc) => (
-                  <>
-                    <TableCell key={`${svc}-pat`} className="text-right font-mono text-xs"><MaskedCell value={allRow.services[svc]?.n_patients ?? null} threshold={threshold} /></TableCell>
-                    <TableCell key={`${svc}-sej`} className="text-right font-mono text-xs"><MaskedCell value={allRow.services[svc]?.n_sejours ?? null} threshold={threshold} /></TableCell>
-                  </>
-                ))}
-                {categoryLabels.map((cat) => (
-                  <>
-                    <TableCell key={`${cat}-pat`} className="text-right font-mono text-xs"><MaskedCell value={allRow.concept_categories[cat]?.n_patients ?? null} threshold={threshold} /></TableCell>
-                    <TableCell key={`${cat}-rows`} className="text-right font-mono text-xs"><MaskedCell value={allRow.concept_categories[cat]?.n_rows ?? null} threshold={threshold} /></TableCell>
-                  </>
-                ))}
-              </TableRow>
-            )}
-            {/* Paginated period rows */}
-            {pageRows.map((row) => (
-              <TableRow key={row.period_start}>
-                <TableCell className="sticky left-0 z-10 bg-background text-xs">{row.period_label}</TableCell>
-                <TableCell className="text-right font-mono text-xs"><MaskedCell value={row.n_patients} threshold={threshold} /></TableCell>
-                <TableCell className="text-right font-mono text-xs"><MaskedCell value={row.n_sejours} threshold={threshold} /></TableCell>
-                <TableCell className="text-right font-mono text-xs"><MaskedCell value={row.sex_m} threshold={threshold} /></TableCell>
-                <TableCell className="text-right font-mono text-xs"><MaskedCell value={row.sex_f} threshold={threshold} /></TableCell>
-                <TableCell className="text-right font-mono text-xs"><MaskedCell value={row.sex_other} threshold={threshold} /></TableCell>
-                {ageBucketLabels.map((label) => (
-                  <TableCell key={label} className="text-right font-mono text-xs"><MaskedCell value={row.age_buckets[label] ?? null} threshold={threshold} /></TableCell>
-                ))}
-                {serviceLabels.map((svc) => (
-                  <>
-                    <TableCell key={`${svc}-pat`} className="text-right font-mono text-xs"><MaskedCell value={row.services[svc]?.n_patients ?? null} threshold={threshold} /></TableCell>
-                    <TableCell key={`${svc}-sej`} className="text-right font-mono text-xs"><MaskedCell value={row.services[svc]?.n_sejours ?? null} threshold={threshold} /></TableCell>
-                  </>
-                ))}
-                {categoryLabels.map((cat) => (
-                  <>
-                    <TableCell key={`${cat}-pat`} className="text-right font-mono text-xs"><MaskedCell value={row.concept_categories[cat]?.n_patients ?? null} threshold={threshold} /></TableCell>
-                    <TableCell key={`${cat}-rows`} className="text-right font-mono text-xs"><MaskedCell value={row.concept_categories[cat]?.n_rows ?? null} threshold={threshold} /></TableCell>
-                  </>
-                ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{t('data_catalog.showing_rows', { from: page * pageSize + 1, to: Math.min((page + 1) * pageSize, dataRows.length), total: dataRows.length })}</span>
-          <div className="flex gap-1">
-            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>{t('common.back')}</Button>
-            <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>{t('data_catalog.next')}</Button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
 // ── Main component ───────────────────────────────────────────────
 
+type SubTab = PeriodView | 'concepts'
+
 export function CatalogDataTab({ catalog, cache }: Props) {
   const { t } = useTranslation()
+  const allRow = cache.periods?.find((r) => r.period_granularity === 'all')
+  const hasPeriods = !!cache.periods?.length
+  const hasServices = !!allRow && Object.keys(allRow.services).length > 0
+  const hasCategories = !!allRow && Object.keys(allRow.concept_categories).length > 0
+
+  const subTabs: { id: SubTab; label: string }[] = [
+    ...(hasPeriods ? [{ id: 'demographics' as const, label: t('data_catalog.subtab_demographics') }] : []),
+    ...(hasServices ? [{ id: 'services' as const, label: t('data_catalog.subtab_services') }] : []),
+    ...(hasCategories ? [{ id: 'categories' as const, label: t('data_catalog.subtab_categories') }] : []),
+    { id: 'concepts', label: t('data_catalog.subtab_concepts') },
+  ]
+  const [tab, setTab] = useState<SubTab>(subTabs[0].id)
+  const current = subTabs.some((s) => s.id === tab) ? tab : subTabs[0].id
 
   return (
-    <div className="space-y-4">
-      {/* Summary cards */}
-      <div className="flex gap-3">
-        <Card className="flex-1 p-3 text-center">
-          <p className="text-2xl font-bold">{cache.totalConcepts.toLocaleString()}</p>
-          <p className="text-xs text-muted-foreground">{t('data_catalog.total_concepts')}</p>
-        </Card>
-        <Card className="flex-1 p-3 text-center">
-          <p className="text-2xl font-bold">{cache.totalPatients.toLocaleString()}</p>
-          <p className="text-xs text-muted-foreground">{t('data_catalog.total_patients')}</p>
-        </Card>
-        <Card className="flex-1 p-3 text-center">
-          <p className="text-2xl font-bold">{cache.totalVisits.toLocaleString()}</p>
-          <p className="text-xs text-muted-foreground">{t('data_catalog.total_visits')}</p>
-        </Card>
+    <div className="flex flex-col gap-4 pb-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatCard icon={<BookOpen size={18} />} iconBg={HUE} value={cache.totalConcepts.toLocaleString()} label={t('data_catalog.total_concepts')} />
+        <StatCard icon={<Users size={18} />} iconBg={HUE} value={cache.totalPatients.toLocaleString()} label={t('data_catalog.total_patients')} />
+        <StatCard icon={<BedDouble size={18} />} iconBg={HUE} value={cache.totalVisits.toLocaleString()} label={t('data_catalog.total_visits')} />
       </div>
 
-      {/* Sub-tabs: Periods / Concepts */}
-      <Tabs defaultValue={cache.periods ? 'periods' : 'concepts'}>
-        <TabsList>
-          {cache.periods && <TabsTrigger value="periods">{t('data_catalog.subtab_periods')}</TabsTrigger>}
-          <TabsTrigger value="concepts">{t('data_catalog.subtab_concepts')}</TabsTrigger>
-        </TabsList>
-        {cache.periods && (
-          <TabsContent value="periods" className="mt-4">
-            <PeriodsView catalog={catalog} cache={cache} />
+      <Tabs value={current} onValueChange={(v) => setTab(v as SubTab)} className="gap-3">
+        <div className="flex justify-center">
+          <TabsList>
+            {subTabs.map((s) => (
+              <TabsTrigger key={s.id} value={s.id}>{s.label}</TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+        {hasPeriods && current !== 'concepts' && <ReliabilityBanner score={cache.periodReliabilityScore ?? 0} />}
+        {(['demographics', 'services', 'categories'] as const).map((view) => (
+          <TabsContent key={view} value={view} className="m-0">
+            <PeriodTable catalog={catalog} cache={cache} view={view} />
           </TabsContent>
-        )}
-        <TabsContent value="concepts" className="mt-4">
-          <ConceptsView catalog={catalog} cache={cache} />
+        ))}
+        <TabsContent value="concepts" className="m-0">
+          {cache.concepts.length ? (
+            <ConceptsView catalog={catalog} cache={cache} />
+          ) : (
+            <EmptyState icon={BookOpen} title={t('data_catalog.no_data')} />
+          )}
         </TabsContent>
       </Tabs>
     </div>

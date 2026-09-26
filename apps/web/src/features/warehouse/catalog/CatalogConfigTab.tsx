@@ -661,17 +661,21 @@ function AgeBrackets({
       </div>
       {/* The boundaries themselves. `0` and `+∞` are the implicit ends, shown as
           plain text because they are not removable. */}
-      <div className="flex flex-wrap items-center gap-1">
+      <div className="mt-1.5 flex flex-wrap items-center gap-1">
         <span className="text-[10px] text-muted-foreground">0</span>
         {sorted.map((b) => (
-          <Badge
-            key={b}
-            variant="secondary"
-            className={cn('gap-1 pr-1 tabular-nums', canEdit && 'group cursor-pointer hover:bg-destructive/10 hover:text-destructive')}
-            onClick={() => { if (canEdit) onRemove(b) }}
-          >
+          <Badge key={b} variant="secondary" className={cn('gap-0.5 tabular-nums', canEdit && 'pr-0.5')}>
             {b}
-            {canEdit && <X size={10} className="text-muted-foreground/50 group-hover:text-destructive" />}
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => onRemove(b)}
+                className="rounded-sm p-0.5 text-muted-foreground/60 transition-colors hover:bg-destructive/15 hover:text-destructive"
+                aria-label={t('common.remove')}
+              >
+                <X size={10} />
+              </button>
+            )}
           </Badge>
         ))}
         <span className="text-[10px] text-muted-foreground">+∞</span>

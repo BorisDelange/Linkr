@@ -12,6 +12,8 @@ import {
   Tags,
   Upload,
   FileText,
+  FileBarChart,
+  Eye,
   Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -40,6 +42,7 @@ import { CatalogDataTab } from './CatalogDataTab'
 import { CatalogAnonymizationTab } from './CatalogAnonymizationTab'
 import { CatalogDcatTab } from './CatalogDcatTab'
 import { CatalogExportTab } from './CatalogExportTab'
+import { CatalogPreviewDialog } from './CatalogPreviewDialog'
 import type { DataCatalog } from '@/types'
 
 const TAB_IDS = [
@@ -167,6 +170,8 @@ export function CatalogDetailPage({ catalogId }: Props) {
               onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
               onSeeLicense={() => setActiveTab('license')}
               onEditSource={() => setEditingSource(true)}
+              onOpenPublish={() => setActiveTab('export')}
+              onOpenData={() => setActiveTab('config')}
             />
           </div>
         </TabsContent>
@@ -282,11 +287,15 @@ function CatalogOverviewTab({
   onEditReadme,
   onSeeLicense,
   onEditSource,
+  onOpenPublish,
+  onOpenData,
 }: {
   catalog: DataCatalog
   onEditReadme: () => void
   onSeeLicense: () => void
   onEditSource: () => void
+  onOpenPublish: () => void
+  onOpenData: () => void
 }) {
   const { i18n } = useTranslation()
   const { resolveAttachmentUrls } = useReadmeAttachments(
@@ -309,6 +318,7 @@ function CatalogOverviewTab({
         />
         <div className="flex flex-col gap-4 self-start">
           <CatalogSourceCard catalog={catalog} onEditSource={onEditSource} />
+          <CatalogReportCard catalog={catalog} onOpenPublish={onOpenPublish} onOpenData={onOpenData} />
           <CatalogIdentityCard catalog={catalog} onSeeLicense={onSeeLicense} />
         </div>
       </div>
@@ -419,6 +429,62 @@ function CatalogSourceCard({
               : t('data_catalog.overview_source_detail')}
         </p>
       </div>
+    </div>
+  )
+}
+
+/** The published HTML catalog: whether there is one to show yet, and a way straight to it. */
+function CatalogReportCard({
+  catalog,
+  onOpenPublish,
+  onOpenData,
+}: {
+  catalog: DataCatalog
+  onOpenPublish: () => void
+  onOpenData: () => void
+}) {
+  const { t, i18n } = useTranslation()
+  const cache = useCatalogStore((s) => (s.activeResultCache?.catalogId === catalog.id ? s.activeResultCache : null))
+  const [previewOpen, setPreviewOpen] = useState(false)
+
+  return (
+    <div className="flex min-w-0 shrink-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm">
+      <div className="-my-1 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <FileBarChart size={14} className="shrink-0 text-muted-foreground" />
+          <h3 className="truncate text-sm font-semibold">{t('data_catalog.overview_report_title')}</h3>
+        </div>
+        {cache && (
+          <Button variant="ghost" size="xs" className="shrink-0" onClick={onOpenPublish}>
+            <Upload />
+            {t('data_catalog.tab_publish')}
+          </Button>
+        )}
+      </div>
+      {cache ? (
+        <>
+          <p className="text-[10px] text-muted-foreground">
+            {t('data_catalog.overview_report_detail', {
+              concepts: cache.totalConcepts.toLocaleString(i18n.language),
+              patients: cache.totalPatients.toLocaleString(i18n.language),
+              date: new Date(cache.computedAt).toLocaleDateString(i18n.language),
+            })}
+          </p>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setPreviewOpen(true)}>
+            <Eye size={14} />
+            {t('data_catalog.export_preview')}
+          </Button>
+          <CatalogPreviewDialog catalog={catalog} cache={cache} open={previewOpen} onOpenChange={setPreviewOpen} />
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={onOpenData}
+          className="text-left text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+        >
+          {t('data_catalog.overview_report_none')}
+        </button>
+      )}
     </div>
   )
 }

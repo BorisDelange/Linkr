@@ -3,7 +3,10 @@ import { useTranslation } from 'react-i18next'
 import { ShieldCheck, Eye, EyeOff, AlertTriangle, Replace } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { FormField } from '@/components/ui/form-field'
+import { FieldInfo } from '@/components/ui/field-info'
+import { SectionLabel } from '@/components/ui/section-label'
+import { StatCard } from '@/components/ui/stat-card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import {
@@ -15,6 +18,8 @@ import {
 } from '@/components/ui/select'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { ENTITY_COLORS } from '@/lib/entity-colors'
+import { cn } from '@/lib/utils'
 import type { DataCatalog, CatalogResultCache, AnonymizationMode } from '@/types'
 
 interface Props {
@@ -79,111 +84,109 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
     })
   }
 
+  const affectedLabel = mode === 'replace' ? t('data_catalog.anon_replaced_rows') : t('data_catalog.anon_suppressed_rows')
+  const conceptsValue = mode === 'suppress' ? impact.lostConcepts : impact.partialConcepts
+
   return (
     // Capped like the Configuration and Publish tabs: these are forms, and a
     // full-bleed one on a wide screen leaves its fields stranded from their
     // labels. The Data tab is the exception — it is a table, and wants the room.
-    <div className="mx-auto w-full max-w-3xl space-y-4">
-      {/* Threshold + Mode control */}
-      <Card className="p-4">
-        <div className="flex items-center gap-2">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 py-4">
+      <Card className="flex flex-col gap-3 p-5">
+        <div className="flex items-center gap-1.5">
           <ShieldCheck size={14} className="text-muted-foreground" />
-          <h3 className="text-sm font-semibold">{t('data_catalog.anon_threshold_title')}</h3>
+          <SectionLabel as="h3">{t('data_catalog.anon_threshold_title')}</SectionLabel>
+          <FieldInfo text={t('data_catalog.anon_threshold_description')} />
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {t('data_catalog.anon_threshold_description')}
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <Label>{t('data_catalog.threshold')}</Label>
-          <Input
-            type="number"
-            min={0}
-            value={thresholdInput}
-            onChange={(e) => setThresholdInput(e.target.value)}
-            className="w-24"
-          />
-          <Label>{t('data_catalog.anon_mode')}</Label>
-          <Select value={mode} onValueChange={(v) => setMode(v as AnonymizationMode)}>
-            <SelectTrigger className="w-64">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="replace">{t('data_catalog.anon_mode_replace')}</SelectItem>
-              <SelectItem value="suppress">{t('data_catalog.anon_mode_suppress')}</SelectItem>
-            </SelectContent>
-          </Select>
-          {isDirty && (
-            <Button size="sm" disabled={!canWrite} onClick={handleSave}>
-              {t('common.save')}
-            </Button>
-          )}
+        <div className="grid grid-cols-[8rem_minmax(0,1fr)_auto] items-end gap-3">
+          <FormField label={t('data_catalog.threshold')}>
+            {({ id }) => (
+              <Input
+                id={id}
+                type="number"
+                min={0}
+                value={thresholdInput}
+                disabled={!canWrite}
+                onChange={(e) => setThresholdInput(e.target.value)}
+                className="h-8 text-xs"
+              />
+            )}
+          </FormField>
+          <FormField label={t('data_catalog.anon_mode')}>
+            {({ id }) => (
+              <Select value={mode} disabled={!canWrite} onValueChange={(v) => setMode(v as AnonymizationMode)}>
+                <SelectTrigger id={id} className="h-8 w-full text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="replace" className="text-xs">{t('data_catalog.anon_mode_replace')}</SelectItem>
+                  <SelectItem value="suppress" className="text-xs">{t('data_catalog.anon_mode_suppress')}</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </FormField>
+          <Button size="sm" disabled={!canWrite || !isDirty} onClick={handleSave}>
+            {t('common.save')}
+          </Button>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {mode === 'replace'
             ? t('data_catalog.anon_replace_hint', { threshold: previewThreshold })
-            : t('data_catalog.anon_suppress_hint')
-          }
+            : t('data_catalog.anon_suppress_hint')}
         </p>
       </Card>
 
-      {/* Impact summary */}
-      <div className="grid grid-cols-4 gap-3">
-        <Card className="p-3 text-center">
-          <div className="flex items-center justify-center gap-1.5">
-            {mode === 'replace' ? <Replace size={14} className="text-amber-500" /> : <EyeOff size={14} className="text-red-500" />}
-            <p className="text-2xl font-bold">{impact.affectedRows.toLocaleString()}</p>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {mode === 'replace' ? t('data_catalog.anon_replaced_rows') : t('data_catalog.anon_suppressed_rows')}
-          </p>
-          <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">{impact.affectedPct}%</p>
-        </Card>
-        <Card className="p-3 text-center">
-          <div className="flex items-center justify-center gap-1.5">
-            <Eye size={14} className="text-green-500" />
-            <p className="text-2xl font-bold">{impact.unaffectedRows.toLocaleString()}</p>
-          </div>
-          <p className="text-xs text-muted-foreground">{t('data_catalog.anon_retained_rows')}</p>
-          <p className="mt-1 text-xs font-medium text-green-600 dark:text-green-400">{impact.unaffectedPct}%</p>
-        </Card>
-        <Card className="p-3 text-center">
-          <div className="flex items-center justify-center gap-1.5">
-            <AlertTriangle size={14} className="text-amber-500" />
-            <p className="text-2xl font-bold">{mode === 'suppress' ? impact.lostConcepts.toLocaleString() : impact.partialConcepts.toLocaleString()}</p>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {mode === 'suppress' ? t('data_catalog.anon_lost_concepts') : t('data_catalog.anon_partial_concepts')}
-          </p>
-          <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">{impact.partialPct}%</p>
-        </Card>
-        <Card className="p-3 text-center">
-          <p className="text-2xl font-bold">{impact.retainedPct}%</p>
-          <p className="text-xs text-muted-foreground">{t('data_catalog.anon_retained_pct')}</p>
-          <Progress value={impact.retainedPct} className="mt-2 h-1.5" />
-        </Card>
+      {/* Impact of the threshold being previewed, before it is saved */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard
+          icon={mode === 'replace' ? <Replace size={18} /> : <EyeOff size={18} />}
+          iconBg={mode === 'replace' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}
+          value={impact.affectedRows.toLocaleString()}
+          label={affectedLabel}
+          detail={<Share pct={impact.affectedPct} className="text-amber-600 dark:text-amber-400" />}
+        />
+        <StatCard
+          icon={<Eye size={18} />}
+          iconBg="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+          value={impact.unaffectedRows.toLocaleString()}
+          label={t('data_catalog.anon_retained_rows')}
+          detail={<Share pct={impact.unaffectedPct} className="text-emerald-600 dark:text-emerald-400" />}
+        />
+        <StatCard
+          icon={<AlertTriangle size={18} />}
+          iconBg="bg-amber-500/10 text-amber-600 dark:text-amber-400"
+          value={conceptsValue.toLocaleString()}
+          label={mode === 'suppress' ? t('data_catalog.anon_lost_concepts') : t('data_catalog.anon_partial_concepts')}
+          detail={<Share pct={impact.partialPct} className="text-amber-600 dark:text-amber-400" />}
+        />
+        <StatCard
+          icon={<ShieldCheck size={18} />}
+          iconBg={`${ENTITY_COLORS['data-catalog'].bg} ${ENTITY_COLORS['data-catalog'].icon}`}
+          value={`${impact.retainedPct}%`}
+          label={t('data_catalog.anon_retained_pct')}
+          detail={<Progress value={impact.retainedPct} className="mt-1.5 h-1.5" />}
+        />
       </div>
 
-      {/* Detail breakdown */}
-      <Card className="p-4">
-        <div className="grid grid-cols-4 gap-4 text-sm">
-          <div>
-            <span className="text-xs text-muted-foreground">{t('data_catalog.anon_total_rows')}</span>
-            <p className="font-medium">{impact.totalRows.toLocaleString()}</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">{t('data_catalog.anon_total_concepts')}</span>
-            <p className="font-medium">{impact.totalConcepts.toLocaleString()}</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">{t('data_catalog.anon_partial_concepts')}</span>
-            <p className="font-medium">{impact.partialConcepts.toLocaleString()} ({impact.partialPct}%)</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">{t('data_catalog.anon_lost_concepts')}</span>
-            <p className="font-medium">{impact.lostConcepts.toLocaleString()}</p>
-          </div>
-        </div>
+      <Card className="grid grid-cols-2 gap-4 p-5 lg:grid-cols-4">
+        <Figure label={t('data_catalog.anon_total_rows')} value={impact.totalRows.toLocaleString()} />
+        <Figure label={t('data_catalog.anon_total_concepts')} value={impact.totalConcepts.toLocaleString()} />
+        <Figure label={t('data_catalog.anon_partial_concepts')} value={`${impact.partialConcepts.toLocaleString()} (${impact.partialPct}%)`} />
+        <Figure label={t('data_catalog.anon_lost_concepts')} value={impact.lostConcepts.toLocaleString()} />
       </Card>
+    </div>
+  )
+}
+
+function Share({ pct, className }: { pct: number; className?: string }) {
+  return <span className={cn('text-sm font-semibold tabular-nums', className)}>{pct}%</span>
+}
+
+function Figure({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="truncate text-xs text-muted-foreground">{label}</div>
+      <div className="text-sm font-semibold tabular-nums">{value}</div>
     </div>
   )
 }
