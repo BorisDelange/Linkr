@@ -302,9 +302,9 @@ SELECT
     cn.cid AS concept_id,
     cn.cname AS concept_name,
     ${dictKeyLiteral} AS dictionary_key${catSelectStr}${subcatSelectStr},
-    COUNT(*)::INTEGER AS record_count,
-    COUNT(DISTINCT e.pid)::INTEGER AS patient_count,
-    COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS visit_count
+    COUNT(*)::BIGINT AS record_count,
+    COUNT(DISTINCT e.pid)::BIGINT AS patient_count,
+    COUNT(DISTINCT v."${vt.idColumn}")::BIGINT AS visit_count
 FROM events e
 JOIN ${qualify(pt)} p ON e.pid = p."${pt.idColumn}"
 JOIN ${qualify(vt)} v ON e.pid = v."${vt.patientIdColumn}"
@@ -338,9 +338,9 @@ GROUP BY ${conceptColsStr}`
   WHERE cid IS NOT NULL
 )
 SELECT
-    COUNT(*)::INTEGER AS record_count,
-    COUNT(DISTINCT e.pid)::INTEGER AS patient_count,
-    COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS visit_count${dimSelectStr}
+    COUNT(*)::BIGINT AS record_count,
+    COUNT(DISTINCT e.pid)::BIGINT AS patient_count,
+    COUNT(DISTINCT v."${vt.idColumn}")::BIGINT AS visit_count${dimSelectStr}
 FROM events e
 JOIN ${qualify(pt)} p ON e.pid = p."${pt.idColumn}"
 JOIN ${qualify(vt)} v ON e.pid = v."${vt.patientIdColumn}"
@@ -551,17 +551,17 @@ export function buildPeriodRowQuery(
 
   // Build SELECT columns
   const selects: string[] = [
-    `COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS n_sejours`,
-    `COUNT(DISTINCT v."${patIdCol}")::INTEGER AS n_patients`,
+    `COUNT(DISTINCT v."${vt.idColumn}")::BIGINT AS n_sejours`,
+    `COUNT(DISTINCT v."${patIdCol}")::BIGINT AS n_patients`,
   ]
 
   // Sex columns
   if (gv && pt.genderColumn) {
-    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" = '${esc(gv.male)}' THEN v."${patIdCol}" END)::INTEGER AS sex_m`)
-    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" = '${esc(gv.female)}' THEN v."${patIdCol}" END)::INTEGER AS sex_f`)
-    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" NOT IN ('${esc(gv.male)}', '${esc(gv.female)}') THEN v."${patIdCol}" END)::INTEGER AS sex_other`)
+    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" = '${esc(gv.male)}' THEN v."${patIdCol}" END)::BIGINT AS sex_m`)
+    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" = '${esc(gv.female)}' THEN v."${patIdCol}" END)::BIGINT AS sex_f`)
+    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" NOT IN ('${esc(gv.male)}', '${esc(gv.female)}') THEN v."${patIdCol}" END)::BIGINT AS sex_other`)
   } else {
-    selects.push('NULL::INTEGER AS sex_m', 'NULL::INTEGER AS sex_f', 'NULL::INTEGER AS sex_other')
+    selects.push('NULL::BIGINT AS sex_m', 'NULL::BIGINT AS sex_f', 'NULL::BIGINT AS sex_other')
   }
 
   // Age bucket columns
@@ -580,7 +580,7 @@ export function buildPeriodRowQuery(
         ? `${birthExpr} >= ${b.lo} AND ${birthExpr} < ${b.hi}`
         : `${birthExpr} >= ${b.lo}`
       const alias = `age_${b.label.replace(/[^a-zA-Z0-9]/g, '_')}`
-      selects.push(`COUNT(DISTINCT CASE WHEN ${cond} THEN v."${patIdCol}" END)::INTEGER AS "${alias}"`)
+      selects.push(`COUNT(DISTINCT CASE WHEN ${cond} THEN v."${patIdCol}" END)::BIGINT AS "${alias}"`)
     }
   }
 
@@ -589,8 +589,8 @@ export function buildPeriodRowQuery(
     for (const svcLabel of serviceLabels) {
       const escapedLabel = esc(svcLabel)
       const aliasBase = svcLabel.replace(/[^a-zA-Z0-9]/g, '_')
-      selects.push(`COUNT(DISTINCT CASE WHEN ${serviceExpr} = '${escapedLabel}' THEN v."${patIdCol}" END)::INTEGER AS "svc_${aliasBase}_pat"`)
-      selects.push(`COUNT(DISTINCT CASE WHEN ${serviceExpr} = '${escapedLabel}' THEN v."${vt.idColumn}" END)::INTEGER AS "svc_${aliasBase}_sej"`)
+      selects.push(`COUNT(DISTINCT CASE WHEN ${serviceExpr} = '${escapedLabel}' THEN v."${patIdCol}" END)::BIGINT AS "svc_${aliasBase}_pat"`)
+      selects.push(`COUNT(DISTINCT CASE WHEN ${serviceExpr} = '${escapedLabel}' THEN v."${vt.idColumn}" END)::BIGINT AS "svc_${aliasBase}_sej"`)
     }
   }
 
@@ -599,8 +599,8 @@ export function buildPeriodRowQuery(
     for (const cat of conceptCategories) {
       const escapedCat = esc(cat)
       const aliasBase = cat.replace(/[^a-zA-Z0-9]/g, '_')
-      selects.push(`COUNT(DISTINCT CASE WHEN ev.cat = '${escapedCat}' THEN v."${patIdCol}" END)::INTEGER AS "cat_${aliasBase}_pat"`)
-      selects.push(`SUM(CASE WHEN ev.cat = '${escapedCat}' THEN 1 ELSE 0 END)::INTEGER AS "cat_${aliasBase}_rows"`)
+      selects.push(`COUNT(DISTINCT CASE WHEN ev.cat = '${escapedCat}' THEN v."${patIdCol}" END)::BIGINT AS "cat_${aliasBase}_pat"`)
+      selects.push(`SUM(CASE WHEN ev.cat = '${escapedCat}' THEN 1 ELSE 0 END)::BIGINT AS "cat_${aliasBase}_rows"`)
     }
   }
 
