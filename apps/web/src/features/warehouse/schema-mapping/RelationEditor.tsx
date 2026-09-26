@@ -205,7 +205,7 @@ export function RelationEditor({
                   <DraftTextarea
                     value={spec.where ?? ''}
                     onCommit={(v) => change({ ...spec, where: v || undefined })}
-                    placeholder={t('schema_mapping.where_placeholder', { example: '{{category}}' })}
+                    placeholder={t('schema_mapping.where_placeholder')}
                     className="min-h-8 font-mono text-xs"
                     rows={1}
                   />

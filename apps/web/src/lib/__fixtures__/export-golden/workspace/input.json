@@ -249,14 +249,6 @@
      "fields": {
       "patient_id": "p.subject_id"
      }
-    },
-    "params": {
-     "alpha": {
-      "default": "a"
-     },
-     "zeta": {
-      "default": "z"
-     }
     }
    },
    "status": "connected",
@@ -287,10 +279,6 @@
       },
       "label": "Site labs"
      }
-    },
-    "params": {
-     "zeta": "Z",
-     "alpha": "A"
     }
    }
   },

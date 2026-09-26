@@ -103,23 +103,6 @@ export function has(rel: ClassRelation | undefined, column: string): boolean {
 // Generation
 // ---------------------------------------------------------------------------
 
-const PARAM_REF = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g
-
-/**
- * Replace each `{{name}}` outside literals and comments by the parameter's value
- * as an escaped string literal; an unknown name reads NULL. Never substituted as
- * an identifier or a SQL fragment, so a value cannot inject SQL (plan §7).
- */
-export function substituteParams(sql: string, params: SchemaMapping['params']): string {
-  if (!sql.includes('{{')) return sql
-  const regions = protectedRegions(sql)
-  return sql.replace(PARAM_REF, (m: string, name: string, offset: number) => {
-    if (regions.some((r) => offset >= r.start && offset < r.end)) return m
-    const p = params?.[name]
-    return p ? `'${escSql(p.default)}'` : 'NULL'
-  })
-}
-
 /** String literals, comments and dollar blocks blanked out (same length);
  *  quoted identifiers kept, since `a."col"` is a column reference. */
 export function blankSqlLiterals(sql: string): string {
@@ -156,12 +139,10 @@ class Builder {
   private used = new Map<string, Map<string, string>>()
   readonly problems: string[] = []
 
-  private params: SchemaMapping['params']
   private readable: boolean
 
-  /** `readable`: the SQL a person edits — no padding, `{{parameters}}` kept. */
-  constructor(spec: RelationSpec, params: SchemaMapping['params'], readable = false) {
-    this.params = params
+  /** `readable`: the SQL a person edits, without the padding. */
+  constructor(spec: RelationSpec, readable = false) {
     this.readable = readable
     for (const t of [spec.from, ...(spec.joins ?? [])]) {
       if (!t) continue
@@ -192,9 +173,9 @@ class Builder {
     return `${table.alias}."${m[2]}"`
   }
 
-  /** A free SQL expression: parameters substituted, column references recorded. */
+  /** A free SQL expression, its column references recorded. */
   expr(sql: string): string {
-    const text = this.readable ? sql.trim() : substituteParams(sql.trim(), this.params)
+    const text = sql.trim()
     for (const m of blankSqlLiterals(text).matchAll(ALIAS_COLUMN)) {
       const table = this.aliases.get(m[1].toLowerCase())
       if (table) this.record(table.alias, m[2]?.replace(/""/g, '"') ?? m[3])
@@ -258,9 +239,9 @@ function selectList(cls: ClassName, exprs: Exprs, extraKeys: string[], mappedOnl
   return { lines, mapped }
 }
 
-function compileVisual(cls: ClassName, spec: RelationSpec, params: SchemaMapping['params'], derive?: Derive, readable = false): Compiled | null {
+function compileVisual(cls: ClassName, spec: RelationSpec, derive?: Derive, readable = false): Compiled | null {
   if (!spec.from) return null
-  const b = new Builder(spec, params, readable)
+  const b = new Builder(spec, readable)
   if (!b.has(spec.from.alias)) return null
   const contract = new Set(CLASS_CONTRACTS[cls].map((c) => c.name))
   const exprs: Exprs = {}
@@ -303,7 +284,7 @@ function compileVisual(cls: ClassName, spec: RelationSpec, params: SchemaMapping
  * reads NULL, one it returns beyond the contract is dropped, so every consumer
  * binds whatever the SQL does inside.
  */
-function compileCustom(cls: ClassName, spec: RelationSpec, params: SchemaMapping['params'], fixed: Exprs = {}): Compiled {
+function compileCustom(cls: ClassName, spec: RelationSpec, fixed: Exprs = {}): Compiled {
   const problems: string[] = []
   const contract = CLASS_CONTRACTS[cls].map((c) => c.name)
   const declared = spec.sqlColumns ?? [
@@ -321,7 +302,7 @@ function compileCustom(cls: ClassName, spec: RelationSpec, params: SchemaMapping
     if (!refs.length || refs.some((r) => mapped.has(r))) mapped.add(k)
   }
 
-  let body = substituteParams((spec.customSql ?? '').trim().replace(/;\s*$/, ''), params)
+  let body = (spec.customSql ?? '').trim().replace(/;\s*$/, '')
   if (splitSqlStatements(body).length !== 1 || !/^\s*(\(|select\b|with\b|from\b|values\b)/i.test(blankSqlLiterals(body))) {
     problems.push('custom SQL must be a single SELECT statement')
     body = `SELECT error('${escSql(`Custom SQL of the ${cls} relation must be a single SELECT statement`)}') AS _linkr_error`
@@ -338,8 +319,8 @@ function compileCustom(cls: ClassName, spec: RelationSpec, params: SchemaMapping
   return { sql, mapped, custom: true, problems, extras }
 }
 
-function compile(cls: ClassName, spec: RelationSpec, params: SchemaMapping['params'], derive?: Derive, fixed?: Exprs): Compiled | null {
-  return spec.customSql?.trim() ? compileCustom(cls, spec, params, fixed) : compileVisual(cls, spec, params, derive)
+function compile(cls: ClassName, spec: RelationSpec, derive?: Derive, fixed?: Exprs): Compiled | null {
+  return spec.customSql?.trim() ? compileCustom(cls, spec, fixed) : compileVisual(cls, spec, derive)
 }
 
 function slug(text: string): string {
@@ -404,7 +385,6 @@ const drugFixed = (spec: DrugSpec): Exprs => ({
 function buildRelations(mapping: SchemaMapping): ClassRelation[] {
   const rels: ClassRelation[] = []
   const taken = new Set<string>()
-  const params = mapping.params
   const push = (base: Omit<ClassRelation, 'sql' | 'mapped' | 'custom' | 'problems' | 'tables'>, spec: RelationSpec, compiled: Compiled | null) => {
     if (!compiled) return
     taken.add(base.name)
@@ -413,7 +393,7 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
 
   if (mapping.patient) {
     const spec = mapping.patient
-    push({ name: `${RELATION_PREFIX}patient`, cls: 'patient', specKey: 'patient' }, spec, compile('patient', spec, params, derivePatient(spec)))
+    push({ name: `${RELATION_PREFIX}patient`, cls: 'patient', specKey: 'patient' }, spec, compile('patient', spec, derivePatient(spec)))
   }
   const singletons = [
     ['visit', 'visit', mapping.visit],
@@ -421,13 +401,13 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
     ['note', 'note', mapping.note],
   ] as const
   for (const [cls, specKey, spec] of singletons) {
-    if (spec) push({ name: `${RELATION_PREFIX}${cls}`, cls, specKey }, spec, compile(cls, spec, params))
+    if (spec) push({ name: `${RELATION_PREFIX}${cls}`, cls, specKey }, spec, compile(cls, spec))
   }
 
   const dicts = new Map<string, { name: string; mapped: ReadonlySet<string> }>()
   for (const spec of mapping.concepts ?? []) {
     const name = uniqueName(`${RELATION_PREFIX}concept_${slug(spec.key)}`, taken)
-    const compiled = compile('concept', spec, params)
+    const compiled = compile('concept', spec)
     if (!compiled) continue
     dicts.set(spec.key, { name, mapped: compiled.mapped })
     rels.push({
@@ -439,7 +419,7 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
 
   const defaultDict = mapping.concepts?.[0]?.key
   const addEvent = (cls: 'event' | 'drug', spec: EventSpec, derive: Derive, fixed?: Exprs) => {
-    const compiled = compile(cls, spec, params, derive, fixed)
+    const compiled = compile(cls, spec, derive, fixed)
     if (!compiled) return
     const name = uniqueName(`${RELATION_PREFIX}${cls}_${slug(spec.label)}`, taken)
     const dictKey = spec.conceptDictionaryKey === 'none' ? null : (spec.conceptDictionaryKey ?? defaultDict)
@@ -488,7 +468,7 @@ function compileParts(mapping: SchemaMapping, specKey: string): { cls: ClassName
 export function readableRelationSql(mapping: SchemaMapping, specKey: string): string | null {
   const parts = compileParts(mapping, specKey)
   if (!parts) return null
-  return compileVisual(parts.cls, { ...parts.spec, customSql: null }, mapping.params, parts.derive, true)?.sql ?? null
+  return compileVisual(parts.cls, { ...parts.spec, customSql: null }, parts.derive, true)?.sql ?? null
 }
 
 /** The SQL the visual form generates as the relation runs it — compared before
@@ -496,5 +476,5 @@ export function readableRelationSql(mapping: SchemaMapping, specKey: string): st
 export function generatedRelationSql(mapping: SchemaMapping, specKey: string): string | null {
   const parts = compileParts(mapping, specKey)
   if (!parts) return null
-  return compileVisual(parts.cls, { ...parts.spec, customSql: null }, mapping.params, parts.derive)?.sql ?? null
+  return compileVisual(parts.cls, { ...parts.spec, customSql: null }, parts.derive)?.sql ?? null
 }

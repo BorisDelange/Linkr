@@ -395,8 +395,9 @@ lists `concepts[]` (by `key`), `events[]` and `drugs[]` (by `label`, one
 namespace for both). Each is a `RelationSpec`: either visual — `from`, `joins`,
 `where`, `fields` (`'alias.column'`, `{ expr }` or `{ value }`) — or hand-written
 `customSql` (+ `sqlColumns`, what the contract check recorded), the Cohort
-"Modified" pattern. Mapping-level `params` are substituted as escaped string
-literals wherever `{{name}}` appears outside a literal; an unknown one reads NULL.
+"Modified" pattern. The form edits the simple case only — one table, its
+columns or constants, a filter; joins and expressions (a v1 conversion) are kept
+and shown read-only, and anything specific is written in SQL.
 
 - **v1 is converted, then forgotten**: `mappingV1ToV2` (`schema-classes/v1.ts`)
   runs only at the trust boundary — `sanitizeSchemaMapping`, entity import (after
@@ -416,7 +417,8 @@ literals wherever `{{name}}` appears outside a literal; an unknown one reads NUL
 ### Per-database override
 
 A database stores its preset's mapping as its base plus `schemaOverrides`
-(`params` values, whole `relations`, and `baseAtOverride` fingerprints). The
+(whole `relations`, replaced or added, and `baseAtOverride` fingerprints) — a
+site that records a code differently overrides that relation's SQL. The
 data-source store publishes `schemaMapping` = `effectiveMapping(base,
 overrides)` and keeps the base in memory as `schemaBaseMapping`; storage holds
 the base (`published()` / `persisted()`). A preset update is an explicit action

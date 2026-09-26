@@ -12,13 +12,5 @@
     "fields": {
       "patient_id": "p.subject_id"
     }
-  },
-  "params": {
-    "alpha": {
-      "default": "a"
-    },
-    "zeta": {
-      "default": "z"
-    }
   }
 }

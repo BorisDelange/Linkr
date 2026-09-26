@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, X, Code, Table2, Trash2 } from 'lucide-react'
+import { Plus, Code, Table2, Trash2 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { DialogShell } from '@/components/ui/dialog-shell'
@@ -9,14 +9,12 @@ import { SectionLabel } from '@/components/ui/section-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { parseDdl, indexTables, resolveTableRef } from '@/lib/ddl-parse'
 import { cn } from '@/lib/utils'
-import { localized, setLocalized } from '@/lib/localized'
 import type { ClassName } from '@/lib/schema-classes/contracts'
 import { classRelations } from '@/lib/schema-classes/relations'
 import { specAt, withSpec } from '@/lib/schema-classes/spec'
 import type {
   DrugSpec,
   EventSpec,
-  MappingParam,
   PatientSpec,
   RelationSpec,
   RelationTable,
@@ -27,7 +25,7 @@ import { DraftInput } from './draft-input'
 import { CLASS_TONES } from './class-tones'
 import { RelationSqlDialog, type PreviewSource } from './RelationSqlDialog'
 
-type TabId = 'all' | 'patient' | 'stays' | 'notes' | 'concepts' | 'events' | 'drugs' | 'params'
+type TabId = 'all' | 'patient' | 'stays' | 'notes' | 'concepts' | 'events' | 'drugs'
 
 export interface MappingEditorProps {
   mapping: SchemaMapping
@@ -39,8 +37,6 @@ export interface MappingEditorProps {
   /** Per relation (by spec key): a badge or actions in its header — the
    *  database override layer uses it for "Overridden" / "Revert". */
   relationExtra?: (specKey: string) => ReactNode
-  /** Parameters are edited here unless the caller owns them (database overrides). */
-  paramsSlot?: ReactNode
   /** Whether a relation may be removed; an override cannot drop a preset's one. */
   canRemove?: (specKey: string) => boolean
   /** Saves a relation's SQL at once, outside edit mode: the SQL dialog stays
@@ -63,8 +59,8 @@ const SINGLETONS: Record<'patient' | 'visit' | 'visitDetail' | 'note', ClassName
  * grouped by clinical subject, plus the parameters relations read. Used by the
  * schema preset page and, in override mode, by a database's Mapping tab.
  */
-export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewSources = [], relationExtra, paramsSlot, canRemove, persist }: MappingEditorProps) {
-  const { t, i18n } = useTranslation()
+export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewSources = [], relationExtra, canRemove, persist }: MappingEditorProps) {
+  const { t } = useTranslation()
   const [tab, setTab] = useState<TabId>('all')
   const [sqlFor, setSqlFor] = useState<string | null>(null)
 
@@ -294,7 +290,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
   }
 
   type Section = {
-    id: Exclude<TabId, 'all' | 'params'>
+    id: Exclude<TabId, 'all'>
     label: string
     tone: ClassName
     blocks: () => ReactNode
@@ -337,7 +333,6 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
                 {sec.label}
               </TabsTrigger>
             ))}
-            <TabsTrigger value="params">{t('schema_mapping.tab_params')}</TabsTrigger>
           </TabsList>
           <div className="flex-1" />
         </div>
@@ -365,16 +360,6 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
           </TabsContent>
         ))}
 
-        <TabsContent value="params" className="mt-4">
-          {paramsSlot ?? (
-            <ParamsEditor
-              params={mapping.params ?? {}}
-              readOnly={readOnly}
-              lang={i18n.language}
-              onChange={(params) => onChange?.({ ...mapping, params: Object.keys(params).length ? params : undefined })}
-            />
-          )}
-        </TabsContent>
       </Tabs>
 
       {sqlFor && sqlSpec && sqlCls && (
@@ -389,114 +374,6 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
           onChange={(s) => (readOnly ? persist?.(withSpec(mapping, sqlFor, s)) : setSpec(sqlFor, s))}
           previewSources={previewSources}
         />
-      )}
-    </div>
-  )
-}
-
-/**
- * The values relations read as `{{name}}`. A preset declares them with a
- * default; a database overrides the values only (plan §7).
- */
-export function ParamsEditor({
-  params,
-  readOnly,
-  lang,
-  onChange,
-  overrides,
-  onOverrideChange,
-}: {
-  params: Record<string, MappingParam>
-  readOnly?: boolean
-  lang: string
-  onChange?: (params: Record<string, MappingParam>) => void
-  /** Database override mode: values per name, edited instead of the defaults. */
-  overrides?: Record<string, string>
-  onOverrideChange?: (overrides: Record<string, string>) => void
-}) {
-  const { t } = useTranslation()
-  const [newName, setNewName] = useState('')
-  const names = Object.keys(params).sort()
-  const overrideMode = !!onOverrideChange
-  const validNew = /^[A-Za-z_][A-Za-z0-9_]*$/.test(newName) && !(newName in params)
-
-  const set = (name: string, patch: Partial<MappingParam>) => onChange?.({ ...params, [name]: { ...params[name], ...patch } })
-
-  return (
-    <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">{t('schema_mapping.params_hint', { example: '{{route_code}}' })}</p>
-      {names.length === 0 && <p className="text-xs text-muted-foreground">{t('schema_mapping.none_yet')}</p>}
-      {names.map((name) => {
-        const p = params[name]
-        const overridden = overrides && name in overrides
-        return (
-          <div key={name} className="grid grid-cols-[180px_1fr_1fr_auto] items-center gap-2">
-            <code className="text-xs">{`{{${name}}}`}</code>
-            {overrideMode ? (
-              <DraftInput
-                value={overrides?.[name] ?? p.default}
-                onCommit={(v) => {
-                  const next = { ...(overrides ?? {}) }
-                  if (v === p.default) delete next[name]
-                  else next[name] = v
-                  onOverrideChange?.(next)
-                }}
-                className={`h-7 font-mono text-xs ${overridden ? 'border-amber-400' : ''}`}
-                disabled={readOnly}
-              />
-            ) : readOnly ? (
-              <code className="text-xs">{p.default}</code>
-            ) : (
-              <DraftInput value={p.default} onCommit={(v) => set(name, { default: v })} className="h-7 font-mono text-xs" />
-            )}
-            {readOnly || overrideMode ? (
-              <span className="truncate text-xs text-muted-foreground">
-                {overrideMode && overridden ? t('schema_mapping.param_default', { value: p.default }) : localized(p.label, lang)}
-              </span>
-            ) : (
-              <DraftInput
-                value={localized(p.label, lang)}
-                onCommit={(v) => set(name, { label: setLocalized(p.label, lang, v) })}
-                placeholder={t('schema_mapping.param_label')}
-                className="h-7 text-xs"
-              />
-            )}
-            {!readOnly && !overrideMode ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => {
-                  const next = { ...params }
-                  delete next[name]
-                  onChange?.(next)
-                }}
-                aria-label={t('common.remove')}
-              >
-                <X size={12} />
-              </Button>
-            ) : (
-              <span className="w-6" />
-            )}
-          </div>
-        )
-      })}
-      {!readOnly && !overrideMode && (
-        <div className="flex items-center gap-1 pt-1">
-          <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t('schema_mapping.param_name')} className="h-7 w-48 font-mono text-xs" />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 gap-1 text-xs"
-            disabled={!validNew}
-            onClick={() => {
-              onChange?.({ ...params, [newName]: { default: '' } })
-              setNewName('')
-            }}
-          >
-            <Plus size={10} />
-            {t('schema_mapping.add_param')}
-          </Button>
-        </div>
       )}
     </div>
   )

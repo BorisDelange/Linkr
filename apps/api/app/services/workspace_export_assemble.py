@@ -1063,14 +1063,13 @@ def _order_keys(obj: dict, order: list[str]) -> dict:
 # (packages/linkr-format/src/schema-mapping.ts): same orders, same bytes.
 _MAPPING_V2_FIELD_ORDER = [
     "formatVersion", "presetId", "presetLabel", "patient", "visit", "visitDetail", "note",
-    "concepts", "events", "drugs", "params", "knownTables", "erdGroups", "description",
+    "concepts", "events", "drugs", "knownTables", "erdGroups", "description",
 ]
 _RELATION_FIELD_ORDER = [
     "key", "label", "drugKind", "conceptDictionaryKey", "genderValues", "from", "joins",
     "where", "fields", "customSql", "sqlColumns",
 ]
 _TABLE_FIELD_ORDER = ["type", "schema", "table", "alias", "on"]
-_PARAM_FIELD_ORDER = ["default", "label", "description"]
 _RELATION_COLUMN_ORDER = {
     "patient": ["patient_id", "birth_date", "birth_year", "gender", "gender_source_value", "death_datetime"],
     "visit": ["visit_id", "patient_id", "start_datetime", "end_datetime", "visit_type", "care_site_id", "care_site_name"],
@@ -1115,12 +1114,6 @@ def _canonical_schema_mapping_v2(mapping: dict) -> dict:
     for key in ("concepts", "events", "drugs"):
         if isinstance(out.get(key), list):
             out[key] = [_canonical_relation(r, _RELATION_COLUMN_ORDER[key]) for r in out[key]]
-    if isinstance(out.get("params"), dict):
-        params = out["params"]
-        out["params"] = {
-            k: _order_keys(params[k], _PARAM_FIELD_ORDER) if isinstance(params[k], dict) else params[k]
-            for k in sorted(params)
-        }
     return out
 
 
@@ -1134,8 +1127,6 @@ def _canonical_schema_overrides(overrides: dict) -> dict:
         return _canonical_relation(rel, _RELATION_COLUMN_ORDER.get(spec_key.split(".")[0], []))
 
     out: dict = {}
-    if "params" in overrides:
-        out["params"] = by_name(overrides["params"])
     if "relations" in overrides:
         out["relations"] = by_name(overrides["relations"], relation)
     if "baseAtOverride" in overrides:
@@ -1276,9 +1267,7 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
             tree[SCHEMA_PRESET_DDL_FILE] = ddl.encode()
     # Its overrides on top of the preset, beside the mapping — only when there are
     # some. Twin of the SCHEMA_OVERRIDES_FILE branch of buildDataSourceFolder.
-    if isinstance(schema_overrides, dict) and (
-        schema_overrides.get("relations") or schema_overrides.get("params")
-    ):
+    if isinstance(schema_overrides, dict) and schema_overrides.get("relations"):
         tree[SCHEMA_OVERRIDES_FILE] = _json(_canonical_schema_overrides(schema_overrides))
     # `organization` is stripped as an instance field, and every other entity puts
     # its provenance snapshot back. A database did not, so each re-export silently

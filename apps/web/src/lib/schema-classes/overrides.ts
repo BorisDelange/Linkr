@@ -4,7 +4,7 @@ import { specAt, specEntries, withSpec } from './spec'
 
 // ---------------------------------------------------------------------------
 // Per-database override (plan §7): a database keeps a copy of its preset's
-// mapping as its base, and changes parameter values or whole relations on top.
+// mapping as its base, and replaces or adds whole relations on top.
 // Every query reads `effectiveMapping(base, overrides)`; nothing else knows the
 // difference.
 // ---------------------------------------------------------------------------
@@ -35,30 +35,20 @@ function addSpec(mapping: SchemaMapping, specKey: string, spec: RelationSpec): S
   return withSpec(mapping, specKey, spec)
 }
 
-/** The base with the overrides applied: relations replaced or added, parameter
- *  values changed. Parameters the base does not declare are ignored. */
+/** The base with the overrides applied: relations replaced or added. */
 export function effectiveMapping(base: SchemaMapping, overrides: SchemaOverrides | undefined | null): SchemaMapping {
-  if (!overrides || (!overrides.relations && !overrides.params)) return base
+  if (!overrides?.relations) return base
   let m = base
-  for (const [key, spec] of Object.entries(overrides.relations ?? {})) {
+  for (const [key, spec] of Object.entries(overrides.relations)) {
     m = specAt(m, key) ? withSpec(m, key, spec) : addSpec(m, key, spec)
-  }
-  const values = overrides.params ?? {}
-  if (base.params && Object.keys(values).length) {
-    m = {
-      ...m,
-      params: Object.fromEntries(
-        Object.entries(base.params).map(([name, p]) => [name, name in values ? { ...p, default: values[name] } : p]),
-      ),
-    }
   }
   return m
 }
 
 /**
- * The overrides that turn `base` into `edited`, relation by relation, keeping
- * parameter values as they were. Records, for each newly overridden relation,
- * the base it was made against — how a later preset update is flagged.
+ * The overrides that turn `base` into `edited`, relation by relation. Records,
+ * for each newly overridden relation, the base it was made against — how a
+ * later preset update is flagged.
  */
 export function diffOverrides(base: SchemaMapping, edited: SchemaMapping, previous?: SchemaOverrides | null): SchemaOverrides {
   const relations: Record<string, RelationSpec> = {}
@@ -69,13 +59,7 @@ export function diffOverrides(base: SchemaMapping, edited: SchemaMapping, previo
     relations[specKey] = spec
     baseAtOverride[specKey] = previous?.baseAtOverride?.[specKey] ?? relationFingerprint(specKey, baseSpec)
   }
-  const out: SchemaOverrides = {}
-  if (previous?.params && Object.keys(previous.params).length) out.params = previous.params
-  if (Object.keys(relations).length) {
-    out.relations = relations
-    out.baseAtOverride = baseAtOverride
-  }
-  return out
+  return Object.keys(relations).length ? { relations, baseAtOverride } : {}
 }
 
 /** The override without one relation (Revert to preset). */
@@ -84,13 +68,7 @@ export function revertOverride(overrides: SchemaOverrides, specKey: string): Sch
   const baseAtOverride = { ...(overrides.baseAtOverride ?? {}) }
   delete relations[specKey]
   delete baseAtOverride[specKey]
-  const out: SchemaOverrides = {}
-  if (overrides.params && Object.keys(overrides.params).length) out.params = overrides.params
-  if (Object.keys(relations).length) {
-    out.relations = relations
-    out.baseAtOverride = baseAtOverride
-  }
-  return out
+  return Object.keys(relations).length ? { relations, baseAtOverride } : {}
 }
 
 /** Relation overrides whose base changed since they were made — after a preset
@@ -101,7 +79,7 @@ export function staleOverrides(base: SchemaMapping, overrides: SchemaOverrides |
   )
 }
 
-/** Nothing to store: no relation and no parameter overridden. */
+/** Nothing to store: no relation overridden. */
 export function isEmptyOverrides(overrides: SchemaOverrides | undefined | null): boolean {
-  return !overrides || (!Object.keys(overrides.relations ?? {}).length && !Object.keys(overrides.params ?? {}).length)
+  return !Object.keys(overrides?.relations ?? {}).length
 }

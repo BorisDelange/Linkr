@@ -376,7 +376,7 @@ def _build_tree() -> dict[str, bytes]:
             tree[CONTENT_SCHEMA_MAPPING] = _json_bytes(_canonical_schema_mapping(mapping))
             if isinstance(ddl, str) and ddl:
                 tree[CONTENT_SCHEMA_DDL] = ddl.encode()
-        if schema_overrides and (schema_overrides.get("relations") or schema_overrides.get("params")):
+        if schema_overrides and schema_overrides.get("relations"):
             tree[CONTENT_SCHEMA_OVERRIDES] = _json_bytes(_canonical_schema_overrides(schema_overrides))
         tree.update(entity_doc_files("", ds))
         # The database's own cohorts, as _data_source_sub_tree writes them.

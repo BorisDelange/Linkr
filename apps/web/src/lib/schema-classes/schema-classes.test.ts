@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { injectClassRelations, referencedRelations, withClassRelations } from './inject'
-import { classRelation, classRelations, conceptJoinOn, dictionaryOf, drugRelation, eventRelation, generatedRelationSql, has, readableRelationSql, substituteParams } from './relations'
+import { classRelation, classRelations, conceptJoinOn, dictionaryOf, drugRelation, eventRelation, generatedRelationSql, has, readableRelationSql } from './relations'
 import { checkContract, hasGlobalWindow } from './contract-check'
 import { diffOverrides, effectiveMapping, isEmptyOverrides, relationFingerprint, revertOverride, staleOverrides } from './overrides'
 import { conceptIdentity } from './spec'
@@ -224,7 +224,6 @@ const v2: SchemaMapping = {
   formatVersion: 2,
   presetId: 'eav',
   presetLabel: { en: 'EAV' },
-  params: { attr_rate: { default: "RATE'1" } },
   patient: { from: { table: 'patients', alias: 'p' }, fields: { patient_id: 'p.id', gender: { value: 'unknown' } } },
   visit: {
     from: { schema: 'dw', table: 'stays', alias: 's' },
@@ -234,7 +233,7 @@ const v2: SchemaMapping = {
   drugs: [{
     label: 'Administrations',
     drugKind: 'administration',
-    customSql: 'SELECT d.pid AS patient_id, d.code AS concept_id, d.at AS start_datetime, r.val AS rate_value\nFROM facts d JOIN facts r ON r.doc = d.doc AND r.attr = {{attr_rate}};',
+    customSql: 'SELECT d.pid AS patient_id, d.code AS concept_id, d.at AS start_datetime, r.val AS rate_value\nFROM facts d JOIN facts r ON r.doc = d.doc AND r.attr = \'RATE\';',
     sqlColumns: ['patient_id', 'concept_id', 'start_datetime', 'rate_value'],
   }],
 }
@@ -249,11 +248,11 @@ describe('classRelations (v2 mapping)', () => {
     expect(classRelation(v2, 'patient')!.sql).toContain(`'unknown' AS gender`)
   })
 
-  it('projects custom SQL onto the contract, parameters as escaped literals', () => {
+  it('projects custom SQL onto the contract', () => {
     const drug = drugRelation(v2, 'Administrations')!
     expect(drug.name).toBe('linkr_drug_administrations')
     expect(drug.custom).toBe(true)
-    expect(drug.sql).toContain(`r.attr = 'RATE''1'`)
+    expect(drug.sql).toContain(`r.attr = 'RATE'`)
     expect(drug.sql).not.toContain(';')
     expect(drug.sql).toContain(`COALESCE(_c."drug_kind", 'administration') AS drug_kind`)
     expect(drug.sql).toContain('_c."dose_source_value" AS dose_source_value')
@@ -288,11 +287,6 @@ describe('classRelations (v2 mapping)', () => {
     expect(rel.problems).toEqual(['custom SQL must be a single SELECT statement'])
     expect(rel.sql).toContain("error('Custom SQL of the visit relation")
   })
-
-  it('never substitutes a parameter inside a literal or as an identifier', () => {
-    const params = { a: { default: 'x' } }
-    expect(substituteParams(`WHERE c = {{a}} AND d = '{{a}}' AND e = {{missing}}`, params)).toBe(`WHERE c = 'x' AND d = '{{a}}' AND e = NULL`)
-  })
 })
 
 describe('export order', () => {
@@ -307,18 +301,17 @@ describe('export order', () => {
 })
 
 describe('readableRelationSql', () => {
-  it('writes the form as a person would: mapped columns, no padding, parameters kept', () => {
-    const m: SchemaMapping = { ...v2, visit: { ...v2.visit!, where: 's.kind = {{attr_rate}}' } }
-    const sql = readableRelationSql(m, 'visit')!
+  it('writes the form as a person would: mapped columns, no padding', () => {
+    const sql = readableRelationSql(v2, 'visit')!
     expect(sql).toBe([
       'SELECT',
       '  s."id" AS visit_id,',
       '  s."pid" AS patient_id,',
       '  (CAST(s.start AS TIMESTAMP)) AS start_datetime',
       'FROM "dw"."stays" s',
-      'WHERE (s.kind = {{attr_rate}})',
+      "WHERE (s.kind = 'H')",
     ].join('\n'))
-    expect(generatedRelationSql(m, 'visit')).toContain(`WHERE (s.kind = 'RATE''1')`)
+    expect(generatedRelationSql(v2, 'visit')).toContain('UNION ALL BY NAME')
   })
 
   it('keeps the derived columns, which a switch to SQL would otherwise lose', () => {
@@ -361,7 +354,7 @@ describe('per-database overrides', () => {
   }
 
   it('records the relations a database changed, with the base they were made against', () => {
-    const o = diffOverrides(base, site, { params: { attr_rate: 'R2' } })
+    const o = diffOverrides(base, site)
     expect(Object.keys(o.relations!)).toEqual(['visit', 'events.Local'])
     expect(o.baseAtOverride!.visit).toBe(relationFingerprint('visit', base.visit))
     expect(o.baseAtOverride!.visit).toMatch(/^[0-9a-f]{8}$/)
@@ -369,16 +362,13 @@ describe('per-database overrides', () => {
     // Key order does not change the fingerprint.
     const reordered = { fields: base.visit!.fields, where: base.visit!.where, from: base.visit!.from }
     expect(relationFingerprint('visit', reordered)).toBe(relationFingerprint('visit', base.visit))
-    expect(o.params).toEqual({ attr_rate: 'R2' })
   })
 
-  it('applies relations and parameter values on top of the base', () => {
-    const o = diffOverrides(base, site, { params: { attr_rate: 'R2', unknown: 'x' } })
-    const eff = effectiveMapping(base, o)
+  it('applies the relations on top of the base, replaced or added', () => {
+    const eff = effectiveMapping(base, diffOverrides(base, site))
     expect(eff.visit?.where).toBe("s.kind = 'X'")
     expect(eff.events?.map((e) => e.label)).toEqual(['Local'])
-    expect(eff.params).toEqual({ attr_rate: { default: 'R2' } })
-    expect(drugRelation(eff, 'Administrations')!.sql).toContain(`r.attr = 'R2'`)
+    expect(drugRelation(eff, 'Administrations')!.sql).toContain(`r.attr = 'RATE'`)
     expect(effectiveMapping(base, undefined)).toBe(base)
   })
 

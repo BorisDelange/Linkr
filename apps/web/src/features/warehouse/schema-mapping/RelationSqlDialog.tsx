@@ -14,7 +14,7 @@ import { CLASS_CONTRACTS, type ClassName } from '@/lib/schema-classes/contracts'
 import { SectionLabel } from '@/components/ui/section-label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { cn } from '@/lib/utils'
-import { classRelations, generatedRelationSql, readableRelationSql, substituteParams } from '@/lib/schema-classes/relations'
+import { classRelations, generatedRelationSql, readableRelationSql } from '@/lib/schema-classes/relations'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import { checkContract, type ContractReport } from '@/lib/schema-classes/contract-check'
 import type { RelationSpec, SchemaMapping } from '@/types/schema-mapping'
@@ -62,7 +62,7 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
 
   /** What the relation's own SQL returns, before the contract projection pads it. */
   const bodyOf = (s: RelationSpec) =>
-    s.customSql?.trim() ? substituteParams(s.customSql.trim().replace(/;\s*$/, ''), mapping.params) : generatedRelationSql(mapping, specKey)
+    s.customSql?.trim() ? s.customSql.trim().replace(/;\s*$/, '') : generatedRelationSql(mapping, specKey)
 
   /**
    * `current` is the spec as just saved: a check run right after a save must
@@ -136,7 +136,7 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
       onOpenChange={onOpenChange}
       kind="workbench"
       title={t('schema_mapping.sql_title', { name: relation?.name ?? specKey })}
-      description={t('schema_mapping.sql_description', { example: '{{name}}' })}
+      description={t('schema_mapping.sql_description')}
     >
       <Tabs value={tab} onValueChange={setTab} className="flex h-full flex-col">
         <TabsList className="self-center">

@@ -297,9 +297,6 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
     if (!isObject(o)) {
       bag.error(CONTENT_FILE.schemaOverrides, '', 'wrong-type', `${CONTENT_FILE.schemaOverrides} must be an object.`)
     } else {
-      if (o.params != null && (!isObject(o.params) || Object.values(o.params).some((v) => typeof v !== 'string'))) {
-        bag.error(CONTENT_FILE.schemaOverrides, '/params', 'wrong-type', '`params` maps parameter names to string values.')
-      }
       if (o.relations != null && !isObject(o.relations)) {
         bag.error(CONTENT_FILE.schemaOverrides, '/relations', 'wrong-type', '`relations` maps relation keys to relations.')
       }
@@ -691,17 +688,5 @@ function checkMappingV2(
         bag.error(path, at(`${pointer}/drugKind`), 'wrong-type', '`drugKind` is `administration` or `prescription`.')
       }
     })
-  }
-  if (mapping.params != null && !isObject(mapping.params)) {
-    bag.error(path, at('/mapping/params'), 'wrong-type', '`params` must be an object.')
-  } else if (isObject(mapping.params)) {
-    for (const [name, p] of Object.entries(mapping.params)) {
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-        bag.error(path, at(`/mapping/params/${name}`), 'wrong-type', 'A parameter name is an identifier (letters, digits, `_`).')
-      }
-      if (!isObject(p) || typeof p.default !== 'string') {
-        bag.error(path, at(`/mapping/params/${name}/default`), 'wrong-type', 'A parameter needs a string `default`.')
-      }
-    }
   }
 }

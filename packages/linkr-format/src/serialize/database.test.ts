@@ -39,11 +39,9 @@ describe('serializeDatabase', () => {
     const overrides = {
       baseAtOverride: { visit: '0a1b2c3d' },
       relations: { visit: { fields: { patient_id: 'v.subject_id', visit_id: 'v.hadm_id' }, from: { alias: 'v', table: 'stays' } } },
-      params: { b: '2', a: '1' },
     }
     const tree = treeOf({ ...SPEC, schemaOverrides: overrides })
     expect(tree.read('mapping-overrides.json')).toBe(JSON.stringify({
-      params: { a: '1', b: '2' },
       relations: { visit: { from: { table: 'stays', alias: 'v' }, fields: { visit_id: 'v.hadm_id', patient_id: 'v.subject_id' } } },
       baseAtOverride: { visit: '0a1b2c3d' },
     }, null, 2))

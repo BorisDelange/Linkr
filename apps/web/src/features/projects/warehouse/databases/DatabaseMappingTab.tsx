@@ -12,15 +12,14 @@ import { specAt, withSpec } from '@/lib/schema-classes/spec'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
-import { MappingEditor, ParamsEditor } from '@/features/warehouse/schema-mapping/MappingEditor'
+import { MappingEditor } from '@/features/warehouse/schema-mapping/MappingEditor'
 import type { DataSource } from '@/types'
 import type { SchemaMapping, SchemaOverrides } from '@/types/schema-mapping'
 import { findSourcePreset } from './AddDatabaseDialog'
 
 /**
  * A database's mapping: its preset's copy (the base) with what this site changes
- * on top (plan §7) — parameter values first, whole relations for a structural
- * difference. The base is replaced only by an explicit "Update from preset",
+ * on top (plan §7): whole relations, replaced or added. The base is replaced only by an explicit "Update from preset",
  * which keeps the overrides and flags those whose base the preset changed.
  */
 export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; readOnly?: boolean }) {
@@ -43,7 +42,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   const overrides = source.schemaOverrides ?? null
   const preset = useMemo(() => findSourcePreset(source, presets), [source, presets])
 
-  const [draft, setDraft] = useState<{ mapping: SchemaMapping; params: Record<string, string> } | null>(null)
+  const [draft, setDraft] = useState<{ mapping: SchemaMapping } | null>(null)
   const [updateOpen, setUpdateOpen] = useState(false)
 
   if (!base) {
@@ -53,7 +52,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   const editing = !!draft
   const shown = draft?.mapping ?? source.schemaMapping ?? base
   const pendingOverrides: SchemaOverrides | null = draft
-    ? diffOverrides(base, draft.mapping, { ...(overrides ?? {}), params: draft.params })
+    ? diffOverrides(base, draft.mapping, overrides)
     : overrides
   const overridden = new Set(Object.keys(pendingOverrides?.relations ?? {}))
   const stale = new Set(staleOverrides(base, overrides))
@@ -63,7 +62,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   }
 
   const startEdit = () =>
-    setDraft({ mapping: structuredClone(source.schemaMapping ?? base), params: { ...(overrides?.params ?? {}) } })
+    setDraft({ mapping: structuredClone(source.schemaMapping ?? base) })
 
   const revert = (specKey: string) => {
     if (draft) {
@@ -174,15 +173,6 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
         relationExtra={relationExtra}
         canRemove={(specKey) => !specAt(base, specKey)}
         persist={canWrite && !editing ? (m) => void save(diffOverrides(base, m, overrides)) : undefined}
-        paramsSlot={
-          <ParamsEditor
-            params={base.params ?? {}}
-            lang={i18n.language}
-            readOnly={!editing}
-            overrides={draft?.params ?? overrides?.params ?? {}}
-            onOverrideChange={(params) => draft && setDraft({ ...draft, params, mapping: effectiveMapping(base, { ...(pendingOverrides ?? {}), params }) })}
-          />
-        }
       />
 
       {preset && (

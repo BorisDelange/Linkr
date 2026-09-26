@@ -12,7 +12,7 @@ describe('drug administrations from an EAV warehouse and from OMOP', () => {
   const eav = drugRelation(eavMapping, 'Administrations')!
   const omop = drugRelation(omopMapping, 'Drug exposures')!
 
-  it('pivots the EAV attributes by their codes, given as parameters', () => {
+  it('pivots the EAV attributes by their codes', () => {
     expect(eav.problems).toEqual([])
     expect(eav.sql).toContain(`WHERE d.attribute = 'DRUG'`)
     expect(eav.sql).toContain(`f.attribute = 'RATE' THEN f.num_value`)
@@ -22,7 +22,7 @@ describe('drug administrations from an EAV warehouse and from OMOP', () => {
     ])
   })
 
-  it('lets a site override the codes without touching the relation', () => {
+  it("lets a site record a code differently by overriding the relation's SQL", () => {
     const site = drugRelation(effectiveMapping(eavMapping, siteOverrides), 'Administrations')!
     expect(site.sql).toContain(`f.attribute = 'RATE_ML_H' THEN f.num_value`)
     expect(site.sql).not.toContain(`'RATE' THEN`)

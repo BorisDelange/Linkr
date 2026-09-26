@@ -7,18 +7,11 @@ import type { SchemaMapping, SchemaOverrides } from '@/types/schema-mapping'
 
 /** An EAV warehouse: `facts` holds one row per attribute of an entry; the drug
  *  entry names the drug, sibling rows of the same entry carry dose, unit, rate
- *  and route. The attribute codes are parameters. */
+ *  and route, each under its attribute code. */
 export const eavMapping: SchemaMapping = {
   formatVersion: 2,
   presetId: 'eav-demo',
   presetLabel: { en: 'EAV warehouse' },
-  params: {
-    attr_drug: { default: 'DRUG', label: { en: 'Drug attribute' } },
-    attr_dose: { default: 'DOSE', label: { en: 'Dose attribute' } },
-    attr_unit: { default: 'DOSE_UNIT', label: { en: 'Dose unit attribute' } },
-    attr_rate: { default: 'RATE', label: { en: 'Rate attribute' } },
-    attr_route: { default: 'ROUTE', label: { en: 'Route attribute' } },
-  },
   patient: { from: { schema: 'eav', table: 'patients', alias: 'p' }, fields: { patient_id: 'p.patient_id' } },
   concepts: [{
     key: 'drugs',
@@ -29,20 +22,25 @@ export const eavMapping: SchemaMapping = {
     label: 'Administrations',
     drugKind: 'administration',
     customSql: `SELECT d.patient_id, d.stay_id AS visit_id, d.text_value AS concept_id, d.recorded_at AS start_datetime,
-  MAX(CASE WHEN f.attribute = {{attr_dose}} THEN f.num_value END) AS amount_value,
-  MAX(CASE WHEN f.attribute = {{attr_unit}} THEN f.text_value END) AS amount_unit,
-  MAX(CASE WHEN f.attribute = {{attr_rate}} THEN f.num_value END) AS rate_value,
-  MAX(CASE WHEN f.attribute = {{attr_route}} THEN f.text_value END) AS route
+  MAX(CASE WHEN f.attribute = 'DOSE' THEN f.num_value END) AS amount_value,
+  MAX(CASE WHEN f.attribute = 'DOSE_UNIT' THEN f.text_value END) AS amount_unit,
+  MAX(CASE WHEN f.attribute = 'RATE' THEN f.num_value END) AS rate_value,
+  MAX(CASE WHEN f.attribute = 'ROUTE' THEN f.text_value END) AS route
 FROM eav.facts d
 LEFT JOIN eav.facts f ON f.entry_id = d.entry_id AND f.attribute <> d.attribute
-WHERE d.attribute = {{attr_drug}}
+WHERE d.attribute = 'DRUG'
 GROUP BY ALL`,
     sqlColumns: ['patient_id', 'visit_id', 'concept_id', 'start_datetime', 'amount_value', 'amount_unit', 'rate_value', 'route'],
   }],
 }
 
-/** A second site of the same warehouse, which records the rate under another code. */
-export const siteOverrides: SchemaOverrides = { params: { attr_rate: 'RATE_ML_H' } }
+/** A second site of the same warehouse, which records the rate under another
+ *  code: it overrides the relation's SQL in its own database. */
+export const siteOverrides: SchemaOverrides = {
+  relations: {
+    'drugs.Administrations': { ...eavMapping.drugs![0], customSql: eavMapping.drugs![0].customSql!.replace("'RATE'", "'RATE_ML_H'") },
+  },
+}
 
 /** The OMOP twin: the same administrations in `drug_exposure`, built visually. */
 export const omopMapping: SchemaMapping = {

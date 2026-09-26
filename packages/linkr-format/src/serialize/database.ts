@@ -202,7 +202,7 @@ export function serializeDatabase(spec: DatabaseSpec): SerializedTree {
     files.push({ path: CONTENT_FILE.schemaDdl, content: ddl })
   }
   const overrides = spec.schemaOverrides
-  if (overrides && (Object.keys(overrides.relations ?? {}).length || Object.keys(overrides.params ?? {}).length)) {
+  if (overrides && Object.keys(overrides.relations ?? {}).length) {
     files.push({ path: CONTENT_FILE.schemaOverrides, content: json(canonicalSchemaOverrides(overrides)) })
   }
   const copies: CopyFile[] = ordered.map((t) => ({

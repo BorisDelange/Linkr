@@ -2691,8 +2691,6 @@ function readOverrides(text: string): SchemaOverrides | undefined {
   // The relations go through the mapping sanitizer, as the specs of a mapping.
   const probe = sanitizeSchemaMapping({ formatVersion: 2, presetId: '', presetLabel: {}, overrides: o.relations ?? {} } as unknown as SchemaMapping) as unknown as { overrides: SchemaOverrides['relations'] }
   const out: SchemaOverrides = {}
-  const params = Object.fromEntries(Object.entries(o.params ?? {}).filter(([, v]) => typeof v === 'string'))
-  if (Object.keys(params).length) out.params = params
   if (probe.overrides && Object.keys(probe.overrides).length) {
     out.relations = probe.overrides
     if (o.baseAtOverride) out.baseAtOverride = o.baseAtOverride

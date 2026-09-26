@@ -504,14 +504,27 @@ do. **Arbitrated: three phases, plus a fourth for ETL generation.**
 | ✅ | 4. Visual editor v2: `from` / `joins` / `where` / field combobox (`alias.column`, ƒx expression, constant) from DDL columns; replaces the per-block `Editable*Table` and fixes the care-site gap | L |
 | ✅ | 5. Code modal per relation: extract a generic `GeneratedSqlEditor` from `SqlPreviewPanel` (extend, don't fork — ui-patterns §6); `customSql` + `CustomSqlDot` + Reset + overwrite dialog only when the generated SQL changes | M |
 | ✅ | 6. Contract check (`DESCRIBE`) + Preview (`LIMIT 100`) + single-statement guard + global-window warning; DQ rule "honours contract / id unique per grain" | M |
-| ✅ | 7. Parameters (mapping-level `params`, not per relation) (`params` + `{{name}}` as escaped literals) | S |
+| ❌ | 7. Parameters (mapping-level `params` + `{{name}}` as escaped literals) — built, then **removed 2026-09-26**: a concept too many for a rare case; a site that records a code differently overrides the relation's SQL in its database | S |
 | ✅ | 8. Per-database override: `schemaOverrides` + `effectiveMapping()` + **Mapping** tab (override mode, badges, revert, promote) + explicit "Update from preset" with flagged overrides + `mapping-overrides.json` in the database export; fix `CreateFromPresetDialog` provenance and the silent re-copy on Edit | L |
 | ✅ | 9. Drug class: the drug contract also carries the event columns (derived from the dose ones unless mapped); `eventRelations()` returns drugs, so they work wherever events do; labels unique across events + drugs (editor + validator); the overview and timeline tell a drug by its class and show the recorded rate, the name heuristic kept only for drugs mapped as plain events | M |
-| ✅ | 10. **[Acceptance]** administrations from a generic EAV source as a `drugs[]` relation (attribute codes as parameters, one site overriding one) + the OMOP twin on `drug_exposure` — `drug-acceptance.test.ts`, also run end to end on DuckDB | M |
+| ✅ | 10. **[Acceptance]** administrations from a generic EAV source as a `drugs[]` relation (attribute codes in the SQL, one site overriding the relation) + the OMOP twin on `drug_exposure` — `drug-acceptance.test.ts`, also run end to end on DuckDB | M |
 | ✅ | 11. ETL generation: `generateOmopEtl` inverts the target preset's visual mapping, composes it with the source relations, applies the OMOP rules (dates, end = start, type concepts, NOT NULL defaults, gender codes, death table, joined companions) and resolves concepts through the pipeline vocabulary (C/CR or STCM) or as is; "Generate from the schemas" dialog in the Scripts tab; the body hash in each header decides whether regenerating may overwrite. Run end to end on DuckDB. **To verify in a real run**: a custom SQL source relation with two-part names (`schema.table`) resolving through the ETL search path, in both modes | L |
 | 💤 | 12. Opt-in materialisation (server Parquet cache attached as a catalog; client in-session table) | M/L |
 | 💤 | 13. Domain routing in ETL generation; source profile (value frequencies) in the field picker | M |
 | 🔜 | 14. User docs in `linkr-website` (schema presets, database Mapping tab, ETL generation) — `docs/architecture.md` and `ui-patterns.md` done | S/M |
+
+## Revised after the first test pass (2026-09-26)
+
+- **The form stays generic**: one table (schema + table, no visible alias), each
+  contract column mapped to one of its columns or a constant, an optional
+  filter, and the class options (gender values, drug kind, dictionary). Joins,
+  aliases and expressions left the form; a relation using them (a v1
+  conversion) keeps them and shows them read-only, the rest stays editable.
+  Anything specific is written in SQL, with the contract shown beside the editor.
+- **Parameters removed** (step 7): the per-database override of whole relations
+  covers the case they served. §7's parameter design is historical.
+- The contract check records the columns a hand-written SQL fills, and runs on
+  its own after a save; the SQL dialog is editable outside edit mode.
 
 ## Phase A — what the parity run found (2026-09-25)
 

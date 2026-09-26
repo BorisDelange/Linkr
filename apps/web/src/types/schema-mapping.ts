@@ -98,14 +98,6 @@ export interface DrugSpec extends EventSpec {
   drugKind: DrugKind
 }
 
-/** A value a relation's SQL reads as `{{name}}`, substituted as an escaped
- *  string literal only — never as an identifier or a fragment (plan §7). */
-export interface MappingParam {
-  default: string
-  label?: LocalizedString
-  description?: LocalizedString
-}
-
 export type SingletonClassKey = 'patient' | 'visit' | 'visitDetail' | 'note'
 
 /**
@@ -129,9 +121,6 @@ export interface SchemaMapping {
   events?: EventSpec[]
   drugs?: DrugSpec[]
 
-  /** Values relations read as `{{name}}`; a database overrides the values only. */
-  params?: Record<string, MappingParam>
-
   /** Known table names for Parquet folder table name extraction. */
   knownTables?: string[]
 
@@ -153,13 +142,12 @@ export interface SchemaMapping {
 }
 
 /**
- * What a database changes on top of its preset (plan §7): parameter values, and
- * whole relations replaced for a structural difference. Keys of `relations`:
+ * What a database changes on top of its preset (plan §7): whole relations,
+ * replaced or added — a site's SQL for a code it records differently. Keys of `relations`:
  * `patient`, `visit`, `visitDetail`, `note`, `concepts.<key>`, `events.<label>`,
  * `drugs.<label>`.
  */
 export interface SchemaOverrides {
-  params?: Record<string, string>
   relations?: Record<string, RelationSpec>
   /** Fingerprint of the base relation each override was made against
    *  (`relationFingerprint`), to flag an override whose base the preset changed

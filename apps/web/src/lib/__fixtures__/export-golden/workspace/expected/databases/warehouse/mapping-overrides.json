@@ -1,8 +1,4 @@
 {
-  "params": {
-    "alpha": "A",
-    "zeta": "Z"
-  },
   "relations": {
     "events.Site labs": {
       "label": "Site labs",

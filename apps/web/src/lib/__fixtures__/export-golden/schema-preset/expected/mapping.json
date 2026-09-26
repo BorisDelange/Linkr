@@ -58,7 +58,7 @@
     },
     {
       "label": "Alpha notes",
-      "customSql": "SELECT person_id AS patient_id, note_type_concept_id AS concept_id, note_date AS start_datetime FROM note WHERE note_class_concept_id = {{note_class}}"
+      "customSql": "SELECT person_id AS patient_id, note_type_concept_id AS concept_id, note_date AS start_datetime FROM note WHERE note_class_concept_id = 44814637"
     }
   ],
   "drugs": [
@@ -76,14 +76,5 @@
         "end_datetime": "d.drug_exposure_end_date"
       }
     }
-  ],
-  "params": {
-    "note_class": {
-      "default": "44814637",
-      "label": {
-        "en": "Note class",
-        "fr": "Classe de note"
-      }
-    }
-  }
+  ]
 }

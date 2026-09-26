@@ -132,7 +132,6 @@ export const MAPPING_V2_FIELD_ORDER = [
   'concepts',
   'events',
   'drugs',
-  'params',
   'knownTables',
   'erdGroups',
   'description',
@@ -154,7 +153,6 @@ export const RELATION_FIELD_ORDER = [
 ] as const
 
 const TABLE_FIELD_ORDER = ['type', 'schema', 'table', 'alias', 'on'] as const
-const PARAM_FIELD_ORDER = ['default', 'label', 'description'] as const
 
 /**
  * Contract columns per relation key, in contract order — so `fields` reads like
@@ -203,12 +201,6 @@ export function canonicalSchemaMappingV2(mapping: Record<string, unknown>): Reco
     const list = out[key]
     if (Array.isArray(list)) out[key] = list.map((r) => canonicalRelation(r, RELATION_COLUMN_ORDER[key]))
   }
-  if (isObj(out.params)) {
-    const params = out.params
-    out.params = Object.fromEntries(
-      Object.keys(params).sort().map((k) => [k, isObj(params[k]) ? orderKeys(params[k] as Record<string, unknown>, PARAM_FIELD_ORDER) : params[k]]),
-    )
-  }
   return out
 }
 
@@ -224,15 +216,13 @@ export function canonicalRelationSpec(specKey: string, rel: unknown): unknown {
 }
 
 /**
- * A database's `mapping-overrides.json` in deterministic order: parameter values
- * and relations sorted by name, each relation canonical, then the base
- * fingerprints. Twin of `_canonical_schema_overrides` (Python).
+ * A database's `mapping-overrides.json` in deterministic order: relations
+ * sorted by key, each canonical, then the base fingerprints. Twin of `_canonical_schema_overrides` (Python).
  */
 export function canonicalSchemaOverrides(overrides: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   const sorted = (o: unknown, f: (k: string, v: unknown) => unknown = (_k, v) => v) =>
     isObj(o) ? Object.fromEntries(Object.keys(o).sort().map((k) => [k, f(k, o[k])])) : o
-  if (overrides.params !== undefined) out.params = sorted(overrides.params)
   if (overrides.relations !== undefined) out.relations = sorted(overrides.relations, canonicalRelationSpec)
   if (overrides.baseAtOverride !== undefined) out.baseAtOverride = sorted(overrides.baseAtOverride)
   for (const k of Object.keys(overrides).sort()) if (!(k in out)) out[k] = overrides[k]

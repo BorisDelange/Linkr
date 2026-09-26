@@ -291,7 +291,6 @@ describe('serializeEntity', () => {
         presetLabel: { en: 'P' },
         mapping: {
           knownTables: ['t'],
-          params: { b: { label: { en: 'B' }, default: '2' }, a: { default: '1' } },
           events: [
             { fields: { start_datetime: 'e.d', patient_id: 'e.p' }, from: { alias: 'e', table: 't' }, label: 'Z' },
             { label: 'A', customSql: 'SELECT 1' },
@@ -307,7 +306,6 @@ describe('serializeEntity', () => {
           { label: 'Z', from: { table: 't', alias: 'e' }, fields: { patient_id: 'e.p', start_datetime: 'e.d' } },
           { label: 'A', customSql: 'SELECT 1' },
         ],
-        params: { a: { default: '1' }, b: { default: '2', label: { en: 'B' } } },
         knownTables: ['t'],
       }, null, 2))
     })
