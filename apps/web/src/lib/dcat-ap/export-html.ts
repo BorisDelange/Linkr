@@ -12,7 +12,7 @@ import { LINKR_LOGO_SVG } from '@/lib/cohort-report/render-html'
 import { columnChart, donut, horizontalBars, verticalBars, escapeXml as esc, type ChartItem } from '@/lib/cohort-report/charts'
 import { buildJsonLd } from './jsonld'
 import { localized } from '@/lib/localized'
-import { DCAT_FIELDS, DCAT_VOCABULARIES, normalizeDcatMetadata, type DcatClass } from './schema'
+import { DCAT_FIELDS, DCAT_VOCABULARIES, HEALTHDCATAP_RELEASE, normalizeDcatMetadata, type DcatClass } from './schema'
 import en from '@/locales/en.json'
 import { CATALOG_CSS, icon, type IconName } from './export-html-style'
 import { CATALOG_SCRIPT } from './export-html-script'
@@ -86,7 +86,7 @@ ${jsonLd.replace(/</g, '\\u003c')}
 <body>
 <div class="sheet">
   <header class="masthead">
-    <div class="brand">${LINKR_LOGO_SVG}<div><div class="eyebrow">Concept catalog</div><div class="meta-line">${[`Generated on ${generated}`, publisher, 'Health-DCAT-AP Release 6'].filter(Boolean).map(esc).join(' · ')}</div></div></div>
+    <div class="brand">${LINKR_LOGO_SVG}<div><div class="eyebrow">Concept catalog</div><div class="meta-line">${[`Generated on ${generated}`, publisher, `Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE}`].filter(Boolean).map(esc).join(' · ')}</div></div></div>
     <h1>${esc(catalogTitle)}</h1>
     ${catalogDesc ? `<p class="desc">${esc(catalogDesc)}</p>` : ''}
     <nav class="tabs" role="tablist">
@@ -99,7 +99,7 @@ ${jsonLd.replace(/</g, '\\u003c')}
 
   <section id="tab-metadata" class="tab-content active">
     <div class="section-head">
-      <h2>Metadata</h2><span class="sub">Health-DCAT-AP Release 6 · EHDS Regulation (EU) 2025/327</span><span class="spacer"></span>
+      <h2>Metadata</h2><span class="sub">Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE} · EHDS Regulation (EU) 2025/327</span><span class="spacer"></span>
       <button class="btn" id="open-jsonld" type="button" title="View the raw JSON-LD source">${icon('code')}JSON-LD</button>
     </div>
 ${buildMetadataHtml(metadata)}
@@ -169,7 +169,7 @@ ${buildOverviewHtml(catalog.dimensions.filter((d) => d.enabled), dimensions, tot
 
   <footer>
     <span>${icon('shield', 12)}Anonymisation threshold: ${threshold} patients · ${mode === 'suppress' ? 'rows below it removed' : 'counts below it capped'}</span>
-    <span>Health-DCAT-AP Release 6 · EHDS Regulation (EU) 2025/327</span>
+    <span>Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE} · EHDS Regulation (EU) 2025/327</span>
     <span>Generated with Linkr</span>
   </footer>
 </div>
