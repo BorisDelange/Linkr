@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { cn } from '@/lib/utils'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { Keyboard, Loader2, Play } from 'lucide-react'
@@ -81,7 +82,7 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
     <div className="flex h-full min-h-0 flex-col px-6 pb-4">
       <div className="flex shrink-0 items-center gap-2 pb-2">
         {outcome && (
-          <span className={outcome.kind === 'error' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+          <span className={cn('self-end text-xs leading-none', outcome.kind === 'error' ? 'text-destructive' : 'text-muted-foreground')}>
             {outcome.kind === 'error'
               ? t('databases.sql_failed', { ms: outcome.ms })
               : t('databases.sql_rows', { count: outcome.total, ms: outcome.ms })}
