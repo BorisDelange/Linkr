@@ -104,8 +104,8 @@
         detail.textContent = fr ? 'Téléchargement de l’application…' : 'Downloading the application…'
         if (!('performance' in window) || !performance.getEntriesByType) return
 
-        // What to measure the download against. The build writes its own total to
-        // boot-size.json, so even a first visit — the one that actually waits —
+        // What to measure the entry chunk's download against. The build writes its
+        // gzipped size to boot-size.json, so even a first visit — the one that actually waits —
         // gets a real denominator, rather than none until a run has been measured.
         // Dev emits no such file; there the fallback is what this browser saw last
         // time. Both are absent on a first dev load, and the count shows alone.
@@ -117,8 +117,9 @@
         var expected = parseInt(localStorage.getItem(TOTAL_KEY) || '0', 10) || 0
         try {
           var req = new XMLHttpRequest()
-          // Relative to the page, so a sub-path deployment resolves it correctly.
-          req.open('GET', 'boot-size.json', true)
+          // From the base, not the page: on a deep link a page-relative URL
+          // resolves under the route and gets the SPA shell back.
+          req.open('GET', '%BASE_URL%boot-size.json', true)
           req.onload = function () {
             // A dev server answers 200 with the SPA shell for a file it does not
             // have, so the body is checked rather than the status.

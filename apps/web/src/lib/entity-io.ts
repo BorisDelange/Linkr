@@ -1881,12 +1881,8 @@ export async function importProjectContent(
     await storage.conceptLists.create({ ...l, id: mapId(l.id), projectUid })
   }
   for (const c of parsed.cohorts) {
-    // `exportKey` is read from the filename and must not be stored: it is how the
-    // tree addressed this cohort, not a property of the cohort.
-    // `materialization` was exported before it was stripped: another instance's
-    // patient ids, which address nothing here.
-    const { exportKey, materialization: _materialization, derivations: _derivations, ...cohort } = c
-    const key = exportKey ?? cohortKey(c)
+    const cohort = storableImportedCohort(c)
+    const key = c.exportKey ?? cohortKey(c)
     const record = dropForeignAuthorId({
       ...cohort,
       // Same rule as a patient board: a key-based export carries no id, so the
@@ -2843,6 +2839,18 @@ export async function readDatabaseCohorts(zip: JSZip, prefix: string): Promise<C
 }
 
 /**
+ * An incoming cohort (ZIP, clone or seed) as it may be stored here.
+ *
+ * `exportKey` is how the tree addressed the cohort (its filename), not a property
+ * of it. `materialization` and `derivations` belong to the instance that wrote
+ * them — its patient ids and its database ids — and older exports still carry them.
+ */
+export function storableImportedCohort(c: Cohort): Omit<Cohort, 'exportKey' | 'materialization' | 'derivations'> {
+  const { exportKey: _exportKey, materialization: _materialization, derivations: _derivations, ...cohort } = c
+  return cohort
+}
+
+/**
  * Make the database's own cohorts exactly the ones in the tree: a pull or a
  * re-import takes the tree whole, as it does for the database itself. Ids are
  * derived from the database and the file key, so re-importing lands on the same
@@ -2861,12 +2869,10 @@ export async function replaceDatabaseCohorts(
   const existing = await storage.cohorts.getByDatabase(dataSourceId).catch(() => [])
   const keep = new Set<string>()
   for (const c of incoming) {
-    // `materialization`: exported before it was stripped — another instance's
-    // patient ids. `projectUid`: a hand-made tree has no business setting one.
-    // `derivations` is this instance's: a pull keeps the local record, since
-    // the update merges and the tree never carries one.
-    const { exportKey, materialization: _materialization, projectUid: _projectUid, derivations: _derivations, ...cohort } = c
-    const id = deterministicId(dataSourceId, exportKey ?? cohortKey(c))
+    // `projectUid`: a hand-made tree has no business setting one. Dropping
+    // `derivations` keeps the local record on a pull, since the update merges.
+    const { projectUid: _projectUid, ...cohort } = storableImportedCohort(c)
+    const id = deterministicId(dataSourceId, c.exportKey ?? cohortKey(c))
     keep.add(id)
     const record = dropForeignAuthorId({
       ...cohort,
@@ -4738,7 +4744,6 @@ export interface ParsedWorkspaceZip {
   databases: Partial<DataSource>[]
   /** Each database's own cohorts, by the parsed database's `id`. */
   databaseCohorts: Map<string, Cohort[]>
-  /** Each database's own patient board, by the parsed database's `id`. */
   /** Per database id: its cohorts' boards, by cohort key. */
   databaseBoards: Map<string, Map<string, CohortBoardBundle>>
   wikiPages: WikiPage[]

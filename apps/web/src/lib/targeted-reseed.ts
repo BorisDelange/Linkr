@@ -359,11 +359,11 @@ export async function reseedSelection(changes: SeedChange[]): Promise<SeedChange
   const needsWorkspaceReseed = toReseed.some((c) => STRUCTURAL.has(c.entityType))
   if (needsWorkspaceReseed) {
     clearGlobalSeedFlag()
-    await seedWorkspaces()
+    await seedWorkspaces({ silent: true })
   }
   // seedDatabases() re-creates the data-phase entities (database/conceptMapping/etlScript/
   // dataset/dashboard) whose guard flags we cleared above; everything still flagged is skipped.
-  await seedDatabases()
+  await seedDatabases({ silent: true })
 
   // Advance the baseline for the re-seeded entities only, so the others still notify later.
   const current = await fetchSeedHashes()

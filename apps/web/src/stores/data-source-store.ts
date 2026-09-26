@@ -12,6 +12,7 @@ import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { qualify, sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { localized } from '@/lib/localized'
+import { createConcurrencyLimit } from '@/lib/concurrency-limit'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import type {
@@ -275,19 +276,7 @@ const countingSources = new Set<string>()
  * Patient counts run two at a time: a list page asks for every database it
  * shows at once, and each count is a query on a table that may be large.
  */
-const COUNT_CONCURRENCY = 2
-let countsRunning = 0
-const countWaiters: (() => void)[] = []
-async function inCountQueue<T>(run: () => Promise<T>): Promise<T> {
-  if (countsRunning >= COUNT_CONCURRENCY) await new Promise<void>((resolve) => countWaiters.push(resolve))
-  countsRunning++
-  try {
-    return await run()
-  } finally {
-    countsRunning--
-    countWaiters.shift()?.()
-  }
-}
+const inCountQueue = createConcurrencyLimit(2)
 
 /** Track which data sources are currently mounted in DuckDB. */
 const mountedSources = new Set<string>()
@@ -922,7 +911,6 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     if (isServerMode()) return
     const ds = get().dataSources.find((d) => d.id === id)
     if (!ds || busySources.has(id)) return
-    const config = ds.connectionConfig as DatabaseConnectionConfig
 
     busySources.add(id)
     // Only while there is something to configure. Announcing `configuring` for an
@@ -940,21 +928,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     }
 
     try {
-      if (needsMount) {
-        if (config.inMemory && ds.schemaMapping?.ddl) {
-          // In-memory database: remount from DDL
-          await withTimeout(engine.mountEmptyFromDDL(id, ds.schemaMapping.ddl, ds.alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
-        } else if (config.useFileHandles) {
-          const handles = await getStorage().fileHandles.getByDataSource(id)
-          const granted = await engine.requestHandlePermissions(handles)
-          if (!granted) throw new Error('File access permission denied')
-          await withTimeout(engine.mountDataSourceFromHandles(ds, handles), MOUNT_TIMEOUT, 'mountDataSourceFromHandles')
-        } else {
-          const files = await getStorage().files.getByDataSource(id)
-          await withTimeout(engine.mountDataSource(ds, files), MOUNT_TIMEOUT, 'mountDataSource')
-        }
-        mountedSources.add(id)
-      }
+      // Through the shared registry: the schema browser calls this and lists the
+      // tables in the same tick, and a second mount of its own interleaved the
+      // two schema drops and ATTACHes ("database ds_… already exists").
+      await get().ensureMounted(id)
 
       const stats = await withTimeout(engine.computeStats(id, ds.schemaMapping), STATS_TIMEOUT, 'computeStats')
       const updated: Partial<DataSource> = { status: 'connected', stats, errorMessage: undefined }
@@ -1168,12 +1145,18 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     // Deduplicate concurrent mount calls for the same source
     const existing = mountingPromises.get(id)
     if (existing) return existing
+    const ds = get().dataSources.find((d) => d.id === id)
+    if (!ds) throw new Error(`Data source ${id} not found`)
+    // Every front-only query lands here through the mount guard, so without this
+    // a database the user had just disconnected came straight back on the next
+    // query. Connecting is explicit: testConnection flips the status first.
+    if (ds.status === 'disconnected') {
+      throw new Error(`Data source "${localized(ds.name, 'en')}" is disconnected — connect it first`)
+    }
     const promise = (async () => {
-      const ds = get().dataSources.find((d) => d.id === id)
-      if (!ds) throw new Error(`Data source ${id} not found`)
       const config = ds.connectionConfig as DatabaseConnectionConfig
       if (config.inMemory && ds.schemaMapping?.ddl) {
-        await withTimeout(engine.mountEmptyFromDDL(id, ds.schemaMapping.ddl), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
+        await withTimeout(engine.mountEmptyFromDDL(id, ds.schemaMapping.ddl, ds.alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
       } else if (config.useFileHandles) {
         const handles = await getStorage().fileHandles.getByDataSource(id)
         const granted = await engine.requestHandlePermissions(handles)

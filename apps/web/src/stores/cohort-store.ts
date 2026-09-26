@@ -554,8 +554,9 @@ export const useCohortStore = create<CohortState>((set, get) => ({
   },
 
   reloadCohort: async (id) => {
-    const fresh = await getStorage().cohorts.getById(id)
-    if (!fresh) return
+    const raw = await getStorage().cohorts.getById(id)
+    if (!raw) return
+    const fresh = migrateCohortIfNeeded(raw as unknown as Record<string, unknown>)
     set((s) => ({ cohorts: s.cohorts.map((c) => (c.id === id ? fresh : c)) }))
   },
 }))
