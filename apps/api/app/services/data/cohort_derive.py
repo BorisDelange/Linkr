@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import duckdb
@@ -311,6 +311,23 @@ def _same_file(a: str | None, b: str | None) -> bool:
     return bool(a and b) and os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
 
 
+def _wal(path: Path) -> Path:
+    return path.with_name(path.name + ".wal")
+
+
+def _remove_db_file(path: Path) -> None:
+    path.unlink(missing_ok=True)
+    _wal(path).unlink(missing_ok=True)
+
+
+def _swap_in(tmp: Path, dest: Path) -> None:
+    # The old file's log must go first: DuckDB would replay it onto the new file.
+    _wal(dest).unlink(missing_ok=True)
+    os.replace(tmp, dest)
+    if _wal(tmp).exists():
+        os.replace(_wal(tmp), _wal(dest))
+
+
 def derive(
     source: SourceSpec,
     target: TargetSpec,
@@ -327,15 +344,21 @@ def derive(
     ids = id_columns(mapping)
     if target.schema is not None:
         _require_ident(target.schema, "schema name")
-    if target.kind == "file" and target.fresh_file:
-        Path(target.path).unlink(missing_ok=True)
+    same_file = source.spec.get("kind") == "file" and target.kind == "file" and _same_file(source.spec.get("path"), target.path)
+    fresh = target.kind == "file" and target.fresh_file
+    if fresh and same_file:
+        raise ValueError("a database cannot be derived into a new copy of its own file")
+    # A new database is written beside the old one and swapped in only once
+    # complete: a failed or cancelled rebuild keeps the previous build.
+    writing = replace(target, path=f"{target.path}.tmp") if fresh else target
+    if fresh:
+        _remove_db_file(Path(writing.path))
 
     con = _connect()
     control._con = con
     schema_created = False
     try:
-        same_file = source.spec.get("kind") == "file" and target.kind == "file" and _same_file(source.spec.get("path"), target.path)
-        _attach_target(con, target)
+        _attach_target(con, writing)
         if same_file:
             # DuckDB will not open one file twice: read the source through the
             # writable attach, via read-only views named `source` (the ETL's own
@@ -408,7 +431,6 @@ def derive(
         control.check()
         if target.kind == "file":
             con.execute("CHECKPOINT target")
-        return written
     except Exception as exc:
         # A half-written copy is worse than none: it would read as a database
         # (or a schema) that exists and holds some of the cohort.
@@ -419,14 +441,15 @@ def derive(
                 pass
         control._con = None
         con.close()
+        if fresh:
+            _remove_db_file(Path(writing.path))
         if control.cancelled.is_set() and not isinstance(exc, DeriveCancelled):
             # The interrupt surfaces as a DuckDB error; say what really happened.
-            if target.kind == "file" and target.fresh_file:
-                Path(target.path).unlink(missing_ok=True)
             raise DeriveCancelled("the derivation was cancelled") from exc
-        if target.kind == "file" and target.fresh_file:
-            Path(target.path).unlink(missing_ok=True)
         raise
     finally:
         control._con = None
         con.close()
+    if fresh:
+        _swap_in(Path(writing.path), Path(target.path))
+    return written

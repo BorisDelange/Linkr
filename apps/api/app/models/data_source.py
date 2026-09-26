@@ -45,6 +45,13 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     # it was built and on how many patients. Not `parent_lineage_id`: that means
     # "a copy of the same work", and a subset is a new one.
     derived_from: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # What a derivation created on THIS instance, and so what Linkr may later
+    # replace or drop: `file` (this managed file is a derived build), `schemas`
+    # (the SQL schemas derived into this database), `schema` + `server` (the
+    # schema a database declared on a derivation points at, and where). Written
+    # by cohort_derive_service only — never accepted from a client nor exported:
+    # `derived_from` is provenance for display, and travels with imports.
+    linkr_created: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     status: Mapped[str] = mapped_column(String(20), default="configuring")
     stats: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     error_message: Mapped[str | None] = mapped_column(Text)

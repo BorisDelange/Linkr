@@ -75,8 +75,7 @@ def create_from_ddl(path: Path, ddl: str) -> str:
     Recreates from scratch if a file is already there, so retrying a failed
     creation cannot leave half a schema behind.
     """
-    if path.exists():
-        path.unlink()
+    _remove(path)
 
     skipped: list[str] = []
     con = duckdb.connect(str(path))
@@ -95,15 +94,36 @@ def create_from_ddl(path: Path, ddl: str) -> str:
             con.execute(stmt)
     except Exception:
         con.close()
-        path.unlink(missing_ok=True)
+        _remove(path)
         raise
     else:
         con.close()
     return str(path)
 
 
+def _remove(path: Path) -> None:
+    # The write-ahead log goes with its file: left behind, DuckDB replays it onto
+    # whatever file is next created under that name.
+    path.unlink(missing_ok=True)
+    path.with_name(path.name + ".wal").unlink(missing_ok=True)
+
+
+def holds_tables(path: Path) -> bool:
+    """Whether the file at `path` exists and holds at least one table or view.
+    The caller must evict the connection pool first (DuckDB opens a file once
+    per process)."""
+    if not path.exists():
+        return False
+    con = duckdb.connect()
+    try:
+        con.execute(f"ATTACH '{_sql_literal(str(path))}' AS m (READ_ONLY)")
+        return con.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'm'").fetchone()[0] > 0
+    finally:
+        con.close()
+
+
 def delete(source_id: str) -> None:
-    path_for(source_id).unlink(missing_ok=True)
+    _remove(path_for(source_id))
 
 
 def data_size(path: Path) -> int | None:

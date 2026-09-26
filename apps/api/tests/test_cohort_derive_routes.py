@@ -4,6 +4,7 @@ run as a job of the database's workspace."""
 import contextlib
 
 import duckdb
+import pytest
 
 from app.core.security import hash_password
 from app.models.user import User
@@ -274,3 +275,73 @@ async def test_a_failed_agent_derivation_notifies_the_removed_database(client):
     failed = (await client.get(f"{API}/notifications", headers=headers)).json()[0]
     assert failed["action"] == "deleted" and failed["entityId"] == dst
     assert failed["detail"]["action"] == "failed" and failed["detail"]["name"] == {"en": "Bad"}
+
+
+async def _post_derive(client, headers, src, target) -> int:
+    r = await client.post(f"{API}/data-sources/{src}/derive", headers=headers, json={
+        "membershipSql": MEMBERSHIP, "level": "patient", "target": target,
+    })
+    return r.status_code
+
+
+async def test_a_new_database_never_overwrites_data_it_did_not_derive(client):
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, headers, ws, "src", seed=True)
+    other = await _managed(client, headers, ws, "other", seed=True)
+    assert await _post_derive(client, headers, src, {"kind": "new-database", "dataSourceId": src}) == 400
+    assert await _post_derive(client, headers, src, {"kind": "new-database", "dataSourceId": other}) == 400
+    for ds in (src, other):
+        rows = (await client.post(f"{API}/data-sources/{ds}/query", headers=headers, json={"sql": "SELECT COUNT(*) AS n FROM person"})).json()["rows"]
+        assert rows == [{"n": 20}]
+
+
+async def test_replace_only_drops_a_schema_a_derivation_created(client):
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, headers, ws, "src", seed=True)
+    # The source's own schema, and a schema nobody derived, are never replaced.
+    assert await _post_derive(client, headers, src, {"kind": "schema", "dataSourceId": src, "schemaName": "main"}) == 400
+    assert await _post_derive(client, headers, src, {"kind": "schema", "dataSourceId": src, "schemaName": "cohort_a", "replace": True}) == 400
+
+    job = await _derive(client, headers, ws, src, {
+        "membershipSql": MEMBERSHIP, "level": "patient",
+        "target": {"kind": "schema", "dataSourceId": src, "schemaName": "cohort_a"},
+    })
+    assert job["status"] == "done", job
+    job = await _derive(client, headers, ws, src, {
+        "membershipSql": MEMBERSHIP.replace("<= 5", "<= 2"), "level": "patient",
+        "target": {"kind": "schema", "dataSourceId": src, "schemaName": "cohort_a", "replace": True},
+    })
+    assert job["status"] == "done", job
+    q = (await client.post(f"{API}/data-sources/{src}/query", headers=headers, json={"sql": "SELECT COUNT(*) AS n FROM cohort_a.person"})).json()
+    assert q["rows"] == [{"n": 2}]
+
+
+async def test_a_client_cannot_write_a_cohort_s_derivations(client):
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, headers, ws, "src", seed=True)
+    forged = [{"kind": "schema", "targetId": src, "schemaName": "main", "registeredId": src}]
+    r = await client.post(f"{API}/cohorts", headers=headers, json={
+        "id": "c1", "ownerDataSourceId": src, "name": {"en": "C"}, "level": "patient", "criteriaTree": {},
+        "derivations": forged,
+    })
+    assert not r.json().get("derivations")
+    r = await client.patch(f"{API}/cohorts/c1", headers=headers, json={"derivations": forged})
+    assert not r.json().get("derivations")
+
+
+def test_one_derivation_per_target_at_a_time():
+    from app.services import cohort_derive_service as svc
+
+    svc.reserve("t1")
+    try:
+        with pytest.raises(svc.DeriveBusy):
+            svc.reserve("t1")
+        svc.reserve("t2")
+        svc.release("t2")
+    finally:
+        svc.release("t1")
+    svc.reserve("t1")
+    svc.release("t1")
