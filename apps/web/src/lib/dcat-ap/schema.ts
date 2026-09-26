@@ -305,7 +305,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = ([
   { key: 'dataset.title', uri: 'dct:title', dcatClass: 'dataset', section: 'identity', type: 'text', obligation: 'mandatory' },
   { key: 'dataset.description', uri: 'dct:description', dcatClass: 'dataset', section: 'identity', type: 'localized', obligation: 'mandatory' },
   { key: 'dataset.identifier', uri: 'dct:identifier', dcatClass: 'dataset', section: 'identity', type: 'text', obligation: 'mandatory' },
-  { key: 'dataset.type', uri: 'dct:type', dcatClass: 'dataset', section: 'identity', type: 'select', obligation: 'mandatory', vocabularyKey: 'datasetType' },
+  { key: 'dataset.type', uri: 'dct:type', dcatClass: 'dataset', section: 'identity', type: 'select', obligation: 'recommended', vocabularyKey: 'datasetType' },
   { key: 'dataset.accessRights', uri: 'dct:accessRights', dcatClass: 'dataset', section: 'identity', type: 'select', obligation: 'mandatory', vocabularyKey: 'accessRights' },
   { key: 'dataset.keyword', uri: 'dcat:keyword', dcatClass: 'dataset', section: 'identity', type: 'text', obligation: 'mandatory' },
   { key: 'dataset.theme', uri: 'dcat:theme', dcatClass: 'dataset', section: 'identity', type: 'multiselect', obligation: 'mandatory', vocabularyKey: 'dataTheme' },

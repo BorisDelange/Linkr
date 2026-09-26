@@ -226,84 +226,84 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 py-4">
-        {/* One toolbar row: filling on the left, looking at the result on the right */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleAutoFill} disabled={autoFilling || !canWrite}>
-              <Sparkles size={14} className={autoFilling ? 'animate-spin' : ''} />
-              {autoFilling ? t('dcat.auto_filling') : t('dcat.auto_fill')}
-            </Button>
-            <span className={cn('text-xs tabular-nums', progress.all.filled === progress.all.total ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground')}>
-              {t('dcat.completion', progress.all)}
-            </span>
-            <a
-              href={HEALTHDCATAP_SPEC_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-            >
-              <ExternalLink size={10} />
-              {t('dcat.release_link', { release: HEALTHDCATAP_RELEASE })}
-            </a>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Switch checked={mandatoryOnly} onCheckedChange={setMandatoryOnly} />
-              {t('dcat.mandatory_only')}
-            </label>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setPreviewOpen(true)}>
-              <Eye size={14} />
-              {t('dcat.preview')}
-            </Button>
-          </div>
-        </div>
+      {/* The sections sit at the tab’s left edge; the form and its toolbar share one centred column. */}
+      <div className="flex gap-6 py-4">
+        {/* Sections — one at a time keeps a 50-field form readable; All is there to review everything */}
+        <nav className="sticky top-4 flex w-48 shrink-0 flex-col gap-1 self-start">
+          {(['all', ...SECTIONS] as const).map((s) => {
+            const p = s === 'all' ? progress.all : progress.bySection[s]
+            const complete = p.total > 0 && p.filled === p.total
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSection(s)}
+                className={cn(
+                  'flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors',
+                  section === s ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                )}
+              >
+                <span className="truncate">{t(`dcat.section_${s}`)}</span>
+                {p.total > 0 && (complete
+                  ? <Check size={12} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  : <span className="shrink-0 text-[10px] tabular-nums text-red-600 dark:text-red-400">{p.filled}/{p.total}</span>)}
+              </button>
+            )
+          })}
+        </nav>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-[12rem_minmax(0,1fr)]">
-          {/* Sections — one at a time keeps a 50-field form readable; All is there to review everything */}
-          <nav className="flex flex-row flex-wrap gap-1 md:sticky md:top-0 md:flex-col md:self-start">
-            {(['all', ...SECTIONS] as const).map((s) => {
-              const p = s === 'all' ? progress.all : progress.bySection[s]
-              const complete = p.total > 0 && p.filled === p.total
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setSection(s)}
-                  className={cn(
-                    'flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors',
-                    section === s ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-                  )}
-                >
-                  <span className="truncate">{t(`dcat.section_${s}`)}</span>
-                  {p.total > 0 && (complete
-                    ? <Check size={12} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
-                    : <span className="shrink-0 text-[10px] tabular-nums text-red-600 dark:text-red-400">{p.filled}/{p.total}</span>)}
-                </button>
-              )
-            })}
-          </nav>
+        <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-3">
+          {/* One toolbar row: filling on the left, looking at the result on the right */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleAutoFill} disabled={autoFilling || !canWrite}>
+                <Sparkles size={14} className={autoFilling ? 'animate-spin' : ''} />
+                {autoFilling ? t('dcat.auto_filling') : t('dcat.auto_fill')}
+              </Button>
+              <span className={cn('text-xs tabular-nums', progress.all.filled === progress.all.total ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground')}>
+                {t('dcat.completion', progress.all)}
+              </span>
+              <a
+                href={HEALTHDCATAP_SPEC_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                <ExternalLink size={10} />
+                {t('dcat.release_link', { release: HEALTHDCATAP_RELEASE })}
+              </a>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Switch checked={mandatoryOnly} onCheckedChange={setMandatoryOnly} />
+                {t('dcat.mandatory_only')}
+              </label>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setPreviewOpen(true)}>
+                <Eye size={14} />
+                {t('dcat.preview')}
+              </Button>
+            </div>
+          </div>
 
-          <div className="flex min-w-0 flex-col gap-3">
-            {shown.map((s) => (
-              <Card key={s} className="flex flex-col gap-3 p-5">
-                <div className="flex items-center justify-between gap-2">
-                  <SectionLabel as="h3">{t(`dcat.section_${s}`)}</SectionLabel>
-                  {progress.bySection[s].total > 0 && (
-                    <span className="text-[10px] tabular-nums text-muted-foreground">{t('dcat.section_progress', progress.bySection[s])}</span>
-                  )}
-                </div>
-                {s === 'generated' && <GeneratedSummary schemaMapping={schemaMapping} cache={cache} jsonLd={jsonLdStr} />}
-                {s === 'agents'
-                  ? AGENT_ROLES.map((role) => {
-                      const fields = getFieldsBySection('agents').filter((f) => f.agentRole === role && visible(f))
-                      if (!fields.length) return null
-                      return (
-                        <div key={role} className="flex flex-col gap-2 border-t pt-3 first-of-type:border-t-0 first-of-type:pt-0">
-                          <p className="text-xs font-semibold">{t(`dcat.role_${role}`)}</p>
-                          {fields.map((f) => (
-                            <FieldEditor key={f.key} field={f} metadata={metadata} canWrite={canWrite} onChange={(v) => handleFieldChange(f.key, v)} />
-                          ))}
+          {shown.map((s) => (
+            <Card key={s} className="flex flex-col gap-3 p-5">
+              <div className="flex items-center justify-between gap-2">
+                <SectionLabel as="h3">{t(`dcat.section_${s}`)}</SectionLabel>
+                {progress.bySection[s].total > 0 && (
+                  <span className="text-[10px] tabular-nums text-muted-foreground">{t('dcat.section_progress', progress.bySection[s])}</span>
+                )}
+              </div>
+              {s === 'generated' && <GeneratedSummary schemaMapping={schemaMapping} cache={cache} jsonLd={jsonLdStr} />}
+              {s === 'agents'
+                ? AGENT_ROLES.map((role) => {
+                    const fields = getFieldsBySection('agents').filter((f) => f.agentRole === role && visible(f))
+                    if (!fields.length) return null
+                    return (
+                      <div key={role} className="flex flex-col gap-2 border-t pt-3 first-of-type:border-t-0 first-of-type:pt-0">
+                        <p className="text-xs font-semibold">{t(`dcat.role_${role}`)}</p>
+                        {fields.map((f) => (
+                          <FieldEditor key={f.key} field={f} metadata={metadata} canWrite={canWrite} onChange={(v) => handleFieldChange(f.key, v)} />
+                        ))}
                         </div>
                       )
                     })
@@ -312,7 +312,6 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
                     ))}
               </Card>
             ))}
-          </div>
         </div>
 
         <JsonLdDialog open={previewOpen} onOpenChange={setPreviewOpen} json={jsonLdStr} fileName={`${catalog.entityId ?? catalog.id}.jsonld`} />
@@ -442,7 +441,8 @@ function FieldEditor({ field, metadata, canWrite, onChange }: {
   const id = `dcat-${field.key}`
 
   return (
-    <div className="grid grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[13rem_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[16rem_minmax(0,1fr)]">
+      {/* The obligation badge closes the label column, so every badge lines up against its field. */}
       <div className="flex min-h-8 items-center gap-1.5">
         <Label htmlFor={id} className="leading-tight">{t(field.labelKey)}</Label>
         <Tooltip>
@@ -457,7 +457,7 @@ function FieldEditor({ field, metadata, canWrite, onChange }: {
           </TooltipContent>
         </Tooltip>
         {obligation !== 'optional' && (
-          <Badge variant="secondary" size="xs" className={cn('shrink-0', OBLIGATION_COLORS[obligation])}>
+          <Badge variant="secondary" size="xs" className={cn('ml-auto shrink-0', OBLIGATION_COLORS[obligation])}>
             {t(`dcat.${obligation}`)}
           </Badge>
         )}
@@ -519,7 +519,8 @@ function FieldEditor({ field, metadata, canWrite, onChange }: {
             placeholder="—"
             onChange={(v) => onChange(v)}
             showChevron
-            popoverWidthClass="w-80"
+            // As wide as the field: category names run long, and the column has the room.
+            popoverWidthClass="w-(--radix-popover-trigger-width) min-w-80"
             triggerClass={cn(MULTI_SELECT_FORM_TRIGGER, !canWrite && 'pointer-events-none opacity-50')}
           />
         ) : (
