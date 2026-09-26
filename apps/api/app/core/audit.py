@@ -281,7 +281,12 @@ def compact(today: date | None = None) -> None:
     today = today or datetime.now(timezone.utc).date()
     root = _dir()
     by_month: dict[str, list[Path]] = {}
-    for path in root.glob("*.jsonl"):
+    # A writer picks its day file while holding the lock, so once we hold it no
+    # write is still bound for a day before `today`: without this, a line begun
+    # at 23:59:59.9 could land after the read below and go with the unlink.
+    with _writer.lock:
+        days = list(root.glob("*.jsonl"))
+    for path in days:
         day = path.stem
         if day < today.isoformat():
             by_month.setdefault(day[:7], []).append(path)
@@ -305,15 +310,22 @@ def compact(today: date | None = None) -> None:
     _apply_retention(root, today)
 
 
+def _retention_cutoff(today: date) -> date:
+    return today - timedelta(days=settings.audit_retention_days)
+
+
+def _month_end(year: int, month: int) -> date:
+    return date(year + month // 12, month % 12 + 1, 1) - timedelta(days=1)
+
+
 def _apply_retention(root: Path, today: date) -> None:
-    cutoff = today - timedelta(days=settings.audit_retention_days)
+    cutoff = _retention_cutoff(today)
     for path in root.glob("*.parquet"):
         try:
             year, month = (int(x) for x in path.stem.split("-"))
         except ValueError:
             continue
-        month_end = (date(year + month // 12, month % 12 + 1, 1)) - timedelta(days=1)
-        if month_end < cutoff:
+        if _month_end(year, month) < cutoff:
             path.unlink(missing_ok=True)
 
 
@@ -468,14 +480,29 @@ def export_csv(path: Path, sort: str | None = None, desc: bool = True, filters: 
         con.close()
 
 
-def verify() -> dict:
+def _head_is_missing(first_seq: int, first_at: str, today: date) -> bool:
+    """Lines before the first kept one are gone. Only retention may remove them,
+    and it removes whole months past the cutoff — so the month before the first
+    kept line must be one it would have dropped."""
+    if first_seq <= 1:
+        return False
+    first_day = date.fromisoformat(first_at[:10])
+    return first_day.replace(day=1) - timedelta(days=1) >= _retention_cutoff(today)
+
+
+def verify(today: date | None = None) -> dict:
     """Replay the hash chain over every kept line. A gap at the start is
-    expected once retention dropped old months; a break anywhere after is not."""
+    expected once retention dropped old months; a break anywhere after is not,
+    nor a gap at the start that retention does not account for."""
+    today = today or datetime.now(timezone.utc).date()
     source = _source_sql(_dir())
     if source is None:
         return {"ok": True, "checked": 0, "brokenAtSeq": None}
     con = duckdb.connect()
     try:
+        head = con.execute(f'SELECT seq, "at" FROM ({source}) ORDER BY seq LIMIT 1').fetchone()
+        if head is not None and _head_is_missing(int(head[0]), str(head[1]), today):
+            return {"ok": False, "checked": 0, "brokenAtSeq": int(head[0])}
         cur = con.execute(f"SELECT * FROM ({source}) ORDER BY seq")
         names = [d[0] for d in cur.description]
         prev: str | None = None

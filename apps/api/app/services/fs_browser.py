@@ -11,6 +11,10 @@ every path is validated against the configured browse roots
 (``settings.fs_browse_roots``; empty = whole filesystem, which is the deployment's
 responsibility to mount safely — the RStudio Server model). Picker-side checks are
 a convenience: the boundary is re-enforced wherever a path is persisted.
+
+With empty roots, anyone holding ``databases:write`` can create a ``.duckdb``
+wherever the server process can write (``check_new_database_file``), so a
+multi-user deployment should set the roots.
 """
 
 import os
@@ -243,8 +247,12 @@ def check_new_database_file(path: str) -> dict:
         return {"ok": False, "reason": "not_found", "path": str(folder)}
     if not os.access(folder, os.W_OK):
         return {"ok": False, "reason": "not_writable", "path": str(folder)}
-    if target.exists() or target.is_symlink():
-        return {"ok": False, "reason": "exists", "path": str(target)}
+    # A leftover `<name>.wal` counts as the file: DuckDB replays it into
+    # whatever database next opens under that name.
+    wal = target.with_name(target.name + ".wal")
+    for taken in (target, wal):
+        if taken.exists() or taken.is_symlink():
+            return {"ok": False, "reason": "exists", "path": str(taken)}
     return {"ok": True, "path": str(target)}
 
 

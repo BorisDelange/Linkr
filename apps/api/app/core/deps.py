@@ -112,11 +112,17 @@ async def get_kernel_user(
     exists to prevent.
 
     Returning the User means the endpoint's own permission checks still run: the
-    token authenticates, it never authorises. A personal API token counts as an
-    access token here, as it does everywhere else.
+    token authenticates, it never authorises.
+
+    A personal API token is refused, unlike everywhere else: these endpoints hand
+    back the user's decrypted database passwords, and an agent's never-expiring
+    key must not read what it may not write (``save_my_login`` refuses it too).
     """
     if api_token_service.is_api_token(credentials.credentials):
-        return await _api_token_user(credentials.credentials, db)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API tokens cannot call the client-library endpoints",
+        )
     try:
         payload = decode_token(credentials.credentials)
         token_type = payload.get("type")
