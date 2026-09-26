@@ -813,7 +813,7 @@ function OverviewTab({
   // Mounted here rather than inside the cards: the "not computed yet" banner sits
   // above them as a sibling in this grid, and both need the same state. One
   // instance, so the cards keep reading the very numbers the banner speaks for.
-  const { cache, isLoading: statsLoading, refresh: refreshStats } = useDatabaseStats(
+  const { cache, isLoading: statsLoading, refresh: refreshStats, cacheLoaded } = useDatabaseStats(
     source.id, statsMapping, source.status,
   )
   // A rebuildable database is one that is not working and still holds the DDL it
@@ -829,7 +829,9 @@ function OverviewTab({
   // without a word here the tab looked like a database with nothing in it.
   // Not while the status banner is up: a database that cannot connect has no
   // statistics to run, and saying so twice buries the reason that matters.
-  const showStatsBanner = !cache && !statsLoading && !showStatusBanner
+  // Only once the stored statistics have been looked up: before that the banner
+  // flashed on every visit to a database that does have them.
+  const showStatsBanner = cacheLoaded && !cache && !statsLoading && !showStatusBanner
 
   const handleRetest = async () => {
     setRetesting(true)

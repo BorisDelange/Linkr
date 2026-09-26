@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
@@ -34,6 +34,7 @@ export function SuggestInput({ value, onCommit, suggestions, placeholder, classN
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(-1)
   const [typed, setTyped] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   // Until the user types, show everything: the current value is not a filter.
   const shown = useMemo(() => {
@@ -54,6 +55,7 @@ export function SuggestInput({ value, onCommit, suggestions, placeholder, classN
     <Popover open={open && shown.length > 0} onOpenChange={setOpen}>
       <PopoverAnchor asChild>
         <Input
+          ref={inputRef}
           id={id}
           value={draft}
           placeholder={placeholder}
@@ -90,6 +92,11 @@ export function SuggestInput({ value, onCommit, suggestions, placeholder, classN
         // Focus stays in the field: the list is navigated from the keyboard there.
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => e.preventDefault()}
+        // The field is the anchor, outside the list: a click in it would read as
+        // a click away and close the list the focus just opened.
+        onInteractOutside={(e) => {
+          if (e.target instanceof Node && inputRef.current?.contains(e.target)) e.preventDefault()
+        }}
         className="max-h-56 w-[var(--radix-popover-trigger-width)] min-w-40 overflow-auto p-1"
       >
         {shown.map((s, i) => (

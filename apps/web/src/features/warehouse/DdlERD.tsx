@@ -140,7 +140,8 @@ function DdlTableNode({ id, data }: NodeProps<Node<DdlNodeData>>) {
             return (
               <Tooltip key={col.name}>
                 <TooltipTrigger asChild>{row}</TooltipTrigger>
-                <TooltipContent side={isFk ? 'right' : 'left'} sideOffset={12}>
+                {/* Clear of the connection point: a tooltip over it steals its hover. */}
+                <TooltipContent side={isFk ? 'right' : 'left'} sideOffset={28}>
                   <div className="space-y-0.5">
                     <div className="font-mono font-semibold">{col.name}</div>
                     <div className="font-mono text-[10px] opacity-70">{col.type}{col.nullable ? '' : ' NOT NULL'}</div>
@@ -509,7 +510,8 @@ function DdlCanvas({ tables, erdGroups, erdLayout, isEditing, hiddenTables, onLa
       edges={highlight.shown}
       nodeTypes={nodeTypes}
       onInit={onInit}
-      onNodeClick={(_, node) => node.type === 'ddlTable' && highlight.toggle(node.id)}
+      // A group's background is a node too: clicking it is clicking away.
+      onNodeClick={(_, node) => (node.type === 'ddlTable' ? highlight.toggle(node.id) : highlight.clear())}
       // Groups under links under tables, set by hand: the automatic mode lifts a
       // grouped table's links above every other table.
       zIndexMode="manual"

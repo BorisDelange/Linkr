@@ -344,12 +344,14 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
 
         <TabsContent value="all" className="mt-4 space-y-6">
           {SECTIONS.map((sec) => (
-            <section key={sec.id} className="space-y-3">
+            <section key={sec.id} className="space-y-2">
               <div className="flex min-h-7 items-center gap-1.5">
                 {dot(sec.tone)}
                 <SectionLabel>{sec.label}</SectionLabel>
                 <div className="flex-1" />
-                {addButton(sec)}
+                {/* Lifted, not spaced: more room between the button and the blocks
+                    without pushing the blocks away from the title. */}
+                <div className="-translate-y-1">{addButton(sec)}</div>
               </div>
               <div className={BLOCK_GRID}>{sec.blocks()}</div>
             </section>

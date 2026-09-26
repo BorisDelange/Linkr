@@ -38,16 +38,15 @@ const touchesHandle = (e: Edge, h: HandleRef) =>
   (e.source === h.node && e.sourceHandle === h.handle) || (e.target === h.node && e.targetHandle === h.handle)
 
 const BASE = { stroke: 'var(--color-muted-foreground)', strokeWidth: 1.5, opacity: 0.35 }
-const ON = { stroke: 'var(--color-primary)', strokeWidth: 2.5, opacity: 1 }
-const SELECTED = { stroke: 'var(--color-primary)', strokeWidth: 1.5, opacity: 0.7 }
+const ON = { stroke: 'var(--color-muted-foreground)', strokeWidth: 2, opacity: 0.9 }
+const SELECTED = { stroke: 'var(--color-muted-foreground)', strokeWidth: 1.5, opacity: 0.7 }
 
 /**
- * Selection and hover state for a diagram, and the edges to draw from it.
- * `showAll` draws every edge, under the tables (the mapping diagram: a handful
- * of links, laid out not to cross them). Without it only the clicked table's
- * and the hovered point's links show, drawn above the tables — in a DDL grid a
- * link runs under other tables and read as broken — while the tables they do
- * not touch fade.
+ * Selection and hover state for a diagram, and the edges to draw from it —
+ * always under the tables. `showAll` draws every edge (the mapping diagram, a
+ * handful of links); without it only the clicked table's and the hovered
+ * point's links show, and the tables they do not touch fade, so a link running
+ * under them stays visible through them.
  */
 export function useErdHighlightState(edges: Edge[], showAll: boolean) {
   const [selected, setSelected] = useState<string | null>(null)
@@ -59,7 +58,7 @@ export function useErdHighlightState(edges: Edge[], showAll: boolean) {
         const hot = !!hovered && touchesHandle(e, hovered)
         const picked = !!selected && touchesNode(e, selected)
         if (!showAll && !hot && !picked) return []
-        return [{ ...e, style: hot ? ON : picked ? SELECTED : BASE, animated: hot, ...(showAll ? {} : { zIndex: 3 }) }]
+        return [{ ...e, style: hot ? ON : picked ? SELECTED : BASE, animated: hot }]
       }),
     [edges, hovered, selected, showAll],
   )

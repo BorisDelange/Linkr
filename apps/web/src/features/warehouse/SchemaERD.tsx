@@ -97,7 +97,8 @@ function ERDTableNode({ id, data }: NodeProps<Node<ERDNodeData>>) {
             return (
               <Tooltip key={col.name}>
                 <TooltipTrigger asChild>{row}</TooltipTrigger>
-                <TooltipContent side={col.handleType === 'source' ? 'right' : 'left'} sideOffset={12}>
+                {/* Clear of the connection point: a tooltip over it steals its hover. */}
+                <TooltipContent side={col.handleType === 'source' ? 'right' : 'left'} sideOffset={28}>
                   <div className="space-y-0.5">
                     <div className="font-mono font-semibold">{col.name}</div>
                     {col.role === 'pk' && <div className="text-[10px] opacity-80">Primary Key</div>}

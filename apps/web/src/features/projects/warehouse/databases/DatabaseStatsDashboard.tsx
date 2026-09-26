@@ -126,7 +126,9 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     }
   }, [cache, cacheLoaded, isLoading, refresh, sourceStatus])
 
-  return { cache, isLoading, refresh }
+  // `cacheLoaded`: the stored statistics have been looked up — until then an
+  // empty `cache` means "not read yet", not "never computed".
+  return { cache, isLoading, refresh, cacheLoaded }
 }
 
 export function DatabaseStatsDashboard({
