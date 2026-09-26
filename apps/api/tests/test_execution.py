@@ -904,10 +904,11 @@ async def test_pty_shell_dies_after_shutdown(tmp_path):
 
 
 class _FakeWebSocket:
-    """Minimal WebSocket double: query params in, records the close code."""
+    """Minimal WebSocket double: query params in, no headers, records the close code."""
 
     def __init__(self, params: dict[str, str]):
         self.query_params = params
+        self.headers: dict[str, str] = {}
         self.closed_code: int | None = None
 
     async def close(self, code: int) -> None:
