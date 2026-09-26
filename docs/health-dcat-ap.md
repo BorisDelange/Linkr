@@ -464,38 +464,24 @@ The [EU Health Data Portal](https://ehds.healthdataportal.eu/) currently lists ~
 
 ## Differences from Our Current Implementation
 
-Audited 2026-09-26 against `lib/dcat-ap/schema.ts` and `lib/dcat-ap/jsonld.ts` (both still say
-"Release 6" in their headers, and the tab links the **deprecated** R6 spec). The per-element gap
-table is in *What's new § 3*; the distribution mapping in *Describing a clinical data warehouse*.
-The three R7 gaps listed in the previous audit are all still open.
+**Resolved 2026-09-26** — `schema.ts`, `jsonld.ts` and the Health-DCAT-AP tab now follow R8
+(NON-PUBLIC profile). Every gap of the audit below is closed:
 
-### Already aligned
+- Fields: `dct:type`, `dct:provenance`, `dcat:contactPoint`, `hasStructuredData`, `healthTheme`,
+  `hasCodeValues`, `prov:wasGeneratedBy`, `hdabCoordinator` added; obligations raised to the SHACL
+  severities (HDAB mandatory unless access is PUBLIC); agents are grouped fields
+  (`publisher.*`, `hdab.*`, `custodian.*`, `coordinator.*`) each emitted with a `cv:contactPoint`.
+- Vocabularies: the production NALs (health categories, health themes, standard, coding system,
+  health activity, publisher type) plus the EU dataset-type, data-theme, country and DPV-PD lists.
+- JSON-LD: data model → `dct:conformsTo`, terminologies → `hasCodingSystem`, schema →
+  `hasVariables` (TableGroup with `dct:title`, `csvw:title`, `dateTime`), the published page and
+  CSVs → `healthdcatap:analytics` with `dcat:accessURL` (from the *Published catalog URL* field,
+  relative file names otherwise), temporal coverage and retention as separate `dct:PeriodOfTime`,
+  personal data as `dpv:hasPersonalData`, ELI `…/2025/327/oj`.
+- Metadata saved before R8 is read through `normalizeDcatMetadata` (keys renamed, codes mapped,
+  untyped free text dropped); tests in `lib/dcat-ap/jsonld.test.ts` and `schema.test.ts`.
 
-Namespace (`http://healthdataportal.eu/ns/health#`), `applicableLegislation` on the three classes,
-`healthdcatap:hdab` token, custodian, CPSV contact point on the publisher agent, numeric health
-fields typed `xsd:nonNegativeInteger`, access-rights and language NALs.
-
-### Conformance failures (NON-PUBLIC validator would reject)
-
-| Gap | Where |
-|---|---|
-| `healthdcatap:hasStructuredData` absent (1..1) | `jsonld.ts` |
-| Variables not under `healthdcatap:hasVariables`; TableGroup has no `dct:title`; `csvw:titles` instead of `csvw:title` | `jsonld.ts` (`csvw:tableGroup`, `col()`) |
-| `dcat:contactPoint`, `dct:type`, `dct:provenance` absent; `dcat:theme` / `dcat:keyword` not guaranteed | `schema.ts` fields missing / optional |
-| HDAB optional and emitted without `cv:contactPoint` (publisher, custodian likewise) | `schema.ts`, `jsonld.ts` |
-| `healthCategory` emitted as strings from a custom list, not NAL IRIs | `schema.ts` `HEALTH_CATEGORIES`, `jsonld.ts` |
-| Auto distributions (CSVW, concepts, dimensions) have no `dcat:accessURL` | `jsonld.ts` |
-
-### Wrong mapping (valid RDF, wrong meaning)
-
-| Gap | Where |
-|---|---|
-| Coding systems emitted as `dct:conformsTo` with non-NAL IRIs; data model never stated | `schema.ts` `CODING_SYSTEMS`, `jsonld.ts` |
-| Personal data as `healthdcatap:hasPersonalData` (not a term) instead of `dpv:hasPersonalData` | `schema.ts`, `jsonld.ts` |
-| Retention period as `dct:temporal` — overwrites temporal coverage | `jsonld.ts` |
-| Temporal / spatial as free text instead of PeriodOfTime / Location IRI | `schema.ts` |
-| Concepts/HTML/dimensions under `dcat:distribution` instead of `healthdcatap:analytics` | `jsonld.ts` |
-| CSVW datatype `datetime` (CSVW is `dateTime`) | `jsonld.ts` `mapDuckDbType` |
+Still open: running the official R8 SHACL shapes in a test (see *Validating the output*).
 
 ### Validating the output
 

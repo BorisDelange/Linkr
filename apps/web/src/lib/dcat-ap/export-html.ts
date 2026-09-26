@@ -12,7 +12,8 @@ import { LINKR_LOGO_SVG } from '@/lib/cohort-report/render-html'
 import { columnChart, donut, horizontalBars, verticalBars, escapeXml as esc, type ChartItem } from '@/lib/cohort-report/charts'
 import { buildJsonLd } from './jsonld'
 import { localized } from '@/lib/localized'
-import { DCAT_FIELDS, DCAT_VOCABULARIES, type DcatClass } from './schema'
+import { DCAT_FIELDS, DCAT_VOCABULARIES, normalizeDcatMetadata, type DcatClass } from './schema'
+import en from '@/locales/en.json'
 import { CATALOG_CSS, icon, type IconName } from './export-html-style'
 import { CATALOG_SCRIPT } from './export-html-script'
 import { mappingColumnRoles, mappingTableTypes, renderSchemaErd, TABLE_TYPE_ICON, type ColumnRole, type TableType } from './export-html-erd'
@@ -414,20 +415,24 @@ const CLASS_LABELS: Record<DcatClass, { title: string; icon: IconName }> = {
   catalog: { title: 'Catalog', icon: 'folderOpen' },
   dataset: { title: 'Dataset', icon: 'database' },
   distribution: { title: 'Distribution', icon: 'package' },
-  agent: { title: 'Publisher / Agent', icon: 'building' },
+  agent: { title: 'Contacts and organisations', icon: 'building' },
 }
 
 const CLASS_ORDER: DcatClass[] = ['catalog', 'dataset', 'distribution', 'agent']
 
-const humanize = (labelKey: string) =>
-  labelKey.replace(/^dcat\./, '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+/** The field's English label — the published page is English, whatever the app's language. */
+const enLabel = (labelKey: string): string => {
+  const leaf = labelKey.split('.').reduce<unknown>((node, k) => (node as Record<string, unknown> | undefined)?.[k], en)
+  return typeof leaf === 'string' ? leaf : labelKey
+}
 
-function buildMetadataHtml(metadata: Record<string, unknown>): string {
+function buildMetadataHtml(raw: Record<string, unknown>): string {
+  const metadata = normalizeDcatMetadata(raw)
   const sections = CLASS_ORDER.flatMap((cls) => {
     const filled = DCAT_FIELDS.filter((f) => f.dcatClass === cls && metadata[f.key] != null && metadata[f.key] !== '')
     if (!filled.length) return []
     const rows = filled.map((f) => `        <div class="meta-row">
-          <div class="meta-label">${esc(humanize(f.labelKey))}</div>
+          <div class="meta-label">${esc(enLabel(f.labelKey))}</div>
           <div class="meta-value">${resolveFieldDisplay(f.key, metadata[f.key], f.type, f.vocabularyKey)}</div>
           <div class="meta-uri">${esc(f.uri)}</div>
         </div>`).join('\n')
@@ -448,7 +453,7 @@ function resolveFieldDisplay(key: string, raw: unknown, type: string, vocabKey?:
       : Array.isArray(raw) ? raw.map(String) : [String(raw)]
     return values.map((v) => {
       const opt = vocab.find((o) => o.value === v)
-      return `<span class="pill">${esc(opt ? humanize(opt.labelKey) : v)}</span>`
+      return `<span class="pill">${esc(opt ? opt.label : v)}</span>`
     }).join('')
   }
 
@@ -463,6 +468,12 @@ function resolveFieldDisplay(key: string, raw: unknown, type: string, vocabKey?:
     const str = String(raw)
     const sep = str.includes(';') ? ';' : ','
     return str.split(sep).map((s) => s.trim()).filter(Boolean).map((k) => `<span class="pill">${esc(k)}</span>`).join('')
+  }
+
+  if (type === 'boolean') return raw === true || raw === 'true' ? 'Yes' : 'No'
+
+  if (type === 'tags' && Array.isArray(raw)) {
+    return raw.map((k) => `<span class="pill">${esc(String(k))}</span>`).join('')
   }
 
   if (type === 'number') {
