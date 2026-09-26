@@ -81,23 +81,25 @@ a:hover{text-decoration:underline}
 code,.mono{font-family:${MONO}}
 .num{font-variant-numeric:tabular-nums}
 .ico{flex-shrink:0;display:inline-block;vertical-align:middle}
-.container{max-width:1200px;margin:0 auto;padding:28px 24px 40px}
-.card{background:var(--card);border:1px solid var(--line-soft);border-radius:12px;box-shadow:var(--shadow)}
+/* One continuous white sheet — header, tabs and every tab's content — on the grey page.
+   Blocks inside it are framed by a border only: a shadow per block would stack cards on a card. */
+.sheet{max-width:1240px;margin:28px auto 40px;background:var(--card);border:1px solid var(--line-soft);border-radius:14px;box-shadow:var(--shadow)}
+.card{background:var(--card);border:1px solid var(--line-soft);border-radius:10px}
 
-.masthead{padding:22px 26px 0;margin-bottom:22px}
+.masthead{padding:24px 28px 0;border-bottom:1px solid var(--line-soft)}
 .brand{display:flex;align-items:center;gap:12px;padding-bottom:14px;border-bottom:2px solid var(--blue)}
 .brand svg{flex-shrink:0}
 .eyebrow{font-weight:600;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
 .meta-line{font-size:12px;color:var(--muted);margin-top:2px}
 .masthead h1{font-size:24px;line-height:1.25;color:var(--ink);letter-spacing:-.01em;margin:18px 0 6px}
 .masthead .desc{font-size:14px;max-width:80ch;color:var(--text)}
-.tabs{display:flex;gap:4px;margin-top:18px;overflow-x:auto}
+.tabs{display:flex;gap:4px;margin-top:14px;margin-bottom:-1px;overflow-x:auto}
 .tab{display:inline-flex;align-items:center;gap:7px;padding:10px 14px 11px;font-size:13px;font-weight:500;color:var(--muted);background:none;border:0;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:color .15s,border-color .15s}
 .tab:hover{color:var(--ink)}
 .tab.active{color:var(--blue);border-bottom-color:var(--blue2)}
 .tab .count{font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;background:var(--soft);color:var(--muted)}
 .tab.active .count{background:var(--accent-soft);color:var(--blue)}
-.tab-content{display:none}
+.tab-content{display:none;padding:24px 28px 8px}
 .tab-content.active{display:block}
 
 .section-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 16px;margin:4px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--h2-line)}
@@ -197,7 +199,7 @@ ${TABLE_TYPES.map((t) => `.tbl.t-${t} .tbl-head{background:var(--${t}-bg);border
 .seg button.active{background:var(--card);color:var(--blue);box-shadow:0 1px 2px rgba(15,27,45,.12)}
 .seg button:disabled{opacity:.4;cursor:not-allowed}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:18px}
-.kpi{background:var(--card);border:1px solid var(--line-soft);border-top:3px solid var(--blue2);border-radius:10px;padding:16px 16px 14px;text-align:center;box-shadow:var(--shadow)}
+.kpi{background:var(--card);border:1px solid var(--line-soft);border-top:3px solid var(--blue2);border-radius:10px;padding:16px 16px 14px;text-align:center}
 .kpi .v{font-size:26px;font-weight:600;color:var(--blue);line-height:1.1}
 .kpi .l{font-size:12px;color:var(--muted);margin-top:6px}
 .kpi .s{font-size:10px;color:var(--muted);opacity:.8;margin-top:2px}
@@ -262,14 +264,14 @@ select.f{padding:0 2px;cursor:pointer}
 .dt-foot .btn.icon-only{width:26px}
 .page-info{min-width:56px;text-align:center}
 
-footer{margin-top:28px;padding-top:12px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 18px;justify-content:center}
+footer{margin:20px 28px 0;padding:14px 0 20px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 18px;justify-content:center}
 footer span{display:inline-flex;align-items:center;gap:6px}
 
 @media print{
   body{background:#fff}
   .tabs,.toc,.dt-toolbar,.dt-foot,.ov-controls,.overlay{display:none!important}
   .tab-content{display:block!important;margin-bottom:24px}
-  .card,.kpi{box-shadow:none}
+  .sheet{margin:0;border:0;box-shadow:none;max-width:none}
   .dt-scroll{max-height:none;overflow:visible}
 }
 `

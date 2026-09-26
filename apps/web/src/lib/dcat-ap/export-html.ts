@@ -83,8 +83,8 @@ ${jsonLd.replace(/</g, '\\u003c')}
 <style>${CATALOG_CSS}</style>
 </head>
 <body>
-<div class="container">
-  <header class="card masthead">
+<div class="sheet">
+  <header class="masthead">
     <div class="brand">${LINKR_LOGO_SVG}<div><div class="eyebrow">Concept catalog</div><div class="meta-line">${[`Generated on ${generated}`, publisher, 'Health-DCAT-AP Release 6'].filter(Boolean).map(esc).join(' · ')}</div></div></div>
     <h1>${esc(catalogTitle)}</h1>
     ${catalogDesc ? `<p class="desc">${esc(catalogDesc)}</p>` : ''}
