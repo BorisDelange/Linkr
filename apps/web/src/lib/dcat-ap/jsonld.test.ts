@@ -99,6 +99,11 @@ describe('normalizeDcatMetadata', () => {
     expect(m['agent.name']).toBeUndefined()
   })
 
+  it('keeps personal data chosen from the DPV list', () => {
+    const picked = [vocabularyIri('personalData', 'HealthRecord')]
+    expect(normalizeDcatMetadata({ 'dataset.personalData': picked })['dataset.personalData']).toEqual(picked)
+  })
+
   it('is idempotent', () => {
     const once = normalizeDcatMetadata({ 'agent.name': 'CHU', 'dataset.healthCategory': ['EHR'] })
     expect(normalizeDcatMetadata(once)).toEqual(once)
