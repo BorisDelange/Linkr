@@ -133,7 +133,7 @@ export function StatusBar() {
         <CiteDialog />
       </div>
       <div className="flex items-center gap-3">
-        <JobsIndicator />
+        <JobsIndicator atRightEdge={server && !activeProjectUid} />
         {/* Environments + kernels are per-project (server mode). Off a project
             there's nothing project-scoped to show, so hide them entirely (not just
             disable). In front-only mode the metric shows browser runtimes, so it

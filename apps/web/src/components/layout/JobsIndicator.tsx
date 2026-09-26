@@ -45,7 +45,12 @@ function sameJobs(a: Job[], b: Job[]): boolean {
  * database's cohort derivations) — with a popover to view status/log and cancel.
  * Polls while a workspace is open; hidden entirely in front-only mode.
  */
-export function JobsIndicator() {
+/**
+ * `atRightEdge`: the trigger is the footer's last item (a workspace view in server
+ * mode), so the popover is nudged to sit as far from the page's right edge as
+ * from the footer.
+ */
+export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }) {
   const { t } = useTranslation()
   const projectUid = useProjectRouteUid()
   const { wsUid } = useResolvedParams()
@@ -121,7 +126,13 @@ export function JobsIndicator() {
           <span>{t('jobs.title', { count: activeCount })}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-96 p-2 text-xs">
+      <PopoverContent
+        align="end"
+        // Footer padding puts the trigger 12px from the edge; -4 brings the popover
+        // to 8px. The trigger's top sits ~2px below the footer's, hence 10 for an 8px gap.
+        {...(atRightEdge && { alignOffset: -4, sideOffset: 10 })}
+        className="w-96 p-2 text-xs"
+      >
         <div className="mb-2.5 flex items-center justify-between">
           <span className="font-medium">{t('jobs.recent')}</span>
           {hasFinished && (
