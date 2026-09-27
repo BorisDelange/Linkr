@@ -210,10 +210,14 @@ export function ResultsPanel({
         ))}
       </div>
 
-      {tab !== 'schema' && <div className="min-h-0 flex-1 overflow-hidden">{content()}</div>}
-      {schemaOpened && renderSchema && (
-        <div className={tab === 'schema' ? 'min-h-0 flex-1 overflow-hidden' : 'hidden'}>{renderSchema()}</div>
-      )}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        {tab !== 'schema' && content()}
+        {/* Hidden, not collapsed: a zero width would make its panes forget
+            their sizes. */}
+        {schemaOpened && renderSchema && (
+          <div className={tab === 'schema' ? 'absolute inset-0' : 'invisible absolute inset-0'}>{renderSchema()}</div>
+        )}
+      </div>
     </div>
   )
 }

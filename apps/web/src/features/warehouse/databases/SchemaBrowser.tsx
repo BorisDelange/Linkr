@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Allotment } from 'allotment'
+import { Allotment, LayoutPriority } from 'allotment'
 import 'allotment/dist/style.css'
 import {
   BarChart3,
@@ -720,7 +720,8 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
             </Allotment.Pane>
 
             {/* Column overview table */}
-            <Allotment.Pane minSize={300}>
+            {/* Takes every resize: the side panels keep their width. */}
+            <Allotment.Pane minSize={300} priority={LayoutPriority.High}>
               <div className="flex h-full flex-col">
                 <ScrollArea className="h-full flex-1">
                   <table className="w-full text-xs">
