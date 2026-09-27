@@ -21,7 +21,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { findSourcePreset } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
-import { CATEGORY_COLORS } from './DqConstants'
+import { CATEGORY_DOT } from './DqConstants'
 
 interface Props {
   open: boolean
@@ -190,7 +190,7 @@ export function AddSchemaChecksDialog({ open, onOpenChange, ruleSetId, origin }:
                 />
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-1">
+            <div className="min-h-0 flex-1 overflow-y-auto py-1 pl-1 pr-3">
               {groups.map(([table, checks]) => {
                 const expanded = !!query || groups.length === 1 || openGroups.has(table)
                 const keys = checks.map((c) => c.templateKey)
@@ -231,7 +231,7 @@ export function AddSchemaChecksDialog({ open, onOpenChange, ruleSetId, origin }:
                           onCheckedChange={(on) => toggle([c.templateKey], !!on)}
                           className="size-3.5"
                         />
-                        <span className={cn('inline-block size-2 shrink-0 rounded-full', CATEGORY_COLORS[c.category].split(' ')[0])} />
+                        <span className={cn('inline-block size-2 shrink-0 rounded-full', CATEGORY_DOT[c.category])} />
                         <span className="min-w-0 flex-1 truncate">{c.name}</span>
                         <span className="shrink-0 text-[10px] text-muted-foreground">
                           {t(`data_quality.severity_${c.severity}`)}

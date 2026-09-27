@@ -26,6 +26,8 @@ import {
   FileCode2,
   Waypoints,
   SquarePen,
+  FolderPlus,
+  FolderInput,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -102,8 +104,9 @@ import { localized } from '@/lib/localized'
 import { buildPointer } from '@/lib/import-identity'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
-import { CATEGORY_COLORS } from './DqConstants'
+import { CATEGORY_DOT } from './DqConstants'
 import { AddSchemaChecksDialog } from './AddSchemaChecksDialog'
+import { DeleteGroupDialog, MoveChecksDialog, NewGroupDialog } from './DqCheckGroupDialogs'
 import type { DqCustomCheck } from '@/types'
 
 interface Props {
@@ -115,6 +118,19 @@ interface Props {
 
 type OriginFilter = 'all' | DqCheckOrigin
 type CategoryFilter = 'all' | DqCategory
+type GroupSort = 'list' | 'asc' | 'desc'
+
+const GROUP_SORTS: GroupSort[] = ['list', 'asc', 'desc']
+const GROUP_SORT_KEY = 'dq:group-sort'
+
+function readGroupSort(): GroupSort {
+  try {
+    const stored = localStorage.getItem(GROUP_SORT_KEY)
+    return GROUP_SORTS.find((s) => s === stored) ?? 'list'
+  } catch {
+    return 'list'
+  }
+}
 
 const ORIGINS: DqCheckOrigin[] = ['ddl', 'mapping', 'manual']
 const NO_SUBCATEGORY = '__none__'
@@ -147,6 +163,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     saveCheck,
     revertCheck,
     setChecksDisabled,
+    updateChecks,
     _dirtyVersion,
   } = useDqStore()
   const ruleSetWorkspaceId = useDqStore(
@@ -162,6 +179,11 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [originFilter, setOriginFilter] = useState<OriginFilter>('all')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
+  const [groupSort, setGroupSortState] = useState<GroupSort>(readGroupSort)
+  const setGroupSort = (sort: GroupSort) => {
+    setGroupSortState(sort)
+    try { localStorage.setItem(GROUP_SORT_KEY, sort) } catch { /* private window: the choice just doesn't stick */ }
+  }
   const search = useSidebarSearch()
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
@@ -169,6 +191,14 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   // Set when a run is asked for with no database picked; cleared by picking one.
   const [databaseMissing, setDatabaseMissing] = useState(false)
   const [addFromSchema, setAddFromSchema] = useState<'ddl' | 'mapping' | null>(null)
+  // A group is the `tableName` its checks share. One created here and still
+  // empty has nothing to store it in: it lives until the page closes, and is
+  // saved as soon as a check is moved into it.
+  const [emptyGroups, setEmptyGroups] = useState<string[]>([])
+  const [newGroupOpen, setNewGroupOpen] = useState(false)
+  const [renamingGroup, setRenamingGroup] = useState<string | null>(null)
+  const [deletingGroup, setDeletingGroup] = useState<string | null>(null)
+  const [moving, setMoving] = useState<string[] | null>(null)
   // Groups the user folded or unfolded, against the default for the list size.
   const [toggledGroups, setToggledGroups] = useState<Set<string>>(new Set())
 
@@ -203,14 +233,67 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
       }
       group.checks.push(check)
     }
+    if (!search.query && originFilter === 'all' && categoryFilter === 'all') {
+      for (const name of emptyGroups) {
+        if (!byKey.has(name)) byKey.set(name, { key: name, label: name, checks: [] })
+      }
+    }
     const other = byKey.get('')
     byKey.delete('')
-    return other ? [...byKey.values(), other] : [...byKey.values()]
-  }, [filteredChecks, t])
+    const named = [...byKey.values()]
+    if (groupSort !== 'list') {
+      named.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }))
+      if (groupSort === 'desc') named.reverse()
+    }
+    return other ? [...named, other] : named
+  }, [filteredChecks, emptyGroups, search.query, originFilter, categoryFilter, groupSort, t])
+
+  const groupNames = useMemo(() => {
+    const names = new Set(customChecks.map((c) => c.tableName).filter((n): n is string => !!n))
+    for (const name of emptyGroups) names.add(name)
+    return [...names]
+  }, [customChecks, emptyGroups])
+  // Headers show as soon as one named group exists, so it can be managed.
+  const showGroupHeaders = groups.some((g) => g.key)
+  const idsInGroup = (name: string) => customChecks.filter((c) => c.tableName === name).map((c) => c.id)
+
+  const renameGroup = async (from: string, to: string) => {
+    setRenamingGroup(null)
+    if (to === from) return
+    await updateChecks(idsInGroup(from), { tableName: to })
+    setEmptyGroups((prev) => prev.map((g) => (g === from ? to : g)))
+    setToggledGroups((prev) => {
+      if (!prev.has(from)) return prev
+      const next = new Set(prev)
+      next.delete(from)
+      next.add(to)
+      return next
+    })
+  }
+
+  const deleteGroup = async (name: string, withChecks: boolean) => {
+    const ids = idsInGroup(name)
+    if (withChecks) {
+      for (const id of ids) await deleteCustomCheck(id)
+    } else {
+      await updateChecks(ids, { tableName: null })
+    }
+    setEmptyGroups((prev) => prev.filter((g) => g !== name))
+    setDeletingGroup(null)
+  }
+
+  const moveChecks = async (ids: string[], group: string | null) => {
+    await updateChecks(ids, { tableName: group })
+    setEmptyGroups((prev) => prev.filter((g) => g !== group))
+    setMoving(null)
+  }
+  const movingFrom = moving && new Set(customChecks.filter((c) => moving.includes(c.id)).map((c) => c.tableName)).size === 1
+    ? customChecks.find((c) => c.id === moving[0])?.tableName ?? null
+    : undefined
 
   const groupsOpenByDefault = customChecks.length <= OPEN_GROUPS_UP_TO
   const isGroupOpen = (key: string) =>
-    !!search.query || groups.length === 1 || (groupsOpenByDefault !== toggledGroups.has(key))
+    !!search.query || !showGroupHeaders || (groupsOpenByDefault !== toggledGroups.has(key))
   const toggleGroup = (key: string) => setToggledGroups((prev) => {
     const next = new Set(prev)
     if (next.has(key)) next.delete(key)
@@ -478,6 +561,13 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                             {t(`data_quality.category_${c}`)}
                           </DropdownMenuCheckboxItem>
                         ))}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">{t('data_quality.sort_groups')}</DropdownMenuLabel>
+                        {GROUP_SORTS.map((sort) => (
+                          <DropdownMenuCheckboxItem key={sort} checked={groupSort === sort} onCheckedChange={() => setGroupSort(sort)}>
+                            {t(`data_quality.sort_groups_${sort}`)}
+                          </DropdownMenuCheckboxItem>
+                        ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
                     {canWrite && (
@@ -518,6 +608,11 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                         <DropdownMenuItem onClick={() => setAddFromSchema('mapping')}>
                           <Waypoints />
                           {t('data_quality.add_from_mapping')}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setNewGroupOpen(true)}>
+                          <FolderPlus />
+                          {t('data_quality.new_group')}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -563,6 +658,14 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon-xs" disabled={selectedIds.size === 0} onClick={() => setMoving([...selectedIds])}>
+                          <FolderInput size={12} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('data_quality.move_to')}</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
                           size="icon-xs"
@@ -598,21 +701,50 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                       const disabledCount = group.checks.filter((c) => c.disabled).length
                       return (
                         <div key={group.key || '__other__'} className="mb-0.5">
-                          {groups.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => toggleGroup(group.key)}
-                              className="flex w-full items-center gap-1 rounded px-1 py-1 text-left text-[10px] font-semibold text-muted-foreground hover:bg-accent/50"
-                            >
-                              {open ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
-                              <span className={cn('min-w-0 flex-1 truncate', group.key && 'font-mono')}>{group.label}</span>
-                              <span className="shrink-0 font-normal tabular-nums text-muted-foreground/70">
-                                {disabledCount ? `${group.checks.length - disabledCount}/${group.checks.length}` : group.checks.length}
-                              </span>
-                            </button>
+                          {showGroupHeaders && (renamingGroup === group.key && group.key ? (
+                            <div className="flex h-6 w-full items-center gap-1 rounded px-1 text-[10px] font-semibold text-muted-foreground">
+                              <ChevronDown size={12} className="shrink-0" />
+                              <InlineRenameField
+                                initialValue={group.key}
+                                onSubmit={(next) => void renameGroup(group.key, next)}
+                                onCancel={() => setRenamingGroup(null)}
+                                hasClash={(candidate) => groupNames.some((g) => g !== group.key && g.toLowerCase() === candidate.toLowerCase())}
+                                className="-ml-0.5 h-5 font-mono"
+                              />
+                            </div>
+                          ) : (
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild disabled={!canWrite || !group.key}>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleGroup(group.key)}
+                                  className="flex h-6 w-full items-center gap-1 rounded px-1 text-left text-[10px] font-semibold text-muted-foreground hover:bg-accent/50"
+                                >
+                                  {open ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
+                                  <span className={cn('min-w-0 flex-1 truncate', group.key && 'font-mono')}>{group.label}</span>
+                                  <span className="shrink-0 font-normal tabular-nums text-muted-foreground/70">
+                                    {disabledCount ? `${group.checks.length - disabledCount}/${group.checks.length}` : group.checks.length}
+                                  </span>
+                                </button>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuItem onClick={() => setRenamingGroup(group.key)}>
+                                  <Pencil size={14} />
+                                  {t('common.rename')}
+                                </ContextMenuItem>
+                                <ContextMenuSeparator />
+                                <ContextMenuItem variant="destructive" onClick={() => setDeletingGroup(group.key)}>
+                                  <Trash2 size={14} />
+                                  {t('data_quality.delete_group')}
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          ))}
+                          {open && group.checks.length === 0 && (
+                            <p className="py-1 pl-7 pr-2 text-[10px] text-muted-foreground/70">{t('data_quality.group_empty')}</p>
                           )}
                           {open && (
-                            <div className={cn('space-y-0.5', groups.length > 1 && 'pl-3')}>
+                            <div className={cn('space-y-0.5', showGroupHeaders && 'pl-3')}>
                               {group.checks.map((check) => (
                                 <DqCheckRow
                                   key={check.id}
@@ -632,6 +764,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                                   onRename={commitRename}
                                   onCancelRename={() => setRenamingId(null)}
                                   onToggleDisabled={() => void setChecksDisabled([check.id], !check.disabled)}
+                                  onMove={() => setMoving([check.id])}
                                   onDelete={() => setDeleteTarget(check.id)}
                                 />
                               ))}
@@ -854,6 +987,31 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
         </div>
       </div>
 
+      <NewGroupDialog
+        open={newGroupOpen}
+        onOpenChange={setNewGroupOpen}
+        groups={groupNames}
+        onCreate={(name) => {
+          setEmptyGroups((prev) => [...prev, name])
+          setOriginFilter('all')
+          setCategoryFilter('all')
+        }}
+      />
+      <MoveChecksDialog
+        open={moving !== null}
+        onOpenChange={(open) => { if (!open) setMoving(null) }}
+        count={moving?.length ?? 0}
+        groups={groupNames}
+        current={movingFrom}
+        onMove={(group) => { if (moving) void moveChecks(moving, group) }}
+      />
+      <DeleteGroupDialog
+        group={deletingGroup}
+        count={deletingGroup ? idsInGroup(deletingGroup).length : 0}
+        onOpenChange={(open) => { if (!open) setDeletingGroup(null) }}
+        onDelete={(withChecks) => { if (deletingGroup) void deleteGroup(deletingGroup, withChecks) }}
+      />
+
       <AddSchemaChecksDialog
         open={addFromSchema !== null}
         origin={addFromSchema ?? 'ddl'}
@@ -956,6 +1114,7 @@ function DqCheckRow({
   onRename,
   onCancelRename,
   onToggleDisabled,
+  onMove,
   onDelete,
 }: {
   id: string
@@ -974,6 +1133,7 @@ function DqCheckRow({
   onRename: (next: string) => void
   onCancelRename: () => void
   onToggleDisabled: () => void
+  onMove: () => void
   onDelete: () => void
 }) {
   const { t } = useTranslation()
@@ -982,7 +1142,7 @@ function DqCheckRow({
   const dot = (
     <span className={cn(
       'inline-block h-2 w-2 shrink-0 rounded-full',
-      CATEGORY_COLORS[category]?.split(' ')[0] ?? 'bg-gray-400',
+      CATEGORY_DOT[category],
     )} />
   )
 
@@ -1050,6 +1210,10 @@ function DqCheckRow({
             <ContextMenuItem onClick={onToggleDisabled}>
               {disabled ? <Eye size={14} /> : <EyeOff size={14} />}
               {disabled ? t('data_quality.enable_check') : t('data_quality.disable_check')}
+            </ContextMenuItem>
+            <ContextMenuItem onClick={onMove}>
+              <FolderInput size={14} />
+              {t('data_quality.move_to')}
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem variant="destructive" onClick={onDelete}>

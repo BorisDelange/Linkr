@@ -48,6 +48,8 @@ interface DqState {
   /** Writes a whole batch at once — a rule set generated from a schema starts with hundreds. */
   createCustomChecks: (checks: DqCustomCheck[]) => Promise<void>
   setChecksDisabled: (ids: string[], disabled: boolean) => Promise<void>
+  /** The same change on several checks: a group renamed, checks moved to another. */
+  updateChecks: (ids: string[], changes: Partial<DqCustomCheck>) => Promise<void>
   updateCustomCheck: (id: string, changes: Partial<DqCustomCheck>) => Promise<void>
   deleteCustomCheck: (id: string) => Promise<void>
 
@@ -165,12 +167,14 @@ export const useDqStore = create<DqState>((set, get) => ({
     ))
   },
 
-  setChecksDisabled: async (ids, disabled) => {
+  setChecksDisabled: (ids, disabled) => get().updateChecks(ids, { disabled }),
+
+  updateChecks: async (ids, changes) => {
     const storage = getStorage()
-    for (const id of ids) await storage.dqCustomChecks.update(id, { disabled })
+    for (const id of ids) await storage.dqCustomChecks.update(id, changes)
     const targets = new Set(ids)
     set((s) => ({
-      customChecks: s.customChecks.map((c) => (targets.has(c.id) ? { ...c, disabled } : c)),
+      customChecks: s.customChecks.map((c) => (targets.has(c.id) ? { ...c, ...changes } : c)),
     }))
   },
 

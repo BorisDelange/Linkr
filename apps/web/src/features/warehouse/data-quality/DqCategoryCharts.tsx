@@ -4,19 +4,13 @@ import { useTranslation } from 'react-i18next'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
-import type { DqCheck, DqCheckResult, DqCategory } from '@/lib/duckdb/data-quality'
+import type { DqCheck, DqCheckResult } from '@/lib/duckdb/data-quality'
 import { DQ_CATEGORIES } from '@/lib/dq-taxonomy'
+import { CATEGORY_HEX } from './DqConstants'
 
 interface Props {
   checks: DqCheck[]
   results: DqCheckResult[]
-}
-
-// Recharts needs hex values; same hues as CATEGORY_COLORS.
-const CATEGORY_HEX: Record<DqCategory, string> = {
-  conformance: '#6366f1', // indigo-500
-  completeness: '#0ea5e9', // sky-500
-  plausibility: '#8b5cf6', // violet-500
 }
 
 export function DqCategoryCharts({ checks, results }: Props) {
