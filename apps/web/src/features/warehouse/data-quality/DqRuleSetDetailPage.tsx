@@ -275,6 +275,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
                 dataSourceId={ruleSet.dataSourceId}
                 draftKey={`dq:${ruleSet.id}`}
                 initialSql={investigation?.sql}
+                runOnMount={!!investigation}
               />
             ) : (
               <p className="p-6 text-sm text-muted-foreground">{t('data_quality.investigate_no_database')}</p>

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Allotment } from 'allotment'
@@ -33,11 +33,13 @@ interface Props {
   draftKey?: string
   /** Replaces the draft on mount — remount (a new `key`) to load another query. */
   initialSql?: string
+  /** Runs `initialSql` as soon as the console mounts. */
+  runOnMount?: boolean
 }
 
 /** A scratch SQL console on one database: write, run, read the result. No
  *  scripts, no files, no saving — the SQL scripts page is for that. */
-export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialSql }: Props) {
+export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialSql, runOnMount = false }: Props) {
   const { t } = useTranslation()
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   // Controlled: CodeEditor feeds Monaco this value back once its debounced
@@ -50,20 +52,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
   const [outcome, setOutcome] = useState<Outcome | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
-  /** `line`: the selection, else the line under the cursor. `all`: the whole editor. */
-  const run = async (scope: 'line' | 'all') => {
-    const editor = editorRef.current
-    const model = editor?.getModel()
-    if (!editor || !model || running) return
-    let sql = model.getValue()
-    if (scope === 'line') {
-      const selection = editor.getSelection()
-      sql = selection && !selection.isEmpty()
-        ? model.getValueInRange(selection)
-        : model.getLineContent(editor.getPosition()?.lineNumber ?? 1)
-    }
-    sql = sql.trim()
-    if (!sql) return
+  const execute = useCallback(async (sql: string) => {
     setRunning(true)
     const start = performance.now()
     try {
@@ -86,7 +75,28 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
     } finally {
       setRunning(false)
     }
+  }, [dataSourceId, t])
+
+  /** `line`: the selection, else the line under the cursor. `all`: the whole editor. */
+  const run = async (scope: 'line' | 'all') => {
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (!editor || !model || running) return
+    let sql = model.getValue()
+    if (scope === 'line') {
+      const selection = editor.getSelection()
+      sql = selection && !selection.isEmpty()
+        ? model.getValueInRange(selection)
+        : model.getLineContent(editor.getPosition()?.lineNumber ?? 1)
+    }
+    sql = sql.trim()
+    if (sql) await execute(sql)
   }
+
+  useEffect(() => {
+    const sql = initialSql?.trim()
+    if (runOnMount && sql) void execute(sql)
+  }, [runOnMount, initialSql, execute])
 
   return (
     <TooltipProvider>
