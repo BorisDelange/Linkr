@@ -88,7 +88,6 @@ export function nextSelection(
   return { selection: new Set([key]), anchor: key }
 }
 
-/** Cell text with an instant tooltip shown only when the content is truncated. */
 type Sorting = { columnId: string; desc: boolean } | null
 
 /** Kind of inline column filter to render under a column header. */
@@ -585,14 +584,24 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
     )
   }
 
+  // One renderer for body and pinned rows, so a pinned row truncates and
+  // shows its tooltip like any other.
+  const renderCell = (c: DataTableColumn<T>, row: T): ReactNode => {
+    const raw = c.accessor(row)
+    // `display` wins over the raw value everywhere it is shown.
+    const shown = c.display ? c.display(row) : String(raw ?? '')
+    const tooltipProps = { alwaysShow: cellTooltips === 'all', readOnly: cellTooltips === 'readOnly' }
+    if (c.tooltip && raw != null && String(raw) !== '') {
+      return <TruncatedText text={shown} className={typeof c.tooltip === 'string' ? c.tooltip : undefined} {...tooltipProps} />
+    }
+    if (c.cell) return c.cell(row)
+    return <TruncatedText text={shown} className="text-xs" {...tooltipProps} />
+  }
+
   const columns = useMemo<ColumnDef<T>[]>(() => cols.map((c) => ({
     id: c.id,
     header: () => c.header,
     accessorFn: (r) => c.accessor(r),
-    cell: ({ row }) =>
-      c.cell
-        ? c.cell(row.original)
-        : <TruncatedText text={c.display ? c.display(row.original) : String(c.accessor(row.original) ?? '')} className="text-xs" alwaysShow={cellTooltips === 'all'} readOnly={cellTooltips === 'readOnly'} />,
     size: c.size ?? 120,
     minSize: c.minSize ?? 50,
     enableResizing: c.resizable ?? c.headerCell === undefined,
@@ -753,7 +762,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
                         ...(col?.pinned ? { left: pinnedOffset(column.id) } : {}),
                       }}
                     >
-                      {col?.cell ? col.cell(row) : String((col?.display ? col.display(row) : col?.accessor(row)) ?? '')}
+                      {col && renderCell(col, row)}
                     </TableCell>
                   )
                 })}
@@ -796,10 +805,6 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
                 >
                   {row.getVisibleCells().map((cell) => {
                     const col = colById.get(cell.column.id)
-                    const raw = cell.getValue()
-                    const useTooltip = col?.tooltip && raw != null && String(raw) !== ''
-                    // `display` wins over the raw value everywhere it is shown.
-                    const shown = col?.display ? col.display(row.original) : String(raw)
                     return (
                       <TableCell
                         key={cell.id}
@@ -819,9 +824,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
                           ...(col?.pinned ? { left: pinnedOffset(cell.column.id) } : {}),
                         }}
                       >
-                        {useTooltip
-                          ? <TruncatedText text={shown} className={typeof col?.tooltip === 'string' ? col.tooltip : undefined} alwaysShow={cellTooltips === 'all'} readOnly={cellTooltips === 'readOnly'} />
-                          : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        {col && renderCell(col, row.original)}
                       </TableCell>
                     )
                   })}
