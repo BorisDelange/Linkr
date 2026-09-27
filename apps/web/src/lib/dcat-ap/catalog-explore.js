@@ -7,8 +7,9 @@
  *
  * The data is a published catalog (lib/data-catalog/publish.ts): variables
  * with their modalities, and crossings as cells [index per variable…,
- * patients, each of the crossing's `measures`…, status]. The page gets masked cells without their
- * numbers; the app's preview gets them with (`reveal`), to show what the masks hide.
+ * patients, each of the crossing's `measures`…, status]. The page gets no masked cell: an absent
+ * cell is masked or empty, which it must not tell apart. The app's preview gets them with their
+ * numbers (`reveal`), to show what the masks hide.
  *
  * Reading rules:
  * - The reader picks a computed crossing (one, two or three variables) and
@@ -46,10 +47,10 @@ var EXPLORE_TEXT = {
   whole_table_tip: 'Every cell is shaded against the largest cell of the table: compares all the cells with one another.',
   hatched_note: '{n} masked value(s) drawn hatched, at most {t} high.',
   mask_primary: 'Fewer than {t} patients — masked', mask_secondary: 'Masked to protect a small cell nearby (secondary suppression)',
-  mask_absent: 'Fewer than {t} patients', mask_secondary_short: 'masked', mask_value: '{v} (masked)',
+  mask_absent: 'Fewer than {t} patients, or masked to protect a small cell nearby', mask_secondary_short: 'masked', mask_value: '{v} (masked)',
   records_by_category: 'Records by category', concepts_per_category: 'Concepts per category', uncategorised: 'Uncategorised',
   top_concepts: 'Top concepts', not_computed: 'This combination was not computed.', nothing_matches: 'Nothing matches these filters.',
-  below_masked: '< {t}: fewer than {t} patients · masked: hidden so that a small cell cannot be worked out by subtraction', search_concepts: 'Search concepts…', no_concept_matches: 'No concept matches these filters.',
+  below_masked: 'Not listed: cells with fewer than {t} patients, and those hidden so that a small cell cannot be worked out by subtraction', search_concepts: 'Search concepts…', no_concept_matches: 'No concept matches these filters.',
   cell: 'cell', cells_noun: 'cells', concept: 'concept', concepts_noun: 'concepts',
   thing_concept: 'concepts', thing_period: 'periods', thing_service: 'services',
   thing_age: 'age groups', thing_sex: 'genders', download_csv: 'Download as CSV', top: 'Top {n}',
@@ -715,9 +716,11 @@ function createExplorer(DATA, opts) {
     }
     var blocker = D.display.filter(function(v) { return !V[v].partition[metric]; })[0];
     if (blocker) return { v: null, sub: tr('kpi_not_additive', { things: plural(blocker) }) };
-    var sum = 0, masked = false;
-    viewCells(c).forEach(function(cell) { var x = measureAt(cell, c, metric); if (x.st) masked = true; else sum += x.v || 0; });
-    return { v: sum, of: total, atLeast: masked };
+    var sum = 0, masked = false, cells = viewCells(c), combos = 1;
+    cells.forEach(function(cell) { var x = measureAt(cell, c, metric); if (x.st) masked = true; else sum += x.v || 0; });
+    // An absent cell may be a masked one: the sum is exact only when no cell is missing.
+    D.display.forEach(function(v) { combos *= keptMods(v).length; });
+    return { v: sum, of: total, atLeast: masked || cells.length < combos };
   }
   function card(key, label, icon, f) {
     var value = f.v == null ? '—' : (f.atLeast ? '≥ ' : '') + fmt(f.v);
@@ -772,7 +775,7 @@ function createExplorer(DATA, opts) {
     return m.cell[m.crossing.vars.length];
   }
   function maskNote(items) {
-    var k = items.filter(function(i) { return i.st === 1 || i.st === 2; }).length;
+    var k = items.filter(function(i) { return i.st; }).length;
     return k ? tr('hatched_note', { n: k, t: T }) : '';
   }
 

@@ -5,16 +5,17 @@
  * language as the cohort report.
  *
  * Nothing unmasked reaches the page: the crossings come from
- * `buildPublishedCatalog` (masked cells carry no number), and concepts below
- * the threshold are capped (replace) or removed (suppress) before being inlined.
+ * `buildPublishedCatalog` (masked cells left out), and the concepts it masks
+ * are capped (replace) or removed (suppress) before being inlined.
  */
 
 import type { DataCatalog, CatalogResultCache, CatalogConceptRow, SchemaMapping, AnonymizationMode, CatalogCounts } from '@/types'
+import { PUBLISHED } from '@/lib/data-catalog/suppression'
 import { catalogCounts } from '@/lib/data-catalog/config'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { LINKR_LOGO_SVG } from '@/lib/cohort-report/render-html'
 import { escapeXml as esc } from '@/lib/cohort-report/charts'
-import { buildPublishedCatalog } from '@/lib/data-catalog/publish'
+import { buildPublishedCatalog, computeCatalogMasks, publishedConcepts, type PublishedConcept, type PublishedCrossing } from '@/lib/data-catalog/publish'
 import { buildJsonLd } from './jsonld'
 import { mappedTableDocs } from './mapped-tables'
 import { localized } from '@/lib/localized'
@@ -39,14 +40,22 @@ export interface ExportHtmlOptions {
   reveal?: boolean
 }
 
-type Counted = { patientCount: number; recordCount: number; visitCount?: number }
 export type Anonymized<T> = T & { _anonymized?: boolean }
 
-function anonymize<T extends Counted>(rows: T[], threshold: number, mode: AnonymizationMode): Anonymized<T>[] {
-  if (mode === 'suppress') return rows.filter((r) => r.patientCount >= threshold)
-  return rows.map((r) => (r.patientCount < threshold
-    ? { ...r, patientCount: threshold, recordCount: threshold, ...(r.visitCount != null ? { visitCount: threshold } : {}), _anonymized: true }
-    : r))
+/** Masked rows flagged; in the published page (not `reveal`) their counts are capped at the threshold. */
+function conceptListRows(rows: PublishedConcept[], threshold: number, reveal: boolean): Anonymized<CatalogConceptRow>[] {
+  return rows.map(({ status, ...r }) => {
+    if (status === PUBLISHED) return r
+    if (reveal) return { ...r, _anonymized: true }
+    return { ...r, patientCount: threshold, recordCount: threshold, ...(r.visitCount != null ? { visitCount: threshold } : {}), _anonymized: true }
+  })
+}
+
+/** Largest first; ties by id, so that capped rows keep no trace of their real order. */
+function byPatients(a: CatalogConceptRow, b: CatalogConceptRow): number {
+  const ka = String(a.conceptId)
+  const kb = String(b.conceptId)
+  return b.patientCount - a.patientCount || (ka < kb ? -1 : ka > kb ? 1 : 0)
 }
 
 /**
@@ -58,23 +67,22 @@ function anonymize<T extends Counted>(rows: T[], threshold: number, mode: Anonym
 export interface CatalogPageData {
   threshold: number
   variables: ReturnType<typeof buildPublishedCatalog>['variables']
-  crossings: ReturnType<typeof buildPublishedCatalog>['crossings']
+  /** Without their masked-cell counts: how many are masked is not for the page. */
+  crossings: (Omit<PublishedCrossing, 'masked'> & { masked?: PublishedCrossing['masked'] })[]
   concepts: ReturnType<typeof buildConceptTable>
   totals: Record<string, number>
 }
 
 export function buildCatalogPageData({ catalog, cache, locale = 'en', reveal = false }: Pick<ExportHtmlOptions, 'catalog' | 'cache' | 'locale' | 'reveal'>): CatalogPageData {
   const threshold = catalog.anonymization.threshold
-  const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
-  const concepts = (reveal
-    ? cache.concepts.map((r) => ({ ...r, _anonymized: r.patientCount < threshold }))
-    : anonymize(cache.concepts, threshold, mode)).sort((a, b) => b.patientCount - a.patientCount)
-  const published = buildPublishedCatalog(catalog, cache, { locale, reveal })
+  const masks = computeCatalogMasks(catalog, cache, threshold)
+  const concepts = conceptListRows(publishedConcepts(catalog, cache, { reveal, masks }), threshold, reveal).sort(byPatients)
+  const published = buildPublishedCatalog(catalog, cache, { locale, reveal, masks })
   const counts = catalogCounts(catalog)
   return {
     threshold,
     variables: published.variables,
-    crossings: published.crossings,
+    crossings: reveal ? published.crossings : published.crossings.map(({ masked: _masked, ...c }) => c),
     concepts: buildConceptTable(concepts, locale),
     totals: {
       patients: cache.totalPatients,
@@ -530,29 +538,27 @@ function csvEscape(value: string | number | null | undefined): string {
   return str
 }
 
-/** Build CSV string from concept rows with anonymization applied. */
-export function buildConceptsCsv(
-  concepts: CatalogConceptRow[],
-  catalog: DataCatalog,
-): string {
-  const threshold = catalog.anonymization.threshold
-  const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
-
+/**
+ * The concept list as CSV, masked like the page: in suppress mode the masked
+ * concepts are left out; in replace mode their counts are empty — a number
+ * column holds numbers only — and the status column says they are suppressed.
+ */
+export function buildConceptsCsv(catalog: DataCatalog, cache: CatalogResultCache): string {
+  // Masked rows sorted as their capped count, never their real one: the order must not place them.
+  const concepts = conceptListRows(publishedConcepts(catalog, cache), catalog.anonymization.threshold, false).sort(byPatients)
   const withVisits = concepts.some((r) => r.visitCount != null)
   const header = ['concept_id', 'concept_name', 'vocabulary', 'category', 'subcategory',
-    'patient_count', ...(withVisits ? ['visit_count'] : []), 'record_count']
+    'patient_count', ...(withVisits ? ['visit_count'] : []), 'record_count', 'status']
   const rows: string[] = [header.join(',')]
 
   for (const r of concepts) {
-    if (mode === 'suppress' && r.patientCount < threshold) continue
-    const belowThreshold = r.patientCount < threshold
-    const pc = mode === 'replace' && belowThreshold ? threshold : r.patientCount
-    const vc = mode === 'replace' && belowThreshold ? threshold : r.visitCount
-    const rc = mode === 'replace' && belowThreshold ? threshold : r.recordCount
+    const shown = !r._anonymized
+    const count = (n: number | undefined) => (shown ? String(n ?? 0) : '')
     rows.push([
       csvEscape(r.conceptId), csvEscape(r.conceptName),
       csvEscape(r.dictionaryKey ?? ''), csvEscape(r.category ?? ''), csvEscape(r.subcategory ?? ''),
-      String(pc), ...(withVisits ? [String(vc ?? 0)] : []), String(rc),
+      count(r.patientCount), ...(withVisits ? [count(r.visitCount)] : []), count(r.recordCount),
+      shown ? 'published' : 'suppressed',
     ].join(','))
   }
 

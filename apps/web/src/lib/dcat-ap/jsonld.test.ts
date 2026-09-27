@@ -53,7 +53,9 @@ describe('buildJsonLd (Health-DCAT-AP R8)', () => {
     expect(analytics).toHaveLength(2)
     expect(analytics[0]['dcat:accessURL']).toEqual({ '@id': 'https://x.org/cat/catalog.html' })
     expect(analytics[1]['dcat:downloadURL']).toEqual({ '@id': 'https://x.org/cat/concepts.csv' })
-    expect(String(analytics[1]['dct:description'])).toContain('< 10')
+    expect(String(analytics[0]['dct:description'])).toContain('shown as "< 10"')
+    // The CSV writes no "< 10": a masked count is empty, with its status.
+    expect(String(analytics[1]['dct:description'])).toContain('empty counts and the status "suppressed"')
   })
 
   it('keeps temporal coverage and retention as separate periods', () => {

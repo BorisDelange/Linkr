@@ -1,4 +1,4 @@
-import type { AnonymizationConfig, AnonymizationImpact, CatalogCrossingResult, CatalogResultCache } from '@/types/catalog'
+import type { AnonymizationConfig, AnonymizationImpact, CatalogCrossingResult } from '@/types/catalog'
 
 /** 0 = published, 1 = below the threshold, 2 = hidden to protect another cell. */
 export type CellStatus = 0 | 1 | 2
@@ -239,15 +239,22 @@ export function publishedPatientShare(mask: Pick<CrossingMask, 'patientMass' | '
   return mask.patientMass > 0 ? mask.publishedMass / mask.patientMass : 1
 }
 
-/** What `settings` mask over a computed catalog: the summary the Anonymization tab keeps. */
-export function computeAnonymizationImpact(cache: Pick<CatalogResultCache, 'concepts' | 'crossings'>, settings: AnonymizationConfig): AnonymizationImpact {
-  const crossings = cache.crossings ?? []
-  const masks = computeCrossingMasks(crossings, settings.threshold)
+/**
+ * What `settings` mask over a computed catalog: the summary the Anonymization
+ * tab keeps. `masks` holds one entry per crossing, `conceptStatus` one status
+ * per row of the concept list (`computeCatalogMasks` in publish.ts).
+ */
+export function computeAnonymizationImpact(
+  { crossings, masks, conceptStatus }: { crossings: readonly CatalogCrossingResult[]; masks: ReadonlyMap<string, CrossingMask>; conceptStatus: ArrayLike<number> },
+  settings: AnonymizationConfig,
+): AnonymizationImpact {
+  let masked = 0
+  for (let i = 0; i < conceptStatus.length; i++) if (conceptStatus[i] !== PUBLISHED) masked++
   return {
     threshold: settings.threshold,
     mode: settings.mode ?? 'replace',
     computedAt: new Date().toISOString(),
-    concepts: { total: cache.concepts.length, masked: cache.concepts.filter((r) => r.patientCount < settings.threshold).length },
+    concepts: { total: conceptStatus.length, masked },
     crossings: crossings.map((c) => {
       const { cells, primary, secondary, patientMass, publishedMass } = masks.get(c.id)!
       return { id: c.id, variables: c.variables, cells, primary, secondary, patientMass, publishedMass }

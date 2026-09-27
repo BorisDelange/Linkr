@@ -207,13 +207,20 @@ function analyticsDistributions(
   if (!cache?.concepts.length) return []
   const url = (file: string) => (baseUrl ? `${baseUrl.replace(/\/+$/, '')}/${file}` : file)
   const threshold = catalog?.anonymization.threshold
-  const suppression = threshold != null
-    ? catalog?.anonymization.mode === 'suppress'
-      ? ` Rows with fewer than ${threshold} patients are removed.`
-      : ` Counts below ${threshold} patients are shown as "< ${threshold}".`
+  const suppress = catalog?.anonymization.mode === 'suppress'
+  const masked = `fewer than ${threshold} patients, and those that would reveal one by subtraction,`
+  const pageSuppression = threshold != null
+    ? suppress
+      ? ` Concepts with ${masked} are not listed; cells masked or empty are shown as "< ${threshold}".`
+      : ` Concept counts of ${masked} are shown as "< ${threshold}", as are cells masked or empty.`
+    : ''
+  const conceptSuppression = threshold != null
+    ? suppress
+      ? ` Concepts with ${masked} are removed.`
+      : ` Concepts with ${masked} have empty counts and the status "suppressed".`
     : ''
   const cellSuppression = threshold != null
-    ? ` Cells with fewer than ${threshold} patients, and cells that would reveal one by subtraction, have empty counts; the status column says which.`
+    ? ` Cells with ${masked} are left out, like empty cells: an absent cell holds fewer than ${threshold} patients, or is masked to protect one.`
     : ''
   const dist = (file: string, title: string, description: string, format: string, media: string): Node => ({
     '@type': 'dcat:Distribution',
@@ -227,15 +234,15 @@ function analyticsDistributions(
   })
   const out = [
     dist(ANALYTICS_FILES.html, 'Concept catalog',
-      `Browsable catalog of the warehouse: patient, stay and record counts per concept and crossed by period, care unit, age group and sex, with charts and the data schema.${suppression}`,
+      `Browsable catalog of the warehouse: patient, stay and record counts per concept and crossed by period, care unit, age group and sex, with charts and the data schema.${pageSuppression}`,
       'HTML', 'text/html'),
     dist(ANALYTICS_FILES.concepts, 'Concept counts',
-      `One row per concept: concept_id, concept_name, vocabulary, category, subcategory, patient_count, ${catalogCounts(catalog ?? {}).visits ? 'visit_count, ' : ''}record_count.${suppression}`,
+      `One row per concept: concept_id, concept_name, vocabulary, category, subcategory, patient_count, ${catalogCounts(catalog ?? {}).visits ? 'visit_count, ' : ''}record_count, status.${conceptSuppression}`,
       'CSV', 'text/csv'),
   ]
   for (const crossing of catalog ? publishedCrossingResults(catalog, cache) : cache.crossings ?? []) {
     out.push(dist(crossingCsvPath(crossing.id), `Counts by ${crossing.variables.join(' × ')}`,
-      `One row per non-empty cell: ${[...crossing.variables, 'patients', ...crossingMeasures(catalog ?? {}, crossing.variables)].join(', ')}, status.${cellSuppression}`,
+      `One row per published cell: ${[...crossing.variables, 'patients', ...crossingMeasures(catalog ?? {}, crossing.variables)].join(', ')}, status.${cellSuppression}`,
       'CSV', 'text/csv'))
   }
   return out

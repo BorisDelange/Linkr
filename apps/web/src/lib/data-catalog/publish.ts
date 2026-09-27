@@ -1,6 +1,17 @@
-import { CATALOG_VARIABLE_ORDER, type CatalogResultCache, type CatalogVariableId, type DataCatalog, type PeriodGranularity } from '@/types/catalog'
+import {
+  CATALOG_VARIABLE_ORDER,
+  type AnonymizationConfig,
+  type AnonymizationImpact,
+  type CatalogConceptRow,
+  type CatalogCrossingResult,
+  type CatalogCrossingRow,
+  type CatalogResultCache,
+  type CatalogVariableId,
+  type DataCatalog,
+  type PeriodGranularity,
+} from '@/types/catalog'
 import { catalogCounts, OTHER_MODALITY, periodLabel, shownCrossingIds, trimPeriods } from './config'
-import { computeAnonymizationImpact, computeCrossingMasks, PUBLISHED, SECONDARY, type CellStatus } from './suppression'
+import { computeAnonymizationImpact, computeCrossingMasks, PRIMARY, PUBLISHED, SECONDARY, type CellStatus, type CrossingMask } from './suppression'
 import type { PageLocale } from '@/lib/dcat-ap/page-text'
 
 /**
@@ -9,8 +20,9 @@ import type { PageLocale } from '@/lib/dcat-ap/page-text'
  * is built from this and nothing else, so no output can carry a count its
  * siblings hide.
  *
- * A masked cell keeps its place (the page draws it as masked) but loses every
- * number: the raw value never reaches the published file, not even hidden.
+ * A masked cell is left out, exactly like an empty one: keeping it, even
+ * without its numbers, would tell "at least one patient" from "none". The page
+ * reads every absent cell as masked.
  */
 
 export type PublishedMeasure = 'patients' | 'stays' | 'unit_stays' | 'records'
@@ -140,22 +152,155 @@ export function publishedCrossingResults(catalog: Pick<DataCatalog, 'variables' 
 }
 
 /**
+ * The concept modality of a concept-list row, as the crossings code it: the
+ * concept id, prefixed with its dictionary key when there are several.
+ */
+export function conceptModalityKey(cache: Pick<CatalogResultCache, 'concepts' | 'labels'>): (row: Pick<CatalogConceptRow, 'dictionaryKey' | 'conceptId'>) => string {
+  const dictKeys = new Set(cache.concepts.map((c) => c.dictionaryKey ?? ''))
+  // The run prefixes whenever the mapping has several dictionaries, even if the
+  // concepts came from one: the crossings' own labels say which it did.
+  const prefixed = dictKeys.size > 1 || Object.keys(cache.labels?.concept ?? {}).some((k) => {
+    const at = k.indexOf(':')
+    return at >= 0 && dictKeys.has(k.slice(0, at))
+  })
+  return prefixed ? (c) => `${c.dictionaryKey ?? ''}:${c.conceptId}` : (c) => String(c.conceptId)
+}
+
+export interface CatalogMasks {
+  /** The published crossings (`publishedCrossingResults`). */
+  crossings: CatalogCrossingResult[]
+  /** One mask per published crossing, its status array aligned with the crossing's rows. */
+  masks: Map<string, CrossingMask>
+  /** One status per row of `cache.concepts`, same index. */
+  concepts: Uint8Array
+  /** The status of each modality of the concept variable, by code. */
+  conceptModalities: Map<string, CellStatus>
+}
+
+function maskOfRows(rows: readonly CatalogCrossingRow[], statusOf: (row: CatalogCrossingRow) => CellStatus): CrossingMask {
+  const status = new Uint8Array(rows.length)
+  let primary = 0
+  let secondary = 0
+  let patientMass = 0
+  let publishedMass = 0
+  rows.forEach((row, i) => {
+    const s = statusOf(row)
+    status[i] = s
+    patientMass += row.patients
+    if (s === PRIMARY) primary++
+    else if (s === SECONDARY) secondary++
+    else publishedMass += row.patients
+  })
+  return { status, cells: rows.length, primary, secondary, patientMass, publishedMass }
+}
+
+/**
+ * The masks of everything a catalog publishes: its crossings and its concept
+ * list, worked out together.
+ *
+ * The concept list is the concept variable's 1-way margin: one row per concept
+ * with its distinct patients over the same events the crossings count (the
+ * standard and the source concept of each event row). Published whether the
+ * 1-way crossing is chosen or not, it is a total every concept × … group adds
+ * up to — so it takes part in the suppression as the `concept` margin, merged
+ * with the 1-way crossing when that one is published too (a concept counted
+ * lower in either is masked on that count). A concept masked there is masked
+ * in the list, secondary cells included.
+ *
+ * With the concept variable at category level the crossings count categories,
+ * no margin of a per-concept list: the list is then masked on its own.
+ */
+export function computeCatalogMasks(
+  catalog: Pick<DataCatalog, 'variables' | 'crossings'>,
+  cache: Pick<CatalogResultCache, 'concepts' | 'crossings' | 'labels'>,
+  threshold: number,
+): CatalogMasks {
+  const crossings = publishedCrossingResults(catalog, cache)
+  const keyOf = conceptModalityKey(cache)
+  const listRows: CatalogCrossingRow[] = cache.concepts.map((c) => ({ values: [keyOf(c)], patients: c.patientCount, records: c.recordCount }))
+  const tied = (catalog.variables.concept?.level ?? 'concept') === 'concept' || !crossings.some((c) => c.variables.includes('concept'))
+  const oneWay = crossings.find((c) => c.id === 'concept')
+
+  let masks: Map<string, CrossingMask>
+  let margin: CatalogCrossingResult
+  let marginMask: CrossingMask
+  if (tied) {
+    const byKey = new Map<string, CatalogCrossingRow>()
+    for (const r of [...listRows, ...(oneWay?.rows ?? [])]) {
+      const prev = byKey.get(r.values[0])
+      if (!prev || r.patients < prev.patients) byKey.set(r.values[0], r)
+    }
+    margin = { id: 'concept', variables: ['concept'], rows: [...byKey.values()] }
+    masks = computeCrossingMasks([...crossings.filter((c) => c.id !== 'concept'), margin], threshold)
+    marginMask = masks.get('concept')!
+    masks.delete('concept')
+  } else {
+    margin = { id: 'concept', variables: ['concept'], rows: listRows }
+    masks = computeCrossingMasks(crossings, threshold)
+    marginMask = computeCrossingMasks([margin], threshold).get('concept')!
+  }
+  const marginStatus = new Map(margin.rows.map((r, i) => [r.values[0], marginMask.status[i] as CellStatus]))
+  const concepts = Uint8Array.from(listRows, (r) => marginStatus.get(r.values[0]) ?? PUBLISHED)
+
+  let conceptModalities = marginStatus
+  if (tied && oneWay) {
+    masks.set('concept', maskOfRows(oneWay.rows, (r) => marginStatus.get(r.values[0]) ?? PUBLISHED))
+  } else if (!tied) {
+    const oneWayMask = oneWay ? masks.get('concept') : undefined
+    const rows = oneWay?.rows ?? cache.crossings?.find((c) => c.id === 'concept')?.rows ?? []
+    conceptModalities = new Map(rows.map((r, i) => [r.values[0], (oneWayMask ? oneWayMask.status[i] : r.patients < threshold ? PRIMARY : PUBLISHED) as CellStatus]))
+  }
+  return { crossings, masks, concepts, conceptModalities }
+}
+
+/** What `settings` mask over a computed catalog, crossings and concept list alike. */
+export function catalogAnonymizationImpact(
+  catalog: Pick<DataCatalog, 'variables' | 'crossings'>,
+  cache: Pick<CatalogResultCache, 'concepts' | 'crossings' | 'labels'>,
+  settings: AnonymizationConfig,
+): AnonymizationImpact {
+  const { crossings, masks, concepts } = computeCatalogMasks(catalog, cache, settings.threshold)
+  return computeAnonymizationImpact({ crossings, masks, conceptStatus: concepts }, settings)
+}
+
+/**
  * Finished results with the masks of the catalog's current settings worked
  * out, so the Anonymization tab shows them without a Run of its own — whoever
  * computed the catalog (the app, or the MCP server).
  */
 export function withAnonymizationImpact(catalog: Pick<DataCatalog, 'variables' | 'crossings' | 'anonymization'>, cache: CatalogResultCache): CatalogResultCache {
-  return { ...cache, anonymizationImpact: computeAnonymizationImpact({ concepts: cache.concepts, crossings: publishedCrossingResults(catalog, cache) }, catalog.anonymization) }
+  return { ...cache, anonymizationImpact: catalogAnonymizationImpact(catalog, cache, catalog.anonymization) }
+}
+
+export type PublishedConcept = CatalogConceptRow & { status: CellStatus }
+
+/**
+ * The concept list as it may leave the instance, each row with its status: in
+ * suppress mode without the masked rows. Counts stay raw — how a masked one is
+ * written (capped, emptied) is each output's business. `reveal` keeps every row.
+ */
+export function publishedConcepts(
+  catalog: Pick<DataCatalog, 'variables' | 'crossings' | 'anonymization'>,
+  cache: Pick<CatalogResultCache, 'concepts' | 'crossings' | 'labels'>,
+  { reveal = false, masks }: { reveal?: boolean; masks?: CatalogMasks } = {},
+): PublishedConcept[] {
+  const status = (masks ?? computeCatalogMasks(catalog, cache, catalog.anonymization.threshold)).concepts
+  const rows = cache.concepts.map((c, i) => ({ ...c, status: status[i] as CellStatus }))
+  return reveal || catalog.anonymization.mode !== 'suppress' ? rows : rows.filter((r) => r.status === PUBLISHED)
 }
 
 /**
  * Each variable's modalities in display order, with their names — periods
- * trimmed to those reaching the threshold.
+ * trimmed to those reaching the threshold. In suppress mode, the concepts (or
+ * categories) masked in the concept margin are left out: their names are what
+ * that mode withholds. `conceptModalities` is that margin's status per code
+ * (`computeCatalogMasks`); without it, nothing is left out.
  */
 export function publishedVariables(
   catalog: Pick<DataCatalog, 'variables' | 'anonymization' | 'crossings'>,
   cache: CatalogResultCache,
   locale: PageLocale = 'en',
+  conceptModalities?: ReadonlyMap<string, CellStatus>,
 ): PublishedCatalog['variables'] {
   const threshold = catalog.anonymization.threshold
   const crossings = cache.crossings ?? []
@@ -168,6 +313,9 @@ export function publishedVariables(
     // De-identified sources scatter a few patients over decades: drop the
     // periods before the first and after the last that reach the threshold.
     if (id === 'period') mods = trimPeriods(mods, new Map(marginal.map((r) => [r.values[0], r.patients])), threshold)
+    if (id === 'concept' && conceptModalities && catalog.anonymization.mode === 'suppress') {
+      mods = mods.filter((m) => (conceptModalities.get(m) ?? PUBLISHED) === PUBLISHED)
+    }
     const variable: PublishedVariable = {
       id,
       label: variableLabel(catalog, id, locale),
@@ -183,8 +331,8 @@ export function publishedVariables(
     if (id === 'concept') variable.level = catalog.variables.concept?.level ?? 'concept'
     if (id === 'concept' && catalog.variables.concept?.level === 'concept' && catalog.variables.concept.categoryColumn) {
       const categoryOf = new Map<string, string | null>()
-      const multi = new Set(cache.concepts.map((c) => c.dictionaryKey)).size > 1
-      for (const c of cache.concepts) categoryOf.set(multi ? `${c.dictionaryKey}:${c.conceptId}` : String(c.conceptId), c.category ?? null)
+      const keyOf = conceptModalityKey(cache)
+      for (const c of cache.concepts) categoryOf.set(keyOf(c), c.category ?? null)
       variable.categories = mods.map((m) => categoryOf.get(m) ?? null)
     }
     variables[id] = variable
@@ -193,19 +341,20 @@ export function publishedVariables(
 }
 
 /**
- * `reveal` keeps the numbers of masked cells, their status unchanged: for the
- * app's preview, which can show what the masks hide. Never for a published output.
- * `locale` is the language of the labels (variables, modalities).
+ * `reveal` keeps the masked cells with their numbers, their status unchanged:
+ * for the app's preview, which can show what the masks hide. `keepMasked` keeps
+ * them without their numbers, for the app's agent, which says which cells are
+ * masked. Neither for a published output. `locale` is the language of the
+ * labels (variables, modalities).
  */
 export function buildPublishedCatalog(
   catalog: Pick<DataCatalog, 'variables' | 'anonymization' | 'counts' | 'crossings'>,
   cache: CatalogResultCache,
-  { reveal = false, locale = 'en' }: { reveal?: boolean; locale?: PageLocale } = {},
+  { reveal = false, keepMasked = false, locale = 'en', masks: catalogMasks }: { reveal?: boolean; keepMasked?: boolean; locale?: PageLocale; masks?: CatalogMasks } = {},
 ): PublishedCatalog {
   const threshold = catalog.anonymization.threshold
-  const crossings = publishedCrossingResults(catalog, cache)
-  const masks = computeCrossingMasks(crossings, threshold)
-  const variables = publishedVariables(catalog, cache, locale)
+  const { crossings, masks, conceptModalities } = catalogMasks ?? computeCatalogMasks(catalog, cache, threshold)
+  const variables = publishedVariables(catalog, cache, locale, reveal ? undefined : conceptModalities)
   const index = new Map<CatalogVariableId, Map<string, number>>()
   for (const v of Object.values(variables)) index.set(v.id, new Map(v.mods.map((m, i) => [m, i])))
 
@@ -230,11 +379,12 @@ export function buildPublishedCatalog(
         if (at == null) continue rows
         cell[i] = at
       }
+      if (status === SECONDARY) secondary++
+      else if (status !== PUBLISHED) primary++
+      if (!shown && !keepMasked) continue
       cell[k] = shown ? row.patients : null
       for (let m = 0; m < keys.length; m++) cell[k + 1 + m] = shown ? row[keys[m]] ?? null : null
       cell[k + 1 + keys.length] = status
-      if (status === SECONDARY) secondary++
-      else if (status !== PUBLISHED) primary++
       cells.push(cell)
     }
     const n = crossing.variables.length

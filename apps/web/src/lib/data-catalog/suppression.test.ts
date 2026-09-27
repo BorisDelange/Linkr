@@ -34,6 +34,15 @@ describe('computeCrossingMasks', () => {
     expect([...masks.get('age-sex')!.status].filter((s) => s !== PUBLISHED)).toHaveLength(4)
   })
 
+  it('protects a small cell through the concept margin', () => {
+    // Concept 42's total, 63, is published: 42·female = 3 would be 63 − 60.
+    const masks = computeCrossingMasks([
+      crossing('concept', [[['42'], 63], [['7'], 90]]),
+      crossing('concept-sex', [[['42', 'male'], 60], [['42', 'female'], 3], [['7', 'male'], 50], [['7', 'female'], 40]]),
+    ], 10)
+    expect([...masks.get('concept-sex')!.status].slice(0, 2)).toEqual([SECONDARY, PRIMARY])
+  })
+
   it('does not use a margin counted over another population', () => {
     const masks = computeCrossingMasks([
       crossing('sex', [[['male'], 100]]),
@@ -46,12 +55,13 @@ describe('computeCrossingMasks', () => {
 })
 
 describe('computeAnonymizationImpact', () => {
-  it('sums up what the settings mask, crossing by crossing', () => {
-    const impact = computeAnonymizationImpact({
-      concepts: [{ conceptId: 1, conceptName: 'A', patientCount: 3, recordCount: 3 }, { conceptId: 2, conceptName: 'B', patientCount: 30, recordCount: 30 }],
-      crossings: [{ id: 'sex', variables: ['sex'], rows: [{ values: ['male'], patients: 40 }, { values: ['female'], patients: 4 }, { values: ['other'], patients: 2 }] }],
-    }, { threshold: 10, mode: 'suppress' })
-    expect(impact).toMatchObject({ threshold: 10, mode: 'suppress', concepts: { total: 2, masked: 1 } })
+  it('sums up what the masks hide, crossing by crossing and in the concept list', () => {
+    const crossings = [crossing('sex', [[['male'], 40], [['female'], 4], [['other'], 2]])]
+    const impact = computeAnonymizationImpact(
+      { crossings, masks: computeCrossingMasks(crossings, 10), conceptStatus: [PRIMARY, PUBLISHED, SECONDARY] },
+      { threshold: 10, mode: 'suppress' },
+    )
+    expect(impact).toMatchObject({ threshold: 10, mode: 'suppress', concepts: { total: 3, masked: 2 } })
     expect(impact.crossings).toEqual([{ id: 'sex', variables: ['sex'], cells: 3, primary: 2, secondary: 0, patientMass: 46, publishedMass: 40 }])
   })
 })

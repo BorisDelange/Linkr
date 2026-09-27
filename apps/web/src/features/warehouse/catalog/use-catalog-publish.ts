@@ -38,7 +38,7 @@ function publicationFiles(ctx: PublicationContext): { name: string; content: str
   const published = buildPublishedCatalog(catalog, cache, { locale: ctx.locale })
   return [
     { name: 'catalog.html', content: generateCatalogHtml(ctx) },
-    { name: 'concepts.csv', content: buildConceptsCsv(cache.concepts, catalog) },
+    { name: 'concepts.csv', content: buildConceptsCsv(catalog, cache) },
     ...published.crossings.map((c) => ({ name: crossingCsvPath(c.id), content: buildCrossingCsv(published, c) })),
     {
       name: 'metadata.jsonld',

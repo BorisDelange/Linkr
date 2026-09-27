@@ -1,7 +1,7 @@
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { describe, it, expect } from 'vitest'
 import type { CatalogResultCache, DataCatalog } from '@/types'
-import { generateCatalogHtml, PAGE_READY_MESSAGE } from './export-html'
+import { buildCatalogPageData, buildConceptsCsv, generateCatalogHtml, PAGE_READY_MESSAGE } from './export-html'
 import { TABLE_HELPERS } from './export-html-script'
 
 const EVIL = '</script><img src=x onerror=alert(1)>'
@@ -28,6 +28,7 @@ function fixture(mode: 'replace' | 'suppress' = 'replace') {
     concepts: [
       { conceptId: 1, conceptName: 'Heart rate', dictionaryKey: 'concept', category: 'Measurement', patientCount: 500, visitCount: 600, recordCount: 90000 },
       { conceptId: 2, conceptName: EVIL, dictionaryKey: 'concept', category: 'Condition', patientCount: 3, visitCount: 3, recordCount: 4 },
+      { conceptId: 3, conceptName: 'Rare too', dictionaryKey: 'concept', category: 'Condition', patientCount: 2, visitCount: 2, recordCount: 2 },
     ],
     crossings: [
       { id: 'period', variables: ['period'], rows: [{ values: ['2024-01'], patients: 120, stays: 130 }, { values: ['2024-02'], patients: 90, stays: 95 }] },
@@ -108,11 +109,60 @@ describe('generateCatalogHtml', () => {
     expect(data(generateCatalogHtml(fixture('suppress'))).concepts.rows).toHaveLength(1)
   })
 
-  it('inlines crossings without the numbers of masked cells', () => {
+  it('inlines no masked cell, nor how many there are: masked and empty read alike', () => {
     const { crossings } = data(html)
     const ageSex = crossings.find((c: { id: string }) => c.id === 'age-sex')
-    expect(ageSex.cells).toContainEqual([0, 0, null, null, 1])
+    expect(ageSex.cells.every((c: number[]) => c[c.length - 1] === 0)).toBe(true)
+    expect(ageSex.masked).toBeUndefined()
     expect(html).not.toContain('4444')
+  })
+})
+
+describe('the concept list against the crossings', () => {
+  const conceptFixture = (mode: 'replace' | 'suppress', concepts: [number, number][], crossings: unknown[] = []) => {
+    const f = fixture(mode)
+    f.catalog = { ...f.catalog, variables: { ...f.catalog.variables, concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } }, crossings: [['concept', 'sex']] }
+    f.cache = {
+      ...f.cache,
+      concepts: concepts.map(([conceptId, patientCount]) => ({ conceptId, conceptName: `C${conceptId}`, patientCount, recordCount: patientCount })),
+      crossings: crossings as CatalogResultCache['crossings'],
+      modalities: { concept: concepts.map(([id]) => String(id)), sex: ['male', 'female'] },
+    }
+    return f
+  }
+  // Concept 42: 60 men and 3 women, threshold 10.
+  const reproduced = (mode: 'replace' | 'suppress') => conceptFixture(mode, [[42, 63], [7, 90]], [
+    { id: 'concept', variables: ['concept'], rows: [{ values: ['42'], patients: 63, records: 63 }, { values: ['7'], patients: 90, records: 90 }] },
+    { id: 'concept-sex', variables: ['concept', 'sex'], rows: [
+      { values: ['42', 'male'], patients: 60, records: 60 }, { values: ['42', 'female'], patients: 3, records: 3 },
+      { values: ['7', 'male'], patients: 50, records: 50 }, { values: ['7', 'female'], patients: 40, records: 40 },
+    ] },
+  ])
+
+  it('never publishes both a concept\'s total and all but one of its cells', () => {
+    for (const mode of ['replace', 'suppress'] as const) {
+      const page = buildCatalogPageData(reproduced(mode))
+      expect(page.concepts.rows).toContainEqual([42, 'C42', 63, 63, false])
+      const cells = page.crossings.find((c) => c.id === 'concept-sex')!.cells
+      // Published, 60 would give the women away: 63 − 60 = 3.
+      expect(cells.some((c) => c[2] === 60)).toBe(false)
+    }
+  })
+
+  it('masks in the list a concept masked to protect another, in both modes', () => {
+    // One concept below the threshold: the smallest other is masked with it.
+    const f = (mode: 'replace' | 'suppress') => conceptFixture(mode, [[1, 5], [2, 50], [3, 200]])
+    const replaced = buildCatalogPageData(f('replace')).concepts.rows
+    expect(replaced).toContainEqual([2, 'C2', 10, 10, true])
+    expect(JSON.stringify(replaced)).not.toContain('50')
+    expect(buildCatalogPageData(f('suppress')).concepts.rows.map((r) => r[0])).toEqual([3])
+
+    const csv = buildConceptsCsv(f('replace').catalog, f('replace').cache).split('\n')
+    expect(csv[0]).toBe('concept_id,concept_name,vocabulary,category,subcategory,patient_count,record_count,status')
+    expect(csv[1]).toBe('3,C3,,,,200,200,published')
+    // Capped rows tie on their capped count: no trace of their real order.
+    expect(csv.slice(2)).toEqual(['1,C1,,,,,,suppressed', '2,C2,,,,,,suppressed'])
+    expect(buildConceptsCsv(f('suppress').catalog, f('suppress').cache).split('\n')).toHaveLength(2)
   })
 })
 

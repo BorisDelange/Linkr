@@ -10,8 +10,8 @@ import {
 import {
   DEFAULT_CONCEPT_CONFIG, DEFAULT_SERVICE_CONFIG, canonicalCrossing, catalogCounts, crossingId, defaultCatalogVariables, effectiveCrossings, shownCrossingIds,
 } from '@/lib/data-catalog/config'
-import { buildPublishedCatalog } from '@/lib/data-catalog/publish'
-import { PRIMARY, SECONDARY } from '@/lib/data-catalog/suppression'
+import { buildPublishedCatalog, computeCatalogMasks, publishedConcepts } from '@/lib/data-catalog/publish'
+import { PRIMARY, PUBLISHED, SECONDARY } from '@/lib/data-catalog/suppression'
 import type { LocalizedString, SchemaMapping, WikiPage } from '@/types'
 import { subtreeIds } from './helpers.js'
 
@@ -362,19 +362,22 @@ export function renderCatalogResults(
 ): string {
   const limit = opts.limit ?? 50
   const { threshold } = catalog.anonymization
-  const suppress = catalog.anonymization.mode === 'suppress'
   const m = (n: number | null | undefined) => maskedCount(n, threshold)
-  const published = buildPublishedCatalog(catalog, cache)
+  const masks = computeCatalogMasks(catalog, cache, threshold)
+  const published = buildPublishedCatalog(catalog, cache, { masks, keepMasked: true })
   const head = `Computed ${cache.computedAt}: ${m(cache.totalPatients)} patients · ${m(cache.totalVisits)} hospital stays · `
     + `${cache.totalConcepts} concepts · ${published.crossings.length} published crossing(s)`
-  const concepts = cache.concepts.filter((c) => !suppress || c.patientCount >= threshold)
+  const concepts = publishedConcepts(catalog, cache, { masks })
+  const mc = (c: (typeof concepts)[number], n: number | null | undefined) => (c.status === PUBLISHED ? m(n) : `< ${threshold}`)
+  // A masked concept ranks as its masked count, so the order does not place it.
+  const rank = (c: (typeof concepts)[number]) => (c.status === PUBLISHED ? c.patientCount : 0)
 
   if (view === 'summary') {
     const byCategory = new Map<string, number>()
     for (const c of concepts) byCategory.set(c.category ?? '(none)', (byCategory.get(c.category ?? '(none)') ?? 0) + 1)
     const cats = [...byCategory].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([k, n]) => `${k}: ${n}`)
-    const top = [...concepts].sort((a, b) => b.patientCount - a.patientCount).slice(0, 10)
-      .map((c) => `  ${c.conceptName} (${c.conceptId}) — ${m(c.patientCount)} patients`)
+    const top = [...concepts].sort((a, b) => rank(b) - rank(a)).slice(0, 10)
+      .map((c) => `  ${c.conceptName} (${c.conceptId}) — ${mc(c, c.patientCount)} patients`)
     const crossings = published.crossings.map((c) => {
       const masked = c.masked.primary + c.masked.secondary
       return `  ${c.id} (${c.vars.join(' × ')}) — ${c.cells.length} cell(s)${masked ? `, ${masked} masked` : ''}`
@@ -389,10 +392,10 @@ export function renderCatalogResults(
     const rows = concepts
       .filter((c) => !opts.category || c.category === opts.category)
       .filter((c) => !q || c.conceptName?.toLowerCase().includes(q) || String(c.conceptId).includes(q))
-      .sort((a, b) => b.patientCount - a.patientCount)
+      .sort((a, b) => rank(b) - rank(a))
     const lines = rows.slice(0, limit).map((c) =>
       `${c.conceptId} · ${c.conceptName}${c.category ? ` · ${c.category}` : ''}${c.subcategory ? ` / ${c.subcategory}` : ''}`
-      + ` · patients ${m(c.patientCount)}${c.visitCount != null ? ` · stays ${m(c.visitCount)}` : ''} · records ${m(c.recordCount)}`)
+      + ` · patients ${mc(c, c.patientCount)}${c.visitCount != null ? ` · stays ${mc(c, c.visitCount)}` : ''} · records ${mc(c, c.recordCount)}`)
     return [head, `${rows.length} matching concept(s)${rows.length > limit ? `, first ${limit} by patients` : ''}:`, ...lines].join('\n')
   }
 
