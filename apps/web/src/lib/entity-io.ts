@@ -3,7 +3,7 @@
  */
 import { normalizeCatalog } from '@/lib/data-catalog/config'
 import JSZip from 'jszip'
-import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { sanitizeSchemaMapping, sanitizeSchemaOverrides } from '@/lib/schema-helpers'
 import { isEmptyOverrides } from '@/lib/schema-classes/overrides'
 import type { SchemaOverrides } from '@/types/schema-mapping'
 import {
@@ -2671,28 +2671,13 @@ function resolveWorkspaceName(ws: Workspace): string {
     : (ws.name.en || Object.values(ws.name)[0] || 'workspace')
 }
 
-/**
- * A database's `mapping-overrides.json`, validated like a mapping: its relations
- * are interpolated into SQL as readily as the base's are. Anything but an object
- * reads as no overrides.
- */
+/** A database's `mapping-overrides.json`: see `sanitizeSchemaOverrides`. */
 function readOverrides(text: string): SchemaOverrides | undefined {
-  let raw: unknown
   try {
-    raw = JSON.parse(text)
+    return sanitizeSchemaOverrides(JSON.parse(text))
   } catch {
     return undefined
   }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
-  const o = raw as SchemaOverrides
-  // The relations go through the mapping sanitizer, as the specs of a mapping.
-  const probe = sanitizeSchemaMapping({ formatVersion: 2, presetId: '', presetLabel: {}, overrides: o.relations ?? {} } as unknown as SchemaMapping) as unknown as { overrides: SchemaOverrides['relations'] }
-  const out: SchemaOverrides = {}
-  if (probe.overrides && Object.keys(probe.overrides).length) {
-    out.relations = probe.overrides
-    if (o.baseAtOverride) out.baseAtOverride = o.baseAtOverride
-  }
-  return isEmptyOverrides(out) ? undefined : out
 }
 
 /**

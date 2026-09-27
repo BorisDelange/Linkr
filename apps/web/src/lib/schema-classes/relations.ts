@@ -145,7 +145,7 @@ class Builder {
   constructor(spec: RelationSpec, readable = false) {
     this.readable = readable
     for (const t of [spec.from, ...(spec.joins ?? [])]) {
-      if (!t) continue
+      if (!t?.table) continue
       if (!isColumnName(t.alias) || !isSafeIdentifier(t.table) || (t.schema && !isSafeIdentifier(t.schema))) {
         this.problems.push(`invalid table or alias: ${t.alias}`)
         continue
@@ -206,8 +206,8 @@ class Builder {
     return `(SELECT * FROM ${base} UNION ALL BY NAME SELECT ${pads} WHERE false) ${t.alias}`
   }
 
-  has(alias: string): boolean {
-    return this.aliases.has(alias.toLowerCase())
+  has(alias: string | undefined): boolean {
+    return !!alias && this.aliases.has(alias.toLowerCase())
   }
 }
 
@@ -241,7 +241,7 @@ function selectList(cls: ClassName, exprs: Exprs, extraKeys: string[], mappedOnl
 
 /** A visual relation's column expressions, over its tables' aliases. */
 function visualExprs(cls: ClassName, spec: RelationSpec, derive: Derive | undefined, readable: boolean) {
-  if (!spec.from) return null
+  if (!spec.from?.table) return null
   const b = new Builder(spec, readable)
   if (!b.has(spec.from.alias)) return null
   const contract = new Set(CLASS_CONTRACTS[cls].map((c) => c.name))

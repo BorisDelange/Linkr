@@ -224,7 +224,8 @@ export function escSql(value: string): string {
  * Only allows alphanumeric, underscore, and dot characters.
  */
 export function isSafeIdentifier(name: string): boolean {
-  return /^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(name)
+  // `RegExp.test` stringifies its argument: undefined would pass as "undefined".
+  return typeof name === 'string' && /^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(name)
 }
 
 /**

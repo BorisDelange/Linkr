@@ -50,6 +50,10 @@ describe('isSafeIdentifier', () => {
     expect(isSafeIdentifier('_private')).toBe(true)
   })
 
+  it('rejects a missing name, which RegExp.test would read as "undefined"', () => {
+    expect(isSafeIdentifier(undefined as unknown as string)).toBe(false)
+  })
+
   it('rejects names starting with a digit', () => {
     expect(isSafeIdentifier('1col')).toBe(false)
   })

@@ -1,4 +1,4 @@
-import type { RelationSpec, SchemaMapping } from '@/types/schema-mapping'
+import type { RelationSpec, SchemaMapping, SchemaOverrides } from '@/types/schema-mapping'
 import { isSafeIdentifier } from '@/lib/format-helpers'
 import { isMappingV1, mappingV1ToV2 } from '@/lib/schema-classes/v1'
 
@@ -135,20 +135,44 @@ export function sanitizeSchemaMapping<T extends SchemaMapping | undefined | null
  * there. A relation added in the editor and saved before its table was typed
  * is the usual case.
  */
+function dropTablelessRef<S extends RelationSpec>(spec: S): S {
+  const out = { ...spec }
+  if (out.from && !out.from.table) delete out.from
+  if (out.joins) out.joins = out.joins.filter((j) => !!j.table)
+  return out
+}
+
 function dropTablelessRefs(mapping: SchemaMapping): SchemaMapping {
-  const clean = <S extends RelationSpec>(spec: S): S => {
-    const out = { ...spec }
-    if (out.from && !out.from.table) delete out.from
-    if (out.joins) out.joins = out.joins.filter((j) => !!j.table)
-    return out
-  }
   const out = { ...mapping }
   for (const key of ['patient', 'visit', 'visitDetail', 'note'] as const) {
-    if (out[key]) (out as Record<string, unknown>)[key] = clean(out[key]!)
+    if (out[key]) (out as Record<string, unknown>)[key] = dropTablelessRef(out[key]!)
   }
-  if (out.concepts) out.concepts = out.concepts.map(clean)
-  if (out.events) out.events = out.events.map(clean)
-  if (out.drugs) out.drugs = out.drugs.map(clean)
+  if (out.concepts) out.concepts = out.concepts.map((c) => dropTablelessRef(c))
+  if (out.events) out.events = out.events.map((e) => dropTablelessRef(e))
+  if (out.drugs) out.drugs = out.drugs.map((d) => dropTablelessRef(d))
+  return out
+}
+
+/**
+ * A database's overrides, validated like a mapping: their relations are merged
+ * into the mapping every query reads (`effectiveMapping`). Anything but an
+ * object, or an override left with no relation, reads as no overrides.
+ */
+export function sanitizeSchemaOverrides(raw: unknown): SchemaOverrides | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const { relations, baseAtOverride } = raw as SchemaOverrides
+  if (!relations || typeof relations !== 'object' || Array.isArray(relations)) return undefined
+  const clean: Record<string, RelationSpec> = {}
+  for (const [key, spec] of Object.entries(relations)) {
+    if (spec && typeof spec === 'object' && !Array.isArray(spec)) clean[key] = dropTablelessRef(sanitizeNode(spec))
+  }
+  if (!Object.keys(clean).length) return undefined
+  const out: SchemaOverrides = { relations: clean }
+  if (baseAtOverride && typeof baseAtOverride === 'object' && !Array.isArray(baseAtOverride)) {
+    out.baseAtOverride = Object.fromEntries(
+      Object.entries(baseAtOverride).filter(([k, v]) => k in clean && typeof v === 'string'),
+    )
+  }
   return out
 }
 

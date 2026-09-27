@@ -11,7 +11,7 @@ import type { DeriveRequest } from '@/lib/api/data-sources'
 import type { DerivationJobResult, Job } from '@/lib/api/environments'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
-import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { sanitizeSchemaMapping, sanitizeSchemaOverrides } from '@/lib/schema-helpers'
 import { isMappingV1 } from '@/lib/schema-classes/v1'
 import { effectiveMapping } from '@/lib/schema-classes/overrides'
 import { classRelation } from '@/lib/schema-classes/relations'
@@ -368,6 +368,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
             // (and the server's exports) only ever hold v2.
             if (wasV1) getStorage().dataSources.update(ds.id, { schemaMapping: ds.schemaMapping }).catch(() => {})
           }
+          if (ds.schemaOverrides) ds.schemaOverrides = sanitizeSchemaOverrides(ds.schemaOverrides)
         }
         // Only the newest load may publish. In server mode `getAll()` is an HTTP
         // request, so a plain read that started first can resolve AFTER a forced

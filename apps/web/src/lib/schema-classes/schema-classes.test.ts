@@ -282,6 +282,18 @@ describe('classRelations (v2 mapping)', () => {
     expect(eventRelation(visual, 'Rx')).toBe(rx)
   })
 
+  it('reads a from or a join with no table as absent, never as "undefined"', () => {
+    const tableless = { ...v2, visit: { from: { alias: 's' }, fields: { visit_id: 's.id' } } } as unknown as SchemaMapping
+    expect(classRelation(tableless, 'visit')).toBeUndefined()
+    const joinless = {
+      ...v2,
+      visit: { ...v2.visit!, joins: [{ type: 'left', alias: 'u', on: [['s.unit', 'u.id']] }, { type: 'left', table: 'units', on: [] }] },
+    } as unknown as SchemaMapping
+    const visit = classRelation(joinless, 'visit')!
+    expect(visit.sql).not.toContain('undefined')
+    expect(visit.sql).not.toContain('JOIN')
+  })
+
   it('refuses custom SQL that is not a single SELECT, loudly', () => {
     const rel = classRelation({ ...v2, visit: { customSql: 'DELETE FROM stays' } }, 'visit')!
     expect(rel.problems).toEqual(['custom SQL must be a single SELECT statement'])

@@ -8,6 +8,7 @@ import { fetchDataSourceSchema, queryDataSourceOnServer } from '@/lib/api/data-s
 import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { grainTable } from '@/lib/schema-classes/spec'
+import { quoteIdent } from '@/lib/format-helpers'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
 const resetHooks = new Set<() => void>()
@@ -730,8 +731,7 @@ async function serverCount(dataSourceId: string, table: string, schema?: string)
   // Same mapped-schema rule as safeCount: qualify only when the mapping names a
   // schema, so a multi-module source counts its rows and a single-schema one
   // still resolves through the search path.
-  const quote = (id: string) => `"${id.replace(/"/g, '""')}"`
-  const qualified = schema ? `${quote(schema)}.${quote(table)}` : quote(table)
+  const qualified = [schema, table].filter((part): part is string => !!part).map(quoteIdent).join('.')
   try {
     const rows = await queryDataSource(dataSourceId, `SELECT COUNT(*) AS cnt FROM ${qualified}`)
     return Number(rows[0]?.cnt ?? 0)
@@ -756,9 +756,7 @@ async function safeCount(
   table: string,
   schema?: string,
 ): Promise<number> {
-  const qualified = schema
-    ? `"${catalog}"."${schema}"."${table}"`
-    : `"${catalog}"."${table}"`
+  const qualified = [catalog, schema, table].filter((part): part is string => !!part).map(quoteIdent).join('.')
   try {
     const r = await conn.query(`SELECT COUNT(*) as cnt FROM ${qualified}`)
     return Number(r.toArray()[0]?.cnt ?? 0)
