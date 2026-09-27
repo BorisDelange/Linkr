@@ -102,7 +102,8 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   }, [source.id, cohort.level, blocked])
 
   const filtered = plan?.filter((p) => p.filter) ?? []
-  const personless = plan?.filter((p) => !p.filter) ?? []
+  const personless = plan?.filter((p) => !p.filter && !p.unresolved) ?? []
+  const unresolved = plan?.filter((p) => !p.filter && p.unresolved) ?? []
 
   const canConfirm = !blocked && !busy && (
     kind === 'new-database'
@@ -315,6 +316,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
             <DerivePlan
               filtered={filtered}
               personless={personless}
+              unresolved={unresolved}
               copyPersonless={copyPersonless}
               loading={!plan && !planError}
               error={planError}
@@ -360,12 +362,14 @@ const tableName = (p: { schema: string | null; table: string }) => (p.schema ? `
 function DerivePlan({
   filtered,
   personless,
+  unresolved,
   copyPersonless,
   loading,
   error,
 }: {
   filtered: DerivePlanTable[]
   personless: DerivePlanTable[]
+  unresolved: DerivePlanTable[]
   copyPersonless: boolean
   loading: boolean
   error: string | null
@@ -401,6 +405,14 @@ function DerivePlan({
                 <td className="px-2 py-1 font-mono">{tableName(p)}</td>
                 <td className="px-2 py-1 text-muted-foreground">
                   {copyPersonless ? t('cohort_derive.filter_whole') : t('cohort_derive.filter_skipped')}
+                </td>
+              </tr>
+            ))}
+            {unresolved.map((p) => (
+              <tr key={tableName(p)} className="border-b last:border-0">
+                <td className="px-2 py-1 font-mono">{tableName(p)}</td>
+                <td className="px-2 py-1 text-destructive">
+                  {t('cohort_derive.filter_unresolved', { relation: p.unresolved })}
                 </td>
               </tr>
             ))}

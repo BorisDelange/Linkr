@@ -104,6 +104,9 @@ export interface DerivePlanTable {
   table: string
   filter: DeriveFilter | null
   column: string | null
+  /** The relation that reads this table without a patient id column: never
+   *  copied, since its rows cannot be filtered. */
+  unresolved?: string | null
 }
 
 /** What deriving a cohort of this database at `level` would do with each table. */

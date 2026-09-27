@@ -6030,6 +6030,7 @@
     "filter_parent_visit": "Stays containing the cohort’s unit stays ({{column}})",
     "filter_whole": "Copied whole",
     "filter_skipped": "Not copied",
+    "filter_unresolved": "Not copied: the relation {{relation}} reads it without a patient id column, so its rows cannot be filtered",
     "unavailable_event-level": "An event-level cohort has no single id to filter the tables on. Choose the patient, stay or unit-stay level.",
     "unavailable_no-mapping": "This database’s schema does not say where its patients are, so the tables cannot be filtered.",
     "provenance_title": "Derived from a cohort",

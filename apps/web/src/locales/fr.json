@@ -6030,6 +6030,7 @@
     "filter_parent_visit": "Séjours contenant les séjours en unité de la cohorte ({{column}})",
     "filter_whole": "Copiée en entier",
     "filter_skipped": "Non copiée",
+    "filter_unresolved": "Non copiée : la relation {{relation}} la lit sans colonne d’identifiant patient, ses lignes ne peuvent donc pas être filtrées",
     "unavailable_event-level": "Une cohorte au niveau événement n’a pas d’identifiant unique sur lequel filtrer les tables. Choisissez le niveau patient, séjour ou séjour en unité.",
     "unavailable_no-mapping": "Le schéma de cette base n’indique pas où sont ses patients : les tables ne peuvent pas être filtrées.",
     "provenance_title": "Dérivée d’une cohorte",

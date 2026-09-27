@@ -218,3 +218,38 @@ def test_the_database_overrides_apply_before_the_ids_are_read():
     assert "stay_key" in ids.visit and "pid" in ids.patient
     assert cohort_derive.effective_mapping(MAPPING_V2, None) is MAPPING_V2
     assert cohort_derive.mapping_schemas({**MAPPING_V2, "note": {"from": {"schema": "note", "table": "d", "alias": "n"}}}) == {"note"}
+
+
+def test_effective_mapping_replaces_a_renamed_event_in_place():
+    # The app overrides a renamed base event under its base key (diffOverrides):
+    # one relation, under its new label — never the old one beside it.
+    renamed = {**MAPPING_V2["events"][0], "label": "Labs"}
+    effective = cohort_derive.effective_mapping(MAPPING_V2, {"relations": {"events.Measurement": renamed}})
+    assert [e["label"] for e in effective["events"]] == ["Labs"]
+
+
+def test_a_table_read_without_a_patient_id_column_is_never_copied_whole(source, tmp_path):
+    # measurement's patient id is an expression, visit_detail's relation is SQL:
+    # neither table has an id column the mapping names, and copying them whole
+    # would put every patient in the derived database.
+    mapping = {
+        **MAPPING_V2,
+        "visitDetail": {"customSql": "SELECT visit_detail_id, person_id AS patient_id FROM visit_detail"},
+        "events": [{"label": "Measurement", "from": {"table": "measurement", "alias": "e"}, "fields": {"patient_id": {"expr": "e.person_id + 0"}}}],
+        "concepts": [{"key": "concept", "from": {"table": "concept", "alias": "c"}, "fields": {"concept_id": "c.concept_id"}}],
+    }
+    by_table = {p["table"]: p for p in cohort_derive.plan(source, mapping, "visit")}
+    # Other relations name person_id and visit_occurrence_id: those still filter it.
+    assert by_table["measurement"]["filter"] == "visit" and by_table["measurement"]["unresolved"] is None
+    only_expr = {**mapping, "patient": {"customSql": "SELECT person_id AS patient_id FROM person"},
+                 "visit": {"customSql": "SELECT * FROM visit_occurrence"}}
+    by_table = {p["table"]: p for p in cohort_derive.plan(source, only_expr, "patient")}
+    assert by_table["measurement"]["unresolved"] == "events.Measurement"
+    assert by_table["visit_detail"]["unresolved"] == "visitDetail"
+    assert by_table["concept"]["unresolved"] is None
+
+    members = cohort_derive.compute_members(source, "SELECT person_id AS id, person_id AS patient_id FROM person WHERE person_id <= 3")
+    out = tmp_path / "derived.duckdb"
+    written = {w["table"]: w for w in cohort_derive.derive(source, TargetSpec("file", path=str(out), fresh_file=True), members, only_expr, "patient", True)}
+    assert written["measurement"] == {"schema": "main", "table": "measurement", "filter": None, "rows": None, "skipped": True, "unresolved": "events.Measurement"}
+    assert written["concept"]["rows"] == 5

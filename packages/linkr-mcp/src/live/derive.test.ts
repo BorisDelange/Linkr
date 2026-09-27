@@ -113,6 +113,12 @@ describe('formatDerivePlan', () => {
     expect(out).toContain('person: rows of the cohort\'s patients (person_id)')
     expect(out).toContain('vocab.concept: skipped')
   })
+
+  it('says why a table read without a patient id column is never copied', () => {
+    const out = formatDerivePlan([{ schema: null, table: 'labs', filter: null, column: null, unresolved: 'events.Labs' }], true)
+    expect(out).toContain('labs: skipped — relation events.Labs')
+    expect(out).not.toContain('copied whole')
+  })
 })
 
 describe('formatJob', () => {

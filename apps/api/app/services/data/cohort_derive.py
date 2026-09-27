@@ -16,12 +16,14 @@ target is a production Postgres.
 
 Which rows a table keeps follows the cohort's level and the finest id the table
 carries (see `classify`). A table carrying none (vocabulary, care_site…) is copied
-whole, or skipped when the caller asks.
+whole, or skipped when the caller asks — unless a patient relation reads it
+without a patient id column (`unresolved_tables`): that one is never copied.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -161,6 +163,50 @@ def _id_columns_v2(mapping: dict) -> IdColumns:
         cols.visit_detail_id = vd_id
         cols.visit_detail_visit_id = vd_visit
     return cols
+
+
+def _relation_name(key: str, spec: dict) -> str:
+    if key in ("events", "drugs"):
+        return f"{key}.{spec.get('label') or '?'}"
+    return key
+
+
+def _names_table(sql: str, table: str) -> bool:
+    # Over-matching (a column of the same name, the same table in another
+    # schema) only makes a table unresolved, which skips it: the safe side.
+    return re.search(rf'(?<![\w"])"?{re.escape(table)}"?(?![\w"])', sql, re.IGNORECASE) is not None
+
+
+def unresolved_tables(mapping: dict, tables: list[tuple[str, str, list[str]]]) -> dict[tuple[str, str], str]:
+    """`(schema, table) → relation` for the source tables a patient-bearing v2
+    relation reads without naming its patient id as a column of the table (an
+    expression, or custom SQL). Such a table can carry no id `classify` finds,
+    and copying it whole would leak every patient into the derived database."""
+    if mapping.get("formatVersion") != 2:
+        return {}
+    # A dictionary a custom relation joins is personless by design: still copied.
+    dictionaries = {
+        str(t.get("table") or "").lower()
+        for key, spec in _v2_relations(mapping) if key == "concepts"
+        for t in [spec.get("from") or {}, *(spec.get("joins") or [])] if isinstance(t, dict)
+    }
+    out: dict[tuple[str, str], str] = {}
+    for key, spec in _v2_relations(mapping):
+        if key == "concepts" or _field_column(spec, "patient_id"):
+            continue
+        name = _relation_name(key, spec)
+        sql = (spec.get("customSql") or "").strip()
+        grain = spec.get("from") or {}
+        for schema, table, _cols in tables:
+            if sql:
+                hit = table.lower() not in dictionaries and _names_table(sql, table)
+            else:
+                hit = str(grain.get("table") or "").lower() == table.lower() and (
+                    not grain.get("schema") or str(grain["schema"]).lower() == schema.lower()
+                )
+            if hit:
+                out.setdefault((schema, table), name)
+    return out
 
 
 def mapping_schemas(mapping: dict) -> set[str]:
@@ -303,6 +349,7 @@ def plan(source: SourceSpec, mapping: dict, level: str) -> list[dict]:
         tables = _source_tables(con, source)
     finally:
         con.close()
+    unresolved = unresolved_tables(mapping, tables)
     out = []
     for schema, table, columns in tables:
         how = classify(columns, level, ids)
@@ -311,6 +358,7 @@ def plan(source: SourceSpec, mapping: dict, level: str) -> list[dict]:
             "table": table,
             "filter": how[0] if how else None,
             "column": how[1] if how else None,
+            "unresolved": None if how else unresolved.get((schema, table)),
         })
     return out
 
@@ -482,12 +530,19 @@ def derive(
             for s in sorted(schemas):
                 con.execute(f'CREATE SCHEMA IF NOT EXISTS target."{_require_ident(s, "schema name")}"')
 
+        unresolved = unresolved_tables(mapping, tables)
         written: list[dict] = []
         for done, (schema, table, columns) in enumerate(tables):
             control.check()
             if control.on_table:
                 control.on_table(done, len(tables), table)
             how = classify(columns, level, ids)
+            if how is None and (schema, table) in unresolved:
+                written.append({
+                    "schema": schema, "table": table, "filter": None, "rows": None, "skipped": True,
+                    "unresolved": unresolved[(schema, table)],
+                })
+                continue
             if how is None and not copy_personless:
                 written.append({"schema": schema, "table": table, "filter": None, "rows": None, "skipped": True})
                 continue

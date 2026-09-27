@@ -134,10 +134,14 @@ const FILTER_WORDS: Record<NonNullable<DerivePlanTable['filter']>, string> = {
 /** What the copy will do with each table, as the dialog lists it. */
 export function formatDerivePlan(tables: DerivePlanTable[], copyPersonless: boolean): string {
   const filtered = tables.filter((t) => t.filter)
-  const whole = tables.filter((t) => !t.filter)
+  const whole = tables.filter((t) => !t.filter && !t.unresolved)
+  const unresolved = tables.filter((t) => !t.filter && t.unresolved)
   const lines = [`${filtered.length} table(s) filtered on the cohort, ${whole.length} without a patient id:`]
   for (const t of filtered) lines.push(`- ${tableName(t)}: ${FILTER_WORDS[t.filter!]} (${t.column})`)
   for (const t of whole) lines.push(`- ${tableName(t)}: ${copyPersonless ? 'copied whole' : 'skipped'}`)
+  for (const t of unresolved) {
+    lines.push(`- ${tableName(t)}: skipped — relation ${t.unresolved} reads it without a patient id column, so it cannot be filtered`)
+  }
   return lines.join('\n')
 }
 
