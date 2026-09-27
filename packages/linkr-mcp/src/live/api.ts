@@ -160,7 +160,9 @@ export class LinkrApi {
     return true
   }
 
-  private async request<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
+  /** Any REST call as this user: `path` is under `/api/v1`. The domain modules
+   *  (`tools-*.ts`) build their own endpoints on it. */
+  async request<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
     if (!this.accessToken) await this.login()
     const res = await fetch(`${this.base}${path}`, {
       method,
