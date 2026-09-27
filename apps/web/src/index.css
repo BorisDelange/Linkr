@@ -230,6 +230,16 @@ body {
   padding: 0.25rem 0.5rem;
 }
 
+/* Monaco's button tooltips ("Close (Escape)" on the find widget) can open on top
+   of the button they describe, under the pointer: the pointer then leaves the
+   button, the tooltip closes, the pointer is back on the button, and it
+   flickers. They hold plain text only, so they need no pointer events. The
+   editor's own hovers (types, diagnostics) are a different widget, untouched. */
+.workbench-hover-container,
+.monaco-hover.workbench-hover {
+  pointer-events: none;
+}
+
 /* React Flow theme overrides */
 .react-flow__minimap {
   border-radius: 0.5rem;
