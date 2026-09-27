@@ -5,7 +5,7 @@ import { compareEtlFilesByOrder } from '@/lib/etl-file-order'
 import { mappingExportNameOf } from '@/lib/duckdb/mapping-source'
 import type { RoleSchemas } from '@/lib/duckdb/role-prefix'
 import { formatDuration } from '@/lib/format-helpers'
-import { safeEtlFileName } from '@/features/warehouse/etl/etl-file-language'
+import { inferEtlLanguage, safeEtlFileName } from '@/features/warehouse/etl/etl-file-language'
 import { clip } from './helpers.js'
 
 /** A node of a pipeline's or a collection's file tree, as the API returns it. */
@@ -67,6 +67,69 @@ export function reservedNameReason(name: string, atRoot: boolean, etl: boolean):
   }
   if (etl && !safeEtlFileName(name)) return `"${name}" is reserved for the pipeline's own structure.`
   return null
+}
+
+/** Why the folders to create under `parentId` cannot be, or null; only the first can sit at the root. */
+export function folderNamesError(parentId: string | null, missing: string[], etl: boolean): string | null {
+  for (const [i, name] of missing.entries()) {
+    const reason = reservedNameReason(name, i === 0 && parentId === null, etl)
+    if (reason) return reason
+  }
+  return null
+}
+
+/** Where a node lands at `path` (normalized): its folder, the folders to create, its name — or why it cannot. */
+function placeAt(
+  nodes: TreeFile[], path: string, etl: boolean,
+): { error: string } | { parentId: string | null; missing: string[]; name: string } {
+  const { parentId, missing, name } = locatePath(nodes, path)
+  const reason = reservedNameReason(name, parentId === null && missing.length === 0, etl)
+    ?? folderNamesError(parentId, missing, etl)
+  return reason ? { error: reason } : { parentId, missing, name }
+}
+
+export type WritePlan =
+  | { error: string }
+  | { updateId: string }
+  | { create: { parentId: string | null; missing: string[]; name: string; language?: EtlFile['language'] } }
+
+/** What writing `path` (normalized) does: update the file there, or create it and the folders on its way. */
+export function planWrite(nodes: TreeFile[], path: string, etl: boolean): WritePlan {
+  const existing = findByPath(nodes, path)
+  if (existing) return existing.type === 'folder' ? { error: `"${path}" is a folder.` } : { updateId: existing.id }
+  const place = placeAt(nodes, path, etl)
+  if ('error' in place) return place
+  const language = etl ? inferEtlLanguage(place.name) : undefined
+  return { create: { ...place, ...(language ? { language } : {}) } }
+}
+
+export type MovePlan =
+  | { error: string }
+  | { unchanged: true }
+  | { node: TreeFile; parentId: string | null; missing: string[]; name: string }
+
+/** What moving `path` to `newPath` (both normalized) does, before the missing folders are created. */
+export function planMove(nodes: TreeFile[], path: string, newPath: string, etl: boolean, listTool: string): MovePlan {
+  const node = findByPath(nodes, path)
+  if (!node) return { error: `No file or folder "${path}" — see ${listTool}.` }
+  if (path === newPath) return { unchanged: true }
+  if (findByPath(nodes, newPath)) return { error: `"${newPath}" already exists.` }
+  const { parentId } = locatePath(nodes, newPath)
+  if (isInside(nodes, parentId, node.id)) return { error: 'A folder cannot move into itself.' }
+  const place = placeAt(nodes, newPath, etl)
+  return 'error' in place ? place : { node, ...place }
+}
+
+/** The PATCH a move sends once its folder exists; a renamed ETL script follows its new extension's language. */
+export function moveChanges(node: TreeFile, name: string, parentId: string | null, etl: boolean): Record<string, unknown> {
+  const changes: Record<string, unknown> = {}
+  if (name !== node.name) changes.name = name
+  if (parentId !== node.parentId) changes.parentId = parentId
+  if (etl && node.type === 'file' && changes.name) {
+    const language = inferEtlLanguage(name)
+    if (language && language !== node.language) changes.language = language
+  }
+  return changes
 }
 
 /** Whether `folderId` is `nodeId` or lies under it — a folder cannot move into itself. */
@@ -158,6 +221,40 @@ export function etlRoles(ids: RoleIds): Record<string, string> {
 
 export const rowsOutput = (rows: number, ms: number) =>
   `${rows} row${rows !== 1 ? 's' : ''} in ${formatDuration(ms)}`
+
+/** The database a pipeline script runs against: its own, else the pipeline's target, else its source. */
+export const scriptDatabaseId = (
+  file: Pick<TreeFile, 'dataSourceId'>, p: { targetDataSourceId?: string | null; sourceDataSourceId?: string | null },
+): string | null => file.dataSourceId ?? p.targetDataSourceId ?? p.sourceDataSourceId ?? null
+
+/** Why a run skips a script, as the app's runner decides, or null to run it. */
+export function skipReason(file: Pick<TreeFile, 'disabled' | 'content'>, databaseId: string | null): string | null {
+  if (file.disabled) return 'disabled'
+  if (!file.content) return 'empty'
+  return databaseId ? null : 'no database'
+}
+
+const TIMEOUT_NOTE = ' — the call to the server was cut, probably by the client\'s 5-minute response timeout. '
+  + 'The server may have stopped the script midway: check the target database (run_sql) before running it again.'
+
+/** A script's failure as recorded, with what to check when the client cut the call. */
+export function runErrorText(e: unknown): string {
+  const err = e as Error & { cause?: { code?: string } }
+  const cut = err.cause?.code === 'UND_ERR_HEADERS_TIMEOUT' || /fetch failed|terminated/i.test(err.message ?? '')
+  return `${err.message ?? String(e)}${cut ? TIMEOUT_NOTE : ''}`
+}
+
+/** A run's report around its per-script lines; `writableTarget` is the target's label, null when it is read-only. */
+export function runReport(runId: string, failed: boolean, writableTarget: string | null, scriptLines: string[]): string[] {
+  const head = `Run ${runId} ${failed ? 'failed' : 'finished'} on `
+    + `${writableTarget ? `target ${writableTarget} (writable)` : 'a read-only database'}; recorded in the pipeline's run history.`
+  const out = [head, ...scriptLines]
+  if (!writableTarget) {
+    out.push('The target is not a writable ETL database (one created from a schema), so the scripts ran read-only, '
+      + 'as in the app: CREATE / INSERT statements fail there.')
+  }
+  return out
+}
 
 /** New `order` per file id so the scripts run in `ordered`, as the Pipeline tab's drag writes it. */
 export function reorderPatch(ordered: Pick<EtlFile, 'id' | 'order'>[]): Map<string, number> {

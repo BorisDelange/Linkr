@@ -7,12 +7,13 @@ import type {
 import { buildPointer } from '@/lib/import-identity'
 import { resolveRolePrefixes } from '@/lib/duckdb/role-prefix'
 import { slugifyId, uniqueEntityId } from '@/lib/slugify-id'
-import { inferEtlLanguage, nextEtlOrder, orderByNamePatch } from '@/features/warehouse/etl/etl-file-language'
+import { nextEtlOrder, orderByNamePatch } from '@/features/warehouse/etl/etl-file-language'
 import { formatRows } from './cohorts.js'
 import {
-  etlRoles, findByPath, formatRun, formatRunSummary, isInside, isSqlFile, locatePath, mappingDataOf,
-  normalizePath, pathsById, pipelineScripts, pruneMarks, renameMarks, renderCollectionFiles, renderPipelineFiles,
-  reorderPatch, reservedNameReason, rowsOutput, serverRoleSchemas, type TreeFile,
+  etlRoles, findByPath, formatRun, formatRunSummary, isSqlFile, mappingDataOf, moveChanges,
+  normalizePath, pathsById, pipelineScripts, planMove, planWrite, pruneMarks, renameMarks, renderCollectionFiles,
+  renderPipelineFiles, reorderPatch, rowsOutput, runErrorText, runReport, scriptDatabaseId,
+  serverRoleSchemas, skipReason, type TreeFile,
 } from './etl.js'
 import { clip, pointerRows, subtreeIds } from './helpers.js'
 import {
@@ -149,12 +150,10 @@ const sqlTree = (collectionId: string): TreeApi => ({
 /** The `order` a new node gets: the ETL Scripts tab's max + 1, the SQL dialog's node count. */
 const newOrder = (t: TreeApi, files: TreeFile[]) => (t.kind === 'etl' ? nextEtlOrder(files) : files.length)
 
-/** Create the folders missing on the way to a path; returns the id of the last one. */
+/** Create the folders missing on the way to a path (names checked by the plan); returns the id of the last one. */
 async function ensureFolders(t: TreeApi, files: TreeFile[], parentId: string | null, missing: string[]): Promise<string | null> {
   let parent = parentId
   for (const name of missing) {
-    const reason = reservedNameReason(name, parent === null, t.kind === 'etl')
-    if (reason) throw new Error(reason)
     const node = {
       id: randomUUID(), [t.fk]: t.owner, name, type: 'folder', parentId: parent,
       order: newOrder(t, files), createdAt: new Date().toISOString(),
@@ -176,26 +175,20 @@ async function readFile(t: TreeApi, path: string): Promise<ToolResult> {
 async function writeFile(t: TreeApi, rawPath: string, content: string): Promise<ToolResult> {
   const path = normalizePath(rawPath)
   const files = await t.files()
-  const existing = findByPath(files, path)
-  if (existing) {
-    if (existing.type === 'folder') return failure(`"${path}" is a folder.`)
-    await t.updateFile(existing.id, { content })
+  const plan = planWrite(files, path, t.kind === 'etl')
+  if ('error' in plan) return failure(plan.error)
+  if ('updateId' in plan) {
+    await t.updateFile(plan.updateId, { content })
     return text(`Updated ${path} (${content.split('\n').length} lines).`)
   }
-  const { parentId, missing, name } = locatePath(files, path)
-  const reason = reservedNameReason(name, parentId === null && missing.length === 0, t.kind === 'etl')
-  if (reason) return failure(reason)
+  const { parentId, missing, name, language } = plan.create
   const parent = await ensureFolders(t, files, parentId, missing)
   const node: Record<string, unknown> = {
     id: randomUUID(), [t.fk]: t.owner, name, type: 'file', parentId: parent, content,
-    order: newOrder(t, files), createdAt: new Date().toISOString(),
-  }
-  if (t.kind === 'etl') {
-    const language = inferEtlLanguage(name)
-    if (language) node.language = language
+    order: newOrder(t, files), createdAt: new Date().toISOString(), ...(language ? { language } : {}),
   }
   await t.createFile(node)
-  const note = t.kind === 'etl' && node.language === 'sql'
+  const note = t.kind === 'etl' && language === 'sql'
     ? ` It runs last in the pipeline (order ${node.order}); reorder_etl_scripts changes that.` : ''
   return text(`Created ${path} (${content.split('\n').length} lines).${note}`)
 }
@@ -204,23 +197,11 @@ async function moveFile(t: TreeApi, rawPath: string, rawNewPath: string): Promis
   const path = normalizePath(rawPath)
   const newPath = normalizePath(rawNewPath)
   const files = await t.files()
-  const node = findByPath(files, path)
-  if (!node) return failure(`No file or folder "${path}" — see ${t.listTool}.`)
-  if (path === newPath) return text('Nothing to move.')
-  if (findByPath(files, newPath)) return failure(`"${newPath}" already exists.`)
-  const { parentId, missing, name } = locatePath(files, newPath)
-  if (isInside(files, parentId, node.id)) return failure('A folder cannot move into itself.')
-  const reason = reservedNameReason(name, parentId === null && missing.length === 0, t.kind === 'etl')
-  if (reason) return failure(reason)
-  const parent = await ensureFolders(t, files, parentId, missing)
-  const changes: Record<string, unknown> = {}
-  if (name !== node.name) changes.name = name
-  if (parent !== node.parentId) changes.parentId = parent
-  if (t.kind === 'etl' && node.type === 'file' && changes.name) {
-    const language = inferEtlLanguage(name)
-    if (language && language !== node.language) changes.language = language
-  }
-  await t.updateFile(node.id, changes)
+  const plan = planMove(files, path, newPath, t.kind === 'etl', t.listTool)
+  if ('error' in plan) return failure(plan.error)
+  if ('unchanged' in plan) return text('Nothing to move.')
+  const parent = await ensureFolders(t, files, plan.parentId, plan.missing)
+  await t.updateFile(plan.node.id, moveChanges(plan.node, plan.name, parent, t.kind === 'etl'))
   // Versioning marks are keyed by path: carried to the new one, as the app's stores do.
   const next = renameMarks(await t.config(), path, newPath)
   if (next) await t.saveConfig(next)
@@ -254,15 +235,6 @@ async function vocabIdOf(p: Pipeline): Promise<string | undefined> {
   }
 }
 
-const TIMEOUT_NOTE = ' — the call to the server was cut, probably by the client\'s 5-minute response timeout. '
-  + 'The server may have stopped the script midway: check the target database (run_sql) before running it again.'
-
-function errorText(e: unknown): string {
-  const err = e as Error & { cause?: { code?: string } }
-  const cut = err.cause?.code === 'UND_ERR_HEADERS_TIMEOUT' || /fetch failed|terminated/i.test(err.message ?? '')
-  return `${err.message ?? String(e)}${cut ? TIMEOUT_NOTE : ''}`
-}
-
 /**
  * The app's usePipelineRunner.runScripts: one history row for the run, each script
  * in turn against the pipeline's target, stopping at the first failure.
@@ -290,10 +262,11 @@ async function runPipeline(p: Pipeline, scripts: EtlNode[], files: EtlNode[], sh
   let failed = false
   for (const file of scripts) {
     const name = paths.get(file.id)
-    const dsId = file.dataSourceId ?? p.targetDataSourceId ?? p.sourceDataSourceId
-    if (file.disabled || !file.content || !dsId) {
+    const dsId = scriptDatabaseId(file, p)
+    const skip = skipReason(file, dsId)
+    if (skip || !dsId || !file.content) {
       await record({ fileId: file.id, status: 'skipped' })
-      report.push(`- ${name}: skipped (${file.disabled ? 'disabled' : !file.content ? 'empty' : 'no database'})`)
+      report.push(`- ${name}: skipped (${skip})`)
       continue
     }
     const start = Date.now()
@@ -313,7 +286,7 @@ async function runPipeline(p: Pipeline, scripts: EtlNode[], files: EtlNode[], sh
       lastRows = rows
     } catch (e) {
       failed = true
-      const error = errorText(e)
+      const error = runErrorText(e)
       await record({
         fileId: file.id, status: 'error', startedAt, completedAt: new Date().toISOString(),
         durationMs: Date.now() - start, error,
@@ -326,12 +299,7 @@ async function runPipeline(p: Pipeline, scripts: EtlNode[], files: EtlNode[], sh
   entry.completedAt = new Date().toISOString()
   await etl.saveRun(entry)
 
-  const head = `Run ${entry.id} ${failed ? 'failed' : 'finished'} on ${managed ? `target ${dbLabel(dbs)(p.targetDataSourceId)} (writable)` : 'a read-only database'}; recorded in the pipeline's run history.`
-  const out = [head, ...report]
-  if (!managed) {
-    out.push('The target is not a writable ETL database (one created from a schema), so the scripts ran read-only, '
-      + 'as in the app: CREATE / INSERT statements fail there.')
-  }
+  const out = runReport(entry.id, failed, managed ? dbLabel(dbs)(p.targetDataSourceId) : null, report)
   if (showRows > 0 && !failed && scripts.length === 1) out.push(`Result of the last statement:\n${formatRows(lastRows, showRows)}`)
   return { content: [{ type: 'text', text: out.join('\n') }], ...(failed ? { isError: true } : {}) }
 }

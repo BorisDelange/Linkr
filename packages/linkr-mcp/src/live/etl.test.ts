@@ -3,8 +3,9 @@ import { McpServer } from '@modelcontextprotocol/server'
 import { resolveRolePrefixes } from '@/lib/duckdb/role-prefix'
 import type { EtlRunHistoryEntry } from '@/types'
 import {
-  etlRoles, findByPath, formatRun, isInside, locatePath, mappingDataOf, normalizePath, pipelineScripts, pruneMarks,
-  renameMarks, reorderPatch, reservedNameReason, serverRoleSchemas, type TreeFile,
+  etlRoles, findByPath, folderNamesError, formatRun, isInside, locatePath, mappingDataOf, moveChanges, normalizePath,
+  pipelineScripts, planMove, planWrite, pruneMarks, renameMarks, reorderPatch, reservedNameReason, runErrorText, runReport,
+  scriptDatabaseId, serverRoleSchemas, skipReason, type TreeFile,
 } from './etl.js'
 import { subtreeIds } from './helpers.js'
 import { registerEtlTools } from './tools-etl.js'
@@ -50,6 +51,39 @@ describe('tree paths', () => {
   })
 })
 
+describe('writing and moving files', () => {
+  it('updates an existing file, refuses a folder, and creates the rest with their folders and language', () => {
+    expect(planWrite(tree, '10_person.sql', true)).toEqual({ updateId: 'p' })
+    expect(planWrite(tree, 'mapping', true)).toEqual({ error: '"mapping" is a folder.' })
+    expect(planWrite(tree, 'mapping/new/x.py', true))
+      .toEqual({ create: { parentId: 'm', missing: ['new'], name: 'x.py', language: 'python' } })
+    expect(planWrite(tree, 'q.sql', false)).toEqual({ create: { parentId: null, missing: [], name: 'q.sql' } })
+    expect(planWrite(tree, 'README.md', false)).toHaveProperty('error')
+  })
+
+  it('checks every folder to create before any is, only the first at the root', () => {
+    expect(folderNamesError(null, ['README.md', 'x'], false)).toMatch(/reserved at the root/)
+    expect(folderNamesError(null, ['x', 'README.md'], false)).toBeNull()
+    expect(planWrite(tree, 'LICENSE.md/x.sql', false)).toHaveProperty('error')
+  })
+
+  it('plans a move: unknown, unchanged, taken, into itself, then the landing place', () => {
+    expect(planMove(tree, 'nope.sql', 'x.sql', true, 'get_etl_pipeline')).toEqual({ error: 'No file or folder "nope.sql" — see get_etl_pipeline.' })
+    expect(planMove(tree, 'notes.md', 'notes.md', true, '')).toEqual({ unchanged: true })
+    expect(planMove(tree, 'notes.md', '10_person.sql', true, '')).toEqual({ error: '"10_person.sql" already exists.' })
+    expect(planMove(tree, 'mapping', 'mapping/inner', true, '')).toEqual({ error: 'A folder cannot move into itself.' })
+    const plan = planMove(tree, 'notes.md', 'docs/notes.sql', true, '')
+    expect(plan).toMatchObject({ parentId: null, missing: ['docs'], name: 'notes.sql' })
+  })
+
+  it('sends only what the move changes; a renamed ETL script follows its extension', () => {
+    const md = tree.find((f) => f.id === 'md')!
+    expect(moveChanges(md, 'notes.sql', 'f', true)).toEqual({ name: 'notes.sql', parentId: 'f', language: 'sql' })
+    expect(moveChanges(md, 'notes.sql', null, false)).toEqual({ name: 'notes.sql' })
+    expect(moveChanges(md, 'notes.md', null, true)).toEqual({})
+  })
+})
+
 describe('versioning marks', () => {
   it('follows a rename, subtree included, and drops marks of deleted files', () => {
     const config = { excludedFiles: ['mapping/concept.csv', 'x.sql'], versionedDataFiles: [] }
@@ -82,6 +116,30 @@ describe('running a pipeline', () => {
   it('without a managed target, only the database queried is reachable, unqualified', () => {
     const schemas = serverRoleSchemas({ sourceId: 'S', targetId: 'T' }, false, 'S')
     expect(resolveRolePrefixes('SELECT * FROM source.p JOIN target.q', schemas)).toBe('SELECT * FROM p JOIN target.q')
+  })
+
+  it('runs a script on its own database, else the target, else the source, and skips what the app skips', () => {
+    expect(scriptDatabaseId({ dataSourceId: 'D' }, { targetDataSourceId: 'T' })).toBe('D')
+    expect(scriptDatabaseId({}, { targetDataSourceId: null, sourceDataSourceId: 'S' })).toBe('S')
+    expect(scriptDatabaseId({}, {})).toBeNull()
+    expect(skipReason({ disabled: true, content: 'x' }, 'T')).toBe('disabled')
+    expect(skipReason({ content: '' }, 'T')).toBe('empty')
+    expect(skipReason({ content: 'x' }, null)).toBe('no database')
+    expect(skipReason({ content: 'x' }, 'T')).toBeNull()
+  })
+
+  it('tells a client timeout from a script error', () => {
+    expect(runErrorText(new Error('Catalog Error'))).toBe('Catalog Error')
+    expect(runErrorText(new Error('fetch failed'))).toMatch(/5-minute response timeout/)
+  })
+
+  it('reports a run, with a note when the target is read-only', () => {
+    expect(runReport('r1', false, '"DB" (T)', ['- a: success'])).toEqual([
+      'Run r1 finished on target "DB" (T) (writable); recorded in the pipeline\'s run history.', '- a: success',
+    ])
+    const readOnly = runReport('r1', true, null, [])
+    expect(readOnly[0]).toMatch(/^Run r1 failed on a read-only database/)
+    expect(readOnly[1]).toMatch(/CREATE \/ INSERT statements fail/)
   })
 
   it('formats a run with each script by path', () => {

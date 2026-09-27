@@ -1,7 +1,7 @@
 /** Data quality: rule sets, their stored checks and groups, runs, investigation. */
 import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
-import type { DqCheck, DqCheckResult, DqReport } from '@/lib/duckdb/data-quality-checks'
+import type { DqCheckResult, DqReport } from '@/lib/duckdb/data-quality-checks'
 import { checksFromTemplates, ddlCheckTemplates, makeCheck, mappingCheckTemplates, schemaCheckTemplates, type DqCheckTemplate } from '@/lib/dq-templates'
 import type { DqCategory, DqCheckOrigin } from '@/lib/dq-taxonomy'
 import { resolvePointer } from '@/lib/import-identity'
@@ -12,10 +12,10 @@ import { slugifyId, uniqueEntityId } from '@/lib/slugify-id'
 import { userToAuthorDetails } from '@/lib/user-identity'
 import type { CustomSchemaPreset, DqCustomCheck, DqRuleSet, DqRunHistoryEntry, EntityRef, SchemaMapping, User } from '@/types'
 import {
-  CATEGORIES, ORIGINS, OTHER_GROUP, SEVERITIES, SUBCATEGORIES, boundedQuery, checkCounts, checkTestProblem,
-  describeCheck, errorResult, evaluateRows, formatCheckList, formatReport, formatTemplates, groupChecks, groupKey,
-  groupOf, isFiltered, makeReport, missingTemplates, nextEmptyGroups, nextOrder, readCheck, resolveSubcategory, runRecord,
-  runnableChecks, selectChecks, summarizeRows, validateCheckFields, type CheckFields, type CheckFilter,
+  CATEGORIES, ORIGINS, OTHER_GROUP, SEVERITIES, SUBCATEGORIES, boundedQuery, checkCounts, describeCheck, evaluateRows,
+  formatCheckList, formatReport, formatTemplates, groupChecks, groupKey, groupOf, isFiltered, makeReport, missingTemplates,
+  nextEmptyGroups, nextOrder, readCheck, resolveSubcategory, runChecks, runRecord, runnableChecks, selectChecks,
+  summarizeRows, testRunOutcome, validateCheckFields, type CheckFields, type CheckFilter,
 } from './dq.js'
 import { reportTranslator, type ReportLanguage } from './report.js'
 import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, scopedWorkspace, text, type Server } from './shared.js'
@@ -132,24 +132,6 @@ function needDatabase(rs: DqRuleSet): string {
   return rs.dataSourceId
 }
 
-async function runChecks(query: (sql: string) => Promise<Record<string, unknown>[]>, checks: DqCheck[]) {
-  const results: DqCheckResult[] = new Array(checks.length)
-  let next = 0
-  const worker = async () => {
-    while (next < checks.length) {
-      const i = next++
-      const start = performance.now()
-      try {
-        results[i] = evaluateRows(checks[i], await query(checks[i].sql), Math.round(performance.now() - start))
-      } catch (e) {
-        results[i] = errorResult(checks[i], e, Math.round(performance.now() - start))
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(4, checks.length) }, worker))
-  return results
-}
-
 /** The Test button: the check's SQL on the rule set's database, and what it says. */
 async function testCheck(rs: DqRuleSet, sql: string, threshold: number): Promise<{ problem: string | null; line: string }> {
   const query = await querier(needDatabase(rs))
@@ -159,13 +141,7 @@ async function testCheck(rs: DqRuleSet, sql: string, threshold: number): Promise
   } catch (e) {
     return { problem: `The SQL failed on database ${rs.dataSourceId}: ${(e as Error).message}`, line: '' }
   }
-  const problem = checkTestProblem(rows)
-  if (problem) return { problem, line: '' }
-  const r = evaluateRows({ id: '', sql, threshold } as DqCheck, rows, 0)
-  return {
-    problem: null,
-    line: `Test run: ${r.status} — ${r.violatedRows}/${r.totalRows} violated (${r.pctViolated.toFixed(2)}%, threshold ${threshold}%).`,
-  }
+  return testRunOutcome(sql, threshold, rows)
 }
 
 function describeRuleSet(rs: DqRuleSet): string {

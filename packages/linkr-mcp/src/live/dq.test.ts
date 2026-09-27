@@ -4,8 +4,8 @@ import type { DqCheckTemplate } from '@/lib/dq-templates'
 import type { DqCustomCheck } from '@/types'
 import {
   boundedQuery, checkTestProblem, evaluateRows, errorResult, formatCheckList, formatReport, groupChecks, groupKey,
-  makeReport, missingTemplates, nextEmptyGroups, nextOrder, readCheck, resolveSubcategory, runRecord, runnableChecks, selectChecks,
-  summarizeRows, unboundedExplore, validateCheckFields,
+  makeReport, missingTemplates, nextEmptyGroups, nextOrder, readCheck, resolveSubcategory, runChecks, runRecord, runnableChecks,
+  selectChecks, summarizeRows, testRunOutcome, unboundedExplore, validateCheckFields,
 } from './dq'
 import { registerDqTools } from './tools-dq'
 
@@ -118,6 +118,34 @@ describe('a run', () => {
     expect(out.indexOf('check_id d')).toBeLessThan(out.indexOf('check_id a'))
     expect(out).toContain('5/10 violated (50%, threshold 10%)')
     expect(out).not.toContain('check_id b')
+  })
+})
+
+describe('running checks', () => {
+  const checks = runnableChecks(['a', 'b', 'c', 'd', 'e'].map((id, order) => check({ id, order, sql: `SELECT ${id}` })))
+
+  it('keeps the checks\' order, a few queries at a time, and records a failed query as an error', async () => {
+    let running = 0
+    let peak = 0
+    const query = async (sql: string) => {
+      peak = Math.max(peak, ++running)
+      await new Promise((r) => setTimeout(r, sql.endsWith('a') ? 5 : 1))
+      running--
+      if (sql.endsWith('c')) throw new Error('no table')
+      return [{ violated_rows: 0, total_rows: 2 }]
+    }
+    const results = await runChecks(query, checks, 2)
+    expect(results.map((r) => [r.checkId, r.status])).toEqual([['a', 'pass'], ['b', 'pass'], ['c', 'error'], ['d', 'pass'], ['e', 'pass']])
+    expect(results[2].errorMessage).toBe('no table')
+    expect(peak).toBe(2)
+    expect(await runChecks(query, [])).toEqual([])
+  })
+
+  it('says what a test run found, or what is wrong with its rows', () => {
+    expect(testRunOutcome('SELECT 1', 5, [{ violated_rows: 1, total_rows: 10 }]))
+      .toEqual({ problem: null, line: 'Test run: fail — 1/10 violated (10.00%, threshold 5%).' })
+    expect(testRunOutcome('SELECT 1', 5, []).problem).toMatch(/no row/)
+    expect(testRunOutcome('SELECT 1', 5, [{ n: 1 }]).problem).toMatch(/lacks violated_rows/)
   })
 })
 

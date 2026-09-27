@@ -188,6 +188,38 @@ export function errorResult(check: DqCheck, err: unknown, executionTimeMs: numbe
   }
 }
 
+/** Every check's result, in the checks' order, `concurrency` queries at a time; a failed query is an error result. */
+export async function runChecks(
+  query: (sql: string) => Promise<Record<string, unknown>[]>, checks: DqCheck[], concurrency = 4,
+): Promise<DqCheckResult[]> {
+  const results: DqCheckResult[] = new Array(checks.length)
+  let next = 0
+  const worker = async () => {
+    while (next < checks.length) {
+      const i = next++
+      const start = performance.now()
+      try {
+        results[i] = evaluateRows(checks[i], await query(checks[i].sql), Math.round(performance.now() - start))
+      } catch (e) {
+        results[i] = errorResult(checks[i], e, Math.round(performance.now() - start))
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, checks.length) }, worker))
+  return results
+}
+
+/** What the Test button says of a test run's rows: a problem to fix, or the result line. */
+export function testRunOutcome(sql: string, threshold: number, rows: Record<string, unknown>[]): { problem: string | null; line: string } {
+  const problem = checkTestProblem(rows)
+  if (problem) return { problem, line: '' }
+  const r = evaluateRows({ id: '', sql, threshold } as DqCheck, rows, 0)
+  return {
+    problem: null,
+    line: `Test run: ${r.status} — ${r.violatedRows}/${r.totalRows} violated (${r.pctViolated.toFixed(2)}%, threshold ${threshold}%).`,
+  }
+}
+
 /** % of applicable checks passed; 100 when none applies. */
 export function runScore(s: DqReportSummary): number {
   const applicable = s.total - s.notApplicable
