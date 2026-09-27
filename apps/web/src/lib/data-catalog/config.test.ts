@@ -75,13 +75,13 @@ describe('legacy catalogs', () => {
     computedPeriods: 4,
   }
 
-  it('turns the period table into period × X crossings', () => {
+  it('shows every variable alone and turns the period table into period × X crossings', () => {
     const { variables, crossings } = convertLegacyCatalog(legacy)
     expect(variables.period).toEqual({ enabled: true, granularity: 'quarter' })
     expect(variables.age?.brackets).toEqual([18, 65])
     expect(variables.concept).toMatchObject({ enabled: true, level: 'category', categoryColumn: 'domain_id' })
     expect(variables.service).toMatchObject({ enabled: false, grouping: 'manual', groups: { ICU: 'ICU' } })
-    expect(crossings).toEqual([['concept', 'period'], ['period', 'age'], ['period', 'sex']])
+    expect(crossings).toEqual([['concept'], ['period'], ['age'], ['sex'], ['concept', 'period'], ['period', 'age'], ['period', 'sex']])
   })
 
   it('drops the legacy fields, and leaves a converted catalog alone', () => {

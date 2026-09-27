@@ -49,7 +49,7 @@ export function defaultCatalogVariables(): CatalogVariables {
 }
 
 export function defaultCatalogCrossings(): CatalogVariableId[][] {
-  return [['period', 'age'], ['period', 'sex'], ['age', 'sex']]
+  return [['period'], ['age'], ['period', 'age'], ['period', 'sex'], ['age', 'sex']]
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +75,20 @@ export function enabledVariables(variables: CatalogVariables): CatalogVariableId
 }
 
 /**
- * Every crossing a run computes: the 1-way marginal of each enabled variable,
+ * The ids of the crossings a publication shows: the chosen ones whose
+ * variables are all enabled, single variables included only when chosen. A
+ * variable can be worth reading crossed (age × gender) and not alone (gender).
+ * Without a crossings list at all, every computed one.
+ */
+export function shownCrossingIds(catalog: Pick<DataCatalog, 'variables' | 'crossings'>): Set<string> | null {
+  if (!catalog.crossings) return null
+  const enabled = new Set(enabledVariables(catalog.variables))
+  return new Set(catalog.crossings.map(canonicalCrossing).filter((c) => c.length && c.every((v) => enabled.has(v))).map((c) => c.join('-')))
+}
+
+/**
+ * Every crossing a run computes: the 1-way marginal of each enabled variable
+ * (shown or not: it orders the modalities and ranks the concepts and services),
  * then the chosen crossings whose variables are all enabled — smallest first,
  * because a crossing's margins must be final before its own cells are
  * suppressed (see `suppression.ts`).
@@ -279,7 +292,8 @@ export function convertLegacyCatalog(raw: LegacyCatalogFields): Pick<DataCatalog
     sex: { enabled: !!dim('sex')?.enabled },
   }
 
-  const crossings: CatalogVariableId[][] = []
+  // Every variable was shown alone then.
+  const crossings: CatalogVariableId[][] = enabledVariables(variables).map((v) => [v])
   if (variables.period?.enabled) {
     for (const v of ['concept', 'service', 'age', 'sex'] as const) {
       if (variables[v]?.enabled) crossings.push(canonicalCrossing(['period', v]))

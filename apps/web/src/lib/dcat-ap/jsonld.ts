@@ -11,7 +11,7 @@
  *   `healthdcatap:analytics`.
  */
 
-import { crossingCsvPath, crossingMeasures } from '@/lib/data-catalog/publish'
+import { crossingCsvPath, crossingMeasures, publishedCrossingResults } from '@/lib/data-catalog/publish'
 import { catalogCounts } from '@/lib/data-catalog/config'
 import type { SchemaMapping, CatalogResultCache, DataCatalog } from '@/types'
 import { mappedTableDocs } from './mapped-tables'
@@ -233,7 +233,7 @@ function analyticsDistributions(
       `One row per concept: concept_id, concept_name, vocabulary, category, subcategory, patient_count, ${catalogCounts(catalog ?? {}).visits ? 'visit_count, ' : ''}record_count.${suppression}`,
       'CSV', 'text/csv'),
   ]
-  for (const crossing of cache.crossings ?? []) {
+  for (const crossing of catalog ? publishedCrossingResults(catalog, cache) : cache.crossings ?? []) {
     out.push(dist(crossingCsvPath(crossing.id), `Counts by ${crossing.variables.join(' × ')}`,
       `One row per non-empty cell: ${[...crossing.variables, 'patients', ...crossingMeasures(catalog ?? {}, crossing.variables)].join(', ')}, status.${cellSuppression}`,
       'CSV', 'text/csv'))

@@ -3,7 +3,11 @@ import type { CatalogResultCache, DataCatalog } from '@/types'
 import { defaultCatalogVariables } from './config'
 import { ageDisplayName, buildCrossingCsv, buildPublishedCatalog } from './publish'
 
-const catalog = { variables: defaultCatalogVariables(), anonymization: { threshold: 10, mode: 'replace' } } as Pick<DataCatalog, 'variables' | 'anonymization' | 'counts'>
+const catalog = {
+  variables: defaultCatalogVariables(),
+  crossings: [['period'], ['sex'], ['period', 'sex']],
+  anonymization: { threshold: 10, mode: 'replace' },
+} as Pick<DataCatalog, 'variables' | 'anonymization' | 'counts' | 'crossings'>
 
 const cache = {
   concepts: [],
@@ -47,6 +51,17 @@ describe('buildPublishedCatalog', () => {
     // One protective cell per sex column: each holds a small cell, 2102·female
     // in its own and the trimmed 2100·male in the male one.
     expect(csv.filter((l) => l.endsWith('suppressed_secondary'))).toHaveLength(2)
+  })
+})
+
+describe('single-variable crossings', () => {
+  it('publishes a marginal only when it is chosen, and masks without it', () => {
+    const pub = buildPublishedCatalog({ ...catalog, crossings: [['period'], ['period', 'sex']] }, cache)
+    expect(pub.crossings.map((c) => c.id)).toEqual(['period', 'period-sex'])
+    // No published total per sex any more: nothing to protect by subtraction along it.
+    const withSex = buildPublishedCatalog(catalog, cache).crossings.find((c) => c.id === 'period-sex')!
+    const withoutSex = pub.crossings.find((c) => c.id === 'period-sex')!
+    expect(withoutSex.masked.secondary).toBeLessThanOrEqual(withSex.masked.secondary)
   })
 })
 

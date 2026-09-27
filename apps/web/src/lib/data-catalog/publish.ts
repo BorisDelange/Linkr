@@ -1,5 +1,5 @@
 import { CATALOG_VARIABLE_ORDER, type CatalogResultCache, type CatalogVariableId, type DataCatalog, type PeriodGranularity } from '@/types/catalog'
-import { catalogCounts, OTHER_MODALITY, periodLabel, trimPeriods } from './config'
+import { catalogCounts, OTHER_MODALITY, periodLabel, shownCrossingIds, trimPeriods } from './config'
 import { computeCrossingMasks, PUBLISHED, SECONDARY, type CellStatus } from './suppression'
 import type { PageLocale } from '@/lib/dcat-ap/page-text'
 
@@ -129,17 +129,28 @@ const KIND: Record<CatalogVariableId, PublishedVariable['kind']> = {
 }
 
 /**
+ * The computed crossings the publication shows. A marginal left out is not
+ * published, so it is no total a masked cell could be recovered from: the
+ * masks are worked out over these crossings only.
+ */
+export function publishedCrossingResults(catalog: Pick<DataCatalog, 'variables' | 'crossings'>, cache: Pick<CatalogResultCache, 'crossings'>): CatalogResultCache['crossings'] {
+  const shown = shownCrossingIds(catalog)
+  const all = cache.crossings ?? []
+  return shown ? all.filter((c) => shown.has(c.id)) : all
+}
+
+/**
  * Each variable's modalities in display order, with their names — periods
  * trimmed to those reaching the threshold.
  */
 export function publishedVariables(
-  catalog: Pick<DataCatalog, 'variables' | 'anonymization'>,
+  catalog: Pick<DataCatalog, 'variables' | 'anonymization' | 'crossings'>,
   cache: CatalogResultCache,
   locale: PageLocale = 'en',
 ): PublishedCatalog['variables'] {
   const threshold = catalog.anonymization.threshold
   const crossings = cache.crossings ?? []
-  const used = new Set(crossings.flatMap((c) => c.variables))
+  const used = new Set(publishedCrossingResults(catalog, cache).flatMap((c) => c.variables))
   const variables: PublishedCatalog['variables'] = {}
   for (const id of CATALOG_VARIABLE_ORDER) {
     if (!used.has(id)) continue
@@ -178,12 +189,12 @@ export function publishedVariables(
  * `locale` is the language of the labels (variables, modalities).
  */
 export function buildPublishedCatalog(
-  catalog: Pick<DataCatalog, 'variables' | 'anonymization' | 'counts'>,
+  catalog: Pick<DataCatalog, 'variables' | 'anonymization' | 'counts' | 'crossings'>,
   cache: CatalogResultCache,
   { reveal = false, locale = 'en' }: { reveal?: boolean; locale?: PageLocale } = {},
 ): PublishedCatalog {
   const threshold = catalog.anonymization.threshold
-  const crossings = cache.crossings ?? []
+  const crossings = publishedCrossingResults(catalog, cache)
   const masks = computeCrossingMasks(crossings, threshold)
   const variables = publishedVariables(catalog, cache, locale)
   const index = new Map<CatalogVariableId, Map<string, number>>()

@@ -4,6 +4,7 @@ import { ShieldCheck, Eye, EyeOff, AlertTriangle, Loader2, Play, Replace } from 
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { computeAnonymizationImpact, publishedCellShare, publishedPatientShare } from '@/lib/data-catalog/suppression'
 import { getStorage } from '@/lib/storage'
+import { publishedCrossingResults } from '@/lib/data-catalog/publish'
 import { Card } from '@/components/ui/card'
 import { NumberInput } from '@/components/ui/number-input'
 import { FormField } from '@/components/ui/form-field'
@@ -62,7 +63,7 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
     try {
       // Let the button show its state before the masking blocks the thread.
       await new Promise((r) => setTimeout(r, 0))
-      const next = { ...cache, anonymizationImpact: computeAnonymizationImpact(cache, settings) }
+      const next = { ...cache, anonymizationImpact: computeAnonymizationImpact({ concepts: cache.concepts, crossings: publishedCrossingResults(catalog, cache) }, settings) }
       setResultCache(next)
       if (canWrite) await getStorage().catalogResults.save(next)
     } finally {

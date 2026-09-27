@@ -54,6 +54,7 @@ import { CrossingBadges, VariableBadge } from './variable-badge'
 import { VARIABLE_ICON } from './variable-icons'
 import { VARIABLE_COLORS } from '@/lib/data-catalog/variable-colors'
 import { computeAnonymizationImpact } from '@/lib/data-catalog/suppression'
+import { publishedCrossingResults } from '@/lib/data-catalog/publish'
 
 interface Props {
   catalog: DataCatalog
@@ -182,7 +183,7 @@ export function CatalogConfigTab({ catalog }: Props) {
   const persist = useCallback(async (computed: CatalogResultCache, done: boolean) => {
     // A finished run starts with the masks of the current settings worked out,
     // so the Anonymization tab has them without a Run of its own.
-    const cache = done ? { ...computed, anonymizationImpact: computeAnonymizationImpact(computed, catalog.anonymization) } : computed
+    const cache = done ? { ...computed, anonymizationImpact: computeAnonymizationImpact({ concepts: computed.concepts, crossings: publishedCrossingResults(catalog, computed) }, catalog.anonymization) } : computed
     await getStorage().catalogResults.save(cache)
     setResultCache(cache)
     await updateCatalog(catalog.id, clearedCatalogPatch({
@@ -194,7 +195,7 @@ export function CatalogConfigTab({ catalog }: Props) {
       // reading as paused.
       computedSteps: done ? null : cache.completedSteps ?? 0,
     }))
-  }, [catalog.id, catalog.anonymization, setResultCache, updateCatalog])
+  }, [catalog, setResultCache, updateCatalog])
 
   const run = useCallback(async (restart: boolean) => {
     if (!mapping || !dataSource) return
@@ -245,6 +246,7 @@ export function CatalogConfigTab({ catalog }: Props) {
   const locked = running || paused
   const editable = canWrite && !locked
 
+  const singles: CatalogVariableId[][] = enabled.map((v) => [v])
   const pairs: CatalogVariableId[][] = []
   const triples: CatalogVariableId[][] = []
   for (let i = 0; i < enabled.length; i++) {
@@ -379,7 +381,7 @@ export function CatalogConfigTab({ catalog }: Props) {
               {t('data_catalog.estimate_stop')}
             </Button>
           ) : (
-            <Button variant="outline" size="sm" className="gap-1.5" disabled={!mapping || enabled.length < 2} onClick={() => void estimate()}>
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={!mapping || enabled.length < 1} onClick={() => void estimate()}>
               <Gauge size={14} />
               {t('data_catalog.estimate_yields')}
             </Button>
@@ -389,6 +391,30 @@ export function CatalogConfigTab({ catalog }: Props) {
           <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-2 text-xs text-destructive">
             <AlertCircle size={14} className="mt-px shrink-0" />
             <span className="min-w-0 break-words">{estimateError}</span>
+          </div>
+        )}
+
+        {enabled.length > 0 && (
+          <div className="grid gap-2">
+            <div className="flex items-center gap-2">
+              <Label>{t('data_catalog.crossings_singles')}</Label>
+              <InfoHint text={t('data_catalog.crossings_singles_hint')} />
+              <SelectAllNone disabled={!editable} onAll={() => void setCrossings(singles, true)} onNone={() => void setCrossings(singles, false)} />
+            </div>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+              {singles.map((vars) => (
+                <CrossingToggle
+                  key={crossingId(vars)}
+                  wide
+                  vars={vars}
+                  checked={isCrossed(vars)}
+                  disabled={!editable}
+                  estimate={estimateOf(vars)}
+                  onClick={() => void toggleCrossing(vars)}
+                  title={label(vars[0])}
+                />
+              ))}
+            </div>
           </div>
         )}
 
@@ -456,7 +482,6 @@ export function CatalogConfigTab({ catalog }: Props) {
               </div>
             )}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
-              <span>{t('data_catalog.crossings_marginals')}</span>
               <span className="flex items-center gap-1"><i className="size-2 rounded-full bg-emerald-500" />{'≥ 90 %'}</span>
               <span className="flex items-center gap-1"><i className="size-2 rounded-full bg-amber-500" />{'60–90 %'}</span>
               <span className="flex items-center gap-1"><i className="size-2 rounded-full bg-red-500" />{'< 60 %'}</span>
