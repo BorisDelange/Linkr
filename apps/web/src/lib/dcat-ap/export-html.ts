@@ -401,8 +401,12 @@ const CLASS_LABELS: Record<DcatClass, { title: string; icon: IconName }> = {
 const CLASS_ORDER: DcatClass[] = ['catalog', 'dataset', 'distribution', 'agent']
 
 /** The field's English label — the published page is English, whatever the app's language. */
+// Widened on purpose: handing the JSON's literal type (thousands of keys) to
+// reduce() made every overload check compare against it — minutes of tsc time.
+const EN_BUNDLE: unknown = en
 const enLabel = (labelKey: string): string => {
-  const leaf = labelKey.split('.').reduce<unknown>((node, k) => (node as Record<string, unknown> | undefined)?.[k], en)
+  let leaf: unknown = EN_BUNDLE
+  for (const k of labelKey.split('.')) leaf = (leaf as Record<string, unknown> | undefined)?.[k]
   return typeof leaf === 'string' ? leaf : labelKey
 }
 
