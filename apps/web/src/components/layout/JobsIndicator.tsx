@@ -44,8 +44,7 @@ function sameJobs(a: Job[], b: Job[]): boolean {
  * builds and runs of the open project, and the jobs of the open workspace (a
  * database's cohort derivations) — with a popover to view status/log and cancel.
  * Polls while a workspace is open; hidden entirely in front-only mode.
- */
-/**
+ *
  * `atRightEdge`: the trigger is the footer's last item (a workspace view in server
  * mode), so the popover is nudged to sit as far from the page's right edge as
  * from the footer.
