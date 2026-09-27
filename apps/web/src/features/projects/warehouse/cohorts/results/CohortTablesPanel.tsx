@@ -138,7 +138,9 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
       return <span className="tabular-nums">{ok ? render(ok) : '—'}</span>
     }
     return [
-      { id: 'name', header: t('cohorts.tables_col_table'), accessor: (r) => r.name, filter: 'text', size: 180 },
+      // Upper case, as SQL documentation writes table names (OMOP's PERSON); the
+      // queries keep the real name, which SQL matches whatever its case.
+      { id: 'name', header: t('cohorts.tables_col_table'), accessor: (r) => r.name, display: (r) => r.name.toUpperCase(), filter: 'text', size: 180 },
       {
         id: 'filter',
         header: t('cohorts.tables_col_filter'),
@@ -182,49 +184,53 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
   const selectedTable = tables.find((tb) => tb.name === selected) ?? null
 
   return (
-    <Allotment vertical>
-      <Allotment.Pane minSize={120}>
-        <div className="flex h-full flex-col">
-          <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5">
-            <p className="flex-1 text-[10px] text-muted-foreground">{t('cohorts.tables_hint')}</p>
-            {countingAll ? (
-              <Button variant="destructive" size="sm" className="h-6 gap-1 text-xs" onClick={() => { stopRef.current = true }}>
-                <Square size={12} />
-                {t('cohorts.tables_stop')}
-              </Button>
-            ) : (
-              <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs" onClick={() => void countAll()}>
-                <Play size={12} />
-                {t('cohorts.tables_count_all')}
-              </Button>
-            )}
+    // Its own stacking context: the tables' sticky header and cells carry a
+    // z-index, which painted them over the pane separator beside the panel.
+    <div className="isolate h-full">
+      <Allotment vertical>
+        <Allotment.Pane minSize={120}>
+          <div className="flex h-full flex-col">
+            <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5">
+              <p className="flex-1 text-[10px] text-muted-foreground">{t('cohorts.tables_hint')}</p>
+              {countingAll ? (
+                <Button variant="destructive" size="sm" className="h-6 gap-1 text-xs" onClick={() => { stopRef.current = true }}>
+                  <Square size={12} />
+                  {t('cohorts.tables_stop')}
+                </Button>
+              ) : (
+                <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs" onClick={() => void countAll()}>
+                  <Play size={12} />
+                  {t('cohorts.tables_count_all')}
+                </Button>
+              )}
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <DataTable
+                data={tables}
+                columns={columns}
+                rowKey={(r) => r.name}
+                onRowClick={selectTable}
+                selectedRowKey={selected}
+                density="compact"
+                stickyHeader
+                emptyMessage={t('cohorts.tables_none')}
+              />
+            </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <DataTable
-              data={tables}
-              columns={columns}
-              rowKey={(r) => r.name}
-              onRowClick={selectTable}
-              selectedRowKey={selected}
-              density="compact"
-              stickyHeader
-              emptyMessage={t('cohorts.tables_none')}
+        </Allotment.Pane>
+        <Allotment.Pane minSize={120} visible={!!selectedTable}>
+          {selectedTable && (
+            <TableRowsPreview
+              key={`${selectedTable.name}:${definitionKey}`}
+              dataSourceId={dataSourceId}
+              cohort={cohort}
+              schemaMapping={schemaMapping}
+              table={selectedTable}
             />
-          </div>
-        </div>
-      </Allotment.Pane>
-      <Allotment.Pane minSize={120} visible={!!selectedTable}>
-        {selectedTable && (
-          <TableRowsPreview
-            key={`${selectedTable.name}:${definitionKey}`}
-            dataSourceId={dataSourceId}
-            cohort={cohort}
-            schemaMapping={schemaMapping}
-            table={selectedTable}
-          />
-        )}
-      </Allotment.Pane>
-    </Allotment>
+          )}
+        </Allotment.Pane>
+      </Allotment>
+    </div>
   )
 }
 
@@ -269,7 +275,7 @@ function TableRowsPreview({ dataSourceId, cohort, schemaMapping, table }: Cohort
     <div className="flex h-full flex-col">
       <p className="shrink-0 border-b bg-muted/40 px-3 py-1 text-[10px] text-muted-foreground">
         {t(table.filter ? 'cohorts.tables_preview' : 'cohorts.tables_preview_unfiltered', {
-          table: table.name,
+          table: table.name.toUpperCase(),
           count: rows.length,
           max: PREVIEW_ROWS,
         })}

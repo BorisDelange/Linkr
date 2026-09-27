@@ -3,6 +3,7 @@ import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact, Data
 import { Button } from '@/components/ui/button'
 import { ResultsTable } from './ResultsTable'
 import { AttritionChart } from './AttritionChart'
+import { CUSTOM_SQL_NO_ID } from '@/lib/duckdb/cohort-query'
 import type { CohortExecutionResult } from '@/types'
 import { useState, type ReactNode } from 'react'
 
@@ -44,8 +45,8 @@ export function ResultsPanel({ result, loading, error, onExecute, onExportCsv, r
             <p className="max-w-md break-words text-xs">
               {error === 'EMPTY_QUERY'
                 ? t('cohorts.results_empty_query')
-                : error.includes('No matching columns found that match regex')
-                  ? t('cohorts.results_custom_sql_no_id')
+                : error.startsWith(`${CUSTOM_SQL_NO_ID}:`)
+                  ? t('cohorts.results_custom_sql_no_id', { column: error.slice(CUSTOM_SQL_NO_ID.length + 1) })
                   : error}
             </p>
           </>

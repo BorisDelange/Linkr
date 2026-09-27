@@ -286,11 +286,11 @@ export function registerWarehouseTools(server: Server): void {
     description:
       'Change a cohort: any of name, description, level, database, criteria (REPLACES the whole tree — '
       + 'read it with get_cohort first to keep existing criteria), or custom_sql. custom_sql, when set, '
-      + 'replaces the criteria entirely: it is the MEMBERSHIP query, returning one row per member with the '
-      + 'level\'s id column under its own name — the Linkr name (patient_id, visit_id, visit_detail_id) or the '
-      + 'database\'s own (person_id, stay_id…), matched case-insensitively; other columns are ignored. It may '
-      + 'query the Linkr relations (linkr_visit…) or the database\'s own tables. Count, results, freeze, '
-      + 'derivation, report and Patient data all follow it; attrition has a single step. '
+      + 'replaces the criteria entirely: it is the MEMBERSHIP query, one row per member. It may read the Linkr '
+      + 'relations (linkr_visit…) or the database\'s own tables, and must return the level\'s id column under '
+      + 'its Linkr name — patient_id, visit_id or visit_detail_id (e.g. SELECT stay_id AS visit_detail_id FROM '
+      + 'icustays …); other columns are ignored. Count, results, freeze, derivation, report and Patient data all '
+      + 'follow it; attrition has a single step. '
       + 'Start from preview_cohort_sql. Pass null to go back to the criteria.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{

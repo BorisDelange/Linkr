@@ -8,7 +8,7 @@ import {
   buildCohortResultsSql,
   conceptCriterionBoundToStay,
   getNodeLabel,
-  levelIdNames,
+  cohortRunError,
   sqlComment,
   withinStaySql,
   CUSTOM_SQL_STEP_ID,
@@ -569,7 +569,8 @@ describe('hand-written membership query', () => {
     },
   } as never)
   const custom = (customSql: string, level: CohortLevel = 'visit_detail'): Cohort => ({ ...makeCohort(level), customSql })
-  const SQL = 'SELECT stay_id FROM icu WHERE stay_id IN (101, 205)'
+  // On the database's own table: the id is renamed to the Linkr name, the one rule.
+  const SQL = 'SELECT stay_id AS visit_detail_id FROM icu WHERE stay_id IN (101, 205)'
 
   it('filters every query of the cohort on it', () => {
     const c = custom(SQL)
@@ -579,7 +580,7 @@ describe('hand-written membership query', () => {
       buildCohortMembershipSql(c, vdMapping)!,
     ]) {
       expect(squash(sql)).toContain(
-        `linkr_visit_detail.visit_detail_id IN ( SELECT COLUMNS('(?i)^(visit_detail_id|stay_id)$') FROM ( ${SQL} ) AS custom_members )`)
+        `linkr_visit_detail.visit_detail_id IN ( SELECT COLUMNS('(?i)^visit_detail_id$') FROM ( ${SQL} ) AS custom_members )`)
     }
   })
 
@@ -597,7 +598,7 @@ describe('hand-written membership query', () => {
   })
 
   it('never re-indents a line inside one of its string literals', () => {
-    const sql = buildCohortCountSql(custom("SELECT 1 AS stay_id WHERE 'a\nb' <> ''"), vdMapping)!
+    const sql = buildCohortCountSql(custom("SELECT 1 AS visit_detail_id WHERE 'a\nb' <> ''"), vdMapping)!
     expect(sql).toContain("'a\nb'")
   })
 
@@ -608,13 +609,15 @@ describe('hand-written membership query', () => {
     expect(generated).not.toContain('custom_members')
     // The level's id under its own name: nothing renamed to `id`.
     expect(generated).toMatch(/SELECT DISTINCT\n {2}linkr_visit_detail\.visit_detail_id\nFROM/)
-    expect(generated).toContain('stay_id in this database')
   })
 
-  it('accepts only the Linkr name when the mapping reads the id from an expression', () => {
-    expect(levelIdNames('patient', mapping)).toEqual(['patient_id', 'person_id'])
-    const expr = { ...vdMapping, visitDetail: { ...vdMapping.visitDetail!, fields: { ...vdMapping.visitDetail!.fields, visit_detail_id: 'CAST(i.stay_id AS TEXT)' } } }
-    expect(levelIdNames('visit_detail', expr)).toEqual(['visit_detail_id'])
+  it('explains a query that returns no column named after the level\'s id', () => {
+    const duckdb = 'Binder Error: No matching columns found that match regex "(?i)^visit_detail_id$"'
+    expect(cohortRunError(custom(SQL), duckdb)).toBe('CUSTOM_SQL_NO_ID:visit_detail_id')
+    expect(cohortRunError(custom(SQL, 'patient'), duckdb)).toBe('CUSTOM_SQL_NO_ID:patient_id')
+    // Any other error, or one from the criteria, is left as DuckDB said it.
+    expect(cohortRunError(custom(SQL), 'Parser Error: syntax error')).toBe('Parser Error: syntax error')
+    expect(cohortRunError(makeCohort('visit'), duckdb)).toBe(duckdb)
   })
 
   it('cannot define an event-level cohort', () => {

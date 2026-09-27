@@ -20,7 +20,6 @@ import type {
 import type { SchemaMapping } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 import { classRelation, eventRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
-import { fieldRef } from '@/lib/schema-classes/spec'
 
 // ---------------------------------------------------------------------------
 // Untrusted-input guards
@@ -213,7 +212,7 @@ export function buildCohortQueryParts(
       baseTable,
       idColumn,
       from: buildFromClause(cohort.level, mapping, null, baseTable, forcePatientJoin),
-      whereClause: customMembershipClause(custom, baseTable, idColumn, levelIdNames(cohort.level, mapping)),
+      whereClause: customMembershipClause(custom, baseTable, idColumn),
     }
   }
 
@@ -245,34 +244,32 @@ export function cohortIdColumn(level: Exclude<CohortLevel, 'event'>): 'patient_i
   return level === 'patient' ? 'patient_id' : level === 'visit' ? 'visit_id' : 'visit_detail_id'
 }
 
-/**
- * The names a hand-written query may give the level's id: Linkr's
- * (`visit_detail_id`) and, when the mapping reads it from a plain column, the
- * database's own (`stay_id` in MIMIC) — so a query written on the source
- * tables needs no renaming.
- */
-export function levelIdNames(level: CohortLevel, mapping: SchemaMapping): string[] {
-  const linkr = getIdColumn(level, mapping)
-  if (!linkr) return []
-  const spec = level === 'patient' ? mapping.patient : level === 'visit' ? mapping.visit : mapping.visitDetail
-  const native = fieldRef(spec?.fields?.[linkr])?.column
-  return native && native.toLowerCase() !== linkr ? [linkr, native] : [linkr]
+/** The error a hand-written query gets when it does not return the level's id
+ *  column: `CUSTOM_SQL_NO_ID:<column>`, for the results panel to explain. */
+export const CUSTOM_SQL_NO_ID = 'CUSTOM_SQL_NO_ID'
+
+/** The error of a run, with DuckDB's "no matching columns" on a hand-written
+ *  query turned into `CUSTOM_SQL_NO_ID:<column>`. */
+export function cohortRunError(cohort: Pick<Cohort, 'customSql' | 'level'>, message: string): string {
+  if (!customMembershipSql(cohort) || cohort.level === 'event') return message
+  if (!/No matching columns found that match regex/i.test(message)) return message
+  return `${CUSTOM_SQL_NO_ID}:${cohortIdColumn(cohort.level)}`
 }
 
 /**
- * Keeps the level's rows the hand-written query lists, reading its id column
- * by name, case-insensitively (`COLUMNS`: a query that returns none fails with
- * DuckDB naming the columns it has). The query goes in as written — indenting
- * it would change a multi-line string literal — on lines of its own, so a
- * trailing `-- comment` cannot swallow the closing parenthesis.
+ * Keeps the level's rows the hand-written query lists: it may read the Linkr
+ * relations or the database's own tables, and returns the level's id column
+ * under its Linkr name (`visit_detail_id`), found by name, case-insensitively
+ * (`COLUMNS`), so its place among other columns does not matter. The query
+ * goes in as written — indenting it would change a multi-line string literal —
+ * on lines of its own, so a trailing `-- comment` cannot swallow the closing
+ * parenthesis.
  */
-function customMembershipClause(sql: string, baseTable: string, idColumn: string, names: string[]): string {
-  // Names are plain identifiers (fieldRef only accepts \w), so they need no escaping.
-  const pattern = `(?i)^(${names.join('|')})$`
+function customMembershipClause(sql: string, baseTable: string, idColumn: string): string {
   return [
-    sqlComment(`Rows whose ${names.join(' / ')} the custom SQL returns`),
+    sqlComment(`Rows whose ${idColumn} the custom SQL returns`),
     `${baseTable}.${idColumn} IN (`,
-    `  SELECT COLUMNS('${pattern}') FROM (`,
+    `  SELECT COLUMNS('(?i)^${idColumn}$') FROM (`,
     sql,
     `  ) AS custom_members`,
     `)`,
@@ -290,12 +287,8 @@ export function buildCohortCriteriaSql(cohort: Cohort, mapping: SchemaMapping): 
   if (cohort.level === 'event') return null
   const parts = buildCohortQueryParts({ ...cohort, customSql: null }, mapping)
   if (!parts) return null
-  const names = levelIdNames(cohort.level, mapping)
-  const header = names.length > 1
-    ? `One row per ${cohort.level}: its ${parts.idColumn} (${names[1]} in this database)`
-    : `One row per ${cohort.level}: its ${parts.idColumn}`
   const lines = [
-    sqlComment(header),
+    sqlComment(`One row per ${cohort.level}: its ${parts.idColumn}`),
     `SELECT DISTINCT`,
     `  ${parts.baseTable}.${parts.idColumn}`,
     `FROM`,
@@ -423,7 +416,7 @@ export function buildAttritionQueries(
     queries.push({
       nodeId: CUSTOM_SQL_STEP_ID,
       label: 'Custom SQL',
-      sql: countFrom(baseFrom, customMembershipClause(custom, baseTable, idColumn, levelIdNames(cohort.level, mapping))),
+      sql: countFrom(baseFrom, customMembershipClause(custom, baseTable, idColumn)),
     })
     return queries
   }

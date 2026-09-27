@@ -7,7 +7,7 @@ import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { toLocalized } from '@/lib/localized'
-import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
+import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, cohortRunError } from '@/lib/duckdb/cohort-query'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import * as engine from '@/lib/duckdb/engine'
 import type {
@@ -476,7 +476,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
           executionLoading: new Map(s.executionLoading).set(id, false),
           executionErrors: new Map(s.executionErrors).set(
             id,
-            err instanceof Error ? err.message : String(err),
+            cohortRunError(cohort, err instanceof Error ? err.message : String(err)),
           ),
         }
       })
@@ -528,7 +528,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         executionLoading: new Map(s.executionLoading).set(id, false),
         executionErrors: new Map(s.executionErrors).set(
           id,
-          err instanceof Error ? err.message : String(err),
+          cohortRunError(cohort, err instanceof Error ? err.message : String(err)),
         ),
       }))
       throw err
