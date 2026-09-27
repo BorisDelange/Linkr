@@ -648,9 +648,9 @@ export function registerEtlTools(server: Server): void {
       'Run an ETL pipeline as the app\'s Run button does: its enabled SQL scripts in run order (or only the scripts '
       + 'given, even disabled ones), each against the pipeline\'s target, stopping at the first error; the run is '
       + 'recorded in the pipeline\'s run history. On a writable target this WRITES to that database (scripts often '
-      + 'drop and rebuild tables): ask the user before running. Waits for the end; a single script over ~5 minutes '
-      + 'exceeds the client timeout.',
-    annotations: WRITE,
+      + 'drop and rebuild tables), and can overwrite or delete its data: ask the user before running. Waits for the '
+      + 'end; a single script over ~5 minutes exceeds the client timeout.',
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ pipeline_id: string; paths?: string[]; show_rows?: number; ignore_running?: boolean }>({
       type: 'object',
       properties: {

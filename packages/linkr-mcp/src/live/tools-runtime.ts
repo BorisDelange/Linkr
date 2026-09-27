@@ -182,8 +182,9 @@ export function registerRuntimeTools(server: Server): void {
     description: 'Run an IDE script (path) or R / Python code as a background job — the IDE\'s "Run as job": a fresh '
       + 'process (no session variables), for long runs. Returns the job_id at once; follow it with get_job_status '
       + 'and read its output (log, table, figures) with get_job_output. The user sees it in Linkr\'s jobs panel. '
-      + 'sql_query() is not available in a job. Print aggregates, not patient-level rows.',
-    annotations: WRITE,
+      + 'sql_query() is not available in a job. Print aggregates, not patient-level rows. The job runs with the '
+      + 'user\'s rights and can overwrite or delete files, datasets and writable databases.',
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{
       project_uid: string; path?: string; code?: string; language?: EnvLanguage; dataset_path?: string; label?: string
     }>({
@@ -290,8 +291,9 @@ export function registerRuntimeTools(server: Server): void {
 
   server.registerTool('install_packages', {
     description: `Add packages to the project's R or Python environment, as the Environments panel does. ${ENV_NOTE} `
-      + 'Pins are allowed ("dplyr==1.1.4", "pandas>=2"). Dependencies come along.',
-    annotations: WRITE,
+      + 'Pins are allowed ("dplyr==1.1.4", "pandas>=2"). Dependencies come along. Installing runs the packages\' '
+      + 'own build and install code on the server, which can overwrite or delete data.',
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ project_uid: string; language: EnvLanguage; packages: string[]; build?: boolean }>({
       type: 'object',
       properties: {
@@ -312,7 +314,7 @@ export function registerRuntimeTools(server: Server): void {
   server.registerTool('remove_package', {
     description: 'Remove a package from the project\'s R or Python environment (kernel packages cannot be removed). '
       + 'Code using it will fail after the next build.',
-    annotations: WRITE,
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ project_uid: string; language: EnvLanguage; package: string; build?: boolean }>({
       type: 'object',
       properties: { project_uid: { type: 'string' }, language: LANGUAGE, package: { type: 'string' }, build: BUILD },

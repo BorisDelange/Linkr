@@ -25,6 +25,14 @@ describe('kindOf', () => {
     expect(kindOf(DESTRUCTIVE)).toBe('delete')
     expect(kindOf(undefined)).toBe('write')
   })
+
+  it('routes removals and code runs through the delete tool', () => {
+    const kinds = new Map(CATALOG.map((t) => [t.name, kindOf(t.config.annotations)]))
+    for (const name of [
+      'remove_package', 'unlink_database_from_project', 'remove_dashboard_filter',
+      'run_code', 'run_script', 'run_as_job', 'install_packages', 'run_etl_pipeline',
+    ]) expect([name, kinds.get(name)]).toEqual([name, 'delete'])
+  })
 })
 
 describe('searchTools', () => {

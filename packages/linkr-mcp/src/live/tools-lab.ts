@@ -298,13 +298,16 @@ export function registerLabTools(server: Server): void {
       + 'field to null to clear it). Columns may be given by name or id.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
-      widget_id: string; name?: string; dataset_path?: string; config?: Record<string, unknown>; layout?: Partial<Layout>
+      widget_id: string; name?: string; dataset_path?: string | null; config?: Record<string, unknown>; layout?: Partial<Layout>
     }>({
       type: 'object',
       properties: {
         widget_id: { type: 'string' },
         name: { type: 'string' },
-        dataset_path: { type: 'string' },
+        dataset_path: {
+          type: ['string', 'null'],
+          description: '"" or null clears it: the widget then reads no dataset.',
+        },
         config: { type: 'object', description: 'Fields to set.' },
         layout: LAYOUT_SCHEMA,
       },
@@ -314,10 +317,14 @@ export function registerLabTools(server: Server): void {
     const widget = await api.getWidget(widget_id)
     const changes: Record<string, unknown> = {}
     if (name !== undefined) changes.name = bilingual(name)
-    if (dataset_path !== undefined) {
+    let dataset = widget.datasetFileId
+    if (dataset_path === '' || dataset_path === null) {
+      dataset = null
+      changes.datasetFileId = null
+    } else if (dataset_path !== undefined) {
       const { dashboard } = await tabContext(widget.tabId)
-      dataset_path = await datasetPath(dashboard.projectUid, dataset_path)
-      changes.datasetFileId = dataset_path
+      dataset = await datasetPath(dashboard.projectUid, dataset_path)
+      changes.datasetFileId = dataset
     }
     if (layout) changes.layout = placeWidget([], { ...widget.layout, ...layout })
     if (config) {
@@ -325,7 +332,6 @@ export function registerLabTools(server: Server): void {
       const manifest = findPlugin(widget.source.pluginId)
       if (!manifest) return failure(`The widget's plugin ${widget.source.pluginId} is not a known plugin.`)
       const { dashboard } = await tabContext(widget.tabId)
-      const dataset = dataset_path ?? widget.datasetFileId
       const merged = Object.fromEntries(
         Object.entries({ ...widget.source.config, ...config }).filter(([, v]) => v !== null),
       )
@@ -364,13 +370,16 @@ export function registerLabTools(server: Server): void {
   server.registerTool('update_dashboard', {
     description: 'Rename a dashboard, change its description or its default dataset.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ dashboard_id: string; name?: string; description?: string; dataset_path?: string }>({
+    inputSchema: fromJsonSchema<{ dashboard_id: string; name?: string; description?: string; dataset_path?: string | null }>({
       type: 'object',
       properties: {
         dashboard_id: { type: 'string' },
         name: { type: 'string' },
         description: { type: 'string' },
-        dataset_path: { type: 'string', description: 'New default dataset for widgets that do not name one.' },
+        dataset_path: {
+          type: ['string', 'null'],
+          description: 'New default dataset for widgets that do not name one; "" or null clears it.',
+        },
       },
       required: ['dashboard_id'],
     }),
@@ -378,7 +387,9 @@ export function registerLabTools(server: Server): void {
     const changes: Record<string, unknown> = {}
     if (name !== undefined) changes.name = bilingual(name)
     if (description !== undefined) changes.description = bilingual(description)
-    if (dataset_path !== undefined) {
+    if (dataset_path === '' || dataset_path === null) {
+      changes.defaultDatasetFileId = null
+    } else if (dataset_path !== undefined) {
       changes.defaultDatasetFileId = await datasetPath((await api.getDashboard(dashboard_id)).projectUid, dataset_path)
     }
     if (Object.keys(changes).length === 0) return failure('Nothing to change: give name, description or dataset_path.')
@@ -437,7 +448,7 @@ export function registerLabTools(server: Server): void {
 
   server.registerTool('remove_dashboard_filter', {
     description: 'Remove one filter from a dashboard (filter ids: describe_dashboard).',
-    annotations: WRITE,
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ dashboard_id: string; filter_id: string }>({
       type: 'object',
       properties: { dashboard_id: { type: 'string' }, filter_id: { type: 'string' } },

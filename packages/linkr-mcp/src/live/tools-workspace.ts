@@ -3,7 +3,7 @@ import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
 import { setLocalized } from '@/lib/localized'
 import type { ProjectStatus } from '@/types'
-import { READ, WRITE, failure, guard, text, type Server } from './shared.js'
+import { DESTRUCTIVE, READ, WRITE, failure, guard, text, type Server } from './shared.js'
 import { registerDatabaseTools } from './tools-databases.js'
 import {
   BADGES_PROP, LANGUAGE_PROP, findProject, langOf, linkedProjects, name, resolveWorkspace, rest,
@@ -313,7 +313,7 @@ export function registerWorkspaceTools(server: Server): void {
     description:
       'Remove a database from a project\'s linked databases. The database itself and its data are untouched; '
       + 'the project\'s cohorts and datasets stay but can no longer query it.',
-    annotations: WRITE,
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ project_uid: string; database_id: string }>({
       type: 'object',
       properties: { project_uid: { type: 'string' }, database_id: { type: 'string' } },

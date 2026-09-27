@@ -37,7 +37,9 @@ about 6k tokens of definitions instead of ~40k for all ~230:
 - `run_linkr_read_tool` / `run_linkr_write_tool` / `run_linkr_delete_tool` — call a tool
   found that way; each only accepts tools of its kind and carries the matching
   annotation, so the client's approval still tells reads from writes from deletions.
-  Arguments are validated against the tool's own schema.
+  Tools that run code or SQL scripts (`run_code`, `run_script`, `run_as_job`,
+  `install_packages`, `run_etl_pipeline`) count as deletions: they can overwrite or
+  delete data, so the client asks first. Arguments are validated against the tool's own schema.
 
 The list never changes, so nothing is configured in the client: add the server, done.
 `LINKR_MCP_TOOLSETS` exposes families directly on top of the core (`mapping`,
@@ -62,7 +64,7 @@ details, API keys, git host tokens) — see `docs/planning/ai-agents-plan.md` §
 |---|---|
 | `list_workspaces`, `get_workspace`, `create_workspace`, `update_workspace`, `list_organizations` | workspaces: what each holds (projects, databases, schema presets, mapping projects, wiki), README, organization, badges; create one (no delete) |
 | `create_project`, `get_project_summary`, `update_project` | the New project dialog (entity id validated or derived from the name, lineage); the Summary page — status, version, badges, descriptions, README, notes, tasks (no delete) |
-| `link_database_to_project`, `unlink_database_from_project` | a project's linked databases, ids and portable refs kept aligned as the app does |
+| `link_database_to_project`, `unlink_database_from_project` | a project's linked databases, ids and portable refs kept aligned as the app does; unlinking is `destructiveHint` |
 | `list_databases`, `get_database`, `update_database` | the workspace's databases: status, kind, schema mapping, statistics, the projects linking them; name/description/alias/badges/README — never locations or logins |
 | `list_schema_presets`, `set_database_schema`, `retest_database` | a preset's mapping on a database (update keeps overrides, switch drops them), then the Retest connection |
 | `create_database` | an empty DuckDB from a preset's DDL, data already on the server (file or Parquet folder, read in place), or an external PostgreSQL/MySQL declared without any password — each user enters their own login in Linkr |
@@ -106,7 +108,7 @@ details, API keys, git host tokens) — see `docs/planning/ai-agents-plan.md` §
 | `duplicate_dataset`, `move_dataset`, `delete_dataset` | files in the project's datasets |
 | `list_plugins`, `describe_plugin` | widget types, and one plugin's config fields derived from its manifest |
 | `list_dashboards`, `describe_dashboard`, `create_dashboard`, `update_dashboard`, `delete_dashboard` | dashboards with their tabs, widgets and filters |
-| `add_dashboard_filter`, `remove_dashboard_filter` | the filter sidebar: a dataset column, range or multi-select by type, optionally limited to tabs |
+| `add_dashboard_filter`, `remove_dashboard_filter` | the filter sidebar: a dataset column, range or multi-select by type, optionally limited to tabs; removing is `destructiveHint` |
 | `add_tab`, `rename_tab`, `add_widget`, `update_widget` | columns by name or id, unknown columns/fields refused, 48-column grid placement |
 | `remove_widget`, `remove_tab` | `destructiveHint` — undoable from the notification centre |
 | `create_dataset`, `create_dataset_folder` | an empty dataset from a column list (a manual collection's start, CSV header on disk); folders |
@@ -129,13 +131,13 @@ details, API keys, git host tokens) — see `docs/planning/ai-agents-plan.md` §
 | Tool | Purpose |
 |---|---|
 | `list_scripts`, `read_script`, `write_script`, `move_script`, `delete_script` | the project's IDE scripts, shown live in the user's IDE |
-| `run_code`, `run_script` | R or Python in the project's server kernel (session `default`, shared with the IDE); stdout, stderr, returned table; figures as a `ui://` resource |
+| `run_code`, `run_script` | R or Python in the project's server kernel (session `default`, shared with the IDE); stdout, stderr, returned table; figures as a `ui://` resource; `destructiveHint` (the code can overwrite data) |
 | `list_sessions`, `create_session`, `delete_session` | the user's kernel sessions (isolated R / Python namespaces; `default` is the IDE's) with live-kernel state (idle / busy, memory) |
 | `restart_kernel`, `interrupt_kernel` | a session's kernel: restart (variables lost, `destructiveHint`; needed after a build) or Stop the running code |
-| `run_as_job`, `get_job_output` | a script or code run as a background job (fresh process, jobs panel), returns the `job_id`; then its log, table and figures (`ui://`) |
+| `run_as_job`, `get_job_output` | a script or code run as a background job (fresh process, jobs panel), returns the `job_id`; then its log, table and figures (`ui://`); the run is `destructiveHint` |
 | `list_jobs`, `clear_finished_jobs` | the jobs panel of a project (runs, builds, package ops) or a workspace (derivations); clearing finished ones is `destructiveHint` |
 | `describe_environment` | the project's managed Python / R environment: status, declared packages, last update check, install options (URL credentials masked), sessions on a stale build |
-| `install_packages`, `remove_package`, `update_packages`, `install_package_preset`, `check_package_updates`, `build_environment` | the Environments panel: spec re-locked by the server, optional build as a job (`job_id`) |
+| `install_packages`, `remove_package`, `update_packages`, `install_package_preset`, `check_package_updates`, `build_environment` | the Environments panel: spec re-locked by the server, optional build as a job (`job_id`); installing (packages run their own install code) and removing are `destructiveHint` |
 | `set_environment_options` | package repository / index for the environment (R `repos`, `method`; Python `index_url`, `trusted_host`); URLs with credentials refused |
 | `list_ide_connections` | databases a project's scripts can query: linked databases (`database_id` for `run_code`) and the IDE's custom connections, never credentials |
 
@@ -164,7 +166,7 @@ details, API keys, git host tokens) — see `docs/planning/ai-agents-plan.md` §
 | `list_etl_pipelines`, `get_etl_pipeline`, `create_etl_pipeline`, `update_etl_pipeline`, `delete_etl_pipeline` | ETL pipelines (workspace SQL scripts building a target database from a source): source / target / mapping-project vocab, scripts in run order with their last outcome |
 | `read_etl_file`, `write_etl_file`, `move_etl_file`, `delete_etl_file` | a pipeline's files (scripts, notes, `mapping/*.csv` exports); new scripts appended to the run order; versioning marks follow moves |
 | `update_etl_script`, `reorder_etl_scripts` | per-script disabled flag and database override; run order as a full list or sorted by name |
-| `run_etl_pipeline` | the app's Run: enabled scripts in order (or the ones given), `source.`/`target.`/`vocab.` resolved, on the writable target through the ETL endpoint, stops at the first error, recorded in the run history |
+| `run_etl_pipeline` | the app's Run: enabled scripts in order (or the ones given), `source.`/`target.`/`vocab.` resolved, on the writable target through the ETL endpoint, stops at the first error, recorded in the run history; `destructiveHint` (scripts often drop and rebuild tables) |
 | `list_etl_runs`, `get_etl_run` | past runs; one run's per-script status, duration, rows or error |
 | `list_sql_collections`, `get_sql_collection`, `create_sql_collection`, `update_sql_collection`, `delete_sql_collection` | SQL script collections (reusable queries in a workspace, with a default database) |
 | `read_sql_collection_file`, `write_sql_collection_file`, `move_sql_collection_file`, `delete_sql_collection_file` | a collection's scripts and folders |

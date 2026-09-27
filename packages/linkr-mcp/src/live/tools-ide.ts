@@ -6,6 +6,8 @@ import { DESTRUCTIVE, READ, WRITE, api, failure, guard, text, type Server, type 
 
 const DATA_NOTE = 'Print aggregates (counts, summaries, model coefficients), not patient-level rows: the output '
   + 'is sent to you, and you may be a remote model.'
+const OVERWRITE_NOTE = 'The code runs with the user\'s rights and can overwrite or delete files, datasets and '
+  + 'writable databases.'
 
 async function scriptContent(projectUid: string, path: string): Promise<string | null> {
   const file = (await api.listScripts(projectUid)).find((f) => f.type === 'file' && f.path === path)
@@ -122,8 +124,8 @@ export function registerIdeTools(server: Server) {
   server.registerTool('run_code', {
     description: 'Run R or Python code in the project\'s server kernel (its managed environment and packages) and '
       + 'return stdout, stderr, a returned data frame (as a table) and figures (rendered for the user). '
-      + `Variables persist between runs of the same session. ${DATA_NOTE}`,
-    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      + `Variables persist between runs of the same session. ${DATA_NOTE} ${OVERWRITE_NOTE}`,
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{
       project_uid: string; language: RunLanguage; code: string; session?: string; dataset_path?: string; database_id?: string
     }>({
@@ -139,8 +141,8 @@ export function registerIdeTools(server: Server) {
   }, guard(async (args) => run(args)))
 
   server.registerTool('run_script', {
-    description: `Run one IDE script (.R or .py) in the project's server kernel, as the IDE's Run button does. ${DATA_NOTE}`,
-    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    description: `Run one IDE script (.R or .py) in the project's server kernel, as the IDE's Run button does. ${DATA_NOTE} ${OVERWRITE_NOTE}`,
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ project_uid: string; path: string; session?: string; dataset_path?: string; database_id?: string }>({
       type: 'object',
       properties: { project_uid: { type: 'string' }, path: { type: 'string' }, ...RUN_OPTIONS },
