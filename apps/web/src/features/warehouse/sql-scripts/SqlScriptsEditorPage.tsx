@@ -88,6 +88,9 @@ import type { ShortcutActionId } from '@/types/shortcuts'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
 import { buildPointer } from '@/lib/import-identity'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
+import { paths } from '@/lib/paths'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 
 /** Shortcut actions surfaced in the SQL editor (subset of the IDE's set;
  * no terminal here, so no toggle/clear-terminal). */
@@ -109,6 +112,7 @@ interface Props {
 
 export function SqlScriptsEditorPage({ collectionId }: Props) {
   const { t, i18n } = useTranslation()
+  const { wsUid } = useResolvedParams()
   const canWrite = useMyWorkspaceRole().can('sql-scripts:write')
   // Reinstalling replaces the whole entity's content, so it takes the same role
   // the list page requires to delete it.
@@ -426,9 +430,12 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
 
   if (!collection) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">{t('sql_scripts.collection_not_found')}</p>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_sql_collection')}
+        entityId={collectionId}
+        backTo={paths.warehouseSqlScripts(wsUid ?? '')}
+        backLabel={t('common.back_to_sql_collections')}
+      />
     )
   }
 

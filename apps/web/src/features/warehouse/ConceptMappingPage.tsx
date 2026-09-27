@@ -1,6 +1,9 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useTranslation } from 'react-i18next'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
+import { paths } from '@/lib/paths'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { MappingProjectListPage } from './concept-mapping/MappingProjectListPage'
@@ -17,6 +20,7 @@ type View = 'home' | 'projects' | 'global'
  * base route resolving `mappingProjectId`.
  */
 export function ConceptMappingPage({ view = 'home' }: { view?: View }) {
+  const { t } = useTranslation()
   const { raw } = useResolvedParams()
   const navigate = useNavigate()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects } = useConceptMappingStore()
@@ -34,6 +38,14 @@ export function ConceptMappingPage({ view = 'home' }: { view?: View }) {
     if (mappingProjectId) {
       return <MappingProjectPage projectId={mappingProjectId} />
     }
+    return (
+      <EntityNotFound
+        entityLabel={t('common.entity_mapping_project')}
+        entityId={raw.mappingProjectId}
+        backTo={paths.warehouseConceptMapping(raw.wsUid ?? '')}
+        backLabel={t('common.back_to_mapping_projects')}
+      />
+    )
   }
 
   const base = `/workspaces/${raw.wsUid}/warehouse/concept-mapping`

@@ -554,9 +554,14 @@ the dominant size). Never hand-roll a CSS spinner — the ones that existed
 have been replaced — and never `return null` while loading (3 pages still do,
 leaving the screen blank).
 
-**Not found** — use `components/layout/EntityNotFound.tsx`. The 4 warehouse
-detail pages bypass it and degrade to a bare grey `<p>` with no icon and no way
-back; don't copy them.
+**Not found** — use `components/layout/EntityNotFound.tsx` for any URL whose
+entity does not resolve (every detail page and the project/workspace guards go
+through it): icon, "`<Entity>` not found", why, the id from the URL, and an
+outline "Back to `<list>`" button (`backTo` path, or `onBack` when the page
+already owns its back navigation). Labels are `common.entity_*` and
+`common.back_to_*`. It replaced ten hand-made variants — link vs ghost vs outline
+button, with or without icon, three text sizes, two hard-coded English strings,
+four with no way back.
 
 ### Section headers (uppercase group labels)
 
