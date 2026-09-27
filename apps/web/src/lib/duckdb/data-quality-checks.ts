@@ -76,8 +76,13 @@ export function runnableChecks(stored: DqCustomCheck[]): DqCheck[] {
       tableName: c.tableName,
       threshold: c.threshold,
       sql: c.sql,
-      exploreSql: c.exploreSql?.trim() ? c.exploreSql : null,
+      exploreSql: usableExploreSql(c),
     }))
+}
+
+/** A check's listing query, or null when it has none — a blank one counts as none. */
+export function usableExploreSql(check: { exploreSql?: string | null }): string | null {
+  return check.exploreSql?.trim() ? check.exploreSql : null
 }
 
 /** Pass or fail for a count, the one rule the Test button and a run share. */

@@ -954,6 +954,7 @@
     "testing": "Testing...",
     "test_result_error": "Error: {{message}}",
     "scan_failed": "Scan failed: {{message}}",
+    "checks_change_failed": "The change was not saved, the checks are as they were: {{message}}",
     "filter_all": "All checks",
     "unsaved": "Unsaved changes",
     "enable_check": "Enable",

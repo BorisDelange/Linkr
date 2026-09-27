@@ -954,6 +954,7 @@
     "testing": "Test en cours...",
     "test_result_error": "Erreur : {{message}}",
     "scan_failed": "Échec de l'analyse : {{message}}",
+    "checks_change_failed": "La modification n'a pas été enregistrée, les contrôles sont inchangés : {{message}}",
     "filter_all": "Tous les contrôles",
     "unsaved": "Modifications non enregistrées",
     "enable_check": "Activer",

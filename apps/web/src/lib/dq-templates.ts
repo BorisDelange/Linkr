@@ -56,12 +56,18 @@ function rowsBreaking(from: string, violation: string, opts: { scope?: string; s
   }
 }
 
-/** Rows sharing a key: how many too many, and which keys, most repeated first. */
+/**
+ * Rows sharing a key: how many too many, and which keys, most repeated first.
+ * A row with a NULL key part is left out of both — COUNT(DISTINCT) skips NULLs,
+ * so counting it would score every NULL as a duplicate while the listing groups
+ * them as one; a missing key is the not-null check's to report.
+ */
 function duplicatedKeys(from: string, key: string[]) {
   const cols = key.join(', ')
+  const keyed = key.map((c) => `${c} IS NOT NULL`).join(' AND ')
   return {
-    sql: `SELECT\n  (COUNT(*) - COUNT(DISTINCT ${key.length === 1 ? cols : `(${cols})`}))::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${from}`,
-    exploreSql: `SELECT ${cols}, COUNT(*) AS n\nFROM ${from}\nGROUP BY ${cols}\nHAVING COUNT(*) > 1\nORDER BY n DESC\nLIMIT ${EXPLORE_LIMIT}`,
+    sql: `SELECT\n  (COUNT(*) - COUNT(DISTINCT ${key.length === 1 ? cols : `(${cols})`}))::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${from}\nWHERE ${keyed}`,
+    exploreSql: `SELECT ${cols}, COUNT(*) AS n\nFROM ${from}\nWHERE ${keyed}\nGROUP BY ${cols}\nHAVING COUNT(*) > 1\nORDER BY n DESC\nLIMIT ${EXPLORE_LIMIT}`,
   }
 }
 

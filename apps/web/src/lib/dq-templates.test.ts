@@ -87,6 +87,12 @@ describe('checks from the DDL', () => {
     expect(pk.exploreSql).toContain('GROUP BY "person_id"\nHAVING COUNT(*) > 1')
   })
 
+  it('leaves NULL keys out of the duplicate count and its listing alike', () => {
+    const pk = tpls.find((c) => c.templateKey === 'ddl.primary_key:person')!
+    expect(pk.sql).toContain('FROM "person"\nWHERE "person_id" IS NOT NULL')
+    expect(pk.exploreSql).toContain('FROM "person"\nWHERE "person_id" IS NOT NULL\nGROUP BY')
+  })
+
   it('resolves an unqualified reference in the referencing table\'s schema', () => {
     const ddl = `CREATE TABLE hosp.patients (\n  subject_id integer NOT NULL\n);\nCREATE TABLE hosp.admissions (\n  subject_id integer NOT NULL\n);\nALTER TABLE hosp.admissions ADD CONSTRAINT fk FOREIGN KEY (subject_id) REFERENCES patients (subject_id);`
     const fk = ddlCheckTemplates(ddl, t).find((c) => c.templateKey.startsWith('ddl.foreign_key'))!

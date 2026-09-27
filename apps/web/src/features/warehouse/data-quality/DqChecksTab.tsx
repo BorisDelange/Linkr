@@ -86,7 +86,7 @@ import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { queryDataSource } from '@/lib/duckdb/engine'
-import { checkStatus } from '@/lib/duckdb/data-quality'
+import { checkStatus, usableExploreSql } from '@/lib/duckdb/data-quality'
 import {
   DQ_CATEGORIES,
   DQ_SEVERITIES,
@@ -157,6 +157,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     selectCheck,
     createCustomCheck,
     deleteCustomCheck,
+    deleteCustomChecks,
     updateCustomCheck,
     updateCheckQuery,
     isCheckDirty,
@@ -195,11 +196,23 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   // on the rule set (`checkGroups`) until a check is moved into it.
   const storedEmptyGroups = useDqStore((s) => s.dqRuleSets.find((rs) => rs.id === ruleSetId)?.checkGroups)
   const emptyGroups = useMemo(() => storedEmptyGroups ?? [], [storedEmptyGroups])
+  // Why the last change to the list (a group renamed, checks moved, deleted,
+  // enabled) failed; every such change is all-or-nothing, so the list is as it was.
+  const [opError, setOpError] = useState<string | null>(null)
+  const runOp = useCallback(async (op: () => Promise<unknown>): Promise<boolean> => {
+    setOpError(null)
+    try {
+      await op()
+      return true
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err))
+      return false
+    }
+  }, [])
   const setEmptyGroups = (update: (prev: string[]) => string[]) => {
     const next = update(emptyGroups)
     if (next.length === emptyGroups.length && next.every((g, i) => g === emptyGroups[i])) return
-    void updateRuleSet(ruleSetId, { checkGroups: next.length ? next : null })
-      .catch((e) => console.warn('[dq] check groups persist:', e))
+    void runOp(() => updateRuleSet(ruleSetId, { checkGroups: next.length ? next : null }))
   }
   const [newGroupOpen, setNewGroupOpen] = useState(false)
   const [renamingGroup, setRenamingGroup] = useState<string | null>(null)
@@ -265,9 +278,13 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   const idsInGroup = (name: string) => customChecks.filter((c) => (c.tableName ?? '') === name).map((c) => c.id)
 
   const renameGroup = async (from: string, to: string) => {
+    if (to === from) {
+      setRenamingGroup(null)
+      return
+    }
+    // The field stays open on failure, with the name typed.
+    if (!(await runOp(() => updateChecks(idsInGroup(from), { tableName: to })))) return
     setRenamingGroup(null)
-    if (to === from) return
-    await updateChecks(idsInGroup(from), { tableName: to })
     setEmptyGroups((prev) => prev.map((g) => (g === from ? to : g)))
     setToggledGroups((prev) => {
       if (!prev.has(from)) return prev
@@ -278,21 +295,20 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     })
   }
 
-  const deleteGroup = async (name: string, withChecks: boolean) => {
+  const deleteGroup = async (name: string, withChecks: boolean): Promise<boolean> => {
     const ids = idsInGroup(name)
-    if (withChecks) {
-      for (const id of ids) await deleteCustomCheck(id)
-    } else {
-      await updateChecks(ids, { tableName: null })
-    }
+    const ok = await runOp(() => (withChecks ? deleteCustomChecks(ids) : updateChecks(ids, { tableName: null })))
+    if (!ok) return false
     setEmptyGroups((prev) => prev.filter((g) => g !== name))
     setDeletingGroup(null)
+    return true
   }
 
-  const moveChecks = async (ids: string[], group: string | null) => {
-    await updateChecks(ids, { tableName: group })
+  const moveChecks = async (ids: string[], group: string | null): Promise<boolean> => {
+    if (!(await runOp(() => updateChecks(ids, { tableName: group })))) return false
     setEmptyGroups((prev) => prev.filter((g) => g !== group))
     setMoving(null)
+    return true
   }
   const movingFrom = moving && new Set(customChecks.filter((c) => moving.includes(c.id)).map((c) => c.tableName)).size === 1
     ? customChecks.find((c) => c.id === moving[0])?.tableName ?? null
@@ -358,14 +374,15 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
 
   const handleConfirmDelete = useCallback(async () => {
     const ids = deleteTarget === 'bulk' ? [...selectedIds] : deleteTarget ? [deleteTarget] : []
-    for (const id of ids) await deleteCustomCheck(id)
+    const ok = await runOp(() => (ids.length === 1 ? deleteCustomCheck(ids[0]) : deleteCustomChecks(ids)))
     setDeleteTarget(null)
+    if (!ok) return
     setSelectedIds((prev) => {
       const next = new Set(prev)
       ids.forEach((id) => next.delete(id))
       return next
     })
-  }, [deleteTarget, selectedIds, deleteCustomCheck])
+  }, [deleteTarget, selectedIds, deleteCustomCheck, deleteCustomChecks, runOp])
 
   const formatPct = useCallback(
     (n: number) => n.toLocaleString(i18n.language, { maximumFractionDigits: 2 }),
@@ -433,7 +450,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
       setDatabaseMissing(true)
       return
     }
-    if (selectedCheck) onInvestigate(selectedCheck.exploreSql?.trim() ? selectedCheck.exploreSql : selectedCheck.sql)
+    if (selectedCheck) onInvestigate(usableExploreSql(selectedCheck) ?? selectedCheck.sql)
   }
 
   const handleSave = useCallback(async () => {
@@ -635,6 +652,16 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                   />
                 )}
 
+                {opError && moving === null && deletingGroup === null && (
+                  <div className="flex items-center gap-2 border-b bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
+                    <AlertTriangle size={12} className="shrink-0" />
+                    <span className="min-w-0 flex-1 truncate" title={opError}>{t('data_quality.checks_change_failed', { message: opError })}</span>
+                    <Button variant="ghost" size="icon-xs" className="h-5 w-5 text-destructive" onClick={() => setOpError(null)} title={t('common.close')}>
+                      <X size={12} />
+                    </Button>
+                  </div>
+                )}
+
                 {/* Bulk action bar (edit mode) */}
                 {editMode && (
                   <div className="flex items-center gap-1 border-b bg-accent/30 px-2 py-1">
@@ -649,7 +676,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                     </span>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-xs" disabled={selectedIds.size === 0} onClick={() => void setChecksDisabled([...selectedIds], false)}>
+                        <Button variant="ghost" size="icon-xs" disabled={selectedIds.size === 0} onClick={() => void runOp(() => setChecksDisabled([...selectedIds], false))}>
                           <Eye size={12} />
                         </Button>
                       </TooltipTrigger>
@@ -657,7 +684,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-xs" disabled={selectedIds.size === 0} onClick={() => void setChecksDisabled([...selectedIds], true)}>
+                        <Button variant="ghost" size="icon-xs" disabled={selectedIds.size === 0} onClick={() => void runOp(() => setChecksDisabled([...selectedIds], true))}>
                           <EyeOff size={12} />
                         </Button>
                       </TooltipTrigger>
@@ -770,7 +797,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                                   onStartRename={() => setRenamingId(check.id)}
                                   onRename={commitRename}
                                   onCancelRename={() => setRenamingId(null)}
-                                  onToggleDisabled={() => void setChecksDisabled([check.id], !check.disabled)}
+                                  onToggleDisabled={() => void runOp(() => setChecksDisabled([check.id], !check.disabled))}
                                   onMove={() => setMoving([check.id])}
                                   onDelete={() => setDeleteTarget(check.id)}
                                 />
@@ -1006,18 +1033,20 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
       />
       <MoveChecksDialog
         open={moving !== null}
-        onOpenChange={(open) => { if (!open) setMoving(null) }}
+        onOpenChange={(open) => { if (!open) { setMoving(null); setOpError(null) } }}
         count={moving?.length ?? 0}
         groups={groupNames}
         current={movingFrom}
-        onMove={(group) => { if (moving) void moveChecks(moving, group) }}
+        error={opError}
+        onMove={(group) => (moving ? moveChecks(moving, group) : Promise.resolve(true))}
       />
       <DeleteGroupDialog
         group={deletingGroup === null ? null : deletingGroup || t('data_quality.group_other')}
         count={deletingGroup === null ? 0 : idsInGroup(deletingGroup).length}
         canKeepChecks={!!deletingGroup}
-        onOpenChange={(open) => { if (!open) setDeletingGroup(null) }}
-        onDelete={(withChecks) => { if (deletingGroup !== null) void deleteGroup(deletingGroup, withChecks) }}
+        onOpenChange={(open) => { if (!open) { setDeletingGroup(null); setOpError(null) } }}
+        error={opError}
+        onDelete={(withChecks) => (deletingGroup !== null ? deleteGroup(deletingGroup, withChecks) : Promise.resolve(true))}
       />
 
       <AddSchemaChecksDialog

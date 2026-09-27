@@ -72,18 +72,21 @@ export function NewGroupDialog({ open, onOpenChange, groups, onCreate }: {
   )
 }
 
-export function MoveChecksDialog({ open, onOpenChange, count, groups, current, onMove }: {
+export function MoveChecksDialog({ open, onOpenChange, count, groups, current, error, onMove }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   count: number
   groups: string[]
   /** The group the checks are in, when they share one; offered last. */
   current?: string | null
-  /** `null` moves them to "Other checks". */
-  onMove: (group: string | null) => void
+  /** Why the last move failed; the dialog stays open on it. */
+  error?: string | null
+  /** `null` moves them to "Other checks". Resolves false when the move failed. */
+  onMove: (group: string | null) => Promise<boolean>
 }) {
   const { t } = useTranslation()
   const [target, setTarget] = useState<string>('')
+  const [busy, setBusy] = useState(false)
   const group = useGroupName(groups)
   const close = (next: boolean) => {
     if (!next) {
@@ -93,9 +96,11 @@ export function MoveChecksDialog({ open, onOpenChange, count, groups, current, o
     onOpenChange(next)
   }
   const canMove = target === NEW ? group.valid : !!target
-  const move = () => {
-    onMove(target === OTHER ? null : target === NEW ? group.trimmed : target)
-    close(false)
+  const move = async () => {
+    setBusy(true)
+    const ok = await onMove(target === OTHER ? null : target === NEW ? group.trimmed : target)
+    setBusy(false)
+    if (ok) close(false)
   }
 
   return (
@@ -103,9 +108,10 @@ export function MoveChecksDialog({ open, onOpenChange, count, groups, current, o
       open={open}
       onOpenChange={close}
       title={t('data_quality.move_checks_title', { count })}
-      onConfirm={move}
+      onConfirm={() => void move()}
       confirmLabel={t('data_quality.move')}
       confirmDisabled={!canMove}
+      busy={busy}
     >
       <div className="space-y-2">
         <Label>{t('data_quality.move_to_group')}</Label>
@@ -130,6 +136,7 @@ export function MoveChecksDialog({ open, onOpenChange, count, groups, current, o
           {group.error && <p className="text-xs text-destructive">{group.error}</p>}
         </div>
       )}
+      {error && <p className="break-words text-xs text-destructive">{t('data_quality.checks_change_failed', { message: error })}</p>}
     </DialogShell>
   )
 }
@@ -138,15 +145,24 @@ export function MoveChecksDialog({ open, onOpenChange, count, groups, current, o
  * Deleting a group asks what becomes of its checks: gone with it, or kept in
  * "Other checks". An empty group only needs the confirmation.
  */
-export function DeleteGroupDialog({ group, count, canKeepChecks = true, onOpenChange, onDelete }: {
+export function DeleteGroupDialog({ group, count, canKeepChecks = true, error, onOpenChange, onDelete }: {
   group: string | null
   count: number
   /** False for "Other checks": keeping them would leave them where they are. */
   canKeepChecks?: boolean
+  /** Why the last deletion failed; the dialog stays open on it. */
+  error?: string | null
   onOpenChange: (open: boolean) => void
-  onDelete: (withChecks: boolean) => void
+  /** Closes the dialog itself on success (`group` back to null). */
+  onDelete: (withChecks: boolean) => Promise<boolean>
 }) {
   const { t } = useTranslation()
+  const [busy, setBusy] = useState(false)
+  const run = async (withChecks: boolean) => {
+    setBusy(true)
+    await onDelete(withChecks)
+    setBusy(false)
+  }
   return (
     <AlertDialog open={group !== null} onOpenChange={onOpenChange}>
       <AlertDialogContent>
@@ -158,14 +174,20 @@ export function DeleteGroupDialog({ group, count, canKeepChecks = true, onOpenCh
               : t('data_quality.delete_empty_group_confirm', { name: group ?? '' })}
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {error && <p className="break-words text-xs text-destructive">{t('data_quality.checks_change_failed', { message: error })}</p>}
         <AlertDialogFooter>
           <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
           {count > 0 && canKeepChecks && (
-            <Button variant="outline" onClick={() => onDelete(false)}>
+            <Button variant="outline" disabled={busy} onClick={() => void run(false)}>
               {t('data_quality.delete_group_keep_checks')}
             </Button>
           )}
-          <AlertDialogAction onClick={() => onDelete(true)} className="bg-destructive text-white hover:bg-destructive/90">
+          {/* Kept open until the deletion lands, so a failure shows here. */}
+          <AlertDialogAction
+            disabled={busy}
+            onClick={(e) => { e.preventDefault(); void run(true) }}
+            className="bg-destructive text-white hover:bg-destructive/90"
+          >
             {count > 0 ? t('data_quality.delete_group_with_checks', { count }) : t('common.delete')}
           </AlertDialogAction>
         </AlertDialogFooter>

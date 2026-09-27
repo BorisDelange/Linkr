@@ -5,6 +5,7 @@ import { localized, toLocalized } from '@/lib/localized'
 import type { DqRuleSet, DqCustomCheck, DqRunHistoryEntry } from '@/types'
 import type { DqReport } from '@/lib/duckdb/data-quality'
 import { normalizeDqCheck } from '@/lib/dq-taxonomy'
+import { usableExploreSql } from '@/lib/duckdb/data-quality-checks'
 
 // Re-exported so existing imports (`from '@/stores/dq-store'`) keep working; the
 // canonical definition now lives in @/types alongside the other DQ entities.
@@ -52,6 +53,8 @@ interface DqState {
   updateChecks: (ids: string[], changes: Partial<DqCustomCheck>) => Promise<void>
   updateCustomCheck: (id: string, changes: Partial<DqCustomCheck>) => Promise<void>
   deleteCustomCheck: (id: string) => Promise<void>
+  /** Several of the active rule set's checks, removed together: all or none. */
+  deleteCustomChecks: (ids: string[]) => Promise<void>
 
   // Editor state
   selectedCheckId: string | null
@@ -170,8 +173,11 @@ export const useDqStore = create<DqState>((set, get) => ({
   setChecksDisabled: (ids, disabled) => get().updateChecks(ids, { disabled }),
 
   updateChecks: async (ids, changes) => {
-    const storage = getStorage()
-    for (const id of ids) await storage.dqCustomChecks.update(id, changes)
+    const ruleSetId = get().activeRuleSetId
+    if (!ruleSetId || !ids.length) return
+    // One transaction: a failure part-way used to leave some checks changed in
+    // storage and none in the list.
+    await getStorage().dqCustomChecks.updateMany(ruleSetId, ids.map((id) => ({ id, changes })))
     const targets = new Set(ids)
     set((s) => ({
       customChecks: s.customChecks.map((c) => (targets.has(c.id) ? { ...c, ...changes } : c)),
@@ -194,6 +200,22 @@ export const useDqStore = create<DqState>((set, get) => ({
         customChecks: s.customChecks.filter((c) => c.id !== id),
         selectedCheckId: s.selectedCheckId === id ? null : s.selectedCheckId,
         _dirtyMap: newDirtyMap,
+      }
+    })
+  },
+
+  deleteCustomChecks: async (ids) => {
+    const ruleSetId = get().activeRuleSetId
+    if (!ruleSetId || !ids.length) return
+    await getStorage().dqCustomChecks.deleteMany(ruleSetId, ids)
+    const gone = new Set(ids)
+    set((s) => {
+      const dirtyMap = new Map(s._dirtyMap)
+      for (const id of ids) dirtyMap.delete(id)
+      return {
+        customChecks: s.customChecks.filter((c) => !gone.has(c.id)),
+        selectedCheckId: s.selectedCheckId && gone.has(s.selectedCheckId) ? null : s.selectedCheckId,
+        _dirtyMap: dirtyMap,
       }
     })
   },
@@ -235,7 +257,7 @@ export const useDqStore = create<DqState>((set, get) => ({
   saveCheck: async (id) => {
     const check = get().customChecks.find((c) => c.id === id)
     if (!check) return
-    await getStorage().dqCustomChecks.update(id, { sql: check.sql, exploreSql: check.exploreSql?.trim() ? check.exploreSql : null })
+    await getStorage().dqCustomChecks.update(id, { sql: check.sql, exploreSql: usableExploreSql(check) })
     set((s) => {
       const dirtyMap = new Map(s._dirtyMap)
       dirtyMap.delete(id)

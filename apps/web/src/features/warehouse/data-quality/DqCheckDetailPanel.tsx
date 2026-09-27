@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils'
 import { copyText } from '@/lib/clipboard'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { CATEGORY_COLORS, STATUS_CONFIG } from './DqConstants'
-import type { DqCheck, DqCheckResult } from '@/lib/duckdb/data-quality'
+import { usableExploreSql, type DqCheck, type DqCheckResult } from '@/lib/duckdb/data-quality'
 
 interface Props {
   item: { check: DqCheck; result: DqCheckResult } | null
@@ -41,7 +41,7 @@ export function DqCheckDetailPanel({ item, onInvestigate }: Props) {
   const StatusIcon = statusCfg.icon
 
   // A run saved before checks had a second query has no `exploreSql`.
-  const exploreSql = check.exploreSql ?? null
+  const exploreSql = usableExploreSql(check)
   const shownSql = (dialogQuery === 'exploreSql' && exploreSql ? exploreSql : result.sql).trim()
 
   const handleCopySql = async () => {
