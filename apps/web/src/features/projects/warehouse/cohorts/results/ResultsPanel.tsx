@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact, Database, Terminal, FolderTree, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { ResultsTable } from './ResultsTable'
 import { AttritionChart } from './AttritionChart'
 import { CUSTOM_SQL_NO_ID } from '@/lib/duckdb/cohort-query'
@@ -192,6 +193,11 @@ export function ResultsPanel({
                   <p className="text-[10px] text-muted-foreground">{t('cohorts.results_count')}</p>
                 </div>
               </div>
+              {result.fromDraft && (
+                <Badge variant="outline" className="border-amber-400/50 text-amber-600 dark:text-amber-400" title={t('cohorts.results_from_draft_hint')}>
+                  {t('cohorts.results_from_draft')}
+                </Badge>
+              )}
               <div className="flex-1" />
               <span className="text-[10px] text-muted-foreground">{result.durationMs}ms</span>
               <Button variant="ghost" size="sm" onClick={onExportCsv} className="h-6 gap-1 text-xs">

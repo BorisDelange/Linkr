@@ -7,6 +7,7 @@
  */
 import type { CohortLevel, ConceptCriteriaConfig, SchemaMapping } from '@/types'
 import { classRelation, eventRelation, eventRelations, has } from '@/lib/schema-classes/relations'
+import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 
 /** `SELECT … FROM (membership) m`, the shape every query below starts from. */
 function members(membershipSql: string): string {
@@ -152,7 +153,7 @@ export function buildEventTablesSql(membershipSql: string, mapping: SchemaMappin
   const parts = eventRelations(mapping)
     .filter((e) => has(e, 'patient_id'))
     .map((e) => [
-      `SELECT '${(e.key ?? '').replace(/'/g, "''")}' AS label, COUNT(*) AS rows, COUNT(DISTINCT e.patient_id) AS patients`,
+      `SELECT '${escSql(e.key ?? '')}' AS label, COUNT(*) AS rows, COUNT(DISTINCT e.patient_id) AS patients`,
       `FROM ${e.name} e`,
       `WHERE e.patient_id IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
     ].join('\n'))
@@ -170,8 +171,8 @@ export function buildConceptSql(
   config: ConceptCriteriaConfig,
 ): string | null {
   const event = eventRelation(mapping, config.eventTableLabel)
-  const ids = config.conceptIds.filter((n) => Number.isFinite(n))
-  if (!event || !has(event, 'patient_id') || ids.length === 0) return null
+  const ids = config.conceptIds
+  if (!event || !has(event, 'patient_id') || ids.length === 0 || !validateIntegerIds(ids)) return null
   const list = ids.join(', ')
   const withSource = has(event, 'source_concept_id')
   const concept = withSource

@@ -222,9 +222,16 @@ export function CodeEditor({
       const onKeyDown = (e: KeyboardEvent) => {
         const bindings = useShortcutStore.getState().shortcuts
         for (const [id, handler] of own) {
-          if (!matchesCombo(e, bindings[id].binding)) continue
+          const combo = bindings[id].binding
+          if (!matchesCombo(e, combo)) continue
           const run = handler()
-          if (!run) return
+          // An editor with nothing bound still owns the combo: Cmd+S would
+          // otherwise open the browser's Save dialog. It keeps bubbling, for a
+          // page-level handler. A bare-key combo is typing, never swallowed.
+          if (!run) {
+            if (combo.ctrlOrMeta) e.preventDefault()
+            return
+          }
           e.preventDefault()
           e.stopPropagation()
           flush()

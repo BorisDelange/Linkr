@@ -53,12 +53,15 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
   const stopRef = useRef(false)
 
   // Counts are for one definition: a changed cohort starts them over.
-  const definitionKey = JSON.stringify([cohort.level, cohort.criteriaTree, cohort.customSql ?? null])
+  const definitionKey = JSON.stringify([dataSourceId, cohort.level, cohort.criteriaTree, cohort.customSql ?? null])
   const [countedFor, setCountedFor] = useState(definitionKey)
   if (countedFor !== definitionKey) {
     setCountedFor(definitionKey)
     setStats(new Map())
   }
+  // A count still running when the definition changes must not land in the new map.
+  const currentKeyRef = useRef(definitionKey)
+  useEffect(() => { currentKeyRef.current = definitionKey }, [definitionKey])
 
   useEffect(() => {
     if (cohort.level === 'event') return
@@ -89,24 +92,28 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
   const count = useCallback(async (table: TableRow) => {
     const sql = buildTableStatsSql(cohort, schemaMapping, table.name, table.columns)
     if (!sql) return
+    const key = definitionKey
     setStats((m) => new Map(m).set(table.name, 'loading'))
     try {
       const [row] = await queryDataSource(dataSourceId, sql)
+      if (currentKeyRef.current !== key) return
       const pair = (a: string, b: string): [number, number] => [Number(row?.[a] ?? 0), Number(row?.[b] ?? 0)]
       const next: Stats = { rows: pair('selected_rows', 'all_rows') }
       for (const kind of table.idKinds) next[kind] = pair(`selected_${kind}`, `all_${kind}`)
       setStats((m) => new Map(m).set(table.name, next))
     } catch (err) {
+      if (currentKeyRef.current !== key) return
       setStats((m) => new Map(m).set(table.name, { error: queryErrorMessage(err, t, '') }))
     }
-  }, [cohort, schemaMapping, dataSourceId, t])
+  }, [cohort, schemaMapping, dataSourceId, definitionKey, t])
 
   const countAll = async () => {
     if (!tables) return
     stopRef.current = false
+    const key = definitionKey
     setCountingAll(true)
     for (const table of tables) {
-      if (stopRef.current) break
+      if (stopRef.current || currentKeyRef.current !== key) break
       if (table.filter && !stats.has(table.name)) await count(table)
     }
     setCountingAll(false)

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Copy, Check, RotateCcw, Save, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { CodeEditor } from '@/components/editor/CodeEditor'
+import { CodeEditor, type PendingEdits } from '@/components/editor/CodeEditor'
 import { copyText } from '@/lib/clipboard'
 
 interface GeneratedSqlEditorProps {
@@ -20,6 +20,9 @@ interface GeneratedSqlEditorProps {
   /** The unsaved text, as `onRun` would run it — undefined when there is none —
    *  so a Run button outside the editor runs the draft too. */
   onDraftChange?: (sql: string | null | undefined) => void
+  /** Filled with this editor's Run, for a Run button outside it: `onDraftChange`
+   *  follows the typing after a debounce, this reads the editor's live text. */
+  runRef?: React.MutableRefObject<(() => void) | null>
   readOnly?: boolean
   /** Toolbar content at its start, before the Modified badge. */
   toolbarStart?: ReactNode
@@ -43,6 +46,7 @@ export function GeneratedSqlEditor({
   onCustomSqlChange,
   onRun,
   onDraftChange,
+  runRef,
   readOnly,
   toolbarStart,
   toolbarExtra,
@@ -74,7 +78,17 @@ export function GeneratedSqlEditor({
     (text: string) => (text === (generatedSql ?? '') ? null : text),
     [generatedSql],
   )
-  const handleRun = useCallback(() => onRun?.(inEffect(liveText())), [onRun, inEffect, liveText])
+  // Flushed first, so the draft reported to the page is the text that runs.
+  const pendingEditsRef = useRef<PendingEdits | null>(null)
+  const handleRun = useCallback(() => {
+    pendingEditsRef.current?.flush()
+    onRun?.(inEffect(liveText()))
+  }, [onRun, inEffect, liveText])
+  useEffect(() => {
+    if (!runRef) return
+    runRef.current = handleRun
+    return () => { runRef.current = null }
+  }, [runRef, handleRun])
 
   useEffect(() => {
     onDraftChange?.(hasUnsavedChanges ? inEffect(editorValue) : undefined)
@@ -146,6 +160,7 @@ export function GeneratedSqlEditor({
           language="sql"
           value={editorValue}
           editorRef={editorRef}
+          pendingEditsRef={pendingEditsRef}
           readOnly={readOnly}
           onChange={(val) => {
             if (val !== undefined) setEditorValue(val)

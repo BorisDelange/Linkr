@@ -15,6 +15,8 @@ interface SqlPreviewPanelProps {
   /** Runs the editor's text, saved or not (null: the criteria). */
   onExecute: (sql: string | null) => void
   onDraftChange: (sql: string | null | undefined) => void
+  /** Filled with the editor's Run on its live text, for the page's Run button. */
+  runRef?: React.MutableRefObject<(() => void) | null>
 }
 
 /** Which tables the query is written on: the linkr_* relations, the same on
@@ -24,7 +26,7 @@ type SqlFormat = 'native' | 'linkr'
 /** The format a saved query is written in: native unless it names a relation. */
 const formatOf = (sql: string): SqlFormat => (namesRelation(sql) ? 'linkr' : 'native')
 
-export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute, onDraftChange }: SqlPreviewPanelProps) {
+export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute, onDraftChange, runRef }: SqlPreviewPanelProps) {
   const { t, i18n } = useTranslation()
   const linkrSql = useMemo(() => (mapping ? buildCohortCriteriaSql(cohort, mapping) : null), [cohort, mapping])
   const nativeSql = useMemo(() => (mapping ? buildCohortNativeSql(cohort, mapping) : null), [cohort, mapping])
@@ -83,6 +85,7 @@ export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute,
           onCustomSqlChange={onCustomSqlChange}
           onRun={onExecute}
           onDraftChange={handleDraftChange}
+          runRef={runRef}
           toolbarStart={lockedHint ? (
             // A disabled trigger receives no pointer events: the span carries the hover.
             <Tooltip>

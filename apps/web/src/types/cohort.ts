@@ -224,8 +224,8 @@ export interface Cohort extends Authored {
   criteriaTree: CriteriaGroupNode
   /**
    * Hand-written membership query, in place of the criteria (null = generated
-   * from them). It returns the cohort's members as an `id` column — the level's
-   * id — and every query of the cohort (count, results, freeze, derivation,
+   * from them). It returns the cohort's members in the level's id column —
+   * `patient_id`, `visit_id` or `visit_detail_id` (see `cohortIdColumn`) — and every query of the cohort (count, results, freeze, derivation,
    * report, Patient data) keeps the level's rows whose id it lists.
    */
   customSql?: string | null
@@ -336,4 +336,7 @@ export interface CohortExecutionResult {
   sql: string
   executedAt: string
   durationMs: number
+  /** Set when the run used the SQL tab's unsaved text rather than the saved
+   *  definition: `customSql` is what ran (null: the criteria). */
+  fromDraft?: { customSql: string | null }
 }

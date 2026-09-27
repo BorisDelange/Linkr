@@ -94,6 +94,7 @@ export function CohortBuilder() {
     executionErrors,
     customSqlOutputs,
     executionAborts,
+    settleDraftResult,
   } = useCohortStore()
 
   // Among this host's own cohorts only: a database route must not open a
@@ -108,6 +109,9 @@ export function CohortBuilder() {
   // `null` hides the left pane: clicking the active view's tab folds it, as in
   // an analysis. The two panes can never both be hidden.
   const [leftView, setLeftView] = useState<'criteria' | 'sql' | null>('criteria')
+  // Kept mounted once opened, so going back to the criteria keeps an unsaved draft.
+  const [sqlOpened, setSqlOpened] = useState(false)
+  if (leftView === 'sql' && !sqlOpened) setSqlOpened(true)
   const [resultsVisible, setResultsVisible] = useState(true)
   const lastLeftView = useRef<'criteria' | 'sql'>('criteria')
   const toggleLeftView = (view: 'criteria' | 'sql') => {
@@ -125,6 +129,12 @@ export function CohortBuilder() {
   const [deriveOpen, setDeriveOpen] = useState(false)
   const pendingTreeRef = useRef<CriteriaGroupNode | null>(null)
 
+  // The SQL tab's unsaved text (undefined: none). Freeze, Derive and Report
+  // read the saved definition, so they wait for it to be saved.
+  const [sqlDraft, setSqlDraft] = useState<string | null | undefined>(undefined)
+  const hasSqlDraft = sqlDraft !== undefined
+  const handleSqlDraftChange = useCallback((sql: string | null | undefined) => setSqlDraft(sql), [])
+
   const result = cohortId ? executionResults.get(cohortId) ?? null : null
   const loading = cohortId ? executionLoading.get(cohortId) ?? false : false
   // A run, as opposed to a freeze, which cannot be interrupted.
@@ -132,6 +142,17 @@ export function CohortBuilder() {
   const handleCancel = useCallback(() => { if (cohortId) cancelExecution(cohortId) }, [cohortId, cancelExecution])
   const executionError = cohortId ? executionErrors.get(cohortId) ?? null : null
   const customSqlOutput = cohortId ? customSqlOutputs.get(cohortId) ?? null : null
+
+  // A result run from a draft outlives it only as what was saved: kept when the
+  // draft was saved, dropped when it was cancelled.
+  useEffect(() => {
+    if (cohortId && !hasSqlDraft && result?.fromDraft) void settleDraftResult(cohortId).catch((e) => console.warn('[cohorts] storing the count failed', e))
+  }, [cohortId, hasSqlDraft, result, settleDraftResult])
+  // The panels reading the members follow the result shown, draft or not.
+  const shownCohort = useMemo(
+    () => (cohort && result?.fromDraft ? { ...cohort, customSql: result.fromDraft.customSql } : cohort),
+    [cohort, result],
+  )
 
   const eventTableLabels = useMemo(
     () => [...(mapping?.events ?? []), ...(mapping?.drugs ?? [])].map((e) => e.label),
@@ -160,14 +181,14 @@ export function CohortBuilder() {
       if (!cohortId) return
       // If there's a custom SQL, confirm overwriting it
       const currentCohort = cohorts.find((c) => c.id === cohortId)
-      if (currentCohort?.customSql) {
+      if (currentCohort?.customSql || sqlDraft !== undefined) {
         pendingTreeRef.current = tree
         setOverwriteSqlDialogOpen(true)
         return
       }
       updateCohort(cohortId, { criteriaTree: tree })
     },
-    [cohortId, cohorts, updateCohort],
+    [cohortId, cohorts, updateCohort, sqlDraft],
   )
 
   const handleConfirmOverwriteSql = useCallback(() => {
@@ -194,11 +215,6 @@ export function CohortBuilder() {
     [cohortId, setCustomSql],
   )
 
-  // The SQL tab's unsaved text: every Run runs what the editor shows.
-  const sqlDraftRef = useRef<string | null | undefined>(undefined)
-  const handleSqlDraftChange = useCallback((sql: string | null | undefined) => {
-    sqlDraftRef.current = sql
-  }, [])
 
   const runCohort = useCallback(async (customSqlDraft: string | null | undefined) => {
     if (!cohortId || !activeSource) return
@@ -208,7 +224,12 @@ export function CohortBuilder() {
       // Error handled by store
     }
   }, [cohortId, activeSource, executeCohort])
-  const handleExecute = useCallback(() => runCohort(sqlDraftRef.current), [runCohort])
+  // Every Run runs what the SQL editor shows, read live from it.
+  const sqlRunRef = useRef<(() => void) | null>(null)
+  const handleExecute = useCallback(() => {
+    if (sqlRunRef.current) sqlRunRef.current()
+    else void runCohort(undefined)
+  }, [runCohort])
 
   const runMaterialize = useCallback(async () => {
     if (!cohortId || !activeSource) return
@@ -360,6 +381,9 @@ export function CohortBuilder() {
             <Code2 size={12} />
             SQL
             {cohort.customSql && <CustomSqlDot />}
+            {hasSqlDraft && (
+              <span className="size-1.5 shrink-0 rounded-full bg-orange-400" title={t('cohorts.sql_unsaved')} />
+            )}
           </button>
         </div>
 
@@ -392,42 +416,48 @@ export function CohortBuilder() {
         </Button>
 
         {/* A read of the definition, like export: not gated on write. */}
-        <Button variant="ghost" size="sm" onClick={() => setReportOpen(true)} className="h-6 gap-1 text-xs">
-          <FileText size={12} />
-          {t('cohort_report.button')}
-        </Button>
+        <SavedSqlGate blocked={hasSqlDraft}>
+          <Button variant="ghost" size="sm" onClick={() => setReportOpen(true)} disabled={hasSqlDraft} className="h-6 gap-1 text-xs">
+            <FileText size={12} />
+            {t('cohort_report.button')}
+          </Button>
+        </SavedSqlGate>
 
         {/* A copy of the database filtered on the cohort: written server-side,
             into a database Linkr owns, so there is nothing to derive into in
             the browser build. */}
         {host.kind === 'database' && isServerMode() && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setDeriveOpen(true)}
-            disabled={!activeSource || !can('cohorts:write')}
-            className="h-6 gap-1 text-xs"
-          >
-            <Split size={12} />
-            {t('cohort_derive.button')}
-          </Button>
+          <SavedSqlGate blocked={hasSqlDraft}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDeriveOpen(true)}
+              disabled={!activeSource || !can('cohorts:write') || hasSqlDraft}
+              className="h-6 gap-1 text-xs"
+            >
+              <Split size={12} />
+              {t('cohort_derive.button')}
+            </Button>
+          </SavedSqlGate>
         )}
 
         {/* Materialize (freeze membership): what a project's Patient data reads.
             A database cohort has no such reader — its derivations recompute
             the membership themselves — so it is not offered there. */}
         {host.kind === 'project' && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleMaterialize}
-            disabled={loading || !activeSource || cohort.level === 'event' || !can('cohorts:write')}
-            className="h-6 gap-1 text-xs"
-            title={cohort.level === 'event' ? t('cohorts.materialize_event_disabled') : undefined}
-          >
-            <Database size={12} />
-            {t('cohorts.materialize')}
-          </Button>
+          <SavedSqlGate blocked={hasSqlDraft}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleMaterialize}
+              disabled={loading || !activeSource || cohort.level === 'event' || !can('cohorts:write') || hasSqlDraft}
+              className="h-6 gap-1 text-xs"
+              title={cohort.level === 'event' ? t('cohorts.materialize_event_disabled') : undefined}
+            >
+              <Database size={12} />
+              {t('cohorts.materialize')}
+            </Button>
+          </SavedSqlGate>
         )}
 
         {/* Execute, or stop the run in progress */}
@@ -469,27 +499,29 @@ export function CohortBuilder() {
       <div className="flex-1 min-h-0">
         <Allotment>
           <Allotment.Pane preferredSize="50%" minSize={leftView ? 300 : 0} visible={!!leftView}>
-            {leftView !== 'sql' ? (
-              <div className="h-full overflow-auto">
-                <CriteriaPanel
-                  criteriaTree={cohort.criteriaTree}
-                  onChange={handleUpdateTree}
-                  eventTableLabels={eventTableLabels}
-                  genderValues={mapping?.patient?.genderValues}
-                  visitDateRange={visitDateRange}
-                  dataSourceId={activeSource?.id}
-                  schemaMapping={mapping}
-                  cohortLevel={cohort.level}
+            <div className={leftView === 'sql' ? 'hidden' : 'h-full overflow-auto'}>
+              <CriteriaPanel
+                criteriaTree={cohort.criteriaTree}
+                onChange={handleUpdateTree}
+                eventTableLabels={eventTableLabels}
+                genderValues={mapping?.patient?.genderValues}
+                visitDateRange={visitDateRange}
+                dataSourceId={activeSource?.id}
+                schemaMapping={mapping}
+                cohortLevel={cohort.level}
+              />
+            </div>
+            {sqlOpened && (
+              <div className={leftView === 'sql' ? 'h-full' : 'hidden'}>
+                <SqlPreviewPanel
+                  cohort={cohort}
+                  mapping={mapping}
+                  onCustomSqlChange={handleCustomSqlChange}
+                  onExecute={runCohort}
+                  onDraftChange={handleSqlDraftChange}
+                  runRef={sqlRunRef}
                 />
               </div>
-            ) : (
-              <SqlPreviewPanel
-                cohort={cohort}
-                mapping={mapping}
-                onCustomSqlChange={handleCustomSqlChange}
-                onExecute={runCohort}
-                onDraftChange={handleSqlDraftChange}
-              />
             )}
           </Allotment.Pane>
           <Allotment.Pane preferredSize="50%" minSize={resultsVisible ? 250 : 0} visible={resultsVisible}>
@@ -514,8 +546,8 @@ export function CohortBuilder() {
                   : undefined
               }
               renderTables={
-                activeSource && mapping && cohort.level !== 'event'
-                  ? () => <CohortTablesPanel dataSourceId={activeSource.id} cohort={cohort} schemaMapping={mapping} />
+                activeSource && mapping && shownCohort && cohort.level !== 'event'
+                  ? () => <CohortTablesPanel dataSourceId={activeSource.id} cohort={shownCohort} schemaMapping={mapping} />
                   : undefined
               }
               renderSchema={activeSource ? () => <SchemaBrowser dataSourceId={activeSource.id} defaultStatsVisible={false} /> : undefined}
@@ -596,5 +628,21 @@ export function CohortBuilder() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+/** Freeze, Derive and Report read the saved definition: while the SQL tab holds
+ *  an unsaved draft they are disabled, and the hover says why. */
+function SavedSqlGate({ blocked, children }: { blocked: boolean; children: React.ReactNode }) {
+  const { t } = useTranslation()
+  if (!blocked) return <>{children}</>
+  return (
+    // A disabled button receives no pointer events: the span carries the hover.
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">{children}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="max-w-72 text-xs">{t('cohorts.save_sql_first')}</TooltipContent>
+    </Tooltip>
   )
 }

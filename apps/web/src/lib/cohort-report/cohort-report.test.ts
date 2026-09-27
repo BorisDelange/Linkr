@@ -101,6 +101,11 @@ describe('queries', () => {
     expect(buildConceptSql(m, mapping, { eventTableLabel: 'Nope', conceptIds: [1], conceptNames: {} })).toBeNull()
   })
 
+  it('refuses a concept list that is not all integers', () => {
+    expect(buildConceptSql(m, mapping, { eventTableLabel: 'Measurement', conceptIds: [1, 1.5], conceptNames: {} })).toBeNull()
+    expect(buildConceptSql(m, mapping, { eventTableLabel: 'Measurement', conceptIds: [1, NaN], conceptNames: {} })).toBeNull()
+  })
+
   it('falls back to the birth year when the birth date is empty, as in MIMIC-IV', () => {
     const idx = buildIndexSql(m, 'visit', mapping)!
     const both = mappingV1ToV2({ ...mapping_V1, patientTable: { table: 'person', idColumn: 'person_id', birthDateColumn: 'birth_datetime', birthYearColumn: 'year_of_birth' } })

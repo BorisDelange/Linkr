@@ -228,6 +228,9 @@ interface CohortState {
   ) => Promise<number>
   /** Interrupt the cohort's run in progress: it ends with `CANCELLED`. */
   cancelExecution: (id: string) => void
+  /** Settle a result run from an unsaved draft once the draft is gone: kept (and
+   *  its count stored) when the saved SQL is what ran, dropped otherwise. */
+  settleDraftResult: (id: string) => Promise<void>
 
   /** Freeze the cohort membership (full id set) into a persisted snapshot. */
   materializeCohort: (
@@ -411,11 +414,16 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     const draft = customSqlDraft !== undefined && customSqlDraft !== (saved.customSql ?? null)
     const cohort = draft ? { ...saved, customSql: customSqlDraft } : saved
 
+    // One run per cohort: a second one (Cmd+Enter bypasses the Stop button)
+    // stops the first, and only the latest run writes its state.
+    get().executionAborts.get(id)?.abort()
     const controller = new AbortController()
     const { signal } = controller
     const query = (sql: string) => engine.queryDataSource(dataSourceId, sql, { signal })
+    const isCurrent = () => get().executionAborts.get(id) === controller
+    const setIfCurrent = (fn: (s: CohortState) => Partial<CohortState>) =>
+      set((s) => (s.executionAborts.get(id) === controller ? fn(s) : {}))
 
-    // Mark loading
     set((s) => {
       const errors = new Map(s.executionErrors)
       errors.delete(id)
@@ -445,7 +453,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
           if (signal.aborted) throw err
           output = { rows: [], truncated: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
         }
-        set((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, output) }))
+        setIfCurrent((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, output) }))
       }
 
       // A hand-written query stands in for the criteria inside every builder.
@@ -489,12 +497,14 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         sql: countSql,
         executedAt: new Date().toISOString(),
         durationMs,
+        ...(draft ? { fromDraft: { customSql: customSqlDraft ?? null } } : {}),
       }
 
+      if (!isCurrent()) return totalCount
       // An unsaved draft's count describes no stored definition: shown, not kept.
       if (!draft) await getStorage().cohorts.update(id, { resultCount: totalCount, attrition })
 
-      set((s) => ({
+      setIfCurrent((s) => ({
         cohorts: draft ? s.cohorts : s.cohorts.map((c) =>
           c.id === id ? { ...c, resultCount: totalCount, attrition } : c,
         ),
@@ -504,6 +514,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
 
       return totalCount
     } catch (err) {
+      if (!isCurrent()) return 0
       set((s) => {
         // Drop the previous run's result. The panel only shows the error when
         // there is no result to show, so keeping a stale one made a failed
@@ -533,6 +544,25 @@ export const useCohortStore = create<CohortState>((set, get) => ({
 
   cancelExecution: (id) => {
     get().executionAborts.get(id)?.abort()
+  },
+
+  settleDraftResult: async (id) => {
+    const result = get().executionResults.get(id)
+    const cohort = get().cohorts.find((c) => c.id === id)
+    if (!result?.fromDraft || !cohort) return
+    if (result.fromDraft.customSql !== (cohort.customSql ?? null)) {
+      set((s) => {
+        const results = new Map(s.executionResults)
+        results.delete(id)
+        const outputs = new Map(s.customSqlOutputs)
+        outputs.delete(id)
+        return { executionResults: results, customSqlOutputs: outputs }
+      })
+      return
+    }
+    const { fromDraft: _ran, ...settled } = result
+    set((s) => ({ executionResults: new Map(s.executionResults).set(id, settled) }))
+    await get().updateCohort(id, { resultCount: result.totalCount, attrition: result.attrition })
   },
 
   materializeCohort: async (id, dataSourceId, schemaMapping) => {
