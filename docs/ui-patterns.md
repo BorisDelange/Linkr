@@ -57,7 +57,7 @@ with no rationale gets "corrected" back to upstream:
 | `DialogDescription` / `SheetDescription` | `text-sm` | `text-xs` | matches the dense body |
 | `AlertDialogDescription` | `text-sm` | `text-sm` | an alert's description *is* its content — the consequences of a destructive action — not a subtitle over a dense form; nine call sites were already overriding `text-xs` back to `text-sm` |
 | `Button` | — | added `sm-tight` (h-7) | dozens of buttons hand-rolled `className="h-7"` |
-| `DropdownMenu*` / `ContextMenu*` items, labels, sub-triggers | `text-sm` | `text-xs` | a menu is dense chrome beside `text-xs` buttons; 37 filter and action menus were shrinking it by hand while the other 130 stayed at `text-sm`, so two menus side by side did not match |
+| `DropdownMenuContent` | — | added `density="compact"` (items `text-xs`, `py-1`) | two sizes, on purpose: action menus ("…", right-click, More) keep `text-sm`; filter and picker menus beside `text-xs` controls take `compact`. Older filter menus still shrink each item with `className="text-xs"` — same result, prefer the prop in new code |
 
 Inside a dialog, labels and the description render at **13px** rather than 12px —
 the size `Input`, `Textarea`, `Select` and `Button` already use, so a dialog reads

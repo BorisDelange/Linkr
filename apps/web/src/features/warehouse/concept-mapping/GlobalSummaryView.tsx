@@ -1835,11 +1835,12 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                 <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
               </UiTooltip>
               <DropdownMenuContent align="start">
-                <DropdownMenuLabel>{t('common.columns')}</DropdownMenuLabel>
+                <DropdownMenuLabel className="text-xs">{t('common.columns')}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {activeTable.getAllColumns().filter((col) => col.getCanHide()).map((col) => (
                   <DropdownMenuCheckboxItem
                     key={col.id}
+                    className="text-xs"
                     checked={col.getIsVisible()}
                     onCheckedChange={(v) => col.toggleVisibility(v)}
                   >

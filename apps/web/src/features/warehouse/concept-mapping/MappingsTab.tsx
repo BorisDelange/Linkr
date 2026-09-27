@@ -3158,7 +3158,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
               <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="start" className="w-[180px]">
-              <DropdownMenuLabel>{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {table.getAllColumns()
                 .filter((col) => !col.id.startsWith('_'))

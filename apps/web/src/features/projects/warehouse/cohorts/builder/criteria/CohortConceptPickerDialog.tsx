@@ -386,7 +386,7 @@ export function CohortConceptPickerDialog({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-[180px]">
-                  <DropdownMenuLabel>
+                  <DropdownMenuLabel className="text-xs">
                     {t('concepts.column_visibility', 'Columns')}
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />

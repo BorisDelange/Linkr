@@ -628,11 +628,11 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="start">
-                              <DropdownMenuItem onClick={handleRunFile} className="gap-2">
+                              <DropdownMenuItem onClick={handleRunFile} className="gap-2 text-xs">
                                 <FileCode size={13} className="text-muted-foreground" />
                                 {t('sql_scripts.run_file')}
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={handleRunAll} className="gap-2">
+                              <DropdownMenuItem onClick={handleRunAll} className="gap-2 text-xs">
                                 <ListChecks size={13} className="text-muted-foreground" />
                                 {t('sql_scripts.run_all')}
                               </DropdownMenuItem>

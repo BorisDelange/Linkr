@@ -71,13 +71,13 @@ export function SessionDropdown({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[220px]">
-        <DropdownMenuLabel className="text-muted-foreground">
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
           {t('sessions.title')}
         </DropdownMenuLabel>
         {all.map((s) => (
           <DropdownMenuItem
             key={s.id}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 text-xs"
             onSelect={() => setActiveSession(projectUid, language, s.id)}
           >
             <Check size={12} className={s.id === activeId ? 'opacity-100' : 'opacity-0'} />
@@ -119,7 +119,7 @@ export function SessionDropdown({
           </div>
         ) : (
           <DropdownMenuItem
-            className="group/new flex items-center gap-2"
+            className="group/new flex items-center gap-2 text-xs"
             onSelect={(e) => { e.preventDefault(); setAdding(true) }}
           >
             <Plus size={12} />

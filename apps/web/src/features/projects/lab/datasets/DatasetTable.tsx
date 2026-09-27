@@ -1133,6 +1133,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
             onCloseAutoFocus={(e) => e.preventDefault()}
           >
             <DropdownMenuItem
+              className="text-xs"
               // Only ARMS the edit: closing the menu is what opens it (see
               // `onOpenChange`), because an editor mounted mid-close gets blurred
               // by Radix — and a blur commits, shutting the cell again at once.
@@ -1142,6 +1143,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
               {t('datasets.cell_edit')}
             </DropdownMenuItem>
             <DropdownMenuItem
+              className="text-xs"
               disabled={cellMenu?.value == null}
               onClick={() => void navigator.clipboard?.writeText(String(cellMenu?.value ?? ''))}
             >
@@ -1149,6 +1151,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
               {t('common.copy')}
             </DropdownMenuItem>
             <DropdownMenuItem
+              className="text-xs"
               disabled={cellMenu?.value == null}
               onClick={() => cellMenu && void edit.writeCell(cellMenu.row, cellMenu.column, null)}
             >

@@ -415,7 +415,7 @@ export function ConceptPickerDialog({
                       </TooltipContent>
                     </Tooltip>
                     <DropdownMenuContent align="end" className="w-[240px]">
-                      <DropdownMenuLabel>
+                      <DropdownMenuLabel className="text-xs">
                         {t('patient_data.import_from_list')}
                       </DropdownMenuLabel>
                       {projectLists.length === 0 ? (
@@ -426,6 +426,7 @@ export function ConceptPickerDialog({
                         projectLists.map((l) => (
                           <DropdownMenuItem
                             key={l.id}
+                            className="text-xs"
                             onClick={() => importList(l.id)}
                           >
                             <span className="truncate">

@@ -186,7 +186,7 @@ function ColumnFilterSelect({
         </div>
         <DropdownMenuSeparator />
         <div className="max-h-72 overflow-auto">
-          <DropdownMenuItem onSelect={() => select(null)}>
+          <DropdownMenuItem className="text-xs" onSelect={() => select(null)}>
             {t('concepts.filter_all')}
           </DropdownMenuItem>
           {filtered.map((opt) => (
@@ -1314,7 +1314,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
               <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="start" className="w-[180px]">
-              <DropdownMenuLabel>{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {csTable.getAllColumns()
                 .filter((col) => !col.id.startsWith('_'))
@@ -1521,7 +1521,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
               <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="start" className="w-[180px]">
-              <DropdownMenuLabel>{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {resolvedTable.getAllColumns().filter((col) => !col.id.startsWith('_')).map((col) => (
                 <DropdownMenuCheckboxItem
@@ -2285,7 +2285,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                 <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="start" className="w-[180px]">
-                <DropdownMenuLabel>{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+                <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {searchTable.getAllColumns()
                   .filter((col) => !col.id.startsWith('_'))
