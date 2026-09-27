@@ -109,17 +109,22 @@ if (tocFilter) tocFilter.addEventListener('input', function() {
   });
 });
 
-// ---- Tooltip: any element with data-tip (trusted HTML, escaped into the attribute) ----
+// ---- Tooltip: any element with data-tip (trusted HTML, escaped into the attribute), or
+// with data-full, whose own text shows only while it is cut short by an ellipsis ----
 var tip = document.createElement('div');
 tip.className = 'tip';
 document.body.appendChild(tip);
 var tipTarget = null;
 document.addEventListener('mouseover', function(e) {
-  var t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
+  var t = e.target && e.target.closest ? e.target.closest('[data-tip],[data-full]') : null;
+  if (t && !t.hasAttribute('data-tip')) {
+    var text = t.querySelector('span') || t;
+    if (text.scrollWidth <= text.clientWidth) t = null;
+  }
   if (t === tipTarget) return;
   tipTarget = t;
   if (!t) { tip.classList.remove('on'); return; }
-  tip.innerHTML = t.getAttribute('data-tip');
+  tip.innerHTML = t.hasAttribute('data-tip') ? t.getAttribute('data-tip') : escHtml(t.getAttribute('data-full'));
   tip.classList.add('on');
 });
 document.addEventListener('mousemove', function(e) {
@@ -196,15 +201,15 @@ function matching(names, query) {
   return { hits: hits, more: more };
 }
 function listFooter(m) {
-  if (!m.hits.length) return '<div class="opt-note">' + escHtml(L.no_match) + '</div>';
+  if (!m.shown) return '<div class="opt-note">' + escHtml(L.no_match) + '</div>';
   return m.more ? '<div class="opt-note">' + escHtml(lx('more_matches', { n: fmt(m.more) })) + '</div>' : '';
 }
 
 function checksHtml(v) {
   var vr = V[v], sel = S.sel[v], m = matching(vr.names, msQuery[v]);
   return m.hits.map(function(i) {
-    return '<label class="check"><input type="checkbox" data-act="sel" data-v="' + v + '" data-i="' + i + '"' + (!sel || sel[i] ? ' checked' : '') + '><span>' + escHtml(vr.names[i]) + '</span></label>';
-  }).join('') + listFooter(m);
+    return '<label class="check" data-full="' + escHtml(vr.names[i]) + '"><input type="checkbox" data-act="sel" data-v="' + v + '" data-i="' + i + '"' + (!sel || sel[i] ? ' checked' : '') + '><span>' + escHtml(vr.names[i]) + '</span></label>';
+  }).join('') + listFooter({ shown: m.hits.length, more: m.more });
 }
 
 function pinOptionsHtml() {
@@ -212,8 +217,8 @@ function pinOptionsHtml() {
   var h = XP.canUnpin() && !(msQuery[PIN] || '').trim()
     ? '<button type="button" class="opt' + (S.pinVal == null ? ' on' : '') + '" data-act="pin-pick" data-i="">' + escHtml(L.all) + '</button>' : '';
   return h + m.hits.map(function(i) {
-    return '<button type="button" class="opt' + (S.pinVal === i ? ' on' : '') + '" data-act="pin-pick" data-i="' + i + '">' + escHtml(vr.names[i]) + '</button>';
-  }).join('') + listFooter(m);
+    return '<button type="button" class="opt' + (S.pinVal === i ? ' on' : '') + '" data-act="pin-pick" data-i="' + i + '" data-full="' + escHtml(vr.names[i]) + '">' + escHtml(vr.names[i]) + '</button>';
+  }).join('') + listFooter({ shown: m.hits.length, more: m.more });
 }
 
 function nominalFilter(v) {
@@ -229,7 +234,7 @@ function nominalFilter(v) {
     // A dropdown with a search box: long lists (services, concept categories) stay out of the way.
     var n = sel ? Object.keys(sel).length : vr.mods.length;
     var label = !sel ? L.all : n === 1 ? vr.names[Number(Object.keys(sel)[0])] : lx('n_selected', { n: n });
-    h += '<div class="ms' + (openMs === v ? ' open' : '') + '"><button type="button" class="select ms-btn" data-act="ms-toggle" data-v="' + v + '"><span>' + escHtml(label) + '</span>' + ICONS.chevron + '</button>';
+    h += '<div class="ms' + (openMs === v ? ' open' : '') + '"><button type="button" class="select ms-btn" data-act="ms-toggle" data-v="' + v + '" data-full="' + escHtml(label) + '"><span>' + escHtml(label) + '</span>' + ICONS.chevron + '</button>';
     if (openMs === v) {
       h += '<div class="ms-panel"><input type="search" class="input" data-act="ms-search" data-v="' + v + '" placeholder="' + escHtml(L.search) + '" value="' + escHtml(msQuery[v] || '') + '" autocomplete="off">'
         + '<div class="ms-links"><button type="button" class="link" data-act="sel-all" data-v="' + v + '">' + escHtml(L.all) + '</button><button type="button" class="link" data-act="sel-none" data-v="' + v + '">' + escHtml(L.none) + '</button><span class="spacer"></span><span class="num">' + n + ' / ' + vr.mods.length + '</span></div>'
@@ -279,7 +284,7 @@ function pinControl(vars) {
   var vr = V[S.pin];
   var h = '<div class="flt pin"><div class="flt-head">' + dot(S.pin) + '<span>' + escHtml(L.pin_title) + '</span></div>'
     + '<select class="select" data-act="pin">' + vars.map(function(v) { return '<option value="' + v + '"' + (S.pin === v ? ' selected' : '') + '>' + escHtml(XP.varLabel(v)) + '</option>'; }).join('') + '</select>'
-    + '<div class="ms' + (openMs === PIN ? ' open' : '') + '"><button type="button" class="select ms-btn" data-act="ms-toggle" data-v="' + PIN + '"><span>' + escHtml(S.pinVal == null ? L.all : vr.names[S.pinVal]) + '</span>' + ICONS.chevron + '</button>'
+    + '<div class="ms' + (openMs === PIN ? ' open' : '') + '"><button type="button" class="select ms-btn" data-act="ms-toggle" data-v="' + PIN + '" data-full="' + escHtml(S.pinVal == null ? L.all : vr.names[S.pinVal]) + '"><span>' + escHtml(S.pinVal == null ? L.all : vr.names[S.pinVal]) + '</span>' + ICONS.chevron + '</button>'
     + (openMs === PIN ? '<div class="ms-panel"><input type="search" class="input" data-act="ms-search" data-v="' + PIN + '" placeholder="' + escHtml(L.search) + '" value="' + escHtml(msQuery[PIN] || '') + '" autocomplete="off">'
       + '<div class="checks opts" data-list="' + PIN + '">' + pinOptionsHtml() + '</div></div>' : '')
     + '</div>'
@@ -312,11 +317,157 @@ function renderSide() {
   h += '<button type="button" class="btn full" data-act="reset">' + ICONS.x + escHtml(L.reset_filters) + '</button>';
   side.innerHTML = h;
   paintRange();
+  placePanel();
   var msSearch = side.querySelector('[data-act="ms-search"]');
   if (msSearch && msFocus) { msSearch.focus(); msSearch.setSelectionRange(msSearch.value.length, msSearch.value.length); }
   msFocus = false;
 }
 var msFocus = false;
+
+/**
+ * A dropdown's panel floats over the page below its button (above when there
+ * is more room there), as wide as its longest name allows: inside the sidebar
+ * or a table, which scroll, it could be no wider than them without being cut off.
+ */
+function placeFloating(panel, anchor) {
+  var r = anchor.getBoundingClientRect();
+  var below = window.innerHeight - r.bottom - 12, above = r.top - 12;
+  panel.style.minWidth = Math.min(r.width, window.innerWidth - 16) + 'px';
+  panel.style.maxWidth = Math.min(520, window.innerWidth - 16) + 'px';
+  panel.style.left = r.left + 'px';
+  if (below >= 260 || below >= above) {
+    panel.style.top = (r.bottom + 4) + 'px';
+    panel.style.bottom = '';
+    panel.style.maxHeight = below + 'px';
+  } else {
+    panel.style.top = '';
+    panel.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+    panel.style.maxHeight = above + 'px';
+  }
+  var w = panel.getBoundingClientRect().width;
+  if (r.left + w > window.innerWidth - 8) panel.style.left = Math.max(8, window.innerWidth - 8 - w) + 'px';
+}
+function placePanel() {
+  var panel = side.querySelector('.ms.open .ms-panel');
+  if (panel) placeFloating(panel, panel.parentNode.querySelector('.ms-btn'));
+  if (dd) placeFloating(dd.panel, dd.btn);
+}
+side.addEventListener('scroll', placePanel);
+window.addEventListener('scroll', placePanel, true);
+window.addEventListener('resize', placePanel);
+
+// ---- Dropdowns: every <select> of the page shows as the page's own dropdown ----
+// The native select stays in the page, hidden, and receives the pick as a
+// 'change' event: whatever listens to it (filters, table paging) is unchanged.
+var dd = null; // the open one: { sel, btn, panel, query, active }
+var DD_SEARCH_FROM = 10;
+
+function selectedText(sel) { var o = sel.options[sel.selectedIndex]; return o ? o.text : ''; }
+function setDdLabel(btn, text) { btn.firstChild.textContent = text; btn.setAttribute('data-full', text); }
+/** Buttons show their select's value again, after code set it (a filter reset). */
+function syncDropdowns(root) {
+  each(root.querySelectorAll('select[data-dd]'), function(sel) {
+    if (sel.previousSibling && sel.previousSibling.classList.contains('dd-btn')) setDdLabel(sel.previousSibling, selectedText(sel));
+  });
+}
+
+function enhanceSelect(sel) {
+  sel.setAttribute('data-dd', '');
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = sel.className + ' ms-btn dd-btn';
+  btn.setAttribute('aria-haspopup', 'listbox');
+  if (sel.getAttribute('aria-label')) btn.setAttribute('aria-label', sel.getAttribute('aria-label'));
+  btn.innerHTML = '<span></span>' + ICONS.chevron;
+  setDdLabel(btn, selectedText(sel));
+  btn.addEventListener('click', function() { if (dd && dd.sel === sel) closeDd(); else openDd(sel, btn); });
+  sel.addEventListener('change', function() { setDdLabel(btn, selectedText(sel)); });
+  sel.style.display = 'none';
+  sel.parentNode.insertBefore(btn, sel);
+}
+
+function openDd(sel, btn) {
+  closeDd();
+  var panel = document.createElement('div');
+  panel.className = 'ms-panel dd-panel';
+  panel.innerHTML = (sel.options.length > DD_SEARCH_FROM ? '<input type="search" class="input dd-search" placeholder="' + escHtml(L.search) + '" autocomplete="off">' : '')
+    + '<div class="checks opts dd-list" role="listbox"></div>';
+  document.body.appendChild(panel);
+  dd = { sel: sel, btn: btn, panel: panel, query: '', active: -1 };
+  btn.classList.add('open');
+  renderDdList();
+  placeFloating(panel, btn);
+  var on = panel.querySelector('.opt.on');
+  if (on) on.scrollIntoView({ block: 'nearest' });
+  var input = panel.querySelector('.dd-search');
+  if (input) {
+    input.focus();
+    input.addEventListener('input', function() { dd.query = input.value; renderDdList(); });
+  }
+  panel.addEventListener('click', function(e) {
+    var o = e.target.closest('.opt');
+    if (o) pickDd(Number(o.dataset.i));
+  });
+}
+
+function renderDdList() {
+  var q = fold(dd.query.trim()), h = '', shown = 0, more = 0, group = null;
+  each(dd.sel.options, function(o, i) {
+    if (q && fold(o.text).indexOf(q) === -1) return;
+    if (shown >= LIST_LIMIT) { more++; return; }
+    var g = o.parentNode.tagName === 'OPTGROUP' ? o.parentNode.label : null;
+    if (g && g !== group) h += '<div class="opt-group">' + escHtml(g) + '</div>';
+    group = g;
+    h += '<button type="button" class="opt' + (i === dd.sel.selectedIndex ? ' on' : '') + '" role="option" data-i="' + i + '" data-full="' + escHtml(o.text) + '">' + escHtml(o.text) + '</button>';
+    shown++;
+  });
+  dd.panel.querySelector('.dd-list').innerHTML = h + listFooter({ shown: shown, more: more });
+  dd.active = -1;
+}
+
+function pickDd(i) {
+  var sel = dd.sel, btn = dd.btn;
+  closeDd();
+  btn.focus();
+  if (sel.selectedIndex === i) return;
+  sel.selectedIndex = i;
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function closeDd() {
+  if (!dd) return;
+  dd.panel.remove();
+  dd.btn.classList.remove('open');
+  dd = null;
+}
+
+document.addEventListener('click', function(e) {
+  if (dd && !dd.panel.contains(e.target) && !dd.btn.contains(e.target)) closeDd();
+});
+document.addEventListener('keydown', function(e) {
+  if (!dd) return;
+  var opts = dd.panel.querySelectorAll('.opt');
+  if (e.key === 'Escape') { var btn = dd.btn; closeDd(); btn.focus(); e.preventDefault(); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!opts.length) return;
+    if (dd.active < 0) dd.active = Array.prototype.indexOf.call(opts, dd.panel.querySelector('.opt.on'));
+    dd.active = Math.max(0, Math.min(opts.length - 1, dd.active + (e.key === 'ArrowDown' ? 1 : -1)));
+    each(opts, function(o, k) { o.classList.toggle('active', k === dd.active); });
+    opts[dd.active].scrollIntoView({ block: 'nearest' });
+    e.preventDefault();
+  } else if (e.key === 'Enter') {
+    var pick = opts[dd.active >= 0 ? dd.active : 0];
+    if (pick) { e.preventDefault(); pickDd(Number(pick.dataset.i)); }
+  }
+});
+
+// Selects come and go with every redraw: each one is dressed as it appears.
+function enhanceAll(root) { each(root.querySelectorAll('select:not([data-dd])'), enhanceSelect); }
+new MutationObserver(function() {
+  enhanceAll(document.body);
+  if (dd && !document.body.contains(dd.btn)) closeDd();
+}).observe(document.body, { childList: true, subtree: true });
+enhanceAll(document.body);
 // A click outside an open multi-select closes it.
 document.addEventListener('click', function(e) {
   if (openMs && !e.target.closest('.ms')) { openMs = null; renderSide(); }
@@ -659,6 +810,7 @@ function createDataTable(container, o) {
   clearBtn.addEventListener('click', function() {
     if (search) search.value = '';
     each(filterEls, function(el) { el.value = ''; });
+    syncDropdowns(container);
     apply();
   });
   each(sortBtns, function(b) {
