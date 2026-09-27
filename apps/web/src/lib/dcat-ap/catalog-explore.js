@@ -27,7 +27,7 @@
 /** English texts, keys shared with the app's `data_catalog.xp.*` translations. Placeholders: {name}. */
 var EXPLORE_TEXT = {
   patients: 'Patients', stays: 'Hospitalizations', unit_stays: 'Unit stays', records: 'Records', concepts: 'Concepts', categories: 'Categories',
-  kpi_of: 'of {total}', kpi_unfiltered: 'Whole warehouse: this view does not count them',
+  kpi_of: 'of {total}', kpi_not_counted: 'Not counted by this view',
   kpi_not_additive: 'Cannot be added up across {things}',
   published_concepts_only: 'published concepts only',
   title_by: '{unit} by {vars}',
@@ -204,6 +204,15 @@ function createExplorer(DATA, opts) {
   function sourceVars() { return D.display.concat(Object.keys(D.slice)); }
   function isListView() { return S.crossing === 'concept' && hasList; }
   function sourceCrossing() { return X[keyOf(sourceVars())] || null; }
+  /**
+   * Whether `metric` adds up across `v`'s values in the view. Over events (with
+   * concepts) period, age and service are read at each event, so a stay with
+   * events on both sides of a boundary sits in two cells: only sex splits it.
+   */
+  function adds(v, metric) {
+    if ((metric === 'stays' || metric === 'unit_stays') && sourceVars().indexOf('concept') !== -1) return v === 'sex';
+    return V[v].partition[metric];
+  }
   function measuresOf() {
     derive();
     if (isListView()) return LCOL.visitCount != null ? ['patients', 'stays', 'records'] : ['patients', 'records'];
@@ -708,13 +717,13 @@ function createExplorer(DATA, opts) {
     var sliced = Object.keys(D.slice).length > 0, filtered = displayFiltered();
     if (!sliced && !filtered) return { v: total };
     var c = sourceCrossing();
-    if (!c || (metric !== 'patients' && c.measures.indexOf(metric) === -1)) return { v: total, sub: tr('kpi_unfiltered') };
+    if (!c || (metric !== 'patients' && c.measures.indexOf(metric) === -1)) return { v: null, sub: tr('kpi_not_counted') };
     if (!filtered) {
       var m = marginCell([], {});
       var r = m && m.cell ? measureAt(m.cell, m.crossing, metric) : null;
       if (r && r.v != null) return { v: r.v, of: total };
     }
-    var blocker = D.display.filter(function(v) { return !V[v].partition[metric]; })[0];
+    var blocker = D.display.filter(function(v) { return !adds(v, metric); })[0];
     if (blocker) return { v: null, sub: tr('kpi_not_additive', { things: plural(blocker) }) };
     var sum = 0, masked = false, cells = viewCells(c), combos = 1;
     cells.forEach(function(cell) { var x = measureAt(cell, c, metric); if (x.st) masked = true; else sum += x.v || 0; });
@@ -835,10 +844,10 @@ function createExplorer(DATA, opts) {
       block(tr('by_var', { unit: unit, var: vr.label.toLowerCase() }), 'half', function(w) { return columnChart(w, items, { title: unit, unit: unit, color: VARIABLE_HEX.sex }); }, { note: note });
     } else {
       var shownItems = items.slice(0, v === 'concept' ? S.topN : 40);
-      block(v === 'concept' ? tr('top_n', { n: shownItems.length, things: plural(v) }) : tr('by_var', { unit: unit, var: vr.label.toLowerCase() }), vr.partition[metric] ? 'half' : 'full', function(w) {
+      block(v === 'concept' ? tr('top_n', { n: shownItems.length, things: plural(v) }) : tr('by_var', { unit: unit, var: vr.label.toLowerCase() }), adds(v, metric) ? 'half' : 'full', function(w) {
         return hBars(w, shownItems, { title: vr.label, unit: unit, pctOf: total, pctLabel: pctLabel, color: VARIABLE_HEX[v] });
       }, { note: note, sub: items.length > shownItems.length ? tr('n_of_m', { n: shownItems.length, m: items.length }) : '', head: v === 'concept' ? topNControl(items.length) : '' });
-      if (vr.partition[metric]) pieOrShare(items, vr, metric, unit, total, pctLabel, true);
+      if (adds(v, metric)) pieOrShare(items, vr, metric, unit, total, pctLabel, true);
     }
     return crossingTable(c, metric, [v]);
   }
@@ -846,7 +855,7 @@ function createExplorer(DATA, opts) {
   /** A pie when the modalities split the whole; otherwise the share of patients reached by each. */
   function pieOrShare(items, vr, metric, unit, total, pctLabel, pieOnly) {
     var published = items.filter(function(i) { return !i.st && i.v > 0; });
-    if (vr.partition[metric] && published.length > 1) {
+    if (adds(vr.id, metric) && published.length > 1) {
       var sorted = published.slice().sort(function(a, b) { return b.v - a.v; });
       var head = sorted.slice(0, 9);
       if (vr.kind === 'ordinal') head.sort(function(a, b) { return a.i - b.i; });
@@ -898,7 +907,7 @@ function createExplorer(DATA, opts) {
     var colObjs = cols.map(function(i) { return { i: i, name: cv.names[i] }; });
 
 
-    var rowPartition = rv.partition[metric], colPartition = cv.partition[metric];
+    var rowPartition = adds(rowVar, metric), colPartition = adds(colVar, metric);
     var ser = function(list, getVal) {
       var v = list === colObjs ? colVar : rowVar;
       return list.map(function(o, k) { return { name: o.name, color: v === 'sex' ? SEX_COLOR[V.sex.mods[o.i]] || OTHERS_COLOR : colorFor(k, list.length), vals: getVal(o) }; });

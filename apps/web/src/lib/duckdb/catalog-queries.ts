@@ -428,14 +428,16 @@ export const variableColumn = (v: CatalogVariableId) => `v_${v}`
 
 /**
  * One crossing's non-empty cells: a `v_<variable>` column per variable, then
- * `patients`, and `stays` (visits) and `unit_stays` as `ctx.counts` asks — or
+ * `patients`, and `stays` (visits) and `unit_stays` as `ctx.counts` asks — and
  * `records` (event rows) when the concept variable is part of it.
  *
  * Without the concept variable a cell counts visits: period and age at the
  * visit's start, the service of the visit or of each of its unit stays; its
  * unit stays are those of its visits (of its unit, with the service). With
  * it, a cell counts events: period and age at the event's date, the service of
- * the stay containing it.
+ * the stay containing it; its stays are those containing one of its events, as
+ * the concept list counts them. They come from a second aggregate, so a stay
+ * joined to an event never counts that event's record twice.
  */
 export function buildCrossingQuery(ctx: CrossingQueryContext, vars: readonly CatalogVariableId[]): string | null {
   const { mapping, variables } = ctx
@@ -445,6 +447,7 @@ export function buildCrossingQuery(ctx: CrossingQueryContext, vars: readonly Cat
   const crossing = canonicalCrossing(vars)
   if (crossing.length === 0) return null
   const withConcept = crossing.includes('concept')
+  const counts = ctx.counts ?? DEFAULT_CATALOG_COUNTS
   const dateExpr = withConcept ? 'ev.edate' : 'v.start_datetime'
 
   const selects: string[] = []
@@ -481,23 +484,49 @@ export function buildCrossingQuery(ctx: CrossingQueryContext, vars: readonly Cat
     const concept = variables.concept ?? { level: 'concept' as const }
     const events = eventUnion(mapping, concept, ctx.conceptFilter ?? null, true, ctx.range)
     if (!events) return null
-    return `WITH ev AS (
+    const counted = `WITH ev AS (
   ${events}
 ),
 cells AS (
   SELECT ${selects.join(',\n    ')},
-    ev.pid AS pid
+    ev.pid AS pid, ev.edate AS edate
   FROM ev
   ${needsPatient ? patientJoin : ''}
   ${joins.join('\n  ')}
-)
-SELECT ${columns.join(', ')}, COUNT(DISTINCT pid)::BIGINT AS patients, COUNT(*)::BIGINT AS records
+)`
+    const stayJoins: string[] = []
+    const stayCounts: string[] = []
+    if (counts.visits) {
+      stayJoins.push(`LEFT JOIN ${visit.name} sv ON sv.patient_id = ev.pid AND ${contains(visit, 'sv')}`)
+      stayCounts.push('COUNT(DISTINCT sv.visit_id)::BIGINT AS stays')
+    }
+    const vd = counts.unitStays ? classRelation(mapping, 'visit_detail') : undefined
+    if (vd) {
+      stayJoins.push(`LEFT JOIN ${vd.name} su ON su.patient_id = ev.pid AND ${contains(vd, 'su')}`)
+      stayCounts.push('COUNT(DISTINCT su.visit_detail_id)::BIGINT AS unit_stays')
+    }
+    const perCell = `SELECT ${columns.join(', ')}, COUNT(DISTINCT pid)::BIGINT AS patients, COUNT(*)::BIGINT AS records
 FROM cells
 WHERE ${notNull}
 GROUP BY ${columns.join(', ')}`
+    if (stayCounts.length === 0) return `${counted}\n${perCell}`
+    const stayColumns = [...(counts.visits ? ['stays'] : []), ...(vd ? ['unit_stays'] : [])]
+    return `${counted},
+per_cell AS (
+${perCell}
+),
+per_stay AS (
+  SELECT ${columns.map((c) => `ev.${c}`).join(', ')}, ${stayCounts.join(', ')}
+  FROM cells ev
+  ${stayJoins.join('\n  ')}
+  WHERE ${columns.map((c) => `ev.${c} IS NOT NULL`).join(' AND ')}
+  GROUP BY ${columns.map((c) => `ev.${c}`).join(', ')}
+)
+SELECT pc.*, ${stayColumns.map((m) => `COALESCE(ps.${m}, 0)::BIGINT AS ${m}`).join(', ')}
+FROM per_cell pc
+LEFT JOIN per_stay ps ON ${columns.map((c) => `ps.${c} = pc.${c}`).join(' AND ')}`
   }
 
-  const counts = ctx.counts ?? DEFAULT_CATALOG_COUNTS
   const measures = ['COUNT(DISTINCT pid)::BIGINT AS patients']
   const ids = ['v.patient_id AS pid']
   if (counts.visits) {

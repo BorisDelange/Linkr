@@ -259,7 +259,7 @@ function buildInfoHtml({ locale, threshold, mode, counts, crossings, variables }
 <p><b>Explorer</b> permet de lire les effectifs. Choisissez une, deux ou trois variables dans le panneau latéral, filtrez chacune d'elles : graphiques, chiffres clés et tableau suivent. <b>Métadonnées</b> décrit le jeu de données dans le vocabulaire Health-DCAT-AP, et <b>Schéma</b> la structure de l'entrepôt source.</p>`),
       card('barChart', 'Comment les effectifs sont calculés', `<p>L'entrepôt est compté selon ${vars || 'ses concepts'}. Chaque variable est comptée seule${multi.length ? `, et ces croisements ont été calculés : ${crossed}` : ''}.</p>
 <ul><li>Les <b>patients</b> sont des patients distincts : un patient vu sur deux périodes compte une fois dans chacune, les patients ne s'additionnent donc pas d'une valeur à l'autre d'une variable.</li>
-${counts.visits ? '<li>Les <b>hospitalisations</b> sont les séjours hospitaliers (visites).</li>' : ''}
+${counts.visits ? '<li>Les <b>hospitalisations</b> sont les séjours hospitaliers (visites) ; avec un concept, celles qui contiennent au moins un de ses enregistrements.</li>' : ''}
 ${counts.unitStays ? '<li>Les <b>séjours en unité</b> sont les séjours dans une unité de soins au sein de ces hospitalisations.</li>' : ''}
 <li>Les <b>enregistrements</b> sont les lignes d'événements (mesures, médicaments, diagnostics…), comptées quand la variable concept fait partie du croisement.</li>
 <li>La période et l'âge sont pris au début de l'hospitalisation, ou à la date de l'enregistrement.</li></ul>
@@ -276,7 +276,7 @@ ${counts.unitStays ? '<li>Les <b>séjours en unité</b> sont les séjours dans u
 <p><b>Explore</b> reads the counts. Pick one, two or three variables in the sidebar, filter each of them, and the charts, key figures and table follow. <b>Metadata</b> describes the dataset in the Health-DCAT-AP vocabulary, and <b>Schema</b> the structure of the source warehouse.</p>`),
     card('barChart', 'How the counts are made', `<p>The warehouse is counted along ${vars || 'its concepts'}. Each variable is counted on its own${multi.length ? `, and these crossings were computed: ${crossed}` : ''}.</p>
 <ul><li><b>Patients</b> are distinct patients: one seen in two periods counts once in each, so patients never add up across the values of a variable.</li>
-${counts.visits ? '<li><b>Hospitalizations</b> are hospital stays (visits).</li>' : ''}
+${counts.visits ? '<li><b>Hospitalizations</b> are hospital stays (visits); with a concept, those holding at least one of its records.</li>' : ''}
 ${counts.unitStays ? '<li><b>Unit stays</b> are the stays in a care unit within those hospitalizations.</li>' : ''}
 <li><b>Records</b> are event rows (measurements, drugs, diagnoses…), counted when the concept variable is part of a crossing.</li>
 <li>Period and age are taken at the start of the hospitalization, or at the date of the record.</li></ul>

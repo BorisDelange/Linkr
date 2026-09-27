@@ -534,10 +534,11 @@ export function CatalogConfigTab({ catalog }: Props) {
           ) : (
             <Button size="sm" className="gap-1.5" onClick={() => void run(false)} disabled={!mapping || !canWrite}>
               <Play size={14} />
-              {paused ? t('data_catalog.compute_resume') : t('data_catalog.compute')}
+              {paused ? t('data_catalog.compute_resume') : done ? t('data_catalog.compute_again') : t('data_catalog.compute')}
             </Button>
           )}
-          {(done || paused) && !running && (
+          {/* Once finished, the main button already recomputes from scratch: starting over only differs from resuming. */}
+          {paused && (
             <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setConfirmRestart(true)}>
               <RotateCcw size={14} />
               {t('data_catalog.compute_restart')}

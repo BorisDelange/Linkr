@@ -27,14 +27,27 @@ import type { PageLocale } from '@/lib/dcat-ap/page-text'
 
 export type PublishedMeasure = 'patients' | 'stays' | 'unit_stays' | 'records'
 
-/** The measures a crossing's cells carry after patients: records over events, the counted stays over visits. */
+/** The measures a crossing's cells carry after patients: the counted stays, then records over events. */
 export function crossingMeasures(catalog: Pick<DataCatalog, 'counts'>, vars: readonly CatalogVariableId[]): Exclude<PublishedMeasure, 'patients'>[] {
-  if (vars.includes('concept')) return ['records']
   const counts = catalogCounts(catalog)
-  return [...(counts.visits ? ['stays' as const] : []), ...(counts.unitStays ? ['unit_stays' as const] : [])]
+  return [
+    ...(counts.visits ? ['stays' as const] : []),
+    ...(counts.unitStays ? ['unit_stays' as const] : []),
+    ...(vars.includes('concept') ? ['records' as const] : []),
+  ]
 }
 
 const ROW_KEY = { stays: 'stays', unit_stays: 'unitStays', records: 'records' } as const
+
+/**
+ * The measures a computed crossing actually carries: a crossing over events
+ * computed before they counted stays has none, which then reads "not counted"
+ * rather than an empty column.
+ */
+export function computedMeasures(catalog: Pick<DataCatalog, 'counts'>, crossing: Pick<CatalogCrossingResult, 'variables' | 'rows'>): Exclude<PublishedMeasure, 'patients'>[] {
+  const first = crossing.rows[0]
+  return crossingMeasures(catalog, crossing.variables).filter((m) => !first || first[ROW_KEY[m]] != null)
+}
 
 export interface PublishedVariable {
   id: CatalogVariableId
@@ -51,7 +64,8 @@ export interface PublishedVariable {
    * Whether each unit of a measure falls in exactly one modality — a patient
    * has one sex, a stay one start period — so that shares of the sum mean
    * something (a pie chart). A patient seen at 40 and at 41 sits in two age
-   * brackets: patients do not partition age.
+   * brackets: patients do not partition age. Stays as crossings over visits
+   * count them; over events only sex splits them (the page's `adds`).
    */
   partition: Record<PublishedMeasure, boolean>
   granularity?: PeriodGranularity
@@ -361,7 +375,7 @@ export function buildPublishedCatalog(
   const published: PublishedCrossing[] = []
   for (const crossing of crossings) {
     const mask = masks.get(crossing.id)
-    const measures = crossingMeasures(catalog, crossing.variables)
+    const measures = computedMeasures(catalog, crossing)
     const cells: PublishedCell[] = []
     let primary = 0
     let secondary = 0

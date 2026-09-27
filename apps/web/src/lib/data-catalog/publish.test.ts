@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CatalogResultCache, DataCatalog } from '@/types'
 import { defaultCatalogVariables } from './config'
-import { ageDisplayName, buildCrossingCsv, buildPublishedCatalog, computeCatalogMasks, publishedConcepts } from './publish'
+import { ageDisplayName, buildCrossingCsv, buildPublishedCatalog, computeCatalogMasks, computedMeasures, publishedConcepts } from './publish'
 import { PRIMARY, PUBLISHED, SECONDARY } from './suppression'
 
 const catalog = {
@@ -156,6 +156,13 @@ describe('crossing measures', () => {
     expect(sex.cells).toEqual([[0, 80, 90, 120, 0]])
     expect(buildPublishedCatalog(both, withUnits, { keepMasked: true }).crossings[0].cells).toContainEqual([1, null, null, null, 1])
     expect(buildCrossingCsv(buildPublishedCatalog(both, withUnits), sex).split('\n')[0]).toBe('sex,patients,stays,unit_stays,status')
+  })
+
+  it('counts stays over events too, before records, unless computed without them', () => {
+    const rows = [{ values: ['c1'], patients: 80, stays: 95, records: 400 }]
+    const over = (r: object[]) => ({ ...cache, crossings: [{ id: 'concept', variables: ['concept'], rows: r }] }) as unknown as CatalogResultCache
+    expect(computedMeasures(catalog, over(rows).crossings![0])).toEqual(['stays', 'records'])
+    expect(computedMeasures(catalog, over([{ values: ['c1'], patients: 80, records: 400 }]).crossings![0])).toEqual(['records'])
   })
 
   it('carries patients alone when the catalog counts nothing else', () => {

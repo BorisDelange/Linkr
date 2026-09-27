@@ -95,6 +95,18 @@ describe('buildCrossingQuery', () => {
     expect(sql).toContain('e.source_concept_id IS DISTINCT FROM e.concept_id')
   })
 
+  it('counts the stays containing a cell\'s events apart from its records', () => {
+    const concept = { enabled: true, level: 'concept' as const, scope: 'all' as const, topN: 10 }
+    const sql = buildCrossingQuery({ mapping, variables: { ...variables, concept }, counts: { visits: true, unitStays: true } }, ['concept', 'period'])!
+    expect(sql).toMatch(/per_cell AS \(\s*SELECT v_concept, v_period, COUNT\(DISTINCT pid\)::BIGINT AS patients, COUNT\(\*\)::BIGINT AS records\s*FROM cells/)
+    expect(sql).toContain('LEFT JOIN linkr_visit sv ON sv.patient_id = ev.pid AND ev.edate >= CAST(sv.start_datetime AS TIMESTAMP)')
+    expect(sql).toContain('COUNT(DISTINCT sv.visit_id)::BIGINT AS stays, COUNT(DISTINCT su.visit_detail_id)::BIGINT AS unit_stays')
+    expect(sql).toContain('COALESCE(ps.stays, 0)::BIGINT AS stays, COALESCE(ps.unit_stays, 0)::BIGINT AS unit_stays')
+    const recordsOnly = buildCrossingQuery({ mapping, variables: { ...variables, concept }, counts: { visits: false, unitStays: false } }, ['concept'])!
+    expect(recordsOnly).not.toContain('per_stay')
+    expect(recordsOnly).toContain('COUNT(*)::BIGINT AS records')
+  })
+
   it('attaches events to the unit stay containing them', () => {
     const sql = buildCrossingQuery({ mapping, variables: { ...variables, concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } } }, ['concept', 'service'])!
     expect(sql).toMatch(/JOIN linkr_visit_detail vd ON vd.patient_id = ev.pid AND ev.edate >= CAST\(vd.start_datetime AS TIMESTAMP\)/)
