@@ -637,9 +637,10 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                 <span className="text-xs font-medium">{t('concept_mapping.export_include_scores')}</span>
                 {scoreStats && scoreStats.length > 0 && (
                   <Tabs value={scoresFormat} onValueChange={(v) => setScoresFormat(v as ScoresExportFormat)}>
-                    <TabsList className="h-7">
-                      <TabsTrigger value="csv" className="px-2.5">CSV</TabsTrigger>
-                      <TabsTrigger value="parquet" className="px-2.5">Parquet</TabsTrigger>
+                    {/* The list's height is set through its orientation variant, so a plain h-* does not win. */}
+                    <TabsList className="p-0.5 group-data-[orientation=horizontal]/tabs:h-6">
+                      <TabsTrigger value="csv" className="rounded px-2 py-0 text-[10px]">CSV</TabsTrigger>
+                      <TabsTrigger value="parquet" className="rounded px-2 py-0 text-[10px]">Parquet</TabsTrigger>
                     </TabsList>
                   </Tabs>
                 )}
