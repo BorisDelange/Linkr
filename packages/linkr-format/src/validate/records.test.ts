@@ -84,6 +84,23 @@ describe('dq rule set', () => {
     const issues = validateEntity(ruleSet([CHECK, CHECK]), 'dq-rule-set')
     expect(issues.some((i) => i.code === 'duplicate-key')).toBe(true)
   })
+
+  // The server refuses the same, and an import that fails there leaves no checks.
+  it('rejects a threshold outside 0–100', () => {
+    for (const threshold of [-1, 150]) {
+      const issues = validateEntity(ruleSet([{ ...CHECK, threshold }]), 'dq-rule-set')
+      expect(issues.find((i) => i.pointer === '/0/threshold')?.hint).toContain('between 0 and 100')
+    }
+    expect(validateEntity(ruleSet([{ ...CHECK, threshold: 100 }]), 'dq-rule-set')).toEqual([])
+  })
+
+  it('rejects a subcategory of another category, not one a legacy category brings', () => {
+    const wrong = validateEntity(ruleSet([{ ...CHECK, category: 'conformance', subcategory: 'temporal' }]), 'dq-rule-set')
+    expect(wrong.find((i) => i.pointer === '/0/subcategory')?.hint).toContain('relational')
+    const none = validateEntity(ruleSet([{ ...CHECK, category: 'completeness', subcategory: 'value' }]), 'dq-rule-set')
+    expect(none.some((i) => i.pointer === '/0/subcategory')).toBe(true)
+    expect(validateEntity(ruleSet([{ ...CHECK, category: 'validity', subcategory: 'temporal' }]), 'dq-rule-set')).toEqual([])
+  })
 })
 
 describe('mapping project', () => {

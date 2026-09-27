@@ -7,7 +7,9 @@ from app.core.permissions import check_workspace_permission
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
 from app.models.user import User
 from app.schemas.dq_rule_set import (
+    DqChecksDelete,
     DqCustomCheckCreate,
+    DqCustomCheckPatch,
     DqCustomCheckResponse,
     DqCustomCheckUpdate,
     DqRuleSetCreate,
@@ -120,6 +122,21 @@ async def list_checks(
     return await dq_rule_set_service.list_checks(db, rule_set_id)
 
 
+def _batch_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, dq_rule_set_service.ChecksTooMany):
+        return HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(exc))
+    if isinstance(exc, dq_rule_set_service.ChecksConflict):
+        return HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    if isinstance(exc, dq_rule_set_service.ChecksNotFound):
+        return HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+    return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+
+
+def _require_own_checks(rule_set_id: str, body: list[DqCustomCheckCreate]) -> None:
+    if any(c.rule_set_id != rule_set_id for c in body):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every check must belong to the rule set")
+
+
 @router.post(
     _SET + "/{rule_set_id}/checks",
     response_model=list[DqCustomCheckResponse],
@@ -134,9 +151,58 @@ async def create_checks(
     """A rule set generated from a schema starts with hundreds of checks: one
     request, one transaction."""
     await _load_rule_set(db, rule_set_id, user, "data-quality:write")
-    if any(c.rule_set_id != rule_set_id for c in body):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every check must belong to the rule set")
-    return await dq_rule_set_service.create_checks(db, body)
+    _require_own_checks(rule_set_id, body)
+    try:
+        return await dq_rule_set_service.create_checks(db, body)
+    except (dq_rule_set_service.ChecksTooMany, dq_rule_set_service.ChecksConflict) as exc:
+        raise _batch_error(exc) from exc
+
+
+@router.put(_SET + "/{rule_set_id}/checks", response_model=list[DqCustomCheckResponse])
+async def replace_checks(
+    rule_set_id: str,
+    body: list[DqCustomCheckCreate],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The whole check list at once (an import): refused as a block, so the
+    previous checks stay when the new ones do not validate."""
+    await _load_rule_set(db, rule_set_id, user, "data-quality:delete")
+    _require_own_checks(rule_set_id, body)
+    try:
+        return await dq_rule_set_service.replace_checks(db, rule_set_id, body)
+    except (dq_rule_set_service.ChecksTooMany, dq_rule_set_service.ChecksConflict) as exc:
+        raise _batch_error(exc) from exc
+
+
+@router.patch(_SET + "/{rule_set_id}/checks", response_model=list[DqCustomCheckResponse])
+async def update_checks(
+    rule_set_id: str,
+    body: list[DqCustomCheckPatch],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Several checks changed together (a group renamed, checks moved or
+    disabled): all or none."""
+    await _load_rule_set(db, rule_set_id, user, "data-quality:write")
+    try:
+        return await dq_rule_set_service.update_checks(db, rule_set_id, body)
+    except (ValueError, LookupError) as exc:
+        raise _batch_error(exc) from exc
+
+
+@router.post(_SET + "/{rule_set_id}/checks/batch-delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_checks(
+    rule_set_id: str,
+    body: DqChecksDelete,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _load_rule_set(db, rule_set_id, user, "data-quality:delete")
+    try:
+        await dq_rule_set_service.delete_checks(db, rule_set_id, body.ids)
+    except dq_rule_set_service.ChecksTooMany as exc:
+        raise _batch_error(exc) from exc
 
 
 @router.delete(_SET + "/{rule_set_id}/checks", status_code=status.HTTP_204_NO_CONTENT)

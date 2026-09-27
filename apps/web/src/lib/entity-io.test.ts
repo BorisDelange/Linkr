@@ -1403,7 +1403,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         switch (prop) {
           case 'dataCatalogs': return { update: rec('catalog.update') }
           case 'dqRuleSets': return { update: rec('rs.update') }
-          case 'dqCustomChecks': return { deleteByRuleSet: rec('chk.delete'), create: rec('chk.create') }
+          case 'dqCustomChecks': return { replaceByRuleSet: rec('chk.replace') }
           case 'schemaPresets': return { save: rec('preset.save'), getById: async () => undefined }
           default: return new Proxy({}, { get: () => async () => {} })
         }
@@ -1421,9 +1421,9 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     rsZip.file('checks.json', JSON.stringify([CHECK({ ruleSetId: 'ignored' })]))
     expect(await applyClonedEntity(rsZip, 'dq-rule-set', 'rs-target', store)).toEqual({ ok: true })
     expect(calls['rs.update']![0][0]).toBe('rs-target')
-    expect(calls['chk.delete']![0][0]).toBe('rs-target')
+    expect(calls['chk.replace']![0][0]).toBe('rs-target')
     // Checks are recreated under the target rule set, not the repo's stale FK.
-    expect((calls['chk.create']![0][0] as { ruleSetId: string }).ruleSetId).toBe('rs-target')
+    expect((calls['chk.replace']![0][1] as { ruleSetId: string }[])[0].ruleSetId).toBe('rs-target')
 
     const spZip = new JSZip()
     spZip.file('preset.json', JSON.stringify(PRESET()))
@@ -1967,7 +1967,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         switch (prop) {
           case 'dataCatalogs': return { update: rec('catalog.update') }
           case 'dqRuleSets': return { update: rec('rs.update') }
-          case 'dqCustomChecks': return { deleteByRuleSet: rec('chk.delete'), create: rec('chk.create') }
+          case 'dqCustomChecks': return { replaceByRuleSet: rec('chk.replace') }
           case 'schemaPresets': return { save: rec('preset.save'), getById: async () => undefined }
           default: return new Proxy({}, { get: () => async () => {} })
         }

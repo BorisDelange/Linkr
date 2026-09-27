@@ -45,7 +45,7 @@ describe('DQ rule set round trip', () => {
     const store = new Proxy({}, {
       get: (_t, prop) => {
         if (prop === 'dqRuleSets') return { update: async (_id: string, c: Partial<DqRuleSet>) => { updates.push(c) } }
-        if (prop === 'dqCustomChecks') return { deleteByRuleSet: async () => {}, create: async (c: DqCustomCheck) => { created.push(c) } }
+        if (prop === 'dqCustomChecks') return { replaceByRuleSet: async (_id: string, cs: DqCustomCheck[]) => { created.push(...cs) } }
         return new Proxy({}, { get: () => async () => [] })
       },
     }) as unknown as Storage
@@ -54,6 +54,30 @@ describe('DQ rule set round trip', () => {
     expect(updates[0].schemaPresetRef).toEqual(RULE_SET.schemaPresetRef)
     expect(created).toHaveLength(1)
     expect(created[0]).toMatchObject({ ...PORTABLE, ruleSetId: 'rs-target' })
+  })
+
+  it('a cloned repo whose checks are refused keeps the previous checks and metadata', async () => {
+    const zip = new JSZip()
+    await buildDqRuleSetFolder(zip, '', RULE_SET, exportStore)
+    const updates: Partial<DqRuleSet>[] = []
+    const deleted: string[] = []
+    const store = new Proxy({}, {
+      get: (_t, prop) => {
+        if (prop === 'dqRuleSets') return { update: async (_id: string, c: Partial<DqRuleSet>) => { updates.push(c) } }
+        if (prop === 'dqCustomChecks') {
+          return {
+            deleteByRuleSet: async (id: string) => { deleted.push(id) },
+            create: async () => {},
+            replaceByRuleSet: async () => { throw new Error('threshold is a percentage of violated rows, between 0 and 100') },
+          }
+        }
+        return new Proxy({}, { get: () => async () => [] })
+      },
+    }) as unknown as Storage
+
+    await expect(applyClonedEntity(zip, 'dq-rule-set', 'rs-target', store)).rejects.toThrow('between 0 and 100')
+    expect(deleted).toEqual([])
+    expect(updates).toEqual([])
   })
 
   it('a workspace ZIP reads every check field back', async () => {

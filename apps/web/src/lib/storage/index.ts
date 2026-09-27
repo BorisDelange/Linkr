@@ -346,8 +346,15 @@ export interface DqCustomCheckStorage {
   create(check: DqCustomCheck): Promise<void>
   /** All of a rule set's checks in one write. */
   createMany(ruleSetId: string, checks: DqCustomCheck[]): Promise<void>
+  /** The rule set's checks become `checks`, in one transaction: when the write
+   *  is refused the previous checks are all still there. */
+  replaceByRuleSet(ruleSetId: string, checks: DqCustomCheck[]): Promise<void>
   update(id: string, changes: Partial<DqCustomCheck>): Promise<void>
+  /** Several of a rule set's checks changed in one transaction: all or none. */
+  updateMany(ruleSetId: string, patches: { id: string; changes: Partial<DqCustomCheck> }[]): Promise<void>
   delete(id: string): Promise<void>
+  /** Several of a rule set's checks removed in one transaction. */
+  deleteMany(ruleSetId: string, ids: string[]): Promise<void>
   deleteByRuleSet(ruleSetId: string): Promise<void>
 }
 

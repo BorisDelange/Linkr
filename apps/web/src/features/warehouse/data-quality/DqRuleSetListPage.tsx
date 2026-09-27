@@ -141,13 +141,12 @@ export function DqRuleSetListPage() {
         await gitSetSyncState('dq-rule-sets', id, gitRemoteConfig?.branch ?? 'main', syncedOid)
       } catch { /* leave unanchored — lazy adoption may still catch a clean sync */ }
     }
-    for (const c of checks) {
-      await getStorage().dqCustomChecks.create({
-        ...c,
-        id: duplicate ? crypto.randomUUID() : c.id,
-        ruleSetId: id,
-      })
-    }
+    // One transaction: a refused check leaves none half-written.
+    await getStorage().dqCustomChecks.createMany(id, checks.map((c) => ({
+      ...c,
+      id: duplicate ? crypto.randomUUID() : c.id,
+      ruleSetId: id,
+    })))
     await loadDqRuleSets()
   }, [activeWorkspaceId, language, loadDqRuleSets])
 

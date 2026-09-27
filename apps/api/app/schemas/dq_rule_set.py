@@ -167,6 +167,15 @@ class DqCustomCheckUpdate(CamelModel):
         return None if v is None else check_threshold(v)
 
 
+class DqCustomCheckPatch(DqCustomCheckUpdate):
+    """One check's changes in a batch update."""
+    id: str
+
+
+class DqChecksDelete(CamelModel):
+    ids: list[str]
+
+
 class DqCustomCheckResponse(CamelModel):
     id: str
     rule_set_id: str

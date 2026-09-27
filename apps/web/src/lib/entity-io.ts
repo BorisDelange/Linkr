@@ -4027,15 +4027,16 @@ export async function applyClonedEntity(
       const database = resolvePointer(await storage.dataSources.getAll(), ruleSet.dataSourceRef, workspaceId)
       if (database) changes.dataSourceId = database.id
     }
-    await storage.dqRuleSets.update(targetId, changes)
     const checks = (await readJson<DqCustomCheck[]>(CONTENT_FILE.dqChecks)) ?? []
-    await storage.dqCustomChecks.deleteByRuleSet(targetId)
-    for (const c of checks) {
-      // Re-mint the check id: it's a global PK, so the repo's original id collides
-      // when the same rule-set repo is cloned into a second workspace or as a copy.
+    // Re-mint the check id: it's a global PK, so the repo's original id collides
+    // when the same rule-set repo is cloned into a second workspace or as a copy.
+    // One atomic replace, first: a check the server refuses (a threshold out of
+    // range) used to land after the old checks were deleted, leaving none.
+    await storage.dqCustomChecks.replaceByRuleSet(targetId, checks.map((c) => {
       const { id: _cid, ruleSetId: _rs, ...rest } = c
-      await storage.dqCustomChecks.create({ ...rest, id: crypto.randomUUID(), ruleSetId: targetId } as DqCustomCheck)
-    }
+      return { ...rest, id: crypto.randomUUID(), ruleSetId: targetId } as DqCustomCheck
+    }))
+    await storage.dqRuleSets.update(targetId, changes)
     return { ok: true }
   }
 

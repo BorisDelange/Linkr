@@ -1,11 +1,15 @@
+from collections import Counter
+
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
 from app.services import attachment_service, git_secret
 from app.schemas.dq_rule_set import (
     DqCustomCheckCreate,
+    DqCustomCheckPatch,
     DqCustomCheckUpdate,
     DqRuleSetCreate,
     DqRuleSetUpdate,
@@ -90,25 +94,88 @@ async def create_check(db: AsyncSession, data: DqCustomCheckCreate) -> DqCustomC
     return check
 
 
-async def create_checks(
-    db: AsyncSession, data: list[DqCustomCheckCreate]
-) -> list[DqCustomCheck]:
-    checks = [DqCustomCheck(**d.model_dump(exclude_none=True)) for d in data]
-    db.add_all(checks)
-    await db.commit()
+MAX_CHECKS_PER_REQUEST = 5000
+
+
+class ChecksConflict(ValueError):
+    """A check id sent twice, or already taken by another check."""
+
+
+class ChecksTooMany(ValueError):
+    pass
+
+
+class ChecksNotFound(LookupError):
+    pass
+
+
+async def _validate_new_checks(
+    db: AsyncSession, data: list[DqCustomCheckCreate], replacing: str | None = None
+) -> None:
+    """Raises before anything is written, so a refused batch leaves the rule set
+    as it was. `replacing`: the rule set whose own checks are about to go, so
+    their ids may be reused."""
+    if len(data) > MAX_CHECKS_PER_REQUEST:
+        raise ChecksTooMany(f"At most {MAX_CHECKS_PER_REQUEST} checks per request")
+    ids = [d.id for d in data]
+    duplicates = sorted(i for i, n in Counter(ids).items() if n > 1)
+    if duplicates:
+        raise ChecksConflict(f"Duplicate check ids: {', '.join(duplicates[:10])}")
+    if not ids:
+        return
+    query = select(DqCustomCheck.id).where(DqCustomCheck.id.in_(ids))
+    if replacing is not None:
+        query = query.where(DqCustomCheck.rule_set_id != replacing)
+    taken = sorted((await db.execute(query)).scalars().all())
+    if taken:
+        raise ChecksConflict(f"Check ids already in use: {', '.join(taken[:10])}")
+
+
+async def _commit_new_checks(db: AsyncSession) -> None:
+    # A concurrent write can still take an id between the check and the commit.
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise ChecksConflict("A check id is already in use") from exc
+
+
+async def _checks_by_ids(db: AsyncSession, ids: list[str]) -> list[DqCustomCheck]:
     result = await db.execute(
         select(DqCustomCheck)
-        .where(DqCustomCheck.id.in_([c.id for c in checks]))
+        .where(DqCustomCheck.id.in_(ids))
         .order_by(DqCustomCheck.order)
     )
     return list(result.scalars().all())
 
 
-async def update_check(
-    db: AsyncSession, check: DqCustomCheck, data: DqCustomCheckUpdate
-) -> DqCustomCheck:
+async def create_checks(
+    db: AsyncSession, data: list[DqCustomCheckCreate]
+) -> list[DqCustomCheck]:
+    """Raises ChecksConflict / ChecksTooMany before writing anything."""
+    await _validate_new_checks(db, data)
+    checks = [DqCustomCheck(**d.model_dump(exclude_none=True)) for d in data]
+    db.add_all(checks)
+    await _commit_new_checks(db)
+    return await _checks_by_ids(db, [c.id for c in checks])
+
+
+async def replace_checks(
+    db: AsyncSession, rule_set_id: str, data: list[DqCustomCheckCreate]
+) -> list[DqCustomCheck]:
+    """A rule set's whole check list in one transaction: an import that the
+    server refuses leaves the previous checks in place."""
+    await _validate_new_checks(db, data, replacing=rule_set_id)
+    await db.execute(sa_delete(DqCustomCheck).where(DqCustomCheck.rule_set_id == rule_set_id))
+    checks = [DqCustomCheck(**d.model_dump(exclude_none=True)) for d in data]
+    db.add_all(checks)
+    await _commit_new_checks(db)
+    return await _checks_by_ids(db, [c.id for c in checks])
+
+
+def _apply_check_update(check: DqCustomCheck, data: DqCustomCheckUpdate) -> None:
     """Raises ValueError when the category and subcategory do not fit together."""
-    changes = data.model_dump(exclude_unset=True)
+    changes = data.model_dump(exclude_unset=True, exclude={"id"})
     if "category" in changes or "subcategory" in changes:
         category = changes.get("category", check.category)
         if "subcategory" in changes:
@@ -120,13 +187,60 @@ async def update_check(
         changes["category"], changes["subcategory"] = category, subcategory
     for key, value in changes.items():
         setattr(check, key, value)
+
+
+async def update_check(
+    db: AsyncSession, check: DqCustomCheck, data: DqCustomCheckUpdate
+) -> DqCustomCheck:
+    """Raises ValueError when the category and subcategory do not fit together."""
+    _apply_check_update(check, data)
     await db.commit()
     await db.refresh(check)
     return check
 
 
+async def update_checks(
+    db: AsyncSession, rule_set_id: str, patches: list[DqCustomCheckPatch]
+) -> list[DqCustomCheck]:
+    """Several checks' changes in one transaction: all of them, or none.
+    Raises ChecksNotFound for an id outside the rule set, ValueError for a change
+    that does not fit the taxonomy, ChecksTooMany for an oversized batch."""
+    if len(patches) > MAX_CHECKS_PER_REQUEST:
+        raise ChecksTooMany(f"At most {MAX_CHECKS_PER_REQUEST} checks per request")
+    ids = [p.id for p in patches]
+    result = await db.execute(
+        select(DqCustomCheck).where(
+            DqCustomCheck.rule_set_id == rule_set_id, DqCustomCheck.id.in_(ids)
+        )
+    )
+    by_id = {c.id: c for c in result.scalars().all()}
+    missing = sorted(set(ids) - by_id.keys())
+    if missing:
+        raise ChecksNotFound(f"No such check in this rule set: {', '.join(missing[:10])}")
+    try:
+        for patch in patches:
+            _apply_check_update(by_id[patch.id], patch)
+    except ValueError:
+        await db.rollback()
+        raise
+    await db.commit()
+    return await _checks_by_ids(db, list(by_id))
+
+
 async def delete_check(db: AsyncSession, check: DqCustomCheck) -> None:
     await db.delete(check)
+    await db.commit()
+
+
+async def delete_checks(db: AsyncSession, rule_set_id: str, ids: list[str]) -> None:
+    """Idempotent: an id already gone, or of another rule set, is left alone."""
+    if len(ids) > MAX_CHECKS_PER_REQUEST:
+        raise ChecksTooMany(f"At most {MAX_CHECKS_PER_REQUEST} checks per request")
+    await db.execute(
+        sa_delete(DqCustomCheck).where(
+            DqCustomCheck.rule_set_id == rule_set_id, DqCustomCheck.id.in_(ids)
+        )
+    )
     await db.commit()
 
 

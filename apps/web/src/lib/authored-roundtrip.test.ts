@@ -29,6 +29,7 @@ function makeStore(rows: Record<string, Record<string, unknown>>, children: Reco
     getByPipeline: async () => children.files ?? [],
     getByRuleSet: async () => children.checks ?? [],
     deleteByRuleSet: async () => { children.checks = [] },
+    replaceByRuleSet: async (_id: string, rs: unknown[]) => { children.checks = [...rs] },
     deleteByCollection: async () => { children.files = [] },
     deleteByPipeline: async () => { children.files = [] },
   })

@@ -53,12 +53,27 @@ export const apiDqCustomCheckStorage: DqCustomCheckStorage = {
     await apiRequest(`${SET}/${ruleSetId}/checks`, { method: 'POST', body: JSON.stringify(checks) })
   },
 
+  replaceByRuleSet: async (ruleSetId, checks) => {
+    await apiRequest(`${SET}/${ruleSetId}/checks`, { method: 'PUT', body: JSON.stringify(checks) })
+  },
+
   update: async (id, changes) => {
     await apiRequest(`${CHECK}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
+  updateMany: async (ruleSetId, patches) => {
+    await apiRequest(`${SET}/${ruleSetId}/checks`, {
+      method: 'PATCH',
+      body: JSON.stringify(patches.map(({ id, changes }) => ({ ...changes, id }))),
+    })
+  },
+
   delete: async (id) => {
     await apiRequest(`${CHECK}/${id}`, { method: 'DELETE' })
+  },
+
+  deleteMany: async (ruleSetId, ids) => {
+    await apiRequest(`${SET}/${ruleSetId}/checks/batch-delete`, { method: 'POST', body: JSON.stringify({ ids }) })
   },
 
   deleteByRuleSet: async (ruleSetId) => {

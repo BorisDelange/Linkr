@@ -2170,6 +2170,18 @@ class IDBDqCustomCheckStorage implements DqCustomCheckStorage {
     await Promise.all([...checks.map((c) => tx.store.add(c)), tx.done])
   }
 
+  async replaceByRuleSet(ruleSetId: string, checks: DqCustomCheck[]): Promise<void> {
+    const db = await getDB()
+    const tx = db.transaction('dq_custom_checks', 'readwrite')
+    // A failed add aborts the transaction, deletes included.
+    const run = async () => {
+      const old = await tx.store.index('by-rule-set').getAllKeys(ruleSetId)
+      await Promise.all(old.map((key) => tx.store.delete(key)))
+      await Promise.all(checks.map((c) => tx.store.add(c)))
+    }
+    await Promise.all([run(), tx.done])
+  }
+
   async update(id: string, changes: Partial<DqCustomCheck>): Promise<void> {
     const db = await getDB()
     const existing = await db.get('dq_custom_checks', id)
@@ -2177,9 +2189,35 @@ class IDBDqCustomCheckStorage implements DqCustomCheckStorage {
     await db.put('dq_custom_checks', { ...existing, ...changes, updatedAt: new Date().toISOString() })
   }
 
+  async updateMany(ruleSetId: string, patches: { id: string; changes: Partial<DqCustomCheck> }[]): Promise<void> {
+    const db = await getDB()
+    const tx = db.transaction('dq_custom_checks', 'readwrite')
+    const now = new Date().toISOString()
+    const run = async () => {
+      for (const { id, changes } of patches) {
+        const existing = await tx.store.get(id)
+        if (!existing || existing.ruleSetId !== ruleSetId) continue
+        await tx.store.put({ ...existing, ...changes, updatedAt: now })
+      }
+    }
+    await Promise.all([run(), tx.done])
+  }
+
   async delete(id: string): Promise<void> {
     const db = await getDB()
     await db.delete('dq_custom_checks', id)
+  }
+
+  async deleteMany(ruleSetId: string, ids: string[]): Promise<void> {
+    const db = await getDB()
+    const tx = db.transaction('dq_custom_checks', 'readwrite')
+    const run = async () => {
+      for (const id of ids) {
+        const existing = await tx.store.get(id)
+        if (existing?.ruleSetId === ruleSetId) await tx.store.delete(id)
+      }
+    }
+    await Promise.all([run(), tx.done])
   }
 
   async deleteByRuleSet(ruleSetId: string): Promise<void> {

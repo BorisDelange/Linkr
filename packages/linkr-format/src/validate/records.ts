@@ -19,6 +19,13 @@ const DQ_SEVERITIES = ['error', 'warning', 'notice', 'info'] as const
 // Kahn et al. (2016), plus the pre-Kahn names the app maps onto them on read.
 const DQ_CATEGORIES = ['conformance', 'completeness', 'plausibility', 'validity', 'consistency', 'uniqueness'] as const
 const DQ_SUBCATEGORIES = ['value', 'relational', 'computational', 'uniqueness', 'atemporal', 'temporal'] as const
+// Which subcategory each Kahn category admits; a legacy category carries its own
+// (`dq_taxonomy.py` on the server refuses any other pair).
+const DQ_SUBCATEGORIES_OF: Record<string, readonly string[]> = {
+  conformance: ['value', 'relational', 'computational'],
+  completeness: [],
+  plausibility: ['uniqueness', 'atemporal', 'temporal'],
+}
 const DQ_ORIGINS = ['ddl', 'mapping', 'manual'] as const
 const COHORT_LEVELS = ['patient', 'visit', 'visit_detail', 'event'] as const
 const MAPPING_STATUSES = ['approved', 'pending', 'rejected', 'draft'] as const
@@ -73,14 +80,24 @@ export function validateDqRuleSet(tree: EntityTree, bag: IssueBag): void {
     if (check.category != null) {
       checkEnum(bag, checksPath, `${pointer}/category`, check.category, DQ_CATEGORIES, { label: 'category' })
     }
-    if (check.subcategory != null) {
-      checkEnum(bag, checksPath, `${pointer}/subcategory`, check.subcategory, DQ_SUBCATEGORIES, { label: 'subcategory' })
+    if (check.subcategory != null
+      && checkEnum(bag, checksPath, `${pointer}/subcategory`, check.subcategory, DQ_SUBCATEGORIES, { label: 'subcategory' })) {
+      const fitting = typeof check.category === 'string' ? DQ_SUBCATEGORIES_OF[check.category] : undefined
+      if (fitting && !fitting.includes(check.subcategory)) {
+        bag.error(checksPath, `${pointer}/subcategory`, 'wrong-type',
+          `subcategory "${check.subcategory}" does not belong to ${check.category}.`,
+          fitting.length ? `One of: ${fitting.join(', ')}.` : `${check.category} has no subcategory: use null.`)
+      }
     }
     if (check.origin != null) {
       checkEnum(bag, checksPath, `${pointer}/origin`, check.origin, DQ_ORIGINS, { label: 'origin' })
     }
-    if (check.threshold != null) {
-      checkNumber(bag, checksPath, `${pointer}/threshold`, check.threshold, { label: 'threshold' })
+    if (check.threshold != null
+      && checkNumber(bag, checksPath, `${pointer}/threshold`, check.threshold, { label: 'threshold' })
+      && (check.threshold < 0 || check.threshold > 100)) {
+      bag.error(checksPath, `${pointer}/threshold`, 'wrong-type',
+        `threshold ${check.threshold} is out of range.`,
+        'A percentage of violated rows, between 0 and 100.')
     }
 
     if (typeof check.id === 'string') {

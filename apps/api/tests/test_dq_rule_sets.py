@@ -255,3 +255,88 @@ async def test_rule_set_keeps_its_empty_check_groups(client):
     p = await client.patch(f"{API}/dq-rule-sets/{r['id']}", headers=headers, json={"checkGroups": ["Vitals"]})
     assert p.json()["checkGroups"] == ["Vitals"]
     assert (await client.get(f"{API}/dq-rule-sets/{r['id']}", headers=headers)).json()["checkGroups"] == ["Vitals"]
+
+
+async def test_create_checks_refuses_taken_and_duplicate_ids(client):
+    headers = await _admin_headers(client)
+    rs_id = (await _rule_set(client, headers, await _workspace(client, headers)))["id"]
+    url = f"{API}/dq-rule-sets/{rs_id}/checks"
+
+    twice = [_check(rs_id, "a"), _check(rs_id, "a")]
+    r = await client.post(url, headers=headers, json=twice)
+    assert r.status_code == 409 and "a" in r.json()["detail"]
+    assert (await client.get(url, headers=headers)).json() == []
+
+    assert (await client.post(url, headers=headers, json=[_check(rs_id, "a")])).status_code == 201
+    r = await client.post(url, headers=headers, json=[_check(rs_id, "b"), _check(rs_id, "a")])
+    assert r.status_code == 409
+    assert [c["id"] for c in (await client.get(url, headers=headers)).json()] == ["a"]
+
+
+async def test_batches_are_capped(client, monkeypatch):
+    from app.services import dq_rule_set_service
+
+    monkeypatch.setattr(dq_rule_set_service, "MAX_CHECKS_PER_REQUEST", 2)
+    headers = await _admin_headers(client)
+    rs_id = (await _rule_set(client, headers, await _workspace(client, headers)))["id"]
+    url = f"{API}/dq-rule-sets/{rs_id}/checks"
+    body = [_check(rs_id, f"c{i}") for i in range(3)]
+    assert (await client.post(url, headers=headers, json=body)).status_code == 413
+    assert (await client.put(url, headers=headers, json=body)).status_code == 413
+    patches = [{"id": f"c{i}", "disabled": True} for i in range(3)]
+    assert (await client.patch(url, headers=headers, json=patches)).status_code == 413
+
+
+async def test_replace_checks_is_all_or_nothing(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    rs_id = (await _rule_set(client, headers, ws))["id"]
+    other = (await _rule_set(client, headers, ws, rid="r2"))["id"]
+    url = f"{API}/dq-rule-sets/{rs_id}/checks"
+    await client.post(url, headers=headers, json=[_check(rs_id, "old1"), _check(rs_id, "old2")])
+    await client.post(f"{API}/dq-rule-sets/{other}/checks", headers=headers, json=[_check(other, "theirs")])
+
+    def ids(listed):
+        return sorted(c["id"] for c in listed)
+
+    # Out of range, then an id another rule set holds: refused, nothing lost.
+    assert (await client.put(url, headers=headers, json=[_check(rs_id, "n1", threshold=150)])).status_code == 422
+    assert (await client.put(url, headers=headers, json=[_check(rs_id, "theirs")])).status_code == 409
+    assert ids((await client.get(url, headers=headers)).json()) == ["old1", "old2"]
+
+    # Its own ids may be reused by the new list.
+    r = await client.put(url, headers=headers, json=[_check(rs_id, "old1"), _check(rs_id, "n2")])
+    assert r.status_code == 200, r.text
+    assert ids((await client.get(url, headers=headers)).json()) == ["n2", "old1"]
+    assert ids((await client.get(f"{API}/dq-rule-sets/{other}/checks", headers=headers)).json()) == ["theirs"]
+
+
+async def test_update_and_delete_checks_in_one_request(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    rs_id = (await _rule_set(client, headers, ws))["id"]
+    other = (await _rule_set(client, headers, ws, rid="r2"))["id"]
+    url = f"{API}/dq-rule-sets/{rs_id}/checks"
+    await client.post(url, headers=headers, json=[_check(rs_id, f"c{i}", tableName="g") for i in range(3)])
+    await client.post(f"{API}/dq-rule-sets/{other}/checks", headers=headers, json=[_check(other, "theirs")])
+
+    r = await client.patch(url, headers=headers, json=[
+        {"id": "c0", "tableName": "renamed"}, {"id": "c1", "tableName": "renamed"},
+    ])
+    assert r.status_code == 200, r.text
+    assert {c["id"]: c["tableName"] for c in r.json()} == {"c0": "renamed", "c1": "renamed"}
+
+    def groups(listed):
+        return {c["id"]: c["tableName"] for c in listed}
+
+    # One change that does not fit, or a check of another rule set: none applied.
+    bad = [{"id": "c0", "tableName": "x"}, {"id": "c1", "category": "accuracy"}]
+    assert (await client.patch(url, headers=headers, json=bad)).status_code == 422
+    stray = [{"id": "c0", "tableName": "x"}, {"id": "theirs", "tableName": "x"}]
+    assert (await client.patch(url, headers=headers, json=stray)).status_code == 404
+    assert groups((await client.get(url, headers=headers)).json()) == {"c0": "renamed", "c1": "renamed", "c2": "g"}
+
+    r = await client.post(f"{url}/batch-delete", headers=headers, json={"ids": ["c0", "c2", "theirs", "gone"]})
+    assert r.status_code == 204
+    assert list(groups((await client.get(url, headers=headers)).json())) == ["c1"]
+    assert len((await client.get(f"{API}/dq-rule-sets/{other}/checks", headers=headers)).json()) == 1
