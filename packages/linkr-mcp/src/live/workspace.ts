@@ -262,7 +262,7 @@ export function findPreset(presets: CustomSchemaPreset[], key: string): CustomSc
   return presets.find((p) => p.id === key) ?? presets.find((p) => p.entityId === key) ?? presets.find((p) => p.presetId === key)
 }
 
-/** The installed preset a database's schema came from — `findSourcePreset` of the add dialog. */
+/** The installed preset a database's schema came from — the app's `findSourcePreset` (apps/web/src/lib/find-source-preset.ts). */
 export function sourcePreset(
   db: Pick<DataSource, 'schemaSource' | 'schemaMapping'>, presets: CustomSchemaPreset[],
 ): CustomSchemaPreset | undefined {

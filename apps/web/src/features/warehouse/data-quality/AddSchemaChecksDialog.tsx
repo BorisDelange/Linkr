@@ -20,7 +20,7 @@ import { checksFromTemplates, ddlCheckTemplates, mappingCheckTemplates, type DqC
 import { useDqStore } from '@/stores/dq-store'
 import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { findSourcePreset } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
+import { findSourcePreset } from '@/lib/find-source-preset'
 import { CATEGORY_DOT } from './DqConstants'
 
 interface Props {

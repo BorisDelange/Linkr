@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { CustomSchemaPreset, DataSource, SchemaMapping } from '@/types'
-import { findSourcePreset } from './AddDatabaseDialog'
+import { findSourcePreset } from './find-source-preset'
 
 const preset = (over: Partial<CustomSchemaPreset>): CustomSchemaPreset => ({
   id: 'local-uuid',

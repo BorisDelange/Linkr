@@ -15,7 +15,7 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { MappingEditor } from '@/features/warehouse/schema-mapping/MappingEditor'
 import type { DataSource } from '@/types'
 import type { SchemaMapping, SchemaOverrides } from '@/types/schema-mapping'
-import { findSourcePreset } from './AddDatabaseDialog'
+import { findSourcePreset } from '@/lib/find-source-preset'
 
 /**
  * A database's mapping: its preset's copy (the base) with what this site changes

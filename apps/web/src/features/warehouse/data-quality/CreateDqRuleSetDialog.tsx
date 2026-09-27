@@ -30,7 +30,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { checksFromTemplates, schemaCheckTemplates } from '@/lib/dq-templates'
-import { findSourcePreset } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
+import { findSourcePreset } from '@/lib/find-source-preset'
 import type { CustomSchemaPreset, DqRuleSet, EntityRef, ProjectBadge } from '@/types'
 
 const NO_SCHEMA = '__none__'

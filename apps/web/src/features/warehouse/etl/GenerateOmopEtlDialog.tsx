@@ -14,7 +14,7 @@ import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { localized } from '@/lib/localized'
 import { parseDdl } from '@/lib/ddl-parse'
 import { eventTargetChoices, generateOmopEtl, generatedScriptState, type EtlConceptMode } from '@/lib/schema-classes/omop-etl'
-import { findSourcePreset } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
+import { findSourcePreset } from '@/lib/find-source-preset'
 import type { EtlFile } from '@/types'
 
 interface Props {
