@@ -429,3 +429,16 @@ def test_etl_rejects_a_role_name_that_is_not_an_identifier(data_dir):
             "SELECT 1;",
             {'x" AS y; ATTACH \'evil\' AS "z': {"kind": "file", "path": "/tmp/x"}},
         )
+
+
+def test_split_statements_reads_backslashes_as_duckdb_does(data_dir):
+    """A backslash escapes a quote inside an E'...' literal only. DuckDB reads
+    '\\' as a whole one-character string, so taking its quote as escaped hid the
+    statements after it — an INSTALL included — from the forbidden-statement guard."""
+    assert db_connect._split_statements("SELECT E'a\\'; b'; SELECT 2") == ["SELECT E'a\\'; b'", "SELECT 2"]
+    assert db_connect._split_statements("SELECT x LIKE 'a\\%' ESCAPE '\\'; SELECT 2") == [
+        "SELECT x LIKE 'a\\%' ESCAPE '\\'",
+        "SELECT 2",
+    ]
+    with pytest.raises(ValueError, match="INSTALL"):
+        db_connect._reject_forbidden_statements("SELECT '\\'; INSTALL httpfs; --'")

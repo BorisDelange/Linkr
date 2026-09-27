@@ -262,6 +262,14 @@ def _strip_leading_noise(stmt: str) -> str:
     return stmt[i:]
 
 
+def _is_escape_string_prefix(sql: str, quote: int) -> bool:
+    """Whether the quote at `quote` opens an E'...' literal — an E right before
+    it that does not end a longer word. Mirrors sql-tokenizer.ts."""
+    before = sql[quote - 1] if quote >= 1 else ""
+    earlier = sql[quote - 2] if quote >= 2 else ""
+    return before in ("e", "E") and not (earlier.isalnum() or earlier in "_$")
+
+
 def _split_statements(sql: str) -> list[str]:
     """Split SQL on top-level semicolons — those not inside a string, a quoted
     identifier, a comment or a dollar-quoted block.
@@ -297,11 +305,13 @@ def _split_statements(sql: str) -> list[str]:
             current += sql[i:stop]
             i = stop
         elif ch in ("'", '"', "`"):
+            # A backslash escapes the next char inside an E'...\'...' literal
+            # only: in a plain one DuckDB reads '\' as a whole string, and taking
+            # its quote as escaped hid the statements after it from the guards.
+            backslash_escapes = ch == "'" and _is_escape_string_prefix(sql, i)
             j = i + 1
             while j < n:
-                # Backslash escapes the next char inside a single-quoted run
-                # (DuckDB's E'...\'...'), so it does not end the literal early.
-                if ch == "'" and sql[j] == "\\" and j + 1 < n:
+                if backslash_escapes and sql[j] == "\\" and j + 1 < n:
                     j += 2
                     continue
                 if sql[j] == ch:

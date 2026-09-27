@@ -17,8 +17,9 @@ export interface Region {
  *  - line comments (`-- ...`)
  *  - block comments (slash-star to star-slash)
  *  - `'single'`, `"double"`, `` `backtick` `` runs — a doubled quote escapes it,
- *    and a backslash escapes the next char inside a single-quoted run (DuckDB's
- *    `E'...\'...'`), so an escaped quote does not end the literal early
+ *    and a backslash escapes the next char inside an `E'...\'...'` literal only:
+ *    in a plain one DuckDB reads `'\'` as a whole string, and treating its quote
+ *    as escaped hid everything after it — a statement included — from the guards
  *  - `$tag$ ... $tag$` dollar-quoted blocks (the tag may be empty: `$$...$$`)
  *
  * An unterminated region runs to end-of-input rather than being dropped, so the
@@ -61,10 +62,10 @@ export function protectedRegions(sql: string): Region[] {
     }
 
     if (ch === "'" || ch === '"' || ch === '`') {
+      const backslashEscapes = ch === "'" && isEscapeStringPrefix(sql, i)
       let j = i + 1
       while (j < sql.length) {
-        // Backslash escapes the next char inside a single-quoted run.
-        if (ch === "'" && sql[j] === '\\' && j + 1 < sql.length) {
+        if (backslashEscapes && sql[j] === '\\' && j + 1 < sql.length) {
           j += 2
           continue
         }
@@ -86,6 +87,12 @@ export function protectedRegions(sql: string): Region[] {
     i++
   }
   return regions
+}
+
+/** Whether the quote at `quote` opens an `E'...'` literal: an E right before
+ *  it that is not the end of a longer word (`SELECT name'…'` is no such thing). */
+function isEscapeStringPrefix(sql: string, quote: number): boolean {
+  return /[eE]/.test(sql[quote - 1] ?? '') && !/[\w$]/.test(sql[quote - 2] ?? '')
 }
 
 /** Whether `index` falls inside any protected region. */
