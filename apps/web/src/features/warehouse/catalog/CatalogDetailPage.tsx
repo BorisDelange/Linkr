@@ -39,7 +39,6 @@ import { CreateCatalogDialog } from './CreateCatalogDialog'
 import { CatalogConfigTab } from './CatalogConfigTab'
 import { CatalogAnonymizationTab } from './CatalogAnonymizationTab'
 import { CatalogDcatTab } from './CatalogDcatTab'
-import { perfLog } from '@/lib/dcat-ap/perf'
 import { CatalogExportTab } from './CatalogExportTab'
 import type { CatalogResultCache, DataCatalog } from '@/types'
 
@@ -108,8 +107,6 @@ export function CatalogDetailPage({ catalogId }: Props) {
   useEffect(() => {
     if (!catalogsLoaded) loadCatalogs()
   }, [catalogsLoaded, loadCatalogs])
-
-  useEffect(() => perfLog(`tab: ${activeTab}`), [activeTab])
 
   // Load cached results on mount
   useEffect(() => {

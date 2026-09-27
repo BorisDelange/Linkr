@@ -3,7 +3,7 @@ import JSZip from 'jszip'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { getStorage } from '@/lib/storage'
-import { generateCatalogHtml, buildConceptsCsv, type CatalogPageData } from '@/lib/dcat-ap/export-html'
+import { generateCatalogHtml, buildConceptsCsv } from '@/lib/dcat-ap/export-html'
 import { buildCrossingCsv, buildPublishedCatalog, crossingCsvPath } from '@/lib/data-catalog/publish'
 import { buildJsonLd } from '@/lib/dcat-ap/jsonld'
 import { buildPagesTree, type PagesProvider } from '@/lib/dcat-ap/pages-deployment'
@@ -12,7 +12,6 @@ import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
 import { getCatalogPageData, getDatabaseSchema } from '@/lib/dcat-ap/page-cache'
 import type { PageLocale } from '@/lib/dcat-ap/page-text'
-import { perfLog } from '@/lib/dcat-ap/perf'
 import type { DataCatalog, CatalogResultCache, SchemaMapping } from '@/types'
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -22,21 +21,6 @@ function downloadBlob(blob: Blob, filename: string) {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
-}
-
-// TODO(data-catalog): temporary, with perfLog — what the page's weight is made of.
-const weighed = new WeakSet<CatalogPageData>()
-function logPageWeight(data: CatalogPageData) {
-  if (weighed.has(data)) return
-  weighed.add(data)
-  const kb = (v: unknown) => Math.round(JSON.stringify(v).length / 1024)
-  const rows = [
-    { part: 'concepts (list)', kb: kb(data.concepts), items: data.concepts.rows.length },
-    { part: 'variables (labels)', kb: kb(data.variables), items: Object.keys(data.variables).length },
-    ...data.crossings.map((c) => ({ part: `crossing ${c.vars.join(' × ')}`, kb: kb(c.cells), items: c.cells.length })),
-  ].sort((x, y) => y.kb - x.kb)
-  perfLog('page weight by part (KB, items)')
-  console.table(rows)
 }
 
 interface PublicationContext {
@@ -90,15 +74,9 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
    */
   const buildPreview = useCallback(async (locale: PageLocale, { reveal = false }: { reveal?: boolean } = {}) => {
     if (!cache) return null
-    let t = performance.now()
-    perfLog('preview: build start')
     const fullSchema = await getFullSchema()
-    perfLog('preview: schema', t, `${fullSchema?.length ?? 0} tables`)
     const data = getCatalogPageData(catalog, cache, locale, reveal)
-    logPageWeight(data)
-    t = performance.now()
     const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema, locale, reveal, data, dataFrom: 'parent' })
-    perfLog('preview: page shell', t, `${Math.round(html.length / 1024)} KB`)
     return { html, data }
   }, [catalog, cache, schemaMapping, getFullSchema])
 

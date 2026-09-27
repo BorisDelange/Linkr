@@ -3,7 +3,6 @@ import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import type { CatalogResultCache, DataCatalog } from '@/types'
 import { buildCatalogPageData, type CatalogPageData } from './export-html'
 import type { PageLocale } from './page-text'
-import { perfLog } from './perf'
 
 /*
  * What the Publish preview reuses between renders.
@@ -44,13 +43,8 @@ export function getCatalogPageData(catalog: DataCatalog, cache: CatalogResultCac
   const slot = `${catalog.id}:${locale}:${reveal ? 'reveal' : 'masked'}`
   const key = pageDataKey(catalog, cache)
   const hit = pageData.get(slot)
-  if (hit?.key === key) {
-    perfLog('preview: page data from memory')
-    return hit.data
-  }
-  const t = performance.now()
+  if (hit?.key === key) return hit.data
   const data = buildCatalogPageData({ catalog, cache, locale, reveal })
-  perfLog('preview: page data built', t)
   pageData.set(slot, { key, data })
   return data
 }
@@ -62,7 +56,6 @@ function db(): Promise<IDBPDatabase> {
       if (d.objectStoreNames.contains(OBSOLETE_PAGES)) d.deleteObjectStore(OBSOLETE_PAGES)
       if (!d.objectStoreNames.contains(SCHEMAS)) d.createObjectStore(SCHEMAS)
     },
-    blocked: () => perfLog('page store: upgrade blocked by another open tab'),
   })
   return dbPromise
 }
@@ -81,9 +74,7 @@ export async function getDatabaseSchema(dataSourceId: string, fetch: () => Promi
   const refresh = () => {
     let p = inFlight.get(dataSourceId)
     if (!p) {
-      const t = performance.now()
       p = fetch().then(async (tables) => {
-        perfLog('schema: server introspection', t)
         schemas.set(dataSourceId, tables)
         inFlight.delete(dataSourceId)
         if (tables) await (await db()).put(SCHEMAS, tables, dataSourceId).catch(() => {})
@@ -94,9 +85,7 @@ export async function getDatabaseSchema(dataSourceId: string, fetch: () => Promi
     return p
   }
   try {
-    const t = performance.now()
     const stored = (await (await db()).get(SCHEMAS, dataSourceId)) as IntrospectedTable[] | undefined
-    perfLog(stored ? 'schema: from browser store' : 'schema: none stored, asking the server', t)
     if (stored) {
       void refresh()
       return stored

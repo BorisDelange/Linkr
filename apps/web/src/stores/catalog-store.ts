@@ -6,7 +6,6 @@ import { PAGES_SITE_OWNER_TYPE } from '@/lib/dcat-ap/pages-deployment'
 import { isLegacyCatalog, LEGACY_CATALOG_FIELDS, normalizeCatalog } from '@/lib/data-catalog/config'
 import type { DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
 import type { ComputeProgress } from '@/lib/duckdb/catalog-compute'
-import { perfLog } from '@/lib/dcat-ap/perf'
 
 const resultLoads = new Map<string, Promise<CatalogResultCache | undefined>>()
 
@@ -177,12 +176,7 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     // parallel, each one slowing the other.
     let pending = resultLoads.get(catalogId)
     if (!pending) {
-      const start = performance.now()
-      perfLog('results: load start')
-      pending = getStorage().catalogResults.get(catalogId).catch(() => undefined).finally(() => {
-        resultLoads.delete(catalogId)
-        perfLog('results: loaded', start)
-      })
+      pending = getStorage().catalogResults.get(catalogId).catch(() => undefined).finally(() => resultLoads.delete(catalogId))
       resultLoads.set(catalogId, pending)
     }
     const cache = await pending

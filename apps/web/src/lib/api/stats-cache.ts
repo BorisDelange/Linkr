@@ -1,4 +1,3 @@
-import { perfLog } from '@/lib/dcat-ap/perf'
 import { apiRequest } from '@/lib/api-client'
 import type {
   CatalogResultStorage,
@@ -39,11 +38,9 @@ export const apiDatabaseStatsCacheStorage: DatabaseStatsCacheStorage = {
 /** Shared catalog-results cache, same pattern keyed by catalog id. */
 export const apiCatalogResultStorage: CatalogResultStorage = {
   async get(catalogId) {
-    const start = performance.now()
     const wire = await apiRequest<StatsCacheWire | null>(
       `/data-catalogs/${catalogId}/results-cache`,
     )
-    perfLog('results: fetch + JSON parse', start)
     if (!wire) return undefined
     return { ...(wire.payload as object), catalogId, computedAt: wire.computedAt } as CatalogResultCache
   },
