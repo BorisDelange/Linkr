@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import {
+  buildCustomSqlOutputSql,
   buildAttritionQueries,
   buildCohortCountSql,
   buildCohortCriteriaSql,
@@ -740,5 +741,17 @@ describe('layout of the generated SQL', () => {
   it('writes no comment for a criterion whose imported config it cannot name', () => {
     const broken = { kind: 'criterion', id: 'b', type: 'care_site', enabled: true, operator: 'AND', exclude: false, config: { careSiteLevel: 'visit', values: 'x' } }
     expect(() => buildCohortCountSql(tree([sex(['M']), broken]), sexMapping)).not.toThrow()
+  })
+})
+
+describe('buildCustomSqlOutputSql', () => {
+  it('caps the hand-written query as written, whatever it returns', () => {
+    const sql = buildCustomSqlOutputSql({ customSql: 'SELECT * FROM measurement -- all\n;' }, 100)
+    expect(sql).toBe('SELECT * FROM (\nSELECT * FROM measurement -- all\n) AS custom_output\nLIMIT 100')
+  })
+
+  it('has nothing to run for the criteria', () => {
+    expect(buildCustomSqlOutputSql({ customSql: '  ' }, 100)).toBeNull()
+    expect(buildCustomSqlOutputSql({}, 100)).toBeNull()
   })
 })

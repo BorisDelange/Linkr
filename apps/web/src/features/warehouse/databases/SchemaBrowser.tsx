@@ -186,9 +186,11 @@ interface Props {
   /** Rendered in the toolbar, after the table-list toggle. The ETL tab puts its
    *  database picker here so the browser itself stays source-agnostic. */
   toolbarExtra?: React.ReactNode
+  /** Whether the column-statistics panel starts open. Default true. */
+  defaultStatsVisible?: boolean
 }
 
-export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Props) {
+export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defaultStatsVisible = true }: Props) {
   const { t, i18n } = useTranslation()
 
   const [tables, setTables] = useState<string[]>([])
@@ -201,7 +203,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
   const [selectedColumn, setSelectedColumn] = useState<string | null>(null)
   const [columnStats, setColumnStats] = useState<ColumnStats | null>(null)
   const [tablesVisible, setTablesVisible] = useState(true)
-  const [statsVisible, setStatsVisible] = useState(true)
+  const [statsVisible, setStatsVisible] = useState(defaultStatsVisible)
   const [loading, setLoading] = useState(false)
   const [statsLoading, setStatsLoading] = useState(false)
   const [rowCount, setRowCount] = useState<number | null>(null)

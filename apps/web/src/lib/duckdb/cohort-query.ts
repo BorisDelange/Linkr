@@ -236,8 +236,15 @@ export function buildCohortQueryParts(
 
 /** The hand-written membership query, trimmed and without its final `;`, or null. */
 function customMembershipSql(cohort: Pick<Cohort, 'customSql'>): string | null {
-  const sql = cohort.customSql?.trim().replace(/;\s*$/, '')
+  const sql = cohort.customSql?.trim().replace(/;\s*$/, '').trimEnd()
   return sql || null
+}
+
+/** The hand-written query's own rows, at most `limit`, or null without one. */
+export function buildCustomSqlOutputSql(cohort: Pick<Cohort, 'customSql'>, limit: number): string | null {
+  const sql = customMembershipSql(cohort)
+  // On lines of its own, so a trailing `-- comment` cannot swallow the LIMIT.
+  return sql ? `SELECT * FROM (\n${sql}\n) AS custom_output\nLIMIT ${limit}` : null
 }
 
 /** The column naming a member in the results: `visit_detail_id` at unit-stay level. */

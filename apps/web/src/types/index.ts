@@ -913,6 +913,7 @@ export type {
   DerivedFrom,
   AttritionStep,
   CohortExecutionResult,
+  CustomSqlOutput,
 } from './cohort'
 
 // --- IDE Connection Types ---

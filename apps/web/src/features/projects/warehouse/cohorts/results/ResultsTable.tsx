@@ -9,6 +9,9 @@ import { columnLabel, formatDate, formatDateTimeLocale } from '@/lib/format-help
 
 interface ResultsTableProps {
   rows: Record<string, unknown>[]
+  /** Headers as the query names its columns, for a query's raw output. */
+  rawHeaders?: boolean
+  emptyMessage?: string
 }
 
 type Row = Record<string, unknown>
@@ -57,7 +60,7 @@ function headerFor(key: string, t: (k: string) => string): string {
   }
 }
 
-export function ResultsTable({ rows }: ResultsTableProps) {
+export function ResultsTable({ rows, rawHeaders, emptyMessage }: ResultsTableProps) {
   const { t, i18n } = useTranslation()
 
   const columns = useMemo<DataTableColumn<Row>[]>(() => {
@@ -73,7 +76,7 @@ export function ResultsTable({ rows }: ResultsTableProps) {
 
       return {
         id: key,
-        header: headerFor(key, t),
+        header: rawHeaders ? key : headerFor(key, t),
         // Dates sort on the raw ISO value (lexicographic = chronological) but
         // are read in the app's language, so `display` carries the formatting
         // rather than a `cell` renderer, which the tooltip path would discard.
@@ -99,15 +102,17 @@ export function ResultsTable({ rows }: ResultsTableProps) {
         minSize: 70,
       }
     })
-  }, [rows, t, i18n.language])
+  }, [rows, rawHeaders, t, i18n.language])
+
+  const rowIndex = useMemo(() => new Map(rows.map((row, i) => [row, i])), [rows])
 
   return (
     <DataTable
       data={rows}
       columns={columns}
-      // The first column is the member's id.
-      rowKey={(row) => String(Object.values(row)[0] ?? JSON.stringify(row))}
-      emptyMessage={t('cohorts.results_none')}
+      // By position: a hand-written query's rows may repeat every value.
+      rowKey={(row) => rowIndex.get(row) ?? -1}
+      emptyMessage={emptyMessage ?? t('cohorts.results_none')}
       pageSize={100}
     />
   )

@@ -43,6 +43,7 @@ import {
 import { CriteriaPanel } from './builder/CriteriaPanel'
 import { SqlPreviewPanel } from './sql/SqlPreviewPanel'
 import { ResultsPanel } from './results/ResultsPanel'
+import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
 import { CohortPatientsPanel } from './results/CohortPatientsPanel'
 import { CohortTablesPanel } from './results/CohortTablesPanel'
 import { CohortReportDialog } from './report/CohortReportDialog'
@@ -89,6 +90,7 @@ export function CohortBuilder() {
     executionResults,
     executionLoading,
     executionErrors,
+    customSqlOutputs,
   } = useCohortStore()
 
   // Among this host's own cohorts only: a database route must not open a
@@ -123,6 +125,7 @@ export function CohortBuilder() {
   const result = cohortId ? executionResults.get(cohortId) ?? null : null
   const loading = cohortId ? executionLoading.get(cohortId) ?? false : false
   const executionError = cohortId ? executionErrors.get(cohortId) ?? null : null
+  const customSqlOutput = cohortId ? customSqlOutputs.get(cohortId) ?? null : null
 
   const eventTableLabels = useMemo(
     () => [...(mapping?.events ?? []), ...(mapping?.drugs ?? [])].map((e) => e.label),
@@ -475,6 +478,7 @@ export function CohortBuilder() {
               result={result}
               loading={loading}
               error={executionError}
+              output={customSqlOutput}
               onExecute={handleExecute}
               onExportCsv={handleExportCsv}
               renderPatients={
@@ -494,6 +498,7 @@ export function CohortBuilder() {
                   ? () => <CohortTablesPanel dataSourceId={activeSource.id} cohort={cohort} schemaMapping={mapping} />
                   : undefined
               }
+              renderSchema={activeSource ? () => <SchemaBrowser dataSourceId={activeSource.id} defaultStatsVisible={false} /> : undefined}
             />
           </Allotment.Pane>
         </Allotment>

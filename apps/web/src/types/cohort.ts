@@ -319,6 +319,16 @@ export interface AttritionStep {
 
 // --- Execution Results (transient, not persisted) ---
 
+/** What a hand-written query returns, as written — worth reading even when it
+ *  lists no member (`SELECT * FROM measurement LIMIT 10`). */
+export interface CustomSqlOutput {
+  rows: Record<string, unknown>[]
+  /** More rows than were fetched. */
+  truncated: boolean
+  error?: string
+  durationMs: number
+}
+
 export interface CohortExecutionResult {
   totalCount: number
   attrition: AttritionStep[]

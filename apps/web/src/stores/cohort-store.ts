@@ -7,7 +7,7 @@ import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { toLocalized } from '@/lib/localized'
-import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, cohortRunError } from '@/lib/duckdb/cohort-query'
+import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortRunError } from '@/lib/duckdb/cohort-query'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import * as engine from '@/lib/duckdb/engine'
 import type {
@@ -15,6 +15,7 @@ import type {
   CohortLevel,
   CriteriaGroupNode,
   CohortExecutionResult,
+  CustomSqlOutput,
   CohortMaterialization,
   AttritionStep,
   SchemaMapping,
@@ -185,6 +186,9 @@ interface CohortState {
   /** Why the last run failed, per cohort. Without this a failed run was
    *  indistinguishable from never having run one. */
   executionErrors: Map<string, string>
+  /** A hand-written query's own rows, from its last run — shown whether or not
+   *  it lists members. */
+  customSqlOutputs: Map<string, CustomSqlOutput>
 
   loadCohorts: () => Promise<void>
   getProjectCohorts: (projectUid: string) => Cohort[]
@@ -257,6 +261,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
   executionResults: new Map(),
   executionLoading: new Map(),
   executionErrors: new Map(),
+  customSqlOutputs: new Map(),
 
   loadCohorts: async () => {
     const rawAll = await getStorage().cohorts.getAll()
@@ -405,11 +410,29 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     set((s) => {
       const errors = new Map(s.executionErrors)
       errors.delete(id)
+      const outputs = new Map(s.customSqlOutputs)
+      outputs.delete(id)
       return {
         executionLoading: new Map(s.executionLoading).set(id, true),
         executionErrors: errors,
+        customSqlOutputs: outputs,
       }
     })
+
+    // The query as written runs on its own, so its rows show even when they
+    // list no member — and its failure never hides the cohort's own error.
+    const outputSql = buildCustomSqlOutputSql(cohort, MAX_RESULT_ROWS)
+    if (outputSql) {
+      const start = Date.now()
+      let output: CustomSqlOutput
+      try {
+        const rows = await engine.queryDataSource(dataSourceId, outputSql)
+        output = { rows, truncated: rows.length >= MAX_RESULT_ROWS, durationMs: Date.now() - start }
+      } catch (err) {
+        output = { rows: [], truncated: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
+      }
+      set((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, output) }))
+    }
 
     const startTime = Date.now()
 
