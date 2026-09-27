@@ -36,3 +36,14 @@ the user's manual test.
 ## Gotchas
 - Never pass `en.json`'s literal type to generic helpers (`reduce`, `it.each`): tsc took ~50 min.
 - In this worktree run pytest with `PYTHONPATH=.`: the copied venv otherwise imports the main checkout's app.
+
+## In progress (2026-09-27, before a context compaction)
+- **Page language (EN/FR)**: the preview must follow the app language, the export lets the user pick it.
+  Started: the page script reads `var L` (only `charts`, `table`, `download_csv` so far, English). To do:
+  a `lib/dcat-ap/page-text.ts` EN/FR dictionary for every string of `catalog-page.js` (sidebar, filters,
+  DataTable toolbar/footer, JSON-LD viewer) and `export-html.ts` (tabs, headings, Info tab, footer,
+  metadata class titles, schema legend); engine texts from `data_catalog.xp` of the chosen locale;
+  `publish.ts` labels (variables, sex, "All ages", "Other services", period labels) and
+  `buildConceptTable` headers by language; DCAT field labels from `fr.json`; a language select in the
+  Publish › Export tab passed to `useCatalogPublish` (download, ZIP, Pages); preview = `i18n.language`.
+- **Schema tab of the page**: two sub-tabs, Tables (default) and Diagram.
