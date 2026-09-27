@@ -22,6 +22,13 @@ export interface Layout {
   h: number
 }
 
+/** The `layout` argument of a widget tool; `rows` says what one grid row is on that board. */
+export const layoutSchema = (rows: string) => ({
+  type: 'object',
+  description: `Position on the 48-column grid: x 0–47, w in columns (24 = half width, 48 = full), y and h in ${rows}.`,
+  properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } },
+} as const)
+
 /**
  * Resolve the column fields of a config to column ids, and report what cannot be
  * resolved.

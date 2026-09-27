@@ -1,4 +1,5 @@
 /** Pure helpers for IDE scripts and code runs. */
+import { clip } from './helpers.js'
 
 export type RunLanguage = 'python' | 'r'
 
@@ -17,11 +18,6 @@ export function runLanguageFor(path: string): RunLanguage | null {
   if (ext === 'py') return 'python'
   if (ext === 'r') return 'r'
   return null
-}
-
-function clip(text: string, max: number): string {
-  if (text.length <= max) return text
-  return `${text.slice(0, max)}\n… (${text.length - max} more characters cut)`
 }
 
 /**

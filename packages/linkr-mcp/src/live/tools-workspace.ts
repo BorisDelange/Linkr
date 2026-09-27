@@ -3,6 +3,7 @@ import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
 import { setLocalized } from '@/lib/localized'
 import type { ProjectStatus } from '@/types'
+import { clip } from './helpers.js'
 import { DESTRUCTIVE, READ, WRITE, failure, guard, text, type Server } from './shared.js'
 import { registerDatabaseTools } from './tools-databases.js'
 import {
@@ -10,7 +11,7 @@ import {
 } from './workspace-rest.js'
 import {
   PROJECT_STATUSES, applyTodoChanges, badgeList, databaseLine, linkRefusal, linkedAfterLink, linkedAfterUnlink, projectCreateBody,
-  projectEntityId, projectLines, setBadges, truncate, workspaceCreateBody, workspaceLine, type BadgeInput, type Language,
+  projectEntityId, projectLines, setBadges, workspaceCreateBody, workspaceLine, type BadgeInput, type Language,
 } from './workspace.js'
 
 export function registerWorkspaceTools(server: Server): void {
@@ -57,7 +58,7 @@ export function registerWorkspaceTools(server: Server): void {
       `Organization: ${org ? `${name(org.name)} (${org.id})` : ws.organizationId ?? 'none'}`
         + ` · created by ${ws.createdBy ?? '—'} on ${ws.createdAt?.slice(0, 10) ?? '—'}`,
     ]
-    if (name(ws.description)) out.push(`Description: ${truncate(name(ws.description), 1500)}`)
+    if (name(ws.description)) out.push(`Description: ${clip(name(ws.description), 1500)}`)
     if (ws.badges?.length) out.push(`Badges: ${badgeList(ws.badges)}`)
     if (ws.badgeCategories?.length) {
       out.push(`Badge categories: ${ws.badgeCategories.map((c) => `${name(c.name)}${c.exclusive ? ' (one value)' : ''}`).join(', ')}`)
@@ -73,7 +74,7 @@ export function registerWorkspaceTools(server: Server): void {
       out.push('', 'Mapping projects:', ...mapping.slice(0, 20).map((m) => `- ${name(m.name)} — ${m.id}`))
     }
     const readme = name(ws.readme)
-    out.push('', readme ? `README:\n${truncate(readme, 3000)}` : 'README: empty')
+    out.push('', readme ? `README:\n${clip(readme, 3000)}` : 'README: empty')
     return text(out.join('\n'))
   }))
 

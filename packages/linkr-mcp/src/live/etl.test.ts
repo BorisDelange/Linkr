@@ -4,8 +4,9 @@ import { resolveRolePrefixes } from '@/lib/duckdb/role-prefix'
 import type { EtlRunHistoryEntry } from '@/types'
 import {
   etlRoles, findByPath, formatRun, isInside, locatePath, mappingDataOf, normalizePath, pipelineScripts, pruneMarks,
-  renameMarks, reorderPatch, reservedNameReason, serverRoleSchemas, subtreeIds, type TreeFile,
+  renameMarks, reorderPatch, reservedNameReason, serverRoleSchemas, type TreeFile,
 } from './etl.js'
+import { subtreeIds } from './helpers.js'
 import { registerEtlTools } from './tools-etl.js'
 
 const node = (id: string, name: string, parentId: string | null, extra: Partial<TreeFile> = {}): TreeFile => ({

@@ -2,6 +2,7 @@
 import type { ConceptMapping, MappingEquivalence } from '@/types'
 import { escSql } from '@/lib/format-helpers'
 import type { ScoreRow } from './api.js'
+import { clip } from './helpers.js'
 
 export const EQUIVALENCES: MappingEquivalence[] = [
   'skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:narrowMatch', 'skos:relatedMatch',
@@ -100,7 +101,7 @@ export function describeInfo(raw: unknown, maxChars = 4000, full = false): strin
     }
   }
   const body = JSON.stringify(rest, null, 1)
-  return body.length <= maxChars ? body : `${body.slice(0, maxChars)}\n… (${body.length - maxChars} more characters cut)`
+  return clip(body, maxChars)
 }
 
 export function describeSourceRow(row: SourceRow, status?: string): string {

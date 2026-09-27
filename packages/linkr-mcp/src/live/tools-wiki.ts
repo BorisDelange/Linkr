@@ -8,16 +8,17 @@ import { withAnonymizationImpact } from '@/lib/data-catalog/publish'
 import { buildPointer } from '@/lib/import-identity'
 import { localized, setLocalized } from '@/lib/localized'
 import { slugifyId, uniqueEntityId } from '@/lib/slugify-id'
-import { userDisplayName, userToAuthorDetails } from '@/lib/user-identity'
 import { AGE_BRACKET_PRESETS, DEFAULT_CATALOG_COUNTS } from '@/types/catalog'
-import type { CatalogResultCache, DataCatalog, LocalizedString, User, WikiPage } from '@/types'
+import type { CatalogResultCache, DataCatalog, LocalizedString, WikiPage } from '@/types'
 import {
-  DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server,
+  DESTRUCTIVE, READ, WRITE, api, authored, failure, guard, loc, scopedWorkspace, text, workspaceOf,
+  type Server, type WorkspaceScope,
 } from './shared.js'
 import type { DataSource } from './api.js'
+import { clip, subtreeIds } from './helpers.js'
 import {
-  CATALOG_VARIABLES, README_OWNERS, breadcrumbs, catalogClassColumns, catalogPatch, clip, describeCatalogConfig, describeCatalogStatus,
-  maskedCount, planMove, readmeIn, renderCatalogResults, renderWikiTree, subtreeIds, wikiSlug, withReadme,
+  CATALOG_VARIABLES, README_OWNERS, breadcrumbs, catalogClassColumns, catalogPatch, describeCatalogConfig, describeCatalogStatus,
+  maskedCount, planMove, readmeIn, renderCatalogResults, renderWikiTree, wikiSlug, withReadme,
   type CatalogChanges, type ReadmeOwner, type ResultsView,
 } from './wiki.js'
 
@@ -27,18 +28,6 @@ const SCOPE_PROPS = {
   workspace_id: { type: 'string', description: 'The workspace id.' },
   project_uid: { type: 'string', description: 'Alternatively, a project: its workspace is used.' },
 } as const
-
-interface Scope { workspace_id?: string; project_uid?: string }
-
-async function workspaceOf({ workspace_id, project_uid }: Scope): Promise<string> {
-  if (workspace_id) return workspace_id
-  if (project_uid) {
-    const project = await api.getProject(project_uid)
-    if (!project.workspaceId) throw new Error(`Project ${project_uid} belongs to no workspace.`)
-    return project.workspaceId
-  }
-  throw new Error('Give workspace_id or project_uid (list_projects lists the projects).')
-}
 
 interface WikiAttachmentMeta { id: string; fileName: string; mimeType: string; fileSize: number }
 interface ReadmeAttachmentMeta { id: string; fileName: string; mimeType: string; fileSize: number }
@@ -71,12 +60,6 @@ const catalogs = {
     return api.request<unknown>('PUT', `/data-catalogs/${encodeURIComponent(catalogId)}/results-cache`, { computedAt, payload })
   },
   deleteResults: (id: string) => api.request<void>('DELETE', `/data-catalogs/${encodeURIComponent(id)}/results-cache`),
-}
-
-/** What the app stamps on a created entity (stampAuthored): the server does not. */
-async function authored() {
-  const me = await api.request<User>('GET', '/auth/me')
-  return { createdById: me.id, createdBy: userDisplayName(me), createdByDetails: userToAuthorDetails(me) }
 }
 
 function describePage(page: WikiPage, pages: WikiPage[], lang: string, attachments: WikiAttachmentMeta[]): string {
@@ -125,7 +108,7 @@ export function registerWikiTools(server: Server): void {
       'The workspace wiki: a tree of Markdown pages (procedures, data dictionaries, onboarding notes…) shared by '
       + 'everyone in a Linkr workspace. Lists every page as an indented tree with its page_id and the languages it has content in.',
     annotations: READ,
-    inputSchema: fromJsonSchema<Scope>({ type: 'object', properties: SCOPE_PROPS }),
+    inputSchema: fromJsonSchema<WorkspaceScope>({ type: 'object', properties: SCOPE_PROPS }),
   }, guard(async (args) => {
     const ws = await workspaceOf(args)
     const pages = await wiki.list(ws)
@@ -136,7 +119,7 @@ export function registerWikiTools(server: Server): void {
   server.registerTool('search_wiki_pages', {
     description: 'Search the workspace wiki\'s titles and contents (case-insensitive substring). Returns page ids with a snippet.',
     annotations: READ,
-    inputSchema: fromJsonSchema<Scope & { query: string }>({
+    inputSchema: fromJsonSchema<WorkspaceScope & { query: string }>({
       type: 'object', properties: { ...SCOPE_PROPS, query: { type: 'string' } }, required: ['query'],
     }),
   }, guard(async ({ query, ...scope }) => {
@@ -172,7 +155,7 @@ export function registerWikiTools(server: Server): void {
       'Add a page to the workspace wiki, at the top level or under a parent page (added last among its siblings). '
       + 'Content is Markdown (GitHub-flavoured: headings, tables, lists, code). Title and content are written in `language` (default "en").',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<Scope & {
+    inputSchema: fromJsonSchema<WorkspaceScope & {
       title: string; content?: string; parent_id?: string; icon?: string; language?: string; entity_id?: string
     }>({
       type: 'object',
@@ -317,9 +300,9 @@ export function registerWikiTools(server: Server): void {
       + 'with the cells that would reveal them — with DCAT-AP metadata, so others can see what the database holds '
       + 'without seeing patient rows.',
     annotations: READ,
-    inputSchema: fromJsonSchema<Scope>({ type: 'object', properties: SCOPE_PROPS }),
+    inputSchema: fromJsonSchema<WorkspaceScope>({ type: 'object', properties: SCOPE_PROPS }),
   }, guard(async (args) => {
-    const ws = args.workspace_id || args.project_uid ? await workspaceOf(args) : undefined
+    const ws = await scopedWorkspace(args)
     const list = await catalogs.list(ws)
     if (list.length === 0) return text('No data catalog.')
     return text(list.map((c) => `- ${loc(c.name)} — catalog_id: ${c.id} · workspace ${c.workspaceId} · database ${c.dataSourceId || '(none)'} · ${describeCatalogStatus(c)}`).join('\n'))
@@ -362,7 +345,7 @@ export function registerWikiTools(server: Server): void {
       + 'groups by 10 years, sex; crossings period, age, period × age, period × sex, age × sex; patients and hospital '
       + 'stays counted; counts below 10 masked). Configure it with update_data_catalog, then compute it with compute_data_catalog.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<Scope & { name: string; database_id: string; description?: string; language?: string; entity_id?: string }>({
+    inputSchema: fromJsonSchema<WorkspaceScope & { name: string; database_id: string; description?: string; language?: string; entity_id?: string }>({
       type: 'object',
       properties: {
         ...SCOPE_PROPS,
@@ -379,7 +362,7 @@ export function registerWikiTools(server: Server): void {
     const all = await api.listDataSources()
     const ds = all.find((d) => d.id === database_id)
     if (!ds) return failure(`No database ${database_id} you can read.`)
-    const ws = scope.workspace_id || scope.project_uid ? await workspaceOf(scope) : ds.workspaceId
+    const ws = (await scopedWorkspace(scope)) ?? ds.workspaceId
     if (!ws) return failure('Give workspace_id or project_uid.')
     const existing = await catalogs.list(ws)
     const taken = existing.map((c) => c.entityId).filter((e): e is string => !!e)

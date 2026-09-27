@@ -5,7 +5,7 @@ import type { DashboardWidget } from '@/types'
 import { formatRows } from './cohorts.js'
 import { columnId } from '@linkr/format'
 import {
-  bilingual, buildFilter, columnMetaMap, findColumn, matchDatasetPath, placeWidget, resolveColumns,
+  bilingual, buildFilter, columnMetaMap, findColumn, layoutSchema, matchDatasetPath, placeWidget, resolveColumns,
   type DatasetColumn, type Layout,
 } from './lab.js'
 import { findPlugin, listPlugins, pluginDoc, pluginSummary } from './plugins.js'
@@ -13,11 +13,7 @@ import {
   DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server,
 } from './shared.js'
 
-const LAYOUT_SCHEMA = {
-  type: 'object',
-  description: 'Position on the 48-column grid: x 0–47, w in columns (24 = half width, 48 = full), y and h in 20px rows (h 12 ≈ 240px).',
-  properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } },
-} as const
+const LAYOUT_SCHEMA = layoutSchema('20px rows (h 12 ≈ 240px)')
 
 /** A dataset path as the project stores it; throws a readable error for an unknown one. */
 async function datasetPath(projectUid: string, ref: string): Promise<string> {

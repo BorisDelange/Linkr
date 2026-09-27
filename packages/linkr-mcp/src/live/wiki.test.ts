@@ -5,9 +5,10 @@ import { DEFAULT_CONCEPT_CONFIG, defaultCatalogVariables } from '@/lib/data-cata
 import type { WikiPage } from '@/types'
 import { registerWikiTools } from './tools-wiki'
 import {
-  breadcrumbs, catalogPatch, describeCatalogConfig, maskedCount, planMove, readmeIn, renderCatalogResults, renderWikiTree, subtreeIds,
+  breadcrumbs, catalogPatch, describeCatalogConfig, maskedCount, planMove, readmeIn, renderCatalogResults, renderWikiTree,
   wikiSlug, withReadme,
 } from './wiki'
+import { subtreeIds } from './helpers'
 
 const page = (id: string, parentId: string | null, sortOrder: number, title = id): WikiPage => ({
   id, parentId, sortOrder, workspaceId: 'ws', title: { en: title }, slug: id, content: { en: 'x' },

@@ -18,7 +18,7 @@ import {
   runnableChecks, selectChecks, summarizeRows, validateCheckFields, type CheckFields, type CheckFilter,
 } from './dq.js'
 import { reportTranslator, type ReportLanguage } from './report.js'
-import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
+import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, scopedWorkspace, text, type Server } from './shared.js'
 import { rest } from './workspace-rest.js'
 import { findPreset, sourcePreset } from './workspace.js'
 
@@ -67,14 +67,6 @@ async function ruleSetOrFail(id: string): Promise<DqRuleSet> {
     if ((e as { status?: number }).status === 404) throw new Error(`No rule set ${id}. list_dq_rule_sets lists them.`)
     throw e
   }
-}
-
-async function workspaceOf(args: { workspace_id?: string; project_uid?: string }): Promise<string | undefined> {
-  if (args.workspace_id) return args.workspace_id
-  if (!args.project_uid) return undefined
-  const project = await api.getProject(args.project_uid)
-  if (!project.workspaceId) throw new Error(`Project ${args.project_uid} belongs to no workspace.`)
-  return project.workspaceId
 }
 
 /** The database a rule set may target: it exists and lives in the rule set's workspace. */
@@ -282,7 +274,7 @@ export function registerDqTools(server: Server): void {
       properties: { workspace_id: { type: 'string' }, project_uid: { type: 'string' } },
     }),
   }, guard(async (args) => {
-    const sets = await dq.listRuleSets(await workspaceOf(args))
+    const sets = await dq.listRuleSets(await scopedWorkspace(args))
     if (!sets.length) return text('No data-quality rule set. create_dq_rule_set makes one.')
     return text(sets.map((rs) =>
       `- "${loc(rs.name)}" — rule_set_id: ${rs.id} · database ${rs.dataSourceId || '(none)'} · ${rs.status}`
@@ -345,7 +337,7 @@ export function registerDqTools(server: Server): void {
   }, guard(async (args) => {
     const name = args.name.trim()
     if (!name) return failure('name must not be empty.')
-    const workspaceId = await workspaceOf(args)
+    const workspaceId = await scopedWorkspace(args)
     if (!workspaceId) return failure('Give workspace_id or project_uid: a rule set lives in a workspace.')
     const ds = args.database_id ? await databaseFor(workspaceId, args.database_id) : undefined
     const taken = (await dq.listRuleSets(workspaceId)).map((r) => r.entityId).filter((x): x is string => !!x)

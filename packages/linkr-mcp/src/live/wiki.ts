@@ -13,6 +13,7 @@ import {
 import { buildPublishedCatalog } from '@/lib/data-catalog/publish'
 import { PRIMARY, SECONDARY } from '@/lib/data-catalog/suppression'
 import type { LocalizedString, SchemaMapping, WikiPage } from '@/types'
+import { subtreeIds } from './helpers.js'
 
 // --- Wiki ---------------------------------------------------------------------
 
@@ -29,17 +30,6 @@ type TreePage = Pick<WikiPage, 'id' | 'parentId' | 'sortOrder'>
 
 export function childrenOf<T extends TreePage>(pages: T[], parentId: string | null): T[] {
   return pages.filter((p) => (p.parentId ?? null) === parentId).sort((a, b) => a.sortOrder - b.sortOrder)
-}
-
-/** The page and every page under it, deepest first (children deleted before their parent). */
-export function subtreeIds(pages: TreePage[], id: string): string[] {
-  const out: string[] = []
-  const walk = (pid: string) => {
-    for (const c of childrenOf(pages, pid)) walk(c.id)
-    out.push(pid)
-  }
-  walk(id)
-  return out
 }
 
 /** Titles from the root down to the page, the page included. */
@@ -106,12 +96,6 @@ export function planMove(
     else if (p.sortOrder !== sortOrder || id === pageId) updates.push({ id, sortOrder })
   })
   return { updates }
-}
-
-/** Cut long text, saying how much was left out. */
-export function clip(body: string, max: number): string {
-  if (body.length <= max) return body
-  return `${body.slice(0, max)}\n\n[… ${body.length - max} more characters not shown]`
 }
 
 // --- READMEs ------------------------------------------------------------------

@@ -17,7 +17,7 @@ import type {
 } from '@/types'
 import type { PluginManifest } from '@/types/plugin'
 import type { DatasetNode } from './api.js'
-import { bilingual, findColumn, placeWidget, resolveColumns, type DatasetColumn, type Layout } from './lab.js'
+import { bilingual, findColumn, layoutSchema, placeWidget, resolveColumns, type DatasetColumn, type Layout } from './lab.js'
 import {
   COLUMN_TYPES, PIPELINE_NODE_TYPES, buildRowFilters, cellValue, checkNodeFields, checkPatientConfig, checkPluginFiles,
   columnOrderWith, connectError, describePipeline, formatRowPage, listPatientPlugins, newPipelineNode, nextAddedRow,
@@ -30,11 +30,7 @@ import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server }
 
 const q = encodeURIComponent
 
-const LAYOUT_SCHEMA = {
-  type: 'object',
-  description: 'Position on the 48-column grid: x 0–47, w in columns (24 = half, 48 = full width), y and h in rows.',
-  properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } },
-} as const
+const LAYOUT_SCHEMA = layoutSchema('rows')
 
 // --- REST wrappers ------------------------------------------------------------
 

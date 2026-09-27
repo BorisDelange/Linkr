@@ -1,7 +1,8 @@
 /** What every tool module shares: the API client, result helpers, annotations. */
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { CallToolResult, McpServer } from '@modelcontextprotocol/server'
-import type { SchemaMapping } from '@/types'
+import type { SchemaMapping, User } from '@/types'
+import { userDisplayName, userToAuthorDetails } from '@/lib/user-identity'
 import { ApiError, LinkrApi, type DataSource } from './api.js'
 
 export type Server = McpServer
@@ -54,6 +55,31 @@ export async function projectDatabases(projectUid: string): Promise<DataSource[]
   const linked = project.linkedDataSourceIds ?? []
   const all = await api.listDataSources()
   return all.filter((d) => linked.includes(d.id))
+}
+
+export interface WorkspaceScope { workspace_id?: string; project_uid?: string }
+
+/** The workspace a tool is scoped to: workspace_id, else project_uid's workspace;
+ *  undefined when neither is given. */
+export async function scopedWorkspace({ workspace_id, project_uid }: WorkspaceScope): Promise<string | undefined> {
+  if (workspace_id) return workspace_id
+  if (!project_uid) return undefined
+  const project = await api.getProject(project_uid)
+  if (!project.workspaceId) throw new Error(`Project ${project_uid} belongs to no workspace.`)
+  return project.workspaceId
+}
+
+/** `scopedWorkspace`, for a tool that needs one. */
+export async function workspaceOf(scope: WorkspaceScope): Promise<string> {
+  const workspaceId = await scopedWorkspace(scope)
+  if (!workspaceId) throw new Error('Give workspace_id, or project_uid to use that project\'s workspace (list_projects lists the projects).')
+  return workspaceId
+}
+
+/** The creator provenance the app stamps on a new entity (stampAuthored): the server does not. */
+export async function authored() {
+  const me = await api.request<User>('GET', '/auth/me')
+  return { createdById: me.id, createdBy: userDisplayName(me), createdByDetails: userToAuthorDetails(me) }
 }
 
 export async function mappingOf(databaseId: string): Promise<SchemaMapping> {

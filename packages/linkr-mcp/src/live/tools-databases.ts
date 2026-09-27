@@ -5,6 +5,7 @@ import { setLocalized } from '@/lib/localized'
 import type { DataSource, Project, Workspace } from '@/types'
 import { ApiError } from './api.js'
 import { describeMapping } from './cohorts.js'
+import { clip } from './helpers.js'
 import { READ, WRITE, api, failure, guard, text, type Server } from './shared.js'
 import {
   BADGES_PROP, LANGUAGE_PROP, countRows, findDatabase, findProject, langOf, linkedProjects, name, resolveWorkspace,
@@ -12,7 +13,7 @@ import {
 } from './workspace-rest.js'
 import {
   badgeList, databaseCreateBody, databaseLine, findPreset, kindWords, linkedAfterLink, nameTaken, newAlias,
-  presetMappingChange, setBadges, truncate, type BadgeInput, type Language, type NewDatabase,
+  presetMappingChange, setBadges, type BadgeInput, type Language, type NewDatabase,
 } from './workspace.js'
 
 export function registerDatabaseTools(server: Server): void {
@@ -64,7 +65,7 @@ export function registerDatabaseTools(server: Server): void {
       `Version ${db.version ?? '0.1.0'}${db.badges?.length ? ` · badges: ${badgeList(db.badges)}` : ''}`
         + ` · created by ${db.createdBy ?? '—'} on ${db.createdAt?.slice(0, 10) ?? '—'}`,
     ]
-    if (name(db.description)) out.push(`Description: ${truncate(name(db.description), 1500)}`)
+    if (name(db.description)) out.push(`Description: ${clip(name(db.description), 1500)}`)
     if (db.isVocabularyReference) out.push('Vocabulary reference: used by concept-mapping projects, hidden from the Databases pages.')
     if (db.derivedFrom) {
       out.push(`Derived from cohort "${name(db.derivedFrom.cohort?.name)}" (${db.derivedFrom.level}) of database `
@@ -94,7 +95,7 @@ export function registerDatabaseTools(server: Server): void {
       out.push('', 'No schema mapping: SQL only (set one with set_database_schema).')
     }
     const readme = name(db.readme)
-    if (readme) out.push('', `README:\n${truncate(readme, 3000)}`)
+    if (readme) out.push('', `README:\n${clip(readme, 3000)}`)
     return text(out.join('\n'))
   }))
 

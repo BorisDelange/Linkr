@@ -2,20 +2,22 @@
 import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
 import type {
-  EntityFilesConfig, EtlPipeline, EtlRunHistoryEntry, EtlRunLog, MappingProject, SqlScriptCollection, User,
+  EntityFilesConfig, EtlPipeline, EtlRunHistoryEntry, EtlRunLog, MappingProject, SqlScriptCollection,
 } from '@/types'
 import { buildPointer } from '@/lib/import-identity'
 import { resolveRolePrefixes } from '@/lib/duckdb/role-prefix'
 import { slugifyId, uniqueEntityId } from '@/lib/slugify-id'
-import { userToAuthorDetails } from '@/lib/user-identity'
 import { inferEtlLanguage, nextEtlOrder, orderByNamePatch } from '@/features/warehouse/etl/etl-file-language'
 import { formatRows } from './cohorts.js'
 import {
-  clip, etlRoles, findByPath, formatRun, formatRunSummary, isInside, isSqlFile, locatePath, mappingDataOf,
+  etlRoles, findByPath, formatRun, formatRunSummary, isInside, isSqlFile, locatePath, mappingDataOf,
   normalizePath, pathsById, pipelineScripts, pruneMarks, renameMarks, renderCollectionFiles, renderPipelineFiles,
-  reorderPatch, reservedNameReason, rowsOutput, serverRoleSchemas, subtreeIds, type TreeFile,
+  reorderPatch, reservedNameReason, rowsOutput, serverRoleSchemas, type TreeFile,
 } from './etl.js'
-import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server, type ToolResult } from './shared.js'
+import { clip, pointerRows, subtreeIds } from './helpers.js'
+import {
+  DESTRUCTIVE, READ, WRITE, api, authored, failure, guard, loc, text, type Server, type ToolResult,
+} from './shared.js'
 
 // --- REST ----------------------------------------------------------------------
 
@@ -90,9 +92,6 @@ const dbLabel = (dbs: Db[]) => (id: string | null | undefined) => {
   return d ? `"${loc(d.name)}" (${id})` : `${id} (not found)`
 }
 
-const pointerRows = (dbs: Db[]) =>
-  dbs.map((d) => ({ id: d.id, lineageId: d.lineageId ?? undefined, entityId: d.entityId ?? undefined, name: d.name }))
-
 /** A database picked for an entity, checked like the picker offers it. */
 function pickDb(dbs: Db[], workspaceId: string, id: string, what: string): Db {
   const d = dbs.find((x) => x.id === id)
@@ -101,13 +100,6 @@ function pickDb(dbs: Db[], workspaceId: string, id: string, what: string): Db {
     throw new Error(`Database ${id} cannot be the ${what}: it is not a database of workspace ${workspaceId} (or it is a vocabulary reference).`)
   }
   return d
-}
-
-/** The creator provenance the app stamps on a new entity (stampAuthored) and its lineage (stampLineage). */
-async function authored() {
-  const me = await api.request<User>('GET', '/auth/me')
-  const display = `${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.username
-  return { createdById: me.id, createdBy: display, createdByDetails: userToAuthorDetails(me), lineageId: randomUUID() }
 }
 
 function workspaceDbList(dbs: Db[], workspaceId: string): string {
@@ -455,7 +447,7 @@ export function registerEtlTools(server: Server): void {
       status: 'draft',
       version: version?.trim() || '0.1.0',
       readme: { en: `# ${title}\n` },
-      ...(await authored()),
+      ...(await authored()), lineageId: randomUUID(),
       createdAt: now,
       updatedAt: now,
     }
@@ -785,7 +777,7 @@ export function registerEtlTools(server: Server): void {
       badges: [],
       version: version?.trim() || '0.1.0',
       readme: { en: `# ${title}\n` },
-      ...(await authored()),
+      ...(await authored()), lineageId: randomUUID(),
       createdAt: now,
       updatedAt: now,
     })

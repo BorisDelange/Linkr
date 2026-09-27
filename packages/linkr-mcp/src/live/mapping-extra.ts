@@ -12,16 +12,6 @@ import { slugifyId, uniqueEntityId } from '@/lib/slugify-id'
 export const PROJECT_STATUSES: MappingProjectStatus[] = ['in_progress', 'on_hold', 'completed']
 export type Vote = 'approved' | 'rejected' | 'flagged' | 'clear'
 
-// Same rule as the app's EntityIdField.
-const ENTITY_ID = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/
-
-export function entityIdError(value: string, taken: string[]): string | null {
-  if (value.length < 2 || value.length > 50) return 'entity_id must be 2 to 50 characters.'
-  if (!ENTITY_ID.test(value)) return 'entity_id may hold only a-z, 0-9 and inner hyphens.'
-  if (taken.includes(value)) return `entity_id "${value}" is already used by another mapping project.`
-  return null
-}
-
 export const defaultEntityId = (name: string, taken: string[]) => uniqueEntityId(slugifyId(name), taken)
 
 /**

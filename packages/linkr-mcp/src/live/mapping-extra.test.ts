@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server'
 import { describe, expect, it } from 'vitest'
 import type { ConceptMapping, ProjectBadge } from '@/types'
 import {
-  commentPatch, defaultEntityId, describeMapping, entityIdError, filterMappings, newMappingProjectPayload, planAssignment,
+  commentPatch, defaultEntityId, describeMapping, filterMappings, newMappingProjectPayload, planAssignment,
   pointerTo, rangeError, resolveBadges, reviewPatch, suggestRange, voteError,
 } from './mapping-extra'
 import { registerMappingExtraTools } from './tools-mapping-extra'
@@ -17,11 +17,7 @@ const mapping = (over: Partial<ConceptMapping>): ConceptMapping => ({
 })
 
 describe('entity ids', () => {
-  it('validates like the app and derives a free slug from the name', () => {
-    expect(entityIdError('icu-rennes', [])).toBeNull()
-    expect(entityIdError('ICU', [])).toMatch(/a-z/)
-    expect(entityIdError('x', [])).toMatch(/2 to 50/)
-    expect(entityIdError('icu', ['icu'])).toMatch(/already used/)
+  it('derives a free slug from the name', () => {
     expect(defaultEntityId('Réa Rennes', ['rea-rennes'])).toBe('rea-rennes-2')
   })
 })

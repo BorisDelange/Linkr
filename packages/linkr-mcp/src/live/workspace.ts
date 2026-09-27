@@ -12,6 +12,7 @@ import type {
   BadgeCategory, BadgeColor, CustomSchemaPreset, DataSource, DatabaseConnectionConfig, LocalizedString, Project,
   ProjectBadge, ProjectStatus, SchemaMapping, SchemaSource, TodoItem, Workspace,
 } from '@/types'
+import { clip } from './helpers.js'
 
 export type Language = 'en' | 'fr'
 export const LANGUAGES: Language[] = ['en', 'fr']
@@ -32,11 +33,12 @@ const text = (v: LocalizedString | string | null | undefined, lang: Language = '
 // Identifiers
 // ---------------------------------------------------------------------------
 
-/** Why an identifier is refused, or null when it is valid and free. */
-export function entityIdError(value: string, taken: string[]): string | null {
+/** Why an identifier is refused, or null when it is valid and free among `taken`
+ *  (the entity ids of the `owner`s it must not collide with). */
+export function entityIdError(value: string, taken: string[], owner = 'project of this workspace'): string | null {
   if (value.length < 2 || value.length > 50) return 'must be 2 to 50 characters'
   if (!ENTITY_ID_PATTERN.test(value)) return 'lowercase letters, digits and hyphens only, not starting or ending with a hyphen'
-  if (taken.includes(value)) return 'already used by another project of this workspace'
+  if (taken.includes(value)) return `already used by another ${owner}`
   return null
 }
 
@@ -376,9 +378,6 @@ export const errorWords = (message: string | null | undefined): string =>
 // Text for the model
 // ---------------------------------------------------------------------------
 
-export const truncate = (s: string, max: number): string =>
-  s.length <= max ? s : `${s.slice(0, max)}\n… (${s.length - max} more characters)`
-
 export const badgeList = (badges: ProjectBadge[] | undefined): string =>
   (badges ?? []).map((b) => text(b.label)).join(', ')
 
@@ -399,14 +398,14 @@ export function projectLines(p: Project, databases: DataSource[], lang: Language
     `Created by ${p.createdBy ?? '—'} on ${p.createdAt?.slice(0, 10) ?? '—'} · updated ${p.updatedAt?.slice(0, 10) ?? '—'}`,
   ]
   if (text(p.shortDescription, lang)) out.push(`Short description: ${text(p.shortDescription, lang)}`)
-  if (text(p.description, lang)) out.push(`Description: ${truncate(text(p.description, lang), 1500)}`)
+  if (text(p.description, lang)) out.push(`Description: ${clip(text(p.description, lang), 1500)}`)
   out.push(`Linked databases (${linked.length}): ${linked.join('; ') || 'none'}`)
   out.push(`Tasks (${todos.filter((t) => t.done).length}/${todos.length} done):`)
   for (const t of todos.slice(0, 50)) out.push(`  [${t.done ? 'x' : ' '}] ${text(t.text, lang)} (id ${t.id})`)
   if (todos.length > 50) out.push(`  … ${todos.length - 50} more`)
   const notes = text(p.notes, lang)
-  out.push(notes ? `Notes:\n${truncate(notes, 2000)}` : 'Notes: none')
+  out.push(notes ? `Notes:\n${clip(notes, 2000)}` : 'Notes: none')
   const readme = text(p.readme, lang)
-  out.push(readme ? `README (Markdown):\n${truncate(readme, 4000)}` : 'README: empty')
+  out.push(readme ? `README (Markdown):\n${clip(readme, 4000)}` : 'README: empty')
   return out
 }

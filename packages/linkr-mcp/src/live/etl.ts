@@ -6,6 +6,7 @@ import { mappingExportNameOf } from '@/lib/duckdb/mapping-source'
 import type { RoleSchemas } from '@/lib/duckdb/role-prefix'
 import { formatDuration } from '@/lib/format-helpers'
 import { safeEtlFileName } from '@/features/warehouse/etl/etl-file-language'
+import { clip } from './helpers.js'
 
 /** A node of a pipeline's or a collection's file tree, as the API returns it. */
 export interface TreeFile {
@@ -66,17 +67,6 @@ export function reservedNameReason(name: string, atRoot: boolean, etl: boolean):
   }
   if (etl && !safeEtlFileName(name)) return `"${name}" is reserved for the pipeline's own structure.`
   return null
-}
-
-/** A node and everything under it, deepest first (so children go before their folder). */
-export function subtreeIds(nodes: TreeFile[], rootId: string): string[] {
-  const out: string[] = []
-  const walk = (id: string) => {
-    for (const child of nodes.filter((n) => n.parentId === id)) walk(child.id)
-    out.push(id)
-  }
-  walk(rootId)
-  return out
 }
 
 /** Whether `folderId` is `nodeId` or lies under it — a folder cannot move into itself. */
@@ -168,8 +158,6 @@ export function etlRoles(ids: RoleIds): Record<string, string> {
 
 export const rowsOutput = (rows: number, ms: number) =>
   `${rows} row${rows !== 1 ? 's' : ''} in ${formatDuration(ms)}`
-
-export const clip = (s: string, max: number) => (s.length <= max ? s : `${s.slice(0, max)}… (${s.length - max} more characters)`)
 
 /** New `order` per file id so the scripts run in `ordered`, as the Pipeline tab's drag writes it. */
 export function reorderPatch(ordered: Pick<EtlFile, 'id' | 'order'>[]): Map<string, number> {

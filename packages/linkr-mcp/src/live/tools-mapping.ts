@@ -27,7 +27,7 @@ import type { DataSource } from './api.js'
 import { conceptRelations, has } from '@/lib/schema-classes/relations'
 import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
 
-const MAX_WRITE = 200
+export const MAX_WRITE = 200
 
 interface Vocabulary { databaseId: string; mapping: SchemaMapping; table: string }
 
@@ -120,7 +120,7 @@ async function sourcesByCode(source: Source, codes: { code: string; vocabularyId
 }
 
 /** The stats the project list shows, refreshed the way the app does after a write. */
-async function refreshStats(project: MappingProject) {
+export async function refreshStats(project: MappingProject) {
   const counts = await api.mappingStats(project.id)
   const total = getTotalSourceConcepts(project)
   await api.updateMappingProject(project.id, {

@@ -3,6 +3,7 @@ import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { readFile } from 'node:fs/promises'
 import { gunzipSync } from 'node:zlib'
 import { findPage, loadFirstIndex, searchDocs, type DocsIndex, type DocsSource } from './docs.js'
+import { clip } from './helpers.js'
 import { READ, failure, guard, text, type Server } from './shared.js'
 
 const DEFAULT_INDEX = 'https://linkr.interhop.org/docs-index.json'
@@ -80,9 +81,7 @@ export function registerDocsTools(server: Server) {
     const { index, bundled } = await docsIndex()
     const page = findPage(index, url)
     if (!page) return failure(`No documentation page at ${url}. Use search_docs to find one.`)
-    const body = page.text.length > MAX_PAGE_CHARS
-      ? `${page.text.slice(0, MAX_PAGE_CHARS)}\n\n… (${page.text.length - MAX_PAGE_CHARS} more characters cut)`
-      : page.text
+    const body = clip(page.text, MAX_PAGE_CHARS)
     return text(`${bundled ? offlineNote(index) : ''}# ${page.title}\n${index.baseUrl}${page.url} · ${page.section} · ${page.lang}\n\n${body}`)
   }))
 }

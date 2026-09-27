@@ -10,23 +10,25 @@ import type {
   SourceConceptIdRange, User,
 } from '@/types'
 import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
-import { getTotalSourceConcepts, isMappingLocked, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
+import { isMappingLocked, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { sourceConceptPairKey } from '@/lib/concept-mapping/source-concept-ids-io'
 import { isOmopConceptTable } from '@/lib/concept-mapping/vocabulary-target'
 import { clampNextId } from '@/features/warehouse/concept-mapping/source-id-range'
 import { setLocalized } from '@/lib/localized'
 import { userDisplayName, userToAuthorDetails } from '@/lib/user-identity'
 import type { DataSource } from './api.js'
+import { pointerRows } from './helpers.js'
+import { MAX_WRITE, refreshStats } from './tools-mapping.js'
+import { entityIdError } from './workspace.js'
 import { EQUIVALENCES } from './mapping.js'
 import {
-  PROJECT_STATUSES, badgeLabelsOf, commentPatch, defaultEntityId, describeMapping, entityIdError, filterMappings,
+  PROJECT_STATUSES, badgeLabelsOf, commentPatch, defaultEntityId, describeMapping, filterMappings,
   newMappingProjectPayload, planAssignment, pointerTo, rangeError, resolveBadges, reviewPatch, suggestRange, voteError,
   type Vote,
 } from './mapping-extra.js'
-import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
+import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, workspaceOf, type Server } from './shared.js'
 
 const enc = encodeURIComponent
-const MAX_WRITE = 200
 // The server caps a query at 10 000 rows; source concepts are read in pages of that size.
 const PAGE = 10_000
 const SAVE_CHUNK = 5_000
@@ -59,18 +61,7 @@ async function identity() {
   return { name: userDisplayName({ ...me, firstName: me.firstName ?? '', lastName: me.lastName ?? '' }), details: userToAuthorDetails(me) }
 }
 
-/** The stats the project list shows, refreshed as the app does after a mapping change. */
-async function refreshStats(project: MappingProject) {
-  const counts = await api.mappingStats(project.id)
-  const total = getTotalSourceConcepts(project)
-  await api.updateMappingProject(project.id, {
-    stats: { ...counts, totalSourceConcepts: total, unmappedCount: Math.max(0, total - counts.mappedCount) },
-  })
-}
-
 const isVocabularyReference = (ds: DataSource) => !!(ds as DataSource & { isVocabularyReference?: boolean }).isVocabularyReference
-const pointerRows = (dbs: DataSource[]) =>
-  dbs.map((d) => ({ id: d.id, entityId: d.entityId, lineageId: d.lineageId, name: d.name }))
 
 /** The databases the app's pickers offer, or why `id` is not one of them. */
 function checkSourceDatabase(dbs: DataSource[], workspaceId: string, id: string): string | null {
@@ -88,14 +79,6 @@ function checkVocabularyDatabase(dbs: DataSource[], workspaceId: string, id: str
   if (ds.workspaceId !== workspaceId) return `Database ${id} belongs to another workspace.`
   if (!ds.schemaMapping?.concepts?.some(isOmopConceptTable)) return `"${loc(ds.name)}" has no OMOP concept table (an ATHENA import).`
   return null
-}
-
-async function workspaceOf(args: { workspace_id?: string; project_uid?: string }): Promise<string> {
-  if (args.workspace_id) return args.workspace_id
-  if (!args.project_uid) throw new Error('Give workspace_id, or project_uid to use that project\'s workspace.')
-  const ws = (await api.getProject(args.project_uid)).workspaceId
-  if (!ws) throw new Error(`Project ${args.project_uid} belongs to no workspace.`)
-  return ws
 }
 
 async function mappingsById(projectId: string, ids: string[]) {
@@ -178,8 +161,8 @@ export function registerMappingExtraTools(server: Server): void {
     const siblings = await api.listMappingProjects(workspaceId)
     const taken = siblings.map((p) => p.entityId).filter((id): id is string => !!id)
     const entityId = args.entity_id?.trim() || defaultEntityId(args.name, taken)
-    const idError = entityIdError(entityId, taken)
-    if (idError) return failure(idError)
+    const idError = entityIdError(entityId, taken, 'mapping project of this workspace')
+    if (idError) return failure(`Invalid entity_id "${entityId}": ${idError}.`)
     const dbs = (args.database_id || args.vocabulary_database_id) ? await api.listDataSources() : []
     const dbError = (args.database_id && checkSourceDatabase(dbs, workspaceId, args.database_id))
       || (args.vocabulary_database_id && checkVocabularyDatabase(dbs, workspaceId, args.vocabulary_database_id))

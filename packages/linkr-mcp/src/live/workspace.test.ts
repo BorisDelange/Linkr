@@ -28,7 +28,8 @@ describe('project identifiers', () => {
     expect(entityIdError('a', [])).toMatch(/2 to 50/)
     expect(entityIdError('-bad', [])).toMatch(/lowercase/)
     expect(entityIdError('Bad', [])).toMatch(/lowercase/)
-    expect(entityIdError('taken', ['taken'])).toMatch(/already/)
+    expect(entityIdError('taken', ['taken'])).toMatch(/another project of this workspace/)
+    expect(entityIdError('taken', ['taken'], 'mapping project')).toBe('already used by another mapping project')
   })
 
   it('derives a unique slug from the name when none is given', () => {
