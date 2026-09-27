@@ -1,18 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Archive, Download, Eye, FileText, Loader2, Upload } from 'lucide-react'
+import { Archive, Download, Eye, FileCode, Languages, Loader2, Upload } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { FieldInfo } from '@/components/ui/field-info'
-import { SectionLabel } from '@/components/ui/section-label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PAGE_LOCALES, pageLocaleOf, type PageLocale } from '@/lib/dcat-ap/page-text'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { DataCatalog, CatalogResultCache } from '@/types'
-import { PUBLICATION_FILE_NAMES, useCatalogPublish } from './use-catalog-publish'
+import { useCatalogPublish } from './use-catalog-publish'
 import { CatalogPagesCard } from './CatalogPagesCard'
 
 interface Props {
@@ -76,40 +76,53 @@ export function CatalogExportTab({ catalog, cache, onOpenVersioning }: Props) {
 
       <TabsContent value="export" className="m-0">
         <div className="mx-auto grid w-full max-w-4xl gap-3">
-          <Card className="flex flex-col gap-3 p-5">
-            <div className="flex items-center gap-1.5">
-              <FileText size={14} className="text-muted-foreground" />
-              <SectionLabel as="h3">{t('data_catalog.export_html_title')}</SectionLabel>
-              <FieldInfo text={t('data_catalog.export_html_description')} />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Label htmlFor="catalog-page-locale">{t('data_catalog.export_language')}</Label>
-              <Select value={exportLocale} onValueChange={(v) => setExportLocale(v as PageLocale)}>
-                <SelectTrigger id="catalog-page-locale" className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {PAGE_LOCALES.map((l) => <SelectItem key={l} value={l} className="text-xs">{LOCALE_NAMES[l]}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <span className="flex-1" />
-              <TooltipProvider delayDuration={500}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button size="sm" className="gap-1.5" onClick={() => void downloadZip(exportLocale)} disabled={zipLoading}>
-                      <Archive size={14} />
-                      {zipLoading ? t('data_catalog.export_generating') : t('data_catalog.export_download_zip')}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {t('data_catalog.export_zip_contents_list', { files: PUBLICATION_FILE_NAMES.join(', ') })}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void downloadHtml(exportLocale)}>
-                <Download size={14} />
-                {t('data_catalog.export_download_html')}
-              </Button>
-            </div>
+          <Card className="flex flex-row items-center gap-3 p-4">
+            <Languages size={14} className="text-muted-foreground" />
+            <Label htmlFor="catalog-page-locale">{t('data_catalog.export_language')}</Label>
+            <FieldInfo text={t('data_catalog.export_language_hint')} />
+            <span className="flex-1" />
+            <Select value={exportLocale} onValueChange={(v) => setExportLocale(v as PageLocale)}>
+              <SelectTrigger id="catalog-page-locale" className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {PAGE_LOCALES.map((l) => <SelectItem key={l} value={l} className="text-xs">{LOCALE_NAMES[l]}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </Card>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ExportCard
+              icon={<Archive size={16} className="shrink-0 text-amber-500" />}
+              headClassName="bg-amber-50 dark:bg-amber-950/30"
+              title={t('data_catalog.export_zip_title')}
+              extension=".zip"
+              description={t('data_catalog.export_zip_description')}
+              files={[
+                ['catalog.html', t('data_catalog.export_file_html')],
+                ['concepts.csv', t('data_catalog.export_file_concepts')],
+                ['crossings/*.csv', t('data_catalog.export_file_crossings')],
+                ['metadata.jsonld', t('data_catalog.export_file_jsonld')],
+              ]}
+              action={
+                <Button className="w-full" variant="outline" size="sm" onClick={() => void downloadZip(exportLocale)} disabled={zipLoading}>
+                  {zipLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                  {zipLoading ? t('data_catalog.export_generating') : t('data_catalog.export_download_zip')}
+                </Button>
+              }
+            />
+            <ExportCard
+              icon={<FileCode size={16} className="shrink-0 text-sky-500" />}
+              headClassName="bg-sky-50 dark:bg-sky-950/30"
+              title={t('data_catalog.export_html_title')}
+              extension=".html"
+              description={t('data_catalog.export_html_description')}
+              action={
+                <Button className="w-full" variant="outline" size="sm" onClick={() => void downloadHtml(exportLocale)}>
+                  <Download size={14} />
+                  {t('data_catalog.export_download_html')}
+                </Button>
+              }
+            />
+          </div>
 
           <CatalogPagesCard
             catalog={catalog}
@@ -121,5 +134,41 @@ export function CatalogExportTab({ catalog, cache, onOpenVersioning }: Props) {
         </div>
       </TabsContent>
     </Tabs>
+  )
+}
+
+/** One download format, laid out like the concept-mapping export cards. */
+function ExportCard({ icon, headClassName, title, extension, description, files, action }: {
+  icon: ReactNode
+  headClassName: string
+  title: string
+  extension: string
+  description: string
+  /** What the download holds, as [file, what it is]. */
+  files?: [string, string][]
+  action: ReactNode
+}) {
+  return (
+    <Card className="flex flex-col justify-between gap-0 overflow-hidden p-0">
+      <div className={cn('flex items-center gap-2.5 px-4 py-3', headClassName)}>
+        {icon}
+        <span className="text-sm font-medium">{title}</span>
+        <Badge variant="outline" className="ml-auto">{extension}</Badge>
+      </div>
+      <div className="flex-1 space-y-2 px-4 py-3">
+        <p className="text-xs text-muted-foreground">{description}</p>
+        {files && (
+          <ul className="space-y-1">
+            {files.map(([file, what]) => (
+              <li key={file} className="flex gap-2 text-xs">
+                <code className="shrink-0 font-mono text-foreground">{file}</code>
+                <span className="text-muted-foreground">{what}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="px-4 pb-4">{action}</div>
+    </Card>
   )
 }

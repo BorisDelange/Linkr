@@ -57,18 +57,27 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
   const saved = cache.anonymizationImpact
   const stale = !saved || saved.threshold !== threshold || saved.mode !== mode
   const [running, setRunning] = useState(false)
-  const runImpact = async () => {
+  const runImpact = async (settings: { threshold: number; mode: AnonymizationMode }) => {
     setRunning(true)
     try {
       // Let the button show its state before the masking blocks the thread.
       await new Promise((r) => setTimeout(r, 0))
-      const next = { ...cache, anonymizationImpact: computeAnonymizationImpact(cache, { threshold, mode }) }
-      await getStorage().catalogResults.save(next)
+      const next = { ...cache, anonymizationImpact: computeAnonymizationImpact(cache, settings) }
       setResultCache(next)
+      if (canWrite) await getStorage().catalogResults.save(next)
     } finally {
       setRunning(false)
     }
   }
+  // Results computed before the impact was kept with them: work it out once
+  // for the stored settings, so Run stays for changes.
+  const backfilled = useRef(false)
+  useEffect(() => {
+    if (saved || backfilled.current) return
+    backfilled.current = true
+    void runImpact(catalog.anonymization)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount, for results that lack it
+  }, [saved])
   const previewThreshold = saved?.threshold ?? threshold
 
   const impact = useMemo(() => {
@@ -165,7 +174,7 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
               </Select>
             )}
           </FormField>
-          <Button size="sm" className="gap-1.5" disabled={!stale || running || !canWrite} onClick={() => void runImpact()}>
+          <Button size="sm" className="gap-1.5" disabled={!stale || running || !canWrite} onClick={() => void runImpact({ threshold, mode })}>
             {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
             {t('data_catalog.anon_run')}
           </Button>

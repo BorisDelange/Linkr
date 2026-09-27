@@ -175,7 +175,7 @@ var TX = ${inlineJson(exploreText(locale))};
 var ICONS = ${inlineJson({
     up: icon('arrowUp', 11), down: icon('arrowDown', 11), both: icon('arrowUpDown', 11),
     search: icon('search', 14), x: icon('x', 13), download: icon('download', 13),
-    left: icon('chevronLeft', 14), right: icon('chevronRight', 14), shield: icon('shield', 13),
+    left: icon('chevronLeft', 14), right: icon('chevronRight', 14), chevron: icon('chevronDown', 14), shield: icon('shield', 13),
     user: icon('user', 16), stethoscope: icon('stethoscope', 16), activity: icon('activity', 16), tags: icon('tags', 16),
     layers: icon('layers', 16), trendingUp: icon('trendingUp', 16), barChart: icon('barChart', 16), sigma: icon('sigma', 16), table: icon('table', 16),
   })};

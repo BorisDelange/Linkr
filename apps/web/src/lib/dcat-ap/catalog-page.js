@@ -176,21 +176,36 @@ function crossingPicker() {
   return h + '</select><div class="vbadges">' + XP.varsOf(S.crossing).map(vbadge).join('<span class="x">×</span>') + '</div>';
 }
 
+/** The multi-select open in the sidebar (a variable id), and what its search box holds. */
+var openMs = null, msQuery = {};
+
 function nominalFilter(v) {
   var vr = V[v], sel = S.sel[v];
-  var many = vr.mods.length > 14 || vr.names.some(function(nm) { return nm.length > 24; });
-  var h = '<div class="flt"><div class="flt-head">' + dot(v) + '<span>' + escHtml(vr.label) + '</span><span class="spacer"></span>'
-    + (sel ? '<button type="button" class="link" data-act="sel-all" data-v="' + v + '">' + escHtml(L.all) + '</button>' : '')
-    + '<button type="button" class="link" data-act="sel-none" data-v="' + v + '">' + escHtml(L.none) + '</button></div>';
-  if (many) h += '<input type="search" class="input flt-search" data-act="sel-search" data-v="' + v + '" placeholder="' + escHtml(L.filter_ph) + '" autocomplete="off">';
-  h += '<div class="' + (many ? 'checks' : 'pills') + '">';
-  vr.names.forEach(function(nm, i) {
-    var on = !sel || !!sel[i];
-    h += many
-      ? '<label class="check" data-name="' + escHtml(nm.toLowerCase()) + '"><input type="checkbox" data-act="sel" data-v="' + v + '" data-i="' + i + '"' + (on ? ' checked' : '') + '><span>' + escHtml(nm) + '</span></label>'
-      : '<button type="button" class="pill-t' + (on ? ' on' : '') + '" style="--vc:' + VARIABLE_HEX[v] + '" data-act="sel" data-v="' + v + '" data-i="' + i + '">' + escHtml(nm) + '</button>';
-  });
-  return h + '</div><div class="hint">' + escHtml(L.keep_one_hint) + '</div></div>';
+  var few = vr.mods.length <= 10 && !vr.names.some(function(nm) { return nm.length > 24; });
+  var h = '<div class="flt"><div class="flt-head">' + dot(v) + '<span>' + escHtml(vr.label) + '</span></div>';
+  if (few) {
+    h += '<div class="pills">' + vr.names.map(function(nm, i) {
+      var on = !sel || !!sel[i];
+      return '<button type="button" class="pill-t' + (on ? ' on' : '') + '" style="--vc:' + VARIABLE_HEX[v] + '" data-act="sel" data-v="' + v + '" data-i="' + i + '">' + escHtml(nm) + '</button>';
+    }).join('') + '</div>';
+  } else {
+    // A dropdown with a search box: long lists (services, concept categories) stay out of the way.
+    var n = sel ? Object.keys(sel).length : vr.mods.length;
+    var label = !sel ? L.all : n === 1 ? vr.names[Number(Object.keys(sel)[0])] : lx('n_selected', { n: n });
+    var q = (msQuery[v] || '').toLowerCase();
+    h += '<div class="ms' + (openMs === v ? ' open' : '') + '"><button type="button" class="select ms-btn" data-act="ms-toggle" data-v="' + v + '"><span>' + escHtml(label) + '</span>' + ICONS.chevron + '</button>';
+    if (openMs === v) {
+      h += '<div class="ms-panel"><input type="search" class="input" data-act="ms-search" data-v="' + v + '" placeholder="' + escHtml(L.search) + '" value="' + escHtml(msQuery[v] || '') + '" autocomplete="off">'
+        + '<div class="ms-links"><button type="button" class="link" data-act="sel-all" data-v="' + v + '">' + escHtml(L.all) + '</button><button type="button" class="link" data-act="sel-none" data-v="' + v + '">' + escHtml(L.none) + '</button><span class="spacer"></span><span class="num">' + n + ' / ' + vr.mods.length + '</span></div><div class="checks">';
+      vr.names.forEach(function(nm, i) {
+        var hide = q && nm.toLowerCase().indexOf(q) === -1;
+        h += '<label class="check" data-name="' + escHtml(nm.toLowerCase()) + '"' + (hide ? ' style="display:none"' : '') + '><input type="checkbox" data-act="sel" data-v="' + v + '" data-i="' + i + '"' + (!sel || sel[i] ? ' checked' : '') + '><span>' + escHtml(nm) + '</span></label>';
+      });
+      h += '</div></div>';
+    }
+    h += '</div>';
+  }
+  return h + '<div class="hint">' + escHtml(L.keep_one_hint) + '</div></div>';
 }
 
 function periodFilter() {
@@ -263,7 +278,18 @@ function renderSide() {
   h += '<button type="button" class="btn full" data-act="reset">' + ICONS.x + escHtml(L.reset_filters) + '</button>';
   side.innerHTML = h;
   paintRange();
+  var msSearch = side.querySelector('[data-act="ms-search"]');
+  if (msSearch && msFocus) { msSearch.focus(); msSearch.setSelectionRange(msSearch.value.length, msSearch.value.length); }
+  msFocus = false;
 }
+var msFocus = false;
+// A click outside an open multi-select closes it.
+document.addEventListener('click', function(e) {
+  if (openMs && !e.target.closest('.ms')) { openMs = null; renderSide(); }
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && openMs) { openMs = null; renderSide(); }
+});
 
 function paintRange() {
   var fill = $('range-fill');
@@ -285,6 +311,7 @@ side.addEventListener('click', function(e) {
   if (!b || b.disabled) return;
   var act = b.dataset.act, v = b.dataset.v;
   if (act === 'sel' && b.tagName === 'BUTTON') XP.toggleSel(v, Number(b.dataset.i));
+  else if (act === 'ms-toggle') { openMs = openMs === v ? null : v; msFocus = openMs === v; renderSide(); return; }
   else if (act === 'sel-all') delete S.sel[v];
   else if (act === 'sel-none') S.sel[v] = {};
   else if (act === 'reset') XP.reset();
@@ -315,13 +342,17 @@ side.addEventListener('change', function(e) {
     } else r[end] = end === 0 ? 0 : mods.length - 1;
     if (r[0] > r[1]) r = end === 0 ? [r[0], r[0]] : [r[1], r[1]];
     S.range = r[0] === 0 && r[1] === mods.length - 1 ? null : r;
+    // Redrawing the sidebar would replace the date field being typed in.
+    later(renderMain, 250);
+    return;
   } else return;
   refresh();
 });
 side.addEventListener('input', function(e) {
   var el = e.target, act = el.dataset.act;
   if (act === 'cq') { S.cq = el.value; later(renderMain, 200); }
-  else if (act === 'sel-search') {
+  else if (act === 'ms-search') {
+    msQuery[el.dataset.v] = el.value;
     var q = el.value.trim().toLowerCase();
     each(el.parentNode.querySelectorAll('.check'), function(c) { c.style.display = !q || c.dataset.name.indexOf(q) !== -1 ? '' : 'none'; });
   } else if (act === 'range') {
@@ -387,7 +418,7 @@ function renderMain() {
     if (view.table) createDataTable($('xp-table'), tableOptions(view.table));
     return;
   }
-  if (view.stats.length) h += '<div class="kpis">' + view.stats.map(kpiHtml).join('') + '</div>';
+  if (view.stats.length) h += '<div class="kpis" style="--n:' + view.stats.length + '">' + view.stats.map(kpiHtml).join('') + '</div>';
   if (view.empty && !view.blocks.length) h += '<div class="card empty">' + escHtml(view.empty) + '</div>';
   if (view.blocks.length) {
     h += '<div class="charts">' + view.blocks.map(function(b, i) {

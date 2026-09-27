@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -94,27 +96,30 @@ async def get_catalog_results_cache(
     db: AsyncSession = Depends(get_db),
 ):
     """Shared, precomputed catalog results (null if none). Stored server-side so
-    every user of the workspace reuses one computed payload."""
+    every user of the workspace reuses one computed payload.
+
+    The stored JSON goes out as it is, never through Python objects: the
+    results can weigh tens of megabytes. Same shape as StatsCacheResponse.
+    """
     await _load(db, catalog_id, user, "catalog:read")
-    row = await stats_cache_service.get(db, _CATALOG_SCOPE, catalog_id)
-    if row is None:
-        return None
-    return StatsCacheResponse(computed_at=row.computed_at, payload=row.payload)
+    raw = await stats_cache_service.get_raw(db, _CATALOG_SCOPE, catalog_id)
+    if raw is None:
+        return Response(content="null", media_type="application/json")
+    computed_at, payload = raw
+    return Response(content=f'{{"computedAt":{json.dumps(computed_at)},"payload":{payload}}}', media_type="application/json")
 
 
-@router.put("/{catalog_id}/results-cache", response_model=StatsCacheResponse)
+@router.put("/{catalog_id}/results-cache", status_code=status.HTTP_204_NO_CONTENT)
 async def save_catalog_results_cache(
     catalog_id: str,
     body: StatsCacheSave,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Store the catalog results a client just computed, sharing them."""
+    """Store the catalog results a client just computed, sharing them. Nothing
+    is sent back: echoing tens of megabytes on every save of a run is waste."""
     await _load(db, catalog_id, user, "catalog:write")
-    row = await stats_cache_service.save(
-        db, _CATALOG_SCOPE, catalog_id, body.computed_at, body.payload
-    )
-    return StatsCacheResponse(computed_at=row.computed_at, payload=row.payload)
+    await stats_cache_service.save(db, _CATALOG_SCOPE, catalog_id, body.computed_at, body.payload)
 
 
 @router.delete("/{catalog_id}/results-cache", status_code=status.HTTP_204_NO_CONTENT)

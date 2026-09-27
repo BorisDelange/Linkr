@@ -47,7 +47,6 @@ function publicationFiles(ctx: PublicationContext): { name: string; content: str
   ]
 }
 
-export const PUBLICATION_FILE_NAMES = ['catalog.html', 'concepts.csv', crossingCsvPath('…'), 'metadata.jsonld']
 
 /** Builds the published catalog (standalone HTML, the ZIP with CSVs and JSON-LD,
  *  or the Pages site stored with the catalog) from the computed results, in the

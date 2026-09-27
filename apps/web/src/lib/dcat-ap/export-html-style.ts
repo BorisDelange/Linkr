@@ -12,6 +12,7 @@ const ICON_PATHS = {
   copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   chevronLeft: '<path d="m15 18-6-6 6-6"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
   chevronRight: '<path d="m9 18 6-6-6-6"/>',
   arrowUp: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
   arrowDown: '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
@@ -274,7 +275,7 @@ ${TABLE_TYPES.map((t) => `.tbl.t-${t} .tbl-head{background:var(--${t}-bg);border
 
 /* Explore */
 ${CHART_CSS}
-.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:16px}
+.kpis{display:grid;grid-template-columns:repeat(var(--n,3),minmax(0,1fr));gap:10px;margin-bottom:16px}
 .kpi{display:flex;align-items:center;gap:12px;min-width:0;background:var(--card);border:1px solid var(--line-soft);border-radius:10px;padding:11px 13px}
 .kpi-ico{display:flex;flex-shrink:0;align-items:center;justify-content:center;width:34px;height:34px;border-radius:9px;background:var(--accent-soft);color:var(--blue2)}
 .kpi-t{min-width:0}
@@ -308,6 +309,14 @@ ${CHART_CSS}
 .link{border:0;background:none;padding:0;font-size:11px;color:var(--blue2);cursor:pointer}
 .link:hover{text-decoration:underline}
 .pills{display:flex;flex-wrap:wrap;gap:4px}
+.ms{position:relative}
+.ms-btn{display:flex;width:100%;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;text-align:left}
+.ms-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ms-btn svg{flex-shrink:0;opacity:.5}
+.ms-panel{margin-top:4px;padding:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(15,27,45,.08)}
+.flt .ms-panel .input{margin:0 0 6px}
+.ms-links{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:11px;color:var(--muted)}
+.ms-links .spacer{flex:1}
 .pill-t{height:24px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 9px;border:1px solid var(--line);border-radius:6px;background:var(--card);font-size:11px;color:var(--muted);cursor:pointer;text-decoration:line-through;text-decoration-color:transparent}
 .pill-t.on{background:color-mix(in srgb,var(--vc,var(--blue2)) 12%,transparent);border-color:transparent;color:var(--vc,var(--blue));font-weight:500}
 .pill-t:not(.on){opacity:.7}

@@ -26,10 +26,9 @@
 /** English texts, keys shared with the app's `data_catalog.xp.*` translations. Placeholders: {name}. */
 var EXPLORE_TEXT = {
   patients: 'Patients', stays: 'Hospitalizations', unit_stays: 'Unit stays', records: 'Records', concepts: 'Concepts', categories: 'Categories',
-  masked: 'Masked', masked_sub: 'below {t} patients', masked_cells_sub: '{pct} of the cells', none: 'none',
-  cells: 'Cells', cells_sub: '{rows} × {cols}', cells_sub_capped: '{rows} × {cols} shown',
-  highest: 'Highest', largest_cell: 'Largest cell',
-  published_concepts_only: 'published concepts only', of_n: 'of {n}',
+  kpi_of: 'of {total}', kpi_unfiltered: 'Whole warehouse: this view does not count them',
+  kpi_not_additive: 'Cannot be added up across {things}',
+  published_concepts_only: 'published concepts only',
   title_by: '{unit} by {vars}',
   over_time: '{unit} over time', per_unit: '{unit} per {unit2}', age_distribution: 'Age distribution',
   by_var: '{unit} by {var}', top_n: 'Top {n} {things}', n_of_m: '{n} of {m}', share_of: 'Share of {unit}',
@@ -42,13 +41,15 @@ var EXPLORE_TEXT = {
   grouped_note: 'Side by side, not stacked: one patient can count in several {things}.',
   age_pyramid: 'Age pyramid', male: 'Male', female: 'Female',
   all_margin_note: '"All" cells are the published totals over every {var}, filters aside.',
-  all_things: 'All {things}', row_max: 'row max', max: 'max', per_row: 'Per row', whole_table: 'Whole table',
+  all_things: 'All {things}', row_max: 'row max', max: 'max', scale_label: 'Colour scale:', per_row: 'Each row', whole_table: 'Whole table',
+  per_row_tip: 'Each row is shaded against its own largest cell: compares the values within a row, whatever its size.',
+  whole_table_tip: 'Every cell is shaded against the largest cell of the table: compares all the cells with one another.',
   hatched_note: '{n} masked value(s) drawn hatched, at most {t} high.',
   mask_primary: 'Fewer than {t} patients — masked', mask_secondary: 'Masked to protect a small cell nearby (secondary suppression)',
   mask_absent: 'Fewer than {t} patients', mask_secondary_short: 'masked', mask_value: '{v} (masked)',
   records_by_category: 'Records by category', concepts_per_category: 'Concepts per category', uncategorised: 'Uncategorised',
   top_concepts: 'Top concepts', not_computed: 'This combination was not computed.', nothing_matches: 'Nothing matches these filters.',
-  below_masked: 'Below {t} patients: masked', search_concepts: 'Search concepts…', no_concept_matches: 'No concept matches these filters.',
+  below_masked: '< {t}: fewer than {t} patients · masked: hidden so that a small cell cannot be worked out by subtraction', search_concepts: 'Search concepts…', no_concept_matches: 'No concept matches these filters.',
   cell: 'cell', cells_noun: 'cells', concept: 'concept', concepts_noun: 'concepts',
   thing_concept: 'concepts', thing_period: 'periods', thing_service: 'services',
   thing_age: 'age groups', thing_sex: 'genders', download_csv: 'Download as CSV', top: 'Top {n}',
@@ -600,7 +601,7 @@ function createExplorer(DATA, opts) {
     if (o.rowAll) h += '<th class="all">' + escHtml(tr('all_things', { things: o.colPlural })) + '</th>';
     h += '</tr></thead><tbody>';
     var cell = function(m, max, title) {
-      if (m.st) return '<td class="masked m' + m.st + '"' + tipAttr(title, [{ label: o.unit, value: shown(m) }, { label: '', value: MASK_TIP[m.st] }]) + '>' + (m.st === 2 && m.raw != null ? '<s>' + compact(m.raw) + '</s>' : MASK_TEXT[m.st]) + '</td>';
+      if (m.st) return '<td class="masked m' + m.st + '"' + tipAttr(title, [{ label: o.unit, value: shown(m) }, { label: '', value: MASK_TIP[m.st] }]) + '>' + (m.raw != null ? '<s>' + compact(m.raw) + '</s>' : MASK_TEXT[m.st]) + '</td>';
       var t = max ? m.v / max : 0;
       return '<td class="num" style="background:' + heat(t) + ';color:' + (t > 0.55 ? '#fff' : 'inherit') + '"' + tipAttr(title, [{ label: o.unit, value: fmt(m.v) }]) + '>' + compact(m.v) + '</td>';
     };
@@ -622,12 +623,12 @@ function createExplorer(DATA, opts) {
     }
     h += '</tbody></table></div>';
     h += '<div class="hm-scale"><span>0</span><span class="bar" style="background:linear-gradient(90deg,' + heat(0) + ',' + heat(1) + ')"></span><span>' + (S.scale === 'row' ? tr('row_max') : tr('max')) + '</span><span class="mask"></span><span>' + escHtml(tr('mask_secondary_short')) + '</span>'
-      + '<span class="spacer"></span><div class="seg mini" data-act="scale"><button type="button" data-v="row"' + (S.scale === 'row' ? ' class="active"' : '') + '>' + escHtml(tr('per_row')) + '</button><button type="button" data-v="all"' + (S.scale === 'all' ? ' class="active"' : '') + '>' + escHtml(tr('whole_table')) + '</button></div></div>';
+      + '<span class="spacer"></span><span>' + escHtml(tr('scale_label')) + '</span><div class="seg mini" data-act="scale"><button type="button" data-v="row" title="' + escHtml(tr('per_row_tip')) + '"' + (S.scale === 'row' ? ' class="active"' : '') + '>' + escHtml(tr('per_row')) + '</button><button type="button" data-v="all" title="' + escHtml(tr('whole_table_tip')) + '"' + (S.scale === 'all' ? ' class="active"' : '') + '>' + escHtml(tr('whole_table')) + '</button></div></div>';
     return h;
   }
 
   // ---- View ----
-  var blocks, stats;
+  var blocks;
   function colorFor(i, count) { return count > PALETTE.length && i >= PALETTE.length - 1 ? OTHERS_COLOR : PALETTE[i % PALETTE.length]; }
   function sliceText() {
     return Object.keys(D.slice).map(function(v) { return { v: v, label: V[v].label, value: V[v].names[D.slice[v]] }; });
@@ -641,7 +642,6 @@ function createExplorer(DATA, opts) {
       return '<button type="button" data-v="' + n + '"' + (S.topN === n ? ' class="active"' : '') + '>' + escHtml(tr('top', { n: n })) + '</button>';
     }).join('') + '</div>';
   }
-  function stat(key, label, value, sub, icon) { stats.push({ key: key, label: label, value: value, sub: sub || '', icon: icon || 'activity' }); }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
   /** 'year', or '2 years' for a stepped period. */
   function periodUnit(vr) {
@@ -657,7 +657,6 @@ function createExplorer(DATA, opts) {
   function view() {
     derive();
     blocks = [];
-    stats = [];
     hatchSeq = 0;
     var ms = measuresOf();
     if (ms.indexOf(S.metric) === -1) S.metric = 'patients';
@@ -682,26 +681,70 @@ function createExplorer(DATA, opts) {
     });
     if (!blocks.length) empty = tr('nothing_matches');
     var title = tr('title_by', { unit: unit, vars: (isListView() ? ['concept'] : D.display).map(function(v) { return varLabel(v).toLowerCase(); }).join(' × ') });
-    return { title: title, context: sliceText(), stats: globals().concat(stats), blocks: blocks, table: table, empty: empty };
+    return { title: title, context: sliceText(), stats: globals(), blocks: blocks, table: table, empty: empty };
+  }
+  /** Whether the reader narrowed any displayed variable. */
+  function displayFiltered() {
+    return D.display.some(function(v) { return keptMods(v).length < V[v].mods.length; });
+  }
+  /** The concept list's rows the concept filters keep. */
+  function listRows() {
+    var q = S.cq.trim().toLowerCase();
+    return LIST.rows.filter(function(r) {
+      if (S.ccat && LCOL.category != null && r[LCOL.category] !== S.ccat) return false;
+      return !q || fuzzy(q, (String(r[LCOL.conceptName]) + ' ' + r[LCOL.conceptId]).toLowerCase());
+    });
   }
   /**
-   * The warehouse's own totals: the first row of key figures, the view's three
-   * figures the second — six cards whatever is displayed. The middle card is
-   * the stays the catalog counts (unit stays beneath when both are), else its
-   * concepts.
+   * One key figure under the reader's filters: `{ v, of?, atLeast?, sub? }`.
+   * Nothing filtered: the warehouse's total. Single values kept only (a slice):
+   * that slice's own computed cell. Several values kept: the sum of the view's
+   * cells, when the measure adds up across the displayed variables — a stay has
+   * one start period, a patient seen twice does not — and at least that sum when
+   * some cells are masked. Otherwise the figure cannot be told, and says why.
+   */
+  function figure(metric, total) {
+    var sliced = Object.keys(D.slice).length > 0, filtered = displayFiltered();
+    if (!sliced && !filtered) return { v: total };
+    var c = sourceCrossing();
+    if (!c || (metric !== 'patients' && c.measures.indexOf(metric) === -1)) return { v: total, sub: tr('kpi_unfiltered') };
+    if (!filtered) {
+      var m = marginCell([], {});
+      var r = m && m.cell ? measureAt(m.cell, m.crossing, metric) : null;
+      if (r && r.v != null) return { v: r.v, of: total };
+    }
+    var blocker = D.display.filter(function(v) { return !V[v].partition[metric]; })[0];
+    if (blocker) return { v: null, sub: tr('kpi_not_additive', { things: plural(blocker) }) };
+    var sum = 0, masked = false;
+    viewCells(c).forEach(function(cell) { var x = measureAt(cell, c, metric); if (x.st) masked = true; else sum += x.v || 0; });
+    return { v: sum, of: total, atLeast: masked };
+  }
+  function card(key, label, icon, f) {
+    var value = f.v == null ? '—' : (f.atLeast ? '≥ ' : '') + fmt(f.v);
+    var sub = f.of != null ? tr('kpi_of', { total: fmt(f.of) }) + (f.of ? ' (' + pct(f.v, f.of) + ')' : '') : f.sub || '';
+    return { key: key, label: label, value: value, sub: sub, icon: icon };
+  }
+  /**
+   * The key figures: patients, the stays the catalog counts, records — each
+   * as what the filters leave of the warehouse's total. On the concept list,
+   * its concepts take the middle card.
    */
   function globals() {
     var t = DATA.totals;
-    var middle = t.stays != null
-      ? { key: 'stays', label: tr('stays'), value: fmt(t.stays), sub: t.unitStays != null ? fmt(t.unitStays) + ' ' + tr('unit_stays').toLowerCase() : '', icon: 'stethoscope' }
-      : t.unitStays != null
-        ? { key: 'unit_stays', label: tr('unit_stays'), value: fmt(t.unitStays), sub: '', icon: 'stethoscope' }
-        : { key: 'concepts', label: tr('concepts'), value: fmt(t.concepts || 0), sub: '', icon: 'tags' };
-    return [
-      { key: 'patients', label: tr('patients'), value: fmt(t.patients), sub: '', icon: 'user' },
-      middle,
-      { key: 'records', label: tr('records'), value: fmt(t.records), sub: '', icon: 'activity' },
-    ];
+    if (isListView()) {
+      var rows = listRows(), narrowed = rows.length < LIST.rows.length, rec = 0, capped = false;
+      rows.forEach(function(r) { if (r[ANON]) capped = true; else rec += r[LCOL.recordCount] || 0; });
+      return [
+        card('patients', tr('patients'), 'user', narrowed ? { v: null, sub: tr('kpi_not_additive', { things: plural('concept') }) } : { v: t.patients }),
+        card('concepts', tr('concepts'), 'tags', narrowed ? { v: rows.length, of: LIST.rows.length } : { v: LIST.rows.length }),
+        card('records', tr('records'), 'activity', narrowed ? { v: rec, of: t.records, atLeast: capped } : { v: t.records }),
+      ];
+    }
+    var cards = [card('patients', tr('patients'), 'user', figure('patients', t.patients))];
+    if (t.stays != null) cards.push(card('stays', tr('stays'), 'stethoscope', figure('stays', t.stays)));
+    if (t.unitStays != null) cards.push(card('unit_stays', tr('unit_stays'), 'stethoscope', figure('unit_stays', t.unitStays)));
+    cards.push(card('records', tr('records'), 'activity', figure('records', t.records)));
+    return cards;
   }
 
   function itemsOf(c, v, metric) {
@@ -775,12 +818,6 @@ function createExplorer(DATA, opts) {
     var v = D.display[0], vr = V[v];
     var items = itemsOf(c, v, metric);
     var total = populationTotal(metric);
-    var published = items.filter(function(i) { return !i.st; });
-    var masked = items.length - published.length;
-    var top = published.slice().sort(function(a, b) { return b.v - a.v; })[0];
-    stat(v === 'concept' ? 'concepts' : 'mods', cap(plural(v)), fmt(items.length), '', v === 'concept' ? 'tags' : 'layers');
-    stat('highest', tr('highest'), top ? compact(top.v) : '—', top ? top.name : '', 'trendingUp');
-    stat('masked', tr('masked'), fmt(masked), tr('masked_sub', { t: T }), 'shield');
 
     var note = maskNote(items);
     var pctLabel = tr('pct_of_patients');
@@ -857,12 +894,6 @@ function createExplorer(DATA, opts) {
     var rows = ranked.map(function(i) { return { i: i, name: rv.names[i] }; });
     var colObjs = cols.map(function(i) { return { i: i, name: cv.names[i] }; });
 
-    var maskedCount = cells.filter(statusOf).length;
-    var biggest = null;
-    cells.forEach(function(cell) { var m = measureAt(cell, c, metric); if (m.v != null && (!biggest || m.v > biggest.v)) biggest = { v: m.v, name: rv.names[cell[pos[rowVar]]] + ' · ' + cv.names[cell[pos[colVar]]] }; });
-    stat('cells', tr('cells'), fmt(cells.length), tr(capped ? 'cells_sub_capped' : 'cells_sub', { rows: rows.length, cols: cols.length }), 'grid');
-    stat('largest', tr('largest_cell'), biggest ? compact(biggest.v) : '—', biggest ? biggest.name : '', 'trendingUp');
-    stat('masked', tr('masked'), fmt(maskedCount), maskedCount ? tr('masked_cells_sub', { pct: pct(maskedCount, cells.length) }) : tr('none'), 'shield');
 
     var rowPartition = rv.partition[metric], colPartition = cv.partition[metric];
     var ser = function(list, getVal) {
@@ -936,21 +967,9 @@ function createExplorer(DATA, opts) {
   /** The concept list: every concept with its own counts, whatever the variables. */
   function listView(metric, unit) {
     var key = { patients: 'patientCount', stays: 'visitCount', records: 'recordCount' }[metric];
-    var q = S.cq.trim().toLowerCase();
-    var rows = LIST.rows.filter(function(r) {
-      if (S.ccat && LCOL.category != null && r[LCOL.category] !== S.ccat) return false;
-      return !q || fuzzy(q, (String(r[LCOL.conceptName]) + ' ' + r[LCOL.conceptId]).toLowerCase());
-    });
+    var rows = listRows();
     var published = rows.filter(function(r) { return !r[ANON]; });
     var masked = rows.length - published.length;
-    stat('concepts', tr('concepts'), fmt(rows.length), rows.length < LIST.rows.length ? tr('of_n', { n: fmt(LIST.rows.length) }) : '', 'tags');
-    if (LCOL.category != null) stat('categories', tr('categories'), fmt(uniqueSorted(rows.map(function(r) { return r[LCOL.category]; })).length), '', 'layers');
-    else {
-      var recSum = 0;
-      published.forEach(function(r) { recSum += r[LCOL.recordCount] || 0; });
-      stat('listed_records', tr('records'), compact(recSum), tr('published_concepts_only'), 'activity');
-    }
-    stat('masked', tr('masked'), fmt(masked), tr('masked_sub', { t: T }), 'shield');
 
     var ranked = published.slice().sort(function(a, b) { return b[LCOL[key]] - a[LCOL[key]]; });
     var top = ranked.slice(0, S.topN).map(function(r) { return { name: r[LCOL.conceptName], v: r[LCOL[key]], st: 0 }; });
