@@ -8,7 +8,10 @@
         "--tsconfig",
         "packages/linkr-mcp/tsconfig.json",
         "packages/linkr-mcp/src/live/server.ts"
-      ]
+      ],
+      "env": {
+        "LINKR_MCP_TOOLSETS": "all"
+      }
     }
   }
 }

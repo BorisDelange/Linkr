@@ -56,6 +56,7 @@ import { localized } from '@/lib/localized'
 import type { CohortLevel, CriteriaGroupNode } from '@/types'
 import { classRelation } from '@/lib/schema-classes/relations'
 import { ProjectCohortHost, useCohortHost, useCohortSource } from './cohort-host'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
 const levelOptions: { value: CohortLevel; labelKey: string }[] = [
   { value: 'patient', labelKey: 'cohorts.level_patient' },
@@ -250,9 +251,12 @@ export function CohortBuilder() {
 
   if (!cohort) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <p>{t('cohorts.not_found')}</p>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_cohort')}
+        entityId={raw.cohortId}
+        backTo={host.listPath}
+        backLabel={t('common.back_to_cohorts')}
+      />
     )
   }
 

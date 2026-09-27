@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 import {
-  ArrowLeft, Pencil, Code, Workflow, Table2,
+  Pencil, Code, Workflow, Table2,
   BookOpen, GitCompare, FileText, Info,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -34,6 +33,7 @@ import { EtlVocabularyTab } from './EtlVocabularyTab'
 import { EtlQualityTab } from './EtlQualityTab'
 import { vocabularyReadiness } from './vocabulary-readiness'
 import { localized } from '@/lib/localized'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
 const TAB_IDS = [
   'overview', 'pipeline', 'scripts', 'schemas', 'vocabulary', 'quality',
@@ -56,8 +56,7 @@ interface Props {
 
 export function EtlPipelinePage({ pipelineId }: Props) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
-  const { wsUid } = useResolvedParams()
+  const { wsUid, raw } = useResolvedParams()
   const { etlPipelines, etlPipelinesLoaded, loadEtlPipelines, loadPipelineFiles, updatePipeline, files, filesLoaded, activePipelineId } = useEtlStore()
   const etlActions = useEtlActions()
 
@@ -142,13 +141,12 @@ export function EtlPipelinePage({ pipelineId }: Props) {
 
   if (!pipeline) {
     return (
-      <div className="flex h-full flex-col items-center justify-center">
-        <p className="text-sm text-muted-foreground">{t('etl.pipeline_not_found')}</p>
-        <Button variant="ghost" size="sm" className="mt-2" onClick={() => navigate(paths.warehouseEtl(wsUid ?? ''))}>
-          <ArrowLeft size={14} />
-          {t('etl.back_to_list')}
-        </Button>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_etl_pipeline')}
+        entityId={raw.pipelineId}
+        backTo={paths.warehouseEtl(wsUid ?? '')}
+        backLabel={t('common.back_to_etl_pipelines')}
+      />
     )
   }
 

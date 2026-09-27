@@ -683,3 +683,28 @@ def test_client_database_flattens_a_localized_name():
     ).name == "Entrepôt"
     # A bare string (seed data, older manifests) is still accepted as-is.
     assert ClientDatabase(id="d", alias="p", name="Plain").name == "Plain"
+
+
+async def test_server_path_outside_the_roots_is_a_400_not_a_500(client, monkeypatch, tmp_path):
+    from app.config import settings
+
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    monkeypatch.setattr(settings, "fs_browse_roots", str(allowed))
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    outside = {"engine": "duckdb", "serverPath": str(tmp_path / "secret.duckdb")}
+
+    r = await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "db", "name": {"en": "DB"}, "sourceType": "database",
+        "connectionConfig": outside,
+    })
+    assert r.status_code == 400
+
+    r = await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "db", "name": {"en": "DB"}, "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb"},
+    })
+    assert r.status_code == 201
+    r = await client.patch(f"{API}/data-sources/{r.json()['id']}", headers=headers, json={"connectionConfig": outside})
+    assert r.status_code == 400

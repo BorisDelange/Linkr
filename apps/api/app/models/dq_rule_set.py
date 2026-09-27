@@ -53,6 +53,9 @@ class DqRuleSet(Base, TimestampMixin):
     lineage_id: Mapped[str | None] = mapped_column(String(36))
     parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Check groups with no check yet (a group is otherwise the table_name its
+    # checks share, so an empty one has nowhere else to live). Null when none.
+    check_groups: Mapped[list | None] = mapped_column(JSONB_or_JSON)
 
 
 class DqRunHistory(Base):

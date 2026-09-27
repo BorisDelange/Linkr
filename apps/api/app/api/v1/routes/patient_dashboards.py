@@ -313,6 +313,11 @@ async def update_widget(
     db: AsyncSession = Depends(get_db),
 ):
     widget = await _load_widget(db, widget_id, user, "patient-data:write")
+    if body.tab_id is not None and body.tab_id != widget.tab_id:
+        source = await patient_dashboard_service.get_tab(db, widget.tab_id)
+        target = await _load_tab(db, body.tab_id, user, "patient-data:write")
+        if source is None or target.patient_dashboard_id != source.patient_dashboard_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "A widget can only move to a tab of its own board")
     return await patient_dashboard_service.update_widget(db, widget, body)
 
 

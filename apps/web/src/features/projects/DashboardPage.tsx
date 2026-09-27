@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { GatedButton } from '@/components/ui/gated-button'
@@ -27,11 +26,11 @@ import { prewarmPool } from '@/lib/api/execution'
 import { getPlugin } from '@/lib/plugins/registry'
 import { componentSupportsServer } from '@/lib/plugins/component-registry'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
 export function DashboardPage() {
   const { t, i18n } = useTranslation()
   const { wsUid, projectUid: resolvedProjectUid, raw } = useResolvedParams()
-  const navigate = useNavigate()
   const projectUid = resolvedProjectUid ?? ''
   const projectRole = useMyProjectRole(projectUid)
   const canWrite = projectRole.can('dashboards:write')
@@ -231,19 +230,12 @@ export function DashboardPage() {
 
   if (!dashboard) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground">Dashboard not found</p>
-          <Button
-            variant="link"
-            size="sm"
-            className="mt-2"
-            onClick={() => navigate(paths.dashboards(wsUid ?? '', projectUid))}
-          >
-            {t('dashboard.back_to_list')}
-          </Button>
-        </div>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_dashboard')}
+        entityId={raw.dashboardId}
+        backTo={paths.dashboards(wsUid ?? '', projectUid)}
+        backLabel={t('common.back_to_dashboards')}
+      />
     )
   }
 

@@ -103,6 +103,8 @@ class DashboardWidgetCreate(CamelModel):
 
 
 class DashboardWidgetUpdate(CamelModel):
+    # Moves the widget to another tab of the same dashboard (the route checks it).
+    tab_id: str | None = None
     name: dict | str | None = None
     description: dict | str | None = None
     dataset_file_id: str | None = None

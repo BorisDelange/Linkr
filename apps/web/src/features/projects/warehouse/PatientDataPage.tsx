@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 import { Allotment, LayoutPriority, type AllotmentHandle } from 'allotment'
 import 'allotment/dist/style.css'
 import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight, ClipboardList } from 'lucide-react'
@@ -30,6 +29,7 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
 /** Default width of each side panel. The patient sidebar and the collection panel
  *  share it so opening the second doesn't make the pair look mismatched. */
@@ -46,7 +46,6 @@ const clampPaneWidth = (w: number) =>
 export function PatientDataPage() {
   const { t } = useTranslation()
   const { wsUid, projectUid: resolvedUid, raw } = useResolvedParams()
-  const navigate = useNavigate()
   const projectUid = resolvedUid ?? ''
   const canWrite = useMyProjectRole(projectUid).can('patient-data:write')
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
@@ -234,19 +233,12 @@ export function PatientDataPage() {
 
   if (!currentBoard) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground">{t('patient_data.board_not_found')}</p>
-          <Button
-            variant="link"
-            size="sm"
-            className="mt-2"
-            onClick={() => navigate(paths.patientData(wsUid ?? '', projectUid))}
-          >
-            {t('patient_data.back_to_boards')}
-          </Button>
-        </div>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_patient_board')}
+        entityId={raw.boardId}
+        backTo={paths.patientData(wsUid ?? '', projectUid)}
+        backLabel={t('common.back_to_patient_boards')}
+      />
     )
   }
 

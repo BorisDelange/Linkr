@@ -191,10 +191,16 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   // Set when a run is asked for with no database picked; cleared by picking one.
   const [databaseMissing, setDatabaseMissing] = useState(false)
   const [addFromSchema, setAddFromSchema] = useState<'ddl' | 'mapping' | null>(null)
-  // A group is the `tableName` its checks share. One created here and still
-  // empty has nothing to store it in: it lives until the page closes, and is
-  // saved as soon as a check is moved into it.
-  const [emptyGroups, setEmptyGroups] = useState<string[]>([])
+  // A group is the `tableName` its checks share; one with no check yet is kept
+  // on the rule set (`checkGroups`) until a check is moved into it.
+  const storedEmptyGroups = useDqStore((s) => s.dqRuleSets.find((rs) => rs.id === ruleSetId)?.checkGroups)
+  const emptyGroups = useMemo(() => storedEmptyGroups ?? [], [storedEmptyGroups])
+  const setEmptyGroups = (update: (prev: string[]) => string[]) => {
+    const next = update(emptyGroups)
+    if (next.length === emptyGroups.length && next.every((g, i) => g === emptyGroups[i])) return
+    void updateRuleSet(ruleSetId, { checkGroups: next.length ? next : null })
+      .catch((e) => console.warn('[dq] check groups persist:', e))
+  }
   const [newGroupOpen, setNewGroupOpen] = useState(false)
   const [renamingGroup, setRenamingGroup] = useState<string | null>(null)
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null)

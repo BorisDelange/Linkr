@@ -192,6 +192,9 @@ def _portable_rule_set(data: dict) -> dict:
     position) while ``dataSourceRef`` is what travels.
     """
     data["dataSourceId"] = ""
+    # Only a rule set that has empty groups carries the key, as on the front.
+    if not data.get("checkGroups"):
+        data.pop("checkGroups", None)
     return _drop_null_refs(data, "dataSourceRef", "schemaPresetRef")
 
 

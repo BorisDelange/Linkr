@@ -160,17 +160,21 @@ export class LinkrApi {
     return true
   }
 
-  private async request<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
+  /** Any REST call as this user: `path` is under `/api/v1`. The domain modules
+   *  (`tools-*.ts`) build their own endpoints on it. A `FormData` body is sent as
+   *  multipart, for the routes that read `Form(...)` fields; anything else as JSON. */
+  async request<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
     if (!this.accessToken) await this.login()
+    const form = body instanceof FormData
     const res = await fetch(`${this.base}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
         // Marks the write as an agent's, so the server notifies the user's open tabs.
         'X-Linkr-Client': 'mcp',
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(body !== undefined && !form ? { 'Content-Type': 'application/json' } : {}),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: form ? body : body !== undefined ? JSON.stringify(body) : undefined,
     })
     if (res.status === 401 && !retried) {
       // An expired access token: refresh, or log in again when that is not possible.
@@ -224,7 +228,17 @@ export class LinkrApi {
    */
   private withRelations = async (dataSourceId: string, sql: string): Promise<string> => {
     if (!sql.toLowerCase().includes(RELATION_PREFIX)) return sql
-    return injectClassRelations(sql, (await this.getDataSource(dataSourceId)).schemaMapping)
+    return injectClassRelations(sql, await this.mappingFor(dataSourceId))
+  }
+
+  // A run of hundreds of checks would otherwise re-read the database per query.
+  private readonly mappings = new Map<string, { at: number; mapping: SchemaMapping | null | undefined }>()
+  private mappingFor = async (dataSourceId: string): Promise<SchemaMapping | null | undefined> => {
+    const hit = this.mappings.get(dataSourceId)
+    if (hit && Date.now() - hit.at < 30_000) return hit.mapping
+    const mapping = (await this.getDataSource(dataSourceId)).schemaMapping
+    this.mappings.set(dataSourceId, { at: Date.now(), mapping })
+    return mapping
   }
 
   listCohorts = (projectUid: string) =>

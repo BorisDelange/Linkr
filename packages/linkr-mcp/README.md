@@ -7,10 +7,13 @@ Plan: [`docs/planning/ai-agents-plan.md`](../../docs/planning/ai-agents-plan.md)
 
 ## What it does
 
-Drives a running server: projects, databases (schema, concepts, read-only SQL) and
-cohorts (create, edit criteria or custom SQL, run with attrition). It reuses the app's
-own query builders (`apps/web/src/lib/duckdb/cohort-query.ts`, the concepts page's
-`concept-queries.ts`) through the `@/` alias, so the SQL it runs is the SQL the app runs.
+Drives a running server — what a user does in the app, bar what is kept out by design
+(below): workspaces, projects and databases; cohorts; data quality; datasets, dashboards,
+patient data and plugins; the IDE (scripts, runs, kernels, environments, jobs); concept
+mapping; ETL pipelines and SQL collections; wiki, data catalogs and READMEs; git status.
+It reuses the app's own logic (the cohort compiler `apps/web/src/lib/duckdb/cohort-query.ts`,
+the concepts page's `concept-queries.ts`, the data-quality and catalog builders…) through
+the `@/` alias, so the SQL it runs is the SQL the app runs.
 
 Every call goes through the REST API with the user's credentials, so the server
 re-checks every permission — an agent never exceeds the user it acts for. Tools carry
@@ -24,10 +27,50 @@ The repo's `.mcp.json` registers it for Claude Code sessions opened here.
 Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json packages/linkr-mcp/src/live/server.ts`
 — the explicit `--tsconfig` is what resolves the `@/` alias into `apps/web/src`.
 
+**What the client sees.** By default ~30 common tools (`CORE_TOOLS` in `build.ts`:
+context, exploration, cohorts, datasets, dashboards, scripts) plus four gateway tools —
+about 6k tokens of definitions instead of ~40k for all ~230:
+
+- `find_linkr_tools` — search every other tool by need (in English), or get tools by
+  name: description, arguments as JSON Schema, and which run tool calls it. With no
+  argument, the index of every tool by family. Its description lists the families.
+- `run_linkr_read_tool` / `run_linkr_write_tool` / `run_linkr_delete_tool` — call a tool
+  found that way; each only accepts tools of its kind and carries the matching
+  annotation, so the client's approval still tells reads from writes from deletions.
+  Arguments are validated against the tool's own schema.
+
+The list never changes, so nothing is configured in the client: add the server, done.
+`LINKR_MCP_TOOLSETS` exposes families directly on top of the core (`mapping`,
+`lab,ide`…), or `all`: every tool, no gateway — what a client that loads tools on demand
+wants (Claude Code: the repo's `.mcp.json` sets it).
+
+**Out of reach by design**: permissions, roles, members and users; deleting a project or
+a workspace; git commit / push; secrets (database passwords and logins, connection
+details, API keys, git host tokens) — see `docs/planning/ai-agents-plan.md` §6.
+
+### `context` — always direct
+
 | Tool | Purpose |
 |---|---|
-| `get_ui_context` | where the user is in their last-focused Linkr tab (project, page, open cohort / dashboard + tab / dataset) — the defaults behind "this", "here" |
 | `list_projects`, `get_project_context` | projects; linked databases with their schema mapping in plain words; cohorts |
+| `get_ui_context` | where the user is in their last-focused Linkr tab (project, page, open cohort / dashboard + tab / dataset) — the defaults behind "this", "here" |
+| `search_docs`, `read_doc` | the user documentation (linkr.interhop.org): keyword search over the `docs-index.json` the website publishes at build (cached an hour; `LINKR_DOCS_INDEX` points elsewhere, e.g. a local website build; when the site is unreachable, falls back to the copy in `data/docs-index.json.gz`, refreshed with `npm run docs:snapshot`), then a page in full as Markdown |
+
+### `workspace` — workspaces, projects, databases
+
+| Tool | Purpose |
+|---|---|
+| `list_workspaces`, `get_workspace`, `create_workspace`, `update_workspace`, `list_organizations` | workspaces: what each holds (projects, databases, schema presets, mapping projects, wiki), README, organization, badges; create one (no delete) |
+| `create_project`, `get_project_summary`, `update_project` | the New project dialog (entity id validated or derived from the name, lineage); the Summary page — status, version, badges, descriptions, README, notes, tasks (no delete) |
+| `link_database_to_project`, `unlink_database_from_project` | a project's linked databases, ids and portable refs kept aligned as the app does |
+| `list_databases`, `get_database`, `update_database` | the workspace's databases: status, kind, schema mapping, statistics, the projects linking them; name/description/alias/badges/README — never locations or logins |
+| `list_schema_presets`, `set_database_schema`, `retest_database` | a preset's mapping on a database (update keeps overrides, switch drops them), then the Retest connection |
+| `create_database` | an empty DuckDB from a preset's DDL, data already on the server (file or Parquet folder, read in place), or an external PostgreSQL/MySQL declared without any password — each user enters their own login in Linkr |
+
+### `warehouse` — exploration, cohorts, concepts, derived databases
+
+| Tool | Purpose |
+|---|---|
 | `describe_database`, `search_concepts`, `run_sql` | tables and columns; fuzzy concept search with record/patient counts; read-only SQL |
 | `list_cohorts`, `get_cohort`, `create_cohort`, `update_cohort`, `delete_cohort` | criteria validated against the mapping, concept names filled in; or custom SQL |
 | `preview_cohort_sql`, `run_cohort` | generated SQL; count + attrition (sample rows opt-in) |
@@ -36,6 +79,27 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `cohort_report` | the app's cohort report: a text summary for the model + the HTML report as an MCP-UI resource (`ui://`), rendered inline by LibreChat and never sent to the model |
 | `list_concept_sets`, `get_concept_set` | the workspace's imported data dictionaries (read-only): resolved concept ids, `uniqueId`, long description with its Mapping Notes |
 | `list_concept_lists`, `get_concept_list`, `create_concept_list`, `update_concept_list`, `delete_concept_list` | the project's hand-picked concept lists |
+| `list_database_cohorts`, `plan_cohort_derivation` | a database's own cohorts; whether a cohort can be derived and what the copy does with each table |
+| `derive_database_from_cohort` | the app's *Derive*: a new database (or SQL schema) restricted to a cohort — creates the managed target first, starts the server job, returns its `job_id` at once |
+| `get_job_status`, `cancel_job` | a job's status, progress, log tail and, for a finished derivation, the database id to query |
+
+### `dq` — data quality
+
+| Tool | Purpose |
+|---|---|
+| `list_dq_rule_sets`, `get_dq_rule_set`, `create_dq_rule_set`, `update_dq_rule_set`, `delete_dq_rule_set` | data-quality rule sets (workspace-level, one database each — optional at creation, as in the app): metadata, schema, check counts by origin/category/group, last score, recent runs; creating one generates its checks from a schema preset (DDL + mapping, `dq-templates.ts`) like the New rule set dialog |
+| `list_dq_checks`, `get_dq_check` | the rule set's stored checks by group, as the Checks tab lists them: Kahn category/subcategory (`dq-taxonomy.ts`), severity, threshold, origin (`ddl` / `mapping` / `manual`), disabled; one check's SQL and explore SQL |
+| `add_dq_schema_checks` | a preset's DDL or mapping checks the rule set does not hold yet (matched on `templateKey`), listed or added, like the Add-from-schema dialog |
+| `create_dq_check`, `update_dq_check`, `test_dq_check`, `set_dq_checks_enabled`, `delete_dq_checks` | hand-written checks and edits to any check (`violated_rows` / `total_rows`), validated like the editor and test-run before saving; the Test button; enable/disable (persisted) |
+| `create_dq_check_group`, `move_dq_checks`, `rename_dq_check_group`, `delete_dq_check_group` | check groups (the `tableName` checks share; an empty one is kept on the rule set's `checkGroups`): create, move checks, rename, delete with or without its checks |
+| `run_dq_rule_set` | a scan of the enabled checks (all or a subset) with the app's `runnableChecks` / `checkStatus` / `buildSummary`: score, counts per category/severity, failing checks; recorded like the page (rule set's last run + run history; dry run opt-in) |
+| `investigate_dq_check` | the Investigate button: re-counts a check, runs its explore SQL bounded, returns per-column aggregates of the failing rows (rows themselves only on request) |
+| `list_dq_runs`, `get_dq_run`, `delete_dq_runs` | run history, one run's results by status, deletion (`destructiveHint`) |
+
+### `lab` — datasets, dashboards, patient data, pipeline, plugins
+
+| Tool | Purpose |
+|---|---|
 | `list_datasets`, `describe_dataset`, `preview_dataset` | datasets, columns (ids used by widgets), per-column summaries, rows on request |
 | `create_dataset_from_query` | a query's full result written server-side as a Parquet dataset — rows never transit through the agent |
 | `rename_dataset_column`, `remove_dataset_columns`, `set_column_metadata` | column edits recorded in the dataset's edit history (undoable in Linkr); labels, descriptions, value labels |
@@ -45,8 +109,40 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `add_dashboard_filter`, `remove_dashboard_filter` | the filter sidebar: a dataset column, range or multi-select by type, optionally limited to tabs |
 | `add_tab`, `rename_tab`, `add_widget`, `update_widget` | columns by name or id, unknown columns/fields refused, 48-column grid placement |
 | `remove_widget`, `remove_tab` | `destructiveHint` — undoable from the notification centre |
+| `create_dataset`, `create_dataset_folder` | an empty dataset from a column list (a manual collection's start, CSV header on disk); folders |
+| `find_dataset_rows`, `list_column_values` | rows by filters/sort/page with their row numbers (the edit handle); a column's distinct values |
+| `add_dataset_column`, `set_dataset_column_type`, `move_dataset_column` | column edits as ops in the edit history; a retype amends the column's own `addColumn` op when an edit added it, else sets `parseOptions.columnTypes` and re-reads the raw file |
+| `set_dataset_cells`, `add_dataset_rows`, `remove_dataset_rows` | cell/row edits in the op log, values checked against the column type, one undoable action per call (`remove_*` destructive) |
+| `get_dataset_edit_history`, `undo_dataset_edits` | the log grouped into actions; undo drops the last action(s), as Linkr's undo does |
+| `set_dataset_import_options` | re-read the raw CSV/Excel with other delimiter/encoding/skip/header/sheet/NA tokens, or preview the result |
+| `list_dataset_analyses`, `create_dataset_analysis`, `update_dataset_analysis`, `delete_dataset_analysis` | a dataset's analysis tabs: a lab plugin (built-in or workspace) with a checked config, or inline R/Python |
+| `describe_pipeline`, `add_pipeline_node`, `update_pipeline_node`, `remove_pipeline_node`, `link_pipeline_nodes` | the project's Pipeline diagram (database/cohort/scripts/dataset/dashboard/group nodes and arrows), links checked against the project |
+| `list_patient_plugins`, `describe_patient_plugin` | Patient data widget types: built-in manifests + the workspace's warehouse plugins |
+| `list_patient_boards`, `describe_patient_board`, `create_patient_board`, `update_patient_board`, `duplicate_patient_board`, `delete_patient_board` | Patient data boards: database pointer, display settings, copies with tabs and widgets |
+| `add_patient_tab`, `update_patient_tab`, `reorder_patient_tabs`, `remove_patient_tab` | a board's tabs (the last one is kept) |
+| `add_patient_widget`, `update_patient_widget`, `duplicate_patient_widget`, `remove_patient_widget` | config checked against the manifest (concept ids, options, types); Timeline dataset mappings resolved name → id; custom SQL; move between tabs |
+| `duplicate_dashboard`, `reorder_dashboard_tabs`, `move_widget`, `duplicate_widget`, `update_dashboard_display`, `set_dashboard_description` | lab dashboard actions beyond create/edit: copies (tab-scoped filters remapped), tab order, cross-tab moves, display settings, tab/widget descriptions |
+| `list_user_plugins`, `get_user_plugin`, `create_user_plugin`, `update_user_plugin`, `delete_user_plugin` | workspace plugins as code: manifest + R/Python templates, checked as the app reads them (scope, languages ↔ templates, field types, `{{placeholders}}`), content hash restamped; built-ins read-only |
+
+### `ide` — scripts, runs, kernels, environments, jobs
+
+| Tool | Purpose |
+|---|---|
 | `list_scripts`, `read_script`, `write_script`, `move_script`, `delete_script` | the project's IDE scripts, shown live in the user's IDE |
 | `run_code`, `run_script` | R or Python in the project's server kernel (session `default`, shared with the IDE); stdout, stderr, returned table; figures as a `ui://` resource |
+| `list_sessions`, `create_session`, `delete_session` | the user's kernel sessions (isolated R / Python namespaces; `default` is the IDE's) with live-kernel state (idle / busy, memory) |
+| `restart_kernel`, `interrupt_kernel` | a session's kernel: restart (variables lost, `destructiveHint`; needed after a build) or Stop the running code |
+| `run_as_job`, `get_job_output` | a script or code run as a background job (fresh process, jobs panel), returns the `job_id`; then its log, table and figures (`ui://`) |
+| `list_jobs`, `clear_finished_jobs` | the jobs panel of a project (runs, builds, package ops) or a workspace (derivations); clearing finished ones is `destructiveHint` |
+| `describe_environment` | the project's managed Python / R environment: status, declared packages, last update check, install options (URL credentials masked), sessions on a stale build |
+| `install_packages`, `remove_package`, `update_packages`, `install_package_preset`, `check_package_updates`, `build_environment` | the Environments panel: spec re-locked by the server, optional build as a job (`job_id`) |
+| `set_environment_options` | package repository / index for the environment (R `repos`, `method`; Python `index_url`, `trusted_host`); URLs with credentials refused |
+| `list_ide_connections` | databases a project's scripts can query: linked databases (`database_id` for `run_code`) and the IDE's custom connections, never credentials |
+
+### `mapping` — concept mapping
+
+| Tool | Purpose |
+|---|---|
 | `list_mapping_projects`, `get_mapping_project` | concept-mapping projects: progress, vocabulary database, suggestions file, source categories |
 | `list_source_concepts`, `get_source_concept` | source concepts by status / category / name / has-suggestions, with their metadata (`info_json`), existing mappings and suggestions; a database project not yet extracted is read straight from its dictionaries (no counts, no metadata) |
 | `search_vocabulary`, `get_vocabulary_concept` | OMOP targets in the project's vocabulary database (name, synonyms, filters, a concept set's resolved concepts); relationships, ancestors, descendants |
@@ -54,17 +150,55 @@ Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json package
 | `create_mappings` | mappings (status unchecked) for picks the user confirmed; already-mapped sources skipped; project stats refreshed |
 | `remove_ai_suggestions` | withdraw a model's `ai/<model>` rows, all or for some source concepts (`destructiveHint`) |
 | `find_sources_for_targets` | reverse lookup: the source concepts suggestions link to given targets or a concept set's resolved concepts |
-| `search_docs`, `read_doc` | the user documentation (linkr.interhop.org): keyword search over the `docs-index.json` the website publishes at build (cached an hour; `LINKR_DOCS_INDEX` points elsewhere, e.g. a local website build; when the site is unreachable, falls back to the copy in `data/docs-index.json.gz`, refreshed with `npm run docs:snapshot`), then a page in full as Markdown |
-| `list_database_cohorts`, `plan_cohort_derivation` | a database's own cohorts; whether a cohort can be derived and what the copy does with each table |
-| `derive_database_from_cohort` | the app's *Derive*: a new database (or SQL schema) restricted to a cohort — creates the managed target first, starts the server job, returns its `job_id` at once |
-| `get_job_status`, `cancel_job` | a job's status, progress, log tail and, for a finished derivation, the database id to query |
+| `create_mapping_project`, `update_mapping_project` | a mapping project from a database's dictionaries (or empty, for a file imported in Linkr), with badges, status, vocabulary database; metadata edits |
+| `delete_mapping_project` | the project with its mappings (`destructiveHint`) |
+| `list_mappings` | a project's mappings by effective status (incl. disputed), words, codes, target, author, the user's votes; votes, comments, lock |
+| `review_mappings`, `update_mapping` | the app's review votes (approved / rejected / flagged / clear, own mappings not approvable), equivalence change (refused once locked), signed comments |
+| `delete_mappings` | reviewed / commented ones only with `include_locked` (`destructiveHint`) |
+| `list_source_concept_id_ranges`, `set_source_concept_id_range`, `assign_source_concept_ids`, `get_source_concept_ids` | the workspace's custom concept id registry (2 000 000 000+): one range per badge, the app's Assign (stable ids, cursor saved per chunk), lookups |
 
-Code: `server.ts` / `http.ts` (entries) · `build.ts` · `shared.ts` · `tools-context.ts` ·
-`tools-warehouse.ts` (projects, databases, cohorts, report) · `tools-cohorts-extra.ts` (freeze, ATLAS import) · `tools-concepts.ts` ·
-`tools-lab.ts` (datasets, plugins, dashboards) · `tools-ide.ts` (scripts, runs) · `tools-mapping.ts`
-(concept mapping) · `tools-docs.ts` (documentation) · `tools-derive.ts` (derived databases, jobs) · pure helpers
-`cohorts.ts`, `cohorts-extra.ts`, `concepts.ts`, `derive.ts`, `docs.ts`, `lab.ts`, `ide.ts`, `mapping.ts`, `report.ts`,
-`plugins.ts` (tested).
+### `etl` — ETL pipelines, SQL collections
+
+| Tool | Purpose |
+|---|---|
+| `list_etl_pipelines`, `get_etl_pipeline`, `create_etl_pipeline`, `update_etl_pipeline`, `delete_etl_pipeline` | ETL pipelines (workspace SQL scripts building a target database from a source): source / target / mapping-project vocab, scripts in run order with their last outcome |
+| `read_etl_file`, `write_etl_file`, `move_etl_file`, `delete_etl_file` | a pipeline's files (scripts, notes, `mapping/*.csv` exports); new scripts appended to the run order; versioning marks follow moves |
+| `update_etl_script`, `reorder_etl_scripts` | per-script disabled flag and database override; run order as a full list or sorted by name |
+| `run_etl_pipeline` | the app's Run: enabled scripts in order (or the ones given), `source.`/`target.`/`vocab.` resolved, on the writable target through the ETL endpoint, stops at the first error, recorded in the run history |
+| `list_etl_runs`, `get_etl_run` | past runs; one run's per-script status, duration, rows or error |
+| `list_sql_collections`, `get_sql_collection`, `create_sql_collection`, `update_sql_collection`, `delete_sql_collection` | SQL script collections (reusable queries in a workspace, with a default database) |
+| `read_sql_collection_file`, `write_sql_collection_file`, `move_sql_collection_file`, `delete_sql_collection_file` | a collection's scripts and folders |
+| `run_sql_collection_script` | one collection script on its database, read-only as the editor runs it; last statement's rows |
+
+### `wiki` — wiki, data catalogs, READMEs
+
+| Tool | Purpose |
+|---|---|
+| `list_wiki_pages`, `search_wiki_pages`, `get_wiki_page` | the workspace wiki: page tree, search with snippets, one page's Markdown (per language) with its path and attachments; by `workspace_id` or `project_uid` |
+| `create_wiki_page`, `update_wiki_page`, `move_wiki_page`, `delete_wiki_page` | pages as the wiki store writes them (slug, sort order, author); move renumbers siblings and refuses cycles; delete takes the sub-pages and attachments (`destructiveHint`) |
+| `list_data_catalogs`, `get_data_catalog`, `create_data_catalog`, `update_data_catalog`, `delete_data_catalog` | anonymized aggregate catalogs of a database: dimensions, age brackets, threshold, category columns, period table — with the Configuration tab's rules |
+| `compute_data_catalog`, `get_data_catalog_results`, `reset_data_catalog_results` | the app's resumable computation (`lib/duckdb/catalog-batch.ts`) through the server query route, results in the shared results cache; time-budgeted, resumes on the next call; sub-threshold counts masked |
+| `get_readme`, `set_readme` | the Markdown README of a workspace, database, mapping project, SQL collection, ETL pipeline, DQ rule set, data catalog or plugin (one language, others kept) |
+
+### `git` — versioning, read-only
+
+| Tool | Purpose |
+|---|---|
+| `get_git_status`, `get_git_diff`, `get_git_sync_state`, `list_git_branches` | read-only git versioning of a project, workspace, mapping project or workspace entity: pending files vs the remote branch, one file's line diff, behind / diverged, branches — commit, push and pull stay in Linkr |
+
+Code: `server.ts` / `http.ts` (entries) · `build.ts` (toolsets, core list) · `gateway.ts` / `tools-gateway.ts`
+(catalogue, find + run) · `shared.ts` · `tools-context.ts` (UI context, projects) ·
+`tools-workspace.ts` / `tools-databases.ts` / `workspace-rest.ts` (workspaces, projects, databases) ·
+`tools-warehouse.ts` (exploration, cohorts, report) · `tools-cohorts-extra.ts` (freeze, ATLAS import) · `tools-concepts.ts` ·
+`tools-derive.ts` (derived databases, jobs) · `tools-dq.ts` (data quality) ·
+`tools-lab.ts` (datasets, plugins, dashboards) · `tools-lab-extra.ts` (dataset editing, analyses, pipeline, patient
+boards, dashboard extras, workspace plugins) · `tools-ide.ts` (scripts, runs) · `tools-runtime.ts` (kernel sessions,
+jobs, environments, IDE connections) · `tools-mapping.ts` (concept mapping) · `tools-mapping-extra.ts` (mapping
+projects, reviews, source concept ids) · `tools-etl.ts` (ETL pipelines, SQL collections) · `tools-wiki.ts` (wiki,
+data catalogs, READMEs) · `tools-git.ts` (git, read-only) · `tools-docs.ts` (documentation) · pure helpers
+`cohorts.ts`, `cohorts-extra.ts`, `concepts.ts`, `derive.ts`, `docs.ts`, `dq.ts`, `etl.ts`, `gateway.ts`, `git.ts`, `lab.ts`,
+`lab-extra.ts`, `ide.ts`, `mapping.ts`, `mapping-extra.ts`, `plugins.ts`, `report.ts`, `runtime.ts`, `wiki.ts`,
+`workspace.ts` (tested).
 
 ## Skills
 

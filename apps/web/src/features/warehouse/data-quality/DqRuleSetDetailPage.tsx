@@ -2,7 +2,6 @@ import { useEffect, useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import {
-  ArrowLeft,
   Code,
   BarChart3,
   Info,
@@ -41,6 +40,7 @@ import { DatabaseSqlTab } from '@/features/projects/warehouse/databases/Database
 import type { DqReport } from '@/lib/duckdb/data-quality'
 import type { DqRuleSet } from '@/types'
 import { localized } from '@/lib/localized'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
 const TAB_IDS = ['overview', 'checks', 'results', 'investigate', 'readme', 'license', 'versioning'] as const
 type TabId = (typeof TAB_IDS)[number]
@@ -59,7 +59,7 @@ interface Props {
 export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { wsUid } = useResolvedParams()
+  const { wsUid, raw } = useResolvedParams()
   const {
     dqRuleSets,
     dqRuleSetsLoaded,
@@ -139,7 +139,8 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     const durationMs = report.results.reduce((sum, r) => sum + r.executionTimeMs, 0)
 
     void updateRuleSet(ruleSet.id, {
-      status: report.summary.failed > 0 ? 'error' : 'success',
+      // The scan ran: failing checks are the score's business, not the status's.
+      status: 'success',
       lastRunAt: report.computedAt,
       lastRunDurationMs: durationMs,
       lastScore: score,
@@ -167,13 +168,12 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
 
   if (!ruleSet) {
     return (
-      <div className="flex h-full flex-col items-center justify-center">
-        <p className="text-sm text-muted-foreground">{t('data_quality.rs_not_found')}</p>
-        <Button variant="ghost" size="sm" className="mt-2" onClick={handleBack}>
-          <ArrowLeft size={14} />
-          {t('data_quality.back_to_list')}
-        </Button>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_dq_rule_set')}
+        entityId={raw.ruleSetId}
+        onBack={handleBack}
+        backLabel={t('common.back_to_dq_rule_sets')}
+      />
     )
   }
 

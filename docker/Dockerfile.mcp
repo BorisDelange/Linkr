@@ -27,9 +27,10 @@ WORKDIR /app
 COPY --from=build /app/packages/linkr-mcp/src/live/http.mjs packages/linkr-mcp/src/live/http.mjs
 # Offline copy of the user docs, for search_docs when linkr.interhop.org is unreachable.
 COPY packages/linkr-mcp/data/ packages/linkr-mcp/data/
-# Read at runtime: the cohort report's labels, and the analysis plugins' manifests.
+# Read at runtime: the cohort report's labels, the analysis and patient-data plugins' manifests.
 COPY apps/web/src/locales/ apps/web/src/locales/
 COPY packages/default-plugins/analyses/ packages/default-plugins/analyses/
+COPY packages/default-plugins/patient-data/ packages/default-plugins/patient-data/
 
 ENV NODE_ENV=production \
     LINKR_MCP_HOST=0.0.0.0 \

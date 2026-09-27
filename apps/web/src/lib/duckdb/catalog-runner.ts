@@ -26,7 +26,7 @@
 
 import type { CatalogResultCache, DataCatalog } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
-import { computeCatalogBase, computePeriodBatch, type PeriodPlan } from './catalog-compute'
+import { computeCatalogBase, computePeriodBatch, type PeriodPlan } from './catalog-batch'
 
 /**
  * Period rows computed between two writes of the cache.

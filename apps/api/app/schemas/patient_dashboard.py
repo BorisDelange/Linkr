@@ -114,6 +114,8 @@ class PatientDashboardWidgetCreate(CamelModel):
 
 
 class PatientDashboardWidgetUpdate(CamelModel):
+    # Moves the widget to another tab of the same board (the route checks it).
+    tab_id: str | None = None
     name: dict | str | None = None
     description: dict | str | None = None
     layout: dict | None = None
