@@ -7,7 +7,7 @@ import { DialogShell } from '@/components/ui/dialog-shell'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { localized } from '@/lib/localized'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
-import { diffOverrides, effectiveMapping, isEmptyOverrides, revertOverride, staleOverrides } from '@/lib/schema-classes/overrides'
+import { appliedSpecKey, diffOverrides, effectiveMapping, isEmptyOverrides, overrideKeyFor, revertOverride, staleOverrides } from '@/lib/schema-classes/overrides'
 import { specAt, withSpec } from '@/lib/schema-classes/spec'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useSchemaPresetStore } from '@/stores/schema-preset-store'
@@ -54,8 +54,10 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   const pendingOverrides: SchemaOverrides | null = draft
     ? diffOverrides(base, draft.mapping, overrides)
     : overrides
-  const overridden = new Set(Object.keys(pendingOverrides?.relations ?? {}))
-  const stale = new Set(staleOverrides(base, overrides))
+  // Keyed as the editor shows them: an override that renamed a base relation
+  // shows under its new name.
+  const overridden = new Set(Object.entries(pendingOverrides?.relations ?? {}).map(([key, spec]) => appliedSpecKey(key, spec)))
+  const stale = new Set(staleOverrides(base, overrides).map((key) => appliedSpecKey(key, overrides!.relations![key])))
 
   const save = async (next: SchemaOverrides | null) => {
     await updateDataSource(source.id, { schemaOverrides: isEmptyOverrides(next) ? null : next })
@@ -64,18 +66,20 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   const startEdit = () =>
     setDraft({ mapping: structuredClone(source.schemaMapping ?? base) })
 
-  const revert = (specKey: string) => {
+  const revert = (shownKey: string) => {
     if (draft) {
-      setDraft({ ...draft, mapping: withSpec(draft.mapping, specKey, specAt(base, specKey)) })
+      const key = overrideKeyFor(pendingOverrides, shownKey)
+      setDraft({ ...draft, mapping: withSpec(draft.mapping, shownKey, specAt(base, key)) })
     } else if (overrides) {
-      void save(revertOverride(overrides, specKey))
+      void save(revertOverride(overrides, overrideKeyFor(overrides, shownKey)))
     }
   }
 
   /** Push one override up into the preset, then follow the preset: the relation
    *  is no longer a difference. */
-  const promote = async (specKey: string) => {
-    const spec = specAt(source.schemaMapping ?? base, specKey)
+  const promote = async (shownKey: string) => {
+    const spec = specAt(source.schemaMapping ?? base, shownKey)
+    const specKey = overrideKeyFor(overrides, shownKey)
     if (!preset || !spec || !overrides) return
     const presetMapping = specAt(preset.mapping, specKey)
       ? withSpec(preset.mapping, specKey, spec)
@@ -171,7 +175,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
         onChange={(m) => draft && setDraft({ ...draft, mapping: m })}
         previewSources={[{ id: source.id, label: localized(source.name, i18n.language) }]}
         relationExtra={relationExtra}
-        canRemove={(specKey) => !specAt(base, specKey)}
+        canRemove={(shownKey) => !specAt(base, overrideKeyFor(pendingOverrides, shownKey))}
         persist={canWrite && !editing ? (m) => void save(diffOverrides(base, m, overrides)) : undefined}
       />
 

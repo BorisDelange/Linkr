@@ -4,7 +4,7 @@ import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { injectClassRelations, referencedRelations, withClassRelations } from './inject'
 import { classRelation, classRelations, conceptJoinOn, dictionaryOf, drugRelation, eventRelation, generatedRelationSql, has, readableRelationSql } from './relations'
 import { checkContract, hasGlobalWindow } from './contract-check'
-import { diffOverrides, effectiveMapping, isEmptyOverrides, relationFingerprint, revertOverride, staleOverrides } from './overrides'
+import { appliedSpecKey, diffOverrides, effectiveMapping, overrideKeyFor, isEmptyOverrides, relationFingerprint, revertOverride, staleOverrides } from './overrides'
 import { conceptIdentity } from './spec'
 import { isMappingV1, mappingV1ToV2, type SchemaMappingV1 } from './v1'
 
@@ -398,6 +398,23 @@ describe('per-database overrides', () => {
     expect(eff.events?.map((e) => e.label)).toEqual(['Local'])
     expect(drugRelation(eff, 'Administrations')!.sql).toContain(`r.attr = 'RATE'`)
     expect(effectiveMapping(base, undefined)).toBe(base)
+  })
+
+  it('renaming a base relation replaces it, under the base key, rather than adding a second', () => {
+    const [drug] = base.drugs!
+    const renamed: SchemaMapping = { ...site, drugs: [{ ...drug, label: 'Infusions' }] }
+    const o = diffOverrides(base, renamed)
+    expect(Object.keys(o.relations!)).toEqual(['visit', 'events.Local', 'drugs.Administrations'])
+    expect(o.baseAtOverride!['drugs.Administrations']).toBe(relationFingerprint('drugs.Administrations', drug))
+    const eff = effectiveMapping(base, o)
+    expect(eff.drugs!.map((d) => d.label)).toEqual(['Infusions'])
+    expect(appliedSpecKey('drugs.Administrations', o.relations!['drugs.Administrations'])).toBe('drugs.Infusions')
+    expect(overrideKeyFor(o, 'drugs.Infusions')).toBe('drugs.Administrations')
+    expect(overrideKeyFor(o, 'events.Local')).toBe('events.Local')
+    // Editing it again keeps the same key, and the base it was first made against.
+    const again = diffOverrides(base, { ...eff, drugs: [{ ...eff.drugs![0], where: 'TRUE' }] }, o)
+    expect(Object.keys(again.relations!)).toContain('drugs.Administrations')
+    expect(again.baseAtOverride!['drugs.Administrations']).toBe(o.baseAtOverride!['drugs.Administrations'])
   })
 
   it('flags an override whose base the preset changed, and reverts one relation', () => {
