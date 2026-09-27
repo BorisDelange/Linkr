@@ -265,6 +265,18 @@ async function resolveDatasetFields(
   return errors
 }
 
+/** The tab a widget may move or be copied to: on the widget's own dashboard (its
+ *  dataset and filters are that project's), and a leaf — a tab with sub-tabs shows
+ *  none of its own widgets. A readable refusal otherwise. */
+async function widgetTargetTab(fromTabId: string, toTabId: string) {
+  const [from, to] = await Promise.all([api.getTab(fromTabId), api.getTab(toTabId)])
+  if (from.dashboardId !== to.dashboardId) return 'The target tab is on another dashboard.'
+  if ((await api.listTabs(to.dashboardId)).some((t) => t.parentTabId === toTabId)) {
+    return 'This tab holds sub-tabs: widgets go on one of its sub-tabs.'
+  }
+  return to
+}
+
 async function boardProject(board: PatientDashboard): Promise<string> {
   if (!board.projectUid) throw new Error('This board belongs to a database cohort, not a project; it is edited from that cohort in Linkr.')
   return board.projectUid
@@ -1344,18 +1356,16 @@ export function registerLabExtraTools(server: Server): void {
   }, guard(async ({ widget_id, tab_id }) => {
     const w = await api.getWidget(widget_id)
     if (w.tabId === tab_id) return failure('The widget is already on this tab.')
-    const [from, to] = await Promise.all([api.getTab(w.tabId), api.getTab(tab_id)])
-    if (from.dashboardId !== to.dashboardId) return failure('The target tab is on another dashboard.')
-    if ((await api.listTabs(to.dashboardId)).some((t) => t.parentTabId === tab_id)) {
-      return failure('This tab holds sub-tabs: widgets go on one of its sub-tabs.')
-    }
+    const to = await widgetTargetTab(w.tabId, tab_id)
+    if (typeof to === 'string') return failure(to)
     const bottom = (await api.listWidgets(tab_id)).reduce((m, x) => Math.max(m, x.layout.y + x.layout.h), 0)
     await api.updateWidget(w.id, { tabId: tab_id, layout: { ...w.layout, x: 0, y: bottom } })
     return text(`Moved "${loc(w.name)}" to tab "${loc(to.name)}".`)
   }))
 
   server.registerTool('duplicate_widget', {
-    description: 'Copy a lab dashboard widget, "(copy)" appended to its title, onto its own tab or another one.',
+    description: 'Copy a lab dashboard widget, "(copy)" appended to its title, onto its own tab or another tab '
+      + 'of the same dashboard.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{ widget_id: string; tab_id?: string }>({
       type: 'object', properties: { widget_id: { type: 'string' }, tab_id: { type: 'string', description: 'Default: the same tab.' } },
@@ -1364,6 +1374,10 @@ export function registerLabExtraTools(server: Server): void {
   }, guard(async ({ widget_id, tab_id }) => {
     const w: DashboardWidget = await api.getWidget(widget_id)
     const target = tab_id ?? w.tabId
+    if (target !== w.tabId) {
+      const to = await widgetTargetTab(w.tabId, target)
+      if (typeof to === 'string') return failure(to)
+    }
     const siblings = await api.listWidgets(target)
     const bottom = siblings.reduce((m, x) => Math.max(m, x.layout.y + x.layout.h), 0)
     const copy = await api.createWidget({
