@@ -747,16 +747,18 @@ function stripAccents(term: string): string {
   return term.normalize('NFD').replace(/\p{M}/gu, '')
 }
 
-/** One term against one column, in the requested matching mode. Case-insensitive
- *  unless asked, in every mode, so switching modes never changes that. */
+/** One term against one column, in the requested matching mode. Case- and
+ *  accent-insensitive unless asked, in every mode, so switching modes never
+ *  changes that. */
 function textTermClause(
   column: string,
   rawTerm: string,
   mode: TextMatchMode,
   opts: Pick<TextFieldSearch, 'caseSensitive' | 'ignoreAccents'>,
 ): string {
-  const colRef = opts.ignoreAccents ? `strip_accents(${column})` : column
-  const term = opts.ignoreAccents ? stripAccents(rawTerm) : rawTerm
+  const ignoreAccents = opts.ignoreAccents !== false
+  const colRef = ignoreAccents ? `strip_accents(${column})` : column
+  const term = ignoreAccents ? stripAccents(rawTerm) : rawTerm
   const flags = opts.caseSensitive ? '' : '(?i)'
   if (mode === 'regex') {
     return `regexp_matches(${colRef}, '${escPatternLiteral(`${flags}${term}`)}')`

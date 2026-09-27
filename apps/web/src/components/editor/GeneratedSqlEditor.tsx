@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect, type ReactNode } from 'react'
+import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
+import type * as Monaco from 'monaco-editor'
 import { useTranslation } from 'react-i18next'
 import { Copy, Check, RotateCcw, Save, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -19,6 +20,8 @@ interface GeneratedSqlEditorProps {
    *  so a Run button outside the editor runs the draft too. */
   onDraftChange?: (sql: string | null | undefined) => void
   readOnly?: boolean
+  /** Toolbar content at its start, before the Modified badge. */
+  toolbarStart?: ReactNode
   /** Extra toolbar content, before the Reset / Copy buttons. */
   toolbarExtra?: ReactNode
 }
@@ -40,11 +43,16 @@ export function GeneratedSqlEditor({
   onRun,
   onDraftChange,
   readOnly,
+  toolbarStart,
   toolbarExtra,
 }: GeneratedSqlEditorProps) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const [editorValue, setEditorValue] = useState(customSql ?? generatedSql ?? '')
+  // CodeEditor hands typing over after a debounce, so `editorValue` can trail the
+  // keystrokes by a moment: Run, Save and Copy read Monaco's own text.
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+  const liveText = useCallback(() => editorRef.current?.getValue() ?? editorValue, [editorValue])
 
   const hasUnsavedChanges = editorValue !== (customSql ?? generatedSql ?? '')
   const isModified = customSql != null
@@ -65,7 +73,7 @@ export function GeneratedSqlEditor({
     (text: string) => (text === (generatedSql ?? '') ? null : text),
     [generatedSql],
   )
-  const handleRun = useCallback(() => onRun?.(inEffect(editorValue)), [onRun, inEffect, editorValue])
+  const handleRun = useCallback(() => onRun?.(inEffect(liveText())), [onRun, inEffect, liveText])
 
   useEffect(() => {
     onDraftChange?.(hasUnsavedChanges ? inEffect(editorValue) : undefined)
@@ -73,8 +81,10 @@ export function GeneratedSqlEditor({
   useEffect(() => () => onDraftChange?.(undefined), [onDraftChange])
 
   const handleSave = useCallback(() => {
-    onCustomSqlChange(editorValue === (generatedSql ?? '') ? null : editorValue)
-  }, [editorValue, generatedSql, onCustomSqlChange])
+    const text = liveText()
+    setEditorValue(text)
+    onCustomSqlChange(text === (generatedSql ?? '') ? null : text)
+  }, [liveText, generatedSql, onCustomSqlChange])
 
   // Back to the last saved text, unlike Reset, which goes back to the generated SQL.
   const handleCancel = useCallback(() => {
@@ -87,7 +97,7 @@ export function GeneratedSqlEditor({
   }, [generatedSql, onCustomSqlChange])
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(editorValue)
+    await navigator.clipboard.writeText(liveText())
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -95,6 +105,7 @@ export function GeneratedSqlEditor({
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b px-3 py-1.5">
+        {toolbarStart}
         {isModified && (
           <Badge variant="outline" className="h-4 px-1.5 text-[10px] text-amber-600 border-amber-400/50 dark:text-amber-400">
             {t('cohorts.sql_modified')}
@@ -133,6 +144,7 @@ export function GeneratedSqlEditor({
         <CodeEditor
           language="sql"
           value={editorValue}
+          editorRef={editorRef}
           readOnly={readOnly}
           onChange={(val) => {
             if (val !== undefined) setEditorValue(val)

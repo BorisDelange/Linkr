@@ -45,7 +45,7 @@ Criterion types and their config:
               "occurrenceCount"?: {"operator": ">="|">"|"="|"<="|"<", "count": n}}
              conceptIds come from search_concepts; names are filled in for you.
 - text:      {"searches": [{"field": "title"|"text", "terms": ["..."], "mode"?: "contains"|"word"|"regex",
-              "anyTerm"?: true, "exclude"?: false, "caseSensitive"?: false, "ignoreAccents"?: false}], "label"?: "..."}  (needs a note table)
+              "anyTerm"?: true, "exclude"?: false, "caseSensitive"?: false, "ignoreAccents"?: true}], "label"?: "..."}  (needs a note table)
 - id_list:   {"idLevel": "patient"|"visit"|"visit_detail", "ids": ["<id>", ...]}
              keeps the rows whose patient_id / visit_id / visit_detail_id is listed (compared as text);
              at another level, the rows linked to a listed id (patients with a listed stay, unit stays of a listed stay…)

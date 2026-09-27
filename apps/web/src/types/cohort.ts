@@ -112,7 +112,7 @@ export interface TextFieldSearch {
   mode?: TextMatchMode
   /** Match the case as typed. Default false: "Sepsis" finds "sepsis". */
   caseSensitive?: boolean
-  /** Ignore accents on both sides: "hemorragie" finds "hémorragie". Default false. */
+  /** Ignore accents on both sides: "hemorragie" finds "hémorragie". Default true. */
   ignoreAccents?: boolean
   /** true = any term matches (OR), false = every term must (AND). Default OR. */
   anyTerm?: boolean

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GeneratedSqlEditor } from '@/components/editor/GeneratedSqlEditor'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { buildCohortCriteriaSql, buildCohortNativeSql, cohortIdColumn } from '@/lib/duckdb/cohort-query'
 import { namesRelation } from '@/lib/schema-classes/native-sql'
 import { localized } from '@/lib/localized'
@@ -46,33 +47,34 @@ export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute,
     ? t('cohorts.sql_format_locked_saved')
     : hasDraft ? t('cohorts.sql_format_locked_draft') : !nativeSql ? t('cohorts.sql_format_no_native') : undefined
 
+  const formatSelect = (
+    <Select value={format} onValueChange={(v) => setChosen(v as SqlFormat)} disabled={!!lockedHint}>
+      <SelectTrigger size="sm" className="h-6 w-72 shrink-0 text-xs">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="native" className="text-xs" disabled={!nativeSql && !saved}>
+          {t('cohorts.sql_format_native', { schema: schemaName })}
+        </SelectItem>
+        <SelectItem value="linkr" className="text-xs">{t('cohorts.sql_format_linkr')}</SelectItem>
+      </SelectContent>
+    </Select>
+  )
+
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-start gap-2 border-b px-3 py-1.5">
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <p className="text-xs text-muted-foreground">
-            {cohort.level === 'event'
-              ? t('cohorts.sql_contract_event')
-              : t('cohorts.sql_contract', {
-                  column: cohortIdColumn(cohort.level),
-                  level: t(`cohorts.level_${cohort.level}`).toLowerCase(),
-                })}
-          </p>
-          {format === 'native' && (
-            <p className="text-[10px] text-muted-foreground/80">{t('cohorts.sql_format_native_scope', { schema: schemaName })}</p>
-          )}
-        </div>
-        <Select value={format} onValueChange={(v) => setChosen(v as SqlFormat)} disabled={!!lockedHint}>
-          <SelectTrigger size="sm" className="h-7 w-56 shrink-0 text-xs" title={lockedHint}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="native" className="text-xs" disabled={!nativeSql && !saved}>
-              {t('cohorts.sql_format_native', { schema: schemaName })}
-            </SelectItem>
-            <SelectItem value="linkr" className="text-xs">{t('cohorts.sql_format_linkr')}</SelectItem>
-          </SelectContent>
-        </Select>
+      <div className="space-y-0.5 border-b px-3 py-1.5">
+        <p className="text-xs text-muted-foreground">
+          {cohort.level === 'event'
+            ? t('cohorts.sql_contract_event')
+            : t('cohorts.sql_contract', {
+                column: cohortIdColumn(cohort.level),
+                level: t(`cohorts.level_${cohort.level}`).toLowerCase(),
+              })}
+        </p>
+        {format === 'native' && (
+          <p className="text-[10px] text-muted-foreground/80">{t('cohorts.sql_format_native_scope', { schema: schemaName })}</p>
+        )}
       </div>
       <div className="flex-1 min-h-0">
         <GeneratedSqlEditor
@@ -81,6 +83,15 @@ export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute,
           onCustomSqlChange={onCustomSqlChange}
           onRun={onExecute}
           onDraftChange={handleDraftChange}
+          toolbarStart={lockedHint ? (
+            // A disabled trigger receives no pointer events: the span carries the hover.
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="shrink-0">{formatSelect}</span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-72 text-xs">{lockedHint}</TooltipContent>
+            </Tooltip>
+          ) : formatSelect}
         />
       </div>
     </div>

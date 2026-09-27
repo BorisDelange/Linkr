@@ -250,8 +250,8 @@ describe('buildCohortCountSql free-text criterion', () => {
       }),
       withNotes,
     )!
-    expect(sql).toContain('n.title ILIKE')
-    expect(sql).toContain('n.text ILIKE')
+    expect(sql).toContain('strip_accents(n.title) ILIKE')
+    expect(sql).toContain('strip_accents(n.text) ILIKE')
     expect(sql).toMatch(/EXISTS \(\s*SELECT 1\s*FROM linkr_note n/)
   })
 
@@ -689,20 +689,21 @@ describe('text criterion: case and accents', () => {
     return buildCohortCountSql(c, noteMapping)!
   }
 
-  it('ignores case by default, in every mode', () => {
-    expect(textSql({})).toContain("n.text ILIKE '%Hémorragie%'")
-    expect(textSql({ mode: 'word' })).toContain("'(?i)")
-    expect(textSql({ mode: 'regex' })).toContain("'(?i)Hémorragie'")
+  it('ignores case and accents by default, in every mode', () => {
+    expect(textSql({})).toContain("strip_accents(n.text) ILIKE '%Hemorragie%'")
+    expect(textSql({ mode: 'word' })).toContain("regexp_matches(strip_accents(n.text), '(?i)")
+    expect(textSql({ mode: 'regex' })).toContain("'(?i)Hemorragie'")
   })
 
   it('matches the case as typed when asked', () => {
-    expect(textSql({ caseSensitive: true })).toContain("n.text LIKE '%Hémorragie%'")
-    expect(textSql({ caseSensitive: true, mode: 'regex' })).toContain("'Hémorragie'")
+    expect(textSql({ caseSensitive: true })).toContain("strip_accents(n.text) LIKE '%Hemorragie%'")
+    expect(textSql({ caseSensitive: true, mode: 'regex' })).toContain("'Hemorragie'")
     expect(textSql({ caseSensitive: true, mode: 'regex' })).not.toContain('(?i)')
   })
 
-  it('strips accents on both sides when asked', () => {
-    expect(textSql({ ignoreAccents: true })).toContain("strip_accents(n.text) ILIKE '%Hemorragie%'")
+  it('keeps accents when they are to count', () => {
+    expect(textSql({ ignoreAccents: false })).toContain("n.text ILIKE '%Hémorragie%'")
+    expect(textSql({ ignoreAccents: false })).not.toContain('strip_accents')
   })
 })
 

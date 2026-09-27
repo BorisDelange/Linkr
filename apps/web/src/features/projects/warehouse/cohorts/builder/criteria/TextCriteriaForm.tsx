@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { classRelation, has } from '@/lib/schema-classes/relations'
 import { Info, Plus, X } from 'lucide-react'
@@ -41,6 +42,36 @@ function parseTerms(raw: string, mode: TextMatchMode): string[] {
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean)
+}
+
+/** A small on/off chip with its explanation in a tooltip. */
+function HintToggle({ pressed, onToggle, hint, className, children }: {
+  pressed: boolean
+  onToggle: () => void
+  hint: string
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-pressed={pressed}
+          aria-label={hint}
+          className={cn(
+            'rounded px-1.5 py-0.5 text-[10px] font-bold transition-colors',
+            pressed ? 'bg-primary/10 text-primary hover:bg-primary/20' : 'text-muted-foreground hover:bg-accent',
+            className,
+          )}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-72 text-xs">{hint}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriteriaFormProps) {
@@ -102,19 +133,17 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
           )}
           <div className="space-y-1.5 rounded-md border p-2">
           <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => updateSearch(index, { exclude: !search.exclude })}
-              title={t('cohorts.text_exclude_hint')}
+            <HintToggle
+              pressed={!!search.exclude}
+              onToggle={() => updateSearch(index, { exclude: !search.exclude })}
+              hint={t('cohorts.text_exclude_hint')}
               className={cn(
-                'rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide transition-colors',
-                search.exclude
-                  ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20 dark:text-red-400'
-                  : 'text-muted-foreground hover:bg-accent',
+                'uppercase tracking-wide',
+                search.exclude && 'bg-red-500/10 text-red-500 hover:bg-red-500/20 dark:text-red-400',
               )}
             >
               {t('cohorts.text_not')}
-            </button>
+            </HintToggle>
             <Select
               value={search.field}
               onValueChange={(v) => updateSearch(index, { field: v as 'title' | 'text' })}
@@ -159,31 +188,23 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
               </TooltipContent>
             </Tooltip>
 
-            {/* Off by default: a clinical note spells a word every way it can. */}
-            <button
-              type="button"
-              onClick={() => updateSearch(index, { caseSensitive: !search.caseSensitive })}
-              title={t(search.caseSensitive ? 'cohorts.text_case_sensitive_on' : 'cohorts.text_case_sensitive_off')}
-              aria-pressed={!!search.caseSensitive}
-              className={cn(
-                'rounded px-1.5 py-0.5 font-mono text-[10px] font-bold transition-colors',
-                search.caseSensitive ? 'bg-primary/10 text-primary hover:bg-primary/20' : 'text-muted-foreground hover:bg-accent',
-              )}
+            {/* Case and accents ignored by default: a clinical note spells a word
+                every way it can. */}
+            <HintToggle
+              pressed={!!search.caseSensitive}
+              onToggle={() => updateSearch(index, { caseSensitive: !search.caseSensitive })}
+              hint={t(search.caseSensitive ? 'cohorts.text_case_sensitive_on' : 'cohorts.text_case_sensitive_off')}
+              className="font-mono"
             >
               Aa
-            </button>
-            <button
-              type="button"
-              onClick={() => updateSearch(index, { ignoreAccents: !search.ignoreAccents })}
-              title={t(search.ignoreAccents ? 'cohorts.text_ignore_accents_on' : 'cohorts.text_ignore_accents_off')}
-              aria-pressed={!!search.ignoreAccents}
-              className={cn(
-                'rounded px-1.5 py-0.5 text-[10px] font-bold transition-colors',
-                search.ignoreAccents ? 'bg-primary/10 text-primary hover:bg-primary/20' : 'text-muted-foreground hover:bg-accent',
-              )}
+            </HintToggle>
+            <HintToggle
+              pressed={search.ignoreAccents !== false}
+              onToggle={() => updateSearch(index, { ignoreAccents: search.ignoreAccents === false })}
+              hint={t(search.ignoreAccents !== false ? 'cohorts.text_ignore_accents_on' : 'cohorts.text_ignore_accents_off')}
             >
               é=e
-            </button>
+            </HintToggle>
 
             <button
               type="button"
