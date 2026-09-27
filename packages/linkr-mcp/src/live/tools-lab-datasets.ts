@@ -410,7 +410,7 @@ export function registerLabDatasetTools(server: Server): void {
       + 'Widgets or filters on columns whose id changed must be updated.')
   }))
 
-  // --- Dataset analyses ----------------------------------------------------------
+  // --- Dataset analyses ------------------------------------------------------
 
   server.registerTool('list_dataset_analyses', {
     description: 'The analyses attached to a dataset: tabs beside its table in Linkr, each a plugin (table 1, plot, '

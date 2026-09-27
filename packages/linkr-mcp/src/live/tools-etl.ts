@@ -20,7 +20,7 @@ import {
   DESTRUCTIVE, READ, WRITE, api, authored, failure, guard, loc, text, type Server, type ToolResult,
 } from './shared.js'
 
-// --- REST ----------------------------------------------------------------------
+// --- REST --------------------------------------------------------------------
 
 type Pipeline = EtlPipeline
 type Collection = SqlScriptCollection
@@ -79,7 +79,7 @@ const sql = {
 const listDbs = () => api.request<Db[]>('GET', '/data-sources')
 const listWorkspaces = () => api.request<{ id: string; name: Record<string, string> }[]>('GET', '/workspaces')
 
-// --- Shared bits -----------------------------------------------------------------
+// --- Shared bits -------------------------------------------------------------
 
 const isManaged = (db: Db | undefined) => !!db?.connectionConfig?.managed
 
@@ -114,7 +114,7 @@ function workspaceDbList(dbs: Db[], workspaceId: string): string {
 const ifGiven = <T>(v: T | undefined, f: (v: T) => Record<string, unknown>) => (v === undefined ? {} : f(v))
 const orNull = (v: string | null | undefined) => (v ? v : null)
 
-// --- Tree edits shared by pipelines and collections --------------------------------
+// --- Tree edits shared by pipelines and collections --------------------------
 
 interface TreeApi {
   kind: 'etl' | 'sql'
@@ -224,7 +224,7 @@ const PATH_PROPS = {
   path: { type: 'string', description: 'Path inside the tree, with extension, e.g. "10_person.sql" or "mapping/concept.csv".' },
 } as const
 
-// --- Running a pipeline ------------------------------------------------------------
+// --- Running a pipeline ------------------------------------------------------
 
 async function vocabIdOf(p: Pipeline): Promise<string | undefined> {
   if (!p.mappingProjectId) return undefined
@@ -304,10 +304,10 @@ async function runPipeline(p: Pipeline, scripts: EtlNode[], files: EtlNode[], sh
   return { content: [{ type: 'text', text: out.join('\n') }], ...(failed ? { isError: true } : {}) }
 }
 
-// --- Tools ---------------------------------------------------------------------------
+// --- Tools -------------------------------------------------------------------
 
 export function registerEtlTools(server: Server): void {
-  // --- ETL pipelines ---------------------------------------------------------------
+  // --- ETL pipelines ---------------------------------------------------------
 
   server.registerTool('list_etl_pipelines', {
     description:
@@ -490,7 +490,7 @@ export function registerEtlTools(server: Server): void {
     return text(`Deleted pipeline "${loc(p.name)}".`)
   }))
 
-  // --- Pipeline files -------------------------------------------------------------
+  // --- Pipeline files --------------------------------------------------------
 
   server.registerTool('read_etl_file', {
     description: 'The content of one file of an ETL pipeline (a script, a Markdown note, a mapping export CSV).',
@@ -601,7 +601,7 @@ export function registerEtlTools(server: Server): void {
       + pipelineScripts(after).map((f, i) => `  ${i + 1}. ${names.get(f.id)}`).join('\n'))
   }))
 
-  // --- Runs ----------------------------------------------------------------------
+  // --- Runs ------------------------------------------------------------------
 
   server.registerTool('run_etl_pipeline', {
     description:
@@ -675,7 +675,7 @@ export function registerEtlTools(server: Server): void {
     return text(formatRun(run, files))
   }))
 
-  // --- SQL script collections ---------------------------------------------------------
+  // --- SQL script collections ------------------------------------------------
 
   server.registerTool('list_sql_collections', {
     description:

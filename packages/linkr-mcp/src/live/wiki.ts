@@ -15,7 +15,7 @@ import { PRIMARY, PUBLISHED, SECONDARY } from '@/lib/data-catalog/suppression'
 import type { LocalizedString, SchemaMapping, WikiPage } from '@/types'
 import { subtreeIds } from './helpers.js'
 
-// --- Wiki ---------------------------------------------------------------------
+// --- Wiki --------------------------------------------------------------------
 
 /** The wiki store's slug: set from the English title on create and on rename. */
 export function wikiSlug(title: string): string {
@@ -98,7 +98,7 @@ export function planMove(
   return { updates }
 }
 
-// --- READMEs ------------------------------------------------------------------
+// --- READMEs -----------------------------------------------------------------
 
 /** Entities carrying a Markdown README (a LocalizedString field `readme`), by the
  *  name the tools use, with their REST path and the README-attachment owner type. */
@@ -126,7 +126,7 @@ export function readmeIn(readme: LocalizedString | string | null | undefined, la
 export const withReadme = (readme: LocalizedString | string | null | undefined, lang: string, text: string) =>
   setLocalized(readme, lang, text)
 
-// --- Data catalogs ------------------------------------------------------------
+// --- Data catalogs -----------------------------------------------------------
 
 /** Columns a catalog can classify concepts by: the dictionaries' category and
  *  subcategory (named by the source column they read) and their extra columns —

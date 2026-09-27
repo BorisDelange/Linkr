@@ -15,9 +15,7 @@ import {
 } from './workspace.js'
 
 export function registerWorkspaceTools(server: Server): void {
-  // ---------------------------------------------------------------------------
-  // Workspaces
-  // ---------------------------------------------------------------------------
+  // --- Workspaces ------------------------------------------------------------
 
   server.registerTool('list_workspaces', {
     description:
@@ -162,9 +160,7 @@ export function registerWorkspaceTools(server: Server): void {
     return text(orgs.map((o) => `- ${name(o.name)} — organization_id: ${o.id}${o.type ? ` · ${o.type}` : ''}`).join('\n'))
   }))
 
-  // ---------------------------------------------------------------------------
-  // Projects
-  // ---------------------------------------------------------------------------
+  // --- Projects --------------------------------------------------------------
 
   server.registerTool('create_project', {
     description:

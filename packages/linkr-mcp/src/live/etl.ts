@@ -263,7 +263,7 @@ export function reorderPatch(ordered: Pick<EtlFile, 'id' | 'order'>[]): Map<stri
   return patch
 }
 
-// --- Formatting ----------------------------------------------------------------
+// --- Formatting --------------------------------------------------------------
 
 const lines = (content: string | null | undefined) => (content ? content.split('\n').length : 0)
 

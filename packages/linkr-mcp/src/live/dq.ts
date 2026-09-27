@@ -157,9 +157,7 @@ export function checkTestProblem(rows: Record<string, unknown>[]): string | null
   return null
 }
 
-// ---------------------------------------------------------------------------
-// A run
-// ---------------------------------------------------------------------------
+// --- A run -------------------------------------------------------------------
 
 export { runnableChecks }
 
@@ -264,9 +262,7 @@ export function runRecord(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Schema checks
-// ---------------------------------------------------------------------------
+// --- Schema checks -----------------------------------------------------------
 
 /** The templates a rule set does not hold yet (matched on `templateKey`), and how many it has. */
 export function missingTemplates(templates: DqCheckTemplate[], stored: DqCustomCheck[]) {
@@ -288,9 +284,7 @@ export function formatTemplates(templates: DqCheckTemplate[], max = 200): string
   return out.join('\n')
 }
 
-// ---------------------------------------------------------------------------
-// Text
-// ---------------------------------------------------------------------------
+// --- Text --------------------------------------------------------------------
 
 const oneLine = (sql: string) => sql.replace(/\s+/g, ' ').trim()
 const pct = (n: number) => (n >= 10 || n === 0 ? n.toFixed(0) : n.toFixed(2))
@@ -371,9 +365,7 @@ export function formatReport(report: DqReport, view: ReportView = {}): string {
   return lines.join('\n')
 }
 
-// ---------------------------------------------------------------------------
-// Investigation
-// ---------------------------------------------------------------------------
+// --- Investigation -----------------------------------------------------------
 
 /** The explore query without its trailing `LIMIT n` (and `;`), so the caller bounds it. */
 export function unboundedExplore(sql: string): string {

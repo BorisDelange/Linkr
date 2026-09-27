@@ -29,9 +29,7 @@ const DB_ERROR_NO_DATA = 'linkr:db-imported-without-data'
 
 const text = (v: LocalizedString | string | null | undefined, lang: Language = 'en') => localized(v, lang)
 
-// ---------------------------------------------------------------------------
-// Identifiers
-// ---------------------------------------------------------------------------
+// --- Identifiers -------------------------------------------------------------
 
 /** Why an identifier is refused, or null when it is valid and free among `taken`
  *  (the entity ids of the `owner`s it must not collide with). */
@@ -52,9 +50,7 @@ export function projectEntityId(name: string, requested: string | undefined, tak
   return { id: uniqueEntityId(slugifyId(name), taken) }
 }
 
-// ---------------------------------------------------------------------------
-// Workspaces and projects
-// ---------------------------------------------------------------------------
+// --- Workspaces and projects -------------------------------------------------
 
 /** Body of `POST /workspaces`, as `addWorkspace` sends it. The server stamps the author. */
 export function workspaceCreateBody(input: {
@@ -186,9 +182,7 @@ export function linkRefusal(project: Project, db: DataSource): string | null {
   return null
 }
 
-// ---------------------------------------------------------------------------
-// Databases
-// ---------------------------------------------------------------------------
+// --- Databases ---------------------------------------------------------------
 
 export type DatabaseKind = 'managed' | 'server-file' | 'server-folder' | 'uploaded-file' | 'uploaded-folder'
   | 'in-browser' | 'external' | 'fhir' | 'unknown'
@@ -374,9 +368,7 @@ export const isFileDatabase = (db: DataSource): boolean => {
 export const errorWords = (message: string | null | undefined): string =>
   message === DB_ERROR_NO_DATA ? 'no data attached (imported without its files, or empty)' : message ?? ''
 
-// ---------------------------------------------------------------------------
-// Text for the model
-// ---------------------------------------------------------------------------
+// --- Text for the model ------------------------------------------------------
 
 export const badgeList = (badges: ProjectBadge[] | undefined): string =>
   (badges ?? []).map((b) => text(b.label)).join(', ')

@@ -179,9 +179,7 @@ function unknownIds(all: DqCustomCheck[], ids: string[]): string | null {
   return unknown.length ? `Not checks of this rule set: ${unknown.join(', ')} (list_dq_checks lists them).` : null
 }
 
-// ---------------------------------------------------------------------------
-// Input schemas
-// ---------------------------------------------------------------------------
+// --- Input schemas -----------------------------------------------------------
 
 const RULE_SET_ID = { rule_set_id: { type: 'string' } } as const
 
@@ -237,9 +235,7 @@ const toFilter = (f: Filter, state?: CheckFilter['state']): CheckFilter => ({
 })
 
 export function registerDqTools(server: Server): void {
-  // ---------------------------------------------------------------------------
-  // Rule sets
-  // ---------------------------------------------------------------------------
+  // --- Rule sets -------------------------------------------------------------
 
   server.registerTool('list_dq_rule_sets', {
     description: `List data-quality rule sets. ${RULE_SET_NOTE} Filter by workspace (workspace_id, or `
@@ -413,9 +409,7 @@ export function registerDqTools(server: Server): void {
     return text(`Deleted rule set "${loc(rs.name)}" (${rs.id}).`)
   }))
 
-  // ---------------------------------------------------------------------------
-  // Checks
-  // ---------------------------------------------------------------------------
+  // --- Checks ----------------------------------------------------------------
 
   server.registerTool('list_dq_checks', {
     description: 'The checks of a data-quality rule set by group, as the Checks tab lists them: id, name, '
@@ -662,9 +656,7 @@ export function registerDqTools(server: Server): void {
     return text(`Deleted ${check_ids.length} check(s): ${names.slice(0, 30).join(', ')}${names.length > 30 ? ', …' : ''}.`)
   }))
 
-  // ---------------------------------------------------------------------------
-  // Groups — a group is the `tableName` its checks share
-  // ---------------------------------------------------------------------------
+  // --- Groups — a group is the `tableName` its checks share ------------------
 
   /** Keep the rule set's empty groups in step after a group change. */
   async function saveEmptyGroups(rs: DqRuleSet, checks: DqCustomCheck[], change: Parameters<typeof nextEmptyGroups>[2]) {
@@ -774,9 +766,7 @@ export function registerDqTools(server: Server): void {
     return text(`Deleted the group "${name}"; its ${ids.length} check(s) are now under "${OTHER_GROUP}".`)
   }))
 
-  // ---------------------------------------------------------------------------
-  // Runs
-  // ---------------------------------------------------------------------------
+  // --- Runs ------------------------------------------------------------------
 
   server.registerTool('run_dq_rule_set', {
     description: 'Run a data-quality rule set on its database: every enabled check (or those of check_ids / '
