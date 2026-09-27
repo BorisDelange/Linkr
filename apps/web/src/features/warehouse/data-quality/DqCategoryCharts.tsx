@@ -14,9 +14,9 @@ interface Props {
 
 // Recharts needs hex values; same hues as CATEGORY_COLORS.
 const CATEGORY_HEX: Record<DqCategory, string> = {
-  conformance: '#8b5cf6', // violet-500
-  completeness: '#3b82f6', // blue-500
-  plausibility: '#f43f5e', // rose-500
+  conformance: '#6366f1', // indigo-500
+  completeness: '#0ea5e9', // sky-500
+  plausibility: '#8b5cf6', // violet-500
 }
 
 export function DqCategoryCharts({ checks, results }: Props) {

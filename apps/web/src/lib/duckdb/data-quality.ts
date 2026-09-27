@@ -24,6 +24,8 @@ export interface DqCheck {
   threshold: number
   /** SQL returning violated_rows (bigint) and total_rows (bigint). */
   sql: string
+  /** Lists the violating rows; null when the check has none. */
+  exploreSql: string | null
 }
 
 export interface DqCheckResult {
@@ -71,6 +73,7 @@ export function runnableChecks(stored: DqCustomCheck[]): DqCheck[] {
       tableName: c.tableName,
       threshold: c.threshold,
       sql: c.sql,
+      exploreSql: c.exploreSql?.trim() ? c.exploreSql : null,
     }))
 }
 

@@ -85,6 +85,8 @@ export interface DqCheckSpec {
   name: string
   /** The query the check runs. Without it the check scores nothing. */
   sql: string
+  /** Lists the rows breaking the rule, to investigate a failure. */
+  exploreSql?: string | null
   description?: string
   /** Kahn et al. (2016): conformance | completeness | plausibility. */
   category?: 'conformance' | 'completeness' | 'plausibility'
@@ -393,6 +395,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             severity: check.severity ?? 'error',
             ...(check.threshold != null ? { threshold: check.threshold } : {}),
             sql: check.sql,
+            exploreSql: check.exploreSql ?? null,
             order: i,
             origin: check.origin ?? 'manual',
             templateKey: check.templateKey ?? null,

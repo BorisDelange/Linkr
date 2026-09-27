@@ -79,6 +79,14 @@ describe('checks from the DDL', () => {
     expect(fk).toMatchObject({ category: 'conformance', subcategory: 'relational', origin: 'ddl', tableName: 'measurement' })
   })
 
+  it('lists the rows it counts, so a failure can be investigated', () => {
+    const fk = tpls.find((c) => c.templateKey.startsWith('ddl.foreign_key:measurement'))!
+    expect(fk.exploreSql).toContain('SELECT t.*')
+    expect(fk.exploreSql).toContain('WHERE t."person_id" IS NOT NULL\n  AND (r."person_id" IS NULL)')
+    const pk = tpls.find((c) => c.templateKey === 'ddl.primary_key:person')!
+    expect(pk.exploreSql).toContain('GROUP BY "person_id"\nHAVING COUNT(*) > 1')
+  })
+
   it('resolves an unqualified reference in the referencing table\'s schema', () => {
     const ddl = `CREATE TABLE hosp.patients (\n  subject_id integer NOT NULL\n);\nCREATE TABLE hosp.admissions (\n  subject_id integer NOT NULL\n);\nALTER TABLE hosp.admissions ADD CONSTRAINT fk FOREIGN KEY (subject_id) REFERENCES patients (subject_id);`
     const fk = ddlCheckTemplates(ddl, t).find((c) => c.templateKey.startsWith('ddl.foreign_key'))!
@@ -127,7 +135,7 @@ describe('schema checks as stored checks', () => {
     // Key order is the server's response order: exports must be byte-identical.
     expect(Object.keys(checks[0])).toEqual([
       'id', 'ruleSetId', 'name', 'description', 'category', 'subcategory', 'severity', 'threshold',
-      'sql', 'order', 'origin', 'templateKey', 'tableName', 'disabled', 'createdAt', 'updatedAt',
+      'sql', 'exploreSql', 'order', 'origin', 'templateKey', 'tableName', 'disabled', 'createdAt', 'updatedAt',
     ])
   })
 })

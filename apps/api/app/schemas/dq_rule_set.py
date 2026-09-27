@@ -107,6 +107,7 @@ class DqCustomCheckCreate(CamelModel):
     severity: str
     threshold: float = 0
     sql: str = ""
+    explore_sql: str | None = None
     order: int = 0
     origin: str = "manual"
     template_key: str | None = None
@@ -122,6 +123,7 @@ class DqCustomCheckUpdate(CamelModel):
     severity: str | None = None
     threshold: float | None = None
     sql: str | None = None
+    explore_sql: str | None = None
     order: int | None = None
     disabled: bool | None = None
 
@@ -136,6 +138,7 @@ class DqCustomCheckResponse(CamelModel):
     severity: str
     threshold: float
     sql: str
+    explore_sql: str | None = None
     order: int
     origin: str
     template_key: str | None = None

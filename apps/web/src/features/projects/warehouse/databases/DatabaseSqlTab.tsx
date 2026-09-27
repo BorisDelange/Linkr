@@ -27,14 +27,25 @@ type Outcome =
  *  saves nothing, but leaving it for the Schema tab must not lose the query. */
 const drafts = new Map<string, string>()
 
+interface Props {
+  dataSourceId: string
+  /** Whose draft this console keeps; defaults to the database's own. */
+  draftKey?: string
+  /** Replaces the draft on mount — remount (a new `key`) to load another query. */
+  initialSql?: string
+}
+
 /** A scratch SQL console on one database: write, run, read the result. No
  *  scripts, no files, no saving — the SQL scripts page is for that. */
-export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
+export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialSql }: Props) {
   const { t } = useTranslation()
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   // Controlled: CodeEditor feeds Monaco this value back once its debounced
   // onChange lands, so a value that never follows the typing erases it.
-  const [sql, setSql] = useState(() => drafts.get(dataSourceId) ?? '')
+  const [sql, setSql] = useState(() => {
+    if (initialSql !== undefined) drafts.set(draftKey, initialSql)
+    return drafts.get(draftKey) ?? ''
+  })
   const [running, setRunning] = useState(false)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
@@ -111,7 +122,7 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
               editorRef={editorRef}
               onChange={(v) => {
                 setSql(v ?? '')
-                drafts.set(dataSourceId, v ?? '')
+                drafts.set(draftKey, v ?? '')
               }}
               onRunSelectionOrLine={() => void run('line')}
               onRunFile={() => void run('all')}

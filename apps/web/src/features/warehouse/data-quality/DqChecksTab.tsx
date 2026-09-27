@@ -20,6 +20,12 @@ import {
   ChevronDown,
   ChevronRight,
   AlertTriangle,
+  Info,
+  Undo2,
+  Search,
+  FileCode2,
+  Waypoints,
+  SquarePen,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -43,6 +49,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -89,18 +96,21 @@ import {
   type DqSubcategory,
 } from '@/lib/dq-taxonomy'
 import { makeCheck } from '@/lib/dq-templates'
-import { useDqStore } from '@/stores/dq-store'
+import { useDqStore, type CheckQueryField } from '@/stores/dq-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { localized } from '@/lib/localized'
 import { buildPointer } from '@/lib/import-identity'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { CATEGORY_COLORS } from './DqConstants'
+import { AddSchemaChecksDialog } from './AddSchemaChecksDialog'
 import type { DqCustomCheck } from '@/types'
 
 interface Props {
   ruleSetId: string
   dataSourceId: string
+  /** Opens the rule set's investigation console with this query. */
+  onInvestigate: (sql: string) => void
 }
 
 type OriginFilter = 'all' | DqCheckOrigin
@@ -122,7 +132,7 @@ interface CheckGroup {
   checks: DqCustomCheck[]
 }
 
-export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
+export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
   const {
@@ -132,9 +142,10 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     createCustomCheck,
     deleteCustomCheck,
     updateCustomCheck,
-    updateCheckSql,
+    updateCheckQuery,
     isCheckDirty,
     saveCheck,
+    revertCheck,
     setChecksDisabled,
     _dirtyVersion,
   } = useDqStore()
@@ -154,6 +165,8 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
   const search = useSidebarSearch()
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
+  const [queryField, setQueryField] = useState<CheckQueryField>('sql')
+  const [addFromSchema, setAddFromSchema] = useState<'ddl' | 'mapping' | null>(null)
   // Groups the user folded or unfolded, against the default for the list size.
   const [toggledGroups, setToggledGroups] = useState<Set<string>>(new Set())
 
@@ -212,6 +225,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
       severity: 'warning',
       threshold: 0,
       sql: t('data_quality.new_check_sql'),
+      exploreSql: t('data_quality.new_check_explore_sql'),
       origin: 'manual',
       templateKey: null,
       tableName: null,
@@ -318,6 +332,10 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     }
   }, [selectedCheck, testing, dataSourceId, ensureMounted, formatPct, i18n.language, t])
 
+  const investigate = () => {
+    if (selectedCheck) onInvestigate(selectedCheck.exploreSql?.trim() ? selectedCheck.exploreSql : selectedCheck.sql)
+  }
+
   const handleSave = useCallback(async () => {
     if (selectedCheck) await saveCheck(selectedCheck.id)
   }, [selectedCheck, saveCheck])
@@ -361,12 +379,16 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                 {testing ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
                 {testing ? t('data_quality.testing') : t('data_quality.test_check')}
               </Button>
-
-              {isCheckDirty(selectedCheck.id) && (
-                <Button size="icon-xs" variant="ghost" disabled={!canWrite} onClick={handleSave}>
-                  <Save size={14} />
-                </Button>
-              )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={investigate}
+                disabled={!dataSourceId}
+                className="h-6 gap-1 px-2 text-xs"
+              >
+                <Search size={14} />
+                {t('data_quality.investigate')}
+              </Button>
             </>
           )}
 
@@ -417,8 +439,8 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                           <Filter size={12} />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>{t('data_quality.filter_origin')}</DropdownMenuLabel>
+                      <DropdownMenuContent align="end" className="w-44">
+                        <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">{t('data_quality.filter_origin')}</DropdownMenuLabel>
                         <DropdownMenuCheckboxItem checked={originFilter === 'all'} onCheckedChange={() => setOriginFilter('all')}>
                           {t('data_quality.filter_all')}
                         </DropdownMenuCheckboxItem>
@@ -428,7 +450,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                           </DropdownMenuCheckboxItem>
                         ))}
                         <DropdownMenuSeparator />
-                        <DropdownMenuLabel>{t('data_quality.filter_category')}</DropdownMenuLabel>
+                        <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">{t('data_quality.filter_category')}</DropdownMenuLabel>
                         <DropdownMenuCheckboxItem checked={categoryFilter === 'all'} onCheckedChange={() => setCategoryFilter('all')}>
                           {t('data_quality.filter_all')}
                         </DropdownMenuCheckboxItem>
@@ -458,9 +480,28 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                       onToggle={search.toggle}
                       label={t('data_quality.search_checks')}
                     />
-                    <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={handleNewCheck}>
-                      <Plus size={14} />
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon-xs" disabled={!canWrite}>
+                          <Plus size={14} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52">
+                        <DropdownMenuItem onClick={() => void handleNewCheck()}>
+                          <SquarePen />
+                          {t('data_quality.add_manual')}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setAddFromSchema('ddl')}>
+                          <FileCode2 />
+                          {t('data_quality.add_from_ddl')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setAddFromSchema('mapping')}>
+                          <Waypoints />
+                          {t('data_quality.add_from_mapping')}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
 
@@ -593,6 +634,21 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-3 py-1.5">
                     <div className="flex items-center gap-1.5">
                       <Label className="text-[10px] text-muted-foreground">{t('data_quality.col_category')}</Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info size={12} className="-ml-1 shrink-0 text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm space-y-1.5 py-2">
+                          {DQ_CATEGORIES.map((c) => (
+                            <p key={c}>
+                              <span className="font-semibold">{t(`data_quality.category_${c}`)}</span>
+                              {' — '}
+                              {t(`data_quality.category_${c}_help`)}
+                            </p>
+                          ))}
+                          <p className="opacity-70">{t('data_quality.category_source')}</p>
+                        </TooltipContent>
+                      </Tooltip>
                       <Select
                         value={selectedCheck.category}
                         onValueChange={(v) => handleCategoryChange(selectedCheck, v as DqCategory)}
@@ -678,16 +734,63 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                     />
                   </div>
 
-                  {/* Monaco editor */}
+                  {/* The two queries of a check, one editor; Save and Cancel cover both. */}
+                  <div className="flex items-center gap-1 border-b px-3 py-1">
+                    {(['sql', 'exploreSql'] as const).map((field) => (
+                      <Button
+                        key={field}
+                        variant={queryField === field ? 'secondary' : 'ghost'}
+                        size="sm"
+                        onClick={() => setQueryField(field)}
+                        className="h-6 px-2 text-xs"
+                      >
+                        {t(field === 'sql' ? 'data_quality.query_count' : 'data_quality.query_explore')}
+                      </Button>
+                    ))}
+                    {isCheckDirty(selectedCheck.id) && (
+                      <span className="ml-1 size-2 shrink-0 rounded-full bg-orange-400" title={t('data_quality.unsaved')} />
+                    )}
+                    <div className="flex-1" />
+                    {canWrite && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => revertCheck(selectedCheck.id)}
+                          disabled={!isCheckDirty(selectedCheck.id)}
+                          className="h-6 gap-1 text-xs"
+                        >
+                          <Undo2 size={12} />
+                          {t('common.cancel')}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void handleSave()}
+                          disabled={!isCheckDirty(selectedCheck.id)}
+                          className="h-6 gap-1 text-xs"
+                        >
+                          <Save size={12} />
+                          {t('common.save')}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  {queryField === 'exploreSql' && (
+                    <p className="border-b bg-muted/30 px-3 py-1 text-[10px] text-muted-foreground">
+                      {t('data_quality.query_explore_help')}
+                    </p>
+                  )}
                   <div className="min-h-0 flex-1">
                     <CodeEditor
-                      value={selectedCheck.sql}
-                      onChange={(value) => updateCheckSql(selectedCheck.id, value ?? '')}
+                      key={`${selectedCheck.id}:${queryField}`}
+                      value={(queryField === 'sql' ? selectedCheck.sql : selectedCheck.exploreSql) ?? ''}
+                      onChange={(value) => updateCheckQuery(selectedCheck.id, queryField, value ?? '')}
                       language="sql"
                       readOnly={!canWrite}
-                      onSave={() => handleSave()}
-                      onRunSelectionOrLine={() => handleTest()}
-                      onRunFile={() => handleTest()}
+                      onSave={() => void handleSave()}
+                      onRunSelectionOrLine={() => (queryField === 'sql' ? void handleTest() : investigate())}
+                      onRunFile={() => (queryField === 'sql' ? void handleTest() : investigate())}
                     />
                   </div>
 
@@ -731,6 +834,13 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
           </Allotment>
         </div>
       </div>
+
+      <AddSchemaChecksDialog
+        open={addFromSchema !== null}
+        origin={addFromSchema ?? 'ddl'}
+        ruleSetId={ruleSetId}
+        onOpenChange={(open) => { if (!open) setAddFromSchema(null) }}
+      />
 
       <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <AlertDialogContent>
@@ -857,8 +967,10 @@ function DqCheckRow({
     )} />
   )
 
+  // A fixed height, not vertical padding: the rename field then fits inside the
+  // row (h-5, `-ml-0.5` absorbing its border) and neither the row nor the text moves.
   const rowClass = cn(
-    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors',
+    'flex h-7 w-full items-center gap-2 rounded-md px-2 text-xs transition-colors',
     selected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50',
     disabled && 'opacity-50',
   )
@@ -866,11 +978,13 @@ function DqCheckRow({
   if (renaming) {
     return (
       <div className={rowClass}>
+        {editMode && <Checkbox checked={checked} disabled className="size-3.5 shrink-0" />}
         {dot}
         <InlineRenameField
           initialValue={name}
           onSubmit={onRename}
           onCancel={onCancelRename}
+          className="-ml-0.5 h-5"
         />
       </div>
     )
@@ -902,7 +1016,7 @@ function DqCheckRow({
             </TooltipTrigger>
             {dirty && (
               <span
-                className="size-1.5 shrink-0 rounded-full bg-orange-500"
+                className="size-1.5 shrink-0 rounded-full bg-orange-400"
                 title={t('data_quality.unsaved')}
               />
             )}

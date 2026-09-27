@@ -26,6 +26,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("schema_preset_ref", JSONB_or_JSON, nullable=True))
     with op.batch_alter_table("dq_custom_checks", schema=None) as batch_op:
         batch_op.add_column(sa.Column("subcategory", sa.String(length=20), nullable=True))
+        batch_op.add_column(sa.Column("explore_sql", sa.Text(), nullable=True))
         batch_op.add_column(sa.Column("origin", sa.String(length=10), nullable=False, server_default="manual"))
         batch_op.add_column(sa.Column("template_key", sa.Text(), nullable=True))
         batch_op.add_column(sa.Column("table_name", sa.String(length=255), nullable=True))
@@ -38,6 +39,7 @@ def downgrade() -> None:
         batch_op.drop_column("table_name")
         batch_op.drop_column("template_key")
         batch_op.drop_column("origin")
+        batch_op.drop_column("explore_sql")
         batch_op.drop_column("subcategory")
     with op.batch_alter_table("dq_rule_sets", schema=None) as batch_op:
         batch_op.drop_column("schema_preset_ref")

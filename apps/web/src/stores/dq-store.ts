@@ -10,12 +10,16 @@ import { normalizeDqCheck } from '@/lib/dq-taxonomy'
 // canonical definition now lives in @/types alongside the other DQ entities.
 export type { DqRunHistoryEntry }
 
+export type CheckQueryField = 'sql' | 'exploreSql'
+type SavedQueries = Pick<DqCustomCheck, CheckQueryField>
+
 /** A stored check with every field filled: rows written before the Kahn
  *  categories and the generated checks lack some. */
 function readCheck(check: DqCustomCheck): DqCustomCheck {
   return normalizeDqCheck({
     ...check,
     subcategory: check.subcategory ?? null,
+    exploreSql: check.exploreSql ?? null,
     origin: check.origin ?? 'manual',
     templateKey: check.templateKey ?? null,
     tableName: check.tableName ?? null,
@@ -50,10 +54,11 @@ interface DqState {
   // Editor state
   selectedCheckId: string | null
   selectCheck: (id: string) => void
-  updateCheckSql: (id: string, sql: string) => void
+  /** Edits one of a check's two queries in memory; Save writes it, Cancel restores it. */
+  updateCheckQuery: (id: string, field: CheckQueryField, value: string) => void
 
-  // Dirty tracking
-  _dirtyMap: Map<string, string>
+  // Dirty tracking: the saved queries of each check being edited
+  _dirtyMap: Map<string, SavedQueries>
   _dirtyVersion: number
   isCheckDirty: (id: string) => boolean
   saveCheck: (id: string) => Promise<void>
@@ -196,15 +201,15 @@ export const useDqStore = create<DqState>((set, get) => ({
     set({ selectedCheckId: id })
   },
 
-  updateCheckSql: (id, sql) => {
+  updateCheckQuery: (id, field, value) => {
     set((s) => {
       const dirtyMap = new Map(s._dirtyMap)
       const check = s.customChecks.find((c) => c.id === id)
       if (!dirtyMap.has(id) && check) {
-        dirtyMap.set(id, check.sql)
+        dirtyMap.set(id, { sql: check.sql, exploreSql: check.exploreSql })
       }
       return {
-        customChecks: s.customChecks.map((c) => (c.id === id ? { ...c, sql } : c)),
+        customChecks: s.customChecks.map((c) => (c.id === id ? { ...c, [field]: value } : c)),
         _dirtyMap: dirtyMap,
         _dirtyVersion: s._dirtyVersion + 1,
       }
@@ -219,13 +224,14 @@ export const useDqStore = create<DqState>((set, get) => ({
     const s = get()
     if (!s._dirtyMap.has(id)) return false
     const check = s.customChecks.find((c) => c.id === id)
-    return check?.sql !== s._dirtyMap.get(id)
+    const saved = s._dirtyMap.get(id)!
+    return check?.sql !== saved.sql || (check?.exploreSql || null) !== (saved.exploreSql || null)
   },
 
   saveCheck: async (id) => {
     const check = get().customChecks.find((c) => c.id === id)
     if (!check) return
-    await getStorage().dqCustomChecks.update(id, { sql: check.sql })
+    await getStorage().dqCustomChecks.update(id, { sql: check.sql, exploreSql: check.exploreSql?.trim() ? check.exploreSql : null })
     set((s) => {
       const dirtyMap = new Map(s._dirtyMap)
       dirtyMap.delete(id)
@@ -240,7 +246,7 @@ export const useDqStore = create<DqState>((set, get) => ({
       const dirtyMap = new Map(s._dirtyMap)
       dirtyMap.delete(id)
       return {
-        customChecks: s.customChecks.map((c) => (c.id === id ? { ...c, sql: original } : c)),
+        customChecks: s.customChecks.map((c) => (c.id === id ? { ...c, ...original } : c)),
         _dirtyMap: dirtyMap,
         _dirtyVersion: s._dirtyVersion + 1,
       }

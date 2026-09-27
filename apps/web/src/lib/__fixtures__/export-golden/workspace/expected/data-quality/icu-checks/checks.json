@@ -12,6 +12,7 @@
     "severity": "error",
     "threshold": 0,
     "sql": "SELECT count(*) FROM person WHERE person_id IS NULL",
+    "exploreSql": null,
     "order": 0,
     "origin": "ddl",
     "templateKey": "ddl.not_null:person.person_id",

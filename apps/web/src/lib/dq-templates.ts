@@ -34,14 +34,36 @@ export interface DqCheckTemplate {
   threshold: number
   tableName: string
   sql: string
+  exploreSql: string
 }
 
 export type Translate = (key: string, vars?: Record<string, unknown>) => string
 
 const DAYS_AFTER_DEATH = 60
 
-const count = (where: string, from: string) =>
-  `SELECT\n  COUNT(*) FILTER (WHERE ${where})::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${from}`
+const EXPLORE_LIMIT = 100
+
+/**
+ * Rows of `from` (restricted to `scope`) that break `violation`: the count a run
+ * scores, and the rows to look at when it fails — one definition, so the two
+ * can never disagree.
+ */
+function rowsBreaking(from: string, violation: string, opts: { scope?: string; select?: string } = {}) {
+  const { scope, select = '*' } = opts
+  return {
+    sql: `SELECT\n  COUNT(*) FILTER (WHERE ${violation})::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${from}${scope ? `\nWHERE ${scope}` : ''}`,
+    exploreSql: `SELECT ${select}\nFROM ${from}\nWHERE ${scope ? `${scope}\n  AND ` : ''}(${violation})\nLIMIT ${EXPLORE_LIMIT}`,
+  }
+}
+
+/** Rows sharing a key: how many too many, and which keys, most repeated first. */
+function duplicatedKeys(from: string, key: string[]) {
+  const cols = key.join(', ')
+  return {
+    sql: `SELECT\n  (COUNT(*) - COUNT(DISTINCT ${key.length === 1 ? cols : `(${cols})`}))::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${from}`,
+    exploreSql: `SELECT ${cols}, COUNT(*) AS n\nFROM ${from}\nGROUP BY ${cols}\nHAVING COUNT(*) > 1\nORDER BY n DESC\nLIMIT ${EXPLORE_LIMIT}`,
+  }
+}
 
 // ---------------------------------------------------------------------------
 // DDL
@@ -71,6 +93,8 @@ export function ddlCheckTemplates(ddl: string, t: Translate): DqCheckTemplate[] 
         tableName: table.name,
         // Selecting every column binds them all; a missing one fails the query.
         sql: `SELECT\n  0::BIGINT AS violated_rows,\n  1::BIGINT AS total_rows\nFROM (SELECT COUNT(*) AS n FROM (SELECT ${table.columns.map((c) => quoteIdent(c.name)).join(', ')} FROM ${from} LIMIT 0) AS cols) AS bound`,
+        // A failure is a missing column: its error names it. The table as it is shows the rest.
+        exploreSql: `SELECT *\nFROM ${from}\nLIMIT ${EXPLORE_LIMIT}`,
       })
     }
     for (const col of table.columns.filter((c) => !c.nullable)) {
@@ -84,12 +108,10 @@ export function ddlCheckTemplates(ddl: string, t: Translate): DqCheckTemplate[] 
         severity: 'error',
         threshold: 0,
         tableName: table.name,
-        sql: count(`${quoteIdent(col.name)} IS NULL`, from),
+        ...rowsBreaking(from, `${quoteIdent(col.name)} IS NULL`),
       })
     }
     if (table.pkColumns.length) {
-      const cols = table.pkColumns.map(quoteIdent)
-      const distinct = cols.length === 1 ? cols[0] : `(${cols.join(', ')})`
       out.push({
         templateKey: `ddl.primary_key:${table.name}`,
         origin: 'ddl',
@@ -100,7 +122,7 @@ export function ddlCheckTemplates(ddl: string, t: Translate): DqCheckTemplate[] 
         severity: 'error',
         threshold: 0,
         tableName: table.name,
-        sql: `SELECT\n  (COUNT(*) - COUNT(DISTINCT ${distinct}))::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${from}`,
+        ...duplicatedKeys(from, table.pkColumns.map(quoteIdent)),
       })
     }
     for (const fk of table.fks) {
@@ -117,7 +139,11 @@ export function ddlCheckTemplates(ddl: string, t: Translate): DqCheckTemplate[] 
         severity: 'error',
         threshold: 0,
         tableName: table.name,
-        sql: `SELECT\n  COUNT(*) FILTER (WHERE r.${quoteIdent(fk.refColumns[0])} IS NULL)::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${from} t\nLEFT JOIN (SELECT DISTINCT ${fk.refColumns.map(quoteIdent).join(', ')} FROM ${quoteTableRef(target.name)}) r ON ${on}\nWHERE ${fk.columns.map((c) => `t.${quoteIdent(c)} IS NOT NULL`).join(' AND ')}`,
+        ...rowsBreaking(
+          `${from} t\nLEFT JOIN (SELECT DISTINCT ${fk.refColumns.map(quoteIdent).join(', ')} FROM ${quoteTableRef(target.name)}) r ON ${on}`,
+          `r.${quoteIdent(fk.refColumns[0])} IS NULL`,
+          { scope: fk.columns.map((c) => `t.${quoteIdent(c)} IS NOT NULL`).join(' AND '), select: 't.*' },
+        ),
       })
     }
   }
@@ -203,7 +229,7 @@ export function mappingCheckTemplates(mapping: SchemaMapping, t: Translate): DqC
         subcategory: 'relational',
         severity: 'error',
         threshold: 0,
-        sql: count(`${col.name} IS NULL`, rel.name),
+        ...rowsBreaking(rel.name, `${col.name} IS NULL`),
       })
     }
   }
@@ -220,7 +246,7 @@ export function mappingCheckTemplates(mapping: SchemaMapping, t: Translate): DqC
       subcategory: 'uniqueness',
       severity: 'error',
       threshold: 0,
-      sql: `SELECT\n  (COUNT(*) - COUNT(DISTINCT ${id}))::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${rel.name}`,
+      ...duplicatedKeys(rel.name, [id]),
     })
   }
 
@@ -236,7 +262,11 @@ export function mappingCheckTemplates(mapping: SchemaMapping, t: Translate): DqC
       subcategory: 'relational',
       severity: 'error',
       threshold: 0,
-      sql: `SELECT\n  COUNT(*) FILTER (WHERE p.${parentField} IS NULL)::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${child.name} c\nLEFT JOIN (SELECT DISTINCT ${parentField} FROM ${parent.name}) p ON c.${field} = p.${parentField}\nWHERE c.${field} IS NOT NULL`,
+      ...rowsBreaking(
+        `${child.name} c\nLEFT JOIN (SELECT DISTINCT ${parentField} FROM ${parent.name}) p ON c.${field} = p.${parentField}`,
+        `p.${parentField} IS NULL`,
+        { scope: `c.${field} IS NOT NULL`, select: 'c.*' },
+      ),
     })
   }
   const events = eventRelations(mapping)
@@ -260,7 +290,9 @@ export function mappingCheckTemplates(mapping: SchemaMapping, t: Translate): DqC
       subcategory: 'temporal',
       severity: 'warning',
       threshold: 0,
-      sql: count('start_datetime IS NOT NULL AND end_datetime IS NOT NULL AND CAST(end_datetime AS TIMESTAMP) < CAST(start_datetime AS TIMESTAMP)', rel.name),
+      ...rowsBreaking(rel.name, 'CAST(end_datetime AS TIMESTAMP) < CAST(start_datetime AS TIMESTAMP)', {
+        scope: 'start_datetime IS NOT NULL AND end_datetime IS NOT NULL',
+      }),
     })
   }
 
@@ -276,6 +308,8 @@ export function mappingCheckTemplates(mapping: SchemaMapping, t: Translate): DqC
     const afterDeath = has(patient, 'death_datetime')
       ? `CAST(e.start_datetime AS TIMESTAMP) > CAST(p.death_datetime AS TIMESTAMP) + INTERVAL '${DAYS_AFTER_DEATH} days'`
       : null
+    const withPatient = (rel: ClassRelation) => `${rel.name} e\nJOIN ${patient.name} p ON e.patient_id = p.patient_id`
+    const lifeColumns = 'e.*, p.birth_date, p.birth_year, p.death_datetime'
     const during = (rel: ClassRelation, key: string, where: string, extra: Record<string, unknown> = {}) => push(rel, {
       templateKey: `mapping.${key}:${rel.name}`,
       name: t(`data_quality.tpl.${key}_name`, { relation: rel.name, ...extra }),
@@ -284,7 +318,7 @@ export function mappingCheckTemplates(mapping: SchemaMapping, t: Translate): DqC
       subcategory: 'temporal',
       severity: 'error',
       threshold: 0,
-      sql: `SELECT\n  COUNT(*) FILTER (WHERE ${where})::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${rel.name} e\nJOIN ${patient.name} p ON e.patient_id = p.patient_id\nWHERE e.start_datetime IS NOT NULL`,
+      ...rowsBreaking(withPatient(rel), where, { scope: 'e.start_datetime IS NOT NULL', select: lifeColumns }),
     })
     for (const rel of [visit, visitDetail, ...events]) {
       if (!rel || !has(rel, 'start_datetime') || !has(rel, 'patient_id')) continue
@@ -306,7 +340,7 @@ export function mappingCheckTemplates(mapping: SchemaMapping, t: Translate): DqC
         subcategory: 'atemporal',
         severity: 'error',
         threshold: 0,
-        sql: `SELECT\n  COUNT(*) FILTER (WHERE ${age} < 0 OR ${age} > 130)::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${visit.name} e\nJOIN ${patient.name} p ON e.patient_id = p.patient_id\nWHERE e.start_datetime IS NOT NULL`,
+        ...rowsBreaking(withPatient(visit), `${age} < 0 OR ${age} > 130`, { scope: 'e.start_datetime IS NOT NULL', select: lifeColumns }),
       })
     }
   }
@@ -324,7 +358,7 @@ export function mappingCheckTemplates(mapping: SchemaMapping, t: Translate): DqC
         subcategory: null,
         severity: 'warning',
         threshold: 5,
-        sql: count('concept_id = 0', rel.name),
+        ...rowsBreaking(rel.name, 'concept_id = 0'),
       })
     }
     if (has(rel, 'value_number') && has(rel, 'unit')) {
@@ -336,7 +370,7 @@ export function mappingCheckTemplates(mapping: SchemaMapping, t: Translate): DqC
         subcategory: null,
         severity: 'warning',
         threshold: 5,
-        sql: `SELECT\n  COUNT(*) FILTER (WHERE unit IS NULL OR TRIM(CAST(unit AS VARCHAR)) = '')::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM ${rel.name}\nWHERE value_number IS NOT NULL`,
+        ...rowsBreaking(rel.name, "unit IS NULL OR TRIM(CAST(unit AS VARCHAR)) = ''", { scope: 'value_number IS NOT NULL' }),
       })
     }
   }
@@ -353,7 +387,7 @@ export function mappingCheckTemplates(mapping: SchemaMapping, t: Translate): DqC
       subcategory: 'atemporal',
       severity: 'warning',
       threshold: 0,
-      sql: count(doses.map((c) => `${c} < 0`).join(' OR '), rel.name),
+      ...rowsBreaking(rel.name, doses.map((c) => `${c} < 0`).join(' OR ')),
     })
   }
 
@@ -371,7 +405,7 @@ export function schemaCheckTemplates(mapping: SchemaMapping, t: Translate): DqCh
 // Stored checks
 // ---------------------------------------------------------------------------
 
-type CheckFields = Pick<DqCustomCheck, 'name' | 'description' | 'category' | 'subcategory' | 'severity' | 'threshold' | 'sql' | 'origin' | 'templateKey' | 'tableName'>
+type CheckFields = Pick<DqCustomCheck, 'name' | 'description' | 'category' | 'subcategory' | 'severity' | 'threshold' | 'sql' | 'exploreSql' | 'origin' | 'templateKey' | 'tableName'>
 
 /** A stored check, keys in the order the server's response has them. */
 export function makeCheck(ruleSetId: string, order: number, fields: CheckFields, now = new Date().toISOString()): DqCustomCheck {
@@ -385,6 +419,7 @@ export function makeCheck(ruleSetId: string, order: number, fields: CheckFields,
     severity: fields.severity,
     threshold: fields.threshold,
     sql: fields.sql,
+    exploreSql: fields.exploreSql,
     order,
     origin: fields.origin,
     templateKey: fields.templateKey,

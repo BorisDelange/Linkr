@@ -98,6 +98,8 @@ class DqCustomCheck(Base, TimestampMixin):
     severity: Mapped[str] = mapped_column(String(10))
     threshold: Mapped[float] = mapped_column(Float, default=0)
     sql: Mapped[str] = mapped_column(Text, default="")
+    # Lists the rows breaking the rule, to investigate a failure.
+    explore_sql: Mapped[str | None] = mapped_column(Text)
     order: Mapped[int] = mapped_column(Integer, default=0)
     # ddl | mapping | manual
     origin: Mapped[str] = mapped_column(String(10), default="manual", server_default="manual")

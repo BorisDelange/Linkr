@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ShieldCheck, Code2, Copy, Check } from 'lucide-react'
+import { ShieldCheck, Code2, Copy, Check, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -16,11 +16,14 @@ import type { DqCheck, DqCheckResult } from '@/lib/duckdb/data-quality'
 
 interface Props {
   item: { check: DqCheck; result: DqCheckResult } | null
+  /** Opens the rule set's investigation console with this query. */
+  onInvestigate?: (sql: string) => void
 }
 
-export function DqCheckDetailPanel({ item }: Props) {
+export function DqCheckDetailPanel({ item, onInvestigate }: Props) {
   const { t } = useTranslation()
   const [sqlDialogOpen, setSqlDialogOpen] = useState(false)
+  const [dialogQuery, setDialogQuery] = useState<'sql' | 'exploreSql'>('sql')
   const [copied, setCopied] = useState(false)
 
   if (!item) {
@@ -36,8 +39,12 @@ export function DqCheckDetailPanel({ item }: Props) {
   const statusCfg = STATUS_CONFIG[result.status]
   const StatusIcon = statusCfg.icon
 
+  // A run saved before checks had a second query has no `exploreSql`.
+  const exploreSql = check.exploreSql ?? null
+  const shownSql = (dialogQuery === 'exploreSql' && exploreSql ? exploreSql : result.sql).trim()
+
   const handleCopySql = async () => {
-    await navigator.clipboard.writeText(result.sql.trim())
+    await navigator.clipboard.writeText(shownSql)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -50,7 +57,8 @@ export function DqCheckDetailPanel({ item }: Props) {
           <StatusIcon size={14} className={statusCfg.color} />
           <span className="text-xs font-medium">{t(`data_quality.status_${result.status}`)}</span>
         </div>
-        <p className="mt-1 text-xs text-foreground">{check.description}</p>
+        <p className="mt-1 text-xs font-medium text-foreground">{check.name}</p>
+        {check.description && <p className="mt-0.5 text-xs text-muted-foreground">{check.description}</p>}
       </div>
 
       {/* Content */}
@@ -107,12 +115,23 @@ export function DqCheckDetailPanel({ item }: Props) {
             </div>
           )}
 
-          {/* SQL button */}
-          <div className="border-t pt-3">
+          {/* Investigate: the rows breaking the rule, in the rule set's SQL console */}
+          <div className="space-y-1 border-t pt-3">
+            {onInvestigate && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onInvestigate(exploreSql ?? result.sql)}
+                className="w-full gap-1.5 text-xs"
+              >
+                <Search size={12} />
+                {t('data_quality.investigate')}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setSqlDialogOpen(true)}
+              onClick={() => { setDialogQuery('sql'); setSqlDialogOpen(true) }}
               className="w-full gap-1.5 text-xs"
             >
               <Code2 size={12} />
@@ -124,7 +143,7 @@ export function DqCheckDetailPanel({ item }: Props) {
 
       {/* SQL Dialog */}
       <Dialog open={sqlDialogOpen} onOpenChange={setSqlDialogOpen}>
-        <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col">
+        <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {t('data_quality.sql_dialog_title')}
@@ -137,8 +156,23 @@ export function DqCheckDetailPanel({ item }: Props) {
               </Button>
             </DialogTitle>
           </DialogHeader>
+          {exploreSql && (
+            <div className="flex items-center gap-1">
+              {(['sql', 'exploreSql'] as const).map((field) => (
+                <Button
+                  key={field}
+                  variant={dialogQuery === field ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setDialogQuery(field)}
+                  className="h-6 px-2 text-xs"
+                >
+                  {t(field === 'sql' ? 'data_quality.query_count' : 'data_quality.query_explore')}
+                </Button>
+              ))}
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
-            <CodeEditor value={result.sql.trim()} language="sql" readOnly height="55vh" />
+            <CodeEditor key={dialogQuery} value={shownSql} language="sql" readOnly height="55vh" />
           </div>
         </DialogContent>
       </Dialog>

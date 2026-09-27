@@ -260,8 +260,8 @@ async def test_dq_rule_set_matches_golden(db):
             id=c["id"], rule_set_id=c["ruleSetId"], name=c["name"],
             description=c["description"], category=c["category"],
             subcategory=c["subcategory"], severity=c["severity"],
-            threshold=c["threshold"], sql=c["sql"], order=c["order"],
-            origin=c["origin"], template_key=c["templateKey"], table_name=c["tableName"],
+            threshold=c["threshold"], sql=c["sql"], explore_sql=c["exploreSql"],
+            order=c["order"], origin=c["origin"], template_key=c["templateKey"], table_name=c["tableName"],
             disabled=c["disabled"],
             created_at=_dt(c["createdAt"]), updated_at=_dt(c["updatedAt"]),
         ))

@@ -32,6 +32,8 @@ interface Props {
   onScanComplete?: (report: DqReport) => void
   /** Mount function to call before scanning (e.g. mountProjectSources). */
   onBeforeScan?: () => Promise<void>
+  /** Opens the rule set's investigation console with this query. */
+  onInvestigate?: (sql: string) => void
 }
 
 interface Row {
@@ -39,7 +41,7 @@ interface Row {
   result: DqCheckResult
 }
 
-export function DqResultsView({ ruleSetId, dataSourceId, customChecks, onScanComplete, onBeforeScan }: Props) {
+export function DqResultsView({ ruleSetId, dataSourceId, customChecks, onScanComplete, onBeforeScan, onInvestigate }: Props) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
 
@@ -120,11 +122,15 @@ export function DqResultsView({ ruleSetId, dataSourceId, customChecks, onScanCom
       cell: (r) => {
         const cfg = STATUS_CONFIG[r.result.status]
         const Icon = cfg.icon
-        // Icon alone conveys the status; the translated label is kept as a title for a11y.
         return (
-          <span className="inline-flex items-center justify-center" title={t(`data_quality.${cfg.label}`)}>
-            <Icon size={14} className={cfg.color} />
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex items-center justify-center" aria-label={t(`data_quality.${cfg.label}`)}>
+                <Icon size={14} className={cfg.color} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{t(`data_quality.${cfg.label}`)}</TooltipContent>
+          </Tooltip>
         )
       },
     },
@@ -188,7 +194,16 @@ export function DqResultsView({ ruleSetId, dataSourceId, customChecks, onScanCom
       cell: (r) => {
         const cfg = SEVERITY_CONFIG[r.check.severity]
         const Icon = cfg.icon
-        return <Icon size={14} className={cfg.color} />
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex items-center justify-center" aria-label={t(`data_quality.severity_${r.check.severity}`)}>
+                <Icon size={14} className={cfg.color} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{t(`data_quality.severity_${r.check.severity}`)}</TooltipContent>
+          </Tooltip>
+        )
       },
     },
   ], [t])
@@ -342,7 +357,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, customChecks, onScanCom
               </Allotment.Pane>
 
               <Allotment.Pane preferredSize={300} minSize={220} maxSize={500} visible={detailVisible}>
-                <DqCheckDetailPanel item={selectedItem} />
+                <DqCheckDetailPanel item={selectedItem} onInvestigate={onInvestigate} />
               </Allotment.Pane>
             </Allotment>
           )}

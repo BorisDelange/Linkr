@@ -1488,6 +1488,8 @@ export interface DqCustomCheck {
   /** Max % of violated rows allowed, 0-100 (0 = zero tolerance). */
   threshold: number
   sql: string
+  /** Lists the rows breaking the rule, to investigate a failure; null falls back to `sql`. */
+  exploreSql: string | null
   order: number
   origin: import('@/lib/dq-taxonomy').DqCheckOrigin
   /** Which schema rule generated it (`ddl.not_null:person.person_id`); null when written by hand. */

@@ -463,14 +463,21 @@ and from then on they are ordinary checks — editable, disableable, deletable.
 - Every check returns one row `violated_rows`, `total_rows`; it fails when
   `violated / total × 100 > threshold` (0 = zero tolerance), `total = 0` → N/A
   (`checkStatus`, shared by Test and Run).
+- A check has a second, optional query, `exploreSql`, listing the rows it counts
+  as violations (OHDSI DQD's "violated rows" query). Generated checks get both
+  from one definition (`rowsBreaking` / `duplicatedKeys`), so they cannot
+  disagree. **Investigate** (Checks toolbar, Results detail) opens it — or the
+  count query when there is none — in the rule set's Investigation tab, which is
+  the database SQL console (`DatabaseSqlTab`, own `draftKey`, `initialSql`).
 - **Taxonomy**: Kahn et al. 2016 (the one OHDSI DQD uses) — category
   conformance / completeness / plausibility, subcategory value · relational ·
   computational / — / uniqueness · atemporal · temporal (`lib/dq-taxonomy.ts`).
   The pre-Kahn names (validity, consistency, uniqueness) and severity `info` are
   mapped on read.
 - `templateKey` records which schema rule produced a check and `schemaPresetRef`
-  which preset the rule set came from, so a "add the schema checks that are
-  missing" action can be built later without re-adding deleted ones.
+  which preset the rule set came from. **+ › From the DDL / From the mapping**
+  (`AddSchemaChecksDialog`) offers only the schema checks the rule set does not
+  hold, matched on `templateKey`.
 - Check key order is the server's `DqCustomCheckResponse` order (`makeCheck`):
   client and server exports must be byte-identical (dq-rule-set golden).
 

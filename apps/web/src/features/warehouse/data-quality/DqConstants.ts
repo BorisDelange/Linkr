@@ -9,10 +9,11 @@ import {
 } from 'lucide-react'
 import type { DqCategory, DqSeverity, DqCheckStatus } from '@/lib/duckdb/data-quality'
 
+// Cool hues only: red, green and amber already mean fail, pass and warning.
 export const CATEGORY_COLORS: Record<DqCategory, string> = {
-  conformance: 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
-  completeness: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
-  plausibility: 'bg-rose-500/15 text-rose-700 dark:text-rose-400',
+  conformance: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-400',
+  completeness: 'bg-sky-500/15 text-sky-700 dark:text-sky-400',
+  plausibility: 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
 }
 
 export const STATUS_CONFIG: Record<DqCheckStatus, { icon: typeof CheckCircle2; color: string; label: string }> = {
